@@ -37,6 +37,28 @@ from ...triggered_ability_type import TriggeredAbilityType
 from ...stats import StatPart, StatType
 from ....services.trait_damage_limits import group_unit_stat_part
 from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
+# `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.
+from ...pathfinding import board as _board
+from .... import battle_query as _bq
+
+
+def _adjacency_channels(ctx):
+    """Les DEUX canaux de l'adjacence NATIVE derives du `board` porte par le ctx, en TRI-ETAT
+    (#943-r7). Les trois canaux qui traversent ce module le publient depuis le meme commit :
+    `aura_hits_malus_for_defense` / `aura_hits_bonus_for_attack` (le board de coups, monte par
+    `runner/damage_model.py::build_hits_board` cote COMBAT et par
+    `playbook/prediction/normal_attack.py` cote PREDICTION -- PENDANTS EXACTS) et
+    `aura_additional_hits_from_allies` (`runner/operations/additional_hits.py` / les deux ctx de la
+    meme face PREDICTION).
+
+    Substrat : `IdunBattleLogic.Entities.DSLSelectors$$AdjacentTiles` ->
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` -> la liste STOCKEE du
+    `ConnectivityComponent`, puis la porte `|dElev| < 2` de `IdunBattle.Core.Services.TileQuery
+    .u003CIterateAdjacentTilesu003Ed__8$$MoveNext`. Board absent -> `(None, None)` -> repli
+    geometrique NOMME du foyer d'adjacence, jamais un voisinage vide (#381-r3)."""
+    return _board.adjacency_channels((ctx or {}).get("board"))
 
 
 class SquigHoundAdditionalHitsEffect(BaseEffect):
@@ -774,7 +796,12 @@ class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
             return None
         if not self._gates_ok(ctx):
             return None
-        if hexgeo.distance(tuple(att_pos), tuple(owner_pos)) != 1:   # AdjacentFriends(owner, 1)
+        # `AdjacentFriends(owner, 1)` -> `AdjacentTiles(owner)` -> la liste STOCKEE (#943-r7). La
+        # SOURCE de l'enumeration est le PORTEUR : `is_adjacent(owner, att)`, pas l'inverse -- le
+        # champ `neighbours` du `boardGraph` est le champ BRUT, ni trie ni symetrise, donc la
+        # couronne hex ne pouvait PAS exprimer cet axe.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(ctx)
+        if not _bq.is_adjacent(tuple(owner_pos), tuple(att_pos), elev_by_pos, neigh_by_pos):
             return None
         lvl = self.ability_level if self.ability_level is not None else self.level
         amt = ability_var("ExplosiveMaladies", "extraDmg", lvl,
@@ -857,7 +884,10 @@ class InfernalPactsAdditionalHitsEffect(BaseEffect):
         is_daemon = "Daemon" in (ctx.get("att_traits") or ())   # UnitTrait 0x3fb=1019
         if bool(ctx.get("is_melee")) and not is_daemon:         # trigger IsRangedAttack | HasTrait(Daemon)
             return None
-        if hexgeo.distance(tuple(att_pos), tuple(owner_pos)) != 1:   # AdjacentFriends(caster, 1)
+        # `AdjacentFriends(Caster, 1)` -> la liste STOCKEE (#943-r7), enumeree depuis le PORTEUR
+        # (le `Caster` du selecteur EST le porteur de l'effet, cf. la docstring de la classe).
+        elev_by_pos, neigh_by_pos = _adjacency_channels(ctx)
+        if not _bq.is_adjacent(tuple(owner_pos), tuple(att_pos), elev_by_pos, neigh_by_pos):
             return None
         lvl = self.ability_level if self.ability_level is not None else self.level
         mn = ability_var("InfernalPacts", "minDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
@@ -1568,7 +1598,11 @@ class BigTargetAdjacentEffect(BaseEffect):
         op, tp = c.get("owner_pos"), c.get("t_pos")
         if not op or not tp:
             return None
-        if hexgeo.distance(op, tp) != 1:
+        # `CreateTargetSelector` = `Friends(Owner@+0x30, AdjacentUnits(Owner@+0x30, unique, 3), 3)`
+        # -- LU (#943-r7). `AdjacentUnits(o)` = `Units(AdjacentTiles(o)) - o`, donc l'ENUMERATION
+        # part du PORTEUR, sur la liste STOCKEE : `is_adjacent(owner, cible)`, pas l'inverse.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        if not _bq.is_adjacent(op, tp, elev_by_pos, neigh_by_pos):
             return None
         return for_addition(True, -1)       # Direct(-1) IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack
 
@@ -2561,17 +2595,24 @@ class LegendaryCommanderExtraHitsEffect(BaseEffect):
         if team.get(tgt) is None or team.get(tgt) == oteam:
             return False                                  # `AdjacentEnemies` : ennemi de l'owner
         # 4e noeud, PROPRE a 1395 : `Filter(., IsAdjacent(Owner@0x30, Subject@0x68, 3))`.
-        if hexgeo.distance(tuple(opos), tuple(tpos)) != 1:
+        # `IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` -> `IsAdjacentAbilityTrigger$$
+        # ShouldTrigger` -> slot 0x60 = `BattleQuery$$AreEntitiesAdjacent` -> `MovementUtil$$
+        # AreTilesAdjacent` = `(|dElev| < 2) & (t1 == t2 || ConnectivityComponent$$IsNeighbour)`
+        # -- donc le court-circuit d'identite EN PLUS de la liste stockee (#433-r1, #943-r7).
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        if not _bq.are_entities_adjacent(tuple(opos), tuple(tpos), elev_by_pos, neigh_by_pos):
             return False
         # `AdjacentEnemies( Filter(Friends(Owner, AllUnits, 3), HasUsedActiveAbilityThisTurn) , 1, 3)`
         # -- au moins UN allie de l'owner (Trajann INCLUS : aucun `- Owner` dans le `Friends`) ayant
-        # utilise une active ce tour est adjacent a la cible.
+        # utilise une active ce tour est adjacent a la cible. `AdjacentEnemies(X, unique, selType)` =
+        # `Enemies(X, Units(AdjacentTiles(X), unique, selType) - X, selType)` : l'ENUMERATION part de
+        # CHAQUE ALLIE retenu, donc `is_adjacent(allie, cible)` -- pas l'inverse.
         for uid, p in pos.items():
             if team.get(uid) != oteam or p is None:
                 continue
             if not used.get(uid):                         # `HasUsedActiveAbilityThisTurn(Subject)`
                 continue
-            if hexgeo.distance(tuple(p), tuple(tpos)) == 1:
+            if _bq.is_adjacent(tuple(p), tuple(tpos), elev_by_pos, neigh_by_pos):
                 return True
         return False
 

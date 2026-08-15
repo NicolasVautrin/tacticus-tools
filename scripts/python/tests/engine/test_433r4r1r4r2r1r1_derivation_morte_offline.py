@@ -205,41 +205,37 @@ def test_la_JUSTIFICATION_de_la_tolerance_se_re_mesure(arbres_reels):
     etre vus. C'est un fait du depot, et il peut cesser d'etre vrai -- le jour ou la famille est
     reparee au foyer, la tolerance n'a plus d'objet et doit tomber.
 
-    MESURE au 2026-08-12 (#943-r4) : 30 fonctions d'`engine/` comparaient une distance hex a 1 ;
-    2 vues par l'etape 2 ; 2 touchant le canal ; 26 MUETTES.
+    ⚠ CE JOUR EST ARRIVE (#943-r7, 2026-08-15), ET CE TEST L'AVAIT PRESCRIT. Il a d'abord rougi
+    pour la BONNE raison (ses trois temoins nommes -- `imperative.py`, `BigTargetAdjacent`,
+    `GetStuckIn` -- venaient d'etre CABLES), et sa consigne (<< Si la famille a ete reparee, la
+    tolerance n'a plus d'objet -- retire-la >>) a ete SUIVIE : `GEOMETRIE_NUE_TOLEREE` est VIDE, et
+    l'`etape6` ne rend plus AUCUN site `LISTE_STOCKEE`.
 
-    ⚠ RE-MESURE le 2026-08-12 (#943-r7), ET CE TEST A ROUGI POUR LA BONNE RAISON. Le cablage de
-    HUIT des 19 `LISTE_STOCKEE` a fait sortir du lot MUET deux des trois temoins que `case-943` SS5
-    nommait -- `effect_targets._adjacent_friends` (devenu le FOYER COMMUN cable pour les DEUX
-    faces) et `get_em_runtz._spawn_tile_count`. Le test a donc fait EXACTEMENT ce pour quoi il est
-    ecrit : refuser qu'une tolerance soit reconduite alors que sa mesure fondatrice a bouge. Les
-    temoins sont RE-CHOISIS ci-dessous, pas retires -- et deliberement parmi les sites BLOQUES
-    (`seeding`, ctx d'aura sans board), qui sont ceux dont on sait qu'ils ne bougeront pas par
-    inadvertance. Etat apres cablage : 19 geometries nues sans canal, 16 MUETTES, dont 11
-    `LISTE_STOCKEE`.
-
-    ⚠ LE SEUIL RESTE A 3, PAS AU COMPTE MESURE, ET C'EST DELIBERE -- dans les DEUX sens. Le
-    gisement avait gagne un site pendant la tranche precedente (25 -> 26) ; il en a perdu huit
-    pendant celle-ci. Un test qui figerait le compte exact rougirait chez l'auteur suivant pour un
-    site qu'il n'a pas creuse -- la faute que `test_270r4r2r2_differes_offline` a payee trois fois.
-    Ce qui doit tenir ici n'est pas un entier, c'est le FAIT qui fonde la tolerance : une FAMILLE
-    existe, invisible au critere. Les trois foyers nommes, eux, sont gardes NOMMEMENT."""
+    IL RESTE DONC UNE CONDITIONNELLE, PAS UN COMPTE : tant que la tolerance est vide il n'y a rien a
+    justifier ; des qu'un site y entre, la FAMILLE doit etre demontrable a nouveau (au moins un
+    autre site a geometrie nue MUET dont le natif enumere la liste stockee). Ecrire l'implication
+    plutot qu'un seuil est ce qui empeche ce test de rougir chez l'auteur suivant pour un site qu'il
+    n'a pas creuse -- la faute que `test_270r4r2r2_differes_offline` a payee trois fois."""
     muets, total = G.etape6(arbres_reels)
     assert total > 0, "perimetre casse : aucune geometrie nue vue par l'etape 6"
-    assert len(muets) >= 3, (
-        "seulement %d site(s) MUET(s) a geometrie nue : la tolerance de #943-r4 se justifiait par "
-        "l'existence d'une FAMILLE que le critere `docstring` ne voit pas. Si la famille a ete "
-        "reparee, la tolerance n'a plus d'objet -- retire-la et arme l'etape 2." % len(muets))
-    # Les temoins NOMMES du fork. Ils rendent la famille demontrable, la ou un compte anonyme ne le
-    # ferait pas -- et ils sont pris chez les BLOQUES (#943-r7) : trois ctx d'aura / de trait, dont
-    # aucun ne peut etre cable sans publier les cartes en amont (`effects/__init__.py::aura_*`).
-    noms = {nom for (_rel, _ln, nom) in muets}
-    for attendu in ("create_aura_attack_damage_bonus_for_ally",   # imperative.py (Conqueror)
-                    "create_aura_hits_malus_for_defense",         # hits.py (BigTargetAdjacent)
-                    "as_attacker_bonus_hits"):                    # traits/combat.py (GetStuckIn)
-        assert attendu in noms, (
-            "`%s` n'est plus un site MUET a geometrie nue -- la mesure qui fonde #943-r4 a change, "
-            "re-mesure la tolerance au lieu de la reconduire" % attendu)
+    # LE FAIT MESURE : plus aucune geometrie nue MUETTE ne mirrore un natif a liste stockee. Les 5
+    # qui restent sont `GEOMETRIQUE` -- les cabler serait une REGRESSION, pas une reparation.
+    classes = {G.GEOMETRIE_NUE_CLASSEE.get((rel, nom), (None,))[0]
+               for (rel, _ln, nom) in muets}
+    if not G.GEOMETRIE_NUE_TOLEREE:
+        assert G.LISTE_STOCKEE not in classes, (
+            "la tolerance est VIDE mais l'etape 6 voit encore une geometrie nue a substrat STOCKE : "
+            "soit elle est cablable (fais-le), soit elle a besoin d'une tolerance NOMMEE -- %r"
+            % sorted(rel_nom for rel_nom in ((r, n) for (r, _l, n) in muets)
+                     if G.GEOMETRIE_NUE_CLASSEE.get(rel_nom, (None,))[0] == G.LISTE_STOCKEE))
+        return
+    # Tolerance NON vide -> la FAMILLE doit etre demontrable : au moins un AUTRE site porte la meme
+    # geometrie sans etre vu par le critere `docstring`, sinon << reparer ici serait un fork >> est
+    # faux et la tolerance n'est plus qu'une dispense.
+    assert G.LISTE_STOCKEE in classes, (
+        "%d entree(s) de tolerance, mais AUCUN site MUET a substrat stocke ne les accompagne : la "
+        "famille qui fondait le << fork >> a disparu -- retire la tolerance et arme l'etape 2"
+        % len(G.GEOMETRIE_NUE_TOLEREE))
 
 
 def test_la_tolerance_ne_dispense_QUE_les_sites_quelle_NOMME():
@@ -260,33 +256,38 @@ def adjacents(a, b):
         "les deux sites qu'elle nomme")
 
 
-def test_la_tolerance_MORD_quand_on_la_vide(arbres_reels, monkeypatch):
-    """CONTRE-EPREUVE 2 -- le filtre porte bien sur les sites REELS, et pas sur rien.
+def test_la_tolerance_MORD_quand_on_la_vide(monkeypatch):
+    """CONTRE-EPREUVE 2 -- le filtre SOUSTRAIT vraiment, il ne recopie pas `etape2`.
 
     Si `etape2_hors_tolerance` se contentait de recopier `etape2`, le test principal serait vert
-    par accident (il l'etait sur `master`... et rouge). En vidant la liste, les sites qu'elle
-    NOMME doivent reapparaitre -- c'est ce qui prouve que le vert d'aujourd'hui vient de la
-    tolerance, et non d'une disparition silencieuse du gisement.
+    par accident (il l'etait sur `master`... et rouge). Un site NOMME doit donc etre dispense, et
+    reapparaitre des qu'on vide la liste.
 
-    ⚠ CE TEST FIGEAIT L'ENSEMBLE EXACT DES DEUX SITES, ET IL S'EST PERIME AU PREMIER REBASE
-    (#943-r4, mesure du 2026-08-12) : #950 a entre un TROISIEME site declarant a geometrie nue
-    (`terrors_lament.py::_adjacent_enemy_melee`), et ce test a rougi chez l'auteur suivant pour un
-    site qu'il n'avait pas creuse -- la faute exacte que son voisin
-    `test_la_JUSTIFICATION_de_la_tolerance_se_re_mesure` evite en gardant un SEUIL et non un
-    compte. Le critere est donc DERIVE du registre : l'ensemble qui reapparait est exactement
-    celui que la tolerance NOMME, quel que soit son cardinal. Ce qui reste garde a l'identique :
-    la tolerance ne dispense QUE ce qu'elle nomme, et le vert vient bien d'elle."""
-    # ⚠ Le registre est CAPTURE AVANT le patch : le relire apres rendrait `{}`, et l'assertion
-    # serait vraie par vacuite -- un vert qui ne mesure rien.
-    nomme = set(G.GEOMETRIE_NUE_TOLEREE)
-    assert len(nomme) >= 2, "registre trop maigre : ce test ne garde plus rien"
-    avant = {(rel, nom) for (rel, _ln, nom) in G.etape2_hors_tolerance(arbres_reels)[0]}
+    ⚠ LE MONTAGE EST DEVENU SYNTHETIQUE (#943-r7, 2026-08-15), ET C'EST LE MEME VICE CORRIGE UN CRAN
+    PLUS HAUT. Ce test lisait le registre REEL : il figeait d'abord l'ensemble EXACT des deux sites
+    (perime au premier rebase, #950), puis son cardinal (`>= 2`) -- et ce cardinal est tombe a ZERO
+    le jour ou la famille a ete cablee, faisant rougir le test pour la DISPARITION de son gisement,
+    pas pour une faute. Or ce qu'il garde n'est pas l'occupation du registre : c'est le MECANISME de
+    soustraction. Un arbre synthetique le rend independant de l'etat du depot -- il mordra a
+    l'identique que la tolerance reelle soit vide ou pleine."""
+    arbres = _synthetique(faux="""
+import hexgeo
+
+
+def tolere_moi(a, b):
+    %s
+    return hexgeo.distance(a, b) == 1
+""" % _DOC)
+    chemin = "scripts/python/engine/faux.py"
+    # (1) NOMME -> dispense. La cle est bien celle du site, sinon la soustraction ne porterait sur
+    # rien et l'etape (2) serait verte par vacuite.
+    monkeypatch.setattr(G, "GEOMETRIE_NUE_TOLEREE", {(chemin, "tolere_moi"): "#000"})
+    assert G.etape2_hors_tolerance(arbres)[0] == [], (
+        "un site NOMME par la tolerance n'est PAS dispense : la soustraction ne porte sur rien")
+    # (2) VIDE -> il reapparait, EXACTEMENT lui.
     monkeypatch.setattr(G, "GEOMETRIE_NUE_TOLEREE", {})
-    reapparus = {(rel, nom) for (rel, _ln, nom) in G.etape2_hors_tolerance(arbres_reels)[0]}
-    assert reapparus - avant == nomme, (
-        "vider la tolerance ne fait pas reapparaitre EXACTEMENT ce qu'elle nomme : "
-        "manquants=%r, en trop=%r"
-        % (sorted(nomme - (reapparus - avant)), sorted((reapparus - avant) - nomme)))
+    assert _noms(G.etape2_hors_tolerance(arbres)[0]) == {"tolere_moi"}, (
+        "vider la tolerance ne fait pas reapparaitre le site qu'elle nommait")
 
 
 # ------------------------------------- #943-r4 : le critere d'entree n'est plus un token de PROSE
@@ -440,12 +441,26 @@ def test_les_deux_sites_REPARES_ont_quitte_le_gisement_par_le_HAUT(arbres_reels)
 def test_les_natifs_SUSPENDUS_le_sont_pour_une_raison_qui_se_MESURE(arbres_reels):
     """Le registre suspendu n'est pas une echappatoire : sa justification se re-mesure.
 
-    `AdjacentTiles` / `AdjacentUnits` sont LUS comme substrat stocke
-    (`DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(origin)) - origin`,
-    `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`), mais les armer ferait rougir des
-    mirrors DECISION hors du perimetre qui les a lus. Ce test verifie que la suspension est
-    JUSTIFIEE aujourd'hui -- c'est-a-dire que l'armer rougirait vraiment."""
-    assert G.NATIFS_LISTE_STOCKEE_SUSPENDUS, "registre vide : ce test ne garde plus rien"
+    Un natif LU comme substrat stocke peut y vivre TANT QUE l'armer ferait rougir un vice ENCORE
+    OUVERT ; des que ce n'est plus vrai, la suspension EST le vice, et l'etape 5 le dit.
+
+    ⚠ LE REGISTRE EST VIDE DEPUIS #943-r7 (2026-08-15), ET << VIDE >> N'EST PAS << VACANT >>. Le
+    `assert NATIFS_LISTE_STOCKEE_SUSPENDUS` qui vivait ici exigeait qu'il reste au moins une
+    suspension -- c'est-a-dire qu'il exigeait un VICE, exactement l'inverse de ce que l'etape 5
+    prescrit. Les quatre natifs qui y ont vecu en sont sortis PAR LE HAUT, chacun a la demande de
+    l'etape 5 une fois son dernier foyer cable. Ce que ce test garde desormais :
+      * la boucle de justification, INCHANGEE, pour tout natif qui y entrerait a nouveau ;
+      * et, a sa place, le cran qui empeche << vide >> de vouloir dire << oublie >> : les quatre
+        natifs sortis doivent etre ARMES. Un natif LU qui ne serait NI arme NI suspendu serait en
+        SILENCE TOTAL -- le mode de defaillance que #983 a paye sur `AdjacentEnemies`.
+    La capacite du mecanisme a MORDRE reste gardee par
+    `test_etape5_ROUGIT_sur_une_suspension_perimee`, qui suspend un nom synthetique."""
+    for nat in ("AdjacentTiles", "AdjacentUnits", "AdjacentFriends", "AdjacentEnemies"):
+        assert nat in G.NATIFS_LISTE_STOCKEE, (
+            "%s a quitte le registre SUSPENDU sans entrer a la liste ARMEE : il serait en SILENCE "
+            "TOTAL, ni vu de l'etape 2/4 ni re-mesure par l'etape 5" % nat)
+        assert nat not in G.NATIFS_LISTE_STOCKEE_SUSPENDUS, (
+            "%s est a la fois ARME et SUSPENDU : l'etape 5 mesurerait un delta toujours vide" % nat)
     base = G.NATIFS_LISTE_STOCKEE
     for nat in sorted(G.NATIFS_LISTE_STOCKEE_SUSPENDUS):
         try:

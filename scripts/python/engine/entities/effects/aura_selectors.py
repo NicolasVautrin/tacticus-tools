@@ -18,6 +18,11 @@ from __future__ import annotations
 from typing import List
 
 from ..effect_type import EffectType   # #270-r1-r1 : `UNTARGETABLE_EFFECT_TYPES`
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1). Aucun seeding :
+# ce selecteur recoit l'ECS, donc `State.board`. `pathfinding.board` n'importe RIEN d'`engine`,
+# `engine.battle_query` n'importe que `hexgeo` + `.hex_corner`.
+from ..pathfinding import board as _board
+from ... import battle_query as _bq
 
 #: Les `EffectType` dont la classe native derive d'`IdunBattle.Entities.Effects.Common.UntargetableEffect`
 #: ET dont le port a CONFRONTE la tranche -- FOYER UNIQUE de la non-ciblabilite cote port
@@ -211,11 +216,17 @@ def adjacent_friends_including_owner(state, owner_id: int) -> List[int]:
     d'`IconOfObstinacy`, qui porte le MEME `AdjacentFriends` **sans** le `op_Addition`.
     GROUND TRUTH live (#930, `statModSources`, `orksBigMek`) : le porteur se buffe lui-meme.
 
-    ⚠ L'adjacence est `hexgeo.distance == 1`, le MEME foyer que le reste de la famille --
-    `surrounding_friends` ci-dessous, `entities/effect_targets.py::_adjacent_friends`. RESIDU
-    NOMME (#271) commun a toute la famille : le voisinage natif de
-    `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` porte en plus un gate
-    `|elev(a) - elev(b)| < 2`. Le corriger ICI seulement serait un fork."""
+    ⚠ ~~L'adjacence est `hexgeo.distance == 1` ... Le corriger ICI seulement serait un fork.~~
+    **CABLE (#943-r7, 2026-08-15)**, et l'argument du fork est TOMBE avec le fait qui le portait :
+    la famille est desormais sur le foyer `engine.battle_query.is_adjacent`
+    (`entities/effect_targets.py::_adjacent_friends`, les quatre compteurs de `Scene`, les ctx
+    d'aura de `hits.py`/`imperative.py`/`icon_of_obstinacy.py`, `traits/combat.py`). Ce site-ci
+    n'avait AUCUN blocage propre -- il recoit l'ECS, donc `State.board` -- et il n'a qu'UNE face
+    (`kustom_force_field.py`, cote runner), donc aucune jumelle ne peut diverger.
+    Substrat : `Units(AdjacentTiles(unit), ...)` -> la liste STOCKEE du `ConnectivityComponent`,
+    puis la porte `|elev(a) - elev(b)| < 2` de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` (#271).
+    L'ENUMERATION part du PORTEUR : `is_adjacent(owner, ami)`, pas l'inverse."""
     from ...runner.components import (PositionComponent, OwnerComponent, UnitComponent,
                                       HealthComponent)
     owner = state.get_entity(owner_id)
@@ -225,6 +236,8 @@ def adjacent_friends_including_owner(state, owner_id: int) -> List[int]:
     ooc = owner.get_component(OwnerComponent)
     if opc is None or ooc is None:
         return []
+    # #943-r7 -- board absent (`State.board is None`) -> `(None, None)` -> repli geometrique NOMME.
+    elev_by_pos, neigh_by_pos = _board.adjacency_channels(getattr(state, "board", None))
     out: List[int] = [int(owner_id)]           # `op_Addition(Owner, ...)` : le porteur est cible
     for uid, ent in state.entities.items():
         if int(uid) == int(owner_id):
@@ -239,8 +252,9 @@ def adjacent_friends_including_owner(state, owner_id: int) -> List[int]:
         pc = ent.get_component(PositionComponent)
         if oc is None or pc is None or oc.team != ooc.team:
             continue                           # `Friends` = meme equipe que le porteur
-        if hex_distance((opc.col, opc.row), (pc.col, pc.row)) != 1:
-            continue                           # `AdjacentTiles` = ring-1 hex
+        if not _bq.is_adjacent((opc.col, opc.row), (pc.col, pc.row),
+                               elev_by_pos, neigh_by_pos):
+            continue                           # `AdjacentTiles(Owner)` : la liste STOCKEE (#943-r7)
         if not is_targetable(state, uid):      # volet Targetable du `unitSelectionType = 3`
             continue
         out.append(int(uid))

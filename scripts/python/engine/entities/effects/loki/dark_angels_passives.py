@@ -92,9 +92,11 @@ def _adjacency_channels(state):
     hex nue SUR-ATTEINT cette liste (mesure #943-r4 : 22 aretes sur `MC2_60`, 8 sur `C4_69`).
 
     Board absent -> `(None, None)`, et `battle_query.is_adjacent` retombe alors sur son repli
-    geometrique NOMME : le comportement d'avant, jamais un voisinage vide."""
-    b = getattr(state, "board", None)
-    return _board.elevations_by_pos(b), _board.adjacent_neigh_by_pos(b)
+    geometrique NOMME : le comportement d'avant, jamais un voisinage vide.
+
+    La DERIVATION elle-meme vit au foyer `pathfinding.board.adjacency_channels` depuis #943-r7 : ce
+    wrapper ne garde que la lecture du board sur l'ECS et la RE ci-dessus."""
+    return _board.adjacency_channels(getattr(state, "board", None))
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────

@@ -539,6 +539,11 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     att_ctx["is_unit"] = scene.vis_by_id.get(att_id) is not None
     att_ctx["team"] = scene.team(att_id)
     att_ctx["team_by_id"] = scene.team_by_id
+    # #943-r7 -- le BOARD, d'ou se derivent les DEUX canaux du substrat d'adjacence NATIF. PENDANT
+    # EXACT de la face COMBAT (`damage_model.defender_modifiers`), MEME cle et MEME semantique.
+    # Consommateur : `TerrorsLament_DamageReduction` (`IsAdjacent(Caster@+0x48, Owner@+0x30, 3)` ->
+    # `BattleQuery$$AreEntitiesAdjacent`). `None` -> repli geometrique NOMME du foyer.
+    att_ctx["board"] = scene.board
     att_ctx["traits"] = _entity_traits(scene, att_id)
     # #999-r3-r1 : `HasRarity(Caster@<DSLSelectors+0x48>, idun.meta.Rarity.Mythic = 5)`. MEME cle,
     # MEME semantique et MEME convention de nommage que la face COMBAT
@@ -715,6 +720,9 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # `TerrorsLament_DamageReduction`, dont le trigger porte sur
                             # l'ATTAQUANT et le PORTEUR, jamais sur la cible.
                             "att_pos": attack_pos, "att_team": scene.team(att_id),
+                            # #943-r7 -- le BOARD du substrat d'adjacence NATIF, MEME cle que sur
+                            # la face COMBAT (`damage_model.defender_modifiers`).
+                            "board": scene.board,
                             "is_melee": is_melee,
                             # #952 : le TROISIEME conjoint du gate d'`HuntersBeyondDeathEffect` sur
                             # l'attaquant -- `HasTrait(Caster@+0x48, 0x3ea = Psyker)`. MEME nom et

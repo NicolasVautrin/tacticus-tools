@@ -11,6 +11,13 @@ from collections.abc import Mapping
 import hexgeo
 
 from .base import BaseTrait
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `pathfinding.board` n'importe RIEN de `engine` ; `engine.battle_query` n'importe que `hexgeo` +
+# `.hex_corner` et INTERDIT explicitement d'importer `engine.entities` (cf. son en-tete), donc
+# l'arete `entities.traits.combat -> battle_query` ne peut pas se refermer. Elle existe deja depuis
+# `entities/selectors/units.py`.
+from ..pathfinding import board as _board
+from ... import battle_query as _bq
 
 
 def min_distance(a, b) -> int:
@@ -111,11 +118,17 @@ class GetStuckInTrait(BaseTrait):
         att_team = team_by_id.get(att_id)
         orks_adj = 0
         friends_adj = 0
+        # #943-r7 -- `AdjacentUnits(Target@DSLSelectors+0x60, unique, 3)` (LU : le 2e argument du
+        # call-site de `GetBonusHitChance` est `<dsl>+0x90 -> +0x60`, donc la CIBLE, pas le caster)
+        # = `Units(AdjacentTiles(Target), unique, 3) - Target`. L'ENUMERATION part donc de la TUILE
+        # DE LA CIBLE, sur la liste STOCKEE du `ConnectivityComponent` puis la porte `|dElev| < 2` --
+        # `is_adjacent(cible, unite)`, pas l'inverse. Board absent du ctx -> repli geometrique NOMME.
+        elev_by_pos, neigh_by_pos = _board.adjacency_channels(c.get("board"))
         for uid, pos in (c.get("pos_by_id") or {}).items():
             if uid == tgt_id or pos is None:
                 continue
             p = apos if uid == att_id else pos    # le caster évalué à sa tuile d'attaque
-            if hexgeo.distance(tuple(p), tuple(tpos)) != 1:
+            if not _bq.is_adjacent(tuple(tpos), tuple(p), elev_by_pos, neigh_by_pos):
                 continue
             if att_team is not None and team_by_id.get(uid) == att_team:
                 friends_adj += 1

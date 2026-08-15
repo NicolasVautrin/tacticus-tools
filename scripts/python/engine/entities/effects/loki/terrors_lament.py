@@ -103,12 +103,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import hexgeo
-
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....services.effect_bonus import EffectBonus, for_addition, for_subtraction
 from ...traits.unit_trait import UnitTrait
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `pathfinding.board` n'importe RIEN de `engine`, `engine.battle_query` n'importe que `hexgeo` +
+# `.hex_corner`.
+from ...pathfinding import board as _board
+from .... import battle_query as _bq
 
 #: Nom gameconfig du passif -- la CONFIG que `ConfigVar`/`ConfigConst(config@+0x60)` indexent.
 #: (`TriggeredAbilityType 0x45e = 1118 = TerrorsLament`. Les `EffectType` 0x45f/0x460, eux, nomment
@@ -128,7 +131,7 @@ _IMMUNE = int(UnitTrait.Immune)
 
 
 def _adjacent_enemy_melee(owner_pos, owner_team, att_pos, att_team,
-                          is_melee: "bool | None") -> bool:
+                          is_melee: "bool | None", board=None) -> bool:
     """Les TROIS conjoints PARTAGES par les deux effets, mirror 1:1 :
 
         IsAdjacent(Caster@+0x48, Owner@+0x30, 3 = OnlyAliveAndTargetable)
@@ -145,23 +148,33 @@ def _adjacent_enemy_melee(owner_pos, owner_team, att_pos, att_team,
     = `AreEntitiesAdjacent` -> `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour` :
     le substrat est la liste d'adjacence STOCKEE, pas la couronne hex, qui la SUR-ATTEINT (mesure
     live : 22 aretes sur `MC2_60`, 8 sur `C4_69`, 0 dans l'autre sens). L'ecart est PERMISSIF, donc
-    a contre-sens de la conjonction RESTRICTIVE ci-dessus. Le cablage du canal n'est PAS fait ici --
-    ce ctx d'aura ne publie aucun board -- et le site est NOMMEMENT classe `LISTE_STOCKEE` dans
-    `probe_433r4r1r4r2_neigh_channel_wired.GEOMETRIE_NUE_CLASSEE`, residu **#943-r7** avec les 18
-    autres de la meme famille.
+    a contre-sens de la conjonction RESTRICTIVE ci-dessus.
+
+    ⚠ **CABLE le 2026-08-15 (#943-r7)**, et le blocage ecrit ici (<< ce ctx d'aura ne publie aucun
+    board >>) etait plus LARGE que le fait : sur les QUATRE call-sites de ce helper, deux passent le
+    board de coups (`build_hits_board` / son pendant PREDICTION) et deux le ctx defenseur -- les
+    quatre le publient depuis le meme commit, sur les DEUX faces, donc aucune ne peut diverger.
+    L'ORDRE des arguments est LU, pas devine : `IsAdjacentAbilityTrigger$$.ctor` range `selector1`
+    en `+0x20` et `selector2` en `+0x28`, et `ShouldTrigger` appelle
+    `AreEntitiesAdjacent(<element de +0x20>, <element de +0x28>)` -- donc `IsAdjacent(Caster, Owner)`
+    ENUMERE depuis la tuile du CASTER : `are_entities_adjacent(att_pos, owner_pos)`, pas l'inverse.
+    `AreTilesAdjacent` porte AUSSI le court-circuit d'identite `t1 == t2` (#433-r1), que le foyer
+    rend.
 
     Ce qui RESTE vrai de la ligne d'origine : l'approximation MONO-TUILE (une unite multi-tuile est
     reduite a sa main tile), commune a `BigTargetAdjacentEffect` et `Camouflage`.
     `AreEnemies` = `op_LogicalNot(AreFriendsAbilityTrigger)`, donc equipes DIFFERENTES.
     `IsMeleeAttack` suit la convention tri-etat #106 : `None` = nature non declaree -> le gate se
-    ferme (meme lecture que `ParryEffect`)."""
+    ferme (meme lecture que `ParryEffect`).
+    `board` absent -> `(None, None)` -> repli geometrique NOMME du foyer, le comportement d'avant."""
     if is_melee is not True:
         return False
     if owner_team is None or att_team is None or owner_team == att_team:
         return False
     if not owner_pos or not att_pos:
         return False
-    return hexgeo.distance(tuple(owner_pos), tuple(att_pos)) == 1
+    elev_by_pos, neigh_by_pos = _board.adjacency_channels(board)
+    return _bq.are_entities_adjacent(tuple(att_pos), tuple(owner_pos), elev_by_pos, neigh_by_pos)
 
 
 def _caster_is_immune(att_traits) -> bool:
@@ -206,7 +219,8 @@ class TerrorsLamentDamageReductionEffect(BaseEffect):
         FERME la conjonction."""
         c = attacker_ctx or {}
         if not _adjacent_enemy_melee(c.get("owner_pos"), c.get("owner_team"),
-                                     c.get("att_pos"), c.get("team"), is_melee):
+                                     c.get("att_pos"), c.get("team"), is_melee,
+                                     c.get("board")):
             return None
         v = self._amount()
         return for_subtraction(False, v) if v else None
@@ -220,7 +234,8 @@ class TerrorsLamentDamageReductionEffect(BaseEffect):
         `AbilityEntities+0x18`) ; `att_pos`/`att_team`/`is_melee` decrivent le coup."""
         c = ctx or {}
         if not _adjacent_enemy_melee(c.get("owner_pos"), c.get("owner_team"),
-                                     c.get("att_pos"), c.get("att_team"), c.get("is_melee")):
+                                     c.get("att_pos"), c.get("att_team"), c.get("is_melee"),
+                                     c.get("board")):
             return None
         v = self._amount()
         return for_subtraction(False, v) if v else None
@@ -264,7 +279,8 @@ class TerrorsLamentHitReductionEffect(BaseEffect):
         att_id = c.get("att_id")
         att_team = (c.get("team_by_id") or {}).get(att_id)
         if not _adjacent_enemy_melee(c.get("t_pos"), c.get("tgt_team"),
-                                     c.get("attack_pos"), att_team, is_melee):
+                                     c.get("attack_pos"), att_team, is_melee,
+                                     c.get("board")):
             return None
         if _caster_is_immune(c.get("att_traits")):          # NOT HasTrait(Caster, Immune)
             return None
@@ -283,7 +299,8 @@ class TerrorsLamentHitReductionEffect(BaseEffect):
         eteint `Parry` : `_hits_contribution` s'en charge chez l'agregateur, pas ici."""
         c = ctx or {}
         if not _adjacent_enemy_melee(c.get("owner_pos"), c.get("owner_team"),
-                                     c.get("att_pos"), c.get("att_team"), c.get("is_melee")):
+                                     c.get("att_pos"), c.get("att_team"), c.get("is_melee"),
+                                     c.get("board")):
             return None
         if _caster_is_immune(c.get("att_traits")):          # NOT HasTrait(Caster, Immune)
             return None

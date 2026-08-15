@@ -519,3 +519,18 @@ def adjacent_neigh_by_pos(board) -> dict | None:
     except (AttributeError, TypeError):
         pass                  # board fige -> on recalcule ; le resultat est le meme
     return res
+
+
+def adjacency_channels(board) -> "tuple[dict | None, dict | None]":
+    """`(elev_by_pos, neigh_by_pos)` -- les DEUX etages d'`IdunBattle.Core.Services.TileQuery
+    .u003CIterateAdjacentTilesu003Ed__8$$MoveNext` derives d'un MEME board, en TRI-ETAT.
+
+    FOYER UNIQUE de la derivation (#943-r7). Elle tient en deux appels, et c'est precisement ce qui
+    la faisait recopier : cinq modules d'effets en portaient une copie privee, donc cinq endroits ou
+    l'ordre du couple, le tri-etat ou le repli pouvaient diverger sans que rien ne le dise. Les
+    consommateurs passent le resultat tel quel a `engine.battle_query.is_adjacent` /
+    `.are_entities_adjacent`, dont les deux derniers parametres sont dans CET ordre.
+
+    `board is None` -> `(None, None)`, jamais `({}, {})` : c'est le repli GEOMETRIQUE nomme du foyer
+    d'adjacence, pas un voisinage vide (qui rendrait le predicat FAUX partout, vice #381-r3)."""
+    return elevations_by_pos(board), adjacent_neigh_by_pos(board)

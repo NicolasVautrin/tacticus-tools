@@ -1,4 +1,4 @@
-"""#943-r7 -- les HUIT sites recables decident-ils sur la LISTE STOCKEE, et les DEUX FACES
+"""#943-r7 -- les DIX-NEUF sites recables decident-ils sur la LISTE STOCKEE, et les DEUX FACES
 repondent-elles PAREIL ?
 
 `probe_433r4r1r4r2_neigh_channel_wired` garde la FORME (le canal est passe, consomme, et la
@@ -18,9 +18,21 @@ PORTE d'elevation (`|dElev| < 2`) est le SECOND etage, et les deux ecarts sont D
 alors qu'offline la porte seule coupe 8,9 % des aretes des 779 boards versionnes. Ici on exerce
 l'ENUMERATION ; la porte a ses gardes dans `test_943r4_adjacence_cablee_offline.py`.
 
-LES HUIT SITES, ET POURQUOI CEUX-LA (le tri est dans le registre de `probe_433r4r1r4r2`) : leur
-face JUMELLE lit DEJA un substrat stocke, donc le cablage RESORBE une divergence de faces au lieu
-d'en creer une. Les onze autres `LISTE_STOCKEE` restent nus, et c'est DELIBERE.
+LES SS1-3 COUVRENT LES HUIT PREMIERS (2026-08-12), ET LE CRITERE QUI LES AVAIT CHOISIS ETAIT
+L'ETAT DE LA FACE JUMELLE : la leur lisait DEJA un substrat stocke, donc le cablage RESORBAIT une
+divergence au lieu d'en creer une.
+
+LA SS4 COUVRE LES ONZE DERNIERS (2026-08-15), et leur blocage ecrit (`BLOCAGE: seeding`) etait plus
+LARGE que le fait -- RE-MESURE site par site : trois avaient DEJA `ctx["board"]` sur leurs deux
+faces, cinq ne demandaient qu'UNE cle ajoutee a un dict dont le constructeur tenait le board, le
+COUPLE `IconOfObstinacy` se fermait des que sa jumelle etait cablable, et le seul dont l'analyse
+tenait (`momentum`) l'etait pour une AUTRE raison : SUBSTRAT AUTRE (`ConnectivityComponent` BRUT,
+sans porte d'elevation).
+
+⚠ LE `momentum` EST LE SEUL DONT LE CANAL N'EXISTE QU'EN LIVE : le champ `connectivity` du
+`boardGraph` est construit en bataille par `InitializeConnectivityOperation$$Execute`, et les
+`data/boards/*.json` sont des ASSETS. Le board TEMOIN de ce fichier le fabrique (`connectivite=True`)
+-- ce qui exerce le PREDICAT, pas la capture. La confrontation LIVE du champ reste due.
 
 100 % OFFLINE, aucun runner. ASCII only.
 """
@@ -64,6 +76,8 @@ sys.path.insert(0, __file__.rsplit("tests", 1)[0].rstrip("\\/"))
 
 import hexgeo                                                              # noqa: E402
 from engine import battle_query as bq                                      # noqa: E402
+#: La racine du depot -- pour le seul garde qui BALAIE l'arbre (SS4.8).
+G_ROOT = __import__("pathlib").Path(__file__).resolve().parents[4]         # noqa: E402
 from engine.entities.effect_type import EffectType                         # noqa: E402
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 from engine.playbook.scene import Scene                                    # noqa: E402
@@ -75,18 +89,29 @@ def _tid(col: int, row: int) -> int:
     return col * ROWS + row + 1
 
 
-def _board(coupe=(), with_neighbours: bool = True, elev=None) -> Board:
+def _board(coupe=(), with_neighbours: bool = True, elev=None,
+           connectivite=None, coupe_connectivite=()) -> Board:
     """Board 5x5 plein. `coupe` = aretes NON DIRIGEES retirees du champ `neighbours` des DEUX cotes
     -- le patron `Bridge` mesure live (le `ConnectivityComponent` ne relie pas le pont a son voisin
     de niveau, alors que la couronne hex, elle, les voit adjacents).
 
     `with_neighbours=False` retire le CHAMP : c'est l'etat << canal absent >> (board bati a la main,
-    `boardGraph` anterieur au capteur), a ne PAS confondre avec une liste vide (#381-r3)."""
+    `boardGraph` anterieur au capteur), a ne PAS confondre avec une liste vide (#381-r3).
+
+    `connectivite=True` ajoute le champ `connectivity` -- le `ConnectivityComponent` BRUT, SANS la
+    porte `|dElev| < 2` (#448-r1-r1-r1-r1-r2). C'est le canal que lit `TileExtensions$$IsNeighbourOf`
+    (#943-r7, `momentum`), et il est DISTINCT de `neighbours` : le laisser absent est le regime des
+    `data/boards/*.json` versionnes, qui sont des ASSETS. `coupe_connectivite` coupe des aretes de
+    CE champ-la seulement."""
     elev = elev or {}
     coupees = set()
     for (a, b) in coupe:
         coupees.add((a, b))
         coupees.add((b, a))
+    coupees_conn = set()
+    for (a, b) in coupe_connectivite:
+        coupees_conn.add((a, b))
+        coupees_conn.add((b, a))
     tiles = []
     for col in range(COLS):
         for row in range(ROWS):
@@ -96,6 +121,10 @@ def _board(coupe=(), with_neighbours: bool = True, elev=None) -> Board:
                 t["neighbours"] = [_tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
                                    if 0 <= c < COLS and 0 <= r < ROWS
                                    and ((col, row), (c, r)) not in coupees]
+            if connectivite:
+                t["connectivity"] = [_tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
+                                     if 0 <= c < COLS and 0 <= r < ROWS
+                                     and ((col, row), (c, r)) not in coupees_conn]
             tiles.append(t)
     return Board(tiles)
 
@@ -124,6 +153,12 @@ PORTEUR = (2, 2)
 AMI = hexgeo.neighbors(2, 2)[0]        # (2, 3)
 AUTRE = hexgeo.neighbors(2, 2)[1]      # (2, 1) -- voisin de PORTEUR, mais PAS d'AMI
 LOIN = (0, 0)
+#: Un voisin d'`AMI` qui n'est PAS `PORTEUR` -- le TIERS des montages a trois unites (#943-r7 SS4 :
+#: l'allie de `LegendaryCommander`, le second Ork de `GetStuckIn`). DERIVE de `hexgeo`, pas ecrit :
+#: une coordonnee en dur se perimerait au moindre changement de repere, et la premisse ci-dessous
+#: la re-mesure a chaque passe.
+AUTRE_VOISIN_D_AMI = next(p for p in hexgeo.neighbors(*AMI)
+                          if tuple(p) != PORTEUR and 0 <= p[0] < COLS and 0 <= p[1] < ROWS)
 
 
 def test_le_montage_est_bien_DISCRIMINANT():
@@ -441,3 +476,519 @@ def test_get_em_runtz_sans_canal_DEGRADE_en_couronne_hex():
     avec = p._spawn_tile_count(_ctx_runtz(_board()))
     sans = p._spawn_tile_count(_ctx_runtz(_board(with_neighbours=False)))
     assert sans == avec > 0, "sans canal, le compte doit rester celui de la couronne hex"
+
+
+# ============================================================================================
+# 4. LES ONZE DERNIERS (#943-r7, 2026-08-15) -- les ctx d'AURA, le COUPLE, et le SUBSTRAT AUTRE
+# ============================================================================================
+#
+# Ce qui les bloquait etait ecrit `BLOCAGE: seeding` (<< les cabler exige de PUBLIER les deux cartes
+# en amont, dans `damage_model.attacker_modifiers` ET dans la face PREDICTION >>). RE-MESURE : c'est
+# plus LARGE que le fait. Trois d'entre eux avaient DEJA `ctx["board"]` sur leurs deux faces ; pour
+# les autres le seeding tient en UNE cle ajoutee a un dict dont le constructeur avait le board sous
+# la main. Le seul dont l'analyse tenait est `momentum`, et pour une autre raison : SUBSTRAT AUTRE.
+#
+# CHAQUE test ci-dessous exerce le regime DISCRIMINANT (arete de la liste stockee coupee alors que
+# la couronne hex la voit), garde un TEMOIN NON NUL, et verifie le repli SANS canal.
+
+
+def _ch(board):
+    """`(elev_by_pos, neigh_by_pos)` du board temoin -- le MEME foyer que les ports."""
+    from engine.entities.pathfinding.board import adjacency_channels
+    return adjacency_channels(board)
+
+
+def test_le_montage_a_TROIS_unites_est_DISCRIMINANT():
+    """PREMISSE des montages de la SS4. Sans ce cran, couper une arete ne prouverait rien : il faut
+    que le TIERS soit voisin d'`AMI` (donc comptable) et DISTINCT de `PORTEUR`."""
+    assert hexgeo.distance(AMI, AUTRE_VOISIN_D_AMI) == 1
+    assert AUTRE_VOISIN_D_AMI != PORTEUR
+    _elev, neigh = _ch(_board())
+    assert AUTRE_VOISIN_D_AMI in [tuple(x) for x in neigh[AMI]], "temoin NUL dans la liste stockee"
+
+
+# ---- 4.1 les DEUX ctx d'aura de `DoctrinaImperatives` (`imperative.py`) --------------------------
+
+def _protector(level=50, mult=180):
+    from engine.entities.effects.loki.imperative import ProtectorImperativeEffect
+    return ProtectorImperativeEffect("ProtectorImperative")
+
+
+def _conqueror(level=50, mult=180):
+    from engine.entities.effects.loki.imperative import ConquerorImperativeEffect
+    e = ConquerorImperativeEffect("ConquerorImperative")
+    e.active_ability_level, e.ability_variables_multiplier = level, mult
+    return e
+
+
+@pytest.mark.parametrize("coupe,attendu", [(True, None), (False, "non nul")])
+def test_protector_imperative_armure_suit_la_liste_stockee(coupe, attendu):
+    """`ConquerorImperativeEffect$$CreateTargetSelector` = self + `AdjacentFriends(Owner, unique, 3)`
+    filtre `UnitsWithTrait(5 = Mechanical)`. `AdjacentFriends(unit, ...)` =
+    `Friends(unit, Units(AdjacentTiles(unit), ...) - unit, ...)` -- LU : l'ENUMERATION part du
+    PORTEUR, sur la liste STOCKEE.
+
+    Le canal entre par `ctx["board"]`, pose par `damage_model.defender_fixed_armor` (face UNIQUE :
+    la prediction IA est PRE-armure)."""
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    ctx = {"owner_id": 1, "def_id": 2, "owner_team": 0, "def_team": 0,
+           "def_traits": ("Mechanical",), "owner_pos": PORTEUR, "def_pos": AMI,
+           "owner_level": 50, "owner_mult": 180, "board": bd}
+    got = _protector().create_aura_fixed_armor_bonus_for_defense(ctx)
+    if attendu is None:
+        assert got is None, "arete COUPEE de la liste stockee : le natif n'accorde pas l'aura"
+    else:
+        assert got, "TEMOIN NUL : l'aura ne se pose meme pas sur une arete PORTEE"
+
+
+def test_protector_imperative_sans_canal_DEGRADE_en_couronne_hex():
+    """CONTRE-EPREUVE : `board` absent -> repli NOMME, le comportement d'avant le cablage."""
+    ctx = {"owner_id": 1, "def_id": 2, "owner_team": 0, "def_team": 0,
+           "def_traits": ("Mechanical",), "owner_pos": PORTEUR, "def_pos": AMI,
+           "owner_level": 50, "owner_mult": 180}
+    assert _protector().create_aura_fixed_armor_bonus_for_defense(ctx), (
+        "sans canal, la couronne hex doit encore accorder l'aura")
+
+
+@pytest.mark.parametrize("coupe,accorde", [(True, False), (False, True)])
+def test_conqueror_imperative_degat_suit_la_liste_stockee(coupe, accorde):
+    """MEME `CreateTargetSelector`, autre canal (`aura_attack_damage_bonus_from_allies`), dont le
+    ctx PORTAIT DEJA `board` sur ses DEUX faces -- ZERO seeding, exactement comme
+    `extra_damage_aura::create_aura_attack_bonus` en #983."""
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    ctx = {"target_armor_reduced": True, "owner_id": 1, "att_id": 2,
+           "owner_team": 0, "att_team": 0, "att_traits": ("Mechanical",),
+           "owner_pos": PORTEUR, "att_pos": AMI, "board": bd}
+    assert bool(_conqueror().create_aura_attack_damage_bonus_for_ally(ctx)) is accorde
+
+
+def test_conqueror_imperative_lit_la_DIRECTION_du_selecteur():
+    """`AdjacentFriends(Owner)` enumere depuis le PORTEUR : `is_adjacent(owner, att)`. On retire
+    l'arete `owner -> ami` D'UN SEUL COTE ; l'arete inverse reste. Un port qui aurait ecrit les
+    arguments a l'envers accorderait encore -- et `hexgeo.distance`, symetrique, ne pouvait de toute
+    facon pas distinguer les deux sens."""
+    bd = _board_dirige(depuis=PORTEUR, vers=AMI)
+    ctx = {"target_armor_reduced": True, "owner_id": 1, "att_id": 2,
+           "owner_team": 0, "att_team": 0, "att_traits": ("Mechanical",),
+           "owner_pos": PORTEUR, "att_pos": AMI, "board": bd}
+    assert _conqueror().create_aura_attack_damage_bonus_for_ally(ctx) is None
+    # PREMISSE : l'asymetrie est bien dans le canal, et dans CE sens-la seulement
+    _elev, neigh = _ch(bd)
+    assert AMI not in [tuple(x) for x in neigh[PORTEUR]]
+    assert PORTEUR in [tuple(x) for x in neigh[AMI]]
+
+
+# ---- 4.2 les quatre ctx de `hits.py` ------------------------------------------------------------
+
+@pytest.mark.parametrize("coupe,accorde", [(True, False), (False, True)])
+def test_big_target_malus_de_coups_suit_la_liste_stockee(coupe, accorde):
+    """`BigTargetAdjacentEffect$$CreateTargetSelector` = `Friends(Owner@+0x30,
+    AdjacentUnits(Owner@+0x30, unique, 3), 3)` -- LU. Le canal entre par le BOARD DE COUPS, monte
+    par `build_hits_board` (COMBAT) et par `playbook/prediction/normal_attack.py` (PREDICTION) :
+    PENDANTS EXACTS, donc les deux faces bougent ensemble."""
+    from engine.entities.effects.loki.hits import BigTargetAdjacentEffect
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    ctx = {"is_melee": False, "owner_id": 1, "tgt_id": 2, "owner_team": 0, "tgt_team": 0,
+           "owner_pos": PORTEUR, "t_pos": AMI, "board": bd}
+    got = BigTargetAdjacentEffect("BigTarget_AdjacentEffect").create_aura_hits_malus_for_defense(ctx)
+    assert bool(got) is accorde
+    if accorde:
+        assert int(got.value) == -1, "le montant natif est `Direct(-1)`, pas un compte"
+
+
+@pytest.mark.parametrize("coupe,accorde", [(True, False), (False, True)])
+def test_explosive_maladies_coups_additionnels_suivent_la_liste_stockee(coupe, accorde):
+    """`ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector` =
+    `UnitsWithRangedWeapons(AdjacentFriends(owner, 1))`. Canal
+    `aura_additional_hits_from_allies` -- ctx monte par `runner/operations/additional_hits.py`
+    (COMBAT) et par les DEUX ctx de `normal_attack.py` (PREDICTION)."""
+    from engine.entities.effects.loki.hits import ExplosiveMaladiesExtraRangedAttackEffect
+    e = ExplosiveMaladiesExtraRangedAttackEffect("ExplosiveMaladies_ExtraRangedAttack")
+    e.ability_level, e.ability_variables_multiplier = 50, 180
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    ctx = {"att_pos": AMI, "owner_pos": PORTEUR, "att_team": 0, "owner_team": 0,
+           "is_melee": False, "board": bd}
+    assert bool(e.create_aura_additional_hits_for_ally(ctx)) is accorde
+
+
+@pytest.mark.parametrize("coupe,accorde", [(True, False), (False, True)])
+def test_infernal_pacts_coups_additionnels_suivent_la_liste_stockee(coupe, accorde):
+    """`InfernalPacts_AdditionalHitsEffect$$CreateTargetSelector` = `Unique(
+    UnitsWithRangedWeapons(UnitsWithTrait(AdjacentFriends(Caster,1), Chaos)) + ... )` -- le `Caster`
+    du selecteur EST le porteur de l'effet, donc l'enumeration part de lui."""
+    from engine.entities.effects.loki.hits import InfernalPactsAdditionalHitsEffect
+    e = InfernalPactsAdditionalHitsEffect("InfernalPacts_AdditionalHits")
+    e.ability_level, e.ability_variables_multiplier = 50, 180
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    ctx = {"att_pos": AMI, "owner_pos": PORTEUR, "att_team": 0, "owner_team": 0,
+           "att_grand_alliance": "Chaos", "att_traits": (), "is_melee": False, "board": bd}
+    assert bool(e.create_aura_additional_hits_for_ally(ctx)) is accorde
+
+
+def _legendary(pos_by_id, team_by_id, used, board):
+    from engine.entities.effects.loki.hits import LegendaryCommanderExtraHitsEffect
+    e = LegendaryCommanderExtraHitsEffect("LegendaryCommander_ExtraHits")
+    ctx = {"tgt_id": 2, "owner_id": 1, "owner_pos": PORTEUR, "owner_team": 0,
+           "pos_by_id": pos_by_id, "team_by_id": team_by_id, "used_active_by_id": used,
+           "t_pos": pos_by_id[2], "board": board}
+    return e.aura_selector_covers(ctx)
+
+
+@pytest.mark.parametrize("coupe,couvre", [(True, False), (False, True)])
+def test_legendary_commander_le_noeud_IsAdjacent_suit_la_liste_stockee(coupe, couvre):
+    """4e noeud, PROPRE a 1395 : `Filter(., IsAdjacent(Owner@0x30, Subject@0x68, 3))`. `IsAdjacent`
+    descend sur `AreEntitiesAdjacent` -> `AreTilesAdjacent` = `(|dElev| < 2) & (t1 == t2 ||
+    ConnectivityComponent$$IsNeighbour)`. On coupe l'arete `owner -- cible`."""
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    # u1 = Trajann (owner, team 0) ; u2 = la CIBLE ennemie ; u3 = un allie de Trajann ayant utilise
+    # une active ce tour, adjacent a la cible -> le second noeud est satisfait dans les deux cas.
+    got = _legendary({1: PORTEUR, 2: AMI, 3: AUTRE_VOISIN_D_AMI},
+                     {1: 0, 2: 1, 3: 0}, {1: True, 3: True}, bd)
+    assert got is couvre
+
+
+@pytest.mark.parametrize("coupe,couvre", [(True, False), (False, True)])
+def test_legendary_commander_le_noeud_AdjacentEnemies_suit_la_liste_stockee(coupe, couvre):
+    """`AdjacentEnemies(Filter(Friends(Owner, AllUnits, 3), HasUsedActiveAbilityThisTurn), 1, 3)` =
+    `Enemies(X, Units(AdjacentTiles(X), ...) - X, 3)` : l'ENUMERATION part de CHAQUE ALLIE retenu,
+    donc `is_adjacent(allie, cible)`. On coupe l'arete `allie -- cible`, en laissant celle de
+    l'owner intacte -- le PREMIER noeud reste donc satisfait, seul le SECOND tombe."""
+    bd = _board(coupe=[(AUTRE_VOISIN_D_AMI, AMI)] if coupe else [])
+    got = _legendary({1: PORTEUR, 2: AMI, 3: AUTRE_VOISIN_D_AMI},
+                     {1: 0, 2: 1, 3: 0}, {1: False, 3: True}, bd)
+    assert got is couvre
+
+
+def test_legendary_commander_sans_canal_DEGRADE_en_couronne_hex():
+    bd = _board(with_neighbours=False)
+    assert _legendary({1: PORTEUR, 2: AMI, 3: AUTRE_VOISIN_D_AMI},
+                      {1: 0, 2: 1, 3: 0}, {1: True, 3: True}, bd) is True
+
+
+# ---- 4.3 le ctx de TRAIT : `GetStuckIn` ---------------------------------------------------------
+
+def _get_stuck_in(board, pos_by_id, faction_by_id):
+    from engine.entities.traits.combat import GetStuckInTrait
+    ctx = {"attack_pos": pos_by_id[1], "t_pos": pos_by_id[2], "base_hits": 4,
+           "att_id": 1, "tgt_id": 2, "pos_by_id": pos_by_id,
+           "team_by_id": {u: (0 if u != 2 else 1) for u in pos_by_id},
+           "faction_by_id": faction_by_id, "board": board}
+    return GetStuckInTrait("GetStuckIn").as_attacker_bonus_hits(ctx)
+
+
+@pytest.mark.parametrize("coupe,bonus", [(True, 0), (False, 2)])
+def test_get_stuck_in_compte_les_voisins_de_la_CIBLE_sur_la_liste_stockee(coupe, bonus):
+    """`GetStuckInAbility$$GetBonusHitChance` : `AdjacentUnits(<DSLSelectors+0x60> = Target, unique,
+    3)` -- LU au call-site (le 2e argument est `+0x60`, la CIBLE, pas le caster). L'ENUMERATION part
+    donc de la TUILE DE LA CIBLE : `is_adjacent(cible, unite)`.
+
+    Montage : la cible en `AMI`, DEUX Orks allies adjacents a elle (`PORTEUR` = l'attaquant et
+    `AUTRE_VOISIN_D_AMI`) -> `orks_adj >= 2` -> `chance_2 = 100` -> `floor(4/2) = 2` coups bonus.
+    Couper l'arete `cible -- attaquant` fait tomber le compte a 1, donc la chance a 30, donc le
+    Nullable est EXCLU de la prediction -> 0."""
+    bd = _board(coupe=[(AMI, PORTEUR)] if coupe else [])
+    got = _get_stuck_in(bd, {1: PORTEUR, 2: AMI, 3: AUTRE_VOISIN_D_AMI},
+                        {1: "Orks", 2: "Orks", 3: "Orks"})
+    assert got == bonus
+
+
+def test_get_stuck_in_sans_canal_DEGRADE_en_couronne_hex():
+    bd = _board(with_neighbours=False)
+    assert _get_stuck_in(bd, {1: PORTEUR, 2: AMI, 3: AUTRE_VOISIN_D_AMI},
+                         {1: "Orks", 2: "Orks", 3: "Orks"}) == 2
+
+
+# ---- 4.4 le COUPLE `IconOfObstinacy` : les DEUX expressions du MEME selecteur natif --------------
+
+def _monde_icon(board, positions, teams, traits):
+    """`State` ECS minimal + `StatsComponent.ctx.traits`, ce que lit `target_trait_names`."""
+    from engine.runner.components import (OwnerComponent, PositionComponent, StatsComponent,
+                                          UnitComponent)
+    from engine.runner.state import State
+    from engine.entities.unit_context import UnitContext
+    st = State()
+    st.board = board
+    for uid, p in positions.items():
+        e = st.add_entity(uid)
+        e.add_component(PositionComponent(col=p[0], row=p[1]))
+        e.add_component(OwnerComponent(team=teams[uid]))
+        e.add_component(UnitComponent(visual_id="t", alive=True))
+        uc = UnitContext(entity_id=uid, visual_id="t")
+        uc.traits = frozenset(traits.get(uid, ()))
+        e.add_component(StatsComponent(ctx=uc))
+    return st
+
+
+@pytest.mark.parametrize("coupe,affecte", [(True, False), (False, True)])
+def test_icon_of_obstinacy_les_DEUX_faces_suivent_la_liste_stockee(coupe, affecte):
+    """LE COUPLE QUE #943-r7 DECLARAIT NON FERMABLE. `AIconOfObstinacyAbility$$GetAffectedUnits` =
+    `Owner + UnitsWithTrait(AdjacentFriends(Owner, unique, 3), 0x40f, 3)` a DEUX expressions cote
+    port : le selecteur du TRIGGER (face COMBAT, contre l'ECS) et le ctx d'AURA du bonus de degat
+    (faces COMBAT+PREDICTION). Le natif les fait COINCIDER -- c'est UN selecteur, pas deux.
+
+    Ce test exige les deux choses a la fois : que chaque face suive la liste stockee, et qu'elles
+    rendent LE MEME verdict. Les cabler separement aurait fait diverger le buff d'ARMURE du bonus de
+    DEGAT, ce qui est exactement la crainte que la fiche nommait."""
+    from engine.runner.operations.triggers.loki.icon_of_obstinacy import (
+        icon_of_obstinacy_affected_units)
+    from engine.entities.effects.loki.icon_of_obstinacy import IconOfObstinacyExtraDmgEffect
+    from engine.entities.traits.unit_trait import UnitTrait
+    term = UnitTrait.TerminatorArmour.name
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    st = _monde_icon(bd, {1: PORTEUR, 2: AMI}, {1: 0, 2: 0}, {1: (term,), 2: (term,)})
+    face_combat = 2 in icon_of_obstinacy_affected_units(st, 1)
+
+    d = IconOfObstinacyExtraDmgEffect("IconOfObstinacy_ExtraDmg")
+    d.ability_level, d.ability_variables_multiplier = 50, 180
+    face_aura = d.create_aura_attack_damage_bonus_for_ally(
+        {"owner_id": 1, "att_id": 2, "owner_team": 0, "att_team": 0,
+         "owner_pos": PORTEUR, "att_pos": AMI, "att_traits": (term,), "board": bd}) is not None
+
+    assert face_combat is affecte, "face COMBAT (selecteur du trigger)"
+    assert face_aura is affecte, "face AURA (bonus de degat)"
+    assert face_combat == face_aura, (
+        "LES DEUX EXPRESSIONS DU MEME SELECTEUR NATIF DIVERGENT -- c'est le couple que #943-r7 "
+        "declarait non fermable")
+
+
+def test_icon_of_obstinacy_le_PORTEUR_reste_dans_le_set_sans_arete():
+    """`op_Addition(Owner, ...)` : le porteur entre SANS passer par le selecteur, donc sans aucune
+    arete. Un cablage qui l'aurait fait traverser `is_adjacent` le retirerait de sa propre aura."""
+    from engine.runner.operations.triggers.loki.icon_of_obstinacy import (
+        icon_of_obstinacy_affected_units)
+    bd = _board(coupe=[(PORTEUR, AMI)])
+    st = _monde_icon(bd, {1: PORTEUR, 2: AMI}, {1: 0, 2: 0}, {1: (), 2: ()})
+    assert icon_of_obstinacy_affected_units(st, 1) == [1]
+
+
+# ---- 4.5 `aura_selectors.adjacent_friends_including_owner` (KustomForceField) --------------------
+
+@pytest.mark.parametrize("coupe,dedans", [(True, False), (False, True)])
+def test_kustom_force_field_selecteur_suit_la_liste_stockee(coupe, dedans):
+    """`Owner + AdjacentFriends(Owner, unique, 3)` -- le noeud de TETE des DEUX
+    `CreateTargetSelector` de `KustomForceFieldReworked` (#930). AUCUN blocage propre : la fonction
+    recoit l'ECS, donc `State.board`, et n'a qu'UNE face."""
+    from engine.entities.effects.aura_selectors import adjacent_friends_including_owner
+    bd = _board(coupe=[(PORTEUR, AMI)] if coupe else [])
+    st = _monde_icon(bd, {1: PORTEUR, 2: AMI}, {1: 0, 2: 0}, {})
+    out = set(adjacent_friends_including_owner(st, 1))
+    assert 1 in out, "`op_Addition(Owner, ...)` : le porteur est TOUJOURS dans son aura"
+    assert (2 in out) is dedans
+
+
+# ---- 4.6 `TerrorsLament` : les QUATRE call-sites d'un helper PARTAGE -----------------------------
+
+@pytest.mark.parametrize("coupe,accorde", [(True, False), (False, True)])
+def test_terrors_lament_les_quatre_pattes_suivent_la_liste_stockee(coupe, accorde):
+    """`IsAdjacent(Caster@+0x48, Owner@+0x30, 3)` -- l'ORDRE est LU
+    (`IsAdjacentAbilityTrigger$$.ctor` : `selector1 -> +0x20`, `selector2 -> +0x28` ;
+    `ShouldTrigger` appelle `AreEntitiesAdjacent(<+0x20>, <+0x28>)`), donc l'enumeration part de la
+    tuile du CASTER.
+
+    Les QUATRE pattes passent par le MEME helper : deux sur le canal DEGAT (ctx defenseur), deux sur
+    le canal COUPS (board de coups). Les quatre ctx publient `board` depuis le meme commit, sur les
+    DEUX faces -- c'est ce qui rend l'ecart impossible entre pattes."""
+    from engine.entities.effects.loki.terrors_lament import (TerrorsLamentDamageReductionEffect,
+                                                             TerrorsLamentHitReductionEffect)
+    bd = _board(coupe=[(AMI, PORTEUR)] if coupe else [])   # `caster` en AMI, `owner` en PORTEUR
+    dmg = TerrorsLamentDamageReductionEffect("TerrorsLament_DamageReduction")
+    dmg.ability_level, dmg.ability_variables_multiplier = 50, 180
+    hits = TerrorsLamentHitReductionEffect("TerrorsLament_HitReduction")
+    # patte SELF du canal DEGAT (`attacker_ctx`)
+    self_dmg = dmg.create_effect_damage_malus_for_defense(
+        is_melee=True, attacker_ctx={"owner_pos": PORTEUR, "owner_team": 0,
+                                     "att_pos": AMI, "team": 1, "board": bd})
+    # patte AURA du canal DEGAT
+    aura_dmg = dmg.create_aura_defense_damage_malus_for_ally(
+        {"owner_pos": PORTEUR, "owner_team": 0, "att_pos": AMI, "att_team": 1,
+         "is_melee": True, "board": bd})
+    # patte SELF du canal COUPS (`att_ctx` = le board de coups)
+    self_hits = hits.create_effect_hits_malus_for_defense(
+        is_melee=True, att_ctx={"t_pos": PORTEUR, "tgt_team": 0, "attack_pos": AMI,
+                                "att_id": 9, "team_by_id": {9: 1}, "att_traits": (),
+                                "board": bd})
+    # patte AURA du canal COUPS
+    aura_hits = hits.create_aura_hits_bonus_for_attack(
+        {"owner_pos": PORTEUR, "owner_team": 0, "att_pos": AMI, "att_team": 1,
+         "is_melee": True, "att_traits": (), "board": bd})
+    for (nom, got) in (("self degat", self_dmg), ("aura degat", aura_dmg),
+                       ("self coups", self_hits), ("aura coups", aura_hits)):
+        assert bool(got) is accorde, "patte %s" % nom
+
+
+# ---- 4.7 `momentum` : le SUBSTRAT AUTRE (`connectivity`, SANS porte d'elevation) -----------------
+
+def _momentum_step(board, monkeypatch):
+    """Rend `(resultat du pas, les tuiles ou `_move` a ete atteint)`.
+
+    `_move` est SUBSTITUE SUR LA CLASSE (l'instance porte `__slots__ = ()`) : le pas complet touche
+    au deplacement ECS, etranger a l'adjacence. Le stub rend `True` -- un stub rendant `False`
+    rendrait le test vert par absence de MOUVEMENT et non par refus du GATE, un regime degenere."""
+    from engine.runner.abilities.loki import momentum as M
+    from engine.runner.components import OwnerComponent, PositionComponent, UnitComponent
+    from engine.runner.state import State
+    st = State()
+    st.board = board
+    e = st.add_entity(1)
+    e.add_component(PositionComponent(col=PORTEUR[0], row=PORTEUR[1]))
+    e.add_component(OwnerComponent(team=0))
+    e.add_component(UnitComponent(visual_id="t", alive=True))
+    vus: list = []
+    monkeypatch.setattr(M.UnstoppableMomentumReworkedAbility, "_move",
+                        lambda self, state, cid, tid, out: (vus.append(int(tid)), True)[1])
+    ok = M.UnstoppableMomentumReworkedAbility()._execute_behaviour_step(
+        st, 1, (0, 0, 0), _tid(*AMI), 0,
+        {"moves": [], "attacks": [], "effects": [], "pushes": [], "switches": []})
+    return ok, vus
+
+
+def test_momentum_lit_le_ConnectivityComponent_BRUT_et_pas_la_couronne(monkeypatch):
+    """`TileExtensions$$IsNeighbourOf(targetTile, GetMainTile(caster))` -- corps LU : il enumere
+    `ConnectivityComponent+0x10` de la tuile CIBLE et compare l'id de la tuile du caster, **SANS
+    AUCUNE PORTE D'ELEVATION**. C'est le seul site de la famille dont le substrat n'est PAS celui
+    d'`IterateAdjacentTiles` : `is_adjacent` y serait FAUX (il ajouterait la porte) et
+    `neighbours_native` aussi (le champ capte EST deja `connectivity INTERSECTE {|dElev| < 2}`).
+
+    TEMOIN NON NUL : avec le canal complet, le pas passe."""
+    ok, vus = _momentum_step(_board(connectivite=True), monkeypatch)
+    assert ok is True and vus == [_tid(*AMI)], "TEMOIN NUL : le pas ne passe meme pas"
+
+
+def test_momentum_refuse_le_pas_quand_la_CONNECTIVITE_ne_porte_pas_l_arete(monkeypatch):
+    """Le regime DISCRIMINANT : l'arete existe dans la couronne hex mais PAS dans le
+    `ConnectivityComponent`. Avant le cablage, le port l'acceptait."""
+    bd = _board(connectivite=True, coupe_connectivite=[(AMI, PORTEUR)])
+    ok, vus = _momentum_step(bd, monkeypatch)
+    assert ok is False and vus == [], "le pas doit etre REFUSE : l'arete n'est pas dans la liste"
+
+
+def test_momentum_ne_lit_PAS_le_champ_neighbours(monkeypatch):
+    """CONTRE-EPREUVE DE SUBSTRAT, et c'est elle qui separe ce site des dix autres. On coupe
+    `neighbours` (le champ AMPUTE par la porte d'elevation) en laissant `connectivity` INTACT : le
+    pas doit passer QUAND MEME. Un port qui aurait pris `is_adjacent`/`neighbours_native` le
+    refuserait -- il ajouterait une porte que le natif n'applique pas ici."""
+    bd = _board(coupe=[(AMI, PORTEUR)], connectivite=True)
+    ok, _vus = _momentum_step(bd, monkeypatch)
+    assert ok is True, (
+        "le pas est refuse alors que `connectivity` porte l'arete : le port lit le MAUVAIS champ")
+
+
+def test_momentum_sans_canal_de_connectivite_DEGRADE_en_couronne_hex(monkeypatch):
+    """TRI-ETAT. Le champ `connectivity` n'existe QU'EN LIVE (les `data/boards/*.json` sont des
+    ASSETS que `InitializeConnectivityOperation$$Execute` n'a jamais touches) : canal absent ->
+    repli GEOMETRIQUE nomme, c.-a-d. le comportement d'avant. Un `[]` rabattu isolerait au contraire
+    toutes les tuiles -- le faux negatif de #381-r3."""
+    from engine.entities.pathfinding.board import connectivity_neighbours
+    bd = _board()                                     # PAS de champ `connectivity`
+    assert connectivity_neighbours(bd, _tid(*AMI)) is None, (
+        "premisse : le board temoin ne doit porter AUCUN canal de connectivite")
+    ok, vus = _momentum_step(bd, monkeypatch)
+    assert ok is True and vus == [_tid(*AMI)]
+
+
+# ---- 4.8 LE SEEDING EST-IL REELLEMENT PUBLIE ? --------------------------------------------------
+
+def test_le_board_de_coups_PUBLIE_le_canal_sur_la_face_COMBAT():
+    """UN CABLAGE DONT LE CTX NE PORTE PAS LA CLE EST INERTE, et il en a exactement l'ALLURE.
+    C'est la forme (a) de l'etape 3 du cliquet, transposee au SEEDING : `build_hits_board` doit
+    poser `board`, sinon `BigTargetAdjacent` / `GetStuckIn` / `LegendaryCommander` lisent `None` et
+    degradent en couronne hex pour toujours, sans que rien ne le dise."""
+    from engine.runner.damage_model import build_hits_board
+    bd = _board()
+    st = _monde_icon(bd, {1: PORTEUR, 2: AMI}, {1: 0, 2: 1}, {})
+    board_coups, _auras, _tgt = build_hits_board(st, 1, 2, PORTEUR, AMI, is_melee=True)
+    assert board_coups.get("board") is bd, (
+        "`build_hits_board` ne publie pas `board` : les trois consommateurs du canal COUPS sont "
+        "INERTES cote COMBAT")
+
+
+def test_le_canal_est_PUBLIE_par_TOUS_les_montages_de_ctx_des_agregateurs_cables():
+    """LA FACE PREDICTION N'EST PAS APPELABLE ISOLEMENT, ET C'EST EXACTEMENT LA QUE LE VICE PASSE.
+
+    Le test ci-dessus exerce le montage COMBAT en l'APPELANT ; ses jumeaux PREDICTION vivent au
+    milieu de `make_normal_attack_predictions` / `_apply_ally_attack_dmg_bonus`, qu'on ne peut pas
+    invoquer sans monter une `Scene` complete. Un cablage dont UNE des deux faces ne publie pas la
+    cle a exactement l'ALLURE d'un cablage complet et le COMPORTEMENT d'avant -- la forme (a) de
+    l'etape 3 du cliquet, transposee au SEEDING, et le mode de defaillance qui rendrait les onze
+    sites de la SS4 inertes en PREDICTION sans qu'aucun test ne bouge.
+
+    LE PERIMETRE EST DERIVE, PAS ECRIT : on part des METHODES d'effet reellement cablees (celles
+    dont le corps consomme `adjacency_channels`), on remonte a l'AGREGATEUR qui les appelle dans
+    `entities/effects/__init__.py`, puis a TOUS ses call-sites -- et chacun doit construire, dans sa
+    fonction, un dict portant la cle `board`. Ajouter un site cable sans publier la cle fait rougir
+    ici, meme si personne n'a pense a ce fichier."""
+    import ast as _ast
+
+    racine = G_ROOT / "scripts" / "python" / "engine"
+
+    def _arbre(rel):
+        return _ast.parse((racine / rel).read_text(encoding="utf-8"))
+
+    # (1) les METHODES d'effet cablees -- derivees du CONTENU, pas nommees.
+    cablees = set()
+    for rel in ("entities/effects/loki/imperative.py", "entities/effects/loki/hits.py",
+                "entities/effects/loki/icon_of_obstinacy.py",
+                "entities/effects/loki/terrors_lament.py",
+                "entities/effects/loki/extra_damage_aura.py",
+                "entities/traits/combat.py"):
+        arbre = _arbre(rel)
+        derivations = {n.name for n in _ast.walk(arbre)
+                       if isinstance(n, _ast.FunctionDef)
+                       and "adjacency_channels" in {getattr(x, "attr", None) or getattr(x, "id", "")
+                                                    for x in _ast.walk(n)}}
+        for n in _ast.walk(arbre):
+            if not isinstance(n, _ast.FunctionDef) or not n.name.startswith(("create_", "aura_",
+                                                                             "as_attacker_")):
+                continue
+            noms = {getattr(x, "attr", None) or getattr(x, "id", "") for x in _ast.walk(n)}
+            if noms & (derivations | {"adjacency_channels"}):
+                cablees.add(n.name)
+    assert cablees, "perimetre CASSE : aucune methode d'effet cablee detectee"
+
+    # (2) l'AGREGATEUR de chacune, LU dans le foyer des canaux d'aura.
+    agr = _arbre("entities/effects/__init__.py")
+    aggregateurs = set()
+    for n in _ast.walk(agr):
+        if not isinstance(n, _ast.FunctionDef):
+            continue
+        appelees = {x.func.attr for x in _ast.walk(n)
+                    if isinstance(x, _ast.Call) and isinstance(x.func, _ast.Attribute)}
+        if appelees & cablees:
+            aggregateurs.add(n.name)
+    assert aggregateurs, "perimetre CASSE : aucun agregateur ne sert les methodes cablees"
+
+    # (3) TOUS leurs call-sites, et la cle `board` dans le dict monte par la fonction appelante.
+    #
+    # ⚠ RELAYER N'EST PAS PUBLIER, et le distinguer se DERIVE : une fonction qui repand un de ses
+    # PROPRES PARAMETRES (`{**ctx, ...}`, `{**(board or {}), ...}`) transmet un ctx monte AILLEURS --
+    # exiger d'elle la cle serait exiger qu'elle invente une donnee qu'elle n'a pas. C'est le cas de
+    # l'agregateur lui-meme (`effects/__init__.py`) et de `attack_hits_formula`, qui relaie le board
+    # de coups. Le PUBLIEUR est celui qui BATIT le dict, et c'est lui qui doit porter la cle.
+    manquants, relais, vus = [], 0, 0
+    for chemin in sorted(racine.rglob("*.py")):
+        arbre = _ast.parse(chemin.read_text(encoding="utf-8"))
+        for fn in [n for n in _ast.walk(arbre) if isinstance(n, _ast.FunctionDef)]:
+            appels = [x for x in _ast.walk(fn) if isinstance(x, _ast.Call)
+                      and (getattr(x.func, "id", None) in aggregateurs
+                           or getattr(x.func, "attr", None) in aggregateurs)]
+            if not appels:
+                continue
+            params = {a.arg for a in _ast.walk(fn.args) if isinstance(a, _ast.arg)}
+            dicts = [d for d in _ast.walk(fn) if isinstance(d, _ast.Dict)]
+            repand_un_parametre = any(
+                k is None and ({getattr(x, "id", None) for x in _ast.walk(v)} & params)
+                for d in dicts for (k, v) in zip(d.keys, d.values))
+            if repand_un_parametre:
+                relais += 1
+                continue
+            vus += 1
+            cles = {k.value for d in dicts for k in d.keys
+                    if isinstance(k, _ast.Constant) and isinstance(k.value, str)}
+            if "board" not in cles:
+                manquants.append("%s::%s" % (chemin.relative_to(racine).as_posix(), fn.name))
+    assert vus >= 4, "perimetre CASSE : %d montage(s) de ctx vu(s), le balayage ne garde rien" % vus
+    assert relais >= 1, "perimetre CASSE : aucun RELAIS vu -- le critere ne distingue plus rien"
+    assert not manquants, (
+        "%d montage(s) de ctx n'ecrivent PAS la cle `board` -- les sites cables qu'ils servent sont "
+        "INERTES sur cette face, avec l'allure d'un cablage complet : %r" % (len(manquants),
+                                                                            manquants))

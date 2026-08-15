@@ -508,6 +508,8 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
                    # d'InfernalPacts : disjunct HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
                    # #267-r1 : substrat d'ENTITE.
                    "att_traits": _entity_traits(scene, att_id),
+                   # #943-r7 -- cf. le pendant COMBAT (`runner/operations/additional_hits.py`).
+                   "board": scene.board,
                    "is_melee": False})
     _extra_groups = []
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
@@ -816,6 +818,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
              "pos_by_id": {uid: scene.pos_by_id[uid] for uid in _alive_ids},
              "team_by_id": scene.team_by_id,
+             # #943-r7 -- le BOARD, d'ou se derivent les DEUX canaux du substrat d'adjacence NATIF.
+             # PENDANT EXACT du board COMBAT (`runner/damage_model.py::build_hits_board`), MEME cle
+             # et MEME semantique que le ctx du canal DEGAT (`_shared._apply_ally_attack_dmg_bonus`,
+             # qui la porte deja). Consommateurs : `BigTargetAdjacentEffect`, `GetStuckInTrait`,
+             # `LegendaryCommander_ExtraHitsEffect`. `None` -> repli geometrique NOMME.
+             "board": scene.board,
              # faction par unite — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance, #98)
              "faction_by_id": {uid: scene.faction(uid) for uid in _alive_ids},
              # `vid_by_id` (#1018) = l'id d'unite que `IdunBattle.Entities.UnitExtensions$$HasUnitId`
@@ -967,6 +975,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                    # HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
                    # #267-r1 : substrat d'ENTITE.
                    "att_traits": _entity_traits(scene, att_id),
+                   # #943-r7 -- cf. le pendant COMBAT (`runner/operations/additional_hits.py`).
+                   "board": scene.board,
                    "is_melee": is_melee})
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
         _dp = GC.damage_profile(_g["profile"]) or {}

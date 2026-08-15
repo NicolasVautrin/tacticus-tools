@@ -117,6 +117,11 @@ from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import AmountIsGreaterThanZero
 from .....entities.unit_selection_type import UnitSelectionType
 from .....entities.behaviours import op_and
+# #943-r7 -- les DEUX canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `entities.pathfinding.board` n'importe RIEN d'`engine`, et `engine.battle_query` n'importe que
+# `hexgeo` + `.hex_corner` : aucune de ces deux aretes ne peut fermer un cycle.
+from .....entities.pathfinding import board as _board
+from ..... import battle_query as _bq
 from ....components import StatsComponent, UnitComponent
 from ....state import State
 from ....abilities.behaviours.context import entities_from_state
@@ -286,15 +291,34 @@ class ChaliceOfBaalResetAbility(TriggeredAbility):
 
 
 def _adjacent(state: State, a_id: int, b_id: int) -> bool:
-    """`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` -> `IdunBattle.Core.Services.BattleQuery$$
-    AreEntitiesAdjacent` : distance hex 1. MEME foyer geometrique que le reste du port
-    (`hexgeo.distance`), donc MEME residu #271 (le voisinage natif de `TileQuery$$
-    IterateAdjacentTiles` porte en plus un gate `|elev(a) - elev(b)| < 2`)."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` -> `IdunBattle.Entities.Triggers.
+    IsAdjacentAbilityTrigger$$ShouldTrigger` -> slot 0x60 d'`IBattleQuery` =
+    `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent`.
+
+    LE SUBSTRAT, LU (#943-r7) -- ce n'est PAS une couronne hex :
+
+        BattleQuery$$AreEntitiesAdjacent(e1, e2) = MovementUtil$$AreTilesAdjacent(GetTiles(e1),
+                                                                                 GetTiles(e2))
+        MovementUtil$$AreTilesAdjacent(t1, t2)   = (|elev(t1) - elev(t2)| < 2)
+                                                 & (t1 == t2
+                                                    || ConnectivityComponent$$IsNeighbour(t1, t2))
+
+    -- l'appartenance a la liste STOCKEE `ConnectivityComponent+0x10`, ET la porte d'elevation en
+    terme SEPARE (`iVar7 < 2 & bVar3` au decompile). Le foyer `engine.battle_query
+    .are_entities_adjacent` porte exactement ces deux etages, court-circuit d'identite compris
+    (#433-r1) ; le canal `adjacent_neigh_by_pos` est le champ `neighbours` du `boardGraph`, c.-a-d.
+    `connectivity INTERSECTE {|dElev| < 2}` -- l'intersecter une seconde fois avec la meme porte est
+    IDEMPOTENT, donc ce canal-la est le substrat EXACT de cette conjonction.
+
+    Board absent (`State.board is None`, board de test) -> `(None, None)` -> le foyer retombe sur
+    son repli geometrique NOMME, le comportement d'avant ce cablage."""
     from ....components import PositionComponent
-    import hexgeo
     ea, eb = state.get_entity(int(a_id)), state.get_entity(int(b_id))
     pa = ea.get_component(PositionComponent) if ea is not None else None
     pb = eb.get_component(PositionComponent) if eb is not None else None
     if pa is None or pb is None:
         return False
-    return hexgeo.distance((pa.col, pa.row), (pb.col, pb.row)) == 1
+    board = getattr(state, "board", None)
+    return _bq.are_entities_adjacent((pa.col, pa.row), (pb.col, pb.row),
+                                     _board.elevations_by_pos(board),
+                                     _board.adjacent_neigh_by_pos(board))

@@ -183,74 +183,65 @@ NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacent
                         # parler l'etape 5 : 0 foyer HORS TOLERANCE ne le justifie, donc la
                         # suspension serait PERIMEE d'avance. `DSLSelectors$$AdjacentEnemies` =
                         # `Enemies(unit, Units(AdjacentTiles(unit)) - unit, selType)`.
-                        "AdjacentEnemies")
+                        "AdjacentEnemies",
+                        # ARME le 2026-08-15 (#943-r7) -- TROISIEME sortie par la porte du haut, et
+                        # c'est encore l'etape 5 qui l'a DEMANDE : apres le cablage de ses trois
+                        # derniers foyers (`imperative.py` x2 -- dont le ctx portait DEJA `board` sur
+                        # ses deux faces -- et `triggers/loki/icon_of_obstinacy.py`, cable EN MEME
+                        # TEMPS que sa jumelle d'aura pour ne pas ouvrir de divergence), l'armer ne
+                        # faisait plus rougir personne. `DSLSelectors$$AdjacentFriends(unit, unique,
+                        # selType)` = `Friends(unit, Units(AdjacentTiles(unit), unique, selType) -
+                        # unit, selType)`, LU au decompile -- donc `AdjacentTiles`, donc la liste
+                        # stockee.
+                        "AdjacentFriends")
 
 # Natifs LUS au decompile comme substrat stocke, mais dont l'ARMEMENT est SUSPENDU : les faire
 # entrer ci-dessus ferait rougir la banque sur un vice OUVERT, hors du perimetre qui les a lus --
 # meme sequencement que #614 s'est impose pour `orks.py`. La valeur est le residu qui porte la dette.
 # C'est l'etape 5 qui empeche cette suspension de devenir un oubli : elle RE-MESURE a chaque passe
 # que la suspension est encore justifiee.
-NATIFS_LISTE_STOCKEE_SUSPENDUS = {
-    # ⚠ `AdjacentTiles` (#943-r7) puis `AdjacentUnits` (#983) ont QUITTE ce registre par la porte
-    # du haut -- l'etape 5, une fois leur DERNIER foyer cable. Le registre ne s'est pas vide pour
-    # autant, et c'est une MESURE de #983 : les DEUX natifs ci-dessous etaient LUS (ils figurent
-    # dans `SUBSTRATS_LUS[LISTE_STOCKEE]` et dans les valeurs de `GEOMETRIE_NUE_CLASSEE`) et
-    # pourtant NI armes NI suspendus -- donc en SILENCE TOTAL, exactement ce que la suspension
-    # existe pour interdire. Les inscrire ne DEGRADE rien : ca les rend re-mesures a chaque passe.
+NATIFS_LISTE_STOCKEE_SUSPENDUS: dict = {
+    # ⚠ LE REGISTRE EST VIDE, ET C'EST UN RESULTAT DE L'ETAPE 5, PAS UNE DISPENSE. Les trois natifs
+    # qui y ont vecu en sont sortis PAR LE HAUT, chacun quand son DERNIER foyer a ete cable, et
+    # chaque fois c'est l'etape 5 qui l'a demande en declarant la suspension PERIMEE :
+    # `AdjacentTiles` (#943-r7, 2026-08-12), `AdjacentUnits` (#983, 2026-08-12), `AdjacentFriends`
+    # (#943-r7, 2026-08-15). `AdjacentEnemies`, lui, n'y a fait qu'un aller-retour dans la meme
+    # passe : inscrit par #983, immediatement declare PERIME, donc arme.
     #
-    # `DSLSelectors$$AdjacentFriends(unit, unique, selType)` =
-    # `Friends(unit, Units(AdjacentTiles(unit)) - unit, selType)` -- donc `AdjacentTiles`, donc la
-    # liste stockee. L'armer ferait rougir SIX foyers, dont trois hors tolerance
-    # (`imperative.py` x2, `triggers/loki/icon_of_obstinacy.py`), tous bloques par #943-r7.
-    "AdjacentFriends": "#271/#943-r7",
-    # ⚠ `AdjacentEnemies`, son pendant exact avec `Enemies`, a fait le chemin INVERSE dans la MEME
-    # tranche : inscrit ici, l'etape 5 l'a immediatement declare PERIME (0 foyer HORS TOLERANCE ne
-    # le justifie -- ses trois foyers sont deja nommes dans `GEOMETRIE_NUE_TOLEREE`), donc il est
-    # ARME ci-dessus. C'est la mecanique qui tranche, pas la symetrie des noms.
+    # VIDE != INERTE. L'etape 5 rend alors `(0 perime, 0 suspendu)` et ne pese sur rien -- c'est
+    # explicite dans sa docstring (<< Registre VIDE = rien a garder ici (tout est arme), pas un
+    # perimetre casse >>). Ce qui garde le gisement dans cet etat, ce sont les etapes 2/4/6, qui
+    # voient desormais TOUS ces natifs. La seule chose que ce registre doit rester capable de faire,
+    # c'est d'accueillir un natif LU dont l'armement ferait rougir un vice ENCORE OUVERT : le
+    # laisser vide sans le supprimer est ce qui rend cette porte disponible.
 }
 
 # TOLERANCE NOMMEE de l'etape 2 -- les mirrors declares dont la geometrie nue est un ECART ASSUME,
 # et non un oubli. Cle = `(chemin, nom de fonction)` : PAS la ligne, qui bouge a chaque edition du
 # fichier et ferait perimer la liste sans que rien n'ait change au fond.
 #
-# ⚠ POURQUOI UNE TOLERANCE PLUTOT QU'UNE REPARATION -- c'est une MESURE, pas un renoncement
-# (#943-r4, 2026-08-12). Le residu #271 (`IterateAdjacentTiles` porte en plus un gate
-# `|elev(a) - elev(b)| < 2`) est commun a TOUTE une famille de selecteurs, et le critere de l'etape 2
-# n'en voit qu'une fraction : il exige que la docstring NOMME un natif a liste stockee, ce qui est
-# une propriete de la PROSE, pas du code. Balayage EXHAUSTIF du contenu (`etape6` ci-dessous, meme
-# arbre, meme passe) :
+# ⚠ ELLE EST VIDE DEPUIS #943-r7 (2026-08-15), ET C'EST SON PROPRE CRITERE QUI L'A VIDEE. Elle ne
+# disait pas << cette geometrie est correcte >> mais << la reparer ICI SEULEMENT serait un fork >> --
+# un FAIT DU DEPOT, vrai tant qu'une FAMILLE de sites portait la meme geometrie sans etre vue. Ce
+# fait a cesse : la famille est cablee sur le foyer `engine.battle_query.is_adjacent`, et l'`etape6`
+# ne rend plus AUCUN site `LISTE_STOCKEE`. Ses trois entrees sont sorties par le HAUT, chacune une
+# fois son blocage RE-MESURE et trouve plus etroit que ce qui etait ecrit :
 #
-#     30 fonctions d'`engine/` comparent une distance hex a 1
-#      2 seulement sont VUES par l'etape 2 (docstring declarante, aucun acces au canal)
-#      2 touchent le canal (etape 4)
-#     26 font la MEME geometrie nue et sont MUETTES -- invisibles a l'etape 2 par construction
+#   * `aura_selectors.py::adjacent_friends_including_owner` -- AUCUN blocage propre : la fonction
+#     recoit l'ECS, donc `State.board`, et n'a qu'UNE face (`kustom_force_field.py`) ;
+#   * `loki/icon_of_obstinacy.py::create_aura_attack_damage_bonus_for_ally` -- son ctx d'aura
+#     PORTAIT DEJA `board` sur les DEUX faces (`aura_attack_damage_bonus_from_allies`) ; cable dans
+#     le MEME commit que l'autre expression du meme `AIconOfObstinacyAbility$$GetAffectedUnits`
+#     (le trigger runner), pour que le buff d'ARMURE et le bonus de DEGAT ne divergent pas ;
+#   * `loki/terrors_lament.py::_adjacent_enemy_melee` -- << ce ctx d'aura ne publie aucun board >>
+#     etait plus LARGE que le fait : sur ses QUATRE call-sites, deux passent le board de coups et
+#     deux le ctx defenseur, et les quatre publient la cle depuis le meme commit, sur les deux faces.
 #
-# ⚠ CES CHIFFRES SE RE-DERIVENT (`etape6`, publiee a chaque passe), ils ne se citent pas : le
-# gisement a gagne UN site pendant la seule duree de la tranche qui l'a mesure (25 -> 26, entre la
-# mesure et le rebase). C'est le fait qui compte, pas l'entier : la part MUETTE est d'un ordre de
-# grandeur au-dessus de la part visible.
-#
-# Reparer les deux visibles laisserait donc 26 sites divergents : c'est le FORK que les deux
-# docstrings annoncent explicitement (<< Le corriger ICI seulement serait un fork >>), pas son
-# evitement. La reparation est un DEPLACEMENT AU FOYER pour toute la famille -- elle est ouverte en
-# residu, et elle n'est pas de la taille d'une tranche de reparation de cliquets.
-#
-# CE QUE LA TOLERANCE N'EXCUSE PAS, et c'est ce qui la distingue d'un silence : elle est NOMMEE site
-# par site. Tout mirror declare QUI N'Y EST PAS fait rougir -- le gisement ne peut donc pas grandir
-# a l'abri de cette liste, seulement sous les 25 muets, que l'etape 6 publie et compte.
-GEOMETRIE_NUE_TOLEREE = {
-    ("scripts/python/engine/entities/effects/aura_selectors.py",
-     "adjacent_friends_including_owner"): "#271/#943-r4",
-    ("scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py",
-     "create_aura_attack_damage_bonus_for_ally"): "#271/#943-r4",
-    # Entre par #950, DENONCE par l'etape 6 au premier rebase de #943-r4 alors qu'il etait encore
-    # MUET, puis devenu DECLARANT en corrigeant sa prose : sa docstring affirmait
-    # << `IsAdjacent` = ring-1 HEX >>, ce que le decompile REFUTE
-    # (`IsAdjacentAbilityTrigger$$ShouldTrigger` -> slot 0x60 = `AreEntitiesAdjacent`, slot 96).
-    # Meme famille et meme blocage que les deux ci-dessus : le ctx d'aura ne publie aucun board.
-    ("scripts/python/engine/entities/effects/loki/terrors_lament.py",
-     "_adjacent_enemy_melee"): "#271/#943-r7",
-}
+# ⚠ VIDE != SUPPRIMEE. Le mecanisme reste arme et garde par ses deux contre-epreuves : un mirror
+# declare NEUF a geometrie nue rougit (la tolerance ne dispense QUE ce qu'elle NOMME), et vider la
+# liste doit faire reapparaitre exactement ce qu'elle nommait. La porte reste disponible pour un
+# ecart REELLEMENT assume -- elle n'a simplement plus d'occupant.
+GEOMETRIE_NUE_TOLEREE: dict = {}
 
 # ETAPE 6 -- LE REGISTRE DE CLASSIFICATION, et c'est lui qui a fait cesser le critere de PROSE
 # (#943-r4, 2026-08-12). Cle = `(chemin, nom de fonction)`, comme la tolerance ci-dessus.
@@ -292,52 +283,39 @@ GEOMETRIE_NUE_TOLEREE = {
 #         chaque paire, donc `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`.
 #     La valeur porte alors le residu qui tient la dette.
 #
-# ⚠ HUIT DES DIX-NEUF `LISTE_STOCKEE` SONT CABLES (#943-r7, 2026-08-12) -- et le critere qui les a
-# separes des onze autres n'est PAS << lequel est facile >>, c'est **L'ETAT DE LA FACE JUMELLE**.
-# La crainte fondatrice (<< n'en cabler qu'un cote CREE la divergence de faces >>) presuppose que
-# les DEUX faces sont nues. MESURE : c'est FAUX pour huit d'entre elles. Toute face COMBAT qui
-# execute un arbre DSL (`AdjacentFriends`/`AdjacentEnemies`/`AdjacentUnits` ->
-# `dsl/base._within(order='adjacent')` -> `_adjacent_tiles_native`, et le tile-selecteur
-# `entities/selectors/tiles.py::AdjacentTiles` -> `board.neighbours_native`) lit **DEJA** la liste
-# stockee. Leur jumelle DECISION, elle, recompose le selecteur A LA MAIN sur les tables de `Scene`
-# (<< `Scene` n'a pas d'`AbilityEntities` pour executer l'arbre >>, ce que ces sites ecrivent
-# eux-memes) -- en couronne hex. La divergence de faces EXISTAIT donc DEJA, et dans l'autre sens :
-# cabler la face nue la **RESORBE**, exactement comme `_fighting_retreat_sets_flags` (#943-r4).
+# ⚠ LE VOLET `LISTE_STOCKEE` EST VIDE DEPUIS #943-r7 (2026-08-15) -- 19 -> 11 -> 9 -> **0**, et
+# aucune de ces sorties n'est une dispense : chaque site a ete CABLE, donc il ne compare plus aucune
+# distance a 1 et quitte le gisement de l'etape 6 PAR LE HAUT. La classe reste DECLAREE (constante,
+# substrats lus, contre-epreuve) parce que c'est elle qui accueillera le prochain site a geometrie
+# nue dont le natif enumere la liste stockee.
 #
-# Les huit, et ce qui ferme le couple pour chacun :
-#   * `effect_targets.py::_adjacent_friends` -- pas un couple : le FOYER COMMUN. Ses deux substrats
-#     (`_SceneEffectTargetWorld`, `_RunnerEffectTargetWorld`) l'appellent tous les deux, donc une
-#     seule edition deplace les DEUX faces. Le canal entre par le PROTOCOLE (`neigh_by_pos()` /
-#     `elev_by_pos()`), pas par une derivation locale : ce module ne connait aucun board ;
-#   * `scene.py` x4 + `prediction/abilities.py::make_hammer_wrath_events` +
-#     `psyker.py::possible_targets` + `noncomparable/get_em_runtz.py::_spawn_tile_count` -- faces
-#     DECISION dont la jumelle COMBAT est deja sur substrat stocke (le DSL pour six ;
-#     `board.neighbours(ttile)` pour `psyker`). La `Scene` et le `NCContext` PORTENT deja les deux
-#     canaux (`Scene.neigh_by_pos` est une propriete DERIVEE du board), donc aucun seeding requis.
-#
-# ⚠ LES ONZE QUI RESTENT NE SONT PAS UN RELIQUAT DE FATIGUE -- chacun a sa raison, et deux d'entre
-# elles ne sont PAS le blocage de seeding :
-#   * NEUF sont des ctx d'AURA (ou de trait) : des DICTS que l'agregateur remplit
-#     (`effects/__init__.py::aura_*`), sans board ni carte. Les cabler exige de PUBLIER les deux
-#     cartes en amont, dans `damage_model.attacker_modifiers` ET dans la face PREDICTION -- un
-#     foyer partage bien au-dela de l'adjacence. BLOCAGE `seeding` ;
-#   * `triggers/loki/icon_of_obstinacy.py::icon_of_obstinacy_affected_units` -- COUPLE NON
-#     FERMABLE, et c'est le seul cas ou la crainte fondatrice est VERIFIEE. L'AUTRE expression du
-#     MEME `AIconOfObstinacyAbility$$GetAffectedUnits` est
-#     `effects/loki/icon_of_obstinacy.py::create_aura_attack_damage_bonus_for_ally`, un ctx d'aura
-#     (donc sous `GEOMETRIE_NUE_TOLEREE`, et bloque comme les neuf ci-dessus). Cabler le runner
-#     seul ferait diverger le buff d'armure du bonus de degat, que le natif fait coincider ;
-#   * `runner/abilities/loki/momentum.py::_execute_behaviour_step` -- SUBSTRAT DIFFERENT, pas un
-#     blocage de contexte. `TileExtensions$$IsNeighbourOf` enumere `ConnectivityComponent+0x10`
-#     **SANS porte d'elevation** : `is_adjacent` y serait FAUX (il ajouterait la porte), et
-#     `neighbours_native` aussi (le champ capte EST deja `connectivity INTERSECTE {|dElev| < 2}`).
-#     Le canal juste est `Board.neighbours_connectivity`, TRI-ETAT et absent des boards
-#     versionnes -- donc non confrontable offline. BLOCAGE `capteur`.
+# CE QUI A DEBLOQUE LES NEUF DERNIERS, ET CE N'EST PAS UN EFFORT : c'est une RE-MESURE. Le blocage
+# ecrit (`BLOCAGE: seeding` -- << les cabler exige de PUBLIER les deux cartes en amont >>) etait plus
+# LARGE que le fait, pour les neuf :
+#   * `imperative.py` x2 (canal DEGAT) et le ctx d'aura d'`icon_of_obstinacy.py` -- leur agregateur
+#     `aura_attack_damage_bonus_from_allies` PUBLIAIT DEJA `ctx["board"]` sur ses DEUX faces
+#     (`damage_model._apply_ally_attack_damage_auras`, `_shared._apply_ally_attack_dmg_bonus`) :
+#     ZERO seeding. Meme constat que pour `extra_damage_aura` en #983 ;
+#   * `hits.py` x4 et `traits/combat.py` -- le seeding tenait en UNE cle (`board`) ajoutee au board
+#     de coups et aux deux ctx d'`additional_hits`, sur les DEUX faces, dont les constructeurs
+#     avaient tous le board SOUS LA MAIN (`state.board` / `scene.board`). Une cle ADDITIVE dans un
+#     dict, pas un canal a construire ;
+#   * `triggers/loki/icon_of_obstinacy.py` -- le << COUPLE NON FERMABLE >> se fermait des que sa
+#     jumelle (le ctx d'aura ci-dessus) etait cablable : les DEUX l'ont ete dans le meme commit ;
+#   * `runner/abilities/loki/momentum.py` -- SUBSTRAT DIFFERENT, et c'est le seul dont l'analyse
+#     tenait : `TileExtensions$$IsNeighbourOf(targetTile, GetMainTile(caster))` enumere
+#     `ConnectivityComponent+0x10` **SANS porte d'elevation**, donc ni `is_adjacent` ni
+#     `neighbours_native` ne conviennent (tous deux ajouteraient la porte -- le champ capte EST deja
+#     `connectivity INTERSECTE {|dElev| < 2}`). Cable sur `Board.neighbours_connectivity`, TRI-ETAT :
+#     le champ n'existe QU'EN LIVE (les `data/boards/*.json` sont des ASSETS), donc canal absent ->
+#     repli GEOMETRIQUE nomme. L'etiquette `BLOCAGE: capteur` etait fausse -- le capteur EXISTE
+#     (`rpc-board.ts` publie `connectivity` depuis #448-r1-r1-r1-r1-r2) ; ce qui manque est une
+#     confrontation OFFLINE, pas un capteur.
 #
 # ⚠ CE QUE LA CLE `(chemin, nom)` NE SEPARE PAS, et c'est nomme plutot que corrige :
-# `hits.py` porte DEUX `create_aura_additional_hits_for_ally` (deux classes, deux abilities). Une
-# seule entree les couvre, donc la disparition de l'UNE ne perime pas l'entree tant que l'AUTRE
-# vit. Une cle par ligne perimerait a chaque edition -- le vice que la tolerance ci-dessus evite.
+# `hits.py` portait DEUX `create_aura_additional_hits_for_ally` (deux classes, deux abilities). Une
+# seule entree les couvrait, donc la disparition de l'UNE ne perimait pas l'entree tant que l'AUTRE
+# vivait. Une cle par ligne perimerait a chaque edition -- le vice que la tolerance ci-dessus evite.
 GEOMETRIQUE = "GEOMETRIQUE"          # le natif fait lui-meme de la geometrie hex -> port EXACT
 LISTE_STOCKEE = "LISTE_STOCKEE"      # le natif enumere la liste stockee -> le canal MANQUE
 
@@ -354,44 +332,9 @@ GEOMETRIE_NUE_CLASSEE = {
         (GEOMETRIQUE, "DSLSelectors$$UnitsDirectlyBehind -> SurroundingTiles(target, 1, 1)"),
     ("scripts/python/engine/services/movement_query.py", "is_valid_unit_feet_list"):
         (GEOMETRIQUE, "MovementQuery$$IsValidUnitFeetList -> GetDistance = CubeCoordinate$$Distance"),
-    # ---- LISTE_STOCKEE : le natif enumere `ConnectivityComponent+0x10`, le canal MANQUE ----
-    # ⚠ DEUX entrees ont QUITTE ce registre le 2026-08-12 (#983), CABLEES et non dispensees :
-    # `dark_angels_passives.py::marks_target` (canal derive de `state.board`, face MONO -- aucune
-    # jumelle DECISION : `marked_effect_types_for_target` n'a qu'un appelant, `damage_model`) et
-    # `extra_damage_aura.py::create_aura_attack_bonus` (canal derive du `board` que le ctx d'aura
-    # PORTAIT DEJA -- `aura_attack_bonus_from_allies` publie `ctx["board"] = scene.board`, donc
-    # AUCUN seeding n'etait requis : le blocage ecrit ici etait plus large que le fait).
-    ("scripts/python/engine/entities/effects/loki/hits.py", "aura_selector_covers"):
-        (LISTE_STOCKEE, "DSLSelectors$$AdjacentEnemies + DSLTriggers$$IsAdjacent -> AreEntitiesAdjacent"),
-    ("scripts/python/engine/entities/effects/loki/hits.py", "create_aura_hits_malus_for_defense"):
-        (LISTE_STOCKEE, "BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack -> AdjacentFriends"),
-    ("scripts/python/engine/entities/effects/loki/hits.py", "create_aura_additional_hits_for_ally"):
-        (LISTE_STOCKEE, "DSLSelectors$$AdjacentFriends"),
-    ("scripts/python/engine/entities/effects/loki/imperative.py",
-     "create_aura_attack_damage_bonus_for_ally"):
-        (LISTE_STOCKEE, "ConquerorImperativeEffect$$CreateTargetSelector -> AdjacentFriends"),
-    ("scripts/python/engine/entities/effects/loki/imperative.py",
-     "create_aura_fixed_armor_bonus_for_defense"):
-        (LISTE_STOCKEE, "ConquerorImperativeEffect$$CreateTargetSelector -> AdjacentFriends"),
-    # ⚠ `terrors_lament.py::_adjacent_enemy_melee` (entre par #950) N'EST PAS ICI, et le chemin
-    # qu'il a pris vaut d'etre lu : l'etape 6 l'a denonce NON CLASSE au premier rebase, sa docstring
-    # AFFIRMAIT << `IsAdjacent` = ring-1 HEX >>, et c'est REFUTE --
-    # `IsAdjacentAbilityTrigger$$ShouldTrigger` appelle le slot 0x60 = `AreEntitiesAdjacent`
-    # (slot 96) sur chaque paire. Corriger la PROSE l'a rendu DECLARANT : il a donc quitte le
-    # gisement des MUETS pour celui de l'etape 2, et son entree vit dans `GEOMETRIE_NUE_TOLEREE`
-    # ci-dessus. C'est la mecanique voulue, pas un contournement -- nommer son natif fait entrer au
-    # gisement VISIBLE, et les deux registres restent disjoints par construction.
-    ("scripts/python/engine/entities/traits/combat.py", "as_attacker_bonus_hits"):
-        (LISTE_STOCKEE, "GetStuckInAbility$$GetBonusHitChance -> DSLSelectors$$AdjacentUnits"),
-    ("scripts/python/engine/runner/abilities/loki/momentum.py", "_execute_behaviour_step"):
-        (LISTE_STOCKEE, "UnstoppableMomentumReworkedAbility$$ExecuteBehaviourStep -> TileExtensions$$IsNeighbourOf"),
-    ("scripts/python/engine/runner/operations/triggers/loki/icon_of_obstinacy.py",
-     "icon_of_obstinacy_affected_units"):
-        (LISTE_STOCKEE, "AIconOfObstinacyAbility$$GetAffectedUnits -> DSLSelectors$$AdjacentFriends"),
+    # ---- LISTE_STOCKEE : VIDE (#943-r7, 2026-08-15). Cf. le bloc ci-dessus : les 19 sites ont ete
+    # CABLES, pas dispenses -- ils ne comparent plus aucune distance a 1. La classe reste declaree.
 }
-
-#: Le residu qui porte la dette des sites `LISTE_STOCKEE` non repares (#943-r7).
-RESIDU_LISTE_STOCKEE = "#271/#943-r7"
 
 #: Les substrats LUS AU DECOMPILE, par classe -- c'est ce qui rend `GEOMETRIE_NUE_CLASSEE`
 #: VERIFIABLE au lieu de declaratif. Une entree doit citer un substrat de SA classe et AUCUN de

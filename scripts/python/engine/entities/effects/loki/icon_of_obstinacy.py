@@ -154,6 +154,13 @@ from ....dsl.base import _round_fix64
 from ...stats import StatPart, StatType
 from ....services.effect_bonus import EffectBonus
 from ...traits.unit_trait import UnitTrait
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1). Le ctx de
+# `aura_attack_damage_bonus_from_allies` porte DEJA `board` sur ses DEUX faces (COMBAT
+# `damage_model._apply_ally_attack_damage_auras`, PREDICTION `_shared._apply_ally_attack_dmg_bonus`)
+# -- aucun seeding neuf. `pathfinding.board` n'importe RIEN de `engine`, `engine.battle_query`
+# n'importe que `hexgeo` + `.hex_corner`.
+from ...pathfinding import board as _board
+from .... import battle_query as _bq
 
 #: La cle gameconfig du passif -- `ability_var` l'utilise pour indexer `variables` par niveau et
 #: pour appliquer (ou non) le multiplicateur de rarete. Le gameconfig `IconOfObstinacy` porte
@@ -284,20 +291,24 @@ class IconOfObstinacyExtraDmgEffect(BaseEffect):
         `att_traits` est le substrat d'ENTITE (traits accordes en bataille compris), pas le kit --
         c'est bien ce qu'interroge `UnitExtensions$$HasTrait`.
 
-        ⚠ L'adjacence est `hexgeo.distance == 1`, le MEME foyer que les autres selecteurs d'effet
-        (`entities/effect_targets.py::_adjacent_friends`, `effects/aura_selectors.py::
-        surrounding_friends`). RESIDU NOMME, commun a toute cette famille : le voisinage natif de
-        `TileQuery$$IterateAdjacentTiles` porte en plus un gate `|elev(a) - elev(b)| < 2` (#271,
-        mesure : `hexgeo` seul est PERMISSIF sur 9/22/2 paires selon le board). Le corriger ICI
-        seulement serait un fork ; il se corrige au foyer, pour toute la famille."""
+        ⚠ L'adjacence passe par le FOYER `engine.battle_query.is_adjacent` depuis #943-r7 : la
+        couronne hex nue qui vivait ici SUR-ATTEIGNAIT la liste stockee du `ConnectivityComponent`
+        qu'enumere `AdjacentTiles`, et elle ignorait la porte `|elev(a) - elev(b)| < 2` de
+        `TileQuery$$IterateAdjacentTiles` (#271). Le cablage est fait DANS LE MEME COMMIT que celui
+        de l'AUTRE expression du meme `AIconOfObstinacyAbility$$GetAffectedUnits`
+        (`runner/operations/triggers/loki/icon_of_obstinacy.py::icon_of_obstinacy_affected_units`) :
+        les cabler separement aurait fait diverger le buff d'ARMURE du bonus de DEGAT, que le natif
+        fait coincider par construction (c'est UN selecteur, pas deux)."""
         c = ctx or {}
         if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
             return None                                # `Friends` = meme equipe que le porteur
         opos, apos = c.get("owner_pos"), c.get("att_pos")
         if not opos or not apos:
             return None
-        import hexgeo
-        if hexgeo.distance(tuple(opos), tuple(apos)) != 1:      # `AdjacentFriends` : distance hex 1
+        # `AdjacentFriends(Owner, unique, 3)` = `Friends(Owner, Units(AdjacentTiles(Owner)) - Owner,
+        # 3)` -- l'ENUMERATION part du PORTEUR : `is_adjacent(owner, att)`, pas l'inverse.
+        elev_by_pos, neigh_by_pos = _board.adjacency_channels(c.get("board"))
+        if not _bq.is_adjacent(tuple(opos), tuple(apos), elev_by_pos, neigh_by_pos):
             return None
         if TERMINATOR_TRAIT.name not in (c.get("att_traits") or ()):   # `UnitsWithTrait(0x40f)`
             return None
