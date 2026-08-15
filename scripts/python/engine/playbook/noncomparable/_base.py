@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import hexgeo
 import gameconfig as _gc
+from engine import battle_query as bq            # FORME B (liaison de MODULE) : `is_target_tile_obscured`,
+#                                                 l'un des deux etages de `has_eligible_normal_attack_target`.
 
 from ...entities.active_ability_type import ActiveAbilityType
 from engine.ai import cast_positions as CP        # FORME B (liaison de MODULE) : le foyer
@@ -293,6 +296,79 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
     # #433-r4-r1-r4-r2-r1 : le voisinage NATIF (liste stockee) accompagne l'elevation -- les deux
     # sont les DEUX etages d'`IterateAdjacentTiles`, et n'en passer qu'un degrade en silence.
     return count_adjacent(tile, ctx.epos or [], ctx.elev_by_pos, neigh_map(ctx))
+
+
+def visual_id_of(ctx: "NCContext", unit_id) -> str | None:
+    """`visualId` d'une unite -- `observeBattle.units[].visualId`, le seul canal de `NCContext` qui
+    le porte pour une unite ARBITRAIRE (y compris ENNEMIE).
+
+    ⚠ LA CLE EST `squadId`, PAS `entityId`. Les deux existent sur la MEME ligne d'`observeBattle` et
+    ne valent PAS la meme chose : `squadId` est l'id d'unite que manipulent `decisionView`,
+    `abilityTargets` et le port (`ctx.uid`), `entityId` est l'entite ECS. Mesure #975 : chercher
+    `entityId` rendait `None` sur les 10 unites du banc, donc le predicat appelant rendait `False`
+    PARTOUT et son playbook etait ENREGISTRE MAIS INERTE."""
+    for u in (ctx.obs_units or []):
+        if u.get("squadId") == unit_id or u.get("id") == unit_id:
+            v = u.get("visualId")
+            if v:
+                return str(v)
+    return None
+
+
+def has_eligible_normal_attack_target(ctx: "NCContext", unit_id, tile: tuple | None,
+                                      foes) -> bool:
+    """`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack(unit, position)`
+    `.Count > 0` -- FOYER UNIQUE du predicat, partage par ses appelants.
+
+    Corps natif, RELU :
+
+        GetEligibleTargetsForNormalAttack(this, unit, position)
+          = <IBattleQuery slot 0x42 = 66 GetValidTargets>(unit, position,
+                                                          UnitExtensions.GetNormalAttackType(unit))
+
+    (slot LU dans `data/symbols/<build>/metadata/interface_slots.tsv`.) La POSITION est un argument :
+    la question est << si `unit` se tenait LA, aurait-elle une cible d'attaque normale ? >>.
+
+    ⚠ **NE PAS CONFONDRE AVEC LES DEUX VOISINS DE FORME**, tous deux relus avant d'ecrire ceci :
+      * `BasePlaybook$$GetAllNormalAttackTargets(unit)` = slot **0x45 = 69**
+        `GetAllValidTargetsFromAllPossibleMovementTiles` -- l'UNION sur les tuiles de MOVE, sans
+        argument de position. C'est un AUTRE ensemble (`playbook/loki_custom.py` le porte, et sa
+        docstring cite `0x44` : le slot exact est `0x45`).
+      * `TheQuickeningPlaybook$$GetNumAttackTargetsInPosition` = slot **0x80 = 128**
+        `GetAdjacentEnemies` -- des ennemis ADJACENTS, pas des cibles LEGALES
+        (`_get_num_attack_targets_in_position` ci-dessus porte celui-la).
+
+    `foes` = les positions des ADVERSAIRES de `unit_id`, derivees PAR L'APPELANT : le camp adverse
+    n'est pas le meme selon qu'on interroge le caster (ses adversaires sont `ctx.epos`) ou une
+    cible ENNEMIE (ses adversaires sont NOS unites). Mettre cette derivation dans le foyer
+    obligerait a y ecrire un << qui est l'ennemi de qui >> que les deux sites connaissent mieux.
+
+    ETAGES PORTES, et EUX SEULS (residu `#975-r1`) : la PORTEE
+    (`distance <= _max_attack_range(visualId)`, foyer partage `engine.ai.state_bridge`) et
+    l'OBSCURCISSEMENT (`bq.is_target_tile_obscured`, mirror de
+    `IdunBattle.Core.Services.TargetingQuery$$IsTargetTileObscured`, exact a distance 2).
+    NON portes : le brouillard de guerre, la walkability de la tuile de la cible, les bits du
+    masque de l'attaque normale. Les trois ne peuvent que RETIRER des cibles -> ce predicat est une
+    **BORNE SUPERIEURE**. Il peut rendre `True` la ou le natif rend `False`, jamais l'inverse."""
+    if tile is None:
+        return False
+    vis = visual_id_of(ctx, unit_id)
+    if not vis:
+        return False                # portee non derivable : le port ne devine pas une portee
+    from engine.ai.state_bridge import _max_attack_range   # DIFFERE PORTEUR : `ai.state_bridge`
+    #   importe `engine.playbook` (le meme cycle que differe `playbook/loki_custom.py`, pour le
+    #   MEME symbole et la MEME raison). Classe VERIFIEE, pas supposee.
+    rng = int(_max_attack_range(vis))
+    for q in (foes or ()):
+        if not q or q[0] is None:
+            continue
+        p = (q[0], q[1])
+        if hexgeo.distance(tile, p) > rng:
+            continue                                            # hors portee d'attaque normale
+        if bq.is_target_tile_obscured(tile, p, ctx.elev_by_pos):
+            continue                                            # `IsTargetTileObscured` -> refus
+        return True                                             # `Count > 0` : court-circuit
+    return False
 
 
 def eligible_target_tiles(ctx: "NCContext", ability_id: int) -> tuple[list, list]:

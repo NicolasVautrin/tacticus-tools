@@ -92,58 +92,25 @@ pas une lecture :
 """
 from __future__ import annotations
 
-import hexgeo
-
-from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook
-
-
-def _visual_id_of(ctx: NCContext, unit_id) -> str | None:
-    """`visualId` de l'unite -- `observeBattle.units[].visualId`, seul canal de `NCContext` qui le
-    porte.
-
-    ⚠ LA CLE EST `squadId`, PAS `entityId`. Les deux existent sur la MEME ligne d'`observeBattle`
-    et ne valent PAS la meme chose : `squadId` est l'id d'unite que manipulent `decisionView`,
-    `abilityTargets` et le port (`ctx.uid`), `entityId` est l'entite ECS. Mesure #975 : chercher
-    `entityId` rendait `None` sur les 10 unites du banc, donc `has_enemy_in_range` rendait `False`
-    PARTOUT et le playbook etait ENREGISTRE MAIS INERTE -- exactement le vice que le brief nomme.
-    `hammer_of_wrath._displacement_bonus` lit deja `squadId`, c'est la meme cle."""
-    for u in (ctx.obs_units or []):
-        if u.get("squadId") == unit_id or u.get("id") == unit_id:
-            v = u.get("visualId")
-            if v:
-                return str(v)
-    return None
+from ._base import (NCContext, NonComparablePlaybook, has_eligible_normal_attack_target,
+                    visual_id_of as _visual_id_of)
 
 
 def has_enemy_in_range(ctx: NCContext, tile: tuple) -> bool:
     """`...ExemplarOfTheKauyonPlaybook$$HasEnemyInRange(entities)` =
     `GetEligibleTargetsForNormalAttack(caster, UnitPosition(entities@+0x10)).Count > 0`.
 
-    Mirror des DEUX etages dominants de `<IBattleQuery slot 0x42> GetValidTargets` -- portee et
-    obscurcissement. Les etages non portes ne peuvent que retirer des cibles, donc ce predicat est
-    une BORNE SUPERIEURE (cf. l'en-tete du module, residu `#975-r1`)."""
-    if tile is None:
-        return False
-    vis = _visual_id_of(ctx, ctx.uid)
-    if not vis:
-        return False                # portee non derivable : le port ne devine pas une portee
-    from engine.ai.state_bridge import _max_attack_range   # DIFFERE PORTEUR : `ai.state_bridge`
-    #   importe `engine.playbook` (meme cycle que celui documente par `playbook/loki_custom.py`,
-    #   qui differe le MEME symbole pour la MEME raison).
-    rng = int(_max_attack_range(vis))
-    for e in (ctx.epos or []):
-        if not e or e[0] is None:
-            continue
-        q = (e[0], e[1])
-        if hexgeo.distance(tile, q) > rng:
-            continue                                            # hors portee d'attaque normale
-        if bq.is_target_tile_obscured(tile, q, ctx.elev_by_pos):
-            continue                                            # `IsTargetTileObscured` -> refus
-        return True                                             # `Count > 0` : court-circuit
-    return False
+    ⚠ **LE CORPS VIT DANS `_base.has_eligible_normal_attack_target`, ET C'EST DELIBERE** : le MEME
+    predicat natif est appele par `AttemptedPossessionPlaybook$$EvaluateNonComparable` (2e
+    increment, `#590-r7`), sur une unite ENNEMIE. Deux transcriptions du meme corps natif se
+    desynchroniseraient -- une seule des deux serait corrigee le jour ou un etage manquant est
+    porte. Ce qui reste ICI est ce qui est PROPRE a ce site : le caster est `ctx.uid`, et ses
+    adversaires sont `ctx.epos`.
+
+    Etages portes, bornes et residu `#975-r1` : cf. le foyer."""
+    return has_eligible_normal_attack_target(ctx, ctx.uid, tile, ctx.epos)
 
 
 class ExemplarOfTheKauyonPlaybook(NonComparablePlaybook):
