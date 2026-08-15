@@ -52,6 +52,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+#: Les sorties du run vont dans le `logs/` de la RACINE, jamais sous `scripts/`, qui ne porte que
+#: des sources. `ROOT` reste `scripts/python` -- il sert au `sys.path` et au `cwd` des sous-process.
+REPO = ROOT.parents[1]
+
 from rl_collect_batch import _resolve_session, _rpc            # noqa: E402
 from engine.entities.pathfinding.board import Board            # noqa: E402
 from engine.runner.prng import IntBasedMersenneTwister         # noqa: E402
@@ -91,7 +95,7 @@ def stage(seed: int, board_id: str, drone: str = DRONE, victime: str = VICTIME,
 
     `dmg_attaquant` (optionnel) borne le degat de l'attaquant (`--unit-stat`) pour que le drone
     SURVIVE a la serie : un drone mort sortirait du regime mixte par la mauvaise porte."""
-    sf = ROOT / "logs" / "runners" / ("sp1020-%s.json" % uuid.uuid4().hex[:8])
+    sf = REPO / "logs" / "runners" / ("sp1020-%s.json" % uuid.uuid4().hex[:8])
     sf.parent.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board_id,
            "--state-file", str(sf),

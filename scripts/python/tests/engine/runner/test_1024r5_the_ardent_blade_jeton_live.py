@@ -78,7 +78,9 @@ BOARD = "MC1_67"
 
 #: Les sorties du run vont dans `logs/` -- JAMAIS sous `data/`, qui ne porte que des ENTREES
 #: versionnees (`catalog_inject.write_*` le REFUSE, rc 2).
-_LOGS = Path(__file__).resolve().parents[4] / "logs"
+#: `parents[5]` = la RACINE du depot. `parents[4]` designait `scripts/`, donc les sorties du run
+#: atterrissaient sous les SOURCES -- gitignorees par le motif `logs/`, donc invisibles.
+_LOGS = Path(__file__).resolve().parents[5] / "logs"
 
 
 def _seed_bc(avec_relique: bool) -> str:
