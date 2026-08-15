@@ -93,12 +93,22 @@ def _weights():
 @functools.lru_cache(maxsize=None)
 def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tuple:
     """Abilities ACTIVES accordees au runtime par un `passiveAbilities` de l'unite (absentes de
-    `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive). DERIVEES DU PASSIVE
-    (aucune table hardcodee) : le natif nomme la classe accordee `<Passive>_HealAbility` = membre d'enum
-    `Heal_<Passive>` (ex. passive `TwistedScience` -> `TwistedScience_HealAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$ExecuteBehaviour`
-    = enum `Heal_TwistedScience` 1167). Donc pour chaque passive P on resout l'enum `Heal_<P>` s'il existe.
-    C'est le PASSIVE (donnee jeu) + la convention de nommage NATIVE (enum) qui donnent l'ability — pas un
-    mapping invente. (Couvre les grants HEAL ; d'autres familles de grant = extension a confirmer.)
+    `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive).
+
+    LE LITTERAL, PAS LA CONVENTION (#1015-r4). La source est le registre LU
+    `entities.active_abilities.PASSIVE_ADDS_ACTIVE_ABILITY` -- le troisieme argument de
+    `IdunBattleLogic.Entities.DSLBehaviors$$AddActiveAbility` dans les TROIS `CreateBehaviour` qui
+    l'appellent (xrefs entrantes exhaustives), jumeau exact du retrait deja porte par
+    `PASSIVE_REMOVES_ACTIVE_ABILITY` : Remove et Add sont COMPOSES dans le meme behaviour, ils ne
+    peuvent pas mordre separement.
+
+    ⚠ CE QUE CE FOYER FAISAIT AVANT, et pourquoi c'etait faux : il DERIVAIT l'ability d'une convention
+    de nommage (`Heal_<Passif>`). Mesure sur les 211 passifs distincts du gameconfig -- la convention
+    ne mord que sur **1** d'entre eux (`TwistedScience` -> `Heal_TwistedScience` 1167) ; les deux
+    autres membres portent des formes qu'elle ne voit pas (`HealingBalms_Heal` 1212,
+    `Repair_GalvanicField` 1119). Le registre est donc un SUR-ENSEMBLE STRICT de la convention : il
+    ne retire rien, il ajoute les 7 porteurs qui n'avaient AUCUNE ability de soin/reparation cote
+    decideur offline (`spaceWolfPriest`, et les 6 porteurs de `GalvanicField`).
 
     SUBSTRAT — TRI-ETAT (#931-r2), meme discipline que `services.custom_normal_attack` :
       * `passive_abilities` = un TUPLE (fut-il VIDE) -> c'est la MESURE de l'entite
@@ -118,15 +128,16 @@ def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tupl
     Le tuple est exige (et non une liste) parce que ce foyer est `lru_cache` : une entree non
     hashable leverait, et une entree MUABLE ferait servir un cache pour une valeur qui a change."""
     import enum_maps as EM
-    rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    from ..entities.active_abilities import passive_granted_active_ability_ids
     source = (passive_abilities if passive_abilities is not None
               else ((GC.unit(vid) or {}).get("passiveAbilities") or []))
     out: list = []
-    for p in source:
-        nm = f"Heal_{p}"
-        aid = rev.get(nm)
-        if aid is not None:
-            out.append((int(aid), nm))
+    for aid in passive_granted_active_ability_ids(source):
+        # ⚠ Le NOM vient de `EM.ACTIVE_ABILITY_TYPE` (sens `{id: nom}`) : ces accordees n'ont AUCUNE
+        # entree gameconfig cote `activeAbilities`, donc aucun nom de kit ne les designe. Et il n'est
+        # pas decoratif -- `ActionGenerators._heal_candidates` selectionne les soins par
+        # `"Heal" in ab["name"]`, donc un `str(aid)` de repli rendrait `1212` invisible au decideur.
+        out.append((int(aid), EM.ACTIVE_ABILITY_TYPE.get(int(aid)) or str(aid)))
     return tuple(out)
 
 
