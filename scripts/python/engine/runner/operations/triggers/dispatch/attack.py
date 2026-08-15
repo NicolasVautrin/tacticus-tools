@@ -226,7 +226,8 @@ def pre_damage_taken_triggers(state: State, source_id: Optional[int], target_id:
 
 
 def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
-                          profile: Optional[str] = None) -> list[dict]:
+                          profile: Optional[str] = None,
+                          source_ability: Optional[int] = None) -> list[dict]:
     """Vecteur `On(DamageTaken=0xf=15)` — emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
     (`FUN_1800280e0(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
     `if ((0 < (int)local_7dc) || !HealthComponent.IsUnitWithHealthStat(target))` ou
@@ -243,9 +244,40 @@ def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int
     (`ApplyDamageOperation` est appelee par coup), le port une fois par attaque -- sans effet observable
     pour le seul consommateur porte (re-pose/refresh idempotent).
 
-    AUCUN autre trigger porte n'ecoute `event_id == 15`."""
+    CONSOMMATEURS PORTES de `event_id == 15` -- TROIS, et la ligne « aucun autre » qui vivait ici
+    etait PERIMEE : `ThrillSeekersDamageTakenAbility` (branche 2), `HyperCorrosiveAcid` et
+    `ElectrochaffBackupsOnRangedDamageAbility` (branche B, #1025). Seul le dernier lit
+    `ability_type`.
+
+    `source_ability` (#1025-r2) = le canal `AbilityEntities+0x60` (`CurrentAbility`), et il n'etait
+    PAS threade -- c'est ce que ce residu ferme. TROIS lectures l'etablissent :
+
+      * `IdunBattle.Operations.ApplyDamageOperation$$Execute` ne construit **qu'UN SEUL**
+        `AbilityEntities` (une seule invocation du ctor a 33 parametres, `memset(.., 0x128)` puis
+        `ctor(entities, source, source, victime, 0 x9, <bloc A>, .., <bloc B>, ..)`), et le REUTILISE
+        pour ses TROIS publications `On(0x39)` / `On(0xf)` / `On(0x10)`. Le `+0x60` de `On(0xf)` est
+        donc le MEME que celui de `On(0x39)`, deja resolu par le port en `source_ability`
+        (`DamageAppliedResult+0x40`, le `Nullable<AbilityOrEffect>` de la `DamageSource` -- #1020-r3).
+      * `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack()` -- la surcharge SANS argument, celle
+        qu'utilise `ElectrochaffBackups` -- alloue elle-meme son selecteur d'ability : elle
+        `new`-ifie la classe rangee par `IdunBattleLogic.Entities.DSLSelectors$$.ctor` en
+        **`+0x88`**, c'est-a-dire `AbilityTypeSelector.CurrentAbilitySelector` (`Select` = lecture de
+        `AbilityEntities+0x60`). Le predicat lit donc bien CE canal, pas `TriggeringAbility@+0x98`.
+      * `IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger` passe ce selecteur
+        en 1er argument du slot **3** d'`IBattleQuery` (`BattleQuery$$IsRangedAttack`), dont la
+        branche `Ranged(2)` rend VRAI **sans lire aucune position**.
+
+    Sans ce canal, `_is_ranged_attack` retombait sur la branche « attaque normale concrete »
+    (`Normal(3)` = `!AreEntitiesAdjacent`) pour TOUT degat : une attaque d'ABILITY declaree
+    `attackRangeType: Ranged` contre une cible ADJACENTE etait acceptee par le natif et REFUSEE par
+    le port. Degradation RESTRICTIVE, fermee ici.
+
+    ⚠ LES DEUX FRERES DU MEME `AbilityEntities` (`On(0x39)`, `On(0x10)`) NE LE PORTENT PAS ENCORE,
+    et c'est DELIBERE : aucun de leurs consommateurs portes ne lit `ability_type` (mesure : les cinq
+    fichiers de `triggers/loki/` concernes n'ont pas une seule occurrence de `ev.ability_type`), donc
+    l'y poser serait un canal sans lecteur -- non validable. Residu `#10013`."""
     ev = TriggerEvent(EventTriggerType.DamageTaken, source_id, target_id,
-                      ranged=False, profile=profile)
+                      ranged=False, profile=profile, ability_type=source_ability)
     return evaluate_trigger_operation(state, ev)
 
 

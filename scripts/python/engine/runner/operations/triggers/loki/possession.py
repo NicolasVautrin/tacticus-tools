@@ -69,24 +69,31 @@ FORME DU PORT (doctrine #149) ET RESIDUS NOMMES
   `If(cond, ., .)` est collapse -- son `cond` est le marqueur melee, qui n'a PAS de noeud porte.
 
 RESIDUS :
-* **marqueur « defait par une attaque de MELEE »** -- le natif lit le champ persistant
-  `UnitComponent+0x178` ; le vecteur `On(PostUnitKill)` du port ne transporte AUCUN canal melee
-  (`move_death.post_unit_kill_triggers` pose `ranged=False` en dur). On approxime donc
-  POSITIONNELLEMENT via `_is_ranged_position` -- STRICTEMENT le meme choix, le meme helper et le
-  meme residu que `DawnBladeHealAbility` (#317), qui lit le MEME marqueur natif. Ici la
-  degradation n'est ni permissive ni restrictive : elle choisit le MAUVAIS SUMMON (Bloodletter au
-  lieu de Blue Horror) quand le coup fatal est une attaque a distance depuis une tuile adjacente.
+* **marqueur « defait par une attaque de MELEE » -- PORTE (#951-r1), l'approximation n'est plus
+  qu'un REPLI.** Le natif lit le champ persistant `UnitComponent+0x178`
+  (`DefeatedByMeleeAttack`), que `IdunBattle.Operations.KillUnitOperation$$Execute` ecrit avec
+  `rangeType.HasValue && rangeType.GetValueOrDefault() == Melee(1)`. Le port tient desormais ce
+  champ sur les DEUX faces (simulation : `damage.py::_kill_unit_operation` depuis le 5e argument
+  de `MatchState$$AddDeath` ; seeding : `snapshot._load_death_sources` depuis
+  `decisionView.units[].defeatedByMelee`). L'approximation POSITIONNELLE (`_is_ranged_position`)
+  ne sert plus que quand le champ est `None` -- une voie de mort qui ne transporte pas
+  d'`AttackRangeType` (crush, feuille DSL `Kill`). `DawnBladeHealAbility` (#317) lit le MEME
+  marqueur et pourrait etre rebranche de la meme facon : NON FAIT ici (autre foyer).
 * `countRevived = true` / `countResurrected = true` : les deux drapeaux (`HasFlag(0x14)` revivee /
   `HasFlag(0xe)` ressuscitee) ne sont pas modelises -- dans tout regime porte, une victime REVIVEE
   ne parvient pas jusqu'a `On(PostUnitKill)` avec `alive = False`, donc la seule branche atteignable
   est `HealthComponent.IsDead` (meme constat que #317).
-* `NOT TriggeringAbilityIs(ItsGonnaBlow)` : le canal `TriggerEvent.triggering_ability` est
-  INCONDITIONNELLEMENT VIDE sur le vecteur MORT (`triggers/base.py`, mirror du champ natif
-  `AbilityEntities.CurrentAbility` que `KillUnitOperation` ne renseigne pas). Le gate est donc
-  ECRIT mais ne peut pas mordre tant que ce canal n'est pas seede -- il est conserve parce qu'il
-  est LU au decompile, et parce que le jour ou le canal existera il mordra sans rien changer
-  d'autre. Sens de la degradation : PERMISSIF (un kill par `ItsGonnaBlow` ferait quand meme
-  apparaitre un summon). Residu #955-r1.
+* `NOT TriggeringAbilityIs(ItsGonnaBlow)` -- **LE CANAL ETAIT LE MAUVAIS, PAS ABSENT (#955-r1).**
+  Le gate lisait `TriggerEvent.triggering_ability`, mirror de `CurrentAbility@+0x60`, que le
+  `memset(.., 0x128)` de `KillUnitOperation$$Execute` laisse a ZERO sur les cinq evenements de
+  mort : le test etait STRUCTURELLEMENT inerte. Or `TriggeringAbilityIs` prend le slot
+  `DSLSelectors+0x90` -> `TriggeringAbilitySelector$$Select`, qui lit `+0x98` -- et `+0x98` EST
+  seede sur ce vecteur (le `killTrigger` de la file, pose sur `state.trigger_ability_type` par
+  `damage.py::_verify_deaths`, #301). Le gate lit donc desormais `state.trigger_ability_type`,
+  comme `haze_of_corruption` le fait deja. Ce qui reste ouvert n'est plus un SEEDING mais un
+  PORTEUR : `ItsGonnaBlow` (passif de la caisse de munitions npc) n'a aucun poseur cote port,
+  donc `+0x98` ne vaudra jamais 1080 aujourd'hui -- meme constat, deja ecrit, dans
+  `barbed_ovipositor.py` et `head_claimer.py`, qui portent le MEME conjoint.
 * `maxDuplicatesAllowed = 0x7fffffff` / `ignoreForcedTargets = false` du `PickRandomly` : sans
   objet pour `amount = 1` sans duplicata (`allowDuplicates = false`), transcrits ici, non portes.
 """
@@ -197,9 +204,18 @@ class PossessionSummonOnKillAbility(TriggeredAbility):
         oo, to = owner.get_component(OwnerComponent), target.get_component(OwnerComponent)
         if oo is None or to is None or oo.team == to.team:   # AreEnemies(Owner@+0x30, Target@+0x60, 0)
             return False
-        # `NOT TriggeringAbilityIs(0x438 = ItsGonnaBlow)` -- canal vide sur le vecteur MORT, cf.
-        # residu #955-r1 de l'en-tete : le test est ECRIT, il ne mord que si le canal est seede.
-        if ev.triggering_ability is not None and int(ev.triggering_ability) == ITS_GONNA_BLOW:
+        # `NOT TriggeringAbilityIs(0x438 = ItsGonnaBlow)` -- LE CANAL EST `+0x98`, PAS `+0x60`
+        # (#955-r1). `IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs` prend le slot
+        # `DSLSelectors+0x90` -> `AbilityTypeSelector.TriggeringAbilitySelector$$Select`, qui lit
+        # `AbilityEntities+0x98`. Sur le vecteur MORT ce champ n'est pas vide : c'est le `killTrigger`
+        # que `IdunBattle.Operations.KillUnitOperation$$Execute` y recopie depuis
+        # `KillUnitOptions+0x04`, et que le port pose sur `state.trigger_ability_type` le temps du
+        # drain (`damage.py::_verify_deaths`, #301). Le canal `ev.triggering_ability`, lui, mirror
+        # `CurrentAbility@+0x60`, que le meme `memset(.., 0x128)` laisse a ZERO sur les CINQ
+        # evenements de mort -- le lire ici rendait le gate STRUCTURELLEMENT inerte.
+        # Meme foyer et meme justification que `haze_of_corruption._triggering_ability`.
+        _trig = getattr(state, "trigger_ability_type", None)
+        if _trig is not None and int(_trig) == ITS_GONNA_BLOW:
             return False
         # `NOT IsObjectOrSteppable(Target@+0x60)` -- meme foyer DSL que `BattleFatigueAbility`.
         return not _IS_OBJECT_OR_STEPPABLE.should_trigger(
@@ -208,8 +224,19 @@ class PossessionSummonOnKillAbility(TriggeredAbility):
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         victim = ev.dying_id if ev.dying_id is not None else ev.target_id
         # `If( NOT IsDefeatedByMeleeAttack(Target), Spawn(unitId_2), Spawn(unitId) )` : la branche
-        # VRAIE (kill NON-melee) prend `unitId_2`. Marqueur approxime positionnellement (residu).
-        ranged_kill = _is_ranged_position(state, int(self.owner_id), int(victim))
+        # VRAIE (kill NON-melee) prend `unitId_2`.
+        # LE MARQUEUR EST DESORMAIS LU (#951-r1) : `IsDefeatedByMeleeAttack` lit le byte
+        # `UnitComponent+0x178` de la VICTIME, que `IdunBattle.Operations.KillUnitOperation$$Execute`
+        # ecrit avec `rangeType == Melee(1)` -- le port le pose sur les DEUX faces
+        # (`damage.py::_kill_unit_operation` en simulation, `snapshot._load_death_sources` depuis
+        # `decisionView.units[].defeatedByMelee`). TRI-ETAT : `None` = mort dont la voie ne transporte
+        # pas d'`AttackRangeType` (crush, feuille DSL `Kill`) ou etat charge sans le champ -> REPLI
+        # sur l'approximation positionnelle historique, nommee, et desormais minoritaire.
+        _vic_e = state.get_entity(int(victim))
+        _vic_uc = _vic_e.get_component(UnitComponent) if _vic_e is not None else None
+        _dbm = _vic_uc.defeated_by_melee if _vic_uc is not None else None
+        ranged_kill = ((not bool(_dbm)) if _dbm is not None
+                       else _is_ranged_position(state, int(self.owner_id), int(victim)))
         ability_state = triggered_ability_state(state, self.owner_id, ABILITY_ID)
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, self.owner_id, victim, actor_id=ev.actor_id)

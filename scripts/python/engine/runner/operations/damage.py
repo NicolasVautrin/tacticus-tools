@@ -1116,7 +1116,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # substitution posee sur `dispatch.attack` mord quelle que soit la forme finale.
         from .triggers.dispatch import attack as attack_dispatch
         if applied > 0:
-            attack_dispatch.damage_taken_triggers(state, attacker_id, target_id, profile=profile)
+            # #1025-r2 : `source_ability` = le canal `AbilityEntities+0x60` (`CurrentAbility`). Le
+            # natif ne construit qu'UN `AbilityEntities` pour ses trois publications, donc ce vecteur
+            # porte EXACTEMENT ce que porte deja `On(0x39)` juste au-dessus. C'est le canal que lit
+            # `IsRangedAttack()` (selecteur `DSLSelectors+0x88` = `CurrentAbilitySelector`) --
+            # sans lui, le predicat retombait sur l'adjacence et refusait une attaque d'ability
+            # `attackRangeType: Ranged` portee au CONTACT. Cf. `damage_taken_triggers`.
+            attack_dispatch.damage_taken_triggers(state, attacker_id, target_id, profile=profile,
+                                                  source_ability=source_ability)
         # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
         # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x39` -> `0xf` -> `0x10`).
         # (`0x3a` ecrit ici jusqu'a #963 etait une COQUILLE : `0x3a` = `PhaseEnd`, pas
