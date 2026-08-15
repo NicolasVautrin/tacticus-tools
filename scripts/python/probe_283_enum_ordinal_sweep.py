@@ -1912,11 +1912,20 @@ def main(argv) -> int:
     #: cliquet est dans la banque, donc cette derive se produisait a CHAQUE passe sans que rien ne
     #: la signale -- exactement le regime que #486-r22 disait avoir ferme, sur un cliquet que son
     #: cran ne couvrait pas.
-    import verdict_cache
-    for c in _ECRITS:
-        rc = verdict_cache.rendre_compte_du_cache(c, 0)
-        if rc:
-            return rc
+    #:
+    #: ⚠ LA GARDE EST ECRITE SUR `args.step`, PAS SUR `_ECRITS`, ET C'EST STRUCTUREL. Seules ces
+    #: deux etapes ecrivent un cache, donc `if _ECRITS:` serait juste a l'execution -- mais
+    #: OPAQUE a `probe_439_cliquet_peut_rougir`, qui evalue les valeurs d'arguments de CHAQUE
+    #: entree de banque pour confirmer qu'un COMPTEUR assume reste incapable de rougir. Mesure :
+    #: sans cette condition, `probe_439` passait de PASS a `FAIL (1)` en declarant MORTE la
+    #: declaration `Rougit = 'compteur'` de `probe_283:diff` -- une entree qui, elle, n'ecrit
+    #: aucun cache. Un cran qui fait rougir un AUTRE cliquet a tort se fait desarmer.
+    if args.step in ("all", "mirror", "exec"):
+        import verdict_cache
+        for c in _ECRITS:
+            rc = verdict_cache.rendre_compte_du_cache(c, 0)
+            if rc:
+                return rc
     return 0
 
 
