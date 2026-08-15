@@ -180,13 +180,59 @@ def test_le_port_ne_rend_jamais_une_permission_qui_ne_soit_pas_un_refus_natif():
     """Une PERMISSION desarme une regle : la RENDRE comme code de refus serait inventer un refus.
     UNE seule exception, et elle est NATIVE : `AllowNullCasterTile`, que
     `TargetingQuery$$GetInvalidCasterReason` rend bel et bien quand `casterTiles` est vide sans
-    permission ni `CasterHasNoTile`."""
+    permission ni `CasterHasNoTile`.
+
+    ⚠ Cette assertion a accuse le MOTEUR pour une faute de l'ORACLE (#1114). Elle designait
+    `AllowIgnoreForcedAttackTarget`, que le port n'a jamais rendu : il l'ECRIT dans un masque
+    (`targeting.py::targeting_options_for_continue`), mirror 1:1 du `opts.<+0x28 rules> |=
+    0x10000000000` d'`IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue`.
+    C'est la DERIVATION qui comptait un `int(TR.<X>)` n'importe ou sous un `return`. Le decompile
+    du build courant tranche dans les deux sens : le seul `movabs 1<<40` de tout le binaire est
+    celui de `GetTargetingOptionsForContinue` (ECRITURE), et aucun des ~30 `rule = <litteral>` que
+    `TargetingQuery$$GetInvalidTargetReason` passe a
+    `TargetingRuleExtensions$$GenericBrokenTargetingRule` ne vaut `0x10000000000` -- le bit 40 n'y
+    est LU que pour DESARMER le taunt, dont le code rendu est `TargetIsAllowedForCaster` (0x800000).
+    La liste d'exceptions reste donc a UNE entree ; c'est le critere qui a ete resserre."""
     rendues = set(P.rules_returned_by_port())
     fautives = sorted(n for n in rendues
                       if RULE_ROLE.get(n) is not None
                       and RULE_ROLE[n].kind == "PERMISSION" and n != "AllowNullCasterTile")
     assert not fautives, (
         "le port rend une PERMISSION comme code de refus (refus INVENTE) : %s" % ", ".join(fautives))
+
+
+#: Les `int(TR.<X>)` sous un `return` que la POSITION DE VALEUR ecarte, NOMMES un par un.
+#: (nom de regle, fichier du port, fonction porteuse). Un ecarte NEUF doit etre LU et inscrit ici
+#: -- c'est ce qui empeche le resserrement de #1114 de faire disparaitre un site en silence.
+ECARTES_DECLARES = {
+    # `AActiveAbility$$GetTargetingOptionsForContinue` : `opts.<+0x28 rules> |= 0x10000000000`.
+    # Une COMPOSITION DE MASQUE, pas un code de refus -- le natif POSE ce bit, il ne le REND jamais.
+    ("AllowIgnoreForcedAttackTarget", "targeting.py", "targeting_options_for_continue"),
+}
+
+
+def test_les_ecartes_de_la_position_de_valeur_sont_NOMMES():
+    """Un filtre DIT ce qu'il filtre. Le critere « en position de valeur rendue » ECARTE des
+    `int(TR.<X>)` que l'ancien critere comptait : chacun doit etre NOMME ici, jamais tu.
+
+    Les deux directions comptent, et pour des raisons differentes :
+      * un ecarte NEUF (non declare) est un site que la derivation ne compte plus SANS que
+        personne l'ait lu -- exactement le mode de defaillance « la colonne se perime en
+        silence » que #429 a ferme ;
+      * un ecarte DECLARE mais DISPARU rend ce test VACANT : le resserrement ne serait plus
+        exerce par aucun code reel, et un futur elargissement passerait inapercu."""
+    mesures = P.rules_dropped_by_value_position()
+    assert mesures, (
+        "AUCUN site n'est ecarte par la position de valeur -- le resserrement de #1114 n'est "
+        "plus exerce par le port reel, ce test ne garde plus rien")
+    neufs = sorted(mesures - ECARTES_DECLARES)
+    disparus = sorted(ECARTES_DECLARES - mesures)
+    assert not neufs, (
+        "ecarte(s) NEUF(S), a LIRE puis inscrire dans ECARTES_DECLARES (ou a corriger si le port "
+        "voulait bien rendre un code de refus) : %s" % ", ".join(str(t) for t in neufs))
+    assert not disparus, (
+        "ecarte(s) DECLARE(S) mais DISPARU(S) -- retirer la ligne de ECARTES_DECLARES : %s"
+        % ", ".join(str(t) for t in disparus))
 
 
 def test_ported_by_designe_une_fonction_qui_existe_dans_le_port():
@@ -318,6 +364,102 @@ def test_contre_epreuve_armement_perdu(monkeypatch):
     assert "TargetIsAllowedForCaster" not in P.ARMED_BY, "la mutation n'a pas mordu"
     with pytest.raises(AssertionError, match="declarees sans predicat"):
         test_bijection_armed_by_et_predicats()
+
+
+def _module_synthetique(tmp_path, nom_fichier: str, source: str):
+    """Ecrit un module JETABLE et le substitue au perimetre du port, pour exercer la DERIVATION
+    sur une forme que le port reel n'a pas. On ne touche a aucun fichier du depot."""
+    f = tmp_path / nom_fichier
+    f.write_text(source, encoding="utf-8")
+    return f
+
+
+def test_contre_epreuve_une_permission_rendue_en_position_de_valeur_ROUGIT(tmp_path, monkeypatch):
+    """Le resserrement de #1114 MORD-il encore dans le bon sens ? Un port qui rendrait vraiment
+    une PERMISSION comme code de refus (`return int(TR.<permission>)`) doit toujours faire rougir.
+    Sans cette morsure, la narrowing du critere pourrait avoir vide la garde de son sens."""
+    f = _module_synthetique(tmp_path, "faux_refus.py", (
+        "def get_invalid_target_reason_mutant(options):\n"
+        "    return int(TR.AllowUntargetableTarget)\n"))
+    monkeypatch.setattr(P, "_port_modules", lambda: [f])
+    assert "AllowUntargetableTarget" in P.rules_returned_by_port(), "la mutation n'a pas mordu"
+    assert RULE_ROLE["AllowUntargetableTarget"].kind == "PERMISSION", "la mutation n'a pas mordu"
+    with pytest.raises(AssertionError, match="refus INVENTE"):
+        test_le_port_ne_rend_jamais_une_permission_qui_ne_soit_pas_un_refus_natif()
+
+
+def test_contre_epreuve_une_composition_de_masque_n_est_PAS_un_code_de_refus(tmp_path, monkeypatch):
+    """L'autre sens : les DEUX formes que la position de valeur doit ecarter, sur du code
+    synthetique -- l'operande d'un `|` dans un argument nomme (la forme reelle de
+    `targeting_options_for_continue`) et le `test` d'un `IfExp` (ce qu'un test LIT n'est pas ce
+    qui est RENDU). Aucune ne doit compter comme code de refus, et les DEUX doivent ressortir
+    NOMMEES par `rules_dropped_by_value_position`."""
+    f = _module_synthetique(tmp_path, "masque.py", (
+        "def options_mutantes(options):\n"
+        "    return replace(options,\n"
+        "                   rules=int(options.rules) | int(TR.AllowUntargetableTarget))\n"
+        "\n"
+        "def aiguillage_mutant(options):\n"
+        "    return 0 if int(TR.AllowSteppableUnit) else 1\n"))
+    monkeypatch.setattr(P, "_port_modules", lambda: [f])
+    assert P._returns_du_port(), "la mutation n'a pas mordu : aucun `return` vu"
+    rendues = P.rules_returned_by_port()
+    assert "AllowUntargetableTarget" not in rendues, (
+        "un `int(TR.X)` operande d'un `|` est compte comme CODE DE REFUS -- le critere ne "
+        "discrimine plus la COMPOSITION DE MASQUE du refus rendu")
+    assert "AllowSteppableUnit" not in rendues, (
+        "un `int(TR.X)` en position de TEST d'un `IfExp` est compte comme CODE DE REFUS")
+    ecartes = {n for n, _f, _fn in P.rules_dropped_by_value_position()}
+    assert ecartes == {"AllowUntargetableTarget", "AllowSteppableUnit"}, (
+        "les ecartes ne sont pas NOMMES a l'identique de ce qui a ete filtre : %s" % sorted(ecartes))
+
+
+def test_contre_epreuve_position_de_valeur_conserve_les_formes_reelles(tmp_path, monkeypatch):
+    """Le resserrement ne doit RIEN perdre des formes que le port emploie vraiment : `return
+    int(TR.X)` nu, et les deux branches d'un `IfExp` (`0 if c else int(TR.X)` /
+    `int(TR.X) if c else 0`), y compris IMBRIQUE
+    (`targeting.py::get_target_domain_broken_rule` en a un). Mesure du 2026-08-15 : ces formes
+    couvrent les 116 sites retenus du port reel, et le resserrement n'en retire QU'UN sur 117."""
+    f = _module_synthetique(tmp_path, "formes.py", (
+        "def nu(o):\n"
+        "    return int(TR.TargetIsEnemy)\n"
+        "\n"
+        "def sinon(o, c):\n"
+        "    return 0 if c else int(TR.TargetIsFriendly)\n"
+        "\n"
+        "def alors(o, c):\n"
+        "    return int(TR.TargetIsHealable) if c else 0\n"
+        "\n"
+        "def imbrique(o, a, b):\n"
+        "    return 0 if a else int(TR.TargetIsMachine) if b else 0\n"
+        "\n"
+        "def ou_logique(o):\n"
+        "    return int(TR.TargetIsSummon) or 0\n"))
+    monkeypatch.setattr(P, "_port_modules", lambda: [f])
+    attendu = {"TargetIsEnemy", "TargetIsFriendly", "TargetIsHealable", "TargetIsMachine",
+               "TargetIsSummon"}
+    assert set(P.rules_returned_by_port()) == attendu, (
+        "la position de valeur PERD une forme reellement employee par le port : manquantes = %s"
+        % sorted(attendu - set(P.rules_returned_by_port())))
+    assert not P.rules_dropped_by_value_position(), (
+        "une forme de valeur rendue est comptee comme ECARTEE : %s"
+        % sorted(P.rules_dropped_by_value_position()))
+
+
+def test_contre_epreuve_returns_de_closure_comptes_une_seule_fois(tmp_path, monkeypatch):
+    """`_returns_du_port` attribue chaque `return` a sa fonction porteuse la PLUS INTERNE. Un
+    `ast.walk` imbrique compterait le `return` d'une closure DEUX fois, une fois sous le nom de
+    la fonction externe -- et l'ecarte se declarerait alors sous un nom de fonction FAUX."""
+    f = _module_synthetique(tmp_path, "closure.py", (
+        "def fabrique(o):\n"
+        "    def regle(state, tid):\n"
+        "        return replace(o, rules=int(o.rules) | int(TR.AllowUntargetableTarget))\n"
+        "    return regle\n"))
+    monkeypatch.setattr(P, "_port_modules", lambda: [f])
+    ecartes = P.rules_dropped_by_value_position()
+    assert ecartes == {("AllowUntargetableTarget", "closure.py", "regle")}, (
+        "le `return` de la closure n'est pas attribue a la fonction la plus interne, ou il est "
+        "compte plusieurs fois : %s" % sorted(ecartes))
 
 
 @pytest.mark.parametrize("nom", ["TargetIsAllowedForCaster", "TargetIsNotSteppable"])

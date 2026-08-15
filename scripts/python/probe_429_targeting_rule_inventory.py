@@ -11,8 +11,12 @@ TROIS DERIVATIONS, aucune saisie
 1. **L'ENUM** vient de `data/symbols/<build qui fait foi>/frida/enums.tsv` (via `symbols_layout`),
    jamais d'une liste ecrite ici.
 2. **CE QUE LE PORT PORTE** vient de l'AST de `engine/runner/abilities/` : une regle est PORTEE
-   si le port peut la RENDRE comme code de refus (`return int(TR.<X>)`). C'est la colonne qui se
-   perime en silence dans une table ecrite, donc c'est celle qu'on ne saisit jamais.
+   si le port peut la RENDRE comme code de refus (`return int(TR.<X>)`, en POSITION DE VALEUR --
+   cf. `_tr_reason_codes`, resserre par #1114 sur une composition de masque prise pour un refus).
+   C'est la colonne qui se perime en silence dans une table ecrite, donc c'est celle qu'on ne
+   saisit jamais. Ce que la position de valeur ECARTE est NOMME (`rules_dropped_by_value_position`),
+   imprime par le rapport et garde par un test : un filtre muet est le meme vice que les trois
+   inventaires remplaces.
 3. **L'ARMEMENT** vient de `targeting_rule_inventory.RULE_ROLE[...].armed_by`, relu au decompile.
    Il change tout : TROIS regles du filtre statique ne sont PAS armees par leur propre bit, et
    compter « les porteurs du bit » y donne un compte structurellement FAUX -- c'est la faute que
@@ -70,13 +74,13 @@ def _tr_names(node: ast.AST) -> set:
     return out
 
 
-def _tr_reason_codes(node: ast.AST) -> set:
-    """Les `int(TR.<Nom>)` d'un sous-arbre -- la forme EXACTE d'un CODE DE REFUS rendu.
+def _tr_int_calls_anywhere(node: ast.AST) -> set:
+    """Les `int(TR.<Nom>)` N'IMPORTE OU dans un sous-arbre -- le TOTAL a partitionner.
 
-    Le critere large « un `TR.<X>` sous un `return` » est FAUX : il capte aussi les getters
-    DECLARATIFS du masque (`return self.has(TR.CasterIsPossibleTarget)`), qui ne refusent rien.
-    Mesure : le critere large classait `TargetIsEnemy`/`CasterIsPossibleTarget` comme portes par
-    des lignes qui sont de simples lectures."""
+    Ce n'etait pas un helper mais LE critere (`_tr_reason_codes` d'avant #1114) : tout
+    `int(TR.<X>)` sous un `return` etait compte comme un CODE DE REFUS rendu. Il est conserve
+    ici parce que la PARTITION doit rester exhaustive -- un `int(TR.<X>)` que la position de
+    valeur ecarte doit rester COMPTE quelque part, jamais disparaitre en silence."""
     out = set()
     for n in ast.walk(node):
         if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "int"
@@ -85,26 +89,107 @@ def _tr_reason_codes(node: ast.AST) -> set:
     return out
 
 
+def _tr_reason_codes(node: ast.AST) -> set:
+    """Les `int(TR.<Nom>)` en POSITION DE VALEUR RENDUE -- la forme EXACTE d'un CODE DE REFUS.
+
+    TROIS resserrements successifs, chacun sur une FAUSSE POSITIVE MESUREE :
+
+    1. « un `TR.<X>` sous un `return` » captait les getters DECLARATIFS du masque
+       (`return self.has(TR.CasterIsPossibleTarget)`), qui ne refusent rien -- il classait
+       `TargetIsEnemy`/`CasterIsPossibleTarget` portes par de simples lectures ;
+    2. « un `int(TR.<X>)` N'IMPORTE OU sous un `return` » captait une COMPOSITION DE MASQUE
+       (#1114) : `targeting.py::targeting_options_for_continue` rend un `TargetingOptions`, pas
+       un code, et son `rules=int(options.rules) | int(TR.AllowIgnoreForcedAttackTarget)` est le
+       mirror 1:1 d'`IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue`
+       (`opts.<+0x28 rules> |= 0x10000000000`). Le natif POSE ce bit ; il ne le REND jamais ;
+    3. d'ou le critere d'aujourd'hui : le `int(TR.<X>)` doit etre CE QUE LE `return` REND. On
+       descend depuis `Return.value` par les seuls noeuds VALEUR-TRANSPARENTS -- `IfExp`
+       (`body`/`orelse`, jamais `test` : ce qu'un test LIT n'est pas ce qui est RENDU) et
+       `BoolOp`. Tout le reste (argument d'appel, operande de `|`, indice, element de
+       conteneur) N'EST PAS la valeur rendue.
+
+    ANCRAGE NATIF du resserrement 3 : `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`
+    (surcharge 7 args) termine par `GenericBrokenTargetingRule(rule)` avec UNE regle -- chacun de
+    ses ~30 `rule = <litteral>` est un membre SIMPLE. Un refus natif ne porte jamais une
+    COMBINAISON, donc un `int(TR.<X>)` operande d'un `|` ne peut pas etre un code de refus.
+
+    CE QU'IL NE VOIT PAS, et c'est dit plutot que tu : un code de refus rendu a travers un
+    WRAPPER (`return _broken(int(TR.<X>))`). Aucun site du port n'a cette forme aujourd'hui
+    (mesure : les 118 sites retenus sont tous `return int(TR.X)` ou `return ... if ... else
+    int(TR.X)`), et le sens de la degradation est le bon -- une telle forme serait comptee NON
+    PORTEE, donc SUR-declaree en trou, jamais tue. La contrepartie est gardee : ce que ce
+    critere ECARTE est NOMME par `rules_dropped_by_value_position`, et un ecarte NEUF fait
+    rougir `test_targeting_rule_inventory.py`."""
+    if isinstance(node, ast.IfExp):
+        return _tr_reason_codes(node.body) | _tr_reason_codes(node.orelse)
+    if isinstance(node, ast.BoolOp):
+        out = set()
+        for v in node.values:
+            out |= _tr_reason_codes(v)
+        return out
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "int"
+            and len(node.args) == 1):
+        return _tr_names(node.args[0])
+    return set()
+
+
 def _port_modules() -> list:
     return sorted(p for p in ABILITIES.rglob("*.py") if p.name != "targeting_rule.py")
 
 
-def rules_returned_by_port() -> dict:
-    """{nom de regle: [fichier:ligne]} -- les regles que le port peut RENDRE comme code de refus.
+def _returns_du_port():
+    """[(fichier, fonction porteuse la PLUS INTERNE, noeud `Return`)] des modules du port.
 
-    Critere = `int(TR.<X>)` dans l'expression d'un `return`. C'est la definition OPERATIONNELLE de
-    « portee » : le natif rend la 1re regle rompue, donc une regle que le port ne rend jamais ne
-    refuse jamais (degradation PERMISSIVE)."""
-    out = {}
+    Descente explicite plutot qu'`ast.walk` imbrique : `ast.walk(<fonction externe>)` traverse
+    AUSSI les closures, donc chaque `return` de closure y apparaitrait DEUX fois, une fois sous
+    le nom de la fonction externe. Le port en a (les fabriques de regles dynamiques), et le nom
+    de la fonction porteuse est ce qui identifie un ecarte."""
+    def descendre(node, porteuse, acc):
+        for enfant in ast.iter_child_nodes(node):
+            if isinstance(enfant, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                descendre(enfant, enfant.name, acc)
+            else:
+                if isinstance(enfant, ast.Return) and enfant.value is not None:
+                    acc.append((porteuse, enfant))
+                descendre(enfant, porteuse, acc)
+
+    res = []
     for f in _port_modules():
         try:
             tree = ast.parse(f.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
-        for n in ast.walk(tree):
-            if isinstance(n, ast.Return) and n.value is not None:
-                for nom in _tr_reason_codes(n.value):
-                    out.setdefault(nom, []).append("%s:%d" % (f.name, n.lineno))
+        acc = []
+        descendre(tree, "<module>", acc)
+        res.extend((f, nom, n) for nom, n in acc)
+    return res
+
+
+def rules_returned_by_port() -> dict:
+    """{nom de regle: [fichier:ligne]} -- les regles que le port peut RENDRE comme code de refus.
+
+    Critere = `int(TR.<X>)` en POSITION DE VALEUR d'un `return` (cf. `_tr_reason_codes`). C'est la
+    definition OPERATIONNELLE de « portee » : le natif rend la 1re regle rompue, donc une regle que
+    le port ne rend jamais ne refuse jamais (degradation PERMISSIVE)."""
+    out = {}
+    for f, _fn, n in _returns_du_port():
+        for nom in _tr_reason_codes(n.value):
+            out.setdefault(nom, []).append("%s:%d" % (f.name, n.lineno))
+    return out
+
+
+def rules_dropped_by_value_position() -> set:
+    """{(nom, fichier, fonction)} -- les `int(TR.<X>)` sous un `return` que la POSITION DE VALEUR
+    ecarte : le port les ECRIT (dans un masque, un argument...), il ne les REND pas.
+
+    La partition `rules_returned_by_port` + celle-ci est EXHAUSTIVE par construction (difference
+    d'ensembles sur le meme `return`). Elle existe pour que rien ne disparaisse en silence : un
+    filtre qui ne DIT PAS ce qu'il filtre est exactement le mode de defaillance que #429 a ferme
+    sur les trois inventaires qu'il remplace."""
+    out = set()
+    for f, fn, n in _returns_du_port():
+        for nom in _tr_int_calls_anywhere(n.value) - _tr_reason_codes(n.value):
+            out.add((nom, f.name, fn))
     return out
 
 
@@ -278,6 +363,14 @@ def main() -> int:
 
     masks = collect_masks()
     print("  masques lisibles au registre : %d" % len(masks))
+
+    # Un filtre DIT ce qu'il filtre : les `int(TR.<X>)` sous un `return` que la POSITION DE
+    # VALEUR ecarte (le port les ECRIT, il ne les REND pas) sont NOMMES, jamais tus.
+    ecartes = rules_dropped_by_value_position()
+    print("  ECARTES PAR LA POSITION DE VALEUR : %d occurrence(s) -- le port les ECRIT "
+          "(masque, argument), il ne les REND pas" % len(ecartes))
+    for nom, fichier, fonction in sorted(ecartes):
+        print("      %-42s %s::%s" % (nom, fichier, fonction))
 
     print("")
     print("--- REGLES GATE NON PORTEES x PORTEURS ARMES ----------------------------")
