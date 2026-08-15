@@ -110,10 +110,21 @@ def classes_portees() -> dict[str, set]:
 
 #: Les classes PORTEES mais VOLONTAIREMENT hors registre, avec la raison MESUREE. Une classe qui
 #: n'est ni au registre ni ici est un vrai trou -- c'est le discriminant de l'etape 0.
+#:
+#: ⚠ << hors registre >> N'EST PAS << non portee >>, et confondre les deux est ce qui a fait
+#: compter 5 << corps restants >> la ou 4 ont desormais leur RE capitalisee dans le module. Le
+#: registre est ce que le DISPATCHER charge ; la classe est ce que la RE a etabli. Les separer
+#: permet de porter un corps sans creer le code mort que le patron #419 refuse.
 PORTEES_HORS_REGISTRE = {
     # 1522 : zero porteur sur ce build (deux sources : `unit_map find --ability` et un balayage
     # textuel du gameconfig). L'inscrire serait le patron #419.
     "RedemptionOfTheRisenNonOwnerPlaybook": "0 porteur (patron #419), RE faite et juste",
+    # #1036-r3 / #433-r4-r3-r1-r1 / #1024-r7 -- porteur MACHINE OF WAR, hors de l'univers de
+    # porteurs des dispatchers portes (etapes 1 et 2 ci-dessous). MEME raison pour les quatre.
+    "CabalOfSorcerersPlaybook": "porteur MoW hors univers du dispatcher (#1036-r3)",
+    "WisdomOfTheAncientsPlaybook": "porteur MoW hors univers du dispatcher (#433-r4-r3-r1-r1)",
+    "MastersOfManoeuvreNonOwnerPlaybook": "porteur MoW hors univers du dispatcher (#433-r4-r3-r1-r1)",
+    "ShieldOfFaithNonOwnerPlaybook": "porteur MoW hors univers du dispatcher (#1024-r7)",
 }
 
 
