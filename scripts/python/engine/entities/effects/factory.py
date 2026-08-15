@@ -208,6 +208,7 @@ from .loki.relic_bolt_pistol import (
     RelicBoltPistolExtraCritDamageEffect, RelicBoltPistolExtraPierceEffect
 )
 from .loki.helspear import HelspearIgnoreArmorEffect          # #1008 (relique 1583, blackHaarken)
+from .loki.strike_from_the_shadows import StrikeFromTheShadowsEffect   # #1008-r4 (1549, astarCyrus)
 from .loki.rites_of_morkai import RitesOfMorkaiExtraDamageEffect
 from .loki.serene_unifier import SereneUnifierStormOfFireEffect
 from .loki.shock_assault import ShockAssaultBuffEffect
@@ -1394,10 +1395,24 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EST dediee (`IdunBattle.Entities.Effects.Loki.Helspear_IgnoreArmorEffect`, 1152 octets), et son
     # `CreateEffectDamageMalusForDefense` est un `EffectBonus` CONDITION-SEULE a valeur nulle -- la
     # magnitude vit dans le slot `IgnoreArmor` (corps FONDU avec `WayOfTheShortBladeEffect$$IgnoreArmor`).
-    # ⚠ Cette magnitude n'atteint PAS le calcul : le canal `get_armor_penetration` du port est
-    # ATTAQUANT-side alors que le porteur est le DEFENSEUR. Residu `#1008-r2`, BLOCAGE `etage` --
-    # detail et point d'ancrage dans `entities/effects/loki/helspear.py`.
+    # ⚠ L'AVERTISSEMENT QUI VIVAIT ICI EST PERIME, et le laisser ferait renoncer a un port juste :
+    # il disait << cette magnitude n'atteint PAS le calcul, le canal `get_armor_penetration` du port
+    # est ATTAQUANT-side >>. #1008-r2 l'a CABLE cote DEFENSEUR --
+    # `entities/effects/__init__.py::build_defender_modifiers_from_effects` lit
+    # `e.get_armor_penetration(...)` DANS le bloc gate par le trigger du malus, exactement ou
+    # `IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense` evalue `IgnoreArmor()`.
+    # Detail et point d'ancrage : `entities/effects/loki/helspear.py`.
     "Helspear_IgnoreArmor": HelspearIgnoreArmorEffect,
+    # StrikeFromTheShadows (0x60d=1549, #1008-r4) : le SECOND effet du canal `IgnoreArmor` DEFENSEUR,
+    # pose par l'active 1225 d'`astarCyrus` sur sa cible. Meme forme que son voisin ci-dessus --
+    # `CreateEffectDamageMalusForDefense` = `EffectBonus` CONDITION-SEULE a magnitude nulle, la
+    # penetration vivant dans le slot virtuel `IgnoreArmor` (corps ICF partage avec
+    # `WayOfTheShortBladeEffect$$IgnoreArmor`) -- mais avec une gate DIFFERENTE, LUE et pas recopiee :
+    # `IsRangedAttack() & get_OwnerIsTarget` (1549) contre `get_OwnerIsTarget & IsUnit(Caster)` (1583).
+    # ⚠ L'enonce qui empechait ce port (<< la classe n'a que DEUX methodes, l'effet est NUMERIQUEMENT
+    # INERTE >>, `runner/abilities/astartes.py`) venait de `frida/methods.tsv`, indexe par ADRESSE
+    # donc DEDUPLIQUE : le bloc `methodPointers` du PE en porte CINQ, dont `IgnoreArmor`.
+    "StrikeFromTheShadows": StrikeFromTheShadowsEffect,
     # DespoiledGround_ExtraDamagePct (0x5c6=1478) : le buff +15 % degat (BC `DespoiledGroundExtraDmgPct`)
     # pose sur l'unite CHAOS qui demarre son tour sur une tuile DespoiledGround, actif contre les cibles
     # Xenos (1006) ou Imperial (26). Nom capte = effect-type-names.ts.

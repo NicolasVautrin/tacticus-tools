@@ -82,8 +82,18 @@ dupliquee, elle est celle du malus, comme dans le natif.
 `StrikeFromTheShadows` (1549) -- les deux seules classes qui surchargent
 `CreateEffectDamageMalusForDefense` parmi les cinq porteuses d'`armorIgnored` au gameconfig
 (les trois autres -- `KanOpener`, `PowerTrip`, `WayOfTheShortBlade` -- surchargent
-`CreateEffectDamageBonusForAttack`, donc face ATTAQUANT). `1549` n'a AUCUNE classe portee : residu
-distinct, ce module ne le couvre pas.
+`CreateEffectDamageBonusForAttack`, donc face ATTAQUANT). `1549` est PORTE depuis #1008-r4
+(`entities/effects/loki/strike_from_the_shadows.py`) ; la phrase qui vivait ici -- << `1549` n'a
+AUCUNE classe portee >> -- est donc PERIMEE.
+
+⚠ **ET LEURS GATES DIFFERENT TERME A TERME** -- c'est le seul endroit du depot ou les deux se lisent
+cote a cote, donc c'est ici qu'il faut le dire :
+
+    Helspear_IgnoreArmor (1583)  :  get_OwnerIsTarget & IsUnit(Caster@<DSLSelectors+0x48>)
+    StrikeFromTheShadows (1549)  :  IsRangedAttack()  & get_OwnerIsTarget
+
+Aucun `IsRangedAttack` ici, aucun `IsUnit(Caster)` la-bas. Recopier l'un sur l'autre serait le piege
+du voisin de forme -- et le voisin est litteralement l'effet d'a cote dans le meme registre.
 """
 from __future__ import annotations
 
