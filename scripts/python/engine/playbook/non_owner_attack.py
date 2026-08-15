@@ -40,36 +40,36 @@ LES QUATRE CORPS CONCRETS, ET CE QUE CE MODULE PORTE
 La ventilation par FACE est LUE dans `data/symbols/<build>/metadata/non_owner_slot4.tsv`
 (#477-r37) : **24 MOVE / 3 ATTACK / 1 REPAIR** sur les 28 concrets. Les trois ATTACK :
 
-| classe | blocage | etat |
+| classe | au registre ? | blocage |
 |---|---|---|
-| `NoHidingFromTheWatchersNonOwnerPlaybook` | `aucun` | **PORTEE ici** |
-| `WayOfTheShortBladeNonOwnerPlaybook`      | `aucun` | **PORTEE ici** |
-| `ShieldOfFaithNonOwnerPlaybook`           | ~~`capteur`~~ **`aucun`** | NON portee -- residu
-  **`#1024-r7`**, et son BLOCAGE EST PERIME (cf. ci-dessous). |
+| `NoHidingFromTheWatchersNonOwnerPlaybook` | **oui** | `aucun` |
+| `WayOfTheShortBladeNonOwnerPlaybook`      | **oui** | `aucun` |
+| `ShieldOfFaithNonOwnerPlaybook`           | **PORTEE, hors registre** | ~~`capteur`~~ ~~`aucun`~~
+  **`etage`** -- porteur MACHINE OF WAR (`#1024-r7`, suite `#1036-r9`) |
 
-⚠ **LE VERROU DE `ShieldOfFaith` EST TOMBE, ET CETTE TABLE L'A AFFIRME UN TEMPS DE TROP.** Le texte
-qui vivait ici -- << son 1er gate est `HasRarity(caster, Mythic)` et AUCUN canal `rarity` n'existe
-cote port ; il faudrait `combatSnapshot.units[].rarity`, donc une fenetre de reinject >> -- etait
-vrai a l'ecriture et ne l'est plus : le capteur est ARME depuis #1039 et CONSOMME depuis #999-r3,
-par le foyer unique `UnitContext.rarity` (mirror `engine/entities/rarity.py`, noeud
-`entities/triggers.HasRarity`). MESURE le 2026-08-14, en live et sur cette ability meme :
-`test_1024r1_shield_of_faith_live.py` lit `ctx.rarity == 5` sur l'attaquant, et sa contre-epreuve
-`--unit-stat <att>:Rarity=4` ETEINT le bouclier des DEUX cotes -- donc le gate est exercable, pas
-seulement lisible. La face COMBAT est portee depuis #1024-r1.
+⚠⚠ **LE BLOCAGE DE `ShieldOfFaith` A ETE ANNONCE FAUX DEUX FOIS, ET LES DEUX FOIS PAR CETTE TABLE.**
 
-Ce qui reste vrai : porter le corps SANS le gate serait un terme PERMISSIF. Ce qui a change : le
-gate est desormais portable. Le blocage de ce residu est donc `aucun`.
-⚠ Et c'est le mode de defaillance que le CLAUDE.md nomme -- un champ `BLOCAGE` n'est JAMAIS
-re-mesure : il fait ECARTER le residu au dispatch, indefiniment, longtemps apres que sa cause a
-disparu. Re-mesurer avant d'ecarter, jamais citer la ligne.
+  1. `capteur` -- << son 1er gate est `HasRarity(caster, Mythic)` et AUCUN canal `rarity` n'existe
+     cote port ; il faudrait `combatSnapshot.units[].rarity`, donc une fenetre de reinject >>. Vrai
+     a l'ecriture, PERIME depuis : le capteur est ARME (#1039) et CONSOMME (#999-r3) par le foyer
+     unique `UnitContext.rarity`. MESURE en live sur cette ability meme --
+     `test_1024r1_shield_of_faith_live.py` lit `ctx.rarity == 5` sur l'attaquant, et sa
+     contre-epreuve `--unit-stat <att>:Rarity=4` ETEINT le bouclier des DEUX cotes.
+  2. `aucun` -- ce que cette table a ecrit ENSUITE. Faux aussi, et pour une raison qui n'a jamais
+     eu de rapport avec la rarete : les DEUX porteurs de 1453 (`adeptExorcist`,
+     `adeptNpcMoWExorcist`) sont des **MACHINES OF WAR**, et `evaluate_attack_in_steps` itere
+     `Scene.units` -- c'est-a-dire `decisionView.units`, d'ou le natif exclut les Machines par
+     construction (canal `.mows` SEPARE). Le dispatcher ne yieldera donc JAMAIS la paire
+     `(playbook, owner)` : le corps est porte ci-dessous, mais l'inscrire au registre serait le
+     patron #419. Mesure : `probe_1036r3_porteurs_non_owner_restants.py`.
 
-La face **REPAIR** n'est pas montee du tout, et ce n'est pas un oubli : son unique corps
-(`VoltagheistFieldPlaybook`) DELEGUE a `<utilitiesDatabase>.GetUtility(0x30 =
-UtilityType.RepairedAmount, 0).<slot 6>(case)`. La feuille `RepairedAmount(48)` EST portee
-(`engine/utilities/repair.py`), mais le `<slot 6>` d'`IUtility` n'est PAS dans
-`data/symbols/<build>/metadata/interface_slots.tsv` (l'interface n'y figure pas) : le canal n'est
-donc pas etabli. Monter un dispatcher REPAIR dont le registre serait VIDE serait du code que rien
-n'itere -- le patron #419 que ce depot refuse. Residu `#271-r7`.
+La lecon n'est pas << la rarete etait le blocage >> ni << elle ne l'etait pas >> : c'est qu'un champ
+`BLOCAGE` n'est JAMAIS re-mesure, donc il survit a sa cause ET se fait remplacer par une seconde
+hypothese aussi peu mesuree que la premiere. Re-mesurer avant d'ecarter, jamais citer la ligne.
+
+La face **REPAIR** est PORTEE depuis #271-r7 (`non_owner_repair.py`, `VoltagheistFieldNonOwnerPlaybook`
+au registre) -- le `<slot 6>` d'`IUtility` que l'ancienne prose disait introuvable a ete LU dans le
+`global-metadata.dat` (`EvaluateRepair`), et le TSV manquait, pas le slot.
 
 ⚠ **`NoHidingFromTheWatchersNonOwnerPlaybook` porte `<slot 4> = true`** (entree versionnee,
 `declare=1 valeur=1 corps=b0 01 c3`). L'inscrire sans cette valeur rendrait sa branche ENNEMI
@@ -84,6 +84,8 @@ from __future__ import annotations
 
 from .. import battle_query as bq
 from ..entities.ability_constant_type import AbilityConstantType
+from ..entities.effect_type import EffectType
+from ..entities.rarity import Rarity
 from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.unit_faction import UnitFaction
@@ -345,15 +347,128 @@ class WayOfTheShortBladeNonOwnerPlaybook(TriggeredAbilityNonOwnerAttackPlaybook)
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
 
 
+def _tile_effect_names(scene, pos) -> tuple:
+    """Les NOMS d'effets portes par la tuile `pos`, cote `IsOwnerOfEffect(..., onlyActive: false)`.
+
+    `IdunBattle.Entities.EntityExtensions$$HasEffect(entity, state, type, onlyActive)` = LU :
+
+        return IsOwnerOfEffect(entity, state, type, onlyActive)
+            || IsTargetOfEffect(entity, state, type);
+
+    et `IsOwnerOfEffect` itere `GetComponent<EffectsOwnedComponent>(entity).<+0x10>` (la liste dont
+    le nom `ActiveEffectIds` TROMPE : le filtre d'activite n'y est pas, il est applique par le
+    parametre `onlyActive`). C'est EXACTEMENT le canal `Scene.tile_effects_owned_by_pos`, servi par
+    `ai/context.py` avec `only_active=False` -- donc la bonne table pour un `onlyActive: false`.
+    Repli sur `tile_effects_by_pos` (ACTIF-ONLY) quand la premiere n'est pas fournie : c'est le
+    comportement d'avant #425-r1, jamais un vide invente. MEME cascade que `SceneTileState`.
+
+    ⚠ ECART NOMME : la seconde branche, `IsTargetOfEffect` (les effets ACTIFS dont l'entite figure
+    dans `EffectComponent.<+0x48>` = la liste des CIBLES), n'a AUCUN canal cote port -- aucune table
+    ne dit « de quels effets cette tuile est la CIBLE ». Pour un effet de TUILE le regime normal est
+    la premiere branche : `TileEffectsUtility.<EvaluateMovementInSteps>d__1` lit precisement
+    l'`EffectsOwnedComponent` de la MainTile, donc une tuile en feu POSSEDE son `Fire`. L'ecart est
+    RESTRICTIF et il est ici parce qu'il est commun a tout le port des effets de tuile."""
+    if scene is None or pos is None:
+        return ()
+    p = (pos[0], pos[1])
+    tbl = getattr(scene, "tile_effects_owned_by_pos", None)
+    if tbl is None:
+        tbl = getattr(scene, "tile_effects_by_pos", None)
+    if tbl is None:
+        return ()                       # canal NON MESURE -> le gate se tait (jamais un faux vrai)
+    return tuple(n for n in (tbl.get(p) or ()) if n)
+
+
+class ShieldOfFaithNonOwnerPlaybook(TriggeredAbilityNonOwnerAttackPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.ShieldOfFaithNonOwnerPlaybook`
+    (`$$.ctor` : litteral `0x5ad` = 1453 `ShieldOfFaith`, MYTHIQUE de MACHINE OF WAR).
+
+    `...u003CCalculateAttackUtilityInStepsu003Ed__2$$MoveNext`, remis en C# depuis le decompile
+    (methode-usine : `case @+0x20, playbook @+0x28` -- **`owner` n'est PAS ecrit**) :
+
+        var caster = case.Caster;                                    // `case+0x10`
+        if (caster.TryGetComponent<BaseUnitComponent>(out var buc) && buc.Rarity != 5)
+            yield break;                                             // Rarity.Mythic
+        if (AnyTileHasEffectOfUnit(case.Target, EffectType.Fire))     // `case+0x20`, litteral 5
+            yield return GetUtilityValue("ShieldOfFaith_LikesEnemiesOnFire");
+
+    et le helper NOMME `...ShieldOfFaithNonOwnerPlaybook$$AnyTileHasEffectOfUnit(target, type)` :
+
+        foreach (t in EntityExtensions.GetTiles(target, State))
+            if (EntityExtensions.HasEffect(t, State, type, onlyActive: false)) return true;
+        return false;
+
+    QUATRE lectures qui ne se devinent pas :
+
+    * ⚠ **CE CORPS NE LIT JAMAIS `owner`.** Sa methode-usine n'ecrit pas l'argument -- il partage ce
+      trait avec `MastersOfManoeuvreNonOwnerPlaybook` et `NornCrownNonOwnerPlaybook`. Le porteur
+      n'intervient que par le PRE-GATE d'`IterateAbilities`, et son `<slot 4>` valant `false`
+      (entree versionnee `metadata/non_owner_slot4.tsv` : `declare=0 valeur=0`), ce pre-gate se
+      reduit a `IsFriend(caster, owner)` : seuls les casters AMIS du porteur voient le terme ;
+    * **le gate de rarete est INLINE, pas `HasRarity`** : le corps lit
+      `GetComponent<BaseUnitComponent>(caster)->[0x74]` sans le filtre `<EntityType> == 1` que porte
+      la fonction nommee. Et **si `TryGetComponent` echoue, le corps CONTINUE** -- la comparaison
+      est gardee par le succes de la resolution, pas l'inverse. Un caster sans `BaseUnitComponent`
+      passe donc le gate ;
+    * **`5` est un `EffectType`** -- TYPE DECLARE lu dans `frida/methods.tsv`
+      (`AnyTileHasEffectOfUnit(target: IEntity, effectType: IdunBattle.Entities.Enum.EffectType)`),
+      et `EffectType.Fire`. Le nom de la cle BC le CONFIRME independamment :
+      `ShieldOfFaith_LikesEnemiesOnFire`. Les homonymes a ecarter (`UnitTrait` 5 = `Mechanical`,
+      `UnitFaction` 5 = `Orks`) n'ont rien a voir ;
+    * **le gate porte sur les TUILES DE LA CIBLE**, pas sur la cible elle-meme ni sur le caster.
+
+    Cle BC LUE (`probe_212_bc_key_literals.py`) : `ShieldOfFaith_LikesEnemiesOnFire`, au gameconfig
+    vivant `Default.TriggeredAbilitiesNonOwner` = 10.
+
+    ⚠ ECART NOMME : `GetTiles(target)` rend TOUTES les tuiles de la cible ; le port n'interroge que
+    sa MAIN TILE (`Scene.pos`). L'ecart n'existe que pour une cible MULTI-TUILES.
+
+    ⚠⚠ **VOLONTAIREMENT ABSENTE DU REGISTRE `NON_OWNER_ATTACK_PLAYBOOKS` : BLOCAGE D'ETAGE MESURE
+    (#1024-r7).** Ses DEUX porteurs (`adeptExorcist`, `adeptNpcMoWExorcist`) sont des MACHINES OF
+    WAR (voie `mythicAbilities`), et `evaluate_attack_in_steps` itere `Scene.units` -- c'est-a-dire
+    `decisionView.units`, d'ou le natif exclut les Machines par construction (canal `.mows`
+    SEPARE). La paire `(playbook, owner)` ne serait donc jamais yieldee : l'inscrire serait le
+    patron #419. Le corps est porte parce que la RE est faite et juste ; le cabler tiendra en UNE
+    ligne le jour ou l'univers du dispatcher s'elargira.
+    ⚠ Le blocage annonce par la fiche etait `capteur` (la RARETE), puis requalifie `aucun` par
+    l'en-tete de ce module. Les DEUX sont faux : la rarete est arrivee (#1039 / #999-r3) et elle
+    n'a jamais ete le verrou de cette classe. Mesure :
+    `probe_1036r3_porteurs_non_owner_restants.py`."""
+
+    ABILITY_ID = int(TriggeredAbilityType.ShieldOfFaith)                  # 0x5ad = 1453
+    KEY = "ShieldOfFaith_LikesEnemiesOnFire"                              # gameconfig vivant = 10
+    #: `<slot 4>` LU dans `metadata/non_owner_slot4.tsv` : la classe ne declare pas le getter.
+    SLOT_4 = False
+    #: Litteral `5` du call-site, QUALIFIE contre le type declare du parametre.
+    TILE_EFFECT = EffectType.Fire                                         # 5
+
+    def calculate_attack_utility_in_steps(self, ctx, caster: int, caster_tile, target: int,
+                                          owner: int, is_friend: bool, wt) -> float:
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return 0.0
+        # `if (TryGetComponent(caster, BaseUnitComponent, out buc) && buc.Rarity != 5) yield break`
+        # -- TRI-ETAT : `rarity is None` = canal NON MESURE, ce qui mirrore l'echec de resolution du
+        # composant, et le natif CONTINUE dans ce cas-la (la comparaison est gardee par le succes).
+        c = sc.ctx(caster)
+        r = getattr(c, "rarity", None) if c is not None else None
+        if r is not None and int(r) != int(Rarity.Mythic):
+            return 0.0
+        # `AnyTileHasEffectOfUnit(case.Target, EffectType.Fire)`.
+        if self.TILE_EFFECT.name not in _tile_effect_names(sc, sc.pos(target)):
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
 # `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` rend LE MEME singleton pour les trois
 # faces -- c'est le DISPATCHER qui choisit le slot (0 / 1 / 2). Le port a deux registres parce que
 # les deux dispatchers portes sont distincts ; une classe ne doit figurer que dans celui de SA
 # face, lue dans l'entree versionnee `metadata/non_owner_slot4.tsv`.
 #
-# `ShieldOfFaithNonOwnerPlaybook` (3e face ATTACK) n'y est PAS -- residu `#1024-r7`. Son blocage
-# etait `capteur` ; il est `aucun` depuis que le canal de rarete est arme (#1039) et consomme
-# (#999-r3), MESURE en live sur cette ability meme (cf. l'en-tete). Ce qui manque est le PORT du
-# corps, plus le canal.
+# `ShieldOfFaithNonOwnerPlaybook` (3e face ATTACK) est PORTEE ci-dessus mais VOLONTAIREMENT ABSENTE
+# d'ici -- residu `#1024-r7`, blocage `etage` MESURE : ses deux porteurs sont des MACHINES OF WAR,
+# que `evaluate_attack_in_steps` ne voit pas (il itere `Scene.units`, d'ou `decisionView` exclut
+# les Machines). L'inscrire serait le patron #419.
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee, donc
 # MEME degradation que le natif sur un type sans classe -- mais ici la classe EXISTE, donc c'est
 # un ECART assume et NOMME, pas un trou.

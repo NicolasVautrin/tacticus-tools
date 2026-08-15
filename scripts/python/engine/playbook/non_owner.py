@@ -106,9 +106,10 @@ from __future__ import annotations
 from .. import battle_query as bq
 from ..entities.tile_extensions import get_steppable_unit
 from ..entities.ability_constant_type import AbilityConstantType
+from ..entities.rarity import Rarity
 from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
-from ..entities.unit_faction import UnitFaction
+from ..entities.unit_faction import UnitFaction, faction_value
 from ..entities.unit_team_selection_type import UnitTeamSelectionType
 
 
@@ -1176,6 +1177,268 @@ class FirstAmongTraitorsNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
 
 
+def _rarity_of(ctx: dict, uid):
+    """`IdunBattle.Entities.Components.BaseUnitComponent.Rarity` (+0x74) de l'entite `uid`.
+
+    C'est l'UNIQUE champ que lisent les trois gates natifs de rarete (`UnitExtensions$$HasRarity`,
+    `HasRarityTrigger$$ShouldTrigger`, `UnitsWithRaritySelector$$Select`), et les corps ci-dessous
+    l'inlinent directement (`GetComponent<BaseUnitComponent>(u)->[0x74] == 5`).
+
+    Canal : `ctx["scene"].ctx(uid).rarity` (`UnitContext.rarity`, capteur #1039, consomme #999-r3).
+    TRI-ETAT strict : `None` = canal NON MESURE -- les gates rendent alors FAUX. JAMAIS un repli
+    sur `Rarity.Common`, qui est une valeur plausible et rendrait l'absence indiscernable.
+
+    ⚠ DEUX des trois `*_leaf_ctx` publient `scene` (`tile_leaf_ctx` et `scene_tile_leaf_ctx`, les
+    jumeaux de PREDICTION) ; `runner_tile_leaf_ctx` ne le publie PAS. Sur ce troisieme substrat les
+    gates de rarete se taisent -- degradation PARTIELLE et NOMMEE, exactement celle que
+    `FuryOfTheAncientsPlaybook` porte deja pour la meme raison. Mesure et cliquet :
+    `probe_1036r3_porteurs_non_owner_restants.py` etape 3."""
+    sc = (ctx or {}).get("scene")
+    if sc is None or uid is None:
+        return None
+    c = sc.ctx(uid)
+    return getattr(c, "rarity", None) if c is not None else None
+
+
+def _has_rarity(ctx: dict, uid, rarity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$HasRarity(u, r)` reduit a sa comparaison.
+
+    ⚠ Le natif porte un gate de PLUS que l'inline des corps voisins : `HasRarity` commence par
+    `u.<EntityType> == 1` (= `EntityType.Unit`), la ou `CabalOfSorcerersPlaybook` et
+    `WisdomOfTheAncientsPlaybook` lisent `GetComponent<BaseUnitComponent>(u)->[0x74]` sans ce
+    filtre. L'ecart n'est observable que sur une entite NON-Unit portant un `BaseUnitComponent` ;
+    il est note ici plutot que gomme, parce que seul `MastersOfManoeuvre` passe par la fonction
+    NOMMEE."""
+    r = _rarity_of(ctx, uid)
+    return r is not None and int(r) == int(rarity)
+
+
+def _adjacent_friends_of_mover(tile, ctx: dict):
+    """`IBattleQuery.<slot 0x83 = GetAdjacentFriends(from: IEntity, unit: IEntity)>(tile, case.unit)`.
+
+    Corps natif LU (`IdunBattle.Core.Services.BattleQuery$$GetAdjacentFriends` @ la surcharge
+    `(IEntity, IEntity)`, celle que fixe le TYPE des arguments -- `UtilityMovementCase$$
+    get_MovementTile` est declaree `-> IdunBattle.Core.IEntity`) :
+
+        var pid = unit.GetComponent<OwnerComponent>().CurrentPlayerEntityId;
+        var tiles = IterateAdjacentTiles(from, onlyEmptyOrSteppable: false,
+                                         onlyWalkableTiles: true, allowTemporary: true);
+        return GetUnitsOnTiles(tiles, friendsOf: <joueur pid>, enemiesOf: null,
+                               ignoreSteppables: false);
+
+    Donc : les unites du camp DU MOVER posees sur une tuile VOISINE de la tuile candidate, au sens
+    d'`IterateAdjacentTiles` -- liste d'adjacence STOCKEE + porte d'elevation `|dElev| < 2`, la
+    primitive que `battle_query.is_adjacent` mirrore (et NON `are_entities_adjacent`, qui ajoute le
+    court-circuit d'identite `a == b` que cet itinerraire-la n'a pas).
+
+    ⚠ **LE MOVER N'EST PAS EXCLU PAR LA QUERY, ET LE PORT N'A PAS A LE RE-INJECTER.** La query le
+    garde (il est encore SUR SON ORIGINE pendant tout le sweep, cf. `NornCrownNonOwnerPlaybook`),
+    mais les TROIS corps qui l'appellent ouvrent leur boucle sur `if (u == case.unit) continue`.
+    Or `ctx["friend_units"]` est deja SELF-EXCLU par construction. Les deux exclusions coincident
+    exactement : re-injecter le mover ici puis le re-filtrer serait un aller-retour sans effet, et
+    l'oublier dans un corps qui, lui, n'aurait PAS le `continue` serait un sous-comptage. Le jour
+    ou un tel corps arrive, c'est ICI qu'il faudra le distinguer.
+
+    ⚠ Le filtre `onlyWalkableTiles: true` du natif n'est PAS porte : `is_adjacent` est le foyer
+    commun a tous les `GetAdjacent*` du port (cf. `battle_query.count_adjacent` et
+    `non_owner_attack._adjacent_friend_count`), et lui ajouter une porte ici forkerait l'adjacence
+    de la famille pour un ecart qui n'est observable que sur une unite posee sur une tuile
+    non-walkable. Ecart NOMME, commun, jamais silencieux."""
+    elev, neigh = (ctx or {}).get("elev_by_pos"), bq.neigh_map(ctx)
+    t = (tile[0], tile[1])
+    for u in ((ctx or {}).get("friend_units") or ()):
+        p = u.get("pos")
+        if p and bq.is_adjacent(t, (p[0], p[1]), elev, neigh):
+            yield u
+
+
+class CabalOfSorcerersPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.CabalOfSorcerersPlaybook`
+    (`$$.ctor` : litteral `0x5d8` = 1496 `CabalOfSorcerers`, MYTHIQUE de MACHINE OF WAR).
+
+    ⚠ Le NOM de la classe native n'a PAS le suffixe `NonOwnerPlaybook` -- c'est l'un des trois
+    concrets qu'un grep par nom rate (avec `WisdomOfTheAncientsPlaybook` et
+    `VoltagheistFieldPlaybook`), et c'est ce qui a fait circuler un compte de 25 concrets pour 28.
+
+    `...CabalOfSorcerersPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`, remis en
+    C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE : `case @+0x20,
+    playbook @+0x28, owner @+0x30`) :
+
+        if (case.unit == null) yield break;
+        var buc = case.unit.GetComponent<BaseUnitComponent>();
+        if (buc.Rarity != 5) yield break;                          // Rarity.Mythic
+        if (!buc.HasTrait(0x3ea)) yield break;                      // UnitTrait.Psyker
+        foreach (u in Query.<slot 0x83 = GetAdjacentFriends>(case.MovementTile, case.unit)) {
+            if (u == case.unit) continue;
+            var b = u.GetComponent<BaseUnitComponent>();
+            if (b.Rarity == 5 && b.HasTrait(0x10) && b.HasTrait(0x3ea))   // Mythic & Hero & Psyker
+                yield return GetUtilityValue("CabalOfSorcerers_AffectUnits");
+            if (u == owner)
+                yield return GetUtilityValue("CabalOfSorcerers_AffectUnits");
+        }
+
+    Trois lectures qui ne se devinent pas :
+
+    * **le second membre est un OU, pas une seconde passe** : le natif teste `u == owner` seulement
+      quand le triple predicat a echoue, et les deux branches yieldent la MEME valeur. Le terme
+      vaut donc 20 ou 0, jamais 40 -- il s'arrete au PREMIER voisin qualifie ;
+    * **le gate du mover est une CONJONCTION `Mythic ET Psyker`**, celui du voisin une conjonction
+      de TROIS (`Mythic ET Hero ET Psyker`). `WisdomOfTheAncientsPlaybook`, dont le corps est le
+      jumeau, n'a ni le `Psyker` du mover ni celui du voisin : les deux ne sont PAS
+      interchangeables ;
+    * **`0x10` = `UnitTrait.Hero` et `0x3ea` = `UnitTrait.Psyker`** -- enums QUALIFIES contre
+      `IdunBattle.Entities.Enum.UnitTrait`, pas deduits des ordinaux.
+
+    Cle BC LUE (`probe_212_bc_key_literals.py` sur le symbole du `MoveNext`) :
+    `CabalOfSorcerers_AffectUnits`, au gameconfig vivant `Default.TriggeredAbilitiesNonOwner` = 20.
+
+    ⚠⚠ **VOLONTAIREMENT ABSENTE DU REGISTRE : BLOCAGE D'ETAGE MESURE (#1036-r3).** Ses DEUX
+    porteurs (`thousDaemonPrince`, `thousNpcMowDaemonPrince`) sont des MACHINES OF WAR (voie
+    `mythicAbilities`). Or l'univers de porteurs du dispatcher porte est bati sur des entites
+    POSITIONNEES -- les trois `*_leaf_ctx` exigent une position pour entrer une unite dans
+    `friend_units`/`enemy_units` -- et une MoW n'a AUCUNE tuile (`AddMachineOperation$$Execute` ne
+    lui donne pas de `PositionComponent`, `snapshot._load_machines` non plus). La paire
+    `(playbook, owner)` ne serait donc JAMAIS yieldee : l'inscrire au registre serait le patron
+    #419. Le corps est porte parce que la RE est faite et juste ; le cabler tiendra en UNE ligne le
+    jour ou l'univers du dispatcher s'elargira (foyer `engine/utilities/tile.py`, pendant exact de
+    ce que #999-r3-r1-r1 a fait pour les deux agregateurs d'aura).
+    ⚠ La fiche accusait la RARETE (<< aucun canal `rarity` cote port, verrou de CAPTEUR >>) : c'est
+    PERIME depuis #1039 / #999-r3, et le canal est atteignable ici par `ctx["scene"]`. Mesure et
+    cliquet : `probe_1036r3_porteurs_non_owner_restants.py`,
+    `tests/engine/test_1036r3_faces_non_owner_restantes_offline.py`."""
+
+    ABILITY_ID = int(TriggeredAbilityType.CabalOfSorcerers)              # 0x5d8 = 1496
+    KEY = "CabalOfSorcerers_AffectUnits"                                 # gameconfig vivant = 20
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        if ctx.get("is_spawning"):                       # `case.unit == null` -> yield break
+            return 0.0
+        if not _has_rarity(ctx, ctx.get("uid"), Rarity.Mythic):          # buc.Rarity != 5
+            return 0.0
+        if not _has_trait(ctx, UnitTrait.Psyker):                        # !buc.HasTrait(0x3ea)
+            return 0.0
+        owner_uid = (owner or {}).get("id")
+        for u in _adjacent_friends_of_mover(tile, ctx):
+            noms = u.get("traits") or ()
+            if (_has_rarity(ctx, u.get("id"), Rarity.Mythic)
+                    and UnitTrait.Hero.name in noms                      # b.HasTrait(0x10)
+                    and UnitTrait.Psyker.name in noms):                  # b.HasTrait(0x3ea)
+                return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+            if owner_uid is not None and u.get("id") == owner_uid:       # u == owner
+                return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+        return 0.0
+
+
+class WisdomOfTheAncientsPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.WisdomOfTheAncientsPlaybook`
+    (`$$.ctor` : litteral `0x5ab` = 1451 `WisdomOfTheAncients`, MYTHIQUE de MACHINE OF WAR).
+
+    Second concret sans suffixe `NonOwnerPlaybook`.
+    `...WisdomOfTheAncientsPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`
+    (SM : `case @+0x20, playbook @+0x28, owner @+0x30`) :
+
+        if (case.unit == null) yield break;
+        if (case.unit.GetComponent<BaseUnitComponent>().Rarity != 5) yield break;   // Mythic
+        foreach (u in Query.<slot 0x83 = GetAdjacentFriends>(case.MovementTile, case.unit)) {
+            if (u == case.unit) continue;
+            var b = u.GetComponent<BaseUnitComponent>();
+            if (b.Rarity == 5 && b.HasTrait(0x10))                                  // Mythic & Hero
+                yield return GetUtilityValue("WisdomOfTheAncients_AffectUnits");
+            if (u == owner)
+                yield return GetUtilityValue("WisdomOfTheAncients_AffectUnits");
+        }
+
+    C'est le JUMEAU de `CabalOfSorcerersPlaybook` a DEUX gates pres, et c'est la seule difference :
+    **aucun `Psyker`**, ni sur le mover ni sur le voisin. Transposer l'un depuis l'autre aurait
+    ajoute deux filtres que le natif n'a pas -- degradation RESTRICTIVE silencieuse.
+
+    Cle BC LUE : `WisdomOfTheAncients_AffectUnits`, gameconfig vivant = 20.
+
+    ⚠⚠ HORS REGISTRE, meme blocage d'ETAGE que `CabalOfSorcerersPlaybook` : porteurs
+    `ultraDreadnought` / `ultraNpcMoWDreadnought`, deux MACHINES OF WAR (voie `mythicAbilities`).
+    Cf. la docstring de la classe jumelle."""
+
+    ABILITY_ID = int(TriggeredAbilityType.WisdomOfTheAncients)           # 0x5ab = 1451
+    KEY = "WisdomOfTheAncients_AffectUnits"                              # gameconfig vivant = 20
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        if ctx.get("is_spawning"):                       # `case.unit == null` -> yield break
+            return 0.0
+        if not _has_rarity(ctx, ctx.get("uid"), Rarity.Mythic):
+            return 0.0
+        owner_uid = (owner or {}).get("id")
+        for u in _adjacent_friends_of_mover(tile, ctx):
+            if (_has_rarity(ctx, u.get("id"), Rarity.Mythic)
+                    and UnitTrait.Hero.name in (u.get("traits") or ())):
+                return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+            if owner_uid is not None and u.get("id") == owner_uid:
+                return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+        return 0.0
+
+
+class MastersOfManoeuvreNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.MastersOfManoeuvreNonOwnerPlaybook`
+    (`$$.ctor` : litteral `0x5e4` = 1508 `MastersOfManoeuvre`, MYTHIQUE de MACHINE OF WAR).
+
+    `...u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`, remis en C# depuis le decompile :
+
+        if (case.unit == null)                        { yield return Fix64.Zero; yield break; }
+        if (!UnitExtensions.HasRarity(case.unit, 5))  { yield return Fix64.Zero; yield break; }
+        foreach (u in Query.<slot 0x84 = GetAdjacentFriends(case.Position, case.unit)>) {
+            if (u == case.unit)                        continue;
+            if (!UnitExtensions.HasFaction(u, 0xa))    continue;    // UnitFaction.DarkAngels
+            if (!UnitExtensions.HasRarity(u, 5))       continue;    // Rarity.Mythic
+            yield return GetUtilityValue("MastersOfManoeuvre_AdjacentFriendlyMythicDA");
+        }
+
+    QUATRE lectures qui ne se devinent pas :
+
+    * ⚠⚠ **LA METHODE-USINE N'ECRIT PAS `owner`.**
+      `$$CalculateMovementUtilityInSteps` pose `playbook @+0x28` et `case @+0x20` et LAISSE `+0x30`
+      -- que la SM reutilise pour son ENUMERATEUR. Ce corps ne lit donc JAMAIS le porteur, ni sa
+      position ni son identite. Il partage ce trait avec `NornCrownNonOwnerPlaybook` seulement ;
+    * **le gate de rarete passe par la fonction NOMMEE** `UnitExtensions$$HasRarity`, la ou les
+      deux jumeaux ci-dessus inlinent la lecture du composant. `HasRarity` porte un gate de plus
+      (`<EntityType> == 1`), cf. `_has_rarity` ;
+    * **la surcharge d'adjacence est le slot `0x84`, pas `0x83`** : son 1er argument est
+      `case.<+0x18>` = `case.Position` (un `UnitPosition`), pas la tuile. Les deux surcharges
+      convergent sur le meme voisinage NATIF ; l'ecart ne porte que sur une entite MULTI-TUILES ;
+    * **`0xa` est `UnitFaction.DarkAngels`** -- TYPE DECLARE lu dans `frida/methods.tsv`
+      (`UnitExtensions.HasFaction(unit, faction: IdunBattle.Entities.Enum.UnitFaction)`). Le nom de
+      la cle BC le CONFIRME independamment : `..._AdjacentFriendlyMythicDA`.
+
+    Cle BC LUE : `MastersOfManoeuvre_AdjacentFriendlyMythicDA`, gameconfig vivant = 25.
+
+    ⚠⚠ HORS REGISTRE, meme blocage d'ETAGE : porteurs `darkaStormSpeeder` /
+    `darkaNpcMowStormSpeeder`, deux MACHINES OF WAR. Cf. `CabalOfSorcerersPlaybook`."""
+
+    ABILITY_ID = int(TriggeredAbilityType.MastersOfManoeuvre)            # 0x5e4 = 1508
+    KEY = "MastersOfManoeuvre_AdjacentFriendlyMythicDA"                  # gameconfig vivant = 25
+    FACTION = UnitFaction.DarkAngels                                     # 0xa = 10
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        if ctx.get("is_spawning"):                       # `case.unit == null` -> yield Fix64.Zero
+            return 0.0
+        if not _has_rarity(ctx, ctx.get("uid"), Rarity.Mythic):          # HasRarity(case.unit, 5)
+            return 0.0
+        for u in _adjacent_friends_of_mover(tile, ctx):
+            # `HasFaction(u, DarkAngels)` -- meme mirror que la face ATTACK (`_unit_faction`) : le
+            # natif compare `Enum.ToString(UnitFaction)` au `FactionComponent+0x30`, et le pendant
+            # offline est le `FactionId` du gameconfig, jamais un entier.
+            if faction_value(u.get("vis")) != int(self.FACTION):
+                continue
+            if not _has_rarity(ctx, u.get("id"), Rarity.Mythic):         # HasRarity(u, 5)
+                continue
+            return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+        return 0.0
+
+
 # `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` : singleton par TYPE d'ability, cache
 # dict@0xa0 + factories dict@0x98.
 #
@@ -1199,23 +1462,46 @@ class FirstAmongTraitorsNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
 # `1475 SupaCyborkBody` -- laquelle n'a AUCUN playbook non-owner. RE-DERIVER, jamais recopier :
 # `probe_477r33_non_owner_registry_gaps.py --offline-only` rend le tableau complet.
 # Au registre ci-dessous : **19** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33
-# + 3 de #477-r35 + 1 de #477-r37). Il reste **4** faces MOVE non portees + `RedemptionOfTheRisen`,
-# PORTEE mais deliberement HORS registre (zero porteur), toutes des derivees DIRECTES.
-# Ces 4 restantes, et POURQUOI elles restent (residu #477-r37-r1) :
-#   `1451`, `1496`, `1508`     -- gates sur la RARETE (`HasRarity(u, Mythic)` = `BaseUnitComponent
-#                                 +0x74 == 5`), et AUCUN canal `rarity` n'existe cote port. Le
-#                                 verrou est un CAPTEUR MANQUANT, pas une limite de montage : le
-#                                 seed BC porte deja 10 unites `Rarity == 5` et `--unit-stat
-#                                 "<vis>:Rarity=5"` l'ecrit par unite. Ce qu'il faudrait :
-#                                 `combatSnapshot.units[].rarity` <- `IdunBattle.Entities.Components.
-#                                 BaseUnitComponent.Rarity`, donc une fenetre de reinject ;
-#   `1478 SabreOfSacrifice`    -- son gate est un ARBRE DSL, pas un predicat imperatif :
+# + 3 de #477-r35 + 1 de #477-r37). Sur les 24 concrets MOVE, **23** sont desormais PORTES ; QUATRE
+# le sont deliberement HORS registre, et un seul n'a aucune classe.
+#
+# ⚠⚠ **CE BLOC A ACCUSE LA RARETE, ET C'ETAIT FAUX** (#1036-r3, re-mesure 2026-08-15). Il disait :
+# << `1451`, `1496`, `1508` -- gates sur la RARETE [...] AUCUN canal `rarity` n'existe cote port. Le
+# verrou est un CAPTEUR MANQUANT [...] donc une fenetre de reinject >>. Le canal EXISTE depuis
+# #1039 (capteur) / #999-r3 (`UnitContext.rarity`), et il est ATTEIGNABLE d'ici : `tile_leaf_ctx` et
+# `scene_tile_leaf_ctx` publient tous deux `ctx["scene"]`, donc `scene.ctx(uid).rarity` repond
+# (cf. `_rarity_of`). Personne n'aurait eu besoin d'une fenetre de reinject.
+#
+# LE VRAI BLOCAGE est un ETAGE, et il est COMMUN aux quatre : leur porteur est une **MACHINE OF
+# WAR** (voie `mythicAbilities`), et l'univers de porteurs de CE dispatcher est bati sur des
+# entites POSITIONNEES -- les trois `*_leaf_ctx` exigent une position pour entrer une unite dans
+# `friend_units`/`enemy_units`, et une MoW n'a AUCUNE tuile (`AddMachineOperation$$Execute` ne lui
+# donne pas de `PositionComponent`, `snapshot._load_machines` non plus). Le natif, lui, itere
+# `abilityAndEffectCache.<slot 5>()` : TOUTES les `TriggeredAbility` de la bataille.
+# ⚠ Ce qui rend le diagnostic non trivial : AUCUN de ces corps ne lit la position du porteur.
+# `MastersOfManoeuvre` ne lit meme pas `owner`, et les deux autres ne s'en servent que pour un test
+# d'IDENTITE a l'interieur de `GetAdjacentFriends`. Le foyer a reparer est
+# `engine/utilities/tile.py`, jamais un corps de ce module. Residu `#1036-r9` (rayon de souffle
+# MESURE : 1 corps sur 19 verse sur un porteur sans position, et son rayon reel est nul).
+#
+# PORTES MAIS HORS REGISTRE, avec la raison :
+#   `1496 CabalOfSorcerers`    -- porteur MoW (`thousDaemonPrince`)       -> #1036-r3
+#   `1451 WisdomOfTheAncients` -- porteur MoW (`ultraDreadnought`)        -> #433-r4-r3-r1-r1
+#   `1508 MastersOfManoeuvre`  -- porteur MoW (`darkaStormSpeeder`)       -> #433-r4-r3-r1-r1
+#   `1522 RedemptionOfTheRisen`-- ZERO porteur sur ce build               -> patron #419
+# NON PORTE, et son blocage n'est PAS celui des quatre ci-dessus :
+#   `1478 SabreOfSacrifice`    -- porteur `astraDreir`, unite NORMALE (relique equipable), donc
+#                                 #1036-r9 ne le debloquera pas. Son gate est un ARBRE DSL :
 #                                 `SabreOfSacrificeAbility$$IsAffectedSummon` construit
-#                                 `AreEqual(Parent(mover), <caster>) & IsUnitWithVisualId(mover,
+#                                 `AreEqual(Parent(mover), Owner) & IsUnitWithVisualId(mover,
 #                                 GetStringConstant(unitId))` et le playbook l'EXECUTE par vtable
 #                                 `+0x188` sur une struct de contexte de 0x128 octets (owner a
-#                                 `+0x18`). Il doit donc sortir en arbre DSL (#149), et il lui
-#                                 manque en plus le canal `UtilityMovementCase$$StaysOnTile`.
+#                                 `+0x18`). Il doit donc sortir en arbre DSL (#149), et le
+#                                 `visualId` du MOVER n'est publie par AUCUN des trois `*_leaf_ctx`.
+#                                 ⚠ Le canal `UtilityMovementCase$$StaysOnTile`, que ce bloc citait
+#                                 comme manquant, EST disponible : son corps entier est
+#                                 `GetMainTile(case.unit, state) == case.Position.MainTile`,
+#                                 c'est-a-dire `tile == ctx["self_pos"]`.
 #
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee : MEME
 # degradation que le natif, pas un trou.
