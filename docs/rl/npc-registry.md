@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **458** ; kits avec du travail : **33**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **12** · `[CD]` **134**
 - Passifs distincts : **177** — portes **142**, non portes **35**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -87,13 +87,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (17)
+## Faces DECISION ouvertes sur des actives EXECUTEES (12)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `DevoutPush`, `EntropyCannons`, `ExplosivePresents`, `LeadingTheCharge`, `NovaCharge`, `PrecisionShot`, `Reveal`, `SlashingDive`, `StrikeFromTheShadows`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -157,7 +157,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[C-] | - | - | - |
+| astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[CD] | - | - | - |
 | astarNpc1HaywireMine | 0 | - | - | - | - |
 
 ### AdeptusMechanicus — 29 unites, 1 avec du travail
@@ -254,7 +254,7 @@ sont des **faces** absentes d'items presents.
 | astraNpc5DeathRider | 0 | - | - | - | - |
 | astraNpcBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraNpcCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraNpcDreir | 0 | LeadingTheCharge(1204)[C-] | - | - | relic:SabreOfSacrifice |
+| astraNpcDreir | 0 | LeadingTheCharge(1204)[CD] | - | - | relic:SabreOfSacrifice |
 | astraNpcMowOrdnanceBattery | 0 | MalleusRocketLauncher(1142)[CD]<br>ForwardSpotter(1143)[CD] | - | - | mythic:OnMyPosition |
 | astraNpcOrdnance | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
 | astraNpcPrimarisPsy | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
@@ -316,7 +316,7 @@ sont des **faces** absentes d'items presents.
 | templBossSwordBrother | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templBossSwordBrotherCamp | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templBossSwordBrother_LHE | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
-| templNpc1Initiate | 0 | DevoutPush(1053)[C-] | - | - | - |
+| templNpc1Initiate | 0 | DevoutPush(1053)[CD] | - | - | - |
 | templNpc2Neophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templNpc3InitiatePyreblaster | 0 | - | - | - | - |
 | templNpc4Aggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
@@ -373,7 +373,7 @@ sont des **faces** absentes d'items presents.
 | deathNpc4BlightlordTerminator | 0 | - | - | - | - |
 | deathNpcBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
-| deathNpcMoWCrawler | 0 | EntropyCannons(1168)[C-]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
+| deathNpcMoWCrawler | 0 | EntropyCannons(1168)[CD]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
 | deathNpcPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcRotbone | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
@@ -445,7 +445,7 @@ sont des **faces** absentes d'items presents.
 | necroNpc2FlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
 | necroNpc2TutFlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
 | necroNpc2TutFlayedOneFTUEtest | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
-| necroNpc3Deathmark | 0 | PrecisionShot(1015)[C-] | - | - | - |
+| necroNpc3Deathmark | 0 | PrecisionShot(1015)[CD] | - | - | - |
 | necroNpc4Destroyer | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroNpc4DestroyerLHE | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroNpc4DestroyerSurv | 0 | TunnelingHorror(1011)[C-] | - | - | - |
