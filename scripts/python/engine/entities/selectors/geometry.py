@@ -19,6 +19,12 @@ from ._shared import _entity_pos, _tile_positions
 # MatchesUnitSelectionType`), lu par `UnitsWithId` : surtout pas un 2e port du predicat. Feuille
 # legere (l'enum + son derivateur), deja partagee par `selectors/units.py` et `entities/triggers.py`.
 from ..unit_selection_type import UnitSelectionType, selection_ok_from_ctx
+# Foyer UNIQUE du predicat `IdunBattle.Entities.UnitExtensions$$HasUnitId` (#1078), partage avec le
+# volet MULTI-ID `selectors/units.py::UnitsWithIds` : `UnitsWithIdSelector$$Select` est LE MEME
+# selecteur pour les deux, donc un 2e port du predicat serait une divergence garantie (#1078-r1).
+# Import de niveau MODULE (forme A) et non differe : `selectors/units.py` n'importe PAS `geometry`
+# -- mesure, pas presomption (cf. l'etape 0 de `probe_1078r1_units_with_id_mono.py`).
+from .units import has_unit_id
 from ...services.spawn_tile_shape import get_area
 
 
@@ -1128,8 +1134,30 @@ class UnitsWithId(TargetsSelector):
     un tableau d'ids). Filtre `source` par `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)`.
     Consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
     (`UnitsWithId(SurroundingEnemies(target@0x178, range, 1, 3), GetStringConstant(0|4), 3)`).
-    Meme reduction offline que `UnitsWithIds` : comparaison sur le champ `visualId` du dict d'unite
-    (qui porte l'id de CONFIG pour les unites SPAWNEES, cf. `_spawn_config_grot`).
+
+    ⚠ **LE FILTRE PASSE PAR LE FOYER `has_unit_id` (#1078-r1), PLUS PAR UNE EGALITE DE `visualId`.**
+    Le natif compare l'id de **CONFIG** (`IdunBattle.Entities.UnitExtensions$$GetUnitId` lit le champ
+    +0x10 du composant d'identite), et le port ne dispose que du `visualId` (+0x20) -- la comparaison
+    directe SUR-COMPTE et SOUS-COMPTE selon le sens (mesure #1078 sur `HailOfLivingAmmunition`).
+    Le volet MULTI-ID `selectors/units.py::UnitsWithIds` avait ete bascule ; ce volet-ci ne l'etait
+    pas, alors que `IdunBattle.Entities.Selectors.UnitsWithIdSelector$$Select` est LE MEME
+    selecteur pour les deux (le multi n'est que l'`op_Addition` des volets mono).
+
+    RAYON DE SOUFFLE MESURE (`probe_1078r1_units_with_id_mono.py`, etape 2 : les 8 `unitId` LUS aux
+    call-sites executables x les 268 `visualId` que le gameconfig peut presenter) : **2 verdicts
+    changent**, tous deux `False -> True`, tous deux dans un `Children(Owner)` --
+    `tyranNpc1Hormagaunt` vs `tyranSmnHormagaunt` (SynapticLinchpin) et `votanNpc1Ecog` vs
+    `votanSmnEcog` (EcogSupport). **0 verdict passe de True a False** : pour les 8 `unitId`,
+    `presenting(unitId)` contient `unitId` ou est VIDE (repli historique), donc une unite SPAWNEE
+    par le port (dont le `visualId` porte l'id de CONFIG, cf. `_spawn_config_grot`) reste matchee.
+
+    Ces 2 changements sont des CORRECTIONS, et le regime AMBIGU que redoutait la docstring
+    d'`has_unit_id` ne mord pas ici : la source de ces deux call-sites est
+    `IdunBattleLogic.Entities.DSLSelectors$$Children(owner)`, qui ne contient que des unites
+    SPAWNEES par le porteur -- jamais le npc homonyme. Un enfant SEEDE DEPUIS LE LIVE
+    (`snapshot._load_unit_parent` <- `combatSnapshot.units[].parentId`) porte, lui, son id VISUEL :
+    l'ancienne comparaison ne le comptait PAS dans le cap de summons, donc le port spawnait AU-DELA
+    du plafond que le natif applique.
 
     ⚠ **LE 3e ARGUMENT `mode` EST UN `UnitSelectionType`, ET IL EST DESORMAIS APPLIQUE.** Il etait
     STOCKE et jamais LU : le noeud ne filtrait que sur `visualId`. Tant que la SOURCE etait
@@ -1153,7 +1181,7 @@ class UnitsWithId(TargetsSelector):
         if uid is None:
             return []
         return [u for u in self.source.evaluate(ctx)
-                if u.get("visualId") == uid and selection_ok_from_ctx(u, self.mode, ctx)]
+                if has_unit_id(u, uid) and selection_ok_from_ctx(u, self.mode, ctx)]
 
 
 class Cache(TargetsSelector):

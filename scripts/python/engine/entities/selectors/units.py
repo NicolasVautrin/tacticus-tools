@@ -871,12 +871,17 @@ def has_unit_id(unit, cfg_id) -> bool:
     `HungeringSwarm` (#1018) et `SupremeCommander` (#119) changent de **0**, et **aucun** `visualId`
     n'est AMBIGU (partiellement dans une liste) pour ces consommateurs.
 
-    ⚠ RESTE OUVERT (residu `#1078-r1`) : le volet MONO-ID `selectors/geometry.py::UnitsWithId`
-    mirrore le MEME `UnitsWithIdSelector` et compare encore `visualId` directement. Il n'est PAS
-    bascule ici parce que son consommateur `SynapticLinchpin` (`unitId = tyranSmnHormagaunt`) tombe
-    dans le regime AMBIGU que les cinq listes ci-dessus n'exercent pas : `tyranNpc1Hormagaunt` est
-    presente par le npc ET par le summon, et seul le summon est dans la liste -- la resolution y
-    SUR-approximerait. Le basculer demande sa propre re-validation live."""
+    ⚠ LE VOLET MONO-ID EST BASCULE ICI AUSSI (`#1078-r1` CLOS) : `selectors/geometry.py::UnitsWithId`
+    mirrore le MEME `UnitsWithIdSelector` (le multi n'est que l'`op_Addition` des volets mono) et
+    passe desormais par CE foyer. La reserve d'alors -- « `SynapticLinchpin` tombe dans le regime
+    AMBIGU, la resolution y SUR-approximerait » -- a ete MESUREE et elle est FAUSSE en pratique :
+    la source de ce call-site est `IdunBattleLogic.Entities.DSLSelectors$$Children(owner)`, qui ne
+    contient que des unites SPAWNEES par le porteur. Rayon de souffle re-mesure sur les 8 `unitId`
+    des call-sites executables x les 268 `visualId` presentables : **2 verdicts changent**
+    (`tyranNpc1Hormagaunt`/`tyranSmnHormagaunt`, `votanNpc1Ecog`/`votanSmnEcog`), tous deux
+    `False -> True`, tous deux CORRECTS -- un summon SEEDE DEPUIS LE LIVE porte son id VISUEL et
+    n'etait donc PAS compte dans le cap. **0** verdict passe de True a False. Detail et cliquet :
+    `probe_1078r1_units_with_id_mono.py`."""
     v = (unit or {}).get("visualId") if isinstance(unit, dict) else None
     if v is None:
         return False
