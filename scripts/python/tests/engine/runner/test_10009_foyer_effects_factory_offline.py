@@ -347,6 +347,37 @@ def test_add_effect_expose_ability_state_et_il_PRIME():
     assert "triggered_ability_state" in inspect.getsource(MOM._MastersOfManoeuvreBase.execute_behaviour)
 
 
+def test_ability_state_PRIME_sur_le_derive_et_c_est_la_VALEUR_POSEE_qui_le_dit():
+    """⚠ **CE TEST EXISTE PARCE QUE LE PRECEDENT NE MORDAIT PAS.** Mesure adversariale du
+    2026-08-15 : neutraliser la prise en compte du parametre (`if False:` a la place de
+    `if self.ability_state is not None:`) laissait la garde VERTE -- l'etage ci-dessus verifie la
+    SIGNATURE et le call-site, jamais l'EFFET. Un parametre declare, cite au site, et IGNORE a
+    l'execution aurait donc passe.
+
+    Ce qui est verifie ici est la VALEUR REELLEMENT POSEE sur l'instance : le couple explicite
+    (`1 / 100`, celui d'une TERTIAIRE) doit l'emporter sur le derive `scale_from_source` (`50 / 180`,
+    celui des PASSIFS d'un runner normalise)."""
+    from engine.dsl.effects import ExecutionContext
+    from engine.entities.selectors.accessors import Target
+    st = State()
+    st.effects = EffectsState()
+    poseur = _unit(st, "mow", 1, col=0, row=0, passive_level=50)
+    st.get_entity(poseur).get_component(StatsComponent).ctx.ability_variables_multiplier = 180
+    cible = _unit(st, "allie", 1, col=1, row=0)
+    ectx = ExecutionContext(state=st, rng=st.rng)
+    AddEffect(int(EffectType.MastersOfManoeuvre), EffectType.MastersOfManoeuvre.name,
+              Target(), duration_rounds=1, scale_from_source=True,
+              ability_state=(1, 100)).execute(
+        entities_from_state(st, poseur, cible, poseur), ectx)
+    inst = [e for e in st.effects.by_unit.get(cible, [])
+            if e.name == EffectType.MastersOfManoeuvre.name]
+    assert len(inst) == 1, "la pose n'a rien materialise : le test ne mesure plus rien"
+    assert (inst[0].ability_level, inst[0].ability_variables_multiplier) == (1, 100), (
+        "l'`abilityState` EXPLICITE n'a pas prime sur `scale_from_source` : la pose lirait le "
+        "couple des PASSIFS (50/180), donc le DERNIER palier apres `ToZeroBasedIndex` -- 20 %% au "
+        "lieu de 10 %% sur `dmgReductionPct`, en silence")
+
+
 # --------------------------------------------------------------------------------------------
 # ETAGE 8 -- #922-r1 volet b : les trois entrees, et les ordinaux MESURES
 # --------------------------------------------------------------------------------------------
