@@ -77,6 +77,28 @@ def _rq(sid, method, body=None, timeout=90):
     return _res(_rpc(sid, method, [body] if body is not None else [], timeout=timeout))
 
 
+def _a_une_arme_ecs(u) -> "bool | None":
+    """`IdunBattle.Entities.UnitExtensions$$HasAnyWeapon` sur le SUBSTRAT NATIF -- le
+    `WeaponsComponent` de l'ECS, publie par `combatSnapshot.units[].weapons` (canal arme le
+    2026-08-15). `None` = **non mesure** (canal absent d'une session plus ancienne), jamais rabattu
+    sur `False` : c'est la difference entre « cette unite n'a pas d'arme » et « je ne sais pas ».
+
+    ⚠ Un `error: WeaponsComponent absent` n'est PAS un canal muet, c'est la MESURE de la branche
+    `!HasAnyWeapon` : le composant n'existe pas sur l'entite (cas de la MACHINE OF WAR).
+
+    Pourquoi ne pas se contenter du gameconfig : `GetRange` teste le composant ECS, pas le kit. Les
+    deux substrats CONCORDENT sur tout ce qui a ete observe, mais c'est un fait MESURE
+    (`desaccords_kit_vs_ecs`), pas une hypothese -- et une mesure faite sur la mauvaise population
+    ne dirait rien de la branche visee."""
+    w = u.get("weapons")
+    if not isinstance(w, dict):
+        return None
+    if w.get("error"):
+        return False if "absent" in str(w.get("error")) else None
+    liste = w.get("weapons")
+    return None if liste is None else bool(liste)
+
+
 def _masques_lus() -> dict:
     """`{abilityId: TargetingOptions}` pour toutes les abilities dont le masque est RE-lu."""
     out = {}
@@ -318,17 +340,25 @@ def stat_range(paires=None) -> dict:
                 vid = u.get("configId")
                 st = (u.get("stats") or {})
                 obs.append({"configId": vid,
-                            "arme": bool(((GC.unit(vid or "") or {}).get("weapons")) or []),
+                            "arme_kit": bool(((GC.unit(vid or "") or {}).get("weapons")) or []),
+                            "arme_ecs": _a_une_arme_ecs(u),
                             "range": st.get("range"),
                             "extraRange": st.get("extraRange"),
                             "delta_range": (u.get("statDelta") or {}).get("range")})
         finally:
             _dispose(sid, rid)
-    sans_arme = [o for o in obs if not o["arme"]]
+    # `!HasAnyWeapon` se lit sur le `WeaponsComponent` de l'ECS -- le substrat que le NATIF
+    # interroge. L'appariement par le gameconfig reste mesure a cote, et tout DESACCORD est sorti :
+    # une mesure faite sur la mauvaise population ne dirait rien de la branche visee.
+    mesurables = [o for o in obs if o["arme_ecs"] is not None]
+    sans_arme = [o for o in mesurables if not o["arme_ecs"]]
+    desaccords = [o for o in mesurables if bool(o["arme_ecs"]) != bool(o["arme_kit"])]
     return {"catalogue": catalogue, "modification": modification,
             "appariement_statTypes_range": sorted(set(appariement)),
             "appariement_est_bien_2": appariement != [] and set(appariement) == {int(StatType.RANGE)},
             "unites_observees": len(obs), "distinctes": len(set(o["configId"] for o in obs)),
+            "substrat_arme_mesurable": len(mesurables),
+            "desaccords_kit_vs_ecs": desaccords,
             "sans_arme_observees": len(sans_arme),
             "sans_arme_distinctes": sorted(set(o["configId"] for o in sans_arme)),
             "toutes_a_zero": all(o["range"] == 0 for o in obs),

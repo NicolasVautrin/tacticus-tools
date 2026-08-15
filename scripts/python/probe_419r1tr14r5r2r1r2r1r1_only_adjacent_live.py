@@ -69,9 +69,35 @@ _VRAI_GET_RANGE = T.get_range
 
 
 def _avant_r1r1(state, caster_id, options):
-    """`get_range` DANS SA FORME D'AVANT : `None` des que la portee numerique manque."""
+    """`get_range` DANS SA FORME D'AVANT : `None` des que la portee numerique manque.
+
+    ⚠ **CETTE BASELINE NE PEUT PAS SE DEFINIR PAR `rr.value is None`, ET C'EST UNE CORRECTION**
+    (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r1). Elle est RECONSTRUITE par-dessus le `get_range` COURANT :
+    elle n'est donc fidele que tant que la frontiere du `None` courant ne bouge pas. Or elle a bouge
+    deux fois -- les deux court-circuits (`casterTiles` vide, `UseWholeBoard`) rendent desormais un
+    triplet DEFINI, et la branche `!HasAnyWeapon` lit `GetStat(caster, StatType.Range = 2)`. Sur le
+    montage de cette tranche, dont le caster est justement SANS ARME, la baseline avait donc cesse
+    de diverger : elle mesurait le port courant, pas l'ancien. C'est le vice « un changement de
+    harnais perime les premisses d'un test », pris sur le fait.
+
+    On enonce donc les QUATRE sorties `None` de l'ancien corps, sans dependre de la frontiere
+    d'aujourd'hui : `TargetingRange` non RE-lu, caster sans tuile, `UseWholeBoard`, et portee
+    numerique non observable -- cette derniere lue comme l'ancien corps la lisait, c'est-a-dire
+    `unit_weapon_range` SEUL (il rend `None` sur `!HasAnyWeapon`, quel que soit le porteur de
+    stats), jamais `GetStat`."""
+    rng = getattr(options, "range", None)
+    if rng is None or T._tile_of(state, caster_id) is None or rng.use_whole_board:
+        return None
     rr = _VRAI_GET_RANGE(state, caster_id, options)
-    return None if rr is None or rr.value is None else rr
+    if rr is None or rr.value is None:
+        return None
+    if rng.override_range is None and not rng.use_range_from_config:
+        e = state.get_entity(int(caster_id))
+        sc = e.get_component(T.StatsComponent) if e is not None else None
+        if T.unit_weapon_range(T._visual_id(state, caster_id),
+                               sc.ctx if sc is not None else None) is None:
+            return None                               # branche `!HasAnyWeapon` de l'ANCIEN corps
+    return rr
 
 
 class _Substitue:

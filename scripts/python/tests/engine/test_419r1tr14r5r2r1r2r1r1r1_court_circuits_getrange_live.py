@@ -213,6 +213,15 @@ def test_live_getstat_range_vaut_zero_sur_les_trois_etages():
         "etage MODIFICATION : un `statType` du gameconfig nomme desormais `range` -- la stat peut "
         "etre deplacee, le zero de l'etage RESOLU n'est plus generalisable : %s"
         % r["modification"]["valeurs_de_statType_du_gameconfig"])
+    assert r["substrat_arme_mesurable"] >= 4, (
+        "le canal `combatSnapshot.units[].weapons` ne repond pas : `!HasAnyWeapon` serait alors "
+        "apparie depuis le GAMECONFIG, pas depuis le `WeaponsComponent` que le natif interroge -- "
+        "la mesure porterait sur une population voisine, pas sur la bonne (%s mesurables)"
+        % r["substrat_arme_mesurable"])
+    assert not r["desaccords_kit_vs_ecs"], (
+        "le kit gameconfig et le `WeaponsComponent` de l'ECS ne s'accordent plus sur « a une arme » "
+        "-- tout ce qui apparie « sans arme » par le kit devient suspect : %s"
+        % r["desaccords_kit_vs_ecs"][:5])
     assert r["sans_arme_observees"] >= 4, (
         "moins de quatre unites SANS ARME observees : une mesure sur une seule ne generalise pas "
         "(c'est la reserve que ce residu portait) : %s" % r["sans_arme_distinctes"])

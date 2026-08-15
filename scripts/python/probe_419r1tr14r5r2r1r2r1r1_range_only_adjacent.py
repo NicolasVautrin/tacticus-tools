@@ -142,8 +142,19 @@ def _gate_state(opts, vis: str) -> dict:
     mesure ici : les deux forcent `only_adjacent`, donc tout couple qu'ils touchent et dont la
     valeur est non observable s'AJOUTE au gisement. Ce chiffrage est donc un MINORANT."""
     rng = getattr(opts, "range", None)
-    if rng is None or rng.use_whole_board:
-        return {"decidable": False}                  # aucun gate ni avant ni apres, inchange
+    if rng is None:
+        return {"decidable": False}                  # `TargetingRange` NON RE-LU -> `get_range` = None
+    if rng.use_whole_board:
+        # #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1 : `get_range` ne rabat plus ce regime sur un `None`, il
+        # rend le litteral natif `0x10000000001` = `{1, false, true}`. Le modele doit suivre le
+        # CODE : la valeur est CONNUE, `only_adjacent` est faux, et ce sont les OPTIONS
+        # (`options.Range.UseWholeBoard`) qui desarment les deux gates chez le consommateur -- pas
+        # une absence de `Range`. Le decompte d'avant/apres, lui, est inchange : zero gate des deux
+        # cotes.
+        return {"decidable": True, "whole_board": True, "value_known": True,
+                "only_adjacent": False,
+                "avant_adjacence": False, "avant_distance": False,
+                "apres_adjacence": False, "apres_distance": False}
     if rng.override_range is not None:
         value_known = True
     else:

@@ -101,10 +101,21 @@ def test_le_montage_a_mordu(mesure):
     assert any(r["d"] >= 2 for r in lignes), "aucune cible a d >= 2 sur le caster clampe (D1)"
 
 
-def test_d1_le_clamp_arme_only_adjacent_sur_une_valeur_inconnue(mesure):
-    """(4) Le natif refuse `TargetIsInRange` a d >= 2 alors que la portee numerique lui est fournie
-    par `GetStat(Range) = 0` : c'est le clamp qui a arme le gate. Le port dit la meme chose ; B2
-    (« le clamp abandonne ») ne dit pas la meme chose -- donc le regime n'est pas degenere."""
+def test_d1_le_clamp_arme_only_adjacent(mesure):
+    """(4) Le clamp de melee ARME `onlyAdjacent` : le port dit la meme chose que le natif, et B2
+    (« les deux clamps n'arment PAS `onlyAdjacent` ») ne le dit pas -- donc le regime n'est pas
+    degenere.
+
+    ⚠ **LA DISTANCE DISCRIMINANTE A CHANGE DE COTE, ET C'EST UNE CONSEQUENCE DU PORT, PAS DU
+    NATIF** (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1). Tant que le port ignorait `GetStat(Range)`,
+    B2 n'avait AUCUNE portee numerique et ne posait donc aucun refus a `d >= 2` : c'est la que le
+    clamp se voyait. Le port lit desormais la valeur -- **0** -- donc B2 y refuse par la branche
+    DISTANCE (`d > 0`), exactement comme le port clampe refuse par l'adjacence : meme code, deux
+    chemins, plus rien a separer.
+    Le discriminant se lit maintenant a **`d = 1`** : le caster clampe y ACCEPTE le volet portee
+    (`AreEntitiesAdjacent` est vrai), alors que sans clamp la branche distance refuserait
+    (`1 > 0`). C'est le MEME fait natif -- le clamp arme l'adjacence -- lu la ou il decide encore.
+    Et c'est aussi ce qui montre que la valeur clampee n'est pas consommee (cf. D2)."""
     t = P.tally(mesure)
     assert t["port"] == t["tot"], (
         f"{t['tot'] - t['port']} ligne(s) ou le port et le natif divergent SUR LE CODE")
@@ -119,9 +130,17 @@ def test_d1_le_clamp_arme_only_adjacent_sur_une_valeur_inconnue(mesure):
             f"u{r['tid']} d={r['d']} : le natif devait rompre TargetIsInRange, "
             f"trouve {hex(r['nat'])}")
         assert r["port"] == IN_RANGE
-        assert r["b2"] != IN_RANGE, (
-            f"u{r['tid']} d={r['d']} : B2 devait NE PAS armer le gate -- sinon le clamp n'est pas "
-            "ce qui l'arme")
+    pres = [r for c in mesure["clampes"] for r in c["rows"] if r["d"] == 1 and r["nat"] is not None]
+    assert pres, "aucune ligne a d = 1 -- le cran perd son discriminant"
+    for r in pres:
+        assert r["nat"] != IN_RANGE, (
+            f"u{r['tid']} d=1 : le natif devait ACCEPTER le volet portee (adjacence), "
+            f"trouve {hex(r['nat'])}")
+        assert r["port"] == r["nat"], (
+            f"u{r['tid']} d=1 : le port doit nommer la MEME regle, trouve {hex(r['port'])}")
+        assert r["b2"] == IN_RANGE, (
+            f"u{r['tid']} d=1 : SANS le clamp, la branche DISTANCE devait refuser (`1 > 0`) -- "
+            f"trouve {hex(r['b2'])}, donc le clamp n'est plus ce qui arme l'adjacence")
 
 
 def test_d2_la_valeur_clampee_nest_pas_consommee(mesure):
@@ -145,33 +164,45 @@ def test_aucune_perte_contre_la_baseline(mesure):
     assert t["v_perte"] == 0, f"{t['v_perte']} cible(s) que le natif accepte et que le port REFUSE"
 
 
-def test_le_temoin_non_clampe_nomme_le_residu(mesure):
-    """(7) Sur un caster NON clampe, `only_adjacent` est faux (trait `Ranged`) et le port n'a plus
-    de portee numerique : il ne pose AUCUN refus de distance la ou le natif rend `TargetIsInRange`
-    (`Value = 0`). Divergence de CODE CONNUE -- le prix du tri-etat -- avec un VERDICT identique,
-    puisque la regle dynamique refuse de toute facon un caster sans arme. Ce cran l'ATTESTE : s'il
-    rougit, l'ecart a change de nature et doit etre re-instruit."""
+def test_le_temoin_non_clampe_accorde_desormais_la_CAUSE(mesure):
+    """(7) Sur un caster NON clampe, `only_adjacent` est faux (trait `Ranged`) et le natif rend
+    `TargetIsInRange` (`Value = 0`).
+
+    ⚠ **CE CRAN A CHANGE DE VERDICT ATTENDU, ET C'EST UN GAIN** (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1).
+    Il ATTESTAIT une divergence de CODE : le port, faute de portee numerique, imputait le refus a la
+    regle DYNAMIQUE (`0x2`) la ou le natif l'impute a la PORTEE (`0x8000000`). Le VERDICT etait
+    identique, donc l'ecart passait inapercu. Depuis que `get_range` lit
+    `GetStat(caster, StatType.Range = 2)`, le port dispose de la meme valeur que le natif et nomme
+    la MEME regle : le residu que ce cran nommait est FERME, et le cran garde desormais l'ACCORD.
+    S'il rougit en rendant `0x2`, le port a reperdu son canal de stats."""
     rows = [r for t in mesure["temoins"] for r in t["rows"] if r["nat"] is not None]
     assert rows, "aucune ligne de temoin"
     for r in rows:
         assert r["nat"] == IN_RANGE, (
             f"temoin u{r['tid']} d={r['d']} : le natif devait rompre TargetIsInRange "
             f"(`Value = 0`), trouve {hex(r['nat'])}")
-        assert r["port"] == DYNAMIC, (
-            f"temoin u{r['tid']} d={r['d']} : le port devait imputer le refus a la regle DYNAMIQUE "
-            f"(portee non observable -> aucun gate de distance), trouve {hex(r['port'])}")
-        assert bool(r["port"]) == bool(r["nat"]), "le VERDICT, lui, doit rester identique"
+        assert r["port"] == IN_RANGE, (
+            f"temoin u{r['tid']} d={r['d']} : le port doit desormais nommer la MEME regle que le "
+            f"natif (`TargetIsInRange`), trouve {hex(r['port'])} -- un {hex(DYNAMIC)} signifie "
+            "qu'il a reperdu `GetStat(StatType.Range)`")
 
 
-def test_la_sonde_chiffre_lecart_permissif_du_tri_etat(mesure):
-    """(7bis) La SONDE est le seul regime ou l'ecart du tri-etat devient un ecart de VERDICT : sur
-    `1126` (masque `0x4000`, sans regle dynamique pour rattraper), le natif REFUSE tout et le port
-    ACCEPTE tout. C'est un ARTEFACT du montage -- il faut le trait `Ranged`, que ZERO unite porte,
-    pour rendre `only_adjacent` faux sur un caster sans arme -- et ce cran fige le chiffre pour que
-    personne ne le relise comme un gisement reel."""
+def test_la_sonde_mesure_que_lecart_permissif_est_FERME(mesure):
+    """(7bis) La SONDE est le seul regime ou l'ecart du tri-etat devenait un ecart de VERDICT : sur
+    `1126` (masque `0x4000`, sans regle dynamique pour rattraper), le natif REFUSE tout.
+
+    ⚠ **CE CRAN FIGEAIT L'ECART, IL GARDE MAINTENANT SA FERMETURE**
+    (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1). Il exigeait `port == 0` -- « le port ACCEPTE tout » --
+    et c'etait la mesure d'un ecart PERMISSIF, le seul type qu'un entrainement puisse exploiter.
+    Le port lit desormais `GetStat(caster, StatType.Range = 2)` : il REFUSE, comme le natif.
+    Le regime reste un ARTEFACT de montage (il faut le trait `Ranged`, que ZERO unite porte, pour
+    rendre `only_adjacent` faux sur un caster sans arme) -- ce qui explique que l'ecart n'ait jamais
+    eu de gisement reel, et pourquoi sa fermeture ne deplace rien en bataille."""
     rows = [r for r in mesure["sonde"] if r["nat"] is not None]
     assert rows, "aucune ligne de sonde"
     assert all(r["nat"] == IN_RANGE for r in rows), (
         "la sonde doit refuser TOUTES ses cibles (`Value = 0`, masque sans regle dynamique)")
-    assert all(r["port"] == 0 for r in rows), (
-        "le port doit toutes les ACCEPTER -- c'est l'ecart permissif du tri-etat, chiffre ici")
+    assert all(r["port"] == IN_RANGE for r in rows), (
+        "le port doit desormais REFUSER comme le natif : un `0x0` signifie que la branche "
+        "`!HasAnyWeapon` a reperdu `GetStat(StatType.Range)` et que l'ecart PERMISSIF est rouvert -- "
+        "trouve %s" % [hex(r["port"]) for r in rows])

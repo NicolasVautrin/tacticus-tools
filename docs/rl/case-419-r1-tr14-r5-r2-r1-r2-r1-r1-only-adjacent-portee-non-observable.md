@@ -304,6 +304,15 @@ SONDE  u160 (type 1126, masque 0x4000, forceMeleeTarget = False)
 
 **CODE : port 3/3, B1 1/3, B2 1/3 (2 gagnees, 0 perdue). VERDICT : port 3/3.**
 
+⚠ **CETTE TABLE EST L'ETAT D'AVANT `-r4-r1`, ET DEUX DE SES COLONNES ONT BOUGE DEPUIS** (2026-08-15).
+La ligne SONDE y montre `port 0x0` — l'ecart PERMISSIF que le residu `-r4-r1` nommait ; `get_range`
+lit desormais `GetStat(caster, StatType.Range = 2)`, donc le port y rend `0x8000000` comme le natif.
+Et la baseline **B2** a du etre RE-DEFINIE : gardee par `rr.value is None`, elle etait devenue
+VACANTE (la valeur vaut `0`, plus `None`) et le cran D1 tombait en regime degenere. Elle enonce
+maintenant directement « les deux clamps n'arment PAS `onlyAdjacent` », ce qui est la question de la
+tranche ; son discriminant s'est deplace de `d >= 2` vers **`d = 1`**, ou le clamp decide encore.
+Les crans correspondants gardent l'ACCORD la ou ils figeaient l'ECART.
+
 ### 9.3 Ce que chaque etage prouve
 
 * **D1 — le clamp ARME `onlyAdjacent` sur une valeur inconnue.** A `d = 2` le natif rompt
