@@ -1462,23 +1462,46 @@ class MastersOfManoeuvreNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
 # `1475 SupaCyborkBody` -- laquelle n'a AUCUN playbook non-owner. RE-DERIVER, jamais recopier :
 # `probe_477r33_non_owner_registry_gaps.py --offline-only` rend le tableau complet.
 # Au registre ci-dessous : **19** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33
-# + 3 de #477-r35 + 1 de #477-r37). Il reste **4** faces MOVE non portees + `RedemptionOfTheRisen`,
-# PORTEE mais deliberement HORS registre (zero porteur), toutes des derivees DIRECTES.
-# Ces 4 restantes, et POURQUOI elles restent (residu #477-r37-r1) :
-#   `1451`, `1496`, `1508`     -- gates sur la RARETE (`HasRarity(u, Mythic)` = `BaseUnitComponent
-#                                 +0x74 == 5`), et AUCUN canal `rarity` n'existe cote port. Le
-#                                 verrou est un CAPTEUR MANQUANT, pas une limite de montage : le
-#                                 seed BC porte deja 10 unites `Rarity == 5` et `--unit-stat
-#                                 "<vis>:Rarity=5"` l'ecrit par unite. Ce qu'il faudrait :
-#                                 `combatSnapshot.units[].rarity` <- `IdunBattle.Entities.Components.
-#                                 BaseUnitComponent.Rarity`, donc une fenetre de reinject ;
-#   `1478 SabreOfSacrifice`    -- son gate est un ARBRE DSL, pas un predicat imperatif :
+# + 3 de #477-r35 + 1 de #477-r37). Sur les 24 concrets MOVE, **23** sont desormais PORTES ; QUATRE
+# le sont deliberement HORS registre, et un seul n'a aucune classe.
+#
+# ⚠⚠ **CE BLOC A ACCUSE LA RARETE, ET C'ETAIT FAUX** (#1036-r3, re-mesure 2026-08-15). Il disait :
+# << `1451`, `1496`, `1508` -- gates sur la RARETE [...] AUCUN canal `rarity` n'existe cote port. Le
+# verrou est un CAPTEUR MANQUANT [...] donc une fenetre de reinject >>. Le canal EXISTE depuis
+# #1039 (capteur) / #999-r3 (`UnitContext.rarity`), et il est ATTEIGNABLE d'ici : `tile_leaf_ctx` et
+# `scene_tile_leaf_ctx` publient tous deux `ctx["scene"]`, donc `scene.ctx(uid).rarity` repond
+# (cf. `_rarity_of`). Personne n'aurait eu besoin d'une fenetre de reinject.
+#
+# LE VRAI BLOCAGE est un ETAGE, et il est COMMUN aux quatre : leur porteur est une **MACHINE OF
+# WAR** (voie `mythicAbilities`), et l'univers de porteurs de CE dispatcher est bati sur des
+# entites POSITIONNEES -- les trois `*_leaf_ctx` exigent une position pour entrer une unite dans
+# `friend_units`/`enemy_units`, et une MoW n'a AUCUNE tuile (`AddMachineOperation$$Execute` ne lui
+# donne pas de `PositionComponent`, `snapshot._load_machines` non plus). Le natif, lui, itere
+# `abilityAndEffectCache.<slot 5>()` : TOUTES les `TriggeredAbility` de la bataille.
+# ⚠ Ce qui rend le diagnostic non trivial : AUCUN de ces corps ne lit la position du porteur.
+# `MastersOfManoeuvre` ne lit meme pas `owner`, et les deux autres ne s'en servent que pour un test
+# d'IDENTITE a l'interieur de `GetAdjacentFriends`. Le foyer a reparer est
+# `engine/utilities/tile.py`, jamais un corps de ce module. Residu `#1036-r9` (rayon de souffle
+# MESURE : 1 corps sur 19 verse sur un porteur sans position, et son rayon reel est nul).
+#
+# PORTES MAIS HORS REGISTRE, avec la raison :
+#   `1496 CabalOfSorcerers`    -- porteur MoW (`thousDaemonPrince`)       -> #1036-r3
+#   `1451 WisdomOfTheAncients` -- porteur MoW (`ultraDreadnought`)        -> #433-r4-r3-r1-r1
+#   `1508 MastersOfManoeuvre`  -- porteur MoW (`darkaStormSpeeder`)       -> #433-r4-r3-r1-r1
+#   `1522 RedemptionOfTheRisen`-- ZERO porteur sur ce build               -> patron #419
+# NON PORTE, et son blocage n'est PAS celui des quatre ci-dessus :
+#   `1478 SabreOfSacrifice`    -- porteur `astraDreir`, unite NORMALE (relique equipable), donc
+#                                 #1036-r9 ne le debloquera pas. Son gate est un ARBRE DSL :
 #                                 `SabreOfSacrificeAbility$$IsAffectedSummon` construit
-#                                 `AreEqual(Parent(mover), <caster>) & IsUnitWithVisualId(mover,
+#                                 `AreEqual(Parent(mover), Owner) & IsUnitWithVisualId(mover,
 #                                 GetStringConstant(unitId))` et le playbook l'EXECUTE par vtable
 #                                 `+0x188` sur une struct de contexte de 0x128 octets (owner a
-#                                 `+0x18`). Il doit donc sortir en arbre DSL (#149), et il lui
-#                                 manque en plus le canal `UtilityMovementCase$$StaysOnTile`.
+#                                 `+0x18`). Il doit donc sortir en arbre DSL (#149), et le
+#                                 `visualId` du MOVER n'est publie par AUCUN des trois `*_leaf_ctx`.
+#                                 ⚠ Le canal `UtilityMovementCase$$StaysOnTile`, que ce bloc citait
+#                                 comme manquant, EST disponible : son corps entier est
+#                                 `GetMainTile(case.unit, state) == case.Position.MainTile`,
+#                                 c'est-a-dire `tile == ctx["self_pos"]`.
 #
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee : MEME
 # degradation que le natif, pas un trou.
