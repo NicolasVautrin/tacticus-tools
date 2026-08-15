@@ -244,6 +244,105 @@ def test_la_REGLE_DYNAMIQUE_lit_casterTiles_et_c_est_elle_qui_tranche():
                                        caster_tiles=depuis_candidate) == 0
 
 
+def test_les_QUATRE_etages_RECOIVENT_bien_casterTiles(monkeypatch):
+    """⚠ CE TEST EXISTE PARCE QUE LA COUVERTURE FONCTIONNELLE EST INCOMPLETE, ET C'EST MESURE :
+    muter le site d'appel de la LIGNE DE VUE pour qu'il passe `None` laisse les quinze autres items
+    VERTS -- `MC1_67` ne porte, pour les couples de ce montage, **aucune** position candidate ou la
+    ligne de vue bascule (balayage des 63 tuiles : 0 bascule). Un montage qui la ferait basculer
+    exigerait un caster A DISTANCE, donc un autre type d'attaque normale, donc un autre gisement.
+
+    Plutot que de fabriquer ce montage, on garde la LIGNE : chaque etage est espionne et doit
+    RECEVOIR la position interrogee. C'est un cran STRUCTUREL, il ne remplace pas la mesure
+    fonctionnelle des trois autres etages -- il la complete la ou elle est aveugle."""
+    _, st = _montage()
+    from engine.runner.operations.change_unit_owner import ChangeUnitOwnerOperation
+    # SANS le swap, la cascade sort des `TargetIsEnemy` (le summon et sa proie sont allies) et
+    # n'atteint JAMAIS les etages espionnes -- le test serait vert sur un dict vide.
+    ChangeUnitOwnerOperation.execute(st, 2, 1)
+    probe = _probe(st, 2)
+    interrogee = [(5, 0)]
+    vus: dict = {}
+
+    def _espion(nom, vrai, rang):
+        def _f(*a, **k):
+            vus[nom] = a[rang] if len(a) > rang else k.get("caster_tiles")
+            return vrai(*a, **k)
+        return _f
+
+    for nom, rang in (("get_range_broken_rule", 4), ("get_tiles_obscuring_terrain", 4)):
+        monkeypatch.setattr(T, nom, _espion(nom, getattr(T, nom), rang))
+    monkeypatch.setattr(T, "_invoque_regle_dynamique",
+                        _espion("_invoque_regle_dynamique", T._invoque_regle_dynamique, 4))
+    monkeypatch.setattr(T, "caster_tiles_of",
+                        _espion("caster_tiles_of", T.caster_tiles_of, 2))
+
+    T.get_invalid_target_reason(st, 2, 3, probe, apply_self_cast_switch=False,
+                                caster_tiles=interrogee)
+    assert vus.get("get_range_broken_rule") == interrogee, "le volet PORTEE ne recoit pas casterTiles"
+    assert vus.get("get_tiles_obscuring_terrain") == interrogee, \
+        "la LIGNE DE VUE ne recoit pas casterTiles"
+    assert vus.get("_invoque_regle_dynamique") == interrogee, \
+        "la REGLE DYNAMIQUE ne recoit pas casterTiles"
+
+
+def test_TargetIsNotAdjacent_mesure_l_adjacence_depuis_casterTiles():
+    """`if ((rules >> 0x20) & 1) { if (<IBattleQuery 0x62>(targetTiles, casterTiles)) -> broken }`
+    -- le slot recoit `casterTiles` en SECONDE liste. Le masque de l'attaque normale ne pose PAS ce
+    bit, donc les items ci-dessus lui sont aveugles (mesure : muter ce site les laisse tous verts) ;
+    on l'exerce ici sur un masque qui ne pose QUE lui (`range=None` desarme le volet portee, qui
+    sortirait avant)."""
+    _, st = _montage()
+    opts = T.TargetingOptions(rules=int(TR.TargetIsNotAdjacent), self_cast=False, range=None,
+                              force_melee_target=T.RANGED_BOOL_FALSE)
+    probe = T._NormalAttackTargeting(opts)
+    assert T.get_invalid_target_reason(st, 2, 3, probe, apply_self_cast_switch=False) == 0, \
+        "depuis (2,0) la proie (6,0) n'est PAS adjacente -- aucun refus"
+    assert T.get_invalid_target_reason(st, 2, 3, probe, apply_self_cast_switch=False,
+                                       caster_tiles=[(5, 0)]) == int(TR.TargetIsNotAdjacent), \
+        "depuis (5,0) elle l'est -- le refus doit suivre la position INTERROGEE"
+
+
+def test_le_clamp_MELEE_se_mesure_depuis_casterTiles():
+    """`GetRange` : `if (IsTrue(options.ForceMeleeTarget, caster)
+    && attackQuery.<slot 21 ShouldApplyRangedInMelee>(caster, casterTiles, true))
+    { v = Min(1, v); onlyAdjacent = true; }`. Le 2e argument du slot est `casterTiles` -- un summon
+    qui s'approche entre en melee, et sa portee doit se rabattre. Le masque de l'attaque normale
+    porte `force_melee_target = IfRangedCaster` (faux pour ce caster de melee), donc ce site n'est
+    jamais atteint par les items ci-dessus : on l'arme explicitement."""
+    from dataclasses import replace as _replace
+    _, st = _montage()
+    base = T.normal_attack_targeting_options(st, 2)
+    opts = _replace(base, force_melee_target=T.RANGED_BOOL_TRUE,
+                    range=_replace(base.range, only_adjacent=T.RANGED_BOOL_FALSE,
+                                   override_range=4))
+    # L'ennemi du summon (le caster, id 1, en (0,0)) est a distance 2 de sa position REELLE.
+    assert T.should_apply_ranged_in_melee(st, 2, None) is False
+    assert T.get_range(st, 2, opts, None).value == 4
+    # Depuis (1, 0), il est AU CONTACT : le clamp doit tomber, et forcer `only_adjacent`.
+    assert T.should_apply_ranged_in_melee(st, 2, [(1, 0)]) is True
+    rr = T.get_range(st, 2, opts, [(1, 0)])
+    assert rr.value == 1 and rr.only_adjacent is True
+
+    # ⚠ ET LE CLAMP DOIT REMONTER JUSQU'AU VERDICT : sans cette moitie, muter `get_range_broken_rule`
+    # pour qu'elle appelle `get_range(..., None)` laisse tout vert (mesure) -- elle mesure la
+    # DISTANCE depuis la bonne position, mais perd le clamp. Cible a 3 de (1,0) : acceptee a portee
+    # 4, refusee des que le clamp force l'adjacence.
+    board = _board()
+    units = [_u(1, 1, CASTER, "thousSorcerer"),
+             _u(2, 2, SUMMON_POS, "astarLysander", [SUMMON], 4),
+             _u(3, 2, PROIE, "astarLysander"),
+             _u(5, 1, (4, 0), "astarLysander")]
+    st2 = _state(board, units)
+    o2 = _replace(opts, rules=int(TR.TargetIsEnemy))     # ni regle dynamique ni autre gate
+    p2 = T._NormalAttackTargeting(o2)
+    assert hexgeo.distance((1, 0), (4, 0)) == 3
+    assert T.get_range_broken_rule(st2, 2, 5, o2, None) == 0, "portee 4, cible a 2 : acceptee"
+    assert T.get_range_broken_rule(st2, 2, 5, o2, [(1, 0)]) == int(TR.TargetIsInRange), \
+        "depuis (1,0) le clamp melee force l'adjacence : la cible a 3 doit etre REFUSEE"
+    assert T.get_invalid_target_reason(st2, 2, 5, p2, apply_self_cast_switch=False,
+                                       caster_tiles=[(1, 0)]) == int(TR.TargetIsInRange)
+
+
 def test_le_threading_ne_passe_le_parametre_QU_AUX_porteurs_qui_le_DECLARENT():
     """Les ~35 regles dynamiques du registre gardent le contrat `(state, caster_id, target_id)`.
     Un appel a l'aveugle leverait `TypeError` sur chacune ; le threading teste donc la SIGNATURE,
@@ -344,12 +443,34 @@ def test_get_valid_targets_in_steps_UNIT_et_dedoublonne_dans_l_ordre():
     _, st = _montage()
     from engine.runner.operations.change_unit_owner import ChangeUnitOwnerOperation
     ChangeUnitOwnerOperation.execute(st, 2, 1)
-    depuis = [(5, 0)]
+    depuis, sterile = [(5, 0)], T.entity_tiles(st, 2)
     assert T.valid_normal_attack_targets(st, 2, caster_tiles=depuis) == [3]
-    # La MEME position deux fois ne doit pas dupliquer ; une position sterile n'enleve rien.
+    assert T.valid_normal_attack_targets(st, 2, caster_tiles=sterile) == [], \
+        "la position courante ne donne RIEN : c'est ce qui rend l'union observable"
+    # La MEME position deux fois ne doit pas dupliquer.
     assert T.get_valid_targets_in_steps(st, 2, [depuis, depuis]) == [3]
-    assert T.get_valid_targets_in_steps(st, 2, [T.entity_tiles(st, 2), depuis]) == [3]
     assert T.get_valid_targets_in_steps(st, 2, []) == []
+    # ⚠ LES DEUX ORDRES, ET C'EST CE QUI ATTRAPE LE MUTANT << garder la derniere position >> :
+    # avec la seule seconde position, `[depuis, sterile]` rendrait `[]`. Mesure : sans ces deux
+    # lignes, un mirror qui ECRASE au lieu d'UNIR laissait les quinze items verts.
+    assert T.get_valid_targets_in_steps(st, 2, [sterile, depuis]) == [3]
+    assert T.get_valid_targets_in_steps(st, 2, [depuis, sterile]) == [3]
+
+    # UNION SUR DEUX CIBLES DISTINCTES, dans l'ordre de PREMIERE APPARITION (`OrderedSet.Add`).
+    # Montage propre : une SECONDE proie (team 2, donc ennemie une fois le swap applique), loin de
+    # la premiere. Les deux positions d'interrogation sont DERIVEES, jamais supposees.
+    board = _board()
+    units = [_u(1, 1, CASTER, "thousSorcerer"),
+             _u(2, 2, SUMMON_POS, "astarLysander", [SUMMON], 4),
+             _u(3, 2, PROIE, "astarLysander"),
+             _u(4, 2, (2, 6), "astarLysander")]
+    st2 = _state(board, units)
+    ChangeUnitOwnerOperation.execute(st2, 2, 1)
+    toutes = [[(c, r)] for c in range(7) for r in range(9)]
+    p3 = next(p for p in toutes if T.valid_normal_attack_targets(st2, 2, caster_tiles=p) == [3])
+    p4 = next(p for p in toutes if T.valid_normal_attack_targets(st2, 2, caster_tiles=p) == [4])
+    assert T.get_valid_targets_in_steps(st2, 2, [p3, p4]) == [3, 4]
+    assert T.get_valid_targets_in_steps(st2, 2, [p4, p3]) == [4, 3]
 
 
 def test_la_position_COURANTE_fait_partie_des_positions_interrogees():
@@ -365,6 +486,40 @@ def test_la_position_COURANTE_fait_partie_des_positions_interrogees():
     assert T.valid_normal_attack_targets(st, 2) == [3]
     assert T.all_valid_targets_from_all_possible_movement_tiles(st, 2) == [3], \
         "MOVEMENT 0 => seule la position COURANTE est interrogee, et elle DOIT l'etre"
+
+
+def test_l_AJOUT_EXPLICITE_de_la_position_courante_est_ECRIT_et_non_domine(monkeypatch):
+    """⚠ CE TEST EXISTE PARCE QUE LE PRECEDENT EST **DOMINE**, et c'est une MESURE, pas une crainte :
+    muter la ligne d'ajout explicite en no-op laisse les treize autres items VERTS. La cause est que
+    `MovementQuery$$GetMovablePositionsFor` fait DEJA `movable.AddRange(IterateTiles(unit, state))`
+    en interne -- sur une unite a 1 pied les deux se recouvrent, donc aucun montage a un pied ne peut
+    separer les deux ecritures.
+
+    Le seul regime ou l'`Add` du natif MORD est le multi-hex, ou `GetMovablePositionsFromTiles`
+    recombine les tuiles en positions a N pieds et n'est pas tenu de reproduire l'empreinte exacte.
+    Plutot que de monter une unite multi-hex (substrat lourd, et le port n'en a pas de summon), on
+    ISOLE la ligne : on substitue l'etage AMONT pour qu'il ne rende PAS l'empreinte courante, et on
+    exige que le mirror la remette. C'est exactement ce que fait la ligne native."""
+    board = _board()
+    units = [_u(1, 1, CASTER, "thousSorcerer"),
+             _u(2, 2, SUMMON_POS, "astarLysander", [SUMMON], 0),
+             _u(3, 2, (3, 0), "astarLysander")]
+    st = _state(board, units)
+    from engine.runner.operations.change_unit_owner import ChangeUnitOwnerOperation
+    ChangeUnitOwnerOperation.execute(st, 2, 1)
+
+    # CONTRE-EPREUVE DE LA SUBSTITUTION (#feedback_verify_the_mutation_applied) : sans elle, l'etage
+    # amont rend BIEN l'empreinte -- donc le stub ci-dessous change reellement quelque chose.
+    import engine.services.movement_query as MQ
+    avant = MQ.get_movable_positions_for(board, st, 2, [])
+    assert [list(p) for p in avant] == [[SUMMON_POS]], \
+        "l'etage amont rend l'empreinte courante : c'est CE recouvrement qui domine l'autre test"
+
+    monkeypatch.setattr("engine.services.movement_query.get_movable_positions_for",
+                        lambda *a, **k: [])
+    assert MQ.get_movable_positions_for(board, st, 2, []) == [], "la substitution doit MORDRE"
+    assert T.all_valid_targets_from_all_possible_movement_tiles(st, 2) == [3], \
+        "l'etage amont ne rend RIEN : c'est l'AJOUT EXPLICITE qui doit sauver la position courante"
 
 
 def test_substrat_absent_rend_une_liste_VIDE_sans_rien_inventer():
