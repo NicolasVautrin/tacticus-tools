@@ -382,7 +382,34 @@ def probability_gate(prob) -> bool:
 
     Bande OUVERTE (`0 < prob < 1`) -> `True`, et c'est DECLARE : le moteur du port est
     deterministe et n'a pas le PRNG autobot a ce point. `False` y serait aussi faux, mais
-    RESTRICTIF -- on garde le sens qui ne retire jamais une action que le natif peut jouer."""
+    RESTRICTIF -- on garde le sens qui ne retire jamais une action que le natif peut jouer.
+
+    ⚠ **ET CE N'EST PAS UN CHOIX PAR DEFAUT : REPRODUIRE LE TIRAGE EST ECARTE PAR MESURE**
+    (`#969-r1` / `#971-r2`). La chaine a ete lue de bout en bout :
+
+      * le tirage est `<IPseudoRNG slot 4>.NextBool(Fix64 p)`, dont le corps terminal
+        `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextBool` (overload `Fix64`) est
+        `IdunBattle.Utils.PRNG.MersenneTwister$$genrand_real2() < p` -- un Mersenne Twister ;
+      * ce PRNG est INJECTE (`IdunBattle.AI.Playbook.BasePlaybook$$Init(..., random, ...)` ecrit
+        `this.<+0x30>`), il vient d'`IdunBattle.AI.PlaybookDatabase$$.ctor(..., random, ...)`, et
+        `IdunBattle.Runner.IdunRunner$$Initialize` en construit **DEUX** :
+          - celle de l'IA adverse recoit le `pseudoRNG` de la BATAILLE
+            (`IdunBattle.Utils.PRNG.MersenneTwister$$.ctor(rngSeed)`) -- deterministe ;
+          - celle du joueur (`humanAiPlaybook`/`humanAiRandom` d'
+            `IdunBattle.Core.Services.AiControl$$Init`) recoit un MT NEUF seede par
+            `System.DateTime$$get_Now().Ticks` -- **non reproductible EN PRINCIPE**.
+      * et le MT de bataille est **PARTAGE** : le meme objet est passe a
+        `IdunBattleLogic.Entities.DSLFactory$$.ctor` (qui l'enveloppe dans
+        `IdunBattle.Utils.PRNG.DisallowablePseudoRNG$$.ctor`), a
+        `IdunBattle.Core.Services.DamageCalculations$$Init`, a
+        `IdunBattle.Core.Services.UtilitiesDatabase$$.ctor` et a `AiControl$$Init`.
+
+    Reproduire le tirage exigerait donc de rejouer **toute** la sequence de consommation du meme
+    flux depuis le debut de la bataille (degats, esquive, blocage, selecteurs DSL, utilities,
+    strategie), dans l'ordre exact -- et une seule consommation non modelisee decale tout le reste
+    SANS ERREUR. C'est la raison pour laquelle le port modelise la porte comme une PROBABILITE
+    (mesurable, cf. `use_probability` ci-dessous et le capteur `shouldEvaluateTrace`) et non comme
+    un tirage."""
     if prob is None:
         return True
     if prob >= 1.0:                    # `if (prob >= Fix64.One) return true;`
@@ -666,6 +693,31 @@ class NonComparablePlaybook:
     #                                22 playbooks SURCHARGENT le getter : poser alors
     #                                `PRIORITY = native_priority(<ABILITY_ID>)` (table ci-dessus).
 
+    def use_probability(self, ctx: NCContext) -> float | None:
+        """Slot `0x1f8` `GetUseProbability(unit)` — la PROBABILITE d'usage, isolee du gate qui la
+        consomme (`probability_gate`, le foyer des trois branches de
+        `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate`).
+
+        DEFAUT `1.0` : les deux surcharges de base rendent litteralement
+        `FixMath.NET.Fix64$$op_Implicit(1)` (`IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability`,
+        les deux arites) -> `probability_gate(1.0)` = `True`, donc le comportement d'un playbook
+        qui ne surcharge rien est INCHANGE.
+
+        `None` = **PAS MESURE** (le substrat de la formule manque). Jamais `0.0` par defaut :
+        `Fix64.Zero` est la valeur qui fait REFUSER, donc un defaut prononcerait un refus que le
+        natif n'a pas prononce.
+
+        ⚠ **POURQUOI CE FOYER EXISTE ALORS QUE LA BANDE `]0,1[` RESTE PERMISSIVE.** Il ne change
+        aucun verdict par lui-meme -- c'est `probability_gate` qui tranche. Ce qu'il apporte, c'est
+        que `p` devient une **VALEUR**, donc CONFRONTABLE : le capteur `shouldEvaluateTrace`
+        (`frida/hooks/probes/should-evaluate-trace.ts`) publie, par appel de `ShouldEvaluate`, la
+        `prob` EXACTE passee a `NextBool` et le resultat du tirage. Un porteur dont la formule est
+        FAUSSE se voyait jusqu'ici seulement au taux d'agrement, ou l'ecart de tirage la masque ;
+        il se lit desormais directement (`p_porte` vs `p_natif`). C'est la difference entre un
+        ecart ASSUME et un ecart MESURE, et c'est exactement ce que reclamaient `#969-r1` et
+        `#971-r2`."""
+        return 1.0
+
     def should_evaluate(self, ctx: NCContext) -> bool:
         """`IPlaybook` slot 4 `ShouldEvaluate(unit)` — gate AMONT du générateur
         `ActiveAbilityActionGenerator.<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (`FUN_180003bd0(4, …)`),
@@ -679,8 +731,15 @@ class NonComparablePlaybook:
         `GetUseProbability` conditionnelle (BlackRage IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$GetUseProbability = 0.4, ItItches IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$GetUseProbability)
         restent True = écart assumé « porte ALÉATOIRE non modélisée » (moteur déterministe,
         cf. §5 case-44). Un playbook qui OVERRIDE le slot 4 lui-même (vtable ≠ IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate)
-        surcharge cette méthode (ex. corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate `GetStat(unit,12) > 1`)."""
-        return True
+        surcharge cette méthode (ex. corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate `GetStat(unit,12) > 1`).
+
+        ⚠ **NE PAS SURCHARGER CECI POUR UNE PROBABILITE — surcharger `use_probability`.** Le natif
+        separe les deux etages (le slot 4 appelle le slot `0x1f8`) et le port fait pareil depuis
+        `#969-r1`/`#971-r2` : la formule est CONFRONTABLE (`shouldEvaluateTrace` publie la `prob`
+        native), le triage ne l'est pas. Cette methode ne se surcharge que quand la VTABLE du
+        playbook remplace `BasePlaybook$$ShouldEvaluate` lui-meme -- c'est-a-dire quand le natif ne
+        consulte AUCUNE probabilite (cas `AlphaWarriorPlaybook$$ShouldEvaluate` ci-dessus)."""
+        return probability_gate(self.use_probability(ctx))
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Mirror <GenerateActions>d__7 pour CETTE ability : balaie positions/cibles (selector
