@@ -19,6 +19,7 @@ est EN AMONT de cette tranche -- la figer ici graverait un ecart connu comme s'i
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import os
 from types import SimpleNamespace
@@ -152,17 +153,29 @@ def test_521r7_rayon_du_vecteur():
         f"peut rien garder")
 
     atteignables = sorted(by_ev.get(int(EventTriggerType.AttackInAtomicGroup), []))
-    # MESURE du 2026-08-13 (#1003), a la SECONDE entree de ce vecteur -- ce que ce garde exige :
+    # MESURE du 2026-08-15 (#521-r8), a la TROISIEME entree de ce vecteur -- ce que ce garde exige :
     #   * `1316 CalibaniteGreatsword_NormalAttackAdditionalDamage` (#521-r4) ;
     #   * `1465 OrbsOfDecay` (relique Death Guard), qui porte `On(0x4a) & get_OwnerIsCaster &
-    #     IsMeleeAttack` -- et SANS `IsNormalAttack`, contrairement a 1316.
+    #     IsMeleeAttack` -- et SANS `IsNormalAttack`, contrairement a 1316 ;
+    #   * `1098 Pyreblaster` (#1052), entree au registre SANS que ce cliquet soit rejoue -- il
+    #     rougissait donc sur `master` depuis. C'EST UN RESULTAT, ET IL EST STRUCTUREL :
+    #     `...PyreblasterAbility$$CreateTrigger` a le corps DEDUPLIQUE par ICF (MEME RVA) que
+    #     `...FireOfAbsolutionAbility$$CreateTrigger`, donc EXACTEMENT le meme trigger
+    #     `On(0x4a) & get_OwnerIsActor & IsRangedAttack`. Les deux passifs jumeaux vivaient sur deux
+    #     canaux DIFFERENTS (Pyreblaster sur le bus, FireOfAbsolution en imperatif depuis
+    #     `after_hit_normal_attack`) ; #521-r8 les reunit sur le bus, au meme rang.
     # LE RAYON SUPPLEMENTAIRE OUVERT PAR `OrbsOfDecay` EST **VIDE**, et c'est derive, pas suppose :
     # les DEUX seuls call-sites du noeud DSL `EvaluateAbilities(AttackInAtomicGroup)` du port sont
     # dans `abilities/loki/strike.py` (`ArmoriumCherub`), et ils passent tous deux `ranged=True` ->
     # le gate `IsMeleeAttack` d'`OrbsOfDecay` (`not ev.ranged`) les REFUSE. Seconde raison,
     # INDEPENDANTE : `get_OwnerIsCaster` exigerait que le porteur de la relique SOIT le caster
     # d'`ArmoriumCherub` (une active `admec`), ce qu'aucune unite ne peut etre.
-    assert atteignables == [("PASSIVE_HELPER_ABILITY_TRIGGERS",
+    # ⚠ `FireOfAbsolution` n'apparait PAS dans cette liste et ne doit pas y apparaitre : il n'est
+    # dans AUCUN des sept registres -- son canal est `IMPERATIVE_ABILITY_VECTORS` (5e voie de
+    # couverture, #951-r2), appele en dur par `evaluate_abilities_for_event`. C'est le test
+    # `test_521r8_fire_of_absolution_a_migre_sur_son_vecteur` qui garde CE canal-la.
+    assert atteignables == [("ABILITY_TRIGGERS", "PyreblasterAbility"),
+                            ("PASSIVE_HELPER_ABILITY_TRIGGERS",
                              "CalibaniteGreatswordNormalAttackAdditionalDamageAbility"),
                             ("RELIC_ABILITY_TRIGGERS", "OrbsOfDecayAbility")], (
         f"le RAYON de l'elargissement a CHANGE : {atteignables}. Ce n'est pas un "
@@ -277,24 +290,33 @@ def test_521r7_rang_entre_fold_et_cleave(monkeypatch):
         f"or {log} -- l'assertion ci-dessus ne prouverait alors rien")
 
 
-# --------------------------------------------------------------- 4. l'ANTI-DOUBLE-FIRE (#521-r8)
+# ------------------------------------------------- 4. la MIGRATION de `FireOfAbsolution` (#521-r8)
 
-def test_521r7_anti_double_fire_fire_of_absolution(monkeypatch):
+def test_521r8_fire_of_absolution_a_migre_sur_son_vecteur(monkeypatch):
     """`FireOfAbsolutionAbility$$CreateTrigger` = `On(0x4a, 1) & get_OwnerIsActor & IsRangedAttack`
-    -- AUCUN gate excluant l'attaque normale. Le port le joue pourtant depuis
-    `after_hit_normal_attack` (le vecteur `On(0x26)`), donc au MAUVAIS RANG : residu `#521-r8`.
-    Tant qu'il y vit, la voie NORMALE doit demander `fire_of_absolution=False`, sinon le splash
-    partirait DEUX fois -- et un double splash se refermerait en SILENCE (aucune erreur, juste des
-    PV en trop).
+    -- AUCUN gate excluant l'attaque normale, et le natif emet cet event depuis
+    `...ALoki_NormalAttackAbility$$ExecuteNormalAttack`. Le port le jouait IMPERATIVEMENT depuis
+    `after_hit_normal_attack` (le vecteur `On(0x26)`) : comportement present, RANG faux. #521-r8 l'a
+    migre sur le bus.
 
-    Deux crans : le call-site le demande (lecture d'AST) **et** le drapeau MORD (fonctionnel, avec
-    son temoin non nul dans l'autre sens)."""
+    **CE TEST GARDE LA PAIRE, PAS UNE MOITIE.** Les deux moities doivent bouger ENSEMBLE, et les
+    deux modes de panne sont SILENCIEUX :
+      * le call-site demande encore `fire_of_absolution=False` **et** l'appel imperatif a ete
+        retire -> le splash ne part PLUS DU TOUT (zero erreur, juste des PV en moins) ;
+      * l'appel imperatif est revenu **et** le call-site ne le desarme pas -> DOUBLE splash.
+    Un test qui ne verifierait qu'un cote laisserait passer l'un des deux."""
     with open(_DAMAGE, encoding="utf-8") as fh:
         calls = _emitter_calls(fh.read())
     kw = calls[0]["kwargs"].get("fire_of_absolution")
-    assert isinstance(kw, ast.Constant) and kw.value is False, (
-        "la voie NORMALE ne demande plus `fire_of_absolution=False` : `FireOfAbsolution` partirait "
-        "DEPUIS ICI **et** depuis `after_hit_normal_attack` -- double splash silencieux (#521-r8)")
+    assert kw is None, (
+        "la voie NORMALE desarme encore `FireOfAbsolution` alors que l'appel imperatif d'"
+        "`after_hit_normal_attack` a ete retire : le splash ne partirait PLUS DU TOUT (#521-r8)")
+
+    import engine.runner.operations.triggers.dispatch.attack as ATT
+    src = inspect.getsource(ATT.after_hit_normal_attack)
+    assert "_fire_of_absolution_after_attack" not in src, (
+        "`after_hit_normal_attack` rappelle `FireOfAbsolution` alors que le vecteur `On(0x4a)` le "
+        "joue deja : DOUBLE splash silencieux (#521-r8)")
 
     import engine.runner.operations.triggers.dispatch.ability as AB
     seen: list = []
@@ -303,11 +325,13 @@ def test_521r7_anti_double_fire_fire_of_absolution(monkeypatch):
     state = SimpleNamespace(entities={}, effects=None, triggering_ability=None,
                             trigger_ability_type=None)
     ev = int(EventTriggerType.AttackInAtomicGroup)
-    AB.evaluate_abilities_for_event(state, 1, 2, ev, False, fire_of_absolution=False)
-    assert seen == [], "le drapeau NE MORD PAS : `FireOfAbsolution` part depuis la voie normale"
     AB.evaluate_abilities_for_event(state, 1, 2, ev, False)
-    assert seen == [1], ("TEMOIN VIDE : `FireOfAbsolution` ne part pas non plus par defaut -- "
-                         "l'assertion ci-dessus ne prouverait rien (voie ABILITY = son seul home)")
+    assert seen == [1], ("le vecteur `On(0x4a)` ne joue PAS `FireOfAbsolution` par defaut -- apres "
+                         "la migration c'est son SEUL home")
+    seen.clear()
+    AB.evaluate_abilities_for_event(state, 1, 2, ev, False, fire_of_absolution=False)
+    assert seen == [], ("TEMOIN : le point de MUTATION doit rester desarmable, sinon aucune "
+                        "contre-epreuve ne peut isoler ce canal du bus")
 
 
 def test_521r7_elargissement_atteint_le_registre(monkeypatch):

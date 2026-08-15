@@ -2033,6 +2033,15 @@ class DamageHandler:
         # ⚠ Ce site est le JUMEAU de ceux de MV71 / du cleave / de HeavyBoltPistol : comme eux il ne
         # couvre que la voie MESSAGE, pas les portes qui appellent `AttackDamageOperation.execute`
         # directement (overwatch, `UseActiveAbility`, summon AI) -- meme residu `#478-r3`.
+        # ⚠ #521-r8 -- CE SITE PORTE DESORMAIS `FireOfAbsolution`, ET SA COUVERTURE EST LE PRIX
+        # ASSUME DE LA MIGRATION. Le passif etait joue IMPERATIVEMENT par `after_hit_normal_attack`,
+        # donc depuis les CINQ portes qui appellent ce vecteur (voie MESSAGE, feuille DSL
+        # `UseActiveAbility`/`UseNormalAttack`, MV71, summon, summon AI) et APRES toute la cloture.
+        # Il est desormais sur son vecteur natif `On(0x4a)`, a son rang natif -- mais ce vecteur-ci
+        # ne couvre que la voie MESSAGE (residu `#478-r3`, partage avec MV71 / le cleave /
+        # HeavyBoltPistol). Sur le SEUL porteur (`adeptRetributor`), les quatre portes perdues sont :
+        # MV71 / summon / summon AI (structurellement inatteignables pour lui) et la feuille DSL
+        # `UseNormalAttack` (free-attack accordee -- ETROITE, et c'est la seule perte reelle).
         _atomic_group_done = []
 
         def _evaluate_attack_in_atomic_group():
@@ -2048,13 +2057,11 @@ class DamageHandler:
                 # `CurrentAbility` = le marqueur de kind attaque-normale, comme partout ailleurs sur
                 # cette voie (`pre_unit_ability_triggers(ability_type=1013)`) : c'est LUI qui
                 # satisfait le gate `IsNormalAttack` de `1316`.
-                ability_type=NORMAL_ATTACK_KIND,
-                # #521-r8 : ANTI-DOUBLE-FIRE. `FireOfAbsolution` est le SECOND consommateur natif de
-                # cet event, et le port le joue deja -- mais depuis `after_hit_normal_attack`
-                # (`On(0x26)`), donc au MAUVAIS RANG. Le rebrancher ici sans retirer l'autre site le
-                # ferait partir deux fois ; l'y migrer deplacerait des tirages `state.rng` sur
-                # `adeptRetributor` et exige sa propre mesure. Cf. `evaluate_abilities_for_event`.
-                fire_of_absolution=False)
+                # #521-r8 : plus d'`fire_of_absolution=False`. L'anti-double-fire n'a plus lieu
+                # d'etre, l'appel imperatif d'`after_hit_normal_attack` ayant ete retire dans le
+                # MEME commit -- les deux vont toujours par paire, sous peine de double splash
+                # (ou de zero splash).
+                ability_type=NORMAL_ATTACK_KIND)
             if _r:
                 self.last["attack_in_atomic_group"] = _r
         # --- #478 les DEUX volets de `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour`. Les
