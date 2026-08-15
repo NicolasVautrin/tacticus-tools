@@ -81,7 +81,7 @@ scripts/python/engine/entities/effect_targets.py	mirror	a99723f6203678022695395e
 scripts/python/engine/entities/effect_type.py	mirror	085ca3481eed2308c7e6009a77405583c96adeddfb8e48de363280364e89d109	{}
 scripts/python/engine/entities/effects/__init__.py	mirror	76960fa95e06962c123ff8aff660801abc1fc6859a7c0f7911c6ac35e4fdb067	{}
 scripts/python/engine/entities/effects/aura.py	mirror	ac10dacf81238d1ae34cda77109f9c88892315badafe16bc1bf736a6caa0203a	{}
-scripts/python/engine/entities/effects/aura_selectors.py	mirror	a15c8cc06dc0c01dac7f4f8388947a2cce29b9ff37e89de6acb1db4da7139902	{}
+scripts/python/engine/entities/effects/aura_selectors.py	mirror	f7662fe9ddf1260567b37075420d1e0a39798ed2e65d7d6c4139c6123ad0d952	{}
 scripts/python/engine/entities/effects/base.py	mirror	c98226ed768398708e82e6d62347a947902d83af32d4e72343a0717adfc93afd	{}
 scripts/python/engine/entities/effects/ctx_keys.py	mirror	c89a8469bb096685ae69293d4581b87e26d9b7caf074250a7ed0cd8a58f741aa	{}
 scripts/python/engine/entities/effects/factory.py	mirror	f40f46165d339dc3280a296f1f287cd913efe9e2332e5257e634696f23a82dc3	{}
@@ -101,7 +101,7 @@ scripts/python/engine/entities/effects/loki/custodes.py	mirror	45d882188db1dd407
 scripts/python/engine/entities/effects/loki/daemonflesh_plate.py	mirror	5be6c0810099e70cefb7b2c3309b7891baf42837688b67be2e7159b253feffb1	{}
 scripts/python/engine/entities/effects/loki/daemonic_patrons.py	mirror	ebe5add032a33839ca5b578e4cc493b2049ccd75f28a6e6274897fd195e94327	{}
 scripts/python/engine/entities/effects/loki/damage_reduction.py	mirror	5ecc3b3c19d3c4d98ab73e86abfcfde1e17922172838f4cd5a179a09bf576d10	{}
-scripts/python/engine/entities/effects/loki/dark_angels_passives.py	mirror	25148a3a34af6feb2535356e78f4b43e0804897fbff913198ac706d2f331d737	{}
+scripts/python/engine/entities/effects/loki/dark_angels_passives.py	mirror	9cf44a20bc72387e9be45f02ffa273c3816431c415e1ee64cedc20c7f3397b9a	{}
 scripts/python/engine/entities/effects/loki/darkangels.py	mirror	5e66cfd30253c133c9302d7b1b3179d437db06ba71dd1fde538b1965c9ceedd2	{}
 scripts/python/engine/entities/effects/loki/deathwing.py	mirror	af700c34a559a7d76217d8f34688ee7ebd4db32976faed7fe9ccd3d6b6e2e8a9	{}
 scripts/python/engine/entities/effects/loki/destroy_the_witch.py	mirror	a68e6f6c29adf8a33de00d42d463169138d19ccc20d8d3c055c94d9c506ba8c8	{}
@@ -111,7 +111,7 @@ scripts/python/engine/entities/effects/loki/enmity_for_the_unworthy.py	mirror	c1
 scripts/python/engine/entities/effects/loki/euphoric_strikes.py	mirror	404d03d5cff9cd7bffabd5ae09a939c4b49be3e5fbe92b7153687eb43b69b00a	{}
 scripts/python/engine/entities/effects/loki/exemplar_of_the_montka.py	mirror	580746922b1e9ee2707674c1a4ab5e5d4569e12b60e8bd4856877da3557acdde	{}
 scripts/python/engine/entities/effects/loki/extra_damage.py	mirror	522802f41da8a64a7da32aafc36e7f43b52b10f1430ca756152bb2489710969b	{}
-scripts/python/engine/entities/effects/loki/extra_damage_aura.py	mirror	f0b8b008148f6c167219a5eae98a705038aec6737cdef2f80c56054cc16c770e	{}
+scripts/python/engine/entities/effects/loki/extra_damage_aura.py	mirror	a4a1054748f7947a6dc93e627cc1dd37e9830e4589ce2e5c8ba91ce3783d6ccd	{}
 scripts/python/engine/entities/effects/loki/first_among_traitors.py	mirror	8aeacc452fd6ab014565ff5fe5af8d154ee2e9088302e057dac1f900eeff25ff	{}
 scripts/python/engine/entities/effects/loki/hail_of_living_ammunition.py	mirror	02a9b4efb8b4188312c44aca1021e0245fef25c793d0bdbfd977ee936cd39261	{}
 scripts/python/engine/entities/effects/loki/head_claimer.py	mirror	4e1c021b7e11cca815bc81f5f628bc2247314d2ec528380eb400c13cdd1ed1ec	{}
@@ -119,14 +119,14 @@ scripts/python/engine/entities/effects/loki/headwoppas_killchoppa.py	mirror	29cf
 scripts/python/engine/entities/effects/loki/heal_blocking.py	mirror	f0ebf54aa4a857e5b2872574ab3982265ef45dfd20335cb19c1117375fdecbfe	{}
 scripts/python/engine/entities/effects/loki/healing_balms.py	mirror	999071c6329719d2afd03206da807b30058820b400c60d8568320fb95ae34b7e	{}
 scripts/python/engine/entities/effects/loki/helspear.py	mirror	2d4fa92b868868b69e95fed23d9fafcb1ba300672bfc730a830b5ecc74375964	{}
-scripts/python/engine/entities/effects/loki/hits.py	mirror	010043b4623e95679882498b098d554cdcbc54dc18c7efd09dee3100615fa3a3	{}
+scripts/python/engine/entities/effects/loki/hits.py	mirror	81e51dbc0d83c931521979cd5a909f29c8ce61afcd89327df40dfc565fb3e05b	{}
 scripts/python/engine/entities/effects/loki/holy_duel.py	mirror	b6cfa7a23b1a77cf125c68980bc6e02ef51ee6e01c8bbff23cfcf1ecdebea589	{}
 scripts/python/engine/entities/effects/loki/hungering_swarm.py	mirror	ddea70c586c91ec40c6561c8ea7c93b25078929d48bfefd0d83e3f698a1ddc9f	{}
 scripts/python/engine/entities/effects/loki/hunter_of_souls.py	mirror	718319021a12316203d28836d221fed0c3ac9c69a6239c7ebbfb66f9e40adeb0	{}
 scripts/python/engine/entities/effects/loki/hunters_beyond_death.py	mirror	f6f2d38647cebf4ea8d2c2d4729321077a4525a43e02da61fa7683e1608dae4b	{}
 scripts/python/engine/entities/effects/loki/hypermorph.py	mirror	f9f83394469056b03c7b90294f0e482aba381db7d4006343f3ba83d22745c69e	{}
-scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py	mirror	79c4e620f866cb2105d35f6c5d3d5d1b5ba07ddd2a7ccc905ff1c6a017ab9556	{}
-scripts/python/engine/entities/effects/loki/imperative.py	mirror	fb69638736a664f0600d43fbbca9a86e1b3ae1392d111b2de4818f112f4c087f	{}
+scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py	mirror	de75f6f0799850ef1316b89062532fb059627747617b1f8261a11b79f0181a53	{}
+scripts/python/engine/entities/effects/loki/imperative.py	mirror	43290f543792f4f5a11cca7666388f52ff0c417b9402f26def3ca36b1a67afb0	{}
 scripts/python/engine/entities/effects/loki/inescapable_accuracy.py	mirror	6a64e6dc794a615efd40103f3c5e986b22d67a351e7a5fe11bb3e9b0acea6dbd	{}
 scripts/python/engine/entities/effects/loki/inescapable_death.py	mirror	1c569abaae742a0b0734968b91d5868d35373c291c9b64b3ccdab675dd720ed2	{}
 scripts/python/engine/entities/effects/loki/instinctive_behaviour.py	mirror	d92ebc06e01fc4b53bc8b310f673cf3e9bc7ac87face172aed63284a9af18e32	{}
@@ -170,7 +170,7 @@ scripts/python/engine/entities/effects/loki/summary_execution.py	mirror	da52bf9d
 scripts/python/engine/entities/effects/loki/supa_cybork_body.py	mirror	fb2c24dee4fade259d417546d680a31f3783911e9e9d5fffbf711bd673abdb2a	{}
 scripts/python/engine/entities/effects/loki/synaptic_insight.py	mirror	398384ed7dc16af4671b5dee89acdea6f0f62cf4eda3e3af884fd12d1059b4b6	{}
 scripts/python/engine/entities/effects/loki/talisman_of_rage.py	mirror	4b29930f45679f6c616f601801fc62f9b63ecadba9863501025270e72315ab12	{}
-scripts/python/engine/entities/effects/loki/terrors_lament.py	mirror	d5a990cdebcd9b10b1fafc4dd36d88d7c89e5b5dfafa3f5dab96c70a823df92a	{}
+scripts/python/engine/entities/effects/loki/terrors_lament.py	mirror	0c582b9ace0ff03b0e4c8e42aa00a6bb3b49925f932eed94eaa226a9b8160d62	{}
 scripts/python/engine/entities/effects/loki/titanhammer_squad.py	mirror	b46b1bb2c5d0dee0224cfd31181f11d5bf136f5c40ca230736373b9f06f376ac	{}
 scripts/python/engine/entities/effects/loki/tough_to_kill.py	mirror	f8cfae53376027602df155a6d4bec843db2b83cd1d3718b78c5e32ecd83aae4a	{}
 scripts/python/engine/entities/effects/loki/trophy_taker.py	mirror	0a2e2c5993c5b4f13e7fd9b2ea063688f9106b14554b66e8f5ce7ad151dd5402	{}
@@ -192,7 +192,7 @@ scripts/python/engine/entities/kill_unit_step.py	mirror	8ea6b92984e16dfa5afe10f4
 scripts/python/engine/entities/pathfinding/__init__.py	mirror	7ee7796b8b445434e76946fd29d8cc84664edd1021128d534e0c8c169a3fe31c	{}
 scripts/python/engine/entities/pathfinding/base_pathfinder.py	mirror	80d61eec83d4afd6d2ac6a26afbe3b9f522a28fa7a92b7723413d43302c4e324	{}
 scripts/python/engine/entities/pathfinding/beeline_pathfinder.py	mirror	22300c17eac7b0373f1a0c66983179212f7159003512feed778651602b603a0b	{}
-scripts/python/engine/entities/pathfinding/board.py	mirror	bd80d36147097d874ed10ce4b79e4cb2995da4eaaca8256493a980350b53d2c1	{}
+scripts/python/engine/entities/pathfinding/board.py	mirror	147471377e6959e1e1691bfda1ba83a6e9bc638a963c6c6cd5f42f28c86dd6e1	{}
 scripts/python/engine/entities/pathfinding/fly_pathfinder.py	mirror	1128606aab950c0df71d0959e08300787d377bbaad5c20ce0247baeec662957e	{}
 scripts/python/engine/entities/pathfinding/ignore_terrain_pathfinder.py	mirror	3c16d981d3fb6ec1b18b5d63ef81752265aa4a7fdfe52b6d0bebdc4df53bdd76	{}
 scripts/python/engine/entities/pathfinding/pathfinders.py	mirror	c0d3db3073a87cbf0ab02a1c74116788b00ca9d9b2d6c9515834fc3316d13ace	{}
@@ -214,7 +214,7 @@ scripts/python/engine/entities/stats.py	mirror	a611b599d0d1e3a322b11b57ed8ab21bc
 scripts/python/engine/entities/tile_extensions.py	mirror	3c4902de1a9cbe414b1bfc92d99d1c957b0f659910f55d67c718303a89da1749	{}
 scripts/python/engine/entities/traits/__init__.py	mirror	9a4114a236a320ac697853cc56663adc0d2d60095b21afe3ee9391f2341b738c	{}
 scripts/python/engine/entities/traits/base.py	mirror	8c58f77d5b69128925889fc9c4e2529de41040f5c58779837a6b5c28c930da61	{}
-scripts/python/engine/entities/traits/combat.py	mirror	6809aabed87e547c0ad023ea1104460d9b41b8e3223911e5dd9915ec087f2280	{}
+scripts/python/engine/entities/traits/combat.py	mirror	a3cca23bbad1ec76f5262be69d30d79519d7d166374e3fd35226232f55ac2ac7	{}
 scripts/python/engine/entities/traits/factory.py	mirror	0bfdf024b479cbbc792fd5cd7067374f551e6fbd840394b9f6393c9c27ab9afb	{}
 scripts/python/engine/entities/traits/unit_trait.py	mirror	d1053eeb64386a05af2e0de78d5ba8837e25b744ea364d777bcc7af1467e579e	{}
 scripts/python/engine/entities/traits_state.py	mirror	a010fdbadc8e6ccd0ef951b629ecc210b18aeba5edfc79073822da0d877a9550	{}
@@ -357,9 +357,9 @@ scripts/python/engine/playbook/normal_attack_kill_gate.py	mirror	754c37eae0294e7
 scripts/python/engine/playbook/obsessive_annunciation.py	mirror	8aa92f80ae32da097c98710c27a6fe892daee7b968b02b192f171dc54b0544f4	{}
 scripts/python/engine/playbook/plagueburst_mortar.py	mirror	5740304f4be85aa6e78d3af752526d4f25283df937b41f6f7dc350537b6ce05f	{}
 scripts/python/engine/playbook/prediction/__init__.py	mirror	d0d11832666143af00b8829134e33f669907d9cbb58fe363f9337f2afc4b02be	{}
-scripts/python/engine/playbook/prediction/_shared.py	mirror	0b36509e0bba0582f89aa7938b9b200f4a6a183c6f547a39c5869dba2b67a446	{}
+scripts/python/engine/playbook/prediction/_shared.py	mirror	aafd287535382b95356403ad2ac32c936252e609b1e8b5907161000e52f98b78	{}
 scripts/python/engine/playbook/prediction/abilities.py	mirror	51860084509aed1e21594361050c3f45cb94399aef8333d62e1534e73e20f873	{}
-scripts/python/engine/playbook/prediction/normal_attack.py	mirror	29f92f5fb91a24f2e649ebf9091cab5f121b05150bd32a0778b027ab76692774	{}
+scripts/python/engine/playbook/prediction/normal_attack.py	mirror	312f71ddbe5d143a116e65be62f08288f2ed0a4bad5c664104cfdcd0bf57d938	{}
 scripts/python/engine/playbook/prediction/plague_wind.py	mirror	5689b042214402bd04fab1abbdb6fdefbca3aec5206c97055fd1cd60ac601861	{}
 scripts/python/engine/playbook/prediction/ramming_speed.py	mirror	c563f5929e0ecddcefaef1d639edf917648aa93a97209f9719f024aead844c5b	{}
 scripts/python/engine/playbook/probable_damage_event.py	mirror	5c8e06b9ed27ac05a1e442cf113bd10cfff766aba176fda1ec270841e6507820	{}
@@ -435,7 +435,7 @@ scripts/python/engine/runner/abilities/loki/instruments_of_vengeance.py	mirror	2
 scripts/python/engine/runner/abilities/loki/leading_the_charge.py	mirror	ba3f0850c9a54a19cc8fac36a253c817e07b4086f7ad3622c70c2f0fabb0b4ec	{}
 scripts/python/engine/runner/abilities/loki/might_from_below.py	mirror	91b238a356714b5c7b35c787f9b80cc51787a4f0b56bf45397fa2d782c1c74e0	{}
 scripts/python/engine/runner/abilities/loki/mind_control.py	mirror	deed9ce03ae39c83766dfec1a7c6bc6c9146abb052d2250413644f4772935b9d	{}
-scripts/python/engine/runner/abilities/loki/momentum.py	mirror	1b7dc52f5376b992221c377fddf0d4495c5b6da0bf30ac89af63b06b03df3ed5	{}
+scripts/python/engine/runner/abilities/loki/momentum.py	mirror	cccdd19f0f563c0b8165e4e03970f16ac208e3ffae1db5debcad6b3861079f57	{}
 scripts/python/engine/runner/abilities/loki/mv71.py	mirror	a6fc046289ef3f7bd74421f77882c1408a49c10a10bf32b201e17298cb2558ea	{}
 scripts/python/engine/runner/abilities/loki/psychic_maelstrom.py	mirror	fb449351fe7f17388109bcfc6a0dcb9a1d06c40e48e8e4a794196e83fb93b5de	{}
 scripts/python/engine/runner/abilities/loki/quickening.py	mirror	a2c7c2e521297030b70ccd738b6054e6d0601dafd25e934c9f95a008d13b3053	{}
@@ -463,14 +463,14 @@ scripts/python/engine/runner/abilities/worldeaters.py	mirror	64d665ef46dd72bed09
 scripts/python/engine/runner/caches/__init__.py	mirror	bdf38143937659d8b3792f4ad5cefc65c35a803cf53acb2330b4dd1aa1ce71fd	{}
 scripts/python/engine/runner/caches/ability_and_effect_cache.py	mirror	0a1855211b11b8ad0c6aa703b0e3ea7f3641f787318bec41755594c5e9577663	{}
 scripts/python/engine/runner/components.py	mirror	2f1e86cc4d462e46de8f24286b6609d540dbbe990a7e108d6b3e4ea2dcfe3705	{}
-scripts/python/engine/runner/damage_model.py	mirror	194e61971c4481ec814134d1511945906b92bd79e302828722b93a4ef42a21ea	{}
+scripts/python/engine/runner/damage_model.py	mirror	4984934e2b168f4b79c5490af87901ca810e096e7c693866b0501b7b038f6ede	{}
 scripts/python/engine/runner/events.py	mirror	076b62d427081225ae9e604da1c009019f3569c7d998f4fc88280bbb476c4c68	{}
 scripts/python/engine/runner/messages.py	mirror	30b8fe74b7036172d05c9474d0a0b2eda80d66170fc2e54813258e29864fbac4	{}
 scripts/python/engine/runner/operations/__init__.py	mirror	67c1d488d6e5f7dc3a1f62996ad28ad8f08d4a499c5820de2488a75b60def521	{}
 scripts/python/engine/runner/operations/ability_modifications.py	mirror	a6312d81a91c4d5acde9ce7e6e51c7cd2844860c17835564dd9a696e7c4b8e0f	{}
 scripts/python/engine/runner/operations/ability_reset.py	mirror	1dd62df61079e35da60a43d93f26979aee068853954b370f182e92fff6f405f4	{}
 scripts/python/engine/runner/operations/active_ability.py	mirror	8b396e917bd2bd9391fc8088726005d8e9f83322f13d63c6746e8ec6cf5ca87d	{}
-scripts/python/engine/runner/operations/additional_hits.py	mirror	2ad985c11dca45970f65c48fc1c3ceb5836c3edd0ce9b9f3ed6f6239bab617b0	{}
+scripts/python/engine/runner/operations/additional_hits.py	mirror	2e46b0885ba7f9277d2dd06c400ec3d3917f0288a6271df7607ed4f642a6da90	{}
 scripts/python/engine/runner/operations/attack_prediction.py	mirror	865e40ca5235229187d398edd787b906a77941c9012a4504bbb0fd239fa67baf	{}
 scripts/python/engine/runner/operations/aura_stat_mods.py	mirror	1a3676abfbfec28d9ee5777170b41cd808d7de84546105b2cd1c317bedd7341b	{}
 scripts/python/engine/runner/operations/base.py	mirror	3a46f91c9a4bfb49c2537d776689f336ae20a9ccdf559efe6bd6f0ad5dc2ed3a	{}
@@ -535,7 +535,7 @@ scripts/python/engine/runner/operations/triggers/loki/blade_of_the_ancestors.py	
 scripts/python/engine/runner/operations/triggers/loki/book_of_fate.py	mirror	c9356a0bcdbf214970761459bc57341bac15e6c8d9402112b484ef3141a96fc4	{}
 scripts/python/engine/runner/operations/triggers/loki/calibanite_greatsword.py	mirror	461d8ca444766e1a36044f4c0a16f944ddbbed1983bea0b6853a8823b46d5d00	{}
 scripts/python/engine/runner/operations/triggers/loki/call_in_reinforcements.py	mirror	e1a9808d90b4d7402bb79817ecba68dbdf6de72645a56da29bfb1fa94302c320	{}
-scripts/python/engine/runner/operations/triggers/loki/chalice_of_baal.py	mirror	6b3fbc39c9c812c2afc34d46d43f54d2f02263cacea77f482e9e05cd8b6cae55	{}
+scripts/python/engine/runner/operations/triggers/loki/chalice_of_baal.py	mirror	b90c93cdd5571f1787697533ae6d74914dc4bb6c2e1806623a818e6395dc7e07	{}
 scripts/python/engine/runner/operations/triggers/loki/champion_of_the_feast.py	mirror	3bba69465199588a56dc3dc1f566442a9bc280e9d2b6bba5964ac0ca813e4934	{}
 scripts/python/engine/runner/operations/triggers/loki/chronometron.py	mirror	8531a9e88c95e97d87f3546344ff78a1ad7081b3f1cb6d5957e5f47e32ffa416	{}
 scripts/python/engine/runner/operations/triggers/loki/close_combat_weakness.py	mirror	d37a010cffe28a502aced39185cfd9a3e84f7f6fe2c1328745f76de8ab0b9510	{}
@@ -587,7 +587,7 @@ scripts/python/engine/runner/operations/triggers/loki/helspear.py	mirror	9a049d4
 scripts/python/engine/runner/operations/triggers/loki/herald_of_the_apocalypse.py	mirror	62b7669e8cd32494ccfc5e36fbdc6ead319ca7b3b772a57afc3e3f5b4bf5bd86	{}
 scripts/python/engine/runner/operations/triggers/loki/horrors.py	mirror	71331f98084d065a258ce66a87aaaca6981c2d21caac09501bd0dcf86d97c49f	{}
 scripts/python/engine/runner/operations/triggers/loki/hyper_corrosive_acid.py	mirror	a9049a864513f94ed21dc4d9027994b7f8c5cf08d3d2d5aeb0c032176d3efe6c	{}
-scripts/python/engine/runner/operations/triggers/loki/icon_of_obstinacy.py	mirror	916b839c95ae7a5ccf07d0350e74ac441b228110a241480d7a5df9ac14d3682e	{}
+scripts/python/engine/runner/operations/triggers/loki/icon_of_obstinacy.py	mirror	031fb7f536e2f6b39679b29207d5de58c032812c008cc176982ddbfac84a26d1	{}
 scripts/python/engine/runner/operations/triggers/loki/inspired_to_greatness.py	mirror	ed95fae305efedbe238af3cfe06fc80ece75b94f1b2bad82e0d86ad0bce0f6aa	{}
 scripts/python/engine/runner/operations/triggers/loki/instinctive_behaviour.py	mirror	cf0e7f205fb296fc97d99e7dfaf7bfc7f278884f3edd532cc06e274fe1a8f4cb	{}
 scripts/python/engine/runner/operations/triggers/loki/lakrimae.py	mirror	bdcace086172c7e56873d54aa4e0ec2725bc18a71acfaefb308588cb571bb01b	{}
@@ -789,7 +789,7 @@ scripts/python/hexgeo.py	mirror	3a2a85c79803eaa6fe08843b95b2eb125185979337698300
 scripts/python/host_inputs.py	mirror	80c477bdf4dbcd75fd373abaa7827b9c80cf620ae7a7d5ddc77931b71dc9c13b	{}
 scripts/python/il2cpp_metadata.py	mirror	baaca13ec4b7b589509f489748a6839ea38e1ff96186d3e5d6581cf8234232f5	{}
 scripts/python/il2cpp_provenance.py	mirror	578c81729803d9f4451e458c6c7efdbd57cab08318c63b9655d73ef1dc2a3082	{}
-scripts/python/import_closure.py	mirror	da0f08b5b9bbe004dc19568d795077999171dda152d538d951d379fe7fd61f29	{}
+scripts/python/import_closure.py	mirror	b51353f0d2525dabe44b597c53a61ad32bcf8312c82b573658b04fb4b629c3b8	{}
 scripts/python/index_foyers.py	mirror	6a84281edffdfe6978a601915c766e02362d9182c7d5358cbefabbff7233f7ac	{}
 scripts/python/inspect_ai_trace.py	mirror	294eb0a97712a88010929f04b0539e30ec13c65a3e45517176ba9237e876ba7d	{}
 scripts/python/kit_item_voies.py	mirror	b85f233cfb7b88d281df98885006581c6a802848ca30a19134db489f9158a788	{}
@@ -1071,7 +1071,7 @@ scripts/python/probe_270r1r1r2_renommage_stattype.py	mirror	a8d08cde444ab591fc6f
 scripts/python/probe_270r1r1r3_mutants.py	mirror	bb3ba8ad568d7cc8982a555b1152ee6c68adc0475a5e039196fdd2df3f1acf0c	{}
 scripts/python/probe_270r4r2_cycles_imports.py	mirror	75756965cff13a9e78ae2540ca473893fed8af47389dcbbebaf882a4067439cc	{}
 scripts/python/probe_270r4r2_empreinte_valeurs.py	mirror	42e02e6b5059209b32edcfadc2050a286672bb382b65b92b267f78461551a362	{}
-scripts/python/probe_270r4r2_import_en_premier.py	mirror	0b9dcf737fc626fcf8b17cec7e4414c8effee4e0650277e007d630921e3ed79b	{}
+scripts/python/probe_270r4r2_import_en_premier.py	mirror	64fec59e43e27f1157c90e196bcc7ba8dc3ba3c555c02bcda9d75c217f1b3fef	{}
 scripts/python/probe_270r4r2r2_tri_differes.py	mirror	697a89fb22a6eca4fb78e39fae2ab9e2c8f01bea437060de84ace16676781edf	{}
 scripts/python/probe_270r4r2r2r3_import_ombre.py	mirror	2e16ee74f63534105755d245f5b9a97ef2302ea7d43c1bc97d4c32f8c5d99fb1	{}
 scripts/python/probe_271_kustom_force_field_reworked.py	mirror	ba32382bc496733f5c6f040d33b8d4aa460b8ac1dd8ee016bba5e3963031ec1d	{}
@@ -1411,7 +1411,7 @@ scripts/python/probe_433_r4_r3_r1_adjacent_to_owner.py	mirror	4466b3101fb94b342b
 scripts/python/probe_433_r4_r3_r1_non_owner_registry.py	mirror	f10230cffd87cf3b0997ecbf8ad3b17a669a509a5977c74fae209105fb28749f	{}
 scripts/python/probe_433r4r1r4_elevation_gate_perimeter.py	mirror	0c7f6a961f4fa065210e7e4fbb370de84bd0f44bd438bc618b522ceb31e778e2	{}
 scripts/python/probe_433r4r1r4r2_is_adjacent_substrat_live.py	mirror	9a88c8cc7139f354b985eacf9fcad93b8dd05c4e38e7c59ed0ab14b4a94e4b5e	{}
-scripts/python/probe_433r4r1r4r2_neigh_channel_wired.py	mirror	ecfc6c6ff1fb53bf53cec5f8fdc78830d6a2216e2631b1aeacb08a6a96b2aa02	{}
+scripts/python/probe_433r4r1r4r2_neigh_channel_wired.py	mirror	67fbe521352437d1350e7158bb91a5402afa4a41032ebb9e3f77df7130bd8a70	{}
 scripts/python/probe_433r4r1r4r2r1_solde_par_foyer.py	mirror	85cae06b610a6dca094488d811218bb4903458e456fc843bcc2460af8f066ffc	{}
 scripts/python/probe_433r4r1r4r2r1r1r1_ramming_speed_adjacence_live.py	mirror	4a89791c2ab746573af37009149c562cf7ae150732648a872de1610fb8781e21	{}
 scripts/python/probe_433r4r1r4r2r1r1r1_solde_selecteur_spawn.py	mirror	18e5a06aca94c340f5c2d05b3d70a40a9b4376507b8a339bec32ee7f92829097	{}
@@ -1579,13 +1579,13 @@ scripts/python/probe_482r3_archive_empreinte.py	mirror	5cc6c2d59155fe17f087c09ab
 scripts/python/probe_483_armement_par_runner.py	mirror	bfd413ff5bedd69d347a4f531c3fb118bcb358a3d4ca32cf9462c560cafd45b2	{}
 scripts/python/probe_483_isolation_armement_live.py	mirror	96c5a52b36b643e4b6d1beabdf63ad0f42b7d51063288cbe428a3d2ecf07b3aa	{}
 scripts/python/probe_483_origine_posee.py	mirror	8e9ac85bd4111492ec1cd53d15132cb1ee006cbd009a6baec91d534635744a00	{}
-scripts/python/probe_485_imports_differes.py	mirror	14b598f2cab983cc1ff5e8f4ed4977d9f5cf93d3606a5b3939a4a6f7f67ea1e4	{}
+scripts/python/probe_485_imports_differes.py	mirror	5fb8ee1f31557733d2d715f4830e63c42a3a97224e7af8fb3ee14af19735ec02	{}
 scripts/python/probe_485r1_liaisons_preservees.py	mirror	6295da35cf71e7c6caad812586d090593cbeaf278d1165ac3a63bbc5c7ff3dc0	{}
 scripts/python/probe_485r1r1_acces_attributaires.py	mirror	2904120abfcc6787bd08322f9a3e59e9ba6b67a3887e47e2f442ff6a8a3150c7	{}
 scripts/python/probe_485r1r1_formes_dimport.py	mirror	1304479dd018a10880c157adc58ac67e6d0c7d08649496f333b409e8819b44f4	{}
 scripts/python/probe_485r1r1_leviers_des_porteurs.py	mirror	a33190271d1fcc43eb7f82820de59c456cd434f0a04eae37d4641b1ac591335f	{}
 scripts/python/probe_486r11_fermeture_imports.py	mirror	1c4a9bd34b39b5391a816b18c8f6266b984716dcab48bf6cd0cfa544bbf18bc6	{}
-scripts/python/probe_486r12_declencheurs.py	mirror	16923b2de8e434447fc903cdcd39fc682f954e36d9bf41c15da5dd9a4cac8974	{}
+scripts/python/probe_486r12_declencheurs.py	mirror	698abc7d0bef52f72c0bede98fdc94907b5e7309e9bdeea672c68551fd9dfb92	{}
 scripts/python/probe_486r15_declencheurs_tests.py	mirror	18573485f11045d9f29d88d234c354f9d85eae84e0a8b4c3dbee3409d5cabc59	{}
 scripts/python/probe_486r2_usage_des_probes.py	mirror	d55f3b4aa00096860da2fd5b6bda7d612fee6f739c052d49ca59785f16d99c27	{}
 scripts/python/probe_487_hellfyre_missile_rack.py	mirror	2cb30235794c15472f59c9f6847bd56608b99c152035599adf296b0a6907470b	{}
@@ -2879,7 +2879,7 @@ scripts/python/tests/engine/test_433r4r1r4_elevation_gate_dsl_offline.py	mirror	
 scripts/python/tests/engine/test_433r4r1r4r1_unobscured_canal_offline.py	mirror	b144773f965a7730a2149b561d6f58d50aafaf1dba462eb050316e961893cf78	{}
 scripts/python/tests/engine/test_433r4r1r4r2_is_adjacent_substrat_offline.py	mirror	327ff1c3a06e5b35336f65b2e93452f3435ccc82f4659d70c019dc99f77ab995	{}
 scripts/python/tests/engine/test_433r4r1r4r2r1_foyers_voisins_offline.py	mirror	2c553f67640309a221b40f1dd4a086f5cbb335f3d0911b30a180908b100f1287	{}
-scripts/python/tests/engine/test_433r4r1r4r2r1r1_derivation_morte_offline.py	mirror	179238831c17b95ee1714a2c82c3714666ad05155ed9b465f1d23fdadbdc72bb	{}
+scripts/python/tests/engine/test_433r4r1r4r2r1r1_derivation_morte_offline.py	mirror	1a9731abae1c26c706100d2b39aa514fe70962391bd64212599696156dde9361	{}
 scripts/python/tests/engine/test_433r4r1r4r2r1r1r1_selecteur_spawn_offline.py	mirror	40a90870f3b843030b90ae23ba7a33636dc261bafb0976ae2f9cd0711f811d71	{}
 scripts/python/tests/engine/test_433r4r2r1r2r2r1r1r1r3_anneau_offline.py	mirror	b66fe306cc1c3662a7178bdf30c4f62394858ba32967b78901d9e8d4ab2d996c	{}
 scripts/python/tests/engine/test_433r4r3r1r3_kit_voisin_remplacement_offline.py	mirror	24c64c6a83ccaeb75e14d3b32f713e0fef96da8f857fdf781d4f60b66d9e8981	{}
@@ -2989,7 +2989,7 @@ scripts/python/tests/engine/test_932_deathwing_offline.py	mirror	48ca885924cf6bb
 scripts/python/tests/engine/test_933_premisse_regime_offline.py	mirror	07e036ddb38511fb15e2f703b142f71a2c9230097e8494e6e831ffb98b27f784	{}
 scripts/python/tests/engine/test_937_repeat_node_offline.py	mirror	9b977ccb73888bfd4cc915c1f12a32f85179a514cc8461daf0219ed3800e786f	{}
 scripts/python/tests/engine/test_940r2_kiss_of_death_decision_offline.py	mirror	bdfbad440d319c25443e5fa56097c9e3ea98504e6a1b0bcfdce3ba7de43b09ef	{}
-scripts/python/tests/engine/test_943r7_faces_jumelles_adjacence_offline.py	mirror	d92152452084fa0345b17d8b394e9adc11a42e4f87a871fee088310d48866a6b	{}
+scripts/python/tests/engine/test_943r7_faces_jumelles_adjacence_offline.py	mirror	98d3402c71d89af323510aeaf583a0c9f92a4ba739aad90f7c3799650752a739	{}
 scripts/python/tests/engine/test_944_combat_behaviours_offline.py	mirror	e975fdaf1802eede7c187a6465ace5ce942db6534564f558b75bdff81fbed354	{}
 scripts/python/tests/engine/test_945_loki_decision_faces_offline.py	mirror	fd10acc4882a8265f07106a6e7336609bf5874a9d67a0a6dd1999ac10bbce684	{}
 scripts/python/tests/engine/test_947_948_extra_damage_passives_offline.py	mirror	d63be23b0b430df195dacb642359a77f6376e040b20b06c231c2514937c0d14e	{}
@@ -3137,7 +3137,7 @@ scripts/python/tests/test_475_pinned_addresses_offline.py	mirror	86b317005ce100e
 scripts/python/tests/test_477r18r4_canaux_tags_offline.py	mirror	ffa13b37bfc2e0f54c7cee0eec2cfcdff8afabc518cc46594a3da0b808473668	{}
 scripts/python/tests/test_480r8_rpc_joignable_offline.py	mirror	a3f137f6c525ed6ccd131df39807f0100dcc07fa298b4391305a2f3c844a020f	{}
 scripts/python/tests/test_485r2_portee_des_noms_offline.py	mirror	f0e78fece72276216e8dfe85cad7ac920d777a9b8df59a2135e69813f0d7098b	{}
-scripts/python/tests/test_486_r1_cache_verdict_offline.py	mirror	ea3cd65e2db01c962f4a87a32886f0605582d228db6c65f78925214ab096bb65	{}
+scripts/python/tests/test_486_r1_cache_verdict_offline.py	mirror	32e20cd2f6a929fdc6544ba3067461086d66ef983b87a973674133fc88d1101e	{}
 scripts/python/tests/test_486r11_cle_sous_graphe_offline.py	mirror	0153bd5084b40ed226c3f80d5d589713cf11980f54ea8e8fa57e9cf11bc524f5	{}
 scripts/python/tests/test_486r12_declencheurs_offline.py	mirror	c27d7c6d7ba7a9ee37c58de0a73728de8366c1857f8df55cf15f56e0d1d29f94	{}
 scripts/python/tests/test_486r15_empreinte_par_entree_offline.py	mirror	7b4bbc3b99e642188f72cad0ae3a2d838f5c5cbcfb3d775e8d4fb340ae5948f2	{}
