@@ -321,10 +321,18 @@ const state = {
 };
 
 // #68 TEMP DIAGNOSTIC (a retirer avant commit) : le degat combat final est calcule par un service
-// INTERFACE-dispatche (`FUN_1800267c0(out, slot, iface, obj, ...)` @180026 7c0). On resout la methode
+// INTERFACE-dispatche (`FUN_180028580(out, slot, iface, obj, ...)`). On resout la methode
 // concrete en repliquant le walk vtable il2cpp du decompile : klass=*obj ; table interfaces @klass+0xb0
 // (count @+0x12e) ; vid = klass+0x138 + (ifaceOffset+slot)*0x10 ; methodPtr = *vid. On enregistre le RVA
 // (methodPtr-il2cppBase) + le nom de classe pour le decompiler. Filtre slot==0x42 (le dispatch final).
+// ⚠ ET LE FILTRE `slot == 0x42` N'ISOLE PAS `ExecuteHit` -- mesure du 2026-08-15 sur `t6dpr4k06g`.
+// L'invocateur n'a que DEUX appelants DIRECTS (`list_xrefs` ; il porte AUSSI une reference DATA, donc
+// une invocation indirecte par cette table ne serait vue par aucun appel direct), et les DEUX passent
+// `0x42` sur la MEME interface :
+// `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (le degat, notre cible) et
+// `IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo` (`mov edx,0x42` lu a l'octet).
+// Consequence sur la LECTURE, pas sur la surete : le dump peut porter DEUX entrees, discriminees par
+// `topRva` (le sommet de pile) et par `cls`. Ne pas lire une entree unique comme << le dispatch final >>.
 interface DispatchDump {
     slot: number; rva: string; cls: string | null; topRva: number; ts: number;
 }
@@ -345,15 +353,30 @@ interface CritCtorDump { damage: number; topRva: number; frames: string[]; ts: n
 // donc NON RESOLUBLE par symbole, et rien a re-epingler tant que ce hook reste retire.
 // Les `critCtorDumps` ci-dessous restent donc STRUCTURELLEMENT VIDES.
 //
-// #68 TEMP : `FUN_1800267c0` -- helper NON nomme (aucun `MethodInfo`), donc NON RESOLUBLE par
-// symbole : c'est le cas ou une VA en dur reste le seul ancrage. Elle passe desormais par le
-// FOYER `build-pin`, qui REFUSE d'attacher des que le build a bouge (elle a ete mesuree sur
-// `gqfc5mff6c` et l'est deja : sur `rnca9r7q6c` cette VA tombe a `FUN_180026780+0x40`).
+// #68 TEMP : `FUN_180028580` -- helper NON nomme (aucun `MethodInfo`), donc NON RESOLUBLE par
+// symbole : c'est le cas ou une VA en dur reste le seul ancrage. Elle passe par le FOYER
+// `build-pin`, qui REFUSE d'attacher des que le build a bouge.
+// ⚠ RE-MESUREE le 2026-08-15 sur `t6dpr4k06g` (residu #475-r2). Elle valait `0x1800267c0` sur
+// `gqfc5mff6c`, ou ce nom EXISTE dans la table -- et cette VA tombait a `FUN_180026780+0x40` sur
+// `rnca9r7q6c`, au milieu d'une AUTRE fonction. Sur `t6dpr4k06g`, `FUN_1800267c0` n'existe meme
+// plus comme fonction (la table porte `FUN_1800267e0`) : les frontieres ont bouge.
+// LA RE-DERIVATION N'EST PAS UN GREP -- le nom d'un `FUN_*` EST son ancienne adresse, donc le
+// retrouver ne prouverait rien. Elle tient en DEUX pas, tous deux LUS au decompile :
+//   1. le CALL SITE : `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` appelle
+//      `FUN_180028580(&out, 0x42, DAT_18336edb0, *(hitIndex+0x20), defender, unit, entities)` ;
+//   2. le CORPS du callee : il fait EXACTEMENT le walk que ce hook replique --
+//      `lVar1 = *param_4` ; boucle sur `*(lVar1+0xb0)` tant que `< *(ushort *)(lVar1+0x12e)` ;
+//      `vid = lVar1 + 0x138 + (*(int *)(itable+8+i*0x10) + param_2) * 0x10` ; repli
+//      `FUN_1801e72b0(param_4, param_3, param_2)`. Signature relue :
+//      `(param_1 out, param_2 slot (ushort), param_3 iface, param_4 obj, ...)`, ce qui confirme
+//      `args[1]=slot`, `args[2]=iface`, `args[3]=obj`.
 const DISPATCH_HELPER_PIN = {
-    va: 0x1800267c0, build: "gqfc5mff6c", symbol: "FUN_1800267c0",
+    va: 0x180028580, build: "t6dpr4k06g", symbol: "FUN_180028580",
     what: "invocateur d'interface -- resout la methode concrete du slot 0x42 (degat combat final)",
-    how: "ghidra sur le build courant : partir du call site dans ExecuteHit, relire l'invocateur"
-        + " (il a fusionne : la VA d'origine tombe desormais a FUN_180026780+0x40)",
+    how: "ghidra sur le build courant : partir du call site dans"
+        + " IdunBattle.Operations.AttackDamageOperation$$ExecuteHit (le call a 7 arguments dont le"
+        + " 2e vaut 0x42), suivre le CALLEE, puis VERIFIER SON CORPS -- il doit faire le walk"
+        + " d'itable klass+0xb0 / count klass+0x12e / vid = klass+0x138 + (off+slot)*0x10.",
 };
 const DISPATCH_SLOT_FILTER = 0x42;
 
@@ -517,13 +540,13 @@ function installOnce(): {
     // lecteur de `modifierObserveStatus` voie ce capteur ABSENT plutot que silencieux.
     const dispatchHelper = pinnedAddress(DISPATCH_HELPER_PIN);
     if (dispatchHelper === null) {
-        missing.push("FUN_1800267c0 (dispatch-42 : adresse EPINGLEE REFUSEE -- le build a bouge"
+        missing.push("FUN_180028580 (dispatch-42 : adresse EPINGLEE REFUSEE -- le build a bouge"
             + " ou n'est pas mesurable ; cf. log [build-pin] REFUS)");
     } else try {
         const helper = dispatchHelper;
         state.fires["dispatch42"] = 0;
         state.listeners.push(Interceptor.attach(helper, {
-            // FUN_1800267c0(out, slot, iface, obj, p5, p6, entities) : args[1]=slot, args[2]=iface, args[3]=obj.
+            // FUN_180028580(out, slot, iface, obj, p5, p6, entities) : args[1]=slot, args[2]=iface, args[3]=obj.
             onEnter(this: InvocationContext, args: InvocationArguments) {
                 let slot = -1;
                 try { slot = args[1].toInt32(); } catch { return; }
@@ -560,9 +583,9 @@ function installOnce(): {
                 } catch { /* */ }
             },
         }));
-        hooked.push(`FUN_1800267c0 @ ${helper} [dispatch-42 vtable resolve]`);
+        hooked.push(`FUN_180028580 @ ${helper} [dispatch-42 vtable resolve]`);
     } catch (e) {
-        missing.push(`FUN_1800267c0 (dispatch attach: ${(e as Error).message})`);
+        missing.push(`FUN_180028580 (dispatch attach: ${(e as Error).message})`);
     }
 
     // #68 : hook CritDamageInfo..ctor RETIRE — Thread.backtrace sur ce ctor (chemin de degat TRES chaud,
