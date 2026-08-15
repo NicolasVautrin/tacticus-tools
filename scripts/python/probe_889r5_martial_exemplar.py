@@ -368,10 +368,20 @@ def _measure_on(sid: int, rid: int, regime: str) -> dict:
                           "ownerId", "sourceId", "targetIds", "remainingTurns")}
                         for e in (ea_1520.get("effects") or [])],
         },
-        "effects_all_total": {"ok": ea_tous.get("ok"), "count": ea_tous.get("count"),
-                              "types": sorted({int(e["effectType"])
-                                               for e in (ea_tous.get("effects") or [])
-                                               if e.get("effectType") is not None})},
+        "effects_all_total": {
+            "ok": ea_tous.get("ok"), "count": ea_tous.get("count"),
+            "types": sorted({int(e["effectType"]) for e in (ea_tous.get("effects") or [])
+                             if e.get("effectType") is not None}),
+            # VENTILATION -- le DISCRIMINANT entre « 1520 est retire par une regle qui lui est
+            # PROPRE » et « tout effet pose pendant ce cast est retire de la meme facon ».
+            # Sans elle, un `removed: true` isole ne dit pas laquelle des deux causes joue.
+            "retires": sorted((int(e["effectType"]), e.get("ownerId"))
+                              for e in (ea_tous.get("effects") or [])
+                              if e.get("removed") and e.get("effectType") is not None),
+            "vivants": sorted((int(e["effectType"]), e.get("ownerId"))
+                              for e in (ea_tous.get("effects") or [])
+                              if not e.get("removed") and e.get("effectType") is not None),
+        },
     }
 
 
@@ -414,6 +424,10 @@ def main() -> int:
             print("      effectsAll(TOUS)  ok=%s count=%s types=%s"
                   % (tot.get("ok"), tot.get("count"),
                      json.dumps(tot.get("types"), default=str)))
+            print("      RETIRES (type,owner) = %s"
+                  % json.dumps(tot.get("retires"), default=str))
+            print("      VIVANTS (type,owner) = %s"
+                  % json.dumps(tot.get("vivants"), default=str))
             if ea.get("ok") is not True:
                 print("      VERDICT (b) : NON MESURE -- le canal a refuse (%s)" % ea.get("error"))
             elif tot.get("ok") is not True or not (tot.get("count") or 0):
