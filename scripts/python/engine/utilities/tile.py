@@ -1890,10 +1890,28 @@ def _adjacent_units(ctx, uid):
     #241 -- chaque enregistrement porte aussi son `id` et son kit DECLENCHE (`triggered`), la donnee
     que reclament les deux feuilles à occupant steppable : `AttractToDecoysUtility` (64) compte les
     amis porteurs de `DecoysAndMisdirection` (1304) sur `GetAllAliveUnits`, et `SteppableUnitUtility`
-    (19) teste `SpikySting`/`LandMine` sur l'occupant. Meme regle d'union que pour le MOVER dans
-    `tile_leaf_ctx` : kit gameconfig UNIONNE avec la lecture live du `TriggeredAbilityComponent`
-    (`ctx.live_triggered_kits()`, UN seul `unitAbilityStates` pour toute la bataille) -- union et pas
-    remplacement, pour qu'une lecture live partielle ne puisse jamais RETIRER un id connu (N13)."""
+    (19) teste `SpikySting`/`LandMine` sur l'occupant. La source est la lecture live du
+    `TriggeredAbilityComponent` (`ctx.live_triggered_kits()`, UN seul `unitAbilityStates` pour toute
+    la bataille), avec repli sur le kit gameconfig quand elle ne rend rien pour cette entite.
+
+    #433-r4-r3-r1-r3 -- LE REMPLACEMENT, ET POURQUOI L'UNION MENTAIT ICI AUSSI. Ce producteur etait
+    le DERNIER des trois jumeaux a UNIONNER les deux substrats. Le MOVER est passe au remplacement
+    par #304 et les deux autres jumeaux (`runner_tile_leaf_ctx`, `scene_tile_leaf_ctx`) par #456-r1,
+    tous deux sur la meme mesure : une union ne peut qu'AJOUTER, donc elle REINTRODUIT un passif que
+    la bataille n'a PAS monte. Les VOISINS, eux, sont restes en union -- et le defaut se voyait
+    exactement la ou un montage ECARTE le kit du gameconfig, c'est-a-dire sur une GREFFE.
+    MESURE (2026-08-03, re-mesuree LIVE le 2026-08-15 sur `t6dpr4k06g`, montage #433-r4-r3-r1 :
+    `graft_passive_ability('astraBullgryn', 'WatchedOver', replace=True)`) :
+
+        kit greffon -- port = [1028, 1524, 1030]    AbilitiesComponent NATIF = [1524, 1030]
+
+    `1028` = `AvalancheOfMuscle`, le passif de kit que la greffe a justement REMPLACE dans
+    `BC.Units[].PassiveAbilities`. Le port le voyait quand meme, par cette union.
+    Sans effet sur le verdict de #433-r4-r3-r1 (son A/B n'ampute que l'ability mesuree, et 1028
+    n'est a aucun registre non-owner), mais tout montage par greffe qui compterait les termes EN
+    BLOC sur-estimerait le port. Le repli gameconfig reste ENTIER quand la lecture live est vide
+    (RPC indisponible, entite absente, contexte OFFLINE sans pont) : c'est le seul regime que le
+    motif d'union protegeait, et il est preserve tel quel."""
     scene = getattr(ctx, "scene", None)
     _kits_fn = getattr(ctx, "live_triggered_kits", None)
     live_kits = _kits_fn() if callable(_kits_fn) else {}
@@ -1908,10 +1926,13 @@ def _adjacent_units(ctx, uid):
         if not (u.get("alive") and pos):
             continue
         _uctx = scene.ctx(u.get("id")) if scene is not None else None
+        # #433-r4-r3-r1-r3 : REMPLACEMENT, pas union (cf. la docstring). Meme forme que le MOVER
+        # dans `tile_leaf_ctx` -- la lecture live FAIT AUTORITE des qu'elle rend quelque chose pour
+        # cette entite, sinon on garde le kit gameconfig.
         _trig = list(triggered_ability_ids(u.get("visualId")))
-        for _t in (live_kits.get(u.get("id")) or ()):
-            if _t not in _trig:
-                _trig.append(_t)
+        _live = list(live_kits.get(u.get("id")) or ())
+        if _live:
+            _trig = _live                   # l'AbilitiesComponent REEL, tel que le natif l'itere
         rec = {"pos": (pos["col"], pos["row"]),
                # `vis` — id d'unite du voisin, l'argument du noeud `UnitsWithId(sel, <unitId>)`
                # (GeminaeSuperiaPlaybook, case-165b). Meme cle que cote runner.
