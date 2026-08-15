@@ -178,6 +178,47 @@ def test_TEMOIN_le_cliquet_431_ne_rougit_PAS_de_ce_chef_avec_la_forme_courante(m
     assert "FORME REFUSEE" not in out and "FORME PERIMEE" not in out, out
 
 
+@pytest.mark.parametrize("futur,pourquoi", [
+    ("abcdefghi7x", "ONZE caracteres -- la longueur n'est pas une regle non plus"),
+    ("t6dpr4k06", "NEUF caracteres"),
+    ("1234567890", "que des CHIFFRES -- la forme exige aussi une lettre"),
+    ("abcdefghij", "que des LETTRES -- la forme exige aussi un chiffre"),
+])
+def test_GENERALISATION_un_build_de_forme_INEDITE_est_RECONNU_et_fait_ROUGIR(monkeypatch,
+                                                                             futur, pourquoi):
+    """LE SCENARIO DE LA PROCHAINE MIGRATION, joue a l'avance -- et il a DEUX exigences.
+
+    C'est ce qui distingue ce correctif du precedent. Quand le build changera de forme :
+
+      * la RECONNAISSANCE ne doit PAS tomber en silence -- `build_re()` doit voir le build
+        courant, parce qu'il vient de `CURRENT` et non d'une hypothese de forme. C'est le
+        regime exact ou l'ancien motif rendait `None` sans rien dire, et ou 176 occurrences
+        sont devenues invisibles ;
+      * la FORME, elle, DOIT rougir. Elle porte une hypothese ; une hypothese qu'on n'apprend
+        jamais fausse est une hypothese qu'on cesse de tester. Le refus NOMME le build et
+        interdit explicitement d'y ecrire le nouveau suffixe.
+
+    Les deux ensemble : on continue de compter juste, ET on sait qu'il faut elargir.
+    """
+    rap = dict(BH.rapport_des_sources())
+    rap["courant"] = futur
+    rap["tables_versionnees"] = [futur]
+    rap["connus"] = sorted(set(rap["connus"]) | {futur})
+    monkeypatch.setattr(BH, "_cache", rap)
+
+    # 1. RECONNU : la derivation ne depend pas de la forme.
+    rx = BH.build_re()
+    assert rx.fullmatch(futur) is not None, pourquoi
+    assert rx.search("mesure sur le build %s, cette semaine" % futur).group(1) == futur
+
+    # 2. La FORME rougit, et son refus est ACTIONNABLE.
+    with pytest.raises(BH.FormeRefusee) as exc:
+        BH.verifier_la_forme()
+    msg = str(exc.value)
+    assert "FORME PERIMEE" in msg and futur in msg, msg
+    assert "suffixe" in msg, "le refus doit dire ce qu'il ne faut PAS faire"
+
+
 # ============================================= 3. AUCUN hash en dur dans les foyers eux-memes
 
 
@@ -314,7 +355,14 @@ def test_le_module_s_EXEMPTE_de_ses_PROPRES_TEMOINS_et_le_DIT():
         "aucun temoin en POSITION DE CHEMIN dans ce fichier -- l'exemption n'est plus exercee, "
         "et ce test est devenu vacant")
     assert temoins & connus == set(), (
-        "AUTO-CONTAMINATION : %s est entre dans les builds connus" % (temoins & connus))
+        "AUTO-CONTAMINATION : %s est entre dans les builds connus.\n"
+        "  Un jeton de TEST ecrit en POSITION DE CHEMIN (`games/<x>/`, `dumps/<x>/`,\n"
+        "  `symbols/<x>/`) entre dans `builds_connus()` des qu'il vit dans un fichier qui\n"
+        "  n'IMPORTE PAS `build_hash` -- une case-doc, un commentaire, un README. Ce cran a\n"
+        "  deja mordu DEUX fois : d'abord sur ce fichier meme, puis sur la case-doc qui le\n"
+        "  documentait. Remede : casser le motif dans la prose (`games/<temoin>/`), les\n"
+        "  jetons entiers n'ont leur place que dans les fichiers exemptes."
+        % (temoins & connus))
     assert rap["auto_tests"] is not None, "auto_tests NON MESURE"
     assert Path(__file__).name in {Path(r).name for r in rap["auto_tests"]}, (
         "ce fichier n'est pas ecarte comme auto-test : %s" % rap["auto_tests"])

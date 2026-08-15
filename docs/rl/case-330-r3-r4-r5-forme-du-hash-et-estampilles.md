@@ -91,10 +91,10 @@ restent libres, c'est là qu'on cite les builds observés.
 ### L'AUTO-CONTAMINATION, trouvée en jouant le cliquet neuf
 
 Les trois témoins du test de position sont écrits **en position de chemin**
-(`games\aaaa1111zz\GameAssembly.dll`) — c'est ce qui les rend probants. Le balayage positionnel les
+(`games\<témoin>\GameAssembly.dll`) — c'est ce qui les rend probants. Le balayage positionnel les
 a donc **avalés** : `builds_connus()` a rendu **10** builds au lieu de 7, et `probe_330` /
-`probe_431` auraient compté `aaaa1111zz` comme un build réel. Un recenseur qui fabrique sa propre
-cible rassure *et* ment.
+`probe_431` auraient compté un jeton de test comme un build réel. Un recenseur qui fabrique sa
+propre cible rassure *et* ment.
 
 `build_hash` écarte désormais les fichiers qui l'**importent** (exemption **dérivée**, jamais
 saisie, et **imprimée** à chaque run — pendant exact de `probe_431.AUTO_TEST_MODULE`).
