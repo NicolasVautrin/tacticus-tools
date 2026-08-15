@@ -54,7 +54,7 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 
-interface Refus { ok: false; error: string }
+export interface Refus { ok: false; error: string }
 function estRefus(x: unknown): x is Refus {
     return typeof x === "object" && x !== null && (x as { ok?: unknown }).ok === false;
 }
@@ -155,6 +155,22 @@ function instanceDe(nom: NomCible): NativePointer | null | Refus {
     }
     retenir(nom, exec);
     return exec;
+}
+
+/** Le `ViewCommandExecutor` VIVANT, pour les modules qui ont besoin de SES champs.
+ *
+ *  EXPOSE parce que l'executeur est le porteur de toutes les `*Progression` du compte (44
+ *  champs mesures), et qu'un module qui en veut une n'a pas a re-marcher la chaine
+ *  `IdunNavigation._viewCommandExecutor`. La resolution reste ICI, foyer unique : ce fichier
+ *  porte deja le rappel de ce qu'une resolution de champ dupliquee a coute.
+ *
+ *  Rend un REFUS NOMME, jamais `null` : « pas d'instance » et « champ absent de ce build »
+ *  ne doivent pas se confondre. */
+export function executeurVivant(): NativePointer | Refus {
+    const r = instanceDe("executor");
+    if (estRefus(r)) return r;
+    if (r === null) return { ok: false, error: "executor sans instance -- voie `aucune` ?" };
+    return r;
 }
 
 /** ⛔ La famille tricheur. Refus INCONDITIONNEL : elle mute le compte, et aucun `confirmer`

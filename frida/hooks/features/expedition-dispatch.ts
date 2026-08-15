@@ -43,6 +43,14 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 import { log } from "../runtime/diag.js";
+// Le FOYER de la resolution du `ViewCommandExecutor`. Importe plutot que re-marche : ce
+// module porte deja, plus bas, le rappel chiffre de ce qu'une resolution dupliquee a coute.
+import { executeurVivant, Refus as RefusVue } from "./view-command.js";
+
+/** `executeurVivant` rend un REFUS NOMME plutot qu'un `null` -- on le reconnait par sa forme. */
+function estRefusVue(x: NativePointer | RefusVue): x is RefusVue {
+    return typeof x === "object" && x !== null && (x as RefusVue).ok === false;
+}
 
 /** Borne de securite sur la taille d'un envoi. Le plateau du 2026-08-10 plafonne a 5
  *  participants ; la borne est large mais elle existe pour qu'un appelant fautif ne
@@ -201,23 +209,57 @@ function estDeClasse(obj: NativePointer, klass: NativePointer | null): boolean |
 // ecrire `getFieldOffset(k, "X") || <repli>` -- utiliser `fieldOffsetOr`, qui existe pour
 // ca et dont le piege est documente dans `helpers.ts`.
 
+/** `ExpeditionProgression` pris SANS ecran, par le `ViewCommandExecutor`.
+ *
+ *  LA TROISIEME VOIE, ET C'EST ELLE QUI SUPPRIME L'INTERFACE. Les deux autres attendent un
+ *  EVENEMENT (un envoi, ou l'affichage de l'ecran d'Operations) ; celle-ci LIT un champ, donc
+ *  elle marche depuis n'importe quel ecran -- y compris en pleine bataille. Mesure du
+ *  2026-08-15, build `t6dpr4k06g` : `ViewCommandExecutor._expeditionProgression` porte un
+ *  pointeur vivant de classe REELLE `ExpeditionProgression`, lu par `viewField` alors que le
+ *  jeu etait sur l'ecran des Guildes puis en bataille.
+ *
+ *  ⚠ RESOLU PAR NOM a chaque appel, jamais par l'offset mesure (+1160) : c'est la meme regle
+ *  que pour `_viewCommandExecutor` lui-meme, dont l'offset a deja bouge d'un build a l'autre.
+ *  ⚠ L'executeur vient de `view-command.ts`, PAS d'une seconde marche de la chaine
+ *  `IdunNavigation._viewCommandExecutor` : ce module-la porte le rappel de ce qu'une
+ *  resolution de champ dupliquee a coute ici meme (cf. le pave sur `offsetChamp`).
+ *  ⚠ Lecture PURE -- aucun `invoke`, aucune commande de vue jouee, donc aucun effet sur ce
+ *  que le joueur a a l'ecran. */
+function progressionParExecuteur(): NativePointer | null {
+    try {
+        const exec = executeurVivant();
+        if (estRefusVue(exec)) return null;
+        const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
+        if (!kExec) return null;
+        const off = getFieldOffset(kExec, "_expeditionProgression");
+        if (off < 0) return null;                 // ⚠ -1 est *truthy* : tester `< 0`, jamais `||`
+        const p = (exec as NativePointer).add(off).readPointer();
+        return p.isNull() ? null : p;
+    } catch { return null; }
+}
+
 /** L'`ExpeditionGameEvents` vivant.
  *
- *  DEUX VOIES, et la seconde existe parce que la premiere est CIRCULAIRE : l'instance ne
- *  se capte au vol qu'a un envoi, or il faut l'instance POUR envoyer. `ExpeditionProgression`
- *  la porte en champ (`<GameEvents>k__BackingField`), et ce porteur-la, lui, se capte des
- *  qu'un ecran d'Operations s'affiche.
+ *  TROIS VOIES, et les deux dernieres existent parce que la premiere est CIRCULAIRE :
+ *  l'instance ne se capte au vol qu'a un envoi, or il faut l'instance POUR envoyer.
+ *  `ExpeditionProgression` la porte en champ (`<GameEvents>k__BackingField`) ; ce porteur-la
+ *  se capte soit a l'affichage d'un ecran d'Operations (interception, voie historique), soit
+ *  DIRECTEMENT sur le `ViewCommandExecutor`, sans aucun ecran.
  *
  *  Le champ est lu par un offset RESOLU PAR NOM a l'armement. Ses accesseurs
  *  (`get_GameEvents`) n'existent pas dans la table : corps trivial, donc DEDUPLIQUE par
  *  IL2CPP -- l'absence n'y prouve rien, et il n'y a rien a invoquer. */
 function evenements(): NativePointer | null {
     if (instanceEvents) return instanceEvents;
-    if (instanceProgression && offGameEvents >= 0) {
+    if (offGameEvents < 0) return null;
+    // L'interception d'abord (elle a pu retenir le porteur), l'executeur ensuite : ce dernier
+    // n'exige aucun ecran, donc il RATTRAPE le cas ou rien n'a encore tire.
+    for (const porteur of [instanceProgression, progressionParExecuteur()]) {
+        if (!porteur) continue;
         try {
-            const p = instanceProgression.add(offGameEvents).readPointer();
+            const p = porteur.add(offGameEvents).readPointer();
             if (!p.isNull()) return p;
-        } catch { /* rend null */ }
+        } catch { /* porteur suivant */ }
     }
     return null;
 }
