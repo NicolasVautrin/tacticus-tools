@@ -36,6 +36,37 @@ import pytest
 RACINE = pathlib.Path(__file__).resolve().parents[2]
 NC = RACINE / "engine" / "playbook" / "noncomparable"
 
+DECLENCHEUR = {
+    "chemins": (
+        # Le foyer des DEUX etages : la probabilite (`use_probability`) et son triage
+        # (`probability_gate`). L'etage 3 balaie de surcroit TOUT `noncomparable/`.
+        "scripts/python/engine/playbook/noncomparable/_base.py",
+        # Les trois porteurs dont les valeurs sont FIGEES depuis une mesure live.
+        "scripts/python/engine/playbook/noncomparable/crusade_of_wrath.py",
+        "scripts/python/engine/playbook/noncomparable/waaagh.py",
+        "scripts/python/engine/playbook/noncomparable/war_howl.py",
+        # Le module qui porte `has_ranged_weapon` -- et celui qui ne doit PAS le porter :
+        # l'etage 2 garde justement lequel des deux est lu.
+        "scripts/python/engine/services/battle_query.py",
+        "scripts/python/engine/battle_query.py",
+        # Le capteur qui rend ces valeurs confrontables. Sa disparition ne casserait aucun test
+        # d'ici, mais elle retirerait la SOURCE des chiffres figes : le declencheur le dit.
+        "frida/hooks/probes/should-evaluate-trace.ts",
+        "scripts/python/probe_969r1_prob_confrontee.py",
+    ),
+    # Ni le binaire ni `data/symbols/**` : toutes les valeurs natives sont TRANSCRITES dans les
+    # docstrings du port et figees ici en litteraux. Ce fichier ne relit aucun dump.
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Perimetre BORNE et derivable : les six chemins Python sont ceux que les assertions "
+        "LISENT (le foyer, les trois porteurs, et les deux modules `battle_query` dont l'etage 2 "
+        "tranche lequel porte `has_ranged_weapon`). Les deux derniers chemins ne sont pas lus par "
+        "une assertion : ils PRODUISENT les valeurs figees a l'etage 2 (mesure live seed 777 / "
+        "MC1_67), et une derive du capteur ou du probe rendrait ces chiffres invalidables sans "
+        "qu'aucun test ne rougisse -- c'est pourquoi ils sont declares LARGE plutot qu'omis."),
+}
+
 
 def _nc(**kw):
     from engine.playbook.noncomparable._base import NCContext
