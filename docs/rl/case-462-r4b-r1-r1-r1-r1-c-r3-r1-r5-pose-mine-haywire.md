@@ -258,4 +258,14 @@ les deux fermetures et leurs residus. Les deux audits generes ont ete REGENERES 
 * **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2`** — `+0x98` / `ResetPreviousPosition` non portes.
 * **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3`** — `allowSteppable` de `CanAddUnit` non modelise.
 * **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4`** — le gate persistant est inerte.
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5`** — pose sur un deplacement MULTI-HEX non confrontee.
+* ~~**`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5`**~~ — **FERME**, cf.
+  `case-462-r4b-r1-r1-r1-r1-c-r3-r1-r6-prevent-revive.md` §4. La premisse est **REFUTEE par le
+  decompile** : le natif n'appelle PAS `SetUnitPosition` par pas. `MoveUnitOperation$$Execute`
+  l'appelle **une seule fois** (slot `0x7e`), avec la destination COMPLETE, **avant** la boucle
+  `AddMoveEvent` — et `MoveUnitOperation$$AddMoveEvent` ne touche **aucun** composant ECS (canal de
+  VUE). Donc `SavePreviousPosition` grave la tuile de DEPART du mouvement entier, quelle que soit la
+  longueur du chemin. Confronte LIVE (`MC1_67`, pas de 2 hex, chemin `[(1,0),(0,0),(0,1)]` dont
+  l'avant-derniere DIFFERE du depart) : mine natif `[(1,0)]` = port `[(1,0)]`.
+  ⚠ **Corollaire pour le §7 ci-dessus** : sa derniere puce (« un deplacement de plusieurs hex : les
+  deux lectures restent indistinguables ») n'est plus un trou de couverture — les deux lectures ne
+  sont pas indistinguables, **la seconde n'existe pas**.

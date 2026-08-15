@@ -200,11 +200,17 @@ montrait tant que le port ne calculait aucun chemin (`_num_tiles_moved` rendait 
 
 ## 10. Ce qui n'est PAS porté, nommément
 
-* **La RÉSERVATION** — `SetReservation` / `RemoveReservation` / `IsPositionReservedForOtherUnit`
-  (gate G6). Son unique lecteur natif est un gate **amont**, qui ne mord que sur deux mouvements
-  CONCURRENTS ; le port mono-thread n'atteint ce régime que si un trigger `PreUnitMove` lance
-  lui-même un mouvement vers la même tuile. Sans lecteur, la porter serait un no-op. Résidu
-  **`#448-r1-r2-r1`**.
+* ~~**La RÉSERVATION**~~ — **PORTÉE depuis #550-r1**, et son résidu ~~**`#448-r1-r2-r1`**~~ est
+  **FERMÉ** (cf. `case-462-r4b-r1-r1-r1-r1-c-r3-r1-r6-prevent-revive.md` §3). Les trois pièces
+  existent : `SetReservation`, `RemoveReservation` et leur lecteur, le gate amont G6
+  `IsPositionReservedForOtherUnit`. **Ce paragraphe était donc PÉRIMÉ**, et il faut le lire ainsi :
+  la phrase « sans lecteur, la porter serait un no-op » a cessé d'être vraie au moment où G6 est
+  entré. Ce qui reste exact, c'est la caractérisation du RÉGIME — G6 ne mord que sur un mouvement
+  **imbriqué**, parce que les quatre autres poseurs (`DSLBehaviors$$Reserve` :
+  `TheQuickening` ×2, `NovaBoost`, `EreWeGo`, `ItItches` ×2) retirent la réservation dans le même
+  arbre. Ce régime est désormais **monté et confronté** (`probe_448r1r2r1_reservation_regime.py`,
+  4/4 : témoin, refus `position-reserved`, contre-épreuve par neutralisation de `SetReservation`,
+  et cycle complet).
 * **Les SEPT gates amont** (`IsAllowedToMove`, `UnitIsOnTiles`, `TilesAreWalkable`,
   `TilesMatchUnitFeetCount`, `IsDisallowedEmptyPosition`, `IsPositionReservedForDrafting`) et la
   **branche `allowNullTargetPosition`** (`position.Count == 0` → retrait du plateau +
