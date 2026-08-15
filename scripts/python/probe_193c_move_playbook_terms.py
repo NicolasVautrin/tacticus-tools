@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import uuid
@@ -36,25 +37,79 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
 
+#: le hook dont on epingle les adresses -- il PORTE lui-meme le build de chaque VA.
+HOOK_SCORER = ROOT / "frida" / "hooks" / "features" / "scorer-damage-trace.ts"
+
+
+def build_epingle_du_hook(chemin: Path | None = None) -> str:
+    """Le build sur lequel les VA en dur du hook ont ete MESUREES, LU DANS LE HOOK.
+
+    ⚠ NE PAS remettre ici un litteral transcrit a la main : c'est la faute que cette
+    fonction repare, et elle s'etait deja produite un build plus tot. La docstring
+    d'alors la racontait tout en la recommettant -- << il valait `gqfc5mff6c` alors que
+    #257 avait deja migre les RVA vers `rnca9r7q6c` >> -- puis le hash est reste a
+    `rnca9r7q6c` quand #1129 a migre les 14 pins vers `t6dpr4k06g`. Un refus FAUX se lit
+    exactement comme un refus legitime : les DOUZE probes qui appellent cette declaration
+    unique refusaient de tourner sur un build ou tout etait bon.
+
+    La raison ecrite pour la copie a la main -- << il ne se derive d'aucun artefact du
+    depot >> -- etait vraie quand elle a ete ecrite, et #475 l'a rendue FAUSSE en faisant
+    passer chaque adresse par un litteral `PinnedAddress` qui porte son `build:`. Le hook
+    EST desormais l'artefact. On le lit donc, et le foyer `require_pinned` (#431) reste
+    seul juge de la confrontation au build installe.
+
+    Refuse -- jamais de repli -- si le hook est illisible, ne declare rien, ou declare
+    PLUSIEURS builds : dans ce dernier cas c'est le hook qui est incoherent, et en choisir
+    un serait exactement le mensonge silencieux qu'on cherche a eteindre.
+
+    ⚠ `chemin` vaut `None` par defaut et NON `HOOK_SCORER` : une valeur par defaut est evaluee
+    A LA DEFINITION, donc elle GELE le module global et un `setattr(P193C, "HOOK_SCORER", ...)`
+    ne mordrait pas. C'est la forme A de la doctrine des liaisons, celle qui laisse un
+    controle passer A VIDE -- mesure faite ici meme : la contre-epreuve des trois porteurs
+    rendait 0/3 avec la valeur par defaut, 3/3 en lisant le global a l'APPEL.
+    """
+    chemin = chemin or HOOK_SCORER
+    try:
+        src = chemin.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise BuildPinRefused(
+            "NON MESURE : le hook epingle est illisible -- %s\n"
+            "  attendu : %s" % (exc, chemin.as_posix())) from exc
+    builds = re.findall(r"\bbuild:\s*\"([a-z0-9]+)\"", src)
+    vas = re.findall(r"\bva:\s*0x[0-9a-fA-F]+", src)
+    if not builds:
+        raise BuildPinRefused(
+            "NON MESURE : aucun `build:` de `PinnedAddress` dans %s -- la derivation ne\n"
+            "  peut pas rendre de hash, et on n'en invente pas." % chemin.name)
+    if len(builds) != len(vas):
+        raise BuildPinRefused(
+            "NON MESURE : %d `build:` pour %d `va:` dans %s. Les deux champs sont\n"
+            "  OBLIGATOIRES dans `PinnedAddress` : un ecart veut dire que la lecture a\n"
+            "  attrape autre chose (un commentaire), donc qu'elle ne mesure plus ce\n"
+            "  qu'elle croit." % (len(builds), len(vas), chemin.name))
+    distincts = sorted(set(builds))
+    if len(distincts) > 1:
+        raise BuildPinRefused(
+            "NON MESURE : %s epingle %d builds DIFFERENTS (%s). Le hook est incoherent ;\n"
+            "  en choisir un ferait tourner des probes contre des adresses melangees."
+            % (chemin.name, len(distincts), ", ".join(distincts)))
+    return distincts[0]
+
+
 def _exiger_build_des_rva() -> None:
     """Refuse si les RVA en dur du hook ne valent pas pour le build INSTALLE.
 
-    Le hash est TRANSCRIT depuis `frida/hooks/features/scorer-damage-trace.ts`
-    (`installRvaHooks`) : il ne se derive d'aucun artefact du depot, il est donc declare ICI
-    et confronte par le foyer (#431). Il valait `gqfc5mff6c` alors que #257 avait deja migre
-    les RVA du hook vers `rnca9r7q6c` -- le probe REFUSAIT de tourner sur un build ou tout
-    etait bon, et un refus FAUX se lit exactement comme un refus legitime.
-
     C'est la DECLARATION UNIQUE de ce pin pour toute la famille des probes qui arme les hooks
-    de `scorer-damage-trace` : #211, #212, #241 et #242 l'appellent au lieu d'en porter une
-    copie (#462-r4c). Ils importaient auparavant un `BUILD_HASH` que #431 a retire -- et le
-    seul a avoir un test qui le consomme, #242, a rendu 0 passed / 10 errors pendant deux jours.
-    Quatre copies du meme littéral, c'est quatre endroits a migrer au prochain build.
+    de `scorer-damage-trace` : ils sont DOUZE a l'appeler au lieu d'en porter une copie
+    (#462-r4c). Ils importaient auparavant un `BUILD_HASH` que #431 a retire -- et le seul a
+    avoir un test qui le consomme, #242, a rendu 0 passed / 10 errors pendant deux jours.
+    Une copie du hash par probe, c'est douze endroits a migrer au prochain build ; depuis
+    #475 il n'y en a plus AUCUN a migrer, le hash se lit dans le hook.
     """
-    require_pinned("rnca9r7q6c",
+    require_pinned(build_epingle_du_hook(),
                    "les RVA en dur de scorer-damage-trace (installRvaHooks)",
-                   "rafraichir les RVA_* et LEAF_HOOKS_VA du hook depuis le dump du nouveau "
-                   "build, PUIS mettre ce hash a jour")
+                   "rafraichir les VA des `PinnedAddress` du hook depuis le dump du nouveau "
+                   "build -- le hash suit tout seul, il est LU dans le hook")
 
 
 def _r(sid, m, b, t=90):

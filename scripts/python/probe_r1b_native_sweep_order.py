@@ -36,7 +36,8 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_pin import BuildPinRefused, require_pinned  # noqa: E402
+import probe_193c_move_playbook_terms as P193C  # noqa: E402
+from build_pin import BuildPinRefused  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
@@ -46,16 +47,14 @@ ROOT = PYDIR.parents[1]
 def _exiger_build_des_rva() -> None:
     """Refuse si les RVA en dur du hook ne valent pas pour le build INSTALLE.
 
-    Le hash est TRANSCRIT depuis `frida/hooks/features/scorer-damage-trace.ts`
-    (`installRvaHooks`) : il ne se derive d'aucun artefact du depot, il est donc declare ICI
-    et confronte par le foyer (#431). Il valait `gqfc5mff6c` alors que #257 avait deja migre
-    les RVA du hook vers `rnca9r7q6c` -- le probe REFUSAIT de tourner sur un build ou tout
-    etait bon, et un refus FAUX se lit exactement comme un refus legitime.
+    ⚠ DELEGUE a la declaration unique de #193c, et surtout PAS une copie. Ce corps portait
+    le litteral `rnca9r7q6c` et le refus l'a SURVECU : la docstring d'alors racontait
+    justement cette faute -- << il valait `gqfc5mff6c` alors que #257 avait deja migre les RVA
+    vers `rnca9r7q6c` >> -- puis a ete recopiee telle quelle, litteral compris, et la migration
+    #1129 vers `t6dpr4k06g` l'a perimee a son tour. Une prose qui raconte le vice ne l'empeche
+    pas ; seule la delegation le rend impossible.
     """
-    require_pinned("rnca9r7q6c",
-                   "les RVA en dur de scorer-damage-trace (installRvaHooks)",
-                   "rafraichir les RVA_* et LEAF_HOOKS_VA du hook depuis le dump du nouveau "
-                   "build, PUIS mettre ce hash a jour")
+    P193C._exiger_build_des_rva()
 
 
 def _r(sid, m, b, t=90):

@@ -83,7 +83,7 @@ import catalog_inject as CI                                      # noqa: E402
 import hexgeo                                                    # noqa: E402
 import probe_124_line_elevation_decision as P124                 # noqa: E402
 import probe_193c_move_playbook_terms as P193C                   # noqa: E402
-from build_pin import BuildPinRefused, require_pinned            # noqa: E402
+from build_pin import BuildPinRefused                            # noqa: E402
 from engine import battle_query as bq                            # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType   # noqa: E402
 from engine.entities.unit_faction import UnitFaction, faction_value       # noqa: E402
@@ -132,11 +132,14 @@ class MontageError(RuntimeError):
 def _exiger_build_des_rva() -> None:
     """Les RVA en dur de `scorer-damage-trace` (`installRvaHooks`) valent-elles pour le build
     INSTALLE ? Meme foyer que #193c (#431) : sans ce refus, les hooks se posent sur du code
-    aleatoire et le `tileTerm` lu n'est pas celui du natif."""
-    require_pinned("rnca9r7q6c",
-                   "les RVA en dur de scorer-damage-trace (installRvaHooks)",
-                   "rafraichir les RVA_* et LEAF_HOOKS_VA du hook depuis le dump du nouveau "
-                   "build, PUIS mettre ce hash a jour")
+    aleatoire et le `tileTerm` lu n'est pas celui du natif.
+
+    ⚠ DELEGUE, et surtout PAS une copie. Ce corps portait le litteral `rnca9r7q6c` alors que
+    `P193C` -- deja importe juste au-dessus -- tenait la declaration unique : la copie a
+    survecu a la migration #1129 vers `t6dpr4k06g` et faisait refuser ce probe sur un build ou
+    tout etait bon. C'est le meme vice qu'a repare #462-r4c, revenu par imitation.
+    """
+    P193C._exiger_build_des_rva()
 
 
 # --------------------------------------------------------------------------- montage
