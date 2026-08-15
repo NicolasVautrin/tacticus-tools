@@ -70,26 +70,11 @@ def nearest_enemy(ctx: NCContext, frm: tuple):
     -> `(id, position)` ou `None`. La `position` fournie REMPLACE celle du caster, donc les
     distances sont mesurees DEPUIS LA TUILE DE SPAWN.
 
-    Le tie-break natif n'est PAS un simple `min` : `d < bestDist || (adj && !bestAdj)`. Un
-    candidat ADJACENT evince donc un candidat plus proche non adjacent -- configuration
-    impossible en distance hex, mais le natif l'ecrit et le port le transcrit tel quel.
-    `AreEntitiesAdjacent` (court-circuit d'identite + porte d'elevation, cf. #433-r1) et non
-    `is_adjacent` : c'est ce corps-la que le natif appelle.
-
-    `IsIrrelevantObject` n'est pas porte : `ctx.enemies` ne publie pas le trait `Object`. Ecart
-    PERMISSIF nomme (un decor pourrait etre elu « plus proche ennemi »)."""
-    neigh = bq.neigh_map(ctx)
-    best = None            # (id, pos, dist, adj)
-    for e in (ctx.enemies or []):
-        p = e.get("pos") or {}
-        if p.get("col") is None:
-            continue
-        q = (p["col"], p["row"])
-        d = hexgeo.distance(frm, q)
-        adj = bq.are_entities_adjacent(frm, q, ctx.elev_by_pos, neigh)
-        if best is None or d < best[2] or (adj and not best[3]):
-            best = (e.get("id"), q, d, adj)
-    return None if best is None else (best[0], best[1])
+    PASSE-PLAT vers le foyer UNIQUE `battle_query.get_nearest_enemy` (#971-r1) : ce corps etait
+    l'un des TROIS mirrors du meme natif, avec trois signatures. Le tie-break
+    `d < bestDist || (adj && !bestAdj)`, le choix d'`AreEntitiesAdjacent` (et non `is_adjacent`)
+    et les ecarts nommes vivent desormais la-bas, une seule fois."""
+    return bq.get_nearest_enemy(ctx, frm)
 
 
 def _is_target_in_attack_range_for_summon(ctx: NCContext, tile: tuple, rng: int | None,

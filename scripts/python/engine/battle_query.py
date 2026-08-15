@@ -222,6 +222,91 @@ def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None,
     return is_adjacent(a, b, elev_by_pos, neigh_by_pos)
 
 
+def get_nearest_enemy(ctx, position: tuple | None = None):
+    """`IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy(caster, position)` -> `(id, pos)` ou
+    `None` -- FOYER UNIQUE (#971-r1).
+
+    Corps natif, TERME A TERME (`caster:IdunBattle.Core.IEntity,
+    position:System.Nullable<IdunBattle.Core.UnitPosition>` -> `IdunBattle.Core.IEntity`, signature
+    LUE dans `data/symbols/<build>/frida/methods.tsv`) :
+
+        tilesA = position.HasValue ? position.Value
+                                   : EntityExtensions.GetUnitPosition(caster, this.state)
+        best = null ; bestDist = int.MaxValue ; bestAdj = false
+        foreach u in GetAllAliveUnits(null):
+            if (!UnitExtensions.IsEnemy(caster, u, this.state))  continue
+            if (UnitExtensions.IsIrrelevantObject(u))            continue
+            d   = GetDistance(tilesA, u)
+            adj = AreEntitiesAdjacent(tilesA, u)
+            if (d < bestDist || (adj && !bestAdj)) { best = u ; bestDist = d ; bestAdj = adj }
+        return best
+
+    LES DEUX SURCHARGES SONT TRANCHEES PAR LES XREFS SORTANTES, pas par le nom du parametre :
+    `IdunBattle.Core.Services.BattleQuery$$GetDistance` a QUATRE surcharges et
+    `$$AreEntitiesAdjacent` TROIS ; le corps de `GetNearestEnemy` appelle celles de signature
+    `(tilesA:IList<IEntity>, tileB:IEntity)` et `(tiles:IList<IEntity>, unit:IEntity)`. La seconde
+    fait `MovementUtil$$AreTilesAdjacent(tiles, EntityExtensions.GetTiles(unit))` -- donc
+    `are_entities_adjacent` (court-circuit d'identite + porte `|dElev| < 2`) et **jamais**
+    `is_adjacent`, qui mirrore `TileQuery$$IterateAdjacentTiles`, une primitive DIFFERENTE.
+    La premiere delegue a `IdunBattle.Core.Services.MovementQuery$$GetDistance`, dont ce module
+    porte deja le mirror (`get_distance` ci-dessus) : ce foyer l'APPELLE au lieu de refaire un
+    `hexgeo.distance`, ce que ne faisait AUCUNE des trois copies.
+
+    L'ANCRE EST LE PARAMETRE, et c'est la seule chose qui distinguait les trois appelants :
+    `position` fournie -> les distances partent de CETTE tuile (`Nullable` PLEIN, ex. la tuile de
+    SPAWN d'un summon) ; `position=None` -> `GetUnitPosition(caster)`, c.-a-d. `ctx.origin`
+    (`Nullable` VIDE). Aucune des deux n'est un cas particulier du natif : c'est le `HasValue`.
+
+    `bestDist` demarre a `int.MaxValue` (`DISTANCE_UNREACHABLE`) et non a « pas de best » : le
+    natif garde un candidat par `d < bestDist`, jamais par « c'est le premier ». Le tie-break
+    `(adj && !bestAdj)` peut donc faire AUGMENTER `bestDist` -- un candidat ADJACENT evince un
+    candidat plus proche non adjacent. Le port le transcrit tel quel plutot que de le collapser en
+    `min` : l'adjacence native est la liste STOCKEE, rien ne garantit qu'un voisin soit a
+    distance 1.
+
+    SUBSTRAT. `ctx.enemies` (`{id, pos}`) EST la source, parce qu'elle seule porte l'identifiant
+    que le natif rend ; `ctx.epos` en est la projection (`epos = [(e.pos.col, e.pos.row) for e in
+    enemies]`, `ai/context.py`), donc MEME ensemble et MEME ordre -- le repli sur `epos` ne sert
+    qu'aux contextes qui ne peuplent pas `enemies` (quelques probes), et rend alors `id = None`.
+
+    ECARTS NOMMES, communs aux trois mirrors d'origine et INCHANGES par la convergence :
+      * `IsIrrelevantObject` n'est pas porte -- ni `enemies` ni `epos` ne publient le trait
+        `Object` ; ecart PERMISSIF (un decor pourrait etre elu « plus proche ennemi ») ;
+      * le natif compare des EMPREINTES (`GetUnitPosition(caster)` x `GetTiles(u)`) la ou le port
+        compare des tuiles principales (#419-r1-tr10-r2) ;
+      * l'ordre d'enumeration natif (`GetAllAliveUnits`, un `IOrderedSet`) est approxime par celui
+        de `ctx.enemies` -- il ne departage que les ex aequo STRICTS (tie residuel)."""
+    frm = position if position is not None else getattr(ctx, "origin", None)
+    if frm is None:
+        return None                      # pas d'ancre -> le port ne devine pas `GetUnitPosition`
+    frm = (frm[0], frm[1])
+    elev = getattr(ctx, "elev_by_pos", None)
+    neigh = neigh_map(ctx)
+    best = None
+    best_dist = DISTANCE_UNREACHABLE     # `int.MaxValue`
+    best_adj = False
+    for eid, q in _enemy_id_pos(ctx):
+        d = get_distance([frm], [q])                     # `GetDistance(tilesA, u)`
+        adj = are_entities_adjacent(frm, q, elev, neigh)  # `AreEntitiesAdjacent(tilesA, u)`
+        if d < best_dist or (adj and not best_adj):
+            best, best_dist, best_adj = (eid, q), d, adj
+    return best
+
+
+def _enemy_id_pos(ctx):
+    """Les ennemis d'un contexte de decision en `(id, (col, row))` -- `ctx.enemies` d'abord (elle
+    seule porte l'id), repli sur `ctx.epos` (id `None`). Cf. `get_nearest_enemy` (SUBSTRAT)."""
+    out = []
+    for e in (getattr(ctx, "enemies", None) or ()):
+        p = (e or {}).get("pos") or {}
+        if p.get("col") is None:
+            continue
+        out.append((e.get("id"), (p["col"], p["row"])))
+    if out:
+        return out
+    return [(None, (p[0], p[1])) for p in (getattr(ctx, "epos", None) or ())]
+
+
 def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None,
                    neigh_by_pos: dict | None = None) -> int:
     """`GetAdjacentEnemies/Friends(tile).Count` — nombre d'unités de `positions` sur une tuile

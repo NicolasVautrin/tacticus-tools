@@ -162,16 +162,11 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         RESIDUS NOMMES, non traites ici : le filtre `IsIrrelevantObject` n'est pas porte (ordre
         `ctx.epos`) ; le natif compare des EMPREINTES (`GetUnitPosition(caster)` x `GetTiles(u)`)
         la ou le port compare deux tuiles principales (#419-r1-tr10-r2) ; l'ordre d'enumeration
-        natif (`GetAllAliveUnits`) est approxime par l'ordre de `ctx.epos` (tie residu)."""
-        if ctx.origin is None:
-            return None
-        best = None
-        best_d = None
-        best_melee = False
-        for p in (ctx.epos or []):
-            pk = (p[0], p[1])
-            d = hexgeo.distance(ctx.origin, pk)
-            melee = bq.are_entities_adjacent(ctx.origin, pk, ctx.elev_by_pos, bq.neigh_map(ctx))
-            if best_d is None or d < best_d or (melee and not best_melee):
-                best, best_d, best_melee = pk, d, melee
-        return best
+        natif (`GetAllAliveUnits`) est approxime par l'ordre de `ctx.epos` (tie residu).
+
+        PASSE-PLAT vers le foyer UNIQUE `battle_query.get_nearest_enemy` (#971-r1) -- ce corps
+        etait l'un des TROIS mirrors du meme natif. `position=None` **EST** le `Nullable` VIDE de
+        ce call-site : l'ancre retombe donc sur `GetUnitPosition(caster)` = `ctx.origin`, ce que
+        ce corps ecrivait a la main. Ce playbook ne veut que la TUILE -> `[1]`."""
+        near = bq.get_nearest_enemy(ctx)     # `GetNearestEnemy(unit, <Nullable position VIDE>)`
+        return None if near is None else near[1]
