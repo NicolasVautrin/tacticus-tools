@@ -64,6 +64,19 @@ from ... import battle_query as _bq
 #:     juste en dessous a `1`/`1230`/`1390`. Montage a jouer : un porteur de `KissOfDeath` ou de
 #:     `WallOfMirrors`, et regarder si un overwatch se declenche sur le caster pendant le `FlyUnit`,
 #:     natif contre port. Tant que ce n'est pas mesure, l'inscrire violerait la regle de ce foyer.
+#:     ⚠ **UN DES DEUX TERMES DE CETTE OBJECTION EST TOMBE (mesure du 2026-08-15, #175/#368/#433
+#:     tranche commune) : cote PORT, il Y A un etage entre les deux noeuds.** La feuille
+#:     `runner/abilities/behaviours/movement.py::FlyUnit` ne deplace pas << en silence >> : elle
+#:     construit une `MoveUnitOperation` et l'execute **AVEC LE BUS** (`op.execute(state,
+#:     ectx.bus)`), donc les vecteurs de mouvement du dispatcher partent PENDANT la fenetre
+#:     d'intouchabilite -- entre l'`AddEffect(1044)` et le `RemoveEffect(1044)` du meme arbre. Une
+#:     inscription du flag ne serait donc PAS structurellement inerte, contrairement au cas
+#:     `1230`/`1390` ou aucun poseur n'existe.
+#:     CE QUI RESTE OUVERT, et qui suffit a ne pas inscrire aujourd'hui : le natif REFUSE-t-il
+#:     vraiment sur `UnitFlag 0x11` dans ce chemin-la ? Aucun LECTEUR du flag n'a ete recense (le
+#:     scan exhaustif de #433-r3-r2-r1-r1 porte sur `UnitFlagsComponent$$Add`/`$$Remove`, pas sur
+#:     les tests) -- sans lecteur identifie, l'inscription resterait une divergence non confrontee.
+#:     Le montage live decrit ci-dessus reste donc du.
 #:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- **REFUS RE-MESURE (#1074)**.
 #:     L'etage manquant n'est plus le meme selon le membre, et c'est ce qui rend la regle unique :
 #:     un membre n'entre au domaine que si le port porte SES DEUX FACES, le POSEUR **et** le
