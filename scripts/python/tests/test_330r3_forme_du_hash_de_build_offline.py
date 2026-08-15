@@ -42,6 +42,25 @@ from pathlib import Path
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#:
+#: `toujours: True`, et ce n'est PAS un aveu -- c'est ce que l'etage 6 impose. Il balaie TOUS les
+#: fichiers suivis pour verifier qu'aucun jeton vu par l'ANCIENNE forme n'a ete perdu ; n'importe
+#: quel fichier versionne, quelle que soit sa place, peut donc le faire changer d'avis. Le borner
+#: par une liste de chemins serait exactement le faux vert que #458 a mesure sur `probe_431`.
+#:
+#: `build: True` est MESURE, pas suppose : `build_hash` DERIVE sa cible de `data/symbols/CURRENT`
+#: et des repertoires de `data/symbols/`, et l'etage 1 assertionne que le build COURANT est
+#: reconnu. Un changement de build change donc le verdict par construction.
+DECLENCHEUR = {
+    "chemins": ("*", "**"),
+    "build": True,
+    "toujours": True,
+    "raison": "L'etage 6 balaie `git ls-files` ENTIER (aucun jeton de l'ancienne forme ne doit "
+              "etre perdu), et la cible se DERIVE de `data/symbols/CURRENT` : tout fichier "
+              "versionne et tout changement de build peuvent faire changer le verdict.",
+}
+
 REPO = Path(__file__).resolve().parents[3]
 PYDIR = REPO / "scripts" / "python"
 if str(PYDIR) not in sys.path:
@@ -272,11 +291,40 @@ def test_build_re_REFUSE_plutot_que_de_rendre_un_motif_qui_ne_matche_rien(monkey
         BH.verifier_la_forme()
 
 
+def test_le_module_s_EXEMPTE_de_ses_PROPRES_TEMOINS_et_le_DIT():
+    """UN RECENSEUR QUI FABRIQUE SA PROPRE CIBLE RASSURE ET MENT -- mesure du 2026-08-15.
+
+    Les trois jetons de `test_le_critere_POSITIONNEL_...` ci-dessus sont ecrits en POSITION DE
+    CHEMIN (`games\\aaaa1111zz\\GameAssembly.dll`) : c'est ce qui les rend probants. Au premier
+    jet, le balayage positionnel les a donc AVALES, et `builds_connus()` a rendu dix builds au
+    lieu de sept -- `probe_330` et `probe_431` auraient compte `aaaa1111zz` comme un build reel.
+
+    L'exemption porte sur les fichiers qui IMPORTENT le module (elle se derive, elle ne se
+    saisit pas) et elle est IMPRIMEE a chaque run : une exemption muette est une allowlist
+    deguisee. Pendant exact de `probe_431.AUTO_TEST_MODULE`.
+    """
+    rap = BH.rapport_des_sources()
+    connus = set(rap["connus"])
+    temoins = {"aaaa1111zz", "bbbb2222yy", "cccc3333xx"}
+    # Non-vacuite : les temoins doivent bien etre ECRITS dans ce fichier, sinon le test ne
+    # pourrait rien montrer.
+    src = Path(__file__).read_text(encoding="utf-8")
+    assert all(t in src for t in temoins), "les temoins ont disparu du fichier"
+    assert BH.POSITION.findall(src), (
+        "aucun temoin en POSITION DE CHEMIN dans ce fichier -- l'exemption n'est plus exercee, "
+        "et ce test est devenu vacant")
+    assert temoins & connus == set(), (
+        "AUTO-CONTAMINATION : %s est entre dans les builds connus" % (temoins & connus))
+    assert rap["auto_tests"] is not None, "auto_tests NON MESURE"
+    assert Path(__file__).name in {Path(r).name for r in rap["auto_tests"]}, (
+        "ce fichier n'est pas ecarte comme auto-test : %s" % rap["auto_tests"])
+
+
 def test_les_sources_sont_DERIVEES_et_le_rapport_les_NOMME():
     """Un ensemble derive doit dire d'ou il sort, sinon il est indiscernable d'une liste saisie."""
     rap = BH.rapport_des_sources()
     assert set(rap) == {"tables_versionnees", "courant", "position_de_chemin",
-                        "installation_locale", "connus"}
+                        "installation_locale", "connus", "auto_tests"}
     assert rap["courant"] in rap["connus"]
     assert set(rap["tables_versionnees"]) <= set(rap["connus"])
     # La source 2 apporte des builds que la source 1 n'a pas : c'est ce qui remplace la liste

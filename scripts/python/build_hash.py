@@ -136,7 +136,23 @@ EXCLUS = ("data/symbols/", ".claude/worktrees/", "node_modules/", "frida/dist/")
 #: Racine de l'installation locale -- une ENTREE HORS DEPOT, lue en tri-etat.
 GAMES_DIR = Path.home() / "AppData" / "Local" / "tacticus" / "games"
 
+#: LE MODULE S'EXEMPTE DE SES PROPRES TEMOINS, ET C'EST MESURE (2026-08-15).
+#:
+#: Un fichier qui IMPORTE ce module est, par construction, son auto-test : il ECRIT des jetons de
+#: la forme d'un hash pour eprouver la reconnaissance. Sans cette exemption, le premier jet a
+#: injecte `aaaa1111zz`, `bbbb2222yy` et `cccc3333xx` -- les temoins de
+#: `test_330r3_forme_du_hash_de_build_offline` -- dans `builds_connus()`, que `probe_330` et
+#: `probe_431` auraient alors comptes comme des builds reels. Un recenseur qui fabrique sa propre
+#: cible est le pire des deux mondes : il rassure ET il ment.
+#:
+#: L'exemption se DERIVE (l'import est lu dans le fichier), elle ne se saisit pas, et elle est
+#: IMPRIMEE a chaque run -- une exemption muette est une allowlist deguisee. Pendant exact de
+#: `probe_431.AUTO_TEST_MODULE`. Detection par MOTIF et non par AST : le balayage porte sur TOUS
+#: les fichiers suivis, pas seulement les `.py`.
+AUTO_TEST_RE = re.compile(r"(?:^|\n)\s*(?:import|from)\s+" + Path(__file__).stem + r"\b")
+
 _cache: dict | None = None
+_auto_tests: list = []
 
 
 # --------------------------------------------------------------------------- les 3 sources
@@ -187,7 +203,8 @@ def _positions_dans_le_depot() -> list[str] | None:
         return None
     octets = repo_read.read_bytes_many([REPO / r for r in fichiers])
     vus: set[str] = set()
-    for data in octets:
+    _auto_tests.clear()
+    for rel, data in zip(fichiers, octets):
         if data is None:
             continue
         # Pre-filtre EXACT, pas heuristique : `POSITION` exige l'un de ces trois mots avant le
@@ -198,6 +215,9 @@ def _positions_dans_le_depot() -> list[str] | None:
         try:
             texte = repo_read.to_text(data, errors="replace")
         except UnicodeDecodeError:                             # pragma: no cover -- errors=replace
+            continue
+        if AUTO_TEST_RE.search(texte):
+            _auto_tests.append(rel)
             continue
         for m in POSITION.finditer(texte):
             vus.add(m.group(1))
@@ -245,6 +265,9 @@ def rapport_des_sources(force: bool = False) -> dict:
         "position_de_chemin": positions,
         "installation_locale": installes,
         "connus": sorted(connus),
+        # Les fichiers qui IMPORTENT ce module -- ecartes du balayage positionnel parce qu'ils
+        # ECRIVENT des jetons de la forme d'un hash pour l'eprouver. Liste, jamais tue.
+        "auto_tests": list(_auto_tests) if positions is not None else None,
     }
     return _cache
 
@@ -343,6 +366,13 @@ def imprimer_les_sources(rap: dict | None = None) -> None:
     print("    position de chemin (games|dumps|symbols/<x>) : %s" % _l(rap["position_de_chemin"]))
     print("    installation locale (hors depot, tri-etat)   : %s"
           % _l(rap["installation_locale"]))
+    at = rap.get("auto_tests")
+    if at:
+        # Une exemption muette est une allowlist deguisee : elle se DIT, a chaque run.
+        print("    ECARTES du balayage positionnel comme AUTO-TESTS (ils importent %s) : %d"
+              % (Path(__file__).stem, len(at)))
+        for rel in sorted(at):
+            print("        %s" % rel)
 
 
 def main() -> int:                                          # diagnostic ASCII
