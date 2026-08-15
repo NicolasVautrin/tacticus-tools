@@ -1068,6 +1068,45 @@ class BaseEffect:
         consommateur se tait. Defaut None = pas de bonus de percage."""
         return None
 
+    def create_piercing_malus_for_defense(self, damage_profile: str | None = None,
+                                          is_melee: bool | None = None,
+                                          attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        """`<Effect>.CreatePiercingMalusForDefense` -- **slot d'interface 25 (`0x19`)**, le PENDANT
+        DEFENSEUR du slot 24 `PiercingBonusForAttack`. Alimente le MEME axe PERCAGE
+        (`DamageModifiers@+0x20`), mais par l'accumulateur `defenseModifiers` (#10007).
+
+        RE (build `t6dpr4k06g`, decompile relu) -- les deux boucles natives, lues cote a cote :
+          `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`
+              invoque les slots `0x16` / `0x17` / **`0x18` = 24 `PiercingBonusForAttack`** ;
+          `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`
+              invoque les slots `0x1a` / `0x1b` / **`0x19` = 25 `PiercingMalusForDefense`**.
+        Les deux accumulent vers `DamageModifiers@+0x20`, et
+        `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` SOMME les
+        deux (`additionalPiercing` + `defenderPiercing`) dans le `pierce_pct` de
+        `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` -- donc
+        l'accumulateur d'arrivee est arithmetiquement indifferent, c'est le SLOT INVOQUE qui decide
+        QUELLE methode de l'effet est appelee.
+
+        ⚠ `IdunBattle.Entities.Effects.BaseEffect$$PiercingMalusForDefense` et
+        `IdunBattle.Entities.Effects.BaseEffect$$PiercingBonusForAttack` ont des corps
+        **IDENTIQUES a l'octet pres**, a une seule difference : le champ de cache lu
+        (`this+0x180..+0x1d0` contre `this+0x128..+0x178`). Ce corps commun gere les DEUX fabriques :
+        `EffectBonus.ForPiercing` (champ `+0x10`) rend la valeur telle quelle, `EffectBonus.
+        ForSubtraction` (champ `+0x18`) la rend **NIEE** (`local_res8[0] = -local_res8[0]`). Une
+        reduction de percage se porte donc ici par un `for_piercing(..., -v)`.
+
+        Seule surchargeante native du build : `IdunBattle.Entities.Effects.Loki.
+        ModifiedExoarmour_PierceReductionEffect$$CreatePiercingMalusForDefense` =
+        `EffectBonus.ForSubtraction(get_OwnerIsTarget & !DamageProfileIs(GetDamageProfile(cfg))
+        & !DamageProfileIs(GetDamageProfile2(cfg)), ConfigVar(0x3f = extraPierceRatio))`. Elle
+        n'a **aucune classe portee** (residu #10007-r1) : le canal est pose ici pour qu'elle ne soit
+        pas MUETTE le jour ou elle entrera au registre.
+
+        Signature alignee sur `create_piercing_bonus_for_attack` (memes gates disponibles :
+        `damage_profile` -> `DamageProfileIs`, `is_melee` -> `IsMeleeAttack`, `attacker_ctx` ->
+        les noeuds portes sur `Caster`). Defaut None = pas de malus de percage."""
+        return None
+
     def block_source_id(self, fallback_chance: int = 0) -> int:
         """`BlockChanceInfo.entityId` (@+0x0) de la source de block que CET effet pose — l'identite
         testee par `Contains(failedBlockIds, entityId)` dans
