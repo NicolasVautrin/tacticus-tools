@@ -36,8 +36,9 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `effects`   : `AddBondEffect`, `AddEffect`, `RemoveEffect`, `SetOnFire`, `CreateShield`.
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
 - `movement`  : `PushUnit`, `MoveUnit`, `SwitchPosition`, `PullUnitOneTile`, `FlyUnit`.
-- `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `RemoveMachine`, `RemoveUnitFromItsTiles`,
-                `RemoveAllForcedAttackTargets`, `TriggerAbility` (+ futur REVIVE).
+- `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `RemoveMachine`, `ReAddMachine`,
+                `RemoveUnitFromItsTiles`, `RemoveAllForcedAttackTargets`, `TriggerAbility`
+                (+ futur REVIVE).
 - `grants`    : `AddTrait` (`AddTraitBehaviour`), `AddTriggeredAbility` (`AddTriggeredAbilityBehaviour`).
 - `flags`     : `AddFlag` (`AddFlagBehaviour`), `RemoveFlag` (`RemoveFlagBehaviour`) -- le pendant de
                 `grants` sur le canal `UnitFlag` (#1019-r2).
@@ -72,7 +73,8 @@ from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, 
                     AddStatOverrideEffect)
 from .movement import (PushUnit, MoveUnit, SwitchPosition, PullUnitOneTile, FlyUnit,
                        OverrideUnitMovementTarget)
-from .lifecycle import (KillDeadUnits, Kill, RemoveUnit, RemoveMachine, RemoveUnitFromItsTiles,
+from .lifecycle import (KillDeadUnits, Kill, RemoveUnit, RemoveMachine, ReAddMachine,
+                        RemoveUnitFromItsTiles,
                         RemoveAllForcedAttackTargets, TriggerAbility,
                         TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
                         TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
@@ -100,7 +102,8 @@ __all__ = [
     "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit", "SwitchPosition", "PullUnitOneTile", "FlyUnit",
     "OverrideUnitMovementTarget",
-    "KillDeadUnits", "Kill", "RemoveUnit", "RemoveMachine", "RemoveUnitFromItsTiles",
+    "KillDeadUnits", "Kill", "RemoveUnit", "RemoveMachine", "ReAddMachine",
+    "RemoveUnitFromItsTiles",
     "RemoveAllForcedAttackTargets", "TriggerAbility", "TriggerAbilityDelayed",
     "TRIGGERED_ABILITY_BEHAVIOURS", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS",
     "AddTrait", "AddTriggeredAbility", "first_triggered_ability_of",

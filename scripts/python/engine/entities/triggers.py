@@ -96,6 +96,36 @@ class Not(AbilityTrigger):
         return not self.a.evaluate(ctx)
 
 
+class YesTrigger(AbilityTrigger):
+    """`IdunBattle.Entities.Triggers.YesTrigger` -- le PREDICAT CONSTANT VRAI, c'est-a-dire
+    l'ELEMENT NEUTRE de `op_BitwiseAnd`. C'est ce que la fabrique range en `<DSLTriggers+0x70>`
+    (`DSLTriggers$$.ctor`), et son corps `ShouldTrigger` est le `mov al,1 ; ret` DEDUPLIQUE --
+    d'ou son absence des deux tables de symboles.
+
+    IDENTIFICATION (#521-r4), TROIS sources concordantes -- aucune n'est une deduction du nom :
+      1. `IdunBattleLogic.Entities.DSLTriggers$$Direct(bool)` a pour corps ENTIER
+         `return value ? this+0x40 : this+0x48`, et `+0x40` / `+0x48`(nege) / `+0x70` sont trois
+         instances de la MEME classe (le `.ctor` les alloue toutes par le meme ctor 0-arg). Une
+         classe qui sert de `Direct(true)` evalue VRAI inconditionnellement ;
+      2. appariement FORCE sur les 13 classes de trigger de taille 16 de
+         `data/symbols/<build>/frida/classes.tsv` : seules `YesTrigger` et `NoTrigger` n'ont NI
+         allocateur `DSLTriggers$$<X>` nomme NI `ShouldTrigger` en table ; `Direct` choisit entre
+         les deux, et le membre NU est le VRAI ;
+      3. `IdunBattle.Entities.Effects.BaseEffect$$NeedsRefreshing` teste `cond is <cette classe>`
+         pour conclure << la condition est constante, donc rien ne peut changer >>.
+
+    ⚠ **CE NOEUD NE S'ECRIT QU'AUX SITES OU LE NATIF LE PASSE COMME ARGUMENT.** Partout ou il
+    n'est qu'un conjoint (`<+0x30> = On(AbilityInit) & <+0x70> & OwnerIsActor`, les 114
+    `CreateActiveCondition` par defaut), il est NEUTRE et le port l'omet -- l'ecrire y serait du
+    bruit. Le SEUL site du build qui en fait un argument PORTEUR est
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HunterOfSoulsAbility$$CreateBehaviour`, dont
+    le `ReAddMachine(unit, resetFlags)` prend un PREDICAT en 2e position (#1078-r2) : la classe
+    soeur `HunterOfSouls_KilledAbility` y passe, elle, `NOT HasFlag(Owner, TurnFinished)`. Sans ce
+    mirror, le port aurait du figer un `bool` a la construction et perdre la difference."""
+    def should_trigger(self, ctx):
+        return True
+
+
 class MaybeTrigger(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$Maybe(chance)` (surcharge a UN argument) ->
     `IdunBattle.Entities.Triggers.MaybeTrigger$$.ctor` / `$$ShouldTrigger` : PREDICAT NON DETERMINISTE

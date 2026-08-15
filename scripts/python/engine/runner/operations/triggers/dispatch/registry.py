@@ -188,6 +188,9 @@ from ..loki.daemonic_ordnance import (                                    # #521
     DaemonicOrdnanceAddCritChanceAbility,                                 # (1148 -> 1244)
     DaemonicOrdnanceRemoveCritChanceAbility,
     DAEMONIC_ORDNANCE_ACTIVE)
+from ..loki.hunter_of_souls import (HunterOfSoulsAbility,                 # #1078-r2
+                                    HunterOfSoulsKilledAbility,           # (passif -> 1497)
+                                    ABILITY_ID as HUNTER_OF_SOULS_ABILITY)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.daemonic_patrons import (DaemonicPatronsFinaleSuccessAbility,   # #911-r1 (1203 -> 1473)
                                      DaemonicPatronsFinaleFailAbility,
@@ -1531,6 +1534,24 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `ACTIVE_ABILITY_BLOCKER_EFFECTS`) : les deux ecritures vont dans le meme commit, sans quoi
     # l'une des deux est INERTE. Cf. `triggers/loki/rapid_fire.py`.
     RAPID_FIRE_KEY: [RapidFireAbility],
+    # HunterOfSouls (passif du SUMMON `thousSmnDaemonPrince` << Z'Kar >>, `TriggeredAbilityType`
+    # 0x5d9 = 1497). DEUX classes natives pour UNE cle (patron `Lakrimae` / `DaemonfleshPlate`), et
+    # l'id UNIQUE est MESURE : `TriggeredAbilityType` du build ne porte que `1497=HunterOfSouls`,
+    # aucun `HunterOfSouls_Killed` (le gameconfig concorde : `HunterOfSouls` existe, l'autre non).
+    #   * `HunterOfSoulsAbility` -- `On(0x16 = TurnStart_Actions, alive 1) & <DSLTriggers+0x28>`.
+    #     ⚠ `<+0x28>` EST NOMME (#1078-r2) : `IsTurnOf(Owner@DSLSelectors+0x30)` -- `DSLTriggers$$
+    #     IsTurnOf` alloue EXACTEMENT la meme classe avec la meme signature, et le balayage litteral
+    #     de cette classe ne rend que trois sites. -> `If(NOT HasEffect(Owner, 1495),
+    #     AddEffect(1495)) + PerformAIAttack(Owner, 1, null) + AddFlag(Owner, 22 PreventResurrect)
+    #     + RemoveUnit(Owner) + ReAddMachine(Parent(Owner), YesTrigger)` ;
+    #   * `HunterOfSouls_KilledAbility` -- `On(0x36 = UnitDefeated, alive 0) & get_OwnerIsTarget`
+    #     -> `AddFlag(Owner, 22) + ReAddMachine(Parent(Owner), NOT HasFlag(Owner, 3 TurnFinished))`.
+    # ⚠ Le 2e argument de `ReAddMachine` est un PREDICAT, pas un booleen -- et il DIFFERE entre les
+    # deux classes : c'est ce qui a impose de porter la feuille avec un `IAbilityTrigger`.
+    # L'etage neuf de la tranche est `ReAddMachine` (feuille `abilities/behaviours/lifecycle.py` +
+    # Operation `runner/operations/re_add_machine.py`) ; `AddFlag` et `RemoveUnit` existaient deja.
+    # Cf. loki/hunter_of_souls.py. #1078-r2.
+    HUNTER_OF_SOULS_ABILITY: [HunterOfSoulsAbility, HunterOfSoulsKilledAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
