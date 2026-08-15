@@ -948,8 +948,34 @@ class HasEffect(AbilityTrigger):
     LIMITE ASSUMEE (fusion #100 x #90) : `active_only` n'est threade QUE sur la branche UNITE. Le natif
     l'applique a n'importe quelle `IEntity`, mais l'accesseur tuile du port (`ctx.tile_has_effect`,
     #217) n'expose aucune notion d'effet actif/inactif -- le lui passer serait inventer un parametre
-    qu'il ne sait pas honorer. Sans consequence tant qu'aucun effet de TUILE ne porte d'ActiveCondition
-    (aucun a ce jour) ; a rouvrir avec l'infra effets-de-tuile mutables (tache #85)."""
+    qu'il ne sait pas honorer.
+
+    ⚠ **LA JUSTIFICATION QUI VIVAIT ICI ETAIT FAUSSE, et c'est elle qui a fait renoncer a verifier**
+    (#368-r2, re-mesure du 2026-08-15 sur `t6dpr4k06g`). Elle affirmait << sans consequence tant
+    qu'aucun effet de TUILE ne porte d'ActiveCondition (aucun a ce jour) >>. Il y en a **cinq**, et
+    chacune DECLARE la sienne : le slot `CreateActiveCondition` est **abstrait** sur
+    `IdunBattle.Entities.Effects.BaseEffect` (son `methodPointer` vaut `0x0`), donc toute classe
+    concrete d'effet en porte une. Les cinq feuilles se scindent meme en DEUX corps distincts :
+      * `FireEffect`, `IceEffect` et `DespoiledGroundEffect` partagent le corps nomme
+        `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateActiveCondition` =
+        `DSLTriggers.IsWalkable(sel) | DSLTriggers.IsSpawnTile(sel)` (relu VERBATIM) ;
+      * `BlockEnteringUnitsTileEffect`, `Idun.DarknessEffect` et `Idun.LandMineBlockTileMovementEffect`
+        partagent celui de `Loki.WayOfTheShortBlade_AdditionalAttackMarkerEffect`.
+    Et `BlockTileMovementEffect` -- la base qu'on aurait cru porteuse -- ne DECLARE PAS le slot.
+    Traiter << l'effet de tuile >> en bloc serait donc faux.
+
+    CE QUI RESTE VRAI, mais pour une AUTRE raison que celle qui etait ecrite : les trois
+    consommateurs de `5 EffectType.Fire` qui ont ete lus passent tous `onlyActive: false`
+    (`DaemonicOrdnanceAbility$$GetAllDamageableTargets`, `Tiles.DryBushFireSpreadAbility$$CreateTrigger`,
+    `Damage.Loki.OnFireDamageAbility$$CreateTrigger`), donc le flag ne les atteint pas. C'est un
+    littéral repete a trois sites, pas une propriete structurelle : une ability future qui passerait
+    `onlyActive: true` rendrait l'ecart MORDANT. Il existe d'ailleurs deja un consommateur d'effet de
+    tuile qui ne passe par AUCUN occupant --
+    `IdunBattle.Entities.Triggers.HasTileStatusEffectTrigger$$ShouldTrigger` ->
+    `TileExtensions$$HasTileStatusEffect` -> `IEffectsQuery` slot 4 `GetAllEffectsTargetingEntity`,
+    laquelle n'emet QUE les effets ACTIFS malgre son nom. L'argument d'innocuite par
+    << aucune unite ne peut occuper une tuile non marchable >> est donc refute.
+    A rouvrir avec l'infra effets-de-tuile mutables (tache #85)."""
     def __init__(self, unit: AbilityTrigger, effect_type, min_level: int = 0,
                  active_only: bool = True):
         self.unit, self.effect_type, self.min_level = unit, effect_type, min_level
