@@ -222,3 +222,55 @@ C'est une tranche d'ampleur comparable a `1217` (#889) a elle seule -- au moins 
 `HasAdjacentEnemies`, `ActivateEffect` sur un effet non porte, `EdgeExtensions.Rotate`) plus une
 phase 2 complete. La porter ICI, apres six noeuds DSL et une ability, aurait reproduit exactement
 la faute que #889 avait evitee : livrer une moitie. Residu **`#889-r6`**.
+
+## `#889-r5-r3` volet (b) : le natif POSE `1520`, puis il le RETIRE
+
+La fiche opposait deux causes a l'absence de `1520 MartialExemplar_ExtraCritChance` dans
+`decisionView.units[].effects` apres le cast : « le natif ne le pose pas » vs « ce canal ne le
+publie pas ». Elle exigeait pour trancher « un capteur d'effets INDEPENDANT de `decisionView` ».
+Ce capteur **existait et etait deploye** -- `effectsAll` (#231-r) ; c'est maintenant **mesure**, et
+non plus seulement dit.
+
+### La mesure (`probe_889r5_martial_exemplar.py --regime survit`, deux runners)
+
+    effectsAll(effectType = 1520) -> count: 1
+        { effectType: 1520, ownerId: 84, inOwnerList: false, removed: true }
+    effectsAll(TOUS)              -> count: 16, 15 types distincts
+        RETIRES = [[1520, 84]]        <- UN SEUL effet retire dans TOUT l'etat
+        VIVANTS = 15 couples (type, owner)
+
+Les trois regimes que le hook distingue au couple (`inOwnerList`, `removed`) donnent ici **POSE
+PUIS RETIRE**. Le canal n'est pas degenere (16 effets), et `1520` est le **seul** retire : ce n'est
+donc pas une expiration generale de fin de tour, c'est propre a cet effet.
+
+⇒ « le natif ne pose pas `1520` » est **FAUX**. Son absence de `decisionView` s'explique par le
+RETRAIT : ce canal part d'`EffectsOwnedComponent.ActiveEffectIds`, dont
+`IdunBattle.Operations.RemoveEffectOperation$$Execute` sort l'effet (`List.Remove` puis `Removed`
+@+0x5f, **sans detruire l'entite** -- exactement ce que `effectsAll` voit encore). **Volet (b) CLOS.**
+
+### Fait neuf : le port GARDE ce que le natif a deja retire -- et la cause est lue
+
+Le port pose `1520` avec `duration_turns = 1` (`runner/abilities/darkangels.py`) et le conserve
+(`off_cast = {"84": {"1520": 1}}`) au meme point d'observation.
+
+Les deux soeurs du MEME boss passent des `turns` **differents** a `DSLBehaviors$$AddEffect` :
+
+| ability | appel natif | `turns` |
+|---|---|---|
+| `1217 TheLionsWrath` | `AddEffect(0x5f2, abilityState, Owner, **null**)` | aucun |
+| `1216 MartialExemplar` | `AddEffect(0x5f0, abilityState, Owner, **<DSLFormulas + 0x20>**)` | fini |
+
+(surcharge `(effectType, abilityState, targets, turns: IAmountFormula)`). L'ecart de survie des deux
+effets vient donc de la, et non d'un mecanisme d'expiration.
+
+### Ce qui reste, et pourquoi cette mesure ne le tranche PAS
+
+La **valeur** de `<DSLFormulas + 0x20>` -- `0` ou `1` -- que le port ecrit `1`. C'est exactement le
+litige ouvert de **`#927-r1`**, et cette mesure en est un **troisieme call-site independant** (les
+deux precedents mesurent `maxTargets = 1` et `minAmount = 0`, incompatibles entre eux).
+
+⚠ Elle ne le tranche pas a elle seule : un effet a `turns = 1` pose pendant le tour de son porteur
+et retire a la FIN de ce meme tour rendrait la **meme** observation qu'un `turns = 0`, le cast de
+`1216` terminant le tour (`FinishUnitTurn`). Le discriminant manquant est une lecture de l'etage de
+decrementation, ou une observation ENTRE la pose et la fin de tour -- qu'`applyAction`, atomique, ne
+permet pas. A verser a `#927-r1`.
