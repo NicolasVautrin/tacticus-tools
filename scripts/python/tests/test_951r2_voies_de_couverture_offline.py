@@ -463,24 +463,54 @@ def test_un_build_NON_LISIBLE_perime_tout_au_lieu_de_valoir_accord():
     assert etat == CA.PERIMEE and "non lisible" in raison.lower()
 
 
-def test_la_peremption_REMET_l_item_au_compte(tmp_path):
-    """La contre-epreuve de bout en bout, sur le vrai `collect()` : un ledger dont l'attestation de
-    `GalvanicField` est perimee doit faire REVENIR l'item dans les manquants. C'est la promesse
-    centrale -- la peremption ne sait que RAJOUTER du travail."""
-    perime = {"attestations": {"passif:GalvanicField": _entree(
-        nom="GalvanicField", build="zzz_build_perime")}}
+def test_la_peremption_REMET_l_item_au_compte(tmp_path, monkeypatch):
+    """La contre-epreuve de bout en bout, sur le vrai `collect()`, dans les DEUX SENS.
+
+    Une attestation VALIDE doit faire COMPTER l'item couvert ; la MEME entree, perimee par son
+    SEUL champ `build`, doit le faire REVENIR dans les manquants. C'est la promesse centrale --
+    la peremption ne sait que RAJOUTER du travail.
+
+    ## Pourquoi le temoin est DERIVE et ses VOIES NEUTRALISEES (#951-r7)
+
+    Ce test nommait `GalvanicField` en dur. Le 2026-08-15 a 04:10, la PR #1102 l'a inscrit dans
+    `engine.entities.effects.factory.ABILITY_INIT_OWNER_FLAGS` (valeur `[24]` = le flag
+    `CanRepairFullHealthUnits`) : l'item est devenu PORTE par une VOIE, donc perimer son
+    attestation ne le decomptait plus, et le test rougissait en accusant le GATE -- qui n'y etait
+    pour rien. CONTRE-EPREUVE MESUREE a la reparation : attestation perimee ET la seule entree
+    `GalvanicField` retiree du registre, `covered` retombe a `False`. Le gate n'a jamais cesse de
+    fonctionner ; c'est le TEMOIN qui avait ete rattrape par le port.
+
+    Deriver le temoin ne suffit PAS : re-mesure du meme jour, `collect()` rend **116 passifs
+    distincts, 116 PORTE, 0 non couvert** -- il n'existe plus aucun passif dont l'attestation soit
+    la seule source, donc un temoin << non porte >> serait introuvable et la contre-epreuve
+    VACANTE. On prend donc n'importe quel passif visite (non-vide par construction) et on
+    NEUTRALISE ses voies pour la duree du test, en substituant la table que `collect()` demande a
+    `kit_item_voies.voies_par_item`. Ce qui reste mesure est exactement la promesse : a voies
+    egales, l'attestation -- et elle seule -- fait la difference."""
+    import json
+    import kit_item_voies as KIV
+    vus = [p["name"] for r in AKC.collect() for p in r["passives"]]
+    assert vus, ("TEST VACANT : `collect()` ne visite AUCUN passif, donc la contre-epreuve ne peut "
+                 "RIEN mesurer. Ce n'est pas un vert -- c'est l'absence de temoin.")
+    temoin = sorted(vus)[0]
+    vraie_table = KIV.voies_par_item()
+    sans_temoin = {k: v for k, v in vraie_table.items() if k != temoin}
+    monkeypatch.setattr(KIV, "voies_par_item", lambda: dict(sans_temoin))
     sauve = AKC._ATTESTEES
     try:
-        import json
-        p = tmp_path / "ledger.json"
-        p.write_text(json.dumps(perime), encoding="utf-8")
-        AKC._ATTESTEES = CA.attestations_valides(str(p))
-        assert ("passif", "GalvanicField") not in AKC._ATTESTEES
-        hits = [p_ for r in AKC.collect() for p_ in r["passives"] if p_["name"] == "GalvanicField"]
-        assert hits and not any(p_["covered"] for p_ in hits), (
-            "PEREMPTION PERMISSIVE : l'attestation de `GalvanicField` est perimee et l'item reste "
-            "decompte. Le sens de la degradation est INVERSE : une attestation perimee doit "
-            "REMETTRE son item au compte des manquants.")
+        for build, attendu in ((CA.build_courant(), True), ("zzz_build_perime", False)):
+            led = {"attestations": {"passif:" + temoin: _entree(nom=temoin, build=build)}}
+            p = tmp_path / ("ledger-%s.json" % attendu)
+            p.write_text(json.dumps(led), encoding="utf-8")
+            AKC._ATTESTEES = CA.attestations_valides(str(p))
+            assert (("passif", temoin) in AKC._ATTESTEES) is attendu
+            hits = [x for r in AKC.collect() for x in r["passives"] if x["name"] == temoin]
+            assert hits, "le temoin derive %r a disparu de collect()" % temoin
+            assert all(x["covered"] for x in hits) is attendu, (
+                "SENS DE LA DEGRADATION CASSE sur le temoin %r : attestation %s -> covered "
+                "attendu %s, obtenu %r. Une attestation perimee doit REMETTRE l'item au compte des "
+                "manquants." % (temoin, "VALIDE" if attendu else "PERIMEE", attendu,
+                                [(x["covered"], x["etat"], x["detail"]) for x in hits]))
     finally:
         AKC._ATTESTEES = sauve
 
