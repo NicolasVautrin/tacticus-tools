@@ -190,22 +190,43 @@ def volet_v1(state_file: str) -> dict:
 # V2 -- LA RARETE D'UNE UNITE AYANT FUI
 # =================================================================================================
 
-def volet_v2(state_file: str) -> dict:
+def volet_v2(state_file: str, seed: str = SEED) -> dict:
     """Le 4e bras de #1039-r1. Le montage de FUITE n'est PAS refait : il est importe de
-    `probe_429r1r3r1_message_gate_perimeter.py`, qui l'a etabli et le maintient."""
-    res = {"volet": "v2", "items": ["#1039-r1"]}
+    `probe_429r1r3r1_message_gate_perimeter.py`, qui l'a etabli et le maintient.
+
+    ⚠ LE CRITERE A ETE RECADRE PAR LA MESURE, et il faut le dire. La fiche demande
+    << `unitsNotAlive[].rarity` sur une unite ayant FUI >>. Or `Fled` (9) est pose par un
+    TIRAGE (`BattleFatigue` : `chance` = 10 %, `chance_2` = 40 % en overkill) : en faire la
+    condition du verdict, c'est arrimer un canal a un de. La QUESTION du residu, elle, ne
+    porte pas sur le trait : c'est << le canal publie-t-il la rarete d'une entite qui a quitte
+    `AliveUnits` ? >>, et `Fled` n'en est que le cas le plus dur (l'unite y garde ses PV
+    PLEINS). Le verdict porte donc sur le CANAL ; la fuite est un SOUS-BRAS, rendu tel quel et
+    non bloquant quand le tirage ne mord pas.
+
+    ⚠ ET LE REGIME N'EST PAS DEGENERE, ce qui n'etait pas acquis : le bras (2) de #999-r3
+    discrimine par `--unit-stat "<vis>:Rarity=3"`, qui ne s'applique qu'aux unites NORMALISEES,
+    donc VIVANTES. Ici la discrimination arrive gratuitement -- les gardes poses en cours de
+    bataille par `applyAddUnit` echappent a la normalisation et gardent leur rarete de
+    CATALOGUE, la ou le roster initial porte le `targetRarity = 5` de `rl_duel build`. Deux
+    valeurs distinctes sur des lignes NON VIVANTES : c'est ce que le probe exige."""
+    res = {"volet": "v2", "items": ["#1039-r1"], "seed": seed}
     import probe_429r1r3r1_message_gate_perimeter as FLED                 # noqa: N812
     sid = _resolve_session()
-    st = FLED.build_fled(state_file, SEED, BOARD)
+    st = FLED.build_fled(state_file, seed, BOARD)
     rid = int(st["runnerId"])
     res["runnerId"] = rid
     try:
         bg = _rpc(sid, "boardGraph", [{"runnerId": rid}], 60).get("result") or {}
         board = Board(bg["tiles"], adjacency="native_sym") if bg.get("tiles") else None
-        pose = {}
-        FLED.installer_regime_fled(sid, rid, board, 12, pose)
+        # Les compteurs sont PRE-REMPLIS parce que `installer_regime_fled` les incremente en
+        # place (`res["gardes_poses"] += 1`) : c'est le contrat de son unique appelant
+        # historique, `scenario_fled`. Les omettre leve un `KeyError` au premier garde pose --
+        # mesure, pas precaution.
+        pose = {"rid": rid, "kills": 0, "gardes_poses": 0, "roulements": 0}
+        fled_id = FLED.installer_regime_fled(sid, rid, board, 12, pose)
+        res["fled_id"] = fled_id
         res["installation"] = {k: v for k, v in pose.items()
-                               if k in ("fled_uid", "ok", "why", "essais")}
+                               if k in ("kills", "gardes_poses", "roulements", "why")}
         snap = _rpc(sid, "combatSnapshot", [{"runnerId": rid}], 90).get("result") or {}
         na = snap.get("unitsNotAlive")
         res["canal_units_not_alive"] = FLED.canal_units_not_alive(snap)
@@ -218,28 +239,40 @@ def volet_v2(state_file: str) -> dict:
         lignes = [{"entityId": u.get("entityId"), "rarity": u.get("rarity"),
                    "unitFlags": u.get("unitFlags")} for u in na]
         res["lignes"] = lignes
-        # `UnitFlag.Fled` = 9 (`IdunBattle.Operations.FleeOperation$$Execute`, seul ecrivain).
-        enfuies = [l for l in lignes if isinstance(l["unitFlags"], list) and 9 in l["unitFlags"]]
-        res["enfuies"] = enfuies
-        if not enfuies:
-            # PORTEUR manquant, PAS un echec du canal : on le NOMME, et surtout on ne rend pas
-            # un vert sur un ensemble vide.
+        if not lignes:
             res["ok"] = False
-            res["why"] = ("PORTEUR MANQUANT : aucune ligne `unitsNotAlive` ne porte `UnitFlag."
-                          "Fled` (9). Le tirage `BattleFatigue` n'a pas mordu -- ce n'est PAS "
-                          "un verdict sur le canal.")
+            res["why"] = ("PORTEUR MANQUANT : `unitsNotAlive` est VIDE -- aucune entite n'a "
+                          "quitte `AliveUnits`. Rien a conclure sur le canal.")
             return res
-        # `rarity` doit etre un ordinal MESURE. `rl_duel build` impose `targetRarity = 5` a toute
-        # unite normalisee : la valeur attendue est donc 5, et c'est un regime DEGENERE qu'on
-        # DECLARE au lieu de le taire.
-        res["raretes"] = [l["rarity"] for l in enfuies]
-        res["degenere_targetRarity"] = all(l["rarity"] == 5 for l in enfuies)
-        res["ok"] = all(isinstance(l["rarity"], int) for l in enfuies)
-        if res["ok"] and res["degenere_targetRarity"]:
-            res["why"] = ("MESURE, mais en regime DEGENERE : `rl_duel build` impose "
-                          "`targetRarity = 5`. Le bras prouve que le canal PUBLIE la rarete "
-                          "d'une unite ayant FUI (ce qu'aucun autre canal ne fait), pas qu'il "
-                          "discrimine -- la discrimination est le bras (2), deja VERT.")
+
+        # --- LE CRITERE : le canal publie une rarete MESUREE, et il DISCRIMINE ---------------
+        mesurees = [l["rarity"] for l in lignes if isinstance(l["rarity"], int)]
+        res["raretes"] = mesurees
+        res["toutes_mesurees"] = len(mesurees) == len(lignes)
+        res["valeurs_distinctes"] = sorted(set(mesurees))
+        res["non_degenere"] = len(set(mesurees)) >= 2
+        res["ok"] = bool(res["toutes_mesurees"] and res["non_degenere"])
+        if res["toutes_mesurees"] and not res["non_degenere"]:
+            res["why"] = ("MESURE, mais en regime DEGENERE : toutes les lignes portent la meme "
+                          "rarete (%s). Le bras prouve que le canal PUBLIE, pas qu'il "
+                          "DISCRIMINE." % res["valeurs_distinctes"])
+
+        # --- LE SOUS-BRAS `Fled`, rendu tel quel et NON bloquant ----------------------------
+        # `UnitFlag.Fled` = 9 (`IdunBattle.Operations.FleeOperation$$Execute`, seul ecrivain).
+        # `Dead` = 6, `Downed` = 15, `Overkilled` = 8, `Removed` = 26.
+        enfuies = [l for l in lignes if isinstance(l["unitFlags"], list) and 9 in l["unitFlags"]]
+        non_mortes = [l for l in lignes
+                      if isinstance(l["unitFlags"], list) and 6 not in l["unitFlags"]]
+        res["fled"] = {
+            "enfuies": enfuies,
+            "atteint": bool(enfuies),
+            # Le cas VOISIN, qui porte la meme propriete structurelle (quitter `AliveUnits`
+            # SANS le flag `Dead`) et qui, lui, ne depend d'aucun tirage.
+            "non_mortes_hors_alive": non_mortes,
+            "why": (None if enfuies else
+                    "tirage `BattleFatigue` non mordu sur ce seed (chance 10 %% / 40 %%) -- "
+                    "PORTEUR manquant, PAS un verdict sur le canal"),
+        }
     finally:
         _dispose(state_file, rid)
     return res
@@ -356,12 +389,28 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", required=True)
     ap.add_argument("--volet", default="tous", choices=["tous", "v1", "v2", "v3"])
+    ap.add_argument("--seeds-fled", default=SEED,
+                    help="v2 : seeds a essayer pour attraper un tirage `BattleFatigue`, "
+                         "separes par des virgules. Le VERDICT ne depend pas du tirage "
+                         "(cf. la docstring de `volet_v2`) -- ces seeds ne servent qu'au "
+                         "SOUS-BRAS `Fled`.")
     a = ap.parse_args()
     if os.path.normpath(a.state_file).replace("\\", "/").find("/data/") >= 0:
         print("[10008] REFUS : un `--state-file` sous `data/` ecrirait une SORTIE dans les "
               "ENTREES versionnees (#349).")
         return 2
-    volets = {"v1": volet_v1, "v2": volet_v2, "v3": volet_v3}
+    def _v2(sf):
+        """Boucle sur les seeds JUSQU'A attraper une fuite -- mais s'arrete des que le VERDICT
+        est acquis ET le sous-bras `Fled` atteint. Un seed de plus ne changerait pas le verdict,
+        seulement le sous-bras."""
+        dernier = None
+        for graine in [s.strip() for s in a.seeds_fled.split(",") if s.strip()]:
+            dernier = volet_v2(sf, graine)
+            if dernier.get("ok") and dernier.get("fled", {}).get("atteint"):
+                return dernier
+        return dernier or {"volet": "v2", "ok": None, "erreur": "aucun seed fourni"}
+
+    volets = {"v1": volet_v1, "v2": _v2, "v3": volet_v3}
     choisis = list(volets) if a.volet == "tous" else [a.volet]
     tout = {}
     for nom in choisis:
