@@ -154,7 +154,8 @@ from .loki.hits import (
     FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
     FleshmetalGunsWarpHailEffect, FoulInfusionExtraHitsEffect, InfernalPactsAdditionalHitsEffect,
     KanOpenerEffect, LegendaryCommanderExtraHitsEffect, LetTheGalaxyBurnEffect, LightCoverEffect,
-    MasterAnnihilatorAdditionalHitEffect, MaugetarHasNotMovedEffect, ParryEffect,
+    MasterAnnihilatorAdditionalHitEffect, MaugetarHasNotMovedEffect,
+    OrbsOfDecayAdditionalHitsEffect, ParryEffect,
     PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect,
     RedThirstExtraDamageAndHitEffect, SagaOfTheWarriorBornOwnerEffect,
     ShroudPsalmEffect, SorcerousFacadeAdditionalHitsEffect,
@@ -347,10 +348,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # -> cf. `ABILITY_INIT_OWNER_EFFECTS["FragLance"]`. ⚠ La CLE ici est le nom d'`EffectType` (1475) ;
     # le nom d'ability homonyme est un `TriggeredAbilityType` (1481) -- deux enums, deux ordinaux.
     # Canal #179 a TROIS conjoints de trigger (`get_OwnerIsCaster & IsNormalAttack & IsCharging`) :
-    # +`nrOfHits` coups [minDmg,maxDmg] Blast quand le porteur CHARGE. C'etait le dernier des trois
-    # descripteurs `Average` recenses NON PORTES par #884 SS2 (residu `#884-r2`) et le dernier item
-    # du canal COUPS ADDITIONNELS de `case-ischarging-hits-channel` SS2 (ligne 11 du tableau).
+    # +`nrOfHits` coups [minDmg,maxDmg] Blast quand le porteur CHARGE. C'etait le DEUXIEME des trois
+    # descripteurs `Average` recenses NON PORTES par #884 SS2 (residu `#884-r2`) -- le troisieme est
+    # `OrbsOfDecay_AdditionalHits` juste en dessous -- et le dernier item du canal COUPS
+    # ADDITIONNELS de `case-ischarging-hits-channel` SS2 (ligne 11 du tableau).
     "FragLance": FragLanceEffect,
+    # OrbsOfDecay_AdditionalHits (`EffectType` 0x5b7 = 1463) -- le DERNIER des trois descripteurs
+    # `Average` du recensement #884 SS2, et le residu jumeau `#1003-r1`. Relique Death Guard
+    # `OrbsOfDecay` (`TriggeredAbilityType` 0x5b9 = 1465), porteurs `lineup` `deathBlightbringer` /
+    # `deathPutrifier` / `deathRotbone`, TOUS au pool -> montage `--equip-relic` (etat 2, #237).
+    # ⚠ La fiche `#884-r2` annoncait `BLOCAGE: porteur` : c'est REFUTE -- `unit_map find --ability
+    # OrbsOfDecay` rend **12** unites par la voie RELIQUE.
+    # Canal #179 a TROIS conjoints (`get_OwnerIsCaster & GetTriggerForAttack & IsMeleeAttack`) ;
+    # le second est le MEME artefact natif STATIQUE que celui du volet ABILITY deja porte
+    # (`runner/operations/triggers/loki/orbs_of_decay.py`), evalue ici sur la CIBLE -- le
+    # << **on** the target's hex >> de l'i2, dont le << adjacent to >> est l'autre moitie.
+    "OrbsOfDecay_AdditionalHits": OrbsOfDecayAdditionalHitsEffect,
     # FoulInfusion (Pestillian, effet 0x432=1074 sur CHAQUE unite Chaos dans l'aura au cast) :
     # +nrOfHits=1 coup Toxic de ConfigVar(dmg)[state du cast] aux attaques normales (IdunBattle.Entities.Effects.Loki.FoulInfusion_ExtraHitsEffect$$CreateAdditionalHits,
     # canal #179 GLOBAL : trigger IsMeleeAttack&OwnerIsCaster indecidable en display -> TRUE,
@@ -2400,6 +2413,21 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # Porteurs : summon `astraSmnDeathRider` (spawne par `LeadingTheCharge` d'`astraDreir`, au pool)
     # et npc `astraNpc5DeathRider`. Cf. `entities/effects/loki/hits.py::FragLanceEffect`.
     "FragLance": ["FragLance"],
+    # #884-r2 / #1003-r1 -- `OrbsOfDecay_AdditionalHitsAbility`, parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (LU dans `frida/classes.tsv`,
+    # EXACTEMENT comme `FragLanceAbility` ci-dessus), n'override QUE `$$GetEffectType`, dont le
+    # corps ENTIER est `return 0x5b7` (= 1463 `EffectType.OrbsOfDecay_AdditionalHits`) :
+    # l'appariement ability -> effet est LU, pas devine. Le reste vient de la base -> owner-effect
+    # PERMANENT pose a l'init du porteur.
+    # ⚠ DEUX classes natives pour le MEME id 1465 : `OrbsOfDecayAbility` (parent
+    # `BaseTriggeredAbility`, le volet ATTAQUE deja porte par
+    # `runner/operations/triggers/loki/orbs_of_decay.py`) et celle-ci. Meme forme que `Maugetar`,
+    # qui enregistre deux `TriggeredAbility` sous une seule cle.
+    # ⚠ La CLE est un nom de `TriggeredAbilityType` (1465), la VALEUR un nom d'`EffectType` (1463) --
+    # deux enums, deux ordinaux, et ici meme pas la meme chaine.
+    # Voie d'attribution : RELIQUE (`BC.Units[].TertiaryAbility`), porteurs `deathBlightbringer` /
+    # `deathPutrifier` / `deathRotbone`, tous au pool -> etat 2 (`--equip-relic`, #237).
+    "OrbsOfDecay": ["OrbsOfDecay_AdditionalHits"],
     # #1052 -- `AllIsDustAbility$$CreateBehaviour` = `AddEffect(0x4a5 = 1189 AllIsDust,
     # AbilityStateReference, targets = Caster@<DSLSelectors+0x48>, turns = null)`, sous le trigger
     # d'INIT partage `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & get_OwnerIsActor` (corps

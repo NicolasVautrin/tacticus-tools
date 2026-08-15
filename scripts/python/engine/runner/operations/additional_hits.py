@@ -25,7 +25,10 @@ from ...entities.effects import additional_hit_groups, aura_additional_hits_from
 from ...entities.damage_trait import DamageTrait
 from engine.entities.effects.loki.hits import MAUGETAR_CTX_ATTACK_HAD_CRITICAL as _CTX_ATTACK_HAD_CRITICAL   # #1042-r5
 from engine.entities.effects.ctx_keys import CTX_TERTIARY_ABILITY_STATE_OF as _CTX_TERTIARY_ABILITY_STATE_OF   # #1042-r5
+from engine.entities.effects.ctx_keys import (CTX_TGT_FIXED_ARMOR_INITIAL as _CTX_TGT_FIXED_ARMOR_INITIAL,
+                                              CTX_TGT_FIXED_ARMOR_NEGATIVE_MOD as _CTX_TGT_FIXED_ARMOR_NEGATIVE_MOD)   # #884-r2
 from engine.entities.effects.loki.norn_crown import CTX_TGT_EFFECT_NAMES as _CTX_TGT_EFFECT_NAMES   # #1042-r5
+from ...entities.stats import StatPart, StatType     # #884-r2 : `StatAmount(., FixedArmor, Initial)`
 
 
 def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mult: int = 1) -> int:
@@ -72,6 +75,26 @@ def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mu
         apply_pierce_and_modifiers(value, g_pierce, armor, mods, hit_mult=hit_mult,
                                    attacker_additive_pre=True),
         def_mods, round_materialize=True)
+
+
+def _target_fixed_armor_ctx(state: State, target_id: int) -> dict:
+    """Les deux scalaires d'armure de la CIBLE, en TRI-ETAT (#884-r2).
+
+    `StatAmount(Subject, 0x10 = FixedArmor, statPart 3 = Initial)` et
+    `StatNegativeModification(Subject, 0x10)` -- les deux entrees de
+    `...OrbsOfDecayAbility$$GetTriggerForAttack`. Cible sans `StatsComponent` -> les deux cles
+    valent `None` (NON MESURE), et le gate se ferme cote effet."""
+    tgt = state.get_entity(int(target_id)) if target_id is not None else None
+    sc = tgt.get_component(StatsComponent) if tgt is not None else None
+    ctx = getattr(sc, "ctx", None)
+    if ctx is None:
+        return {_CTX_TGT_FIXED_ARMOR_INITIAL: None, _CTX_TGT_FIXED_ARMOR_NEGATIVE_MOD: None}
+    stats = getattr(ctx, "stats", None)
+    initial = ctx.get_stat(int(StatType.FIXED_ARMOR), int(StatPart.INITIAL))
+    neg = (stats.negative_stat_modification(int(StatType.FIXED_ARMOR))
+           if stats is not None else None)
+    return {_CTX_TGT_FIXED_ARMOR_INITIAL: (None if initial is None else int(initial)),
+            _CTX_TGT_FIXED_ARMOR_NEGATIVE_MOD: (None if neg is None else int(neg))}
 
 
 def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int,
@@ -180,7 +203,20 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
               # `ability_level = 50` quel que soit le niveau de la relique -- sans ce callable, un
               # descripteur de relique lirait TOUJOURS le dernier palier.
               _CTX_TERTIARY_ABILITY_STATE_OF:
-                  lambda oid, ability: _triggered_ability_state(state, int(oid), ability)}
+                  lambda oid, ability: _triggered_ability_state(state, int(oid), ability),
+              # #884-r2 / #1003-r1 -- les DEUX scalaires d'armure de la CIBLE, que
+              # `...OrbsOfDecayAbility$$GetTriggerForAttack` lit sur son `Subject@+0x68`. HORS
+              # `Filter` -- ce qui est le cas de ce canal -- ce slot vaut la cible ORIGINALE de
+              # l'attaque : c'est le << **on** the target's hex >> de l'i2, par opposition au
+              # << adjacent to >> que porte le volet ABILITY (`triggers/loki/orbs_of_decay.py`,
+              # dont le `Filter` lie chaque VOISIN au meme slot). Les deux moities de la meme
+              # phrase, deux artefacts natifs.
+              # `StatAmount(., 0x10 = FixedArmor, 3 = Initial)` et `StatNegativeModification(., 0x10)`
+              # -- MEMES foyers que partout (`UnitStats.get_stat` / `.negative_stat_modification`),
+              # aucun predicat re-derive. TRI-ETAT : `None` = cible sans `StatsComponent` -> le gate
+              # se FERME cote effet, jamais un 0 rabattu (qui, avec `initial = 0`, ferait diviser
+              # par zero la ou le natif court-circuite).
+              **_target_fixed_armor_ctx(state, target_id)}
     groups = list(additional_hit_groups(att_active, ah_ctx))
     carriers = []
     for uid, e in state.entities.items():
