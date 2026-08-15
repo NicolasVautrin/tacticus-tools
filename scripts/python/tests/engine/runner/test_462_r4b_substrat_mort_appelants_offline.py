@@ -17,7 +17,8 @@ TROIS choses sont verrouillees ici, et elles ne se gardent pas au meme endroit.
   3. LE REGISTRE (`-r2`). La question << `AbilityAndEffectCache` retire-t-il l'entite a la mort ? >>
      se tranche un cran plus bas : `IdunBattle.Operations.EvaluateTriggerOperation$$
      CanGetAbilityTrigger` teste `IsAlive(owner)` A LA LECTURE, sous une exemption
-     `IsAtomic(ability)`. Si le cache retirait les morts, ce gate ET son exemption seraient
+     `ability.get_AllowForDeadOwner()` (`ITriggeredAbility` slot 8 -- ce n'est PAS un `IsAtomic`,
+    cf. `probe_10015_allow_for_dead_owner.py`). Si le cache retirait les morts, ce gate ET son exemption seraient
      inatteignables -- la branche atomique n'existe QUE pour laisser passer un owner MORT. Donc le
      `if sc is None: continue` du port et le natif concordent pour toute ability NON atomique, et
      ne peuvent diverger que sur les `fire_on_death`. Le cliquet garde ce raisonnement : tout
@@ -212,7 +213,8 @@ def test_tout_porteur_fire_on_death_est_trie():
     """CLIQUET du residu `-r2`. Le port retire un cadavre-au-chargement du registre
     (`collect_triggered_abilities` : `if sc is None: continue`). Le natif, lui, le CONSERVE dans
     `AbilityAndEffectCache` et le trie a la LECTURE
-    (`EvaluateTriggerOperation$$CanGetAbilityTrigger`, `IsAlive(owner)` sauf `IsAtomic`). Les deux
+    (`EvaluateTriggerOperation$$CanGetAbilityTrigger`, `IsAlive(owner)` sauf
+    `get_AllowForDeadOwner`). Les deux
     concordent donc pour toute ability NON atomique, et ne peuvent diverger que sur les
     `fire_on_death` -- et seulement si l'evenement ecoute peut encore se produire APRES la mort du
     porteur.
