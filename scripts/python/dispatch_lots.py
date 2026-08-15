@@ -221,6 +221,46 @@ def ancres_des_agents_en_vol():
     return ancres, agents
 
 
+BK = REPO / "docs" / "rl" / "backlog.md"
+RE_OUVERT = re.compile(r"^\|\s*(#[0-9][^\s|]*)\s*\|")
+RE_A_FOYER = re.compile(r"\*{0,2}FOYER:\*{0,2}")
+RE_FOYER_VAL = re.compile(r"\*{0,2}FOYER:\*{0,2}\s*(.+?)(?:\s*-*\s*\*{0,2}BLOCAGE|\s*$)", re.S)
+# ⚠ L'alternance se trie du PLUS LONG au PLUS COURT, sinon `ts` mange `tsv` -- faute deja
+# commise. Et la liste doit couvrir CE QUI EXISTE : omettre `.ps1` classe `scripts/ratchets.ps1`
+# en << illisible >>, et omettre le glob classe `selectors/*.py` de meme. Deux faux positifs
+# MESURES le 2026-08-15 : ce sont des defauts de la MESURE, pas du backlog.
+RE_CHEMIN = re.compile(r"[\w/.*-]+\.(?:tsv|json|ps1|py|ts|md|sh|yml)\b|/\*\*|\*\*/")
+
+
+def residus_hors_portee():
+    """Les residus OUVERTS dont le FOYER ne nomme aucun chemin.
+
+    Ils ne peuvent ni entrer dans une surface interdite, ni etre choisis comme lot. C'est
+    INERTE (ecartes des deux cotes a la fois, donc pas de collision possible) mais c'est une
+    perte d'opportunite, et surtout c'est SILENCIEUX si on ne l'imprime pas -- << aucun lot
+    trouve >> se lirait comme << rien a faire >>.
+
+    `aucun` n'est PAS compte : c'est une reponse VALABLE (residu documentaire ou d'outillage).
+    """
+    if not BK.exists():
+        return []
+    out = []
+    for ligne in BK.read_text(encoding="utf-8").splitlines():
+        m = RE_OUVERT.match(ligne)
+        if not m:
+            continue
+        if not RE_A_FOYER.search(ligne):
+            out.append((m.group(1), "(champ ABSENT)"))
+            continue
+        mv = RE_FOYER_VAL.search(ligne)
+        val = (mv.group(1).strip() if mv else "").strip("`*").strip()
+        if val.lower().startswith(("aucun", "aucune", "n/a")):
+            continue
+        if not RE_CHEMIN.search(val):
+            out.append((m.group(1), val or "(VIDE)"))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("-n", type=int, default=3, help="nombre de lots (defaut 3)")
@@ -304,9 +344,19 @@ def main():
         print("  (%d seulement sur %d demandes)" % (len(choisis), args.n))
 
     print()
+    hors = residus_hors_portee()
     print("PORTEE -- ce que cet outil ne garantit PAS : l'index est un GENERE, il date de sa")
-    print("derniere regeneration (index_foyers.py) ; un residu dont la ligne n'a pas de champ")
-    print("FOYER: n'y figure pas du tout, et ne sera donc jamais interdit.")
+    print("derniere regeneration (index_foyers.py).")
+    print("HORS PORTEE : %d residu(s) ouverts ont un FOYER qui ne nomme AUCUN chemin" % len(hors))
+    print("   (repertoire seul, prose, `?`, ou champ absent). Ils ne peuvent ni entrer dans")
+    print("   une surface interdite, ni etre choisis comme lot -- INERTE, mais jamais")
+    print("   dispatchable par cette voie. Les remplir se fait AU FIL DE L'EAU, jamais en")
+    print("   masse : `backlog.md` est touche par ~90 % des PR, une passe groupee entrerait")
+    print("   en conflit avec chaque PR en vol.")
+    for rid, val in hors[:12]:
+        print("      %-18s %r" % (rid, val[:56]))
+    if len(hors) > 12:
+        print("      ... et %d autre(s)" % (len(hors) - 12))
 
 
 if __name__ == "__main__":
