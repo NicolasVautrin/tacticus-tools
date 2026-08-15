@@ -209,6 +209,7 @@ from ..loki.vengeance_for_the_omnissiah import (            # #1071 (passif 1298
 from ..loki.power_up import (                               # #1083-r1 (les 5 PowerUp_* de BOOST DE
     PowerUpArmorAbility, PowerUpDamageAbility,              # STAT -- unites `powup*` Steppable)
     PowerUpHealthAbility, PowerUpHitsAbility, PowerUpMeleeHitsAbility)
+from ..loki.power_up_spawn import POWER_UP_SPAWN_ABILITIES  # #10004 (les 9 SPAWN vivants)
 from ..loki.power_up_nonboost import (                      # #1083-r3 (les PowerUp_* NON-BOOST :
     PowerUpHealingAbility, PowerUpReactivateAbilityAbility)  # meme base, autre vslot)
 from ..loki.optimized_gait import (                         # #1050 (passif 1205, admecRuststalker :
@@ -565,6 +566,19 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/power_up_nonboost.py et docs/rl/case-1083-r3-powerup-non-boost.md. #1083-r3.
     PowerUpReactivateAbilityAbility.ABILITY_NAME: [PowerUpReactivateAbilityAbility],
     PowerUpHealingAbility.ABILITY_NAME: [PowerUpHealingAbility],
+    # PowerUp_*Spawn* -- LES NEUF MECANIQUES VIVANTES (#10004). Il n'y a PAS onze mecaniques : deux
+    # corps natifs (`PowerUp_HeroSpawnAbility` / `PowerUp_SummonSpawnAbility`) sur la base commune
+    # `APowerup_SpawnAbility`, et neuf variantes qui ne different que par UNE cle de gameconfig.
+    #   `If( IsInTeam(Actor, 1), GetKillBehaviour(tuile) & Spawn(Player(1), tuile, <id>), null )`
+    #   avec `tuile = Cache(GetSpawnTile())`, une CASCADE a quatre rangs.
+    # ⚠ `IsInTeam(Actor, 1)` est LOAD-BEARING (rien ne spawne hors team 1) -- et la TEAM est portee,
+    # contrairement au `PlayerType` du gate d'`PowerUp_Bomb` (#1083-r4), d'ou la portabilite.
+    # ⚠ SEUL le SUMMON recoit `PerformAIAttackFromCurrentPosition` a l'apparition (`<+0x18>`) :
+    # l'asymetrie hero/summon est le premier endroit ou un port de cette famille se trompe.
+    # ⚠ `PowerUp_HeroSpawn` (1434) et `PowerUp_SummonSpawn` (1532) sont ABSENTES a dessein : leur
+    # gameconfig ne porte AUCUNE constante, donc elles ne spawnent RIEN. Neuf vivantes, pas onze.
+    # Cf. loki/power_up_spawn.py et docs/rl/case-10004-powerup-spawn.md. #10004.
+    **{nom: [cls] for nom, cls in POWER_UP_SPAWN_ABILITIES.items()},
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
