@@ -117,9 +117,10 @@ RESIDUS NOMMES
 """
 from __future__ import annotations
 
+from fractions import Fraction as _Fraction
 from typing import Optional
 
-from .....dsl.base import Const
+from .....dsl.base import Const, _round_fix64
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
@@ -181,6 +182,41 @@ def orbs_of_decay_trigger_for_attack():
                    DIVIDE_MODE_HALF_EVEN)
     return TriggerAnd(AmountIsGreaterThanZero(initial_armor),
                       AmountIsGreater(ratio, Const(armor_reduction_pct())))
+
+
+def orbs_of_decay_armor_gate(initial_fixed_armor, negative_modification) -> bool:
+    """LE MEME `...OrbsOfDecayAbility$$GetTriggerForAttack`, sous forme SCALAIRE.
+
+    POURQUOI DEUX EXPRESSIONS. L'arbre ci-dessus vit dans un `Filter` (le volet ABILITY resout
+    des ENTITES) ; le volet `OrbsOfDecay_AdditionalHits` (#884-r2 / #1003-r1), lui, est un
+    descripteur du canal #179, evalue depuis `additional_hit_groups(ctx)` -- un DICT, sans
+    `ExecutionContext` ni entites. Le natif, lui, appelle LA MEME fonction statique des deux
+    endroits (`OrbsOfDecay_AdditionalHitsEffect$$CreateAdditionalHits` la reference
+    explicitement). Les deux expressions du port doivent donc rester d'accord : c'est ce que
+    garde `tests/engine/test_884r2_orbs_of_decay_offline.py` etage 2, qui balaie le couple
+    (armure initiale, reduction) et confronte les deux formes.
+
+    Le corps est le mirror LITTERAL, dans l'ordre du natif :
+        AmountIsGreaterThanZero( StatAmount(subject, FixedArmor, Initial) )
+      & AmountIsGreater( Divide(Multiply(StatNegativeModification(subject, FixedArmor), 100),
+                                <l'armure initiale>, mode 0 = half-to-even),
+                         ConfigConst(0x83 = armorReductionPct) )
+
+    ⚠ `AmountIsGreater` est STRICT (l'i2 dit « or more », le decompile dit « > ») -- et le cas
+    discriminant n'est pas theorique : `ContaminatedStatModifierEffect` pose exactement
+    `-armorReductionPct %`.
+    ⚠ Le court-circuit du premier conjoint est LOAD-BEARING : c'est la seule raison pour laquelle
+    l'arbre natif peut diviser par `StatAmount` sans garde.
+    ⚠ TRI-ETAT : un scalaire NON MESURE (`None`) ferme le gate -- jamais un 0 rabattu, qui ferait
+    passer une cible sans armure pour une cible non reduite (ou l'inverse)."""
+    if initial_fixed_armor is None or negative_modification is None:
+        return False
+    initial = int(initial_fixed_armor)
+    if initial <= 0:                                   # AmountIsGreaterThanZero -> court-circuit
+        return False
+    ratio = _round_fix64(_Fraction(int(negative_modification) * PERCENT_BASE, initial),
+                         DIVIDE_MODE_HALF_EVEN)
+    return int(ratio) > armor_reduction_pct()          # AmountIsGreater, STRICT
 
 
 def orbs_of_decay_targets():

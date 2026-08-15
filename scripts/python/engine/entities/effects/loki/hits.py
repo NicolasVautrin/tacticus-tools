@@ -2722,13 +2722,130 @@ class MaugetarHasNotMovedEffect(BaseEffect):
             import gameconfig as _GC
             profile = ((_GC.ability(_MAUGETAR_ABILITY) or {}).get("constants") or {}) \
                 .get("damageProfile") or "DirectDamage"
-        except Exception:
+        except Exception:                                    # noqa: BLE001 -- gameconfig absent
             profile = "DirectDamage"
         # BI-CANAL ROLL / DISPLAY (#884) : le 8e argument du `Create` natif vaut
         # `GetMinMaxDamage(this, 1)` = `DSLFormulas$$Average(minNode, maxNode)`, donc la cellule de
         # PREDICTION est DEGENEREE a la moyenne ARRONDIE (`RoundFix64Result(., 0)`, demi-vers-le-PAIR),
         # alors que la face COMBAT lit `min`/`max` du noeud ROLL. Publier les deux DES le premier
         # commit : c'est le gisement que notre propre cadence de portage rouvre.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
+
+
+#: `TriggeredAbilityType` 0x5b9 = 1465 -- la CONFIG que lit l'effet 1463 (relique Death Guard
+#: `R_*_OrbsOfDecay`). Le nom est le SEUL discriminant : l'ordinal 1465 nomme
+#: `DaemonicPatrons_DmgReduction` dans `EffectType`.
+_ORBS_OF_DECAY_ABILITY = "OrbsOfDecay"
+#: callable `(owner_id, ability_name) -> (level, multiplier)` -- MEME foyer que `Maugetar`
+#: ci-dessus (`BaseEffect$$GetAbilityState` -> `triggered_ability_state`, #357). Indispensable ici :
+#: la relique arrive par la branche TERTIAIRE, dont le niveau n'est PAS celui des passifs.
+ORBS_OF_DECAY_CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
+
+
+class OrbsOfDecayAdditionalHitsEffect(BaseEffect):
+    """`OrbsOfDecay_AdditionalHitsEffect` (effet 0x5b7 = 1463 `OrbsOfDecay_AdditionalHits`, relique
+    Death Guard `OrbsOfDecay`) -- le volet << ON the target's hex >> de la relique.
+
+    i2 `Abilities/OrbsOfDecay_CurrentLevelDescription` : << The relic bearer's normal attacks deal an
+    additional {nrOfHits}x {minDmg}-{maxDmg} Toxic Damage to enemy units that have their Armour
+    reduced by {armorReductionPct}% or more and are also **on or** adjacent to the target's hex.
+    Additionally, the target's hex is Contaminated. >>
+
+    ## DEUX ARTEFACTS, DEUX MOITIES DE LA MEME PHRASE
+    Le << **adjacent to** >> est le volet ABILITY, deja porte (#1003,
+    `runner/operations/triggers/loki/orbs_of_decay.py`) : `OrbsOfDecayAbility$$CreateBehaviour`
+    attaque les ennemis ADJACENTS a la tuile de la cible, et
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` EXCLUT ses tuiles d'origine --
+    donc la CIBLE elle-meme n'est PAS frappee par ce volet-la.
+    Le << **on** >> est CE descripteur : il ajoute des coups a l'attaque PRIMAIRE, celle qui frappe
+    la cible, sous le MEME predicat d'armure. C'est le residu `#884-r2` / `#1003-r1`.
+
+    ## L'ARTEFACT NATIF -- `OrbsOfDecay_AdditionalHitsEffect$$CreateAdditionalHits`, lu VERBATIM
+        `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {
+          trigger        = `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster`
+                         & `OrbsOfDecayAbility$$GetTriggerForAttack(dsl, config@+0x60)`
+                         & `IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack`,
+          damageFormula  = `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this, 0)` (ROLL),
+          additionalHitsType = 1,
+          damageProfileType  = `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile(config)`
+                               = `Toxic`,
+          hitsFormula    = `IdunBattleLogic.Entities.DSLFormulas$$ConfigConst(0x2f = nrOfHits, config)`,
+          forceOverkill  = 0,
+          maxDamage      = `BaseEffect$$GetMinMaxDamage(this, 1)`            (noeud DISPLAY) }
+    `.ctor` = `BaseEffect(AbilityOrEffect(TriggeredAbilityType.OrbsOfDecay = 0x5b9), 1)` -- LU au
+    desassemblage (`mov edx, 0x5b9` puis le `call` de la surcharge dont le parametre se nomme
+    `triggeredAbility`), pas deduit : l'ordinal seul ne discriminerait pas l'enum.
+
+    ## LE PREDICAT D'ARMURE EST LE **MEME ARTEFACT NATIF** que celui du volet ABILITY
+    Le natif appelle litteralement `OrbsOfDecayAbility$$GetTriggerForAttack` ici -- une fonction
+    STATIQUE partagee. Cote port, l'arbre DSL du volet ABILITY resout des ENTITES sous un `Filter`
+    alors que ce canal-ci ne recoit qu'un DICT : les deux expressions vivent donc dans le MEME
+    module (`triggers/loki/orbs_of_decay.py`), et un test balaie leur accord
+    (`test_884r2_orbs_of_decay_offline.py` etage 2) pour qu'un fork soit VISIBLE.
+
+    ⚠ LE SUJET EST LA CIBLE, ET C'EST CE QUI SEPARE LES DEUX VOLETS. Le natif evalue
+    `GetTriggerForAttack` sur `Subject@DSLSelectors+0x68` ; sous le `Filter` du volet ABILITY c'est
+    l'element courant (un VOISIN), hors `Filter` -- ici -- c'est la cible originale de l'attaque.
+    C'est exactement la lecture que l'i2 impose (<< on OR adjacent >>) : sans elle, le << on >>
+    n'aurait AUCUN artefact.
+
+    ⚠ TRI-ETAT SUR LES DEUX SCALAIRES D'ARMURE : cles absentes = NON MESUREES -> le gate se FERME
+    (`orbs_of_decay_armor_gate`). Un 0 rabattu ferait passer une cible SANS armure pour une cible
+    non reduite -- et, pire, un `initial = 0` avec une reduction non nulle diviserait par zero la ou
+    le natif court-circuite.
+
+    BI-CANAL ROLL / DISPLAY (#884) : ce descripteur etait le DERNIER des trois `Average` non portes
+    du recensement des 19 `$$CreateAdditionalHits` -- il publie donc `min`/`max` (face COMBAT,
+    noeud ROLL) ET `amount` (face PREDICTION, `Average` arrondi Fix64 demi-vers-le-PAIR) DES son
+    premier commit, comme la fiche `#884-r2` l'exigeait."""
+
+    def _ability_state(self, ctx: "Mapping | None") -> tuple:
+        """`BaseEffect$$GetAbilityState` -> `(level, multiplier)` -- MEME foyer et MEME repli que
+        `MaugetarHasNotMovedEffect._ability_state` (les deux sont des reliques TERTIAIRES)."""
+        c = ctx or {}
+        fn, oid = c.get(ORBS_OF_DECAY_CTX_ABILITY_STATE_OF), c.get("owner_id")
+        if fn is not None and oid is not None:
+            lvl, mult = fn(oid, _ORBS_OF_DECAY_ABILITY)
+            if lvl is not None:
+                return int(lvl), int(mult if mult is not None else 100)
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        return lvl, int(self.ability_variables_multiplier or 100)
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        c = ctx or {}
+        # `get_OwnerIsCaster` : cet agregateur n'est appele QUE sur les effets de l'ATTAQUANT
+        # (branche PORTEUR de `collect_additional_hit_groups`), donc l'identite est structurelle.
+        # On la RE-VERIFIE quand le ctx la porte -- jamais << absente donc vraie >>.
+        oid, aid = c.get("owner_id"), c.get("att_id")
+        if oid is not None and aid is not None and oid != aid:
+            return None
+        # `IsMeleeAttack` -- nature du coup, MEME cle et MEME tri-etat que les autres descripteurs
+        # du canal. `None` (non threade) -> FAUX, jamais permissif.
+        if c.get("is_melee") is not True:
+            return None
+        # `OrbsOfDecayAbility$$GetTriggerForAttack(dsl, config)` evalue sur la CIBLE. Differe
+        # PORTEUR : le module cible importe `entities.formulas` / `entities.selectors` /
+        # `entities.triggers`, donc le hisser fermerait un cycle -- meme classe que le differe
+        # voisin vers `runner.abilities.attack_type`.
+        from ....runner.operations.triggers.loki.orbs_of_decay import orbs_of_decay_armor_gate
+        if not orbs_of_decay_armor_gate(c.get(_ctx_keys.CTX_TGT_FIXED_ARMOR_INITIAL),
+                                        c.get(_ctx_keys.CTX_TGT_FIXED_ARMOR_NEGATIVE_MOD)):
+            return None
+        lvl, mult = self._ability_state(c)
+        mn = ability_var(_ORBS_OF_DECAY_ABILITY, "minDmg", lvl, multiplier_pct=mult)   # ConfigVar 0xc
+        mx = ability_var(_ORBS_OF_DECAY_ABILITY, "maxDmg", lvl, multiplier_pct=mult)   # ConfigVar 0xd
+        count = ability_var(_ORBS_OF_DECAY_ABILITY, "nrOfHits", is_constant=True)      # ConfigConst 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability(_ORBS_OF_DECAY_ABILITY) or {}).get("constants") or {}) \
+                .get("damageProfile") or "Toxic"
+        except Exception:                                    # noqa: BLE001 -- gameconfig absent
+            profile = "Toxic"
+        # BI-CANAL ROLL / DISPLAY (#884) -- cf. la docstring de classe.
         return [{"count": int(count),
                  "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
                  "min": int(mn), "max": int(mx), "profile": profile}]
