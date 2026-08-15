@@ -385,7 +385,7 @@ class UnitComponent(Component):
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
                  "total_attacks_made", "defeated_units_melee", "defeated_units_other",
                  "total_defeated_units", "death_killer_id", "previous_position_this_turn",
-                 "movement_target_override", "rarity")
+                 "movement_target_override", "rarity", "defeated_by_melee")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -401,6 +401,20 @@ class UnitComponent(Component):
         # distincts (`KilledThisTurnTrigger$$ShouldTrigger` vs
         # `IdunBattle.Entities.Formulas.TurnDefeatedFormula$$Calculate`).
         self.killed_this_turn = None
+        # `UnitComponent + 0x178` = **`DefeatedByMeleeAttack`**, le byte que
+        # `IdunBattle.Operations.KillUnitOperation$$Execute` ecrit sur la VICTIME juste apres
+        # `On(PreUnitDeath)` et **avant la garde revive**, avec la valeur EXACTE qu'il passe ensuite
+        # en `inMelee` a `ActorStatisticsComponent$$RegisterDefeatedUnit` sur le TUEUR (un seul
+        # calcul : `rangeType.HasValue && rangeType.GetValueOrDefault() == Melee(1)`).
+        # DEUX faces l'ecrivent, et elles doivent rester d'accord : la SIMULATION
+        # (`damage.py::_kill_unit_operation`, via `KillUnitOptions+0x3c`) et le SEEDING
+        # (`decisionView.units[].defeatedByMelee`, publie par `readUnitDeathMeta`).
+        # TRI-ETAT : `None` = NON MESURE (voie de mort qui ne transporte pas d'`AttackRangeType` --
+        # crush `ForSteppable`, feuille DSL `Kill` -- ou etat charge sans le champ). Un lecteur doit
+        # DIRE ce qu'il fait de l'absence : `IsDefeatedByMeleeAttack` natif lit un byte d'un
+        # composant `memset` a 0, donc l'absence se lit FAUX cote natif -- mais le port distingue
+        # les deux pour que ses consommateurs puissent retomber sur leur approximation nommee.
+        self.defeated_by_melee = None
         # `UnitComponent + 0x5c` — cf. la docstring de classe (bloc `turns_finished`). 0 a la
         # creation, exactement comme le champ natif d'une entite fraichement construite : une unite
         # deployee au setup comme un summon apparu en cours de partie partent tous les deux de 0,
@@ -2227,12 +2241,25 @@ def register_defeated_unit(state, killer_id, killed_id, in_melee=None) -> bool:
     un consommateur d'`On(UnitDefeated = 0x36)` -- `TrophyTakerAbility` -- compte la victime
     COURANTE dans son total. Poser cet appel apres l'evenement rendrait `n` au lieu de `n+1`.
 
-    `in_melee` (#951-r1) : le troisieme argument natif. Il n'est PAS a deviner -- le decompile
+    `in_melee` (#951-r1, FERME) : le troisieme argument natif. Il n'est PAS a deviner -- le decompile
     montre que `KillUnitOperation$$Execute` ecrit `local_378[0]` dans `UnitComponent+0x178`
     (`DefeatedByMeleeAttack`, sur la VICTIME) puis passe **ce meme `local_378[0]`** en `inMelee`.
-    Les deux faces d'un unique booleen. TRI-ETAT ici : `None` = l'appelant ne l'a pas mesure, et
-    l'enregistrement tombe alors dans `@+0xb0` comme le fait le natif pour un `inMelee` faux --
-    c'est la branche par DEFAUT du decompile (`if ((char)inMelee == '\\0')`), pas un choix du port.
+    Les deux faces d'un unique booleen, et sa SOURCE est desormais lue de bout en bout :
+
+        local_378[0] = (rangeType.GetValueOrDefault() == Melee(1)) & rangeType.HasValue
+        rangeType    = KillUnitOptions+0x3c
+                     <- IdunBattle.Core.MatchState$$AddDeath(..., AttackRangeType)
+                     <- IdunBattle.Operations.RecordKillOperation$$Execute
+                     <- KillUnitContext+0x38, pose par IdunBattle.Operations.ApplyDamageOperation$$
+                        Execute via le slot 4 d'IBattleQuery (`GetAttackRangeType`)
+
+    Les DEUX faces du port l'alimentent : SIMULATION (`damage.py::_kill_unit_operation`, qui
+    calcule le `AttackRangeType` au foyer de degat) et SEEDING (`snapshot._load_death_sources`, qui
+    lit `decisionView.units[].defeatedByMelee`). TRI-ETAT ici : `None` = l'appelant ne l'a pas
+    mesure, et l'enregistrement tombe alors dans `@+0xb0` comme le fait le natif pour un `inMelee`
+    faux -- c'est la branche par DEFAUT du decompile (`if ((char)inMelee == '\\0')`), et c'est aussi
+    ce que le natif fait pour les voies dont les `KillUnitOptions` laissent `+0x3c` a zero
+    (`$$ForSteppable` du crush, `$$ForDefault` de la feuille DSL `Kill`).
 
     Rend `True` si l'enregistrement a eu lieu."""
     if killer_id is None or killed_id is None:

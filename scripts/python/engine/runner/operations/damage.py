@@ -501,13 +501,24 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         out = pending_death_added_triggers(state, target_id, attacker_id)
         # `IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
         # AttackRangeType)` : la mort est ENQUEUEE, pas appliquee.
-        AttackDamageOperation._add_death(state, target_id, attacker_id, overkill)
+        # Le 5e argument (#951-r1) est calcule ICI et pas au drain, parce que c'est ICI que le natif
+        # le calcule : `IdunBattle.Operations.ApplyDamageOperation$$Execute` appelle le slot 4
+        # d'`IBattleQuery` (`GetAttackRangeType`) avec l'`AbilityOrEffect` de la `DamageSource` du
+        # coup (`DamageAppliedResult+0x40` = `source_ability` cote port), la SOURCE du degat en
+        # caster, sa position, et la VICTIME -- puis pose le resultat dans le `KillUnitContext@+0x38`
+        # que `RecordKillOperation` relaie tel quel. Calculer au drain lirait la position du tueur
+        # APRES d'eventuels deplacements du vecteur de mort.
+        from .triggers.base import _attack_range_type       # lazy : cycle damage<->triggers
+        AttackDamageOperation._add_death(
+            state, target_id, attacker_id, overkill,
+            attack_range_type=_attack_range_type(state, source_ability, attacker_id, target_id))
         # `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` : le DRAIN. No-op si un drain est
         # deja en cours (cette mort-ci sera prise par son tour de boucle).
         return out + AttackDamageOperation._verify_deaths(state)
 
     @staticmethod
-    def _add_death(state: State, dying_id: int, killer_id, overkill: bool) -> None:
+    def _add_death(state: State, dying_id: int, killer_id, overkill: bool,
+                   attack_range_type: Optional[str] = None) -> None:
         """`IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
         AttackRangeType)` -- l'ENQUEUE, seul effet « mort » de
         `IdunBattle.Operations.RecordKillOperation$$Execute` (qui, autour, pose
@@ -528,6 +539,37 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         `HazeOfCorruption` 1077) serait drainee hors de ce behaviour et perdrait son declencheur --
         c'est-a-dire exactement le gate anti-chaine que case-haze-bonded a etabli.
 
+        `attack_range_type` (#951-r1) -- le **5e argument natif**, longtemps cru inaccessible. La
+        chaine est LUE de bout en bout, et elle passe par TROIS fonctions :
+
+            IdunBattle.Operations.ApplyDamageOperation$$Execute
+                rt = BattleQuery.<slot 4 = GetAttackRangeType>(
+                         ability        = DamageAppliedResult+0x40,      # = `source_ability`
+                         caster         = la SOURCE du degat,
+                         casterPosition = EntityExtensions$$GetUnitPosition(source),
+                         target         = la VICTIME)
+                ... pose `rt` dans le `KillUnitContext@+0x38` ...
+            IdunBattle.Operations.RecordKillOperation$$Execute
+                if (context+0x38 .HasValue) rangeType = context+0x38            # <- CE cas
+                else                        rangeType = <meme slot 4, sur le killTrigger>
+                matchState.<slot 1 = AddDeath>(killer, killed, killTrigger, attackTrigger,
+                                               Nullable<AttackRangeType>(rangeType))
+            lambda `...u003CVerifyDeathsu003Eb__0` : recopie l'entree dans `KillUnitOptions+0x3c`
+            IdunBattle.Operations.KillUnitOperation$$Execute
+                inMelee = rangeType.HasValue && rangeType.GetValueOrDefault() == Melee(1)
+                          # LU aux octets : `local_378[0] = local_370[0] == 1 & *pbVar22`
+
+        ⚠ C'est le MEME booleen des DEUX cotes : `KillUnitOperation` l'ecrit dans
+        `UnitComponent+0x178` de la VICTIME (`DefeatedByMeleeAttack`) **puis** le passe en `inMelee`
+        a `RegisterDefeatedUnit` sur le TUEUR. Le port a deja la face SEEDING de ce couple
+        (`snapshot._load_death_sources` lit `decisionView.units[].defeatedByMelee`) ; ce canal-ci
+        est la face SIMULATION, et les deux ecrivent desormais la meme chose.
+
+        `None` = l'appelant ne l'a pas mesure. Ce n'est PAS une degradation sur les voies qui le
+        laissent ainsi : `KillUnitOperationOptions$$ForSteppable` (crush) et `$$ForDefault`
+        (feuille DSL `Kill`) laissent `+0x3c` a ZERO, donc le `Nullable` y est VIDE cote natif
+        aussi, et `inMelee` y vaut FAUX -- la branche par defaut, pas un choix du port.
+
         Gate `UnitFlagsComponent.Has(dying, 6)` du natif (« deja retire ») : cote port le gate
         equivalent est en amont (`hp_before > 0 and hp_after == 0` dans `_fire_death_if_killed`, qu'une
         cible a 0 PV ne repasse jamais) ; on double d'une deduplication sur la file, parce qu'entre
@@ -536,7 +578,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if any(int(d[0]) == int(dying_id) for d in q):
             return
         q.append((int(dying_id), None if killer_id is None else int(killer_id), bool(overkill),
-                  state.triggering_ability))
+                  state.triggering_ability, attack_range_type))
 
     @staticmethod
     def _verify_deaths(state: State) -> list:
@@ -597,13 +639,20 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         out: list = []
         try:
             while state.pending_deaths:
-                dying_id, killer_id, overkill, kill_trigger = state.pending_deaths.pop(0)
+                # `KillUnitOptions+0x3c` (l'`AttackRangeType` de la mort) est le CINQUIEME champ de
+                # l'entree depuis #951-r1. Les entrees a 4 champs restent lisibles : un etat
+                # SERIALISE avant ce commit, ou un appelant qui construit la file a la main, ne
+                # doit pas lever -- il retombe sur `None`, la branche `Nullable` vide du natif.
+                _entry = state.pending_deaths.pop(0)
+                dying_id, killer_id, overkill, kill_trigger = _entry[:4]
+                attack_range_type = _entry[4] if len(_entry) > 4 else None
                 # mirror du memset 0x128 : `CurrentAbility` (+0x60) est VIDE sur les cinq evenements.
                 state.triggering_ability = None
                 # `+0x98..+0xb4 = KillUnitOptions+0x04` = le `killTrigger` porte par l'entree de file.
                 state.trigger_ability_type = kill_trigger
                 out = out + (AttackDamageOperation._kill_unit_operation(
-                    state, dying_id, killer_id, overkill) or [])
+                    state, dying_id, killer_id, overkill,
+                    attack_range_type=attack_range_type) or [])
         finally:
             state.triggering_ability = saved_current
             state.trigger_ability_type = saved_trigger
@@ -612,7 +661,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
     @staticmethod
     def _kill_unit_operation(state: State, target_id: int, attacker_id,
-                             overkill: bool) -> list:
+                             overkill: bool,
+                             attack_range_type: Optional[str] = None) -> list:
         """`IdunBattle.Operations.KillUnitOperation$$Execute` -- l'APPLICATION d'une mort deja
         enqueuee. Emet la SEQUENCE COMPLETE 1 -> 2 -> 0 -> 0x36 -> 0x35 ; les CINQ sont portes,
         DANS CET ORDRE. La garde revive (`if (!unitComponent.PendingRevive@+0xa8 .HasValue)`)
@@ -673,6 +723,26 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         from .triggers.dispatch import move_death
         from .revive import kill_unit_revive_gate
         out = move_death.after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # `unitComponent.DefeatedByMeleeAttack@+0x178 = inMelee` (#951-r1), LU aux octets :
+        #
+        #     +0x8xx  local_378[0] = local_370[0] == 1 & *pbVar22
+        #                            # rangeType.GetValueOrDefault() == Melee(1)  &  HasValue
+        #     +0x8xx  *(byte *)(victime.UnitComponent + 0x178) = local_378[0]
+        #
+        # ⚠ SA PLACE : APRES `On(PreUnitDeath)` et **AVANT la garde revive** -- lue a la pile
+        # d'accolades, comme `On(0x35)`. Une mort ANNULEE par un revive pose donc quand meme le
+        # marqueur, contrairement a `KilledThisTurn@+0x17a` (qui, lui, est DANS la branche
+        # non-revive). C'est pourquoi les deux ecritures ne sont pas au meme endroit ici.
+        # C'est le MEME octet que l'`inMelee` passe plus bas a `register_defeated_unit` : le natif
+        # ne le calcule qu'une fois. Lecteurs portes du marqueur : `PossessionAbility` et
+        # `DawnBladeHealAbility` (`IsDefeatedByMeleeAttack(Target)`), qui l'approximaient
+        # positionnellement.
+        _melee_kill = (None if attack_range_type is None else (attack_range_type == "Melee"))
+        _ent_marker = state.get_entity(int(target_id))
+        _uc_marker = (_ent_marker.get_component(UnitComponent)
+                      if _ent_marker is not None else None)
+        if _uc_marker is not None and _melee_kill is not None:
+            _uc_marker.defeated_by_melee = bool(_melee_kill)
         # GARDE @`KillUnitOperation$$Execute+0x81c` : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(PreUnitDeath)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
         # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated) — et AUCUN des trois `RemoveEffects`.
@@ -700,14 +770,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # ⚠ SA PLACE EST LOAD-BEARING : le natif l'appelle ICI, donc AVANT les cinq publications
         # d'evenement ci-dessous. `TrophyTakerAbility`, consommateur d'`On(UnitDefeated)`, compte
         # donc la victime COURANTE -- l'inscrire apres rendrait `n` la ou le natif rend `n+1`.
-        # ⚠ `in_melee` NON PASSE, et c'est un refus DELIBERE (#951-r1). Le natif transmet
-        # `options.inMelee` des `KillUnitOptions` ; l'ECRIVAIN de ce champ n'est pas localise, et le
-        # deduire du profil d'attaque cote port serait une INVENTION. Sans lui, l'inscription tombe
-        # dans `@+0xb0` -- la branche par DEFAUT du decompile de `RegisterDefeatedUnit`, pas un choix
-        # du port -- et l'UNION que lit `UnitsDefeatedBySelector` est INCHANGEE. La face SEEDING, elle,
-        # partitionne pour de vrai : `decisionView.units[].defeatedByMelee` EST le meme booleen
-        # (cf. `snapshot._load_death_sources`).
-        register_defeated_unit(state, attacker_id, target_id)
+        # ⚠ `in_melee` EST DESORMAIS PASSE (#951-r1 ferme). Ce n'etait pas une invention a faire mais
+        # un ETAGE a lire : `options.inMelee` des `KillUnitOptions` vient de `KillUnitOptions+0x3c`
+        # (`Nullable<AttackRangeType>`), que `IdunBattle.Operations.RecordKillOperation$$Execute`
+        # enfile via `IdunBattle.Core.MatchState$$AddDeath(..., AttackRangeType)` et que, sur la voie
+        # DEGAT, `IdunBattle.Operations.ApplyDamageOperation$$Execute` a deja calcule par le slot 4
+        # d'`IBattleQuery` (`GetAttackRangeType`). Chaine complete et citations : docstring d'
+        # `_add_death`. C'est LE MEME octet que le marqueur `@+0x178` pose ci-dessus.
+        # `None` -> branche par DEFAUT du decompile (`if ((char)inMelee == '\0')` -> `@+0xb0`), qui
+        # est aussi ce que le natif fait pour les voies dont les `KillUnitOptions` laissent `+0x3c`
+        # a zero (crush `ForSteppable`, feuille DSL `Kill` via `ForDefault`).
+        register_defeated_unit(state, attacker_id, target_id, in_melee=_melee_kill)
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
         # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).

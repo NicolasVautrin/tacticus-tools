@@ -73,7 +73,28 @@ def test_la_file_porte_le_declencheur_du_kill():
     st = State()
     st.triggering_ability = 0x435
     AttackDamageOperation._add_death(st, 7, 3, True)
-    assert st.pending_deaths == [(7, 3, True, 0x435)]
+    assert st.pending_deaths == [(7, 3, True, 0x435, None)]
+
+
+def test_la_file_porte_l_attack_range_type_de_la_mort():
+    """`MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger, **AttackRangeType**)` : le
+    CINQUIEME argument (#951-r1). Il devient `KillUnitOptions+0x3c`, dont
+    `IdunBattle.Operations.KillUnitOperation$$Execute` derive
+    `inMelee = HasValue && GetValueOrDefault() == Melee(1)` -- l'octet qu'il ecrit sur la VICTIME
+    (`UnitComponent+0x178`) ET qu'il passe a `RegisterDefeatedUnit` sur le TUEUR.
+
+    Le champ est OPTIONNEL a l'enqueue et `None` par defaut : les voies dont les `KillUnitOptions`
+    laissent `+0x3c` a zero (`$$ForSteppable` du crush, `$$ForDefault` de la feuille DSL `Kill`)
+    passent un `Nullable` VIDE cote natif aussi."""
+    from engine.runner.state import State
+    from engine.runner.operations.damage import AttackDamageOperation
+    st = State()
+    AttackDamageOperation._add_death(st, 7, 3, False, attack_range_type="Melee")
+    assert st.pending_deaths == [(7, 3, False, None, "Melee")]
+    st2 = State()
+    AttackDamageOperation._add_death(st2, 7, 3, False)
+    assert st2.pending_deaths == [(7, 3, False, None, None)], (
+        "sans mesure, le 5e champ est None -- jamais un 'Melee' fabrique")
 
 
 def test_le_drain_est_non_reentrant():
@@ -98,7 +119,7 @@ def test_une_mort_causee_pendant_une_mort_est_traitee_APRES_elle(monkeypatch):
     st = State()
     trace = []
 
-    def _fake_kill(state, dying_id, killer_id, overkill):
+    def _fake_kill(state, dying_id, killer_id, overkill, attack_range_type=None):
         trace.append(("kill", dying_id))
         if dying_id == 1:                       # la sequence de mort de 1 en TUE un autre
             AttackDamageOperation._add_death(state, 2, 1, False)
@@ -121,7 +142,7 @@ def test_la_file_ne_double_pas_une_meme_mort():
     st = State()
     AttackDamageOperation._add_death(st, 7, 3, False)
     AttackDamageOperation._add_death(st, 7, 4, True)
-    assert st.pending_deaths == [(7, 3, False, None)]
+    assert st.pending_deaths == [(7, 3, False, None, None)]
 
 
 def test_un_coup_sur_une_cible_deja_overkillee_n_applique_ni_n_emet_rien():
