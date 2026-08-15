@@ -1143,6 +1143,68 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
                                                               ctx.wt)
         return total
 
+    def evaluate_repair_in_steps(self, ctx, caster_uid: int, target_uid: int, fill_hp,
+                                 target_max_hp, caster_is_boss: bool = False) -> float:
+        """Face REPAIR du dispatcher — `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext`,
+        feuille 4 du composite `Repair(47)` (#271-r7). Corps natif, LU :
+
+            Fix64 total = 0;
+            foreach ((playbook, owner) in IterateAbilities(case.<+0x10>))   // surcharge (IEntity)
+                total += playbook.<slot 2>(case, owner);
+            yield total;
+
+        C'est le JUMEAU EXACT de la face ATTACK ci-dessus — mêmes DEUX écarts avec la face MOVE
+        (aucun gate de nullité du sujet ; le SUJET est le CASTER `case+0x10`), même
+        `<IterateAbilities>d__4` à exclusion de self INCONDITIONNELLE, même pré-gate
+        `<slot 4> || IsFriend`. Seul le slot appelé change (2 au lieu de 1), et donc le REGISTRE.
+
+        ⚠ Le composite `Repair(47)` a **TROIS** membres (`RepairedAmount(48)`,
+        `TriggeredAbilities(2)`, `TriggeredAbilitiesNonOwner(4)`, lus par
+        `probe_271r4_composition_map.py`). Le port n'en sommait qu'UN. Cette méthode en câble un
+        SECOND ; la feuille 2 (face repair du dispatcher OWNER) reste non portée — écart NOMMÉ.
+
+        `fill_hp` / `target_max_hp` / `caster_is_boss` sont ce que la feuille `RepairedAmount(48)`
+        lit du `UtilityAttackCase` (`+0xdc` = le `fillUp` de la `RepairPredictionResult`), et que le
+        seul corps concret RE-ÉMET. Le port les passe donc jusqu'au playbook plutôt que de
+        reconstruire un case."""
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return 0.0
+        from ..playbook.non_owner_repair import load_playbook_non_owner_repair
+        _live_fn = getattr(ctx, "live_triggered_ability_ids", None)
+        my_team = sc.team(caster_uid)
+        total = 0.0
+        for u in (sc.units or []):
+            owner = u.get("id")
+            if owner is None:
+                continue
+            owner = int(owner)
+            # `if (ta.Owner == subject) continue` — INCONDITIONNEL dans `<IterateAbilities>d__4`.
+            if owner == int(caster_uid):
+                continue
+            if sc.pos(owner) is None:        # unité sans tuile : hors du cache d'abilities vivantes
+                continue
+            kit = list(kit_triggered_ability_ids(sc.vis_by_id.get(owner)))
+            if callable(_live_fn):
+                _live = list(_live_fn(owner) or ())
+                if _live:
+                    kit = _live              # l'AbilitiesComponent REEL, tel que le natif l'itère
+            if not kit:
+                continue
+            is_friend = (sc.team(owner) == my_team)
+            for ab in kit:
+                pb = load_playbook_non_owner_repair(ab)
+                if pb is None:
+                    continue
+                # PRE-GATE `playbook.<slot 4> || IsFriend`. Accès DIRECT (même règle que les deux
+                # autres faces) : toute classe de la famille porte `SLOT_4`.
+                if not (pb.SLOT_4 or is_friend):
+                    continue      # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
+                total += pb.calculate_repair_utility_in_steps(
+                    ctx, int(caster_uid), int(target_uid), owner, is_friend, fill_hp,
+                    target_max_hp, caster_is_boss, getattr(ctx, "wt", None))
+        return total
+
 
 # ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
 #
@@ -2690,6 +2752,26 @@ def triggered_abilities_non_owner_attack_utility(ctx, attacker_uid: int, target_
     le natif n'ouvre pas."""
     return _TRIG_AB_NON_OWNER_UTILITY.evaluate_attack_in_steps(ctx, attacker_uid, attack_tile,
                                                                target_uid)
+
+
+def triggered_abilities_non_owner_repair_utility(ctx, repairer_uid: int, target_uid: int,
+                                                 fill_hp, target_max_hp,
+                                                 caster_is_boss: bool = False) -> float:
+    """Feuille TriggeredAbilitiesNonOwner(4) FACE REPAIR du composite `Repair(47)` (#271-r7) —
+    TROISIÈME et dernier pendant de `triggered_abilities_non_owner_attack_utility`.
+
+    La MEMBERSHIP est MESURÉE (`probe_271r4_composition_map.py`) : `Repair(47)` a **3** membres —
+    `RepairedAmount(48)`, `TriggeredAbilities(2)`, `TriggeredAbilitiesNonOwner(4)`. Le port ne
+    sommait que le premier ; ce terme câble le troisième. La feuille 2 (face repair du dispatcher
+    OWNER) reste NON portée — écart nommé, pas un oubli.
+
+    ⚠ Contrairement aux deux autres faces, ce terme ne lit AUCUNE clé BC : son unique corps concret
+    (`VoltagheistFieldPlaybook`) RE-ÉMET la feuille `RepairedAmount(48)`. Le terme est donc un
+    DOUBLEMENT de `repair_utility(fill_hp, target_max_hp)`, pas un poids — et il compense
+    exactement le `×0.5` que `VoltagheistField_RepairReductionEffect` applique à la MAGNITUDE."""
+    return _TRIG_AB_NON_OWNER_UTILITY.evaluate_repair_in_steps(ctx, repairer_uid, target_uid,
+                                                               fill_hp, target_max_hp,
+                                                               caster_is_boss)
 
 
 _TRIG_AB_UTILITY: TriggeredAbilitiesUtility = TILE_LEAVES[UtilityType.TriggeredAbilities][1]
