@@ -177,15 +177,37 @@ garde qui ne se voit pas. Hors périmètre de cette tranche, signalé.
 
 ## 8. Résidus nommés
 
-* **`#447-r1-r1-r1` — l'ORDRE du retrait des NON MARCHABLES vs l'ajout aval.** Le natif filtre la
-  walkability **dans** `GetTilesInRange` (lambda `TargetingQuery.u003Cu003Ec$$u003CGetTilesInRangeu003Eb__36_0`),
-  donc **avant** les deux `AddRange(casterTiles)` ; le port applique `_unwalkable` **après**
-  `tiles_in_range_zone_contains`, donc **aussi** à une tuile qui n'est entrée que par l'ajout aval.
-  Écart RESTRICTIF, **gisement vide par construction** : la tuile en question est toujours celle
-  d'un caster ou une position du movable set, donc marchable et hors brouillard
-  (`IdunBattle.Operations.AddUnitOperation$$AreTilesDisallowedAndLog` refuse une tuile en
-  brouillard, et `GetMovableTilesFor` n'en rend pas). Non porté plutôt que porté sans pouvoir
-  l'exercer.
+* ~~**`#447-r1-r1-r1`**~~ — **PORTÉ (2026-08-15), et l'arbitrage « non porté plutôt que porté sans
+  pouvoir l'exercer » est REVENU sur : on PEUT l'exercer.** Le natif filtre la walkability **dans**
+  `GetTilesInRange` (dernière instruction du corps, lambda
+  `TargetingQuery.u003Cu003Ec$$u003CGetTilesInRangeu003Eb__36_0`), donc **avant** les deux
+  `AddRange(casterTiles)`, qui vivent chez son appelant `GetPossibleTargetsForOptions` — alors que
+  les trois `RemoveAll` (`b__0`, `b__1`, `b__2`), eux, sont bien **après** et s'y appliquent. Le
+  port soumettait l'ajout aval au filtre : écart RESTRICTIF, corrigé par
+  `ability_range.verse_par_ajout_aval`, **foyer unique** partagé avec `_zone_contains_distance`
+  (deux écritures du même fait natif se désynchroniseraient).
+  **EXERCÉ par un cran synthétique**, deux bras : (A) le brouillard posé sur la tuile SOURCE ne
+  change plus rien pour les **31** porteurs de l'ajout aval — le critère est l'INVARIANCE, pas
+  « la tuile est gardée », plusieurs d'entre eux étant déjà retirés par le court-circuit
+  `TargetIsFriendly && !TargetIsEnemy` en amont ; (B) le brouillard retire **encore** une tuile
+  entrée par `GetTilesInRange` — sans ce bras, un correctif qui aurait simplement supprimé l'appel
+  à `_unwalkable` passerait pour juste. **CONTRE-ÉPREUVE JOUÉE** (ancre comptée avant substitution,
+  port restauré à l'identique) : l'ancien ordre remis, le bras A rougit sur **22 lignes sur 31**,
+  le bras B reste vert.
+  **NON CONFRONTÉ live, et c'est une MESURE** : l'écart exige un caster sur une tuile non marchable
+  ou en brouillard. Sondage `boardGraph` sur deux boards contrastés — `MC1_67` (pvp, **0** tuile en
+  fog sur 63) et `C6_02` (campagne à salles, **32** en fog et 22 non marchables sur 63) —
+  intersection « occupée ET (fog ou non marchable) » = **0**. Cause structurelle, LUE :
+  `AddUnitOperation$$AreTilesDisallowedAndLog` refuse au spawn toute tuile qui ne passe pas son gate
+  `<IBattleQuery slot 0xa1>` ou dont le `TileContentComponent$$IsFilled` est vrai,
+  `GetMovableTilesFor` n'en rend pas en brouillard, et le brouillard RECULE (il se lève à
+  l'exploration) au lieu d'avancer.
+  ⚠ Ce que le canal ne montre PAS, et le probe l'IMPRIME plutôt que de rendre un zéro muet : sur un
+  board à salles, les unités d'une salle fermée ne sont pas ENCORE instanciées (`C6_02` :
+  `observeBattle.counts.units` = **3** pour six unités demandées au build). Le zéro ne se lit donc
+  pas seul — c'est l'argument structurel qui le porte.
+  L'attaque normale n'est pas concernée : aucun de ses 18 profils ne porte `CasterIsPossibleTarget`
+  ni `TargetIsCasterOrEnemy` (cran dédié).
 * **`#447-r1-r1-r2` — le bit 57 `TargetIsCasterOrEnemy` reste un mirror non confronté sur cette
   face.** **2** masques le portent (`1008`, `1102`, tous deux `0x200000000000004`) ; leurs porteurs
   (`necroPlasmancer`, `thousAhriman`) arment aussi `CasterMatchesDynamicRule` en régime

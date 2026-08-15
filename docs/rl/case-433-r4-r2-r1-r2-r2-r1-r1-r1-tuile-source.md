@@ -97,9 +97,29 @@ Le FP unique est exactement la tuile du movable set. Gates CASTER alimentés (`d
   `SlashingDiveAbility` dans les tables (seuls son Playbook et ses Visuals portent ce nom), donc
   aucun ctor à lire. L'absence ne prouve rien : un ctor trivial `return <Base>$$.ctor(this);` est
   dédupliqué par IL2CPP. Trancher exige le slot de vtable de l'INSTANCE, au runtime.
-* **`#433-r4-r2-r1-r2-r2-r1-r1-r1-r3` — la branche ANNEAU est un mirror STRUCTUREL.**
-  `TargetIsAtRange` a **0** porteur sur les 148 masques lus. Un cran synthétique la garde, un cran
-  jumeau mesure que le gisement est vide : s'il rougit, la branche devient confrontable.
+* ~~**`#433-r4-r2-r1-r2-r2-r1-r1-r1-r3`**~~ — **le zéro porte désormais sur le BINAIRE (2026-08-15).**
+  « 0 porteur sur les 148 masques lus » ne visitait que le registre du port : un ctor non lu aurait
+  pu porter le bit sans que rien ne le montre. Le compte a d'ailleurs bougé depuis (**182** masques
+  lus, `TARGETING_OPTIONS_UNPORTED` désormais VIDE) sans que le zéro change — ce qui ne le fondait
+  pas davantage.
+  `probe_433r4r2r1r2r2r1r1r1r3_anneau_at_range.py` visite la population ENTIÈRE : les **261**
+  `IdunBattleLogic.Entities.Abilities.Active.*$$.ctor` de
+  `data/symbols/<build>/ghidra/functions.tsv`, chacun devant tomber dans l'un des trois ensembles
+  dont le masque est lu — registre + attaque normale, `CTORS_RELUS` (les 74 relus un par un pour
+  cette tranche), presets du `cctor`. **0 DÉCOUVERT**, et un ctor hors des trois fait ROUGIR : c'est
+  ce qui rend le zéro durable au prochain build.
+  Les quatre sources, mesurées : 182 masques de registre, 18 profils d'attaque normale, **16**
+  presets (`rules` ∈ {`0x4002`, `0x4000`, `0x80040`, `0x8500`, `0x6000040`, `0x42`, `0x102004032`,
+  `0x8004`, `0x400`, `0x200000000000004`}), 61 ctors relus — **0 porteur du bit 9**. Les trois
+  fabriques sont incluses (`CustomIdunNormalAttackOptions` `+0x80 | extraRules`,
+  `CustomLokiNormalAttackOptions` `+0x00 | extraRules`, `SelfCastIfEnemyInCustomRangeOptions`
+  `0x4000`), leurs `extraRules` lus à l'octet au call-site (`0x10000000`, `0x2`, aucun).
+  **Aucune liste blanche** : les 16 ctors `Test*` sont RELUS, pas exclus par préfixe — les exclure
+  aurait ré-introduit le vice même que la tranche corrige.
+  ⇒ La branche ANNEAU est **structurellement inatteignable** dans ce build, et NON CONFRONTABLE :
+  le masque est câblé dans le ctor natif, donc ni la greffe (`catalog_inject`) ni l'injection de
+  catalogue ne peuvent armer le bit. Cran synthétique + cran de couverture, cf.
+  `tests/engine/test_433r4r2r1r2r2r1r1r1r3_anneau_offline.py`.
 * **`#433-r4-r2-r1-r2-r2-r1-r1-r1-r4` — `AttackQuery$$GetInvalidCasterReason` n'est pas porté.**
   C'est un QUATRIÈME gate de la surcharge 4 arguments, distinct des trois de `#…-r1-r1-c` (que le
   port lit déjà) : alimenter `ability_state` ne l'a PAS fermé. Il inclut le gate dynamique CASTER

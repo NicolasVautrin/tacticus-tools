@@ -124,14 +124,21 @@ def _b1(state, caster_id, options):
 
 
 def _b2(state, caster_id, options):
-    """BASELINE B2 -- « le clamp de melee ABANDONNE quand la valeur est inconnue ».
+    """BASELINE B2 -- « les deux clamps de melee n'ARMENT PAS `onlyAdjacent` ».
 
-    On rejoue le SEUL terme que les deux clamps auraient force : `onlyAdjacent`. Dans le regime
-    `value is None` on le ramene a sa valeur de BASE (`IsTrue(options.Range.OnlyAdjacent, caster)`,
-    la 1re des trois ecritures natives) ; partout ailleurs on rend le `Range` tel quel. Aucune
-    duplication du corps de `get_range` : c'est une SOUSTRACTION exacte."""
+    On rejoue le SEUL terme que les deux clamps forcent : `onlyAdjacent`, ramene a sa valeur de BASE
+    (`IsTrue(options.Range.OnlyAdjacent, caster)`, la 1re des trois ecritures natives). Aucune
+    duplication du corps de `get_range` : c'est une SOUSTRACTION exacte.
+
+    ⚠ **CETTE BASELINE ETAIT GARDEE PAR `rr.value is None`, ET CETTE GARDE L'A RENDUE VACANTE**
+    (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1). Elle ne soustrayait le clamp que dans le regime « valeur
+    inconnue » ; or `get_range` lit desormais `GetStat(caster, StatType.Range = 2)` sur un caster
+    sans arme, donc la valeur y vaut `0` et non `None` -- B2 rendait alors le `Range` INTACT, se
+    confondait avec le port, et le cran D1 tombait en REGIME DEGENERE. La question de la tranche
+    n'a pourtant pas change : « le clamp arme-t-il `onlyAdjacent` ? ». On la pose donc directement,
+    sans passer par un etat du tri-etat qui n'en est qu'un symptome."""
     rr = _VRAI_GET_RANGE(state, caster_id, options)
-    if rr is None or rr.value is not None:
+    if rr is None:
         return rr
     rng = getattr(options, "range", None)
     base = T.ranged_bool_is_true(rng.only_adjacent, state, caster_id) if rng is not None else False
