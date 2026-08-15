@@ -1302,6 +1302,13 @@ def _load_death_sources(state: State, decision: dict) -> int:
         if uc.death_killer_id is None and getattr(uc, "death_source", None) is None:
             uc.death_killer_id = int(kid)
             n += 1
+        # Le marqueur SUR LA VICTIME (`UnitComponent+0x178`), que `KillUnitOperation$$Execute` ecrit
+        # avec le MEME octet -- il a ses propres lecteurs (`IsDefeatedByMeleeAttack(Target)` de
+        # `PossessionAbility` et de `DawnBladeHealAbility`), et sans lui ils retombent sur leur
+        # approximation positionnelle sur tout etat CHARGE. Le canal etait deja lu, il n'etait
+        # ecrit que d'un cote (#951-r1).
+        if uc.defeated_by_melee is None:
+            uc.defeated_by_melee = bool(u.get("defeatedByMelee"))
         # Le registre du TUEUR, par le meme booleen que le natif : cf. la section ci-dessus.
         register_defeated_unit(state, int(kid), int(uid),
                                in_melee=bool(u.get("defeatedByMelee")))

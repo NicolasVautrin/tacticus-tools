@@ -380,11 +380,52 @@ pas : c'est une portée, donc ça se mesure. Trois étages, tous **dérivés** :
    l'écoute (concordant avec la mesure de #294).
 
 `FireOfAbsolution`, deuxième consommateur natif de cet event, n'est dans **aucun** registre (il est
-appelé impérativement) : il n'entre donc pas par ce rail — c'est ce qui rend le drapeau
+appelé impérativement) : il n'entre donc pas par ce rail — c'est ce qui rendait le drapeau
 `fire_of_absolution=False` suffisant comme anti-double-fire (résidu `#521-r8`).
 
 Les trois étages sont **gelés** par `tests/engine/runner/test_521r7_attack_in_atomic_group_offline.py`,
 avec témoin non nul à chacun : un balayage vide passerait sinon pour un vert.
+
+### `#521-r8` RÉSOLU (2026-08-15) — et le rayon avait DÉJÀ changé sans que personne le voie
+
+**La migration.** L'appel impératif de `_fire_of_absolution_after_attack` est retiré
+d'`after_hit_normal_attack` ; le passif est joué depuis `On(0x4a)` seul, le drapeau perd sa valeur
+`False` au call-site. Les deux moitiés bougent **ensemble** — chacune seule est un mode de panne
+silencieux (zéro splash, ou double splash), et c'est ce couple que garde
+`test_521r8_fire_of_absolution_a_migre_sur_son_vecteur` (AST du call-site **et** source
+d'`after_hit_normal_attack`).
+
+**Le rang natif, relu.** `...ALoki_NormalAttackAbility$$ExecuteNormalAttack` compose
+`EvaluateAbilities(0x4a, immediately: true)` **après** `GetAttackDamageBehaviour` — donc après le
+nœud `Attack(...)`, donc après `FinishAttackOperation$$Execute` (`On(9)` puis `On(10)`) — et
+**avant** le cleave et `ExecuteTriggerAbilities` (`On(0x26)`). La fiche du résidu écrivait « avant
+`On(0x26)`/`On(9)`/`On(10)` » : **faux pour deux des trois**.
+
+**La mesure du câblage** (`test_fire_of_absolution_migration_live.py::test_521r8_le_CABLAGE_…`,
+seed 777, board du seed BC, caster déplacé au ring 2 de sa cible — le gate `IsRangedAttack` ne mord
+pas sans ça) :
+
+| | ordre observé | `mti` final |
+|---|---|---|
+| `origin/master` | `5, 6, 57×4, 15, 16, 66, 9, 10, **38, 8**, splash, splash` | 16 |
+| après migration | `5, 6, 57×4, 15, 16, 66, 9, 10, **splash, splash**, 38, 8` | 16 |
+
+⇒ **le RANG bouge, le flux RNG NON.** La fiche annonçait « le déplacement avance des tirages
+`state.rng` sur le seul porteur `adeptRetributor` » : mesuré FAUX ici, rien ne tire entre les deux
+positions. Le test existant ne pouvait pas le voir — il appelle le passif **directement** et
+resterait vert s'il n'était plus branché à rien.
+
+**Le prix, assumé et nommé.** La couverture passe des cinq portes d'`after_hit_normal_attack` à la
+seule voie MESSAGE (résidu `#478-r3`). Sur `adeptRetributor` : MV71 / summon / summon AI sont
+structurellement inatteignables ; seule la feuille DSL `UseNormalAttack` est réellement perdue.
+
+**Et le rayon du §ci-dessus était PÉRIMÉ.** `test_521r7_rayon_du_vecteur` **rougissait sur
+`master`** depuis l'entrée de `1098 Pyreblaster` au registre (PR #1069) — un cliquet de registre
+non rejoué. Le rayon vaut désormais **trois** entrées, et la troisième est structurelle :
+`...PyreblasterAbility$$CreateTrigger` a le corps **dédupliqué par ICF** (même RVA) que
+`...FireOfAbsolutionAbility$$CreateTrigger`, donc rigoureusement le même trigger
+`On(0x4a) & get_OwnerIsActor & IsRangedAttack`. Les deux jumeaux vivaient sur deux canaux
+différents ; ils sont maintenant tous deux sur le bus.
 
 ### Le sélecteur, lui, est ENTIÈREMENT lu — et il ne restait aucun trou
 

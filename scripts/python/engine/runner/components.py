@@ -385,7 +385,7 @@ class UnitComponent(Component):
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
                  "total_attacks_made", "defeated_units_melee", "defeated_units_other",
                  "total_defeated_units", "death_killer_id", "previous_position_this_turn",
-                 "movement_target_override", "rarity")
+                 "movement_target_override", "rarity", "defeated_by_melee")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -401,6 +401,20 @@ class UnitComponent(Component):
         # distincts (`KilledThisTurnTrigger$$ShouldTrigger` vs
         # `IdunBattle.Entities.Formulas.TurnDefeatedFormula$$Calculate`).
         self.killed_this_turn = None
+        # `UnitComponent + 0x178` = **`DefeatedByMeleeAttack`**, le byte que
+        # `IdunBattle.Operations.KillUnitOperation$$Execute` ecrit sur la VICTIME juste apres
+        # `On(PreUnitDeath)` et **avant la garde revive**, avec la valeur EXACTE qu'il passe ensuite
+        # en `inMelee` a `ActorStatisticsComponent$$RegisterDefeatedUnit` sur le TUEUR (un seul
+        # calcul : `rangeType.HasValue && rangeType.GetValueOrDefault() == Melee(1)`).
+        # DEUX faces l'ecrivent, et elles doivent rester d'accord : la SIMULATION
+        # (`damage.py::_kill_unit_operation`, via `KillUnitOptions+0x3c`) et le SEEDING
+        # (`decisionView.units[].defeatedByMelee`, publie par `readUnitDeathMeta`).
+        # TRI-ETAT : `None` = NON MESURE (voie de mort qui ne transporte pas d'`AttackRangeType` --
+        # crush `ForSteppable`, feuille DSL `Kill` -- ou etat charge sans le champ). Un lecteur doit
+        # DIRE ce qu'il fait de l'absence : `IsDefeatedByMeleeAttack` natif lit un byte d'un
+        # composant `memset` a 0, donc l'absence se lit FAUX cote natif -- mais le port distingue
+        # les deux pour que ses consommateurs puissent retomber sur leur approximation nommee.
+        self.defeated_by_melee = None
         # `UnitComponent + 0x5c` — cf. la docstring de classe (bloc `turns_finished`). 0 a la
         # creation, exactement comme le champ natif d'une entite fraichement construite : une unite
         # deployee au setup comme un summon apparu en cours de partie partent tous les deux de 0,
@@ -2227,12 +2241,25 @@ def register_defeated_unit(state, killer_id, killed_id, in_melee=None) -> bool:
     un consommateur d'`On(UnitDefeated = 0x36)` -- `TrophyTakerAbility` -- compte la victime
     COURANTE dans son total. Poser cet appel apres l'evenement rendrait `n` au lieu de `n+1`.
 
-    `in_melee` (#951-r1) : le troisieme argument natif. Il n'est PAS a deviner -- le decompile
+    `in_melee` (#951-r1, FERME) : le troisieme argument natif. Il n'est PAS a deviner -- le decompile
     montre que `KillUnitOperation$$Execute` ecrit `local_378[0]` dans `UnitComponent+0x178`
     (`DefeatedByMeleeAttack`, sur la VICTIME) puis passe **ce meme `local_378[0]`** en `inMelee`.
-    Les deux faces d'un unique booleen. TRI-ETAT ici : `None` = l'appelant ne l'a pas mesure, et
-    l'enregistrement tombe alors dans `@+0xb0` comme le fait le natif pour un `inMelee` faux --
-    c'est la branche par DEFAUT du decompile (`if ((char)inMelee == '\\0')`), pas un choix du port.
+    Les deux faces d'un unique booleen, et sa SOURCE est desormais lue de bout en bout :
+
+        local_378[0] = (rangeType.GetValueOrDefault() == Melee(1)) & rangeType.HasValue
+        rangeType    = KillUnitOptions+0x3c
+                     <- IdunBattle.Core.MatchState$$AddDeath(..., AttackRangeType)
+                     <- IdunBattle.Operations.RecordKillOperation$$Execute
+                     <- KillUnitContext+0x38, pose par IdunBattle.Operations.ApplyDamageOperation$$
+                        Execute via le slot 4 d'IBattleQuery (`GetAttackRangeType`)
+
+    Les DEUX faces du port l'alimentent : SIMULATION (`damage.py::_kill_unit_operation`, qui
+    calcule le `AttackRangeType` au foyer de degat) et SEEDING (`snapshot._load_death_sources`, qui
+    lit `decisionView.units[].defeatedByMelee`). TRI-ETAT ici : `None` = l'appelant ne l'a pas
+    mesure, et l'enregistrement tombe alors dans `@+0xb0` comme le fait le natif pour un `inMelee`
+    faux -- c'est la branche par DEFAUT du decompile (`if ((char)inMelee == '\\0')`), et c'est aussi
+    ce que le natif fait pour les voies dont les `KillUnitOptions` laissent `+0x3c` a zero
+    (`$$ForSteppable` du crush, `$$ForDefault` de la feuille DSL `Kill`).
 
     Rend `True` si l'enregistrement a eu lieu."""
     if killer_id is None or killed_id is None:
@@ -2589,12 +2616,39 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     `LegacyOfCombat` : porter le compteur rend le noeud REUTILISABLE, c'est l'argument qui a
     tranche le rayon de souffle.
 
-    ⚠ **`+0x28`/`+0x2c` restent NON PORTES, et la raison est une RE inachevee, pas un choix** : le
-    `rangeType` est un ARGUMENT de `RegisterAttackOperation$$Execute`, propage tel quel depuis
-    l'enqueue du slot `IOperationProcessor` **74** (`RegisterAttack`, arite 4) -- dont le call-site
-    n'a pas ete localise. Ecrire un `rangeType` devine y mettrait une valeur FAUSSE dans deux
-    compteurs, ce qui est pire que leur absence. Residu a ouvrir avant tout consommateur de ces
-    deux variantes.
+    ⚠ **`+0x28`/`+0x2c` restent NON PORTES -- MAIS LE BLOCAGE ANNONCE ETAIT FAUX (#508-r2,
+    re-mesure 2026-08-15).** La RE disait « le call-site du slot `IOperationProcessor` **74**
+    (`RegisterAttack`, arite 4) n'a pas ete localise, donc le `rangeType` serait devine ». Il est
+    localise, et il est ENTIEREMENT lu :
+
+        IdunBattle.Operations.FinishAttackOperation$$Execute
+            currentAttack = <l'OngoingAttack courante>
+            defender      = IdunBattle.Entities.UnitExtensions$$GetUnit(target, state)
+            rt = BattleQuery.<slot 4 = GetAttackRangeType>(          # arite 4, interface_slots.tsv
+                     ability        = AttackOptions+0x10,
+                     caster         = attacker,
+                     casterPosition = EntityExtensions$$GetUnitPosition(attacker),
+                     target         = target)
+            if (defender != null)
+                processor.<slot 0x4a = RegisterAttack>(attacker, defender,
+                                                       Nullable<AttackRangeType>(rt),
+                                                       totalCrits = currentAttack+0x28)
+
+    Le `Nullable` y est **TOUJOURS renseigne** (il est construit avec `rt`, jamais laisse vide) :
+    les deux variantes sont donc alimentees a chaque attaque cote natif. Et l'ETAGE qui manquait au
+    port est desormais LA : `services/battle_query.get_attack_range_type` (foyer, frere des slots 2
+    et 3) + `triggers/base._attack_range_type` (domaine runner), poses par #951-r1 -- qui consomme
+    la MEME fonction native pour l'`inMelee` du vecteur de mort.
+
+    **CE QUI RESTE, ET C'EST LA SEULE RAISON DE NE PAS PORTER** : aucun consommateur ne l'exige.
+    Les TROIS consommateurs natifs de `IdunBattleLogic.Entities.DSLFormulas$$TimesAttackMadeThisTurn`
+    passent un `Nullable` VIDE -- `IconOfObstinacy_AddArmourBuffAbility` (#919), `LegacyOfCombat`
+    (#928), et `LeadingTheChargeAbility$$ExecuteBehaviour`, dont les DEUX appels passent
+    litteralement `(void *)0x0` (relu 2026-08-15). Un canal sans lecteur n'est pas validable
+    (patron #419). Ce qu'il faudra trancher le jour venu : le natif appelle `RegisterAttack` depuis
+    `FinishAttackOperation` (une fois par CIBLE, a la cloture) alors que le port appelle cette
+    fonction-ci depuis `_apply_damage_pipeline` -- les deux rangs devront etre reconcilies, pas
+    seulement le `rangeType` threade.
 
     SEUL appelant natif : `IdunBattle.Operations.RegisterAttackOperation$$Execute` -- le MEME que
     `...$$RegisterAttackReceived`, dont le port place deja le mirror (`record_attacked`) dans le
@@ -2673,10 +2727,13 @@ def unit_attacks_made_this_turn(state, unit_id: int) -> int:
         return sum
 
     Le port n'expose ICI que la branche `else` -- le `Nullable` VIDE -- parce que c'est celle des
-    DEUX call-sites de `LeadingTheChargeAbility$$ExecuteBehaviour`, et parce que les deux compteurs
-    par `rangeType` ne sont pas alimentes (cf. `register_attack_made`). Un appelant qui aurait
-    besoin d'une variante doit d'abord fermer cette RE : rendre un total la ou le natif rend un
-    sous-compte serait un ecart SILENCIEUX et PERMISSIF.
+    DEUX call-sites de `LeadingTheChargeAbility$$ExecuteBehaviour` (relus 2026-08-15 : les deux
+    passent litteralement `(void *)0x0`), et parce que les deux compteurs par `rangeType` ne sont
+    pas alimentes (cf. `register_attack_made`). Un appelant qui aurait besoin d'une variante doit
+    d'abord les alimenter : rendre un total la ou le natif rend un sous-compte serait un ecart
+    SILENCIEUX et PERMISSIF. Ce n'est plus une RE a faire -- l'etage `GetAttackRangeType` est porte
+    (#951-r1) et le call-site est localise (#508-r2) : c'est un CABLAGE, dont le rang reste a
+    arbitrer.
 
     Le selecteur `this+0x10` est resolu par l'appelant (ici : le caster) -- comme
     `unit_turns_with_attacks_made`, ce mirror prend l'unite deja resolue. Composant absent = 0,

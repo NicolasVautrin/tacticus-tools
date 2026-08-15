@@ -219,16 +219,31 @@ def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
     `EvaluateAbilities` d'une ability ne les renseigne pas) -> les gates de kind se TAISENT, ce qui est
     exactement le comportement natif pour un cast (`ArmoriumCherub` n'est pas une attaque normale).
 
-    ⚠ `fire_of_absolution=False` -- RESIDU `#521-r8`, et c'est un ANTI-DOUBLE-FIRE, pas un gate natif.
+    ⚠ `fire_of_absolution` -- `#521-r8` EST FERME, ET LE DRAPEAU RESTE, MAIS IL A CHANGE DE ROLE.
     `IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateTrigger` est
     `On(0x4a = AttackInAtomicGroup, ownerNeedsToBeAlive: 1) & get_OwnerIsActor & IsRangedAttack` --
-    AUCUN gate excluant l'attaque normale. Le natif le fait donc bien fire sur l'attaque normale
-    RANGED de son porteur, et il le fait DEPUIS CE VECTEUR. Le port, lui, le joue depuis
-    `after_hit_normal_attack` (le vecteur `On(0x26)`, cf. `dispatch/attack.py`) -- comportement
-    PRESENT mais au MAUVAIS RANG (apres `On(9)`/`On(10)`, apres le cleave, au lieu d'avant). Tant que
-    cette migration de rang n'est pas MESUREE (elle deplace des tirages `state.rng` sur le seul
-    porteur `adeptRetributor`), la voie NORMALE demande `False` ici : sinon le splash partirait DEUX
-    fois. La voie ABILITY (`ArmoriumCherub`, noeud DSL) garde `True` -- c'est son unique home."""
+    AUCUN gate excluant l'attaque normale. Le natif le fait donc fire sur l'attaque normale RANGED
+    de son porteur, et il le fait DEPUIS CE VECTEUR. Le port le jouait IMPERATIVEMENT depuis
+    `after_hit_normal_attack` (le vecteur `On(0x26)`) : comportement PRESENT, RANG FAUX -- apres
+    `On(9)`/`On(10)`, apres le cleave, apres `On(0x26)`/`On(8)`, au lieu d'avant tout cela. Le RANG
+    natif est lu dans `...ALoki_NormalAttackAbility$$ExecuteNormalAttack` :
+
+        b = GetAttackDamageBehaviour(...)                     # coups d'ARME + FOLD primaire
+        b = b op_BitwiseAnd EvaluateAbilities(dsl, 0x4a, immediately: true)     # <- ICI
+        return ExecuteAtomic(this, b, entities, 0x3d)
+        # ... puis, dans `Execute<X>` : le CLEAVE (`ExecuteAtomic(.., 0x2a)`), puis
+        #     `ExecuteTriggerAbilities` -> `EvaluateAbilities(0x26)`
+
+    ⚠ **LA FICHE DU RESIDU DISAIT « avant `On(0x26)`/`On(9)`/`On(10)` » -- ET C'EST FAUX POUR DEUX
+    DES TROIS.** `On(9)` et `On(10)` sortent de `FinishAttackOperation$$Execute`, que le noeud
+    `Attack(...)` de `GetAttackDamageBehaviour` traverse AVANT que `ExecuteNormalAttack` ne compose
+    `EvaluateAbilities(0x4a)`. L'ordre natif est donc `On(9)` -> `On(10)` -> **`On(0x4a)`** ->
+    cleave -> `On(0x26)`. Seul `On(0x26)` etait correctement decrit.
+
+    Le drapeau n'est donc plus un ANTI-DOUBLE-FIRE (il n'y a plus qu'UN site) : il reste le point de
+    MUTATION qui permet a une contre-epreuve de desarmer ce seul canal sans toucher au bus, et le
+    defaut est desormais `True` sur les DEUX voies -- la voie NORMALE comme la voie ABILITY
+    (`ArmoriumCherub`, noeud DSL)."""
     out: list[dict] = []
     if fire_of_absolution and int(event) == int(EventTriggerType.AttackInAtomicGroup):
         out += _fire_of_absolution_after_attack(state, caster_id, target_id, ranged)

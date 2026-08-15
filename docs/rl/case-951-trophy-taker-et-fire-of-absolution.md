@@ -123,6 +123,32 @@ ré-excluent le mort deux lignes plus bas et ne changent pas.
 
 ## 4. `FireOfAbsolution` — l'audit, et un FAUX MANQUANT
 
+> **MISE À JOUR (2026-08-15, #521-r8)** — le passif ne vit **plus** dans `dispatch/attack.py`. Son
+> appel impératif a été retiré d'`after_hit_normal_attack` et il est joué depuis son vecteur natif
+> `On(0x4a = AttackInAtomicGroup)` seul. Rang natif LU dans
+> `...ALoki_NormalAttackAbility$$ExecuteNormalAttack` :
+> `GetAttackDamageBehaviour` (les coups d'arme, donc `On(9)`/`On(10)`) **puis**
+> `EvaluateAbilities(0x4a, immediately: true)` **puis**, dans `Execute<X>`, le cleave et
+> `ExecuteTriggerAbilities` (`On(0x26)`). La fiche du résidu annonçait « avant `On(0x26)`/`On(9)`/
+> `On(10)` » : **faux pour deux des trois** — `On(9)` et `On(10)` sortent de
+> `FinishAttackOperation$$Execute`, que le nœud `Attack(...)` traverse AVANT. Mesure du câblage
+> (même seed, même montage, caster déplacé au ring 2 de sa cible) :
+>
+> | | ordre des events | `mti` final |
+> |---|---|---|
+> | `master` | `… 9, 10, **38, 8**, splash, splash` | 16 |
+> | après migration | `… 9, 10, **splash, splash**, 38, 8` | 16 |
+>
+> **Le RANG bouge, le flux RNG NON** — la crainte de la fiche (« le déplacement avance des tirages
+> `state.rng` ») est mesurée FAUSSE sur ce porteur : rien ne tire entre les deux positions. Prix
+> assumé : la couverture passe des cinq portes d'`after_hit_normal_attack` à la seule voie MESSAGE
+> (résidu `#478-r3`, partagé avec MV71 / le cleave / `HeavyBoltPistol`) ; sur `adeptRetributor`,
+> seule la feuille DSL `UseNormalAttack` est réellement perdue.
+>
+> Trouvaille de bord : `...PyreblasterAbility$$CreateTrigger` a le corps **dédupliqué par ICF**
+> (même RVA) que `...FireOfAbsolutionAbility$$CreateTrigger` — donc exactement le même trigger. Les
+> deux jumeaux vivaient sur deux canaux différents ; ils sont désormais tous deux sur le bus.
+
 Il **était déjà porté**, par un vecteur impératif branché sur `On(AttackInAtomicGroup)`
 (`dispatch/ability.py::evaluate_abilities_for_event` + `dispatch/attack.py`). L'audit
 `kit-coverage.md` le compte manquant parce qu'il lit les **REGISTRES**, et que ce passif n'y a pas
@@ -167,8 +193,50 @@ publie pas. Sans kill préalable, l'écart est **0**. Résidu **#951-r3**.
 
 ## 6. Résidus
 
-* **#951-r1** — `defeated_units` fusionne les deux listes natives ; scission requise le jour où
-  `DSLSelectors$$UnitsDefeatedByMeleeAttack` entre au port.
+* **#951-r1 — FERMÉ (2026-08-15). Le blocage `etage` annoncé était FAUX, et il ne manquait qu'UNE
+  fonction native.** La fiche disait « l'ÉCRIVAIN de `KillUnitOptions.inMelee` n'est pas localisé,
+  et le déduire du profil d'attaque serait une invention ». Il l'est, et la chaîne se lit de bout
+  en bout :
+
+  ```
+  IdunBattle.Operations.ApplyDamageOperation$$Execute
+      rt = BattleQuery.<slot 4 = GetAttackRangeType>(
+               ability        = DamageAppliedResult+0x40,          # = `source_ability`
+               caster         = la SOURCE du degat,
+               casterPosition = EntityExtensions$$GetUnitPosition(source),
+               target         = la VICTIME)                        -> KillUnitContext+0x38
+  IdunBattle.Operations.RecordKillOperation$$Execute
+      rangeType = context+0x38 si HasValue, sinon <meme slot 4, sur le killTrigger>
+      matchState.<slot 1 = AddDeath>(killer, killed, killTrigger, attackTrigger,
+                                     Nullable<AttackRangeType>(rangeType))
+  lambda `...u003CVerifyDeathsu003Eb__0`  : ForDefault() + recopie de l'entree -> KillUnitOptions+0x3c
+  IdunBattle.Operations.KillUnitOperation$$Execute
+      local_378[0] = (local_370[0] == 1) & *pbVar22       # == Melee(1) & HasValue   (LU aux octets)
+      *(byte *)(victime.UnitComponent + 0x178) = local_378[0]      # DefeatedByMeleeAttack
+      ... RegisterDefeatedUnit(stats_du_tueur, id_victime, inMelee: local_378[0])
+  ```
+
+  Ce qui manquait au port était le **slot 4 d'`IBattleQuery`**
+  (`IdunBattle.Core.Services.BattleQuery$$GetAttackRangeType`, arité 4, LU dans
+  `metadata/interface_slots.tsv`) — le **frère** des slots 2 (`IsMeleeAttack`) et 3
+  (`IsRangedAttack`), déjà portés tous les deux. Sa particularité tient en une ligne : il rend le
+  **membre**, donc une TROISIÈME valeur (`None`) que deux booléens ne peuvent pas exprimer — les
+  slots 2 et 3 rendent tous deux FAUX sur `case 0`.
+
+  Porté dans `services/battle_query.get_attack_range_type` (foyer, comme ses deux frères) +
+  `triggers/base._attack_range_type` (domaine runner, comme `_is_ranged_attack`). Le calcul se fait
+  **au foyer de dégât** (`damage.py::_fire_death_if_killed`), c'est-à-dire là où le natif le fait,
+  et transite par un **5ᵉ champ** de `state.pending_deaths`. Les deux écritures du même octet sont
+  posées à leurs places natives respectives — le marqueur **avant** la garde revive, l'inscription
+  **après**.
+
+  Confronté LIVE : `test_951_trophy_taker_live.py::test_951r1_in_melee_concorde_avec_le_natif`
+  (kill de mêlée, `d == 1` imposé par le montage) — natif `defeatedByMelee = True`, port `True` sur
+  la victime ET victime dans `@+0xa8` du tueur. Garde offline : `test_951r1_in_melee_offline.py`
+  (11 tests), dont le bras `Ranged` et le bras NON MESURÉ.
+
+  ⚠ **La vue `defeated_units` (l'union) est INCHANGÉE** — ses six lecteurs ne voient rien de ce
+  commit, et c'est gardé (`test_la_vue_union_est_inchangee_quelle_que_soit_la_partition`).
 * **#951-r2** — `kit-coverage.md` compte `FireOfAbsolution` MANQUANT alors qu'il est porté : l'audit
   lit les registres, ce passif passe par un vecteur impératif.
 * **#951-r3** — le compteur d'unités vaincues n'est pas publié par la capture : après un
