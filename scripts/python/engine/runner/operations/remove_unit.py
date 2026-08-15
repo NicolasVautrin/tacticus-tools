@@ -112,6 +112,9 @@ class RemoveUnitOperation:
         # 10. `uc->[0x17c] = TurnComponent$$GetAmountOfTurnsStartedByPlayer(GetMatchTurn(state),
         #     ownerPlayerId)` -- le compteur de tours du joueur PROPRIETAIRE au moment du retrait.
         #     ORDRE natif : APRES la pose du flag `Removed`, AVANT l'`On(0x25)` ci-dessous.
+        #     Le repli `0` est FIDELE, pas defensif : `TurnComponent$$GetAmountOfTurnsStartedByPlayer`
+        #     ouvre sur `if (!dict.ContainsKey(playerId)) return 0`. Un `State` dont `turn_counts`
+        #     est vide rend donc la MEME valeur que le natif sur un joueur inconnu.
         oc = e.get_component(OwnerComponent)
         if oc is not None and oc.player is not None:
             uc.turn_defeated = state.turn_counts.get(int(oc.player), 0)
