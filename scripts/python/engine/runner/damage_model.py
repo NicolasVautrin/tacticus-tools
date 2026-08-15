@@ -74,6 +74,11 @@ from ..entities.effects.loki.synaptic_insight import (
 # nommage pour les DEUX faces (cf. `playbook/prediction/_shared.py`).
 from ..entities.effects.loki.extra_damage_aura import (
     CTX_TGT_ADJACENT_UNIT_PROFILES as _MG_CTX_TGT_ADJ_PROFILES)
+# #419-r1-tr9-r4-r1-r2-r1c-r1 : le `Filter(., HasUsedActiveAbilityThisTurn(Subject@+0x68))` du tronc
+# `ALegendaryCommander_BaseEffect$$CreateTargetSelector` -- un seul foyer de nommage pour les DEUX
+# faces (cf. `playbook/prediction/_shared.py`) ET pour les DEUX axes (1394 degat / 1395 coups).
+from ..entities.effects.loki.legendary_commander import (
+    CTX_USED_ACTIVE_BY_ID as _LC_CTX_USED_ACTIVE)
 # #1042-r1 : le `$$CreateTargetSelector` de `WisdomOfTheAncients_DamageReductionEffect` (1445),
 # re-evalue PAR PORTEUR -- un seul foyer de nommage pour les DEUX faces (cf. `prediction/_shared`).
 from ..entities.effects.loki.damage_reduction import (
@@ -1454,6 +1459,9 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     if tpc is not None:
         tp = (tpc.col, tpc.row)
     toc = te.get_component(OwnerComponent) if te is not None else None
+    # #1025-r1 / #419-r1-tr9-r4-r1-r2-r1c-r1 -- calcule UNE fois : les deux cles du ctx d'aura
+    # ci-dessous s'en derivent (les voisins de la CIBLE, et leur flag `ActiveAbilityUsed`).
+    _tgt_adj_profiles = _adjacent_unit_profiles(state, unit_id)
     carriers = []
     for uid, e in state.entities.items():
         if uid == unit_id:
@@ -1573,7 +1581,28 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # CIBLE est fixe pour tout cet appel -> valeur PRE-CALCULEE, pas un
                            # callable (contraste `_OA_CTX_ADJ_ENEMY_IDS`, qui se resout par
                            # PORTEUR). Tri-etat : `None` = non mesure -> le gate se FERME.
-                           _MG_CTX_TGT_ADJ_PROFILES: _adjacent_unit_profiles(state, unit_id),
+                           _MG_CTX_TGT_ADJ_PROFILES: _tgt_adj_profiles,
+                           # #419-r1-tr9-r4-r1-r2-r1c-r1 -- `HasUsedActiveAbilityThisTurn(
+                           # Subject@<DSLSelectors+0x68>)` du `Filter` de
+                           # `IdunBattle.Entities.Effects.Loki.ALegendaryCommander_BaseEffect$$
+                           # CreateTargetSelector`, deuxieme des TROIS noeuds du tronc que
+                           # `LegendaryCommander_ExtraDamage` (1394) prend de sa base. MEME cle,
+                           # MEME store (`UnitFlagsComponent`, flag 2 `ActiveAbilityUsed`) et MEME
+                           # foyer (`components.unit_has_used_active_ability`) que celle deja posee
+                           # par `build_hits_board` pour le JUMEAU 1395 sur l'axe COUPS : ce n'est
+                           # pas un nommage neuf, c'est le MEME noeud natif relaye au canal AURA
+                           # DEFENSE. Table par unite VIVANTE -- le selecteur croise ses `uid` avec
+                           # `_MG_CTX_TGT_ADJ_PROFILES` (les voisins de la CIBLE), donc les deux
+                           # cles se lisent ENSEMBLE. Tri-etat : cle absente -> gate FERME.
+                           # PORTEE : les VOISINS DE LA CIBLE, c.-a-d. exactement les `uid` que le
+                           # selecteur croise (`AdjacentEnemies(sel)` mord ssi un membre de `sel`
+                           # est adjacent a la cible, l'adjacence native etant SYMETRIQUE) -- pas
+                           # tout l'etat, qui coûterait une lecture de flag par entite a chaque
+                           # coup pour une intersection deja bornee. MEME portee que la face
+                           # PREDICTION (`prediction/_shared.py`) : pas de fork.
+                           _LC_CTX_USED_ACTIVE: {
+                               p[0]: unit_has_used_active_ability(state, p[0])
+                               for p in (_tgt_adj_profiles or ())},
                            # #1042-r1 -- le `$$CreateTargetSelector` de
                            # `WisdomOfTheAncients_DamageReductionEffect` (1445), CALLABLE et PAR
                            # PORTEUR pour la meme raison que la cle ci-dessus : la boucle native de

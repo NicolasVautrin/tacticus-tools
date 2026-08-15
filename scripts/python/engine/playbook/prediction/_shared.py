@@ -38,6 +38,11 @@ from engine.entities.effects.loki.obsessive_annunciation import (   # #954 -- un
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from engine.entities.effects.loki.extra_damage_aura import (   # #1025-r1 -- meme foyer de nommage
     CTX_TGT_ADJACENT_UNIT_PROFILES as _MG_CTX_TGT_ADJ_PROFILES)
+# #419-r1-tr9-r4-r1-r2-r1c-r1 -- le `Filter(., HasUsedActiveAbilityThisTurn(Subject@+0x68))` du tronc
+# `ALegendaryCommander_BaseEffect$$CreateTargetSelector`. Un seul foyer de nommage pour les DEUX
+# faces (cf. `runner/damage_model.py`) ET pour les DEUX axes (1394 degat / 1395 coups).
+from engine.entities.effects.loki.legendary_commander import (
+    CTX_USED_ACTIVE_BY_ID as _LC_CTX_USED_ACTIVE)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier
 from engine.entities.traits.factory import TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names
@@ -684,6 +689,9 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     _def_carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                      for uid in scene.effect_carrier_ids(exclude=tgt_id)
                      if scene.hp(uid) is None or (scene.hp(uid) or 0) > 0]
+    # #1025-r1 / #419-r1-tr9-r4-r1-r2-r1c-r1 -- calcule UNE fois : les deux cles ci-dessous s'en
+    # derivent (les voisins de la cible, et leur flag `ActiveAbilityUsed`).
+    _tgt_adj_profiles = _adjacent_unit_profiles(scene, tgt_id)
     for _eb in aura_defense_damage_malus_from_units(
             _def_carriers, {"tgt_id": tgt_id, "t_pos": t_pos, "tgt_team": scene.team(tgt_id),
                             "tgt_traits": _tgt_traits_names, "damage_profile": damage_profile,
@@ -757,7 +765,28 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # (`playbook/adjacency.py`) que la face COMBAT
                             # (`damage_model._adjacent_unit_profiles`) -- pas de fork. La CIBLE
                             # est FIXE pour cet appel -> valeur pre-calculee, pas un callable.
-                            _MG_CTX_TGT_ADJ_PROFILES: _adjacent_unit_profiles(scene, tgt_id),
+                            _MG_CTX_TGT_ADJ_PROFILES: _tgt_adj_profiles,
+                            # #419-r1-tr9-r4-r1-r2-r1c-r1 -- `HasUsedActiveAbilityThisTurn(
+                            # Subject@<DSLSelectors+0x68>)` du `Filter` de
+                            # `IdunBattle.Entities.Effects.Loki.ALegendaryCommander_BaseEffect$$
+                            # CreateTargetSelector` (2e des TROIS noeuds du tronc que
+                            # `LegendaryCommander_ExtraDamage` prend de sa base). MEME cle, MEME
+                            # semantique et MEME foyer (`Scene.has_used_active_ability`, lui-meme
+                            # bati sur `components.unit_has_used_active_ability`) que la face
+                            # COMBAT -- pas de fork.
+                            # PORTEE : les VOISINS DE LA CIBLE, c.-a-d. exactement les `uid` que le
+                            # selecteur croise (`AdjacentEnemies(sel)` mord ssi un membre de `sel`
+                            # est adjacent a la cible, l'adjacence native etant symetrique) -- pas
+                            # toute la scene, qui coûterait une lecture de flag par unite a chaque
+                            # coup pour un ensemble dont l'intersection est deja bornee.
+                            # TRI-ETAT conserve : `has_used_active_ability` rend `None` quand le
+                            # capteur `unitFlags` n'est pas mesure, et `None` est FAUX au sens du
+                            # gate (`used.get(uid)` -> aucune contribution) : degradation
+                            # RESTRICTIVE. Cle a `{}` si les profils sont `None`, mais le gate est
+                            # alors deja ferme par `prof is None`.
+                            _LC_CTX_USED_ACTIVE: {
+                                p[0]: scene.has_used_active_ability(p[0])
+                                for p in (_tgt_adj_profiles or ())},
                             # #1042-r1 -- le `$$CreateTargetSelector` de
                             # `WisdomOfTheAncients_DamageReductionEffect` (1445), CALLABLE et PAR
                             # PORTEUR pour la meme raison que la cle ci-dessus. MEME cle, MEME

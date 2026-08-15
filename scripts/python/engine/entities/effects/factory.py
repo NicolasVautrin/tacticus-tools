@@ -160,6 +160,9 @@ from .loki.hits import (
     Swarm_HitReductionEffect, UnstoppableFerocityOwnerEffect, VoltagheistFieldExtraHitEffect
 )
 from .loki.imperative import ConquerorImperativeEffect, ProtectorImperativeEffect
+# #419-r1-tr9-r4-r1-r2-r1c-r1 -- la face DEGAT du MEME passif que `LegendaryCommanderExtraHitsEffect`
+# ci-dessus (axe COUPS) : un artefact natif, deux axes, deux canaux.
+from .loki.legendary_commander import LegendaryCommanderExtraDamageEffect
 from .loki.inescapable_accuracy import (
     InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect,
     InescapableAccuracyOverrideHitsEffect
@@ -973,6 +976,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`!IsNormalAttack`), avec un etat persistant (<< first attack >>) et
     # `IsFirstHitGroupInAttack`. #419-r1-tr9-r4-r1-r2-r1.
     "LegendaryCommander_ExtraHits": LegendaryCommanderExtraHitsEffect,
+    # #419-r1-tr9-r4-r1-r2-r1c-r1 -- `LegendaryCommander_ExtraDamage` (effet 0x572 = 1394), la face
+    # DEGAT du MEME `AddEffect(0x572, ..) & AddEffect(0x573, ..)` que 1395 ci-dessus. Il etait POSE
+    # (`ABILITY_INIT_OWNER_EFFECTS["LegendaryCommander"]` seede les DEUX) et INERTE faute de classe
+    # -- `EffectFactory` en faisait un `BaseEffect` NU : VISIBLE dans la liste, sans effet sur le
+    # degat. MEME vice que #1002-r1 sur 1454.
+    # `$$CreateEffectDamageBonusForAttack` = `ForAddition( get_OwnerIsTarget & AreFriends(
+    # Caster@<DSLSelectors+0x48>, EffectSource(<+0x38>), 0, false), ConfigVar(8 = extraDmg) )`, et
+    # son `$$CreateTargetSelector` est le TRONC de la base `ALegendaryCommander_BaseEffect` (TROIS
+    # noeuds) -- SANS le quatrieme `IsAdjacent(Owner, Subject)`, qui n'existe que sur 1395.
+    # Canal `create_aura_defense_damage_malus_for_ally` + `AURA_DEFENSE_MALUS_NATIVE_FACE =
+    # "attacker"` (MEME arbitrage que `MoreGitzOverEre` / `OnMyPosition` : slot natif ATTAQUANT,
+    # beneficiaire du selecteur = la CIBLE DU COUP).
+    # ⚠ NE PAS chercher cet effet par l'ORDINAL 1394 : c'est le NOM PLEIN qui apparie, ici comme au
+    # registre de `probe_313`.
+    "LegendaryCommander_ExtraDamage": LegendaryCommanderExtraDamageEffect,
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     # LetTheGalaxyBurn (effet 0x5c5=1477, owner-effect auto-porte par les 5 heros Black Legion qui ont le
     # TRAIT 0x422=1058) : +1 coup d'ARME a l'attaque du porteur, gate `OwnerIsCaster &
