@@ -46,6 +46,7 @@ import {
     method_get_param_count, methodParamClassName, s,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
+import { serializeToJson, isSerializerReady } from "../il2cpp/serializer.js";
 // ⚠ IMPORTES, PAS RECOPIES. Deux tables de coercition d'arguments divergeraient en silence ;
 // le depot proscrit de recopier le voisin de forme. Leur place est dans `il2cpp/` -- residu
 // declare dans `fsm-input.ts`, a deplacer hors d'une fenetre.
@@ -327,6 +328,66 @@ export function register(ctx: Ctx): void {
         let fin: string | null = null;
         try { fin = s(class_get_name(cur.readPointer()) as NativePointer); } catch { /* null */ }
         return { ok: true, depart: v.nom, pointeur: cur.toString(), classeReelle: fin, pas };
+    });
+
+    /** LE MEME CHEMIN QUE `viewField`, mais on SERIALISE l'arrivee (Newtonsoft).
+     *
+     *  body: { cible?, surPointeur?, chemin?, max? } -> { ok, classeReelle, len, json }
+     *
+     *  POURQUOI ICI ET GENERIQUE. `viewField` rend un POINTEUR : pour en tirer un contenu il
+     *  fallait jusqu'ici connaitre la disposition et la marcher a la main -- ce que chaque
+     *  module a fini par reecrire pour SON objet (`expedition-board`, `battle-config`,
+     *  `campaign-builder`, `mow-builder`, ... : 8 fichiers appellent `serializeToJson`, aucun
+     *  ne l'expose). Or l'executeur porte 44 champs de progression : un lecteur par champ ne
+     *  passe pas a l'echelle. Le chemin etant deja resolu PAR NOM a chaque pas, il n'y a
+     *  qu'a brancher le serialiseur au bout.
+     *
+     *  ⚠ LECTURE PURE : aucun `invoke`, aucune commande de vue jouee. Ce n'est pas
+     *  `viewInvoke`, et ca n'exige donc pas de `confirmer`.
+     *  ⚠ La sortie est BORNEE et le DIT : au-dela de `max` (defaut 200 000 caracteres) le
+     *  JSON est tronque et `tronque: true` -- un JSON coupe en silence se relit comme un
+     *  objet incomplet, pas comme une troncature. */
+    ctx.rpc.viewJson = (body?: {
+        cible?: string; surPointeur?: string; chemin?: string; max?: number;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        const v = objetVise(body?.cible, body?.surPointeur);
+        if (estRefus(v)) return v;
+        let cur = v.obj;
+        if (cur === null) return { ok: false, error: "cible sans instance (statique)" };
+        for (const brut of (body?.chemin ?? "").split(".")) {
+            const seg = brut.trim();
+            if (!seg) continue;
+            const klass = cur.readPointer();
+            const off = getFieldOffset(klass, seg);
+            if (off < 0) {
+                return { ok: false, error: "champ " + JSON.stringify(seg) + " absent de "
+                    + s(class_get_name(klass) as NativePointer) + " (ni sur ses parents)" };
+            }
+            const suivant = cur.add(off).readPointer();
+            if (suivant.isNull()) {
+                return { ok: false, error: "champ " + seg + " est NUL -- le chemin s'arrete la" };
+            }
+            cur = suivant;
+        }
+        let cn: string | null = null;
+        try { cn = s(class_get_name(cur.readPointer()) as NativePointer); } catch { /* null */ }
+        if (!isSerializerReady()) {
+            return { ok: false, classeReelle: cn, error: "serialiseur Newtonsoft NON RESOLU" };
+        }
+        let json: string | null = null;
+        try { json = serializeToJson(cur); }
+        catch (e) {
+            return { ok: false, classeReelle: cn,
+                     error: "serialisation a leve : "
+                          + String((e as Error).message || e).slice(0, 160) };
+        }
+        if (json === null) return { ok: false, classeReelle: cn, error: "serialisation en echec" };
+        const max = typeof body?.max === "number" && body.max > 0 ? body.max : 200000;
+        return {
+            ok: true, classeReelle: cn, pointeur: cur.toString(), len: json.length,
+            tronque: json.length > max,
+            json: json.length > max ? json.slice(0, max) : json,
+        };
     });
 
     /** QUI est joignable, et par quelle voie. Publie la CHAINE D'HERITAGE : c'est elle qui
