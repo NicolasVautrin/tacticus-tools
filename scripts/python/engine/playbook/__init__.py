@@ -44,6 +44,7 @@ from . import normal_attack_kill_gate  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r
 from . import resurrection_orb  # noqa: F401  (#289) 1009 -> route non-attaque (register_nonattack)
 from . import plagueburst_mortar  # noqa: F401  (#302) 1169 -> route non-attaque, domaine TUILE
 from . import daemonic_ordnance  # noqa: F401  (#302 tranche 3) 1148 -> meme route, domaine TUILE
+from . import basilisk_barrage  # noqa: F401  (#1026-r1) 1026 -> meme route, domaine TUILE
 from . import static_threshold_gate  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r1-r2) gate `utility > <static>` x10
 from . import should_execute_gates  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r1) les 4 derniers corps propres portables
 from . import spirit_leech  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r3) 1104 : lifesteal au rang natif
