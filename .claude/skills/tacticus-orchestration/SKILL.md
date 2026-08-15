@@ -751,6 +751,36 @@ Le levier à chaud, pour une session déjà lancée, est le RPC `renderBudget` �
 `args` (un TABLEAU), pas `params`** : un `params` est ignoré en silence et l'appel se comporte
 en lecture seule (`applied: []`).
 
+**Étape 7 — RÉ-ATTESTER les verdicts de couverture, et ça exige de RELIRE, pas de retamponner.**
+
+```bash
+cd scripts/python && python coverage_attestations.py   # -> VALIDES / PERIMEES
+```
+
+`coverage_attestations.py` épingle chaque verdict au build sur lequel il a été lu, *parce qu'un
+changement de build peut l'invalider en silence*. Un changement de hash les périme donc **toutes
+d'un coup**, et l'asymétrie est voulue : une attestation périmée **remet** son item au compte des
+manquants (la péremption ne sait que rajouter du travail).
+
+> **⚠ MESURÉ le 2026-08-15 : la migration en périme 10, et ça met `master` au ROUGE.**
+> `scripts/python/tests/test_951r2_voies_de_couverture_offline.py` tombe (4 tests), et le rouge
+> **n'a été trouvé que parce qu'un agent l'a signalé au passage** — aucune étape de cette procédure
+> ne le prévoyait. C'est le troisième défaut de procédure révélé par la même migration.
+>
+> ⛔ **Ne pas se contenter de réécrire le champ `build`.** Ce serait exactement la liste blanche que
+> ce ledger a été écrit pour remplacer. Chaque verdict se **relit sur le nouveau décompilé** —
+> et c'est peu coûteux, ~10 lectures ciblées.
+>
+> **Attendre que la plupart tiennent, et chercher celle qui ne tient pas** : les noms de symboles
+> sont stables à ~97,5 % entre builds, donc ~2,5 % bougent, et cette fraction-là est précisément ce
+> que la clause existe pour attraper. « Les dix tiennent » est un résultat ; « j'ai mis à jour les
+> dix » n'en est pas un.
+
+**Même famille, autre cliquet** : `test_1041_kit_item_voies_offline.py` rougit sur tout **registre
+neuf** non classé (`VOIES` ou `ECARTES` avec sa raison). Celui-là n'est PAS lié au build — il est
+alimenté par notre **propre cadence de portage**, comme les masques de ciblage et les littéraux
+d'`AbilityAttackType`. Le vérifier après un lot de portages, pas après une migration.
+
 ```powershell
 $b = '{"method":"renderBudget","args":[{"width":1280,"height":960,"fullScreenMode":3}]}'
 Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/scripts/<SID>/rpc" -Method Post -Body $b -ContentType 'application/json'
