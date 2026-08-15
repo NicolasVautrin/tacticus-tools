@@ -1254,6 +1254,19 @@ python scripts/python/fleet_board.py    # derniere ligne : "N agents ; FLOTTE = 
 **Avant CHAQUE annonce du chiffre, et avant CHAQUE decision de refill, joue cette commande.**
 Pas « je crois », pas « il m'en reste deux » : la derniere ligne de sortie.
 
+⚠ **MAIS CE CHIFFRE EST UN MAJORANT, PAS UNE AUTORITE — et l'arbitre est le DASHBOARD DU CLI.**
+`fleet_board` classe « en vol » tout agent ayant ecrit dans son transcript il y a moins de
+15 min, et **aucun seuil ne separe** les deux populations : ses propres lignes 171-191 le
+mesurent (un agent VIVANT peut etre a 8,2 min de silence, un agent TERMINE a 12,1 — il n'y a
+pas de trou entre les deux a cette echelle). Un agent qui vient de rendre est donc compte
+« vif » pendant un quart d'heure. Mesure du 2026-08-15 : le script annonce **4**, l'utilisateur
+en voit **3** sur son dashboard, et le meme script rend **3** quelques minutes plus tard sans
+qu'aucun agent n'ait bouge. Corollaire ecrit dans sa source : `libres = plafond - en_vol` est
+une **borne INFERIEURE** du nombre de slots libres.
+⇒ **Il ne DECOMPTE pas, il MAJORE.** Quand il annonce le plafond, il reste probablement de la
+place. Quand l'utilisateur corrige le chiffre, **c'est lui qui a raison** — et c'est le SCRIPT
+qu'on corrige, jamais la mesure de l'utilisateur qu'on discute.
+
 **Pourquoi** : un compteur mental se decremente au fil des merges et **derive**. Mesure du
 2026-08-15 : annonce « 5 en vol » alors que la flotte en portait **4** ; re-annonce « 5 »
 quand elle en portait **3**. Deux fois dans le meme tour, et jamais dans le meme sens — donc
