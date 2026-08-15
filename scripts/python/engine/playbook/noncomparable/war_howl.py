@@ -1,8 +1,12 @@
 """WarHowlPlaybook -- face DECISION de `1106 WarHowl` (`spaceBlackmane` << Ragnar >>). #969."""
 from __future__ import annotations
 
-from engine import battle_query as bq          # FORME B (liaison de MODULE) : `has_ranged_weapon`,
-#                                               le foyer du predicat `UnitsWithoutRangedWeapons`.
+from engine.services import battle_query as SBQ   # FORME B (liaison de MODULE) : `has_ranged_weapon`,
+#   le foyer du predicat `UnitsWithoutRangedWeapons`. ⚠ C'est `engine.SERVICES.battle_query`, PAS
+#   `engine.battle_query` : les deux modules existent, ne portent PAS les memes fonctions, et le
+#   second n'a pas `has_ranged_weapon`. Erreur commise puis attrapee par le montage AU CONTACT du
+#   probe `#969-r1` -- le montage de spawn ne l'atteignait pas (WarHowl y rend `0.0` avant d'y
+#   arriver), donc un smoke offline l'aurait laissee passer.
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import UnitTrait
 
@@ -189,7 +193,7 @@ class WarHowlPlaybook(NonComparablePlaybook):
             if u.get("id") == ctx.uid or not u.get("ctrl") or not u.get("alive"):
                 continue                                    # `AllAliveUnits - Owner`, puis `Friends`
             vid = u.get("visualId")
-            if bq.has_ranged_weapon(vid):
+            if SBQ.has_ranged_weapon(vid):
                 continue                                    # `UnitsWithoutRangedWeapons`
             if UnitTrait.Summon.name in (_traits(vid) or ()):
                 continue                                    # `UnitsWithoutTrait(Summon)` -- le KIT
