@@ -76,6 +76,8 @@ sys.path.insert(0, __file__.rsplit("tests", 1)[0].rstrip("\\/"))
 
 import hexgeo                                                              # noqa: E402
 from engine import battle_query as bq                                      # noqa: E402
+#: La racine du depot -- pour le seul garde qui BALAIE l'arbre (SS4.8).
+G_ROOT = __import__("pathlib").Path(__file__).resolve().parents[4]         # noqa: E402
 from engine.entities.effect_type import EffectType                         # noqa: E402
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 from engine.playbook.scene import Scene                                    # noqa: E402
@@ -898,3 +900,95 @@ def test_le_board_de_coups_PUBLIE_le_canal_sur_la_face_COMBAT():
     assert board_coups.get("board") is bd, (
         "`build_hits_board` ne publie pas `board` : les trois consommateurs du canal COUPS sont "
         "INERTES cote COMBAT")
+
+
+def test_le_canal_est_PUBLIE_par_TOUS_les_montages_de_ctx_des_agregateurs_cables():
+    """LA FACE PREDICTION N'EST PAS APPELABLE ISOLEMENT, ET C'EST EXACTEMENT LA QUE LE VICE PASSE.
+
+    Le test ci-dessus exerce le montage COMBAT en l'APPELANT ; ses jumeaux PREDICTION vivent au
+    milieu de `make_normal_attack_predictions` / `_apply_ally_attack_dmg_bonus`, qu'on ne peut pas
+    invoquer sans monter une `Scene` complete. Un cablage dont UNE des deux faces ne publie pas la
+    cle a exactement l'ALLURE d'un cablage complet et le COMPORTEMENT d'avant -- la forme (a) de
+    l'etape 3 du cliquet, transposee au SEEDING, et le mode de defaillance qui rendrait les onze
+    sites de la SS4 inertes en PREDICTION sans qu'aucun test ne bouge.
+
+    LE PERIMETRE EST DERIVE, PAS ECRIT : on part des METHODES d'effet reellement cablees (celles
+    dont le corps consomme `adjacency_channels`), on remonte a l'AGREGATEUR qui les appelle dans
+    `entities/effects/__init__.py`, puis a TOUS ses call-sites -- et chacun doit construire, dans sa
+    fonction, un dict portant la cle `board`. Ajouter un site cable sans publier la cle fait rougir
+    ici, meme si personne n'a pense a ce fichier."""
+    import ast as _ast
+
+    racine = G_ROOT / "scripts" / "python" / "engine"
+
+    def _arbre(rel):
+        return _ast.parse((racine / rel).read_text(encoding="utf-8"))
+
+    # (1) les METHODES d'effet cablees -- derivees du CONTENU, pas nommees.
+    cablees = set()
+    for rel in ("entities/effects/loki/imperative.py", "entities/effects/loki/hits.py",
+                "entities/effects/loki/icon_of_obstinacy.py",
+                "entities/effects/loki/terrors_lament.py",
+                "entities/effects/loki/extra_damage_aura.py",
+                "entities/traits/combat.py"):
+        arbre = _arbre(rel)
+        derivations = {n.name for n in _ast.walk(arbre)
+                       if isinstance(n, _ast.FunctionDef)
+                       and "adjacency_channels" in {getattr(x, "attr", None) or getattr(x, "id", "")
+                                                    for x in _ast.walk(n)}}
+        for n in _ast.walk(arbre):
+            if not isinstance(n, _ast.FunctionDef) or not n.name.startswith(("create_", "aura_",
+                                                                             "as_attacker_")):
+                continue
+            noms = {getattr(x, "attr", None) or getattr(x, "id", "") for x in _ast.walk(n)}
+            if noms & (derivations | {"adjacency_channels"}):
+                cablees.add(n.name)
+    assert cablees, "perimetre CASSE : aucune methode d'effet cablee detectee"
+
+    # (2) l'AGREGATEUR de chacune, LU dans le foyer des canaux d'aura.
+    agr = _arbre("entities/effects/__init__.py")
+    aggregateurs = set()
+    for n in _ast.walk(agr):
+        if not isinstance(n, _ast.FunctionDef):
+            continue
+        appelees = {x.func.attr for x in _ast.walk(n)
+                    if isinstance(x, _ast.Call) and isinstance(x.func, _ast.Attribute)}
+        if appelees & cablees:
+            aggregateurs.add(n.name)
+    assert aggregateurs, "perimetre CASSE : aucun agregateur ne sert les methodes cablees"
+
+    # (3) TOUS leurs call-sites, et la cle `board` dans le dict monte par la fonction appelante.
+    #
+    # ⚠ RELAYER N'EST PAS PUBLIER, et le distinguer se DERIVE : une fonction qui repand un de ses
+    # PROPRES PARAMETRES (`{**ctx, ...}`, `{**(board or {}), ...}`) transmet un ctx monte AILLEURS --
+    # exiger d'elle la cle serait exiger qu'elle invente une donnee qu'elle n'a pas. C'est le cas de
+    # l'agregateur lui-meme (`effects/__init__.py`) et de `attack_hits_formula`, qui relaie le board
+    # de coups. Le PUBLIEUR est celui qui BATIT le dict, et c'est lui qui doit porter la cle.
+    manquants, relais, vus = [], 0, 0
+    for chemin in sorted(racine.rglob("*.py")):
+        arbre = _ast.parse(chemin.read_text(encoding="utf-8"))
+        for fn in [n for n in _ast.walk(arbre) if isinstance(n, _ast.FunctionDef)]:
+            appels = [x for x in _ast.walk(fn) if isinstance(x, _ast.Call)
+                      and (getattr(x.func, "id", None) in aggregateurs
+                           or getattr(x.func, "attr", None) in aggregateurs)]
+            if not appels:
+                continue
+            params = {a.arg for a in _ast.walk(fn.args) if isinstance(a, _ast.arg)}
+            dicts = [d for d in _ast.walk(fn) if isinstance(d, _ast.Dict)]
+            repand_un_parametre = any(
+                k is None and ({getattr(x, "id", None) for x in _ast.walk(v)} & params)
+                for d in dicts for (k, v) in zip(d.keys, d.values))
+            if repand_un_parametre:
+                relais += 1
+                continue
+            vus += 1
+            cles = {k.value for d in dicts for k in d.keys
+                    if isinstance(k, _ast.Constant) and isinstance(k.value, str)}
+            if "board" not in cles:
+                manquants.append("%s::%s" % (chemin.relative_to(racine).as_posix(), fn.name))
+    assert vus >= 4, "perimetre CASSE : %d montage(s) de ctx vu(s), le balayage ne garde rien" % vus
+    assert relais >= 1, "perimetre CASSE : aucun RELAIS vu -- le critere ne distingue plus rien"
+    assert not manquants, (
+        "%d montage(s) de ctx n'ecrivent PAS la cle `board` -- les sites cables qu'ils servent sont "
+        "INERTES sur cette face, avec l'allure d'un cablage complet : %r" % (len(manquants),
+                                                                            manquants))
