@@ -1245,6 +1245,34 @@ livraison **PAR PULL REQUEST**) :
   re-découper.
 
 
+## ⛔ LE NOMBRE D'AGENTS EN VOL SE MESURE — il ne se compte JAMAIS de tete
+
+```powershell
+python scripts/python/fleet_board.py    # derniere ligne : "N agents ; FLOTTE = X en vol"
+```
+
+**Avant CHAQUE annonce du chiffre, et avant CHAQUE decision de refill, joue cette commande.**
+Pas « je crois », pas « il m'en reste deux » : la derniere ligne de sortie.
+
+**Pourquoi** : un compteur mental se decremente au fil des merges et **derive**. Mesure du
+2026-08-15 : annonce « 5 en vol » alors que la flotte en portait **4** ; re-annonce « 5 »
+quand elle en portait **3**. Deux fois dans le meme tour, et jamais dans le meme sens — donc
+ce n'est pas un biais qu'on corrige en faisant attention, c'est un compteur qui n'a pas de
+source. La faute est la meme que celle de
+`memory/feedback_measure_ground_truth_not_proxy.md` — diagnostiquer depuis un proxy
+(mon souvenir des merges) au lieu de la verite-terrain — appliquee a mon PROPRE etat.
+
+⚠ **Le chiffre bouge sous toi pendant que tu travailles** : un agent finit, une PR merge, un
+agent est repris par `SendMessage`. Un chiffre mesure il y a trois tours est perime.
+⚠ **`git worktree list` n'est PAS une source** : `locked` n'est pose qu'au LANCEMENT et
+jamais par une reprise, donc le critere devient aveugle des la premiere reprise -- et
+*silencieusement* (tout le monde s'affiche « fini »). Mesure du 2026-07-27 : 0 verrou sur 15
+agents dont 8 travaillaient.
+⚠ Les trois etats de `fleet_board` : **en vol** (a ecrit dans son transcript il y a moins de
+15 min) · **EN ATTENTE** (silencieux mais worktree conserve — reprenable par `SendMessage`,
+contexte intact) · **fini** (plus de worktree, masque sauf `--all`). « EN ATTENTE » ne veut
+pas dire « travail a reprendre » : un agent dont la PR est deja mergee y figure aussi.
+
 ## La boucle de MERGE
 
 **Ordre, et il ne se reorganise pas :** rapport -> `gh pr view --json headRefName` -> fraicheur
