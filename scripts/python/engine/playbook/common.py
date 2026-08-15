@@ -152,14 +152,33 @@ class HealPlaybook(ComparablePlaybook):
         soit `utility > 0 && (!IsBoss(caster) || caster != target)` -- **un BOSS ne se soigne pas
         lui-meme**. Seule la premiere moitie etait portee (le `pred > 0` de `score`).
 
-        ⚠ SUBSTRAT DU `IsBoss`, et sa borne. Le natif ne lit PAS un trait : `UnitExtensions$$IsBoss`
-        resout un composant et rend l'octet `<composant>+0x88`. AUCUN canal du port ne publie ce
-        champ (ni `combatSnapshot`, ni le gameconfig, qui n'a aucune cle `isBoss`). Le port emploie
-        donc le PROXY deja acte ailleurs -- le trait `Boss` (`UnitTrait` 0x7e7 = 2023), celui que
-        `services/custom_normal_attack.NORMAL_BOSS_ATTACK_TRAIT` consomme pour dispatcher l'attaque
-        normale boss, et celui que le montage de #573 greffe pour faire basculer le natif sur `1030`.
-        Sur le seed BC courant **0 unite sur 175** le porte : la clause est donc INERTE hors greffe,
-        et c'est par greffe qu'elle se confronte.
+        ⚠ **SUBSTRAT DU `IsBoss` : LE TRAIT `Boss` N'EN EST PAS UN, ET C'EST MESURE**
+        (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`, etape 7 de
+        `probe_419r1tr14r5r2r1r1r1r3r1_gates.py`). Le natif ne lit pas un trait :
+        `UnitExtensions$$IsBoss` resout un composant et rend l'octet `<composant>+0x88`, qu'AUCUN
+        canal du port ne publie (ni `combatSnapshot`, ni le gameconfig, qui n'a aucune cle
+        `isBoss`). La tranche precedente employait donc le PROXY `UnitTrait.Boss` (0x7e7 = 2023),
+        celui que `services/custom_normal_attack.NORMAL_BOSS_ATTACK_TRAIT` consomme. Confrontation
+        LIVE, deux bras sur `ultraTigurius` (`Healer` greffe -> ability 18), caster BLESSE et SEUL
+        de son camp :
+
+          | bras      | traits mesures                    | attaque normale | natif self-heal | port |
+          |-----------|-----------------------------------|-----------------|-----------------|------|
+          | `nonboss` | Healer, Hero, Psyker              | `69`            | **OUI**         | oui  |
+          | `boss`    | **Boss**, Healer, Hero, Psyker    | **`1030`**      | **OUI**         | NON  |
+
+        Le TEMOIN DE LECTURE est l'attaque normale : elle bascule sur `1030 Loki_NormalBossAttack`,
+        donc `UnitFactory$$AddNormalAttackAbility` a bien LU le trait greffe. Et le natif se soigne
+        lui-meme QUAND MEME. **`IsBoss` ne lit donc pas ce trait**, et le proxy produisait une
+        degradation **RESTRICTIVE** : le port refusait un cast que le natif emet.
+
+        Le mirror garde le corps natif et rend le substrat TRI-ETAT : `_is_boss` vaut `None`
+        (= PAS MESURE), donc la clause se degrade en VRAI -- la meme convention que le
+        `turns_started` de `ReapingScythePlaybook` (« un canal muet se DIT muet »). Le gate reste
+        donc `utility > 0` en pratique, et il redeviendra complet le jour ou le champ sera publie.
+        Point d'ancrage a hooker (fenetre de reinject) : `IdunBattle.Entities.UnitExtensions$$IsBoss`
+        -- ou, plus simplement, l'octet `<composant>+0x88` par unite dans `combatSnapshot`. Residu
+        `#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1-r1`.
 
         Ce gate est celui du 18 GENERIQUE. `1167 Heal_TwistedScience` a le SIEN
         (`TwistedScience_HealPlaybook$$ShouldExecute` = `utility > Fix64(0)` **seul**, sans la clause
@@ -170,16 +189,24 @@ class HealPlaybook(ComparablePlaybook):
         caster = getattr(ctx, "uid", None)
         if sc is None or caster is None:
             return True
-        if not self._is_boss(sc, caster):
+        if not self._is_boss(sc, caster):    # `None` (PAS MESURE) ou `False` -> aucun refus
             return True
         return target != caster
 
     @staticmethod
-    def _is_boss(scene, uid) -> bool:
-        """PROXY de `UnitExtensions$$IsBoss` -- cf. la docstring de `should_execute`. Lit le FOYER de
-        traits de la face DECISION (`prediction._shared._entity_traits`, tri-etat mesure/kit)."""
-        from .prediction._shared import _entity_traits    # differe : `prediction` importe `playbook.base`
-        return NORMAL_BOSS_ATTACK_TRAIT in _entity_traits(scene, uid)
+    def _is_boss(scene, uid) -> "bool | None":
+        """`UnitExtensions$$IsBoss` -- **TRI-ETAT, et il rend TOUJOURS `None` sur ce build**.
+
+        Le natif resout un composant et rend l'octet `<composant>+0x88`. Aucun canal du port ne le
+        publie, et le trait `Boss` N'EN EST PAS LE SUBSTRAT : mesure live du
+        `#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1` (le natif se soigne lui-meme alors que le trait greffe
+        a bien bascule son attaque normale sur `1030`). Rendre `True` sur le trait faisait REFUSER
+        un cast que le natif emet.
+
+        `None` n'est pas un `False` deguise : `should_execute` distingue « pas de refus parce que
+        ce n'est pas un boss » de « pas de refus parce qu'on ne sait pas », et c'est le second qui
+        s'applique. Le jour ou le champ est publie, SEUL ce corps change."""
+        return None
 
     def score(self, effective_heal, hp_max, is_friend, is_twisted, target_faction):
         """Utilité de soin d'une cible, ou None si `pred <= 0` (première moitié du gate

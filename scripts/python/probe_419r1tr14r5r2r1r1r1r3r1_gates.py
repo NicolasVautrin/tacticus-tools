@@ -360,30 +360,38 @@ def _movement_reach(mbu: dict, uid: int, here) -> int:
     return max((hexgeo.distance(t, here) for t in tiles), default=0)
 
 
-def _deploy_at(sf: str, rid: int, caster_uid: int, anchor_uid: int, want: int) -> dict:
-    """Place le caster a `want` hex de l'ancre PENDANT LE DEPLOIEMENT, puis solde le tour.
+def _deploy_at(sf: str, rid: int, caster_uid: int, anchor_uid: int, want: int,
+               rounds: int = 1) -> dict:
+    """Place le caster a `want` hex de l'ancre, puis solde le tour.
 
-    Le placement est SEQUENTIEL (une unite a la main a la fois) et le deploiement du premier tour
-    ignore `Movement` pour l'unite en cours de placement -- ce sont les deux faits mesures par le
-    montage jumeau (`probe_..._r2::_deploy`)."""
+    Le premier tour est un placement LIBRE (le deploiement ignore `Movement` pour l'unite en cours
+    de placement, et `darkaTerminator` porte `TeleportStrike`) ; les tours suivants sont des
+    APPROCHES ordinaires -- necessaires des que `want` est plus proche que ce que la zone de
+    deploiement permet (mesure : depuis la zone de spawn, la distance MINIMALE a l'adversaire est
+    **2** sur `MC1_67`, donc un montage MELEE demande un tour de plus). GEOMETRIE DRIVEE : on ne
+    subit jamais le spawn (cf. `feedback_drive_positions_dont_blame_geometry`)."""
     import hexgeo
-    for _ in range(6):
+    for _ in range(max(1, rounds)):
         dv = _dv(rid)
         by = {u.get("id"): u for u in (dv.get("units") or ())}
-        ap = _pos(by.get(anchor_uid))
+        here, ap = _pos(by.get(caster_uid)), _pos(by.get(anchor_uid))
         if ap is None:
+            break
+        if here is not None and hexgeo.distance(here, ap) == want:
             break
         mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
         mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
-        tiles = [(t.get("col"), t.get("row")) for t in ((mbu.get(caster_uid) or {}).get("tiles") or ())]
+        tiles = [(t.get("col"), t.get("row"))
+                 for t in ((mbu.get(caster_uid) or {}).get("tiles") or ())]
         tiles = [t for t in tiles if t[0] is not None]
         if not tiles:
-            break
+            _end_turn(sf, rid)
+            continue
         best = min(tiles, key=lambda t: abs(hexgeo.distance(t, ap) - want))
-        rc, _o = _duel("act", "move", "--state-file", sf, "--unit", str(caster_uid),
-                       "--to", "%d,%d" % best)
-        if rc == 0:
+        if best == here:
             break
+        _duel("act", "move", "--state-file", sf, "--unit", str(caster_uid), "--to", "%d,%d" % best)
+        _end_turn(sf, rid)
     _end_turn(sf, rid)
     dv = _dv(rid)
     by = {u.get("id"): u for u in (dv.get("units") or ())}
@@ -393,6 +401,44 @@ def _deploy_at(sf: str, rid: int, caster_uid: int, anchor_uid: int, want: int) -
     return {"dist": (None if (here is None or ap is None) else hexgeo.distance(here, ap)),
             "frozen": (here is not None and _movement_reach(mbu, caster_uid, here) == 0),
             "here": here}
+
+
+def _place_once(sf: str, rid: int, uid: int, anchor_uid: int, want: int) -> bool:
+    """UN placement de `uid` a `want` hex de `anchor_uid`, SANS finir le tour.
+
+    Sert au montage a DEUX placements du meme tour de deploiement : on place le caster, PUIS on
+    amene l'adversaire au contact -- ce qui evite les tours d'approche. C'est ce qui rend le bras
+    `TurnsStarted` mesurable : chaque tour d'approche INCREMENTE le compteur qu'on veut observer
+    sous son seuil (mesure du 1er jet : l'approche a elle seule portait `turnsStarted` a **4**,
+    donc au-dessus de la bascule des la premiere mesure)."""
+    import hexgeo
+    dv = _dv(rid)
+    by = {u.get("id"): u for u in (dv.get("units") or ())}
+    ap, here = _pos(by.get(anchor_uid)), _pos(by.get(uid))
+    if ap is None:
+        return False
+    if here is not None and hexgeo.distance(here, ap) == want:
+        return True
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
+    mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
+    tiles = [(t.get("col"), t.get("row")) for t in ((mbu.get(uid) or {}).get("tiles") or ())]
+    tiles = [t for t in tiles if t[0] is not None]
+    if not tiles:
+        return False
+    best = min(tiles, key=lambda t: abs(hexgeo.distance(t, ap) - want))
+    rc, _o = _duel("act", "move", "--state-file", sf, "--unit", str(uid), "--to", "%d,%d" % best)
+    return rc == 0
+
+
+def _geometry(rid: int, a: int, b: int) -> dict:
+    import hexgeo
+    dv = _dv(rid)
+    by = {u.get("id"): u for u in (dv.get("units") or ())}
+    pa, pb = _pos(by.get(a)), _pos(by.get(b))
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
+    mbu = {m.get("unitId"): m for m in (mov.get("units") or ())}
+    return {"dist": None if (pa is None or pb is None) else hexgeo.distance(pa, pb),
+            "here": pa, "frozen": pa is not None and _movement_reach(mbu, a, pa) == 0}
 
 
 def _normal_has_plan(dv, uid: int) -> bool:
@@ -804,6 +850,394 @@ def etape4_live_1014(logs: str, verbose: bool = True) -> dict:
     return {"bad": bad, "rows": rows}
 
 
+# ============================================ etape 5 : 1010 StormOfFlensingBlades (tuile de cast)
+
+A1010 = 1010
+
+# `IdunBattle.AI.Playbook.Loki.StormOfFlensingBladesPlaybook$$ShouldExecute` :
+#
+#     return casterTile == EntityExtensions.GetMainTile(caster, this.<+0x20 = state>);
+#
+# ⚠ **CE QUE CETTE ETAPE A MESURE N'EST PAS CE QU'ELLE CHERCHAIT, ET C'EST LE RESULTAT.**
+# Le montage visait la bascule du gate « je ne me deplace pas pour lancer ». Il a rendu, sur les
+# DEUX bras, `okAvecGate = okSansGate = 0` : le port ne produit AUCUNE prediction pour `1010`,
+# donc `calculate_action_utility` rend `None` a la garde `if not events` -- **AVANT** le gate. Le
+# gate de `1010` est donc **INERTE dans le port**, et la contre-epreuve qui devait le falsifier est
+# elle-meme muette.
+#
+# La cause est LUE, pas supposee. `IdunBattle.AI.Playbook.Loki.StormOfFlensingBladesPlaybook$$
+# MakeDamagePredictions` existe et n'est PAS portee :
+#
+#     pred = battleQuery.<slot d'interface 0x22 = 34 -- la prediction d'ABILITY>(
+#                caster, target, casterPosition);
+#     ev = new ProbableDamageEvent(target, pred, default, default);
+#     if (ev.<DamagePredictionResult @+0x8>.get_WillBeKill())
+#         return new ProbableDamageEvent[0];                 // liste VIDE si le kill est SUR
+#     return new ProbableDamageEvent[2] { ev, ev };           // sinon l'event DEUX FOIS
+#
+# Deux quirks qu'aucun chemin generique ne reproduit : la liste VIDE sur SURE-kill (donc
+# `attackHealUtility = custom` seul) et le DOUBLE COMPTAGE de l'unique event. Le port, lui, passe
+# par la prediction generique, qui ne sait rien faire d'une ability dont le gameconfig ne porte
+# AUCUNE constante (`StormOfFlensingBlades.constants` est `null` : ni `damageProfile`, ni
+# `nrOfHits`, ni `range`) -- d'ou la liste vide.
+#
+# Cette etape GARDE donc le constat, avec son temoin : le natif, lui, PROPOSE bien `1010`
+# (`aiDryRunAllUnits` -> `ActiveAbilityMessage(1010)` sur le bras `here`). L'ecart port/natif est
+# RESTRICTIF et il precede le gate. Residu : le port de `$$MakeDamagePredictions`.
+STORM_RANGE = 1          # `StormOfFlensingBlades.constants` n'a AUCUNE cle `range` -> melee.
+
+
+def _ranked_tiles(dv, uid: int, ability: int) -> list:
+    for pl in (dv.get("attackPlans") or ()):
+        if pl.get("unitId") != uid:
+            continue
+        for ev in (pl.get("evals") or ()):
+            if ev.get("abilityId") == ability:
+                return [(rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or ())
+                        if rk.get("col") is not None]
+    return []
+
+
+def _stage_1010(logs: str, tag: str, seed_bc: str, want: int) -> dict:
+    sf = os.path.join(logs, "tr14r5r2r1r1r1r3r1_1010_%s.json" % tag)
+    rid = _build(sf, ["--seed", "4242", "--seed-bc", seed_bc,
+                      "--p-units", CASTER, "--a-units", FOE])
+    dv = _dv(rid)
+    ids = {u.get("visualId"): u.get("id") for u in (dv.get("units") or ())}
+    if ids.get(CASTER) is None or ids.get(FOE) is None:
+        _dispose(rid)
+        raise MontageError("montage 1010/%s : units=%s" % (tag, sorted(ids)))
+    # 4 rounds : la zone de deploiement de `MC1_67` ne descend pas sous 2 hex de l'adversaire, donc
+    # le bras `here` (MELEE) exige une APPROCHE, pas seulement un placement.
+    geo = _deploy_at(sf, rid, ids[CASTER], ids[FOE], want, rounds=4)
+    return {"tag": tag, "rid": rid, "sf": sf, "ids": ids, "want": want, **geo}
+
+
+def _measure_1010(case: dict) -> dict:
+    from engine.playbook import get_playbook_or_default
+    dv, ctx = _ctx(case["rid"], case["ids"][CASTER])
+    cid, fid = case["ids"][CASTER], case["ids"][FOE]
+    pb = get_playbook_or_default(A1010)
+    tiles = _ranked_tiles(dv, cid, A1010) or [ctx.origin]
+    ok_gate = [t for t in tiles
+               if pb.calculate_action_utility(ctx, t, fid, A1010) is not None]
+    with gate_cut(A1010):
+        ok_cut = [t for t in tiles
+                  if pb.calculate_action_utility(ctx, t, fid, A1010) is not None]
+    nat, msgs = _native_proposes(case["rid"], cid, A1010)
+    return {"arm": case["tag"], "dist": case["dist"], "want": case["want"],
+            "origin": ctx.origin, "n_ranked": len(tiles),
+            "legal_here": len(_legal_targets(case["rid"], cid, A1010)),
+            "ok_gate": [tuple(t) for t in ok_gate], "n_ok_gate": len(ok_gate),
+            "n_ok_cut": len(ok_cut), "native": nat, "msgs": msgs}
+
+
+def etape5_live_1010(logs: str, verbose: bool = True) -> dict:
+    seed_bc = _graft_seed_bc(os.path.join(logs, "bc_1010_graft.json"), [A1010], CASTER)
+    rows, bad = [], 0
+    for tag, want in (("here", STORM_RANGE), ("away", 3)):
+        case = _stage_1010(logs, tag, seed_bc, want)
+        try:
+            rows.append(_measure_1010(case))
+        finally:
+            _dispose(case["rid"])
+    if verbose:
+        print("[etape 5] 1010 StormOfFlensingBlades -- greffee sur %s, board %s (Movement INTACT)"
+              % (CASTER, BOARD))
+        for r in rows:
+            print("  [%-4s] dist=%-4s (voulu %d) origine=%-8s ranked=%-3d legalHere=%-3d "
+                  "okAvecGate=%-3d okSansGate=%-3d natif=%s"
+                  % (r["arm"], r["dist"], r["want"], r["origin"], r["n_ranked"], r["legal_here"],
+                     r["n_ok_gate"], r["n_ok_cut"], r["native"]))
+    by = {r["arm"]: r for r in rows}
+    for r in rows:
+        if r["dist"] != r["want"]:
+            print("  BAD MONTAGE [%s] dist=%s (voulu %d)" % (r["arm"], r["dist"], r["want"]))
+            bad += 1
+            continue
+        # CRITERE 1 -- LE GATE EST INERTE DANS LE PORT, et la contre-epreuve le PROUVE : couper le
+        # gate ne change RIEN, donc ce n'est pas lui qui bloque. Si un jour la prediction de `1010`
+        # est portee, `n_ok_cut` deviendra non nul et cette ligne rougira : le cran est un
+        # DECLENCHEUR, pas un constat fige.
+        if r["n_ok_gate"] != 0 or r["n_ok_cut"] != 0:
+            print("  CHANGEMENT [%s] le port produit desormais des candidats pour 1010 "
+                  "(avecGate=%d sansGate=%d) : la prediction a ete portee, ce bras doit etre "
+                  "REECRIT en confrontation de gate" % (r["arm"], r["n_ok_gate"], r["n_ok_cut"]))
+            bad += 1
+    if {"here", "away"} <= set(by):
+        # CRITERE 2 -- L'ECART EST RESTRICTIF, et il PRECEDE le gate : depuis l'origine, le natif
+        # PROPOSE `1010` (temoin), le port n'a aucun candidat. Sans ce temoin, « le port ne propose
+        # rien » se lirait comme « il n'y avait rien a proposer ».
+        if not by["here"]["native"]:
+            print("  TEMOIN ABSENT [here] le natif ne propose PAS 1010 a dist %d (legalHere=%d, "
+                  "msgs=%s) -- l'ecart mesure n'est alors pas etabli"
+                  % (by["here"]["dist"], by["here"]["legal_here"], by["here"]["msgs"]))
+            bad += 1
+        if by["here"]["legal_here"] < 1:
+            print("  TEMOIN ABSENT [here] aucune cible legale depuis l'origine")
+            bad += 1
+        # Le bras `away` est le controle : hors de portee, le natif ne propose rien non plus.
+        if by["away"]["native"] or by["away"]["legal_here"] != 0:
+            print("  VIOLE [away] natif=%s legalHere=%d alors que la cible est hors de portee"
+                  % (by["away"]["native"], by["away"]["legal_here"]))
+            bad += 1
+    return {"bad": bad, "rows": rows}
+
+
+# ================================================ etape 6 : 1095 ReapingScythe (TurnsStarted > 2)
+
+A1095 = 1095
+
+# `IdunBattle.AI.Playbook.Loki.ReapingScythePlaybook$$ShouldExecute` :
+#
+#     if (!(attackHealUtility > Fix64(0))) return false;
+#     return UnitExtensions.GetStat(caster, StatType.TurnsStarted, Current, 0) > 2;
+#
+# Le discriminant est le TEMPS, donc les deux bras vivent sur UN SEUL runner et partagent
+# EXACTEMENT la meme geometrie : seul `turnsStarted` change. C'est le montage le moins confondable
+# du probe -- aucun autre parametre ne bouge entre les deux mesures.
+#
+# ⚠ **La greffe est legitime ICI, et il faut le dire** : le gate lit une stat du CASTER
+# (`TurnsStarted`), ce que la recette de `case-92` SS5bis interdit en general. Mais `TurnsStarted`
+# est un COMPTEUR DE BATAILLE, pas une valeur de kit : il vaut la meme chose pour n'importe quel
+# porteur au meme tour. La greffe n'importe donc AUCUNE valeur du vrai porteur
+# (`deathBossMortarion`, npc) dans ce que le gate lit.
+MAX_CYCLES = 6
+
+
+def etape6_live_1095(logs: str, verbose: bool = True) -> dict:
+    from engine.playbook import get_playbook_or_default
+    seed_bc = _graft_seed_bc(os.path.join(logs, "bc_1095_graft.json"), [A1095], CASTER)
+    sf = os.path.join(logs, "tr14r5r2r1r1r1r3r1_1095.json")
+    # ⚠ PAS de `Movement = 0` ici, et c'est une CONTRAINTE MESUREE : `ReapingScythe` n'a aucune
+    # cle `range` a sa config (donc MELEE), et la zone de deploiement de `MC1_67` ne descend pas
+    # sous 2 hex de l'adversaire -- il FAUT une approche. Le concurrent (l'attaque normale) est
+    # alors present, mais il est CONSTANT d'un cycle a l'autre : le discriminant de ce bras est le
+    # TEMPS, pas la geometrie, et les deux mesures partagent le meme etat a `turnsStarted` pres.
+    rid = _build(sf, ["--seed", "4242", "--seed-bc", seed_bc,
+                      "--p-units", CASTER, "--a-units", FOE])
+    rows, bad = [], 0
+    try:
+        dv = _dv(rid)
+        ids = {u.get("visualId"): u.get("id") for u in (dv.get("units") or ())}
+        if ids.get(CASTER) is None or ids.get(FOE) is None:
+            raise MontageError("montage 1095 : units=%s" % sorted(ids))
+        cid, fid = ids[CASTER], ids[FOE]
+        # MELEE (aucune cle `range` a la config). DEUX placements dans le MEME tour de deploiement :
+        # le caster d'abord, puis l'ADVERSAIRE au contact -- une approche coute un tour, et un tour
+        # incremente exactement le compteur qu'on veut observer SOUS son seuil.
+        _place_once(sf, rid, cid, fid, 2)
+        _place_once(sf, rid, fid, cid, 1)
+        _end_turn(sf, rid)
+        geo = _geometry(rid, cid, fid)
+        pb = get_playbook_or_default(A1095)
+        for k in range(MAX_CYCLES):
+            dvk, ctx = _ctx(rid, cid)
+            ts = ctx.scene.turns_started(cid)
+            u, port = _port_decides(ctx, A1095, fid)
+            with gate_cut(A1095):
+                _u2, cut = _port_decides(ctx, A1095, fid)
+            nat, msgs = _native_proposes(rid, cid, A1095)
+            rows.append({"cycle": k, "turns_started": ts, "u": u, "native": nat, "port": port,
+                         "port_gate_cut": cut, "dist": geo["dist"],
+                         "legal": len(_legal_targets(rid, cid, A1095)), "msgs": msgs})
+            _end_turn(sf, rid)
+    finally:
+        _dispose(rid)
+    if verbose:
+        print("[etape 6] 1095 ReapingScythe -- greffee sur %s, board %s, Movement=0, MELEE (dist 1)"
+              % (CASTER, BOARD))
+        for r in rows:
+            print("  [cycle %d] turnsStarted=%-5s legal=%-3d u=%-9s natif=%-5s port=%-5s "
+                  "sansGate=%-5s" % (r["cycle"], r["turns_started"], r["legal"],
+                                     "None" if r["u"] is None else round(r["u"], 3),
+                                     r["native"], r["port"], r["port_gate_cut"]))
+    # REGIME : il faut AU MOINS un cycle de chaque cote de la bascule, sinon rien n'est mesure.
+    sous = [r for r in rows if r["turns_started"] is not None and r["turns_started"] <= 2]
+    sur = [r for r in rows if r["turns_started"] is not None and r["turns_started"] > 2]
+    if not sous or not sur:
+        print("  BAD REGIME : la bascule `TurnsStarted > 2` n'est pas franchie "
+              "(sous=%d, sur=%d, valeurs=%s)"
+              % (len(sous), len(sur), [r["turns_started"] for r in rows]))
+        return {"bad": 1, "rows": rows}
+    for r in rows:
+        if r["legal"] < 1:
+            print("  BAD MONTAGE [cycle %d] aucune cible legale" % r["cycle"])
+            bad += 1
+            continue
+        # CRITERE B : le gate porte bascule EXACTEMENT au seuil natif (`> 2`, STRICT).
+        want = bool(r["turns_started"] is not None and r["turns_started"] > 2 and (r["u"] or 0) > 0)
+        if bool(r["port"]) != want:
+            print("  VIOLE B [cycle %d] ts=%s u=%s port=%s (attendu %s)"
+                  % (r["cycle"], r["turns_started"], r["u"], r["port"], want))
+            bad += 1
+        # CRITERE A -- **UNILATERAL, ET C'EST UNE CONTRAINTE DE MONTAGE, PAS UN RELACHEMENT.**
+        # `ReapingScythe` est MELEE : la cible est a UN hex, donc l'ATTAQUE NORMALE a toujours un
+        # plan et son `CalculateCustomUtility = Fix64(1)` peut rafler l'argmax. `aiDryRunAllUnits`
+        # rend l'action GAGNANTE, pas « l'ability est proposable » -- un natif qui ne propose pas
+        # 1095 a donc DEUX causes possibles au-dessus du seuil. Ce qui reste exigible dans les deux
+        # sens : **le port ne refuse JAMAIS ce que le natif choisit**. Sous le seuil, en revanche,
+        # le natif ne PEUT pas le proposer, et c'est ce que la ligne suivante garde.
+        if r["native"] and not r["port"]:
+            print("  VIOLE A [cycle %d] le natif propose 1095 et le port REFUSE (ts=%s) msgs=%s"
+                  % (r["cycle"], r["turns_started"], r["msgs"]))
+            bad += 1
+        if (r["turns_started"] is not None and r["turns_started"] <= 2) and r["native"]:
+            print("  VIOLE A' [cycle %d] le natif propose 1095 a ts=%s (<= 2) : le gate ne mord "
+                  "pas cote natif -- msgs=%s" % (r["cycle"], r["turns_started"], r["msgs"]))
+            bad += 1
+        if (r["port_gate_cut"] != r["port"]) != (not r["port"]):
+            print("  VIOLE C [cycle %d] gate_cut=%s port=%s"
+                  % (r["cycle"], r["port_gate_cut"], r["port"]))
+            bad += 1
+    nat_ok = [r for r in rows if r["native"]]
+    if not nat_ok:
+        print("  NOTE : le natif n'a propose 1095 sur AUCUN cycle -- l'attaque normale (custom "
+              "+1, cible a 1 hex) rafle l'argmax. Le bras garde alors la bascule du PORT et le "
+              "refus natif SOUS le seuil ; il ne prouve pas le cast natif AU-DESSUS.")
+    return {"bad": bad, "rows": rows, "native_ever": bool(nat_ok)}
+
+
+# ======================================= etape 7 : la clause BOSS du soin generique (`18 Heal`)
+
+A18 = 18
+NORMAL_BOSS_ATTACK = 1030          # `ActiveAbilityType.Loki_NormalBossAttack`
+
+# `IdunBattle.AI.Playbook.Common.HealPlaybook$$ShouldExecute` :
+#
+#     if (!(attackHealUtility > Fix64(0))) return false;
+#     if (!UnitExtensions.IsBoss(caster))  return true;
+#     return caster != target;                      // un BOSS ne se soigne pas LUI-MEME
+#
+# Le port emploie un PROXY : le trait `Boss` (`UnitTrait` 0x7e7 = 2023), parce que le natif ne lit
+# PAS un trait -- `UnitExtensions$$IsBoss` resout un composant et rend l'octet `<composant>+0x88`,
+# qu'AUCUN canal ne publie. **CE BRAS EXISTE POUR MESURER SI LE PROXY TIENT**, et son resultat est
+# informatif dans les deux sens :
+#
+#   * le TEMOIN DE LECTURE est l'attaque normale : `UnitFactory$$AddNormalAttackAbility` fait
+#     `else if (config.Traits.Contains(0x7e7)) type = 0x406;` -- si le trait greffe est LU, le natif
+#     publie `1030 Loki_NormalBossAttack` a la place de `69`. C'est le seul canal qui separe
+#     « le trait n'a pas ete pose » de « le trait est pose mais `IsBoss` lit ailleurs » ;
+#   * si le natif AUTORISE malgre tout le self-heal alors que le trait est lu, le proxy est FAUX
+#     sur cet axe, et c'est un resultat -- pas un echec du port a masquer.
+#
+# Le caster est SEUL de son camp et BLESSE : le self-heal est alors le seul soin possible, donc
+# l'absence d'`ActiveAbilityMessage(18)` sur lui-meme n'a qu'une cause.
+HEALER_CASTER = "ultraTigurius"        # `Hero` + `Psyker` au kit ; la greffe `Healer` -> 18 est la
+                                       # voie ETABLIE par #1015-r1 (aucune config d'ability requise)
+HEAL_TRAITS = '["Hero","Psyker","Healer"]'
+HEAL_TRAITS_BOSS = '["Hero","Psyker","Healer","Boss"]'
+HEALER_HP, HEALER_HP_LEFT = 20000, 200
+
+
+def _native_msgs(rid: int, uid: int) -> list:
+    dry = rpc("aiDryRunAllUnits", {"runnerId": rid}, 300)
+    for u in (dry.get("units") or ()):
+        if u.get("unitId") == uid:
+            return [{"cls": m.get("cls"), "ab": m.get("abilityType"),
+                     "target": m.get("targetId")} for m in (u.get("proposed") or ())]
+    return []
+
+
+def etape7_live_boss(logs: str, verbose: bool = True) -> dict:
+    from engine.playbook.common import HEAL_PLAYBOOK
+    from engine.playbook.prediction._shared import _entity_traits
+    rows, bad = [], 0
+    for tag, traits in (("nonboss", HEAL_TRAITS), ("boss", HEAL_TRAITS_BOSS)):
+        sf = os.path.join(logs, "tr14r5r2r1r1r1r3r1_boss_%s.json" % tag)
+        rid = _build(sf, ["--seed", "4242",
+                          "--p-units", HEALER_CASTER, "--a-units", FOE,
+                          "--unit-stat", "%s:Traits=%s" % (HEALER_CASTER, traits),
+                          "--unit-stat", "%s:Health=%d,RemainingHealth=%d"
+                          % (HEALER_CASTER, HEALER_HP, HEALER_HP_LEFT)])
+        try:
+            dv = _dv(rid)
+            ids = {u.get("visualId"): u.get("id") for u in (dv.get("units") or ())}
+            cid = ids.get(HEALER_CASTER)
+            if cid is None:
+                raise MontageError("montage BOSS/%s : caster absent (units=%s)" % (tag, sorted(ids)))
+            row_u = next(u for u in (dv.get("units") or ()) if u.get("id") == cid)
+            abs_ = [(a.get("id"), a.get("kind")) for a in (row_u.get("abilities") or ())]
+            normal_ids = [i for i, k in abs_ if k == "normal"]
+            _dv2, ctx = _ctx(rid, cid)
+            sc = ctx.scene
+            traits_mes = sorted(_entity_traits(sc, cid))
+            hp, hpmax = sc.hp(cid), sc.hpmax(cid)
+            port_self = HEAL_PLAYBOOK.should_execute(ctx, None, cid, A18, 30.0)
+            port_other = HEAL_PLAYBOOK.should_execute(ctx, None, cid + 10_000, A18, 30.0)
+            msgs = _native_msgs(rid, cid)
+            nat_self = any(m["cls"] == "ActiveAbilityMessage" and m["ab"] == A18
+                           and m["target"] == cid for m in msgs)
+            rows.append({"arm": tag, "abilities": abs_, "normal_ids": normal_ids,
+                         "boss_normal": NORMAL_BOSS_ATTACK in normal_ids,
+                         "traits": traits_mes, "has_18": A18 in [i for i, _k in abs_],
+                         "hp": hp, "hpmax": hpmax,
+                         "port_self": port_self, "port_other": port_other,
+                         "native_self_heal": nat_self, "msgs": msgs})
+        finally:
+            _dispose(rid)
+    if verbose:
+        print("[etape 7] clause BOSS du soin generique (18) -- caster %s, board %s"
+              % (HEALER_CASTER, BOARD))
+        for r in rows:
+            print("  [%-7s] traits=%s" % (r["arm"], r["traits"]))
+            print("            a18=%-5s normalIds=%-10s attaqueNormaleBOSS=%-5s hp=%s/%s"
+                  % (r["has_18"], r["normal_ids"], r["boss_normal"], r["hp"], r["hpmax"]))
+            print("            port(self)=%-5s port(autre)=%-5s natif(selfHeal)=%-5s msgs=%s"
+                  % (r["port_self"], r["port_other"], r["native_self_heal"], r["msgs"]))
+    by = {r["arm"]: r for r in rows}
+    for r in rows:
+        if not r["has_18"]:
+            print("  BAD MONTAGE [%s] la greffe `Healer` n'a pas donne 18" % r["arm"])
+            bad += 1
+            continue
+        if r["hp"] is None or r["hpmax"] is None or r["hp"] >= r["hpmax"]:
+            print("  BAD MONTAGE [%s] caster NON BLESSE (%s/%s) : le soin n'a aucune utilite"
+                  % (r["arm"], r["hp"], r["hpmax"]))
+            bad += 1
+            continue
+        # Le port doit TOUJOURS accepter le soin d'un TIERS -- la clause ne porte que sur le self.
+        if r["port_other"] is not True:
+            print("  VIOLE [%s] le port refuse le soin d'un TIERS (port_other=%s)"
+                  % (r["arm"], r["port_other"]))
+            bad += 1
+    if {"boss", "nonboss"} <= set(by):
+        # TEMOIN DE LECTURE : le trait greffe DOIT avoir bascule l'attaque normale sur 1030.
+        if by["boss"]["boss_normal"] is not True or by["nonboss"]["boss_normal"] is not False:
+            print("  BAD MONTAGE : le trait `Boss` n'a pas ete LU par le natif "
+                  "(attaque normale boss : boss=%s nonboss=%s) -- le bras ne mesure pas `IsBoss`"
+                  % (by["boss"]["boss_normal"], by["nonboss"]["boss_normal"]))
+            bad += 1
+        else:
+            # ⚠ **CE QUE CE BRAS A ETABLI** : le natif SELF-HEAL sur les DEUX bras, alors que le
+            # trait `Boss` a bel et bien ete LU (l'attaque normale bascule sur `1030`). Donc
+            # `UnitExtensions$$IsBoss` NE LIT PAS ce trait, et le proxy de la tranche precedente
+            # faisait REFUSER au port un cast que le natif emet -- degradation RESTRICTIVE.
+            # Le port rend desormais `_is_boss = None` (PAS MESURE) et degrade la clause en VRAI :
+            # l'accord doit donc etre PLEIN sur les deux bras.
+            if not by["boss"]["native_self_heal"] or not by["nonboss"]["native_self_heal"]:
+                print("  TEMOIN ABSENT : le natif ne self-heal pas (boss=%s nonboss=%s) -- "
+                      "le bras ne mesure alors rien sur `IsBoss` ; msgs=%s / %s"
+                      % (by["boss"]["native_self_heal"], by["nonboss"]["native_self_heal"],
+                         by["boss"]["msgs"], by["nonboss"]["msgs"]))
+                bad += 1
+            for r in rows:
+                if bool(r["port_self"]) != bool(r["native_self_heal"]):
+                    print("  VIOLE ACCORD [%s] port(self)=%s natif(selfHeal)=%s -- le trait `Boss` "
+                          "N'EST PAS le substrat de `UnitExtensions$$IsBoss`, un port qui s'en sert "
+                          "prononce un refus que le natif ne prononce pas"
+                          % (r["arm"], r["port_self"], r["native_self_heal"]))
+                    bad += 1
+            # Et le SUBSTRAT lui-meme est garde : `_is_boss` doit rester TRI-ETAT `None`. Un
+            # `True`/`False` y reintroduirait le refus infonde.
+            from engine.playbook.common import HealPlaybook as _HP
+            if _HP._is_boss(None, 1) is not None:
+                print("  VIOLE SUBSTRAT : `HealPlaybook._is_boss` ne rend plus `None` (PAS MESURE) "
+                      "-- cf. la mesure de ce bras")
+                bad += 1
+    return {"bad": bad, "rows": rows}
+
+
 # ====================================================================== main
 
 def main() -> int:
@@ -831,19 +1265,20 @@ def main() -> int:
         out["etape2b"] = etape2b_reachability_live()
         total += out["etape2b"]["bad"]
         print("")
-    if args.live and (run("3") or run("4")):
+    live_etapes = (("3", etape3_live_1147), ("4", etape4_live_1014),
+                   ("5", etape5_live_1010), ("6", etape6_live_1095),
+                   ("7", etape7_live_boss))
+    if args.live and any(run(t) for t, _f in live_etapes):
         if not args.state_file:
             print("--live exige --state-file (chemin ABSOLU)")
             return 2
         logs = os.path.dirname(os.path.abspath(args.state_file))
         os.makedirs(logs, exist_ok=True)
-        if run("3"):
-            out["etape3"] = etape3_live_1147(logs)
-            total += out["etape3"]["bad"]
-            print("")
-        if run("4"):
-            out["etape4"] = etape4_live_1014(logs)
-            total += out["etape4"]["bad"]
+        for tag, fn in live_etapes:
+            if not run(tag):
+                continue
+            out["etape%s" % tag] = fn(logs)
+            total += out["etape%s" % tag]["bad"]
             print("")
     print("VERDICT: %s (%s)"
           % ("PASS" if total == 0 else "FAIL",
