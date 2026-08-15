@@ -20,6 +20,13 @@ Arbre témoin à `62db139d`, `probe_485_imports_differes.py` :
 | les **re-exports MORTS** retirés, enregistreurs gardés | **262** | **−15** |
 | baril entièrement vidé | 253 | −24 |
 
+⚠ **Ce tableau compare quatre VARIANTES sur une base FIGÉE (`62db139d`)** — c'est ce qui rend les
+quatre chiffres comparables entre eux. L'effet réellement **livré** se mesure, lui, contre la base
+sur laquelle la PR atterrit : re-mesuré après rebase sur `d3547dfb` (16 commits plus loin),
+`origin/master` porte **279** porteurs / **55** gratuits neufs, la branche **264** / **49** — soit
+le **même −15**, et un compteur de rouge qui **baisse** de 6. Les deux mesures sont vraies ; citer
+la première comme si elle décrivait la livraison serait faux dès le premier merge intercalé.
+
 **83 % du gain est du côté qui ne coûte rien.** Sur 33 symboles re-exportés, **4** sont consommés —
 `REGISTRY` (30 fichiers), `get_playbook_or_default` (24), `tile_utility` (2), `get_playbook` (1) ;
 les **29** autres ne sont réclamés nulle part.
