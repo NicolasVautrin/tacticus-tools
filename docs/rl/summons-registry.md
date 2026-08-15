@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `summons` : **65** ; kits sans manque : **57** ; kits avec du travail : **8**
-- Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
+- Actives distinctes : **16** — `[C-]` **4** · `[CD]` **12**
 - Passifs distincts : **47** — portes **39**, non portes **8**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
@@ -58,13 +58,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Shrapnel | 1 | astraSmnMortar |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (6)
+## Faces DECISION ouvertes sur des actives EXECUTEES (4)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`DevoutPush`, `PrecisionShot`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
+`SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
 
 ## Inventaire complet, par faction
 
@@ -113,7 +113,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| templInitiate | 0 | DevoutPush(1053)[C-] | - | - | - |
+| templInitiate | 0 | DevoutPush(1053)[CD] | - | - | - |
 | templInitiatePyreblaster | 0 | - | - | - | - |
 | templNeophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templSmnAggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
@@ -160,7 +160,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| necroSmnDeathmark | 0 | PrecisionShot(1015)[C-] | - | - | - |
+| necroSmnDeathmark | 0 | PrecisionShot(1015)[CD] | - | - | - |
 | necroSmnDestroyer | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroSmnSwarm | 0 | ScarabSummon(1047)[CD] | - | - | - |
 | necroSmnWarrior | 0 | - | - | - | - |

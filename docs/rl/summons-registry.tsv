@@ -111,7 +111,7 @@ genesSmnGenestealer	Genestealers	Xenos	None	trait	Unstoppable		1
 genesSmnNeophyte	Genestealers	Xenos	None	trait	Summon		1	
 genesSmnNeophyte	Genestealers	Xenos	None	trait	Ambush		1	
 genesSmnNeophyte	Genestealers	Xenos	None	trait	BattleFatigue		1	
-necroSmnDeathmark	Necrons	Xenos	None	active	PrecisionShot	1015	1	0
+necroSmnDeathmark	Necrons	Xenos	None	active	PrecisionShot	1015	1	1
 necroSmnDeathmark	Necrons	Xenos	None	passif	ReanimationProtocols		1	
 necroSmnDeathmark	Necrons	Xenos	None	trait	Summon		1	
 necroSmnDeathmark	Necrons	Xenos	None	trait	LivingMetal		1	
@@ -167,7 +167,7 @@ tauSmnStealthSuit	Tau	Xenos	None	trait	Camouflage		1
 tauSmnStealthSuit	Tau	Xenos	None	trait	Infiltrate		1	
 tauSmnStealthSuit	Tau	Xenos	None	trait	Flying		1	
 tauSmnStealthSuit	Tau	Xenos	None	trait	RangedSpecialist		1	
-templInitiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	1	0
+templInitiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	1	1
 templInitiate	BlackTemplars	Imperial	None	passif	HeavyBoltPistol		1	
 templInitiate	BlackTemplars	Imperial	None	trait	Summon		1	
 templInitiatePyreblaster	BlackTemplars	Imperial	None	passif	Pyreblaster		1	

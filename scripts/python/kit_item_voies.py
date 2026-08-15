@@ -361,6 +361,24 @@ VOIES: list[Voie] = [
          "SILENCIEUX au cast. Une voie conditionnelle peut etre une active (`Maugetar` est portee "
          "en `activeAbilities` par un npc), d'ou sa presence ici",
          "AbilityHandler.visit_ActiveAbilityMessage"),
+    Voie("engine.runner.abilities.loki.ancient_fury", "WIDENED_NORMAL_ATTACKS", CLE_NOM,
+         "le passif ELARGIT le SELECTEUR de l'attaque normale substituee de son porteur "
+         "(`<X>_NormalAttackAbility$$GetTarget`, vslot `0x4a8`) -- pendant EXACT de "
+         "`NORMAL_ATTACK_CLEAVES`, sur un AUTRE vslot (la-bas `0x4e8 "
+         "GetCustomNormalAttackBehaviour`), meme clef et meme substrat. C'est bien CE conteneur qui "
+         "etablit le montage : `runner.operations.damage` le lit par `widened_for` puis execute "
+         "`execute_widened_normal_attack` (mesure : le probe #1050-r1 le VIDE en contre-epreuve et "
+         "le port retombe a une seule cible)",
+         "runner.operations.damage -> ancient_fury.widened_for"),
+    Voie("engine.runner.operations.triggers.loki.power_up_spawn", "POWER_UP_SPAWN_ABILITIES",
+         CLE_NOM,
+         "les `PowerUp_*Spawn_*` sont des PASSIFS de kit comme les autres -- porteurs mesures : une "
+         "unite `powup<X>` par passif, kind npc, voie d'attribution `passiveAbilities`. Ce dict EST "
+         "la source de leur inscription : `dispatch.registry` l'IMPORTE et le splat "
+         "(`**{nom: [cls] for nom, cls in POWER_UP_SPAWN_ABILITIES.items()}`), donc l'appartenance "
+         "ici EST le montage. A ne pas confondre avec son homonyme de boost, ecarte ci-dessous "
+         "parce qu'il n'est importe NULLE PART",
+         "collect_triggered_abilities (via le splat d'ABILITY_TRIGGERS)"),
 ]
 
 
@@ -397,6 +415,20 @@ ECARTES: dict[tuple[str, str], str] = {
     ("engine.services.movement_query", "SPECIAL_MOVEMENT_PATHFINDER_TYPES"):
         "FAIT NATIF : les huit `PathfinderType` que rend la branche MOUVEMENT SPECIAL. Ses "
         "VALEURS sont d'un autre enum encore, et ses clefs sont celles du voisin ci-dessus.",
+    ("engine.services.static_battle_rules", "PARTIAL_ATTACK_TRIGGERED_ABILITY_TYPES"):
+        "FAIT NATIF : le `HashSet` statique `+0x80` que lit "
+        "`StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility`. Transcription verbatim d'un "
+        "predicat natif (LU par les octets du PE, son `.cctor` faisant 0xd120 octets), aucun "
+        "montage -- meme statut que son voisin `TILE_STATUS_EFFECT_TYPES` du meme module. "
+        "Mesure : 0 bascule.",
+    ("engine.services.static_battle_rules", "PARTIAL_ATTACK_EFFECT_TYPES"):
+        "FAIT NATIF : le `HashSet` statique `+0x38` que lit "
+        "`StaticBattleRules.Effect$$IsPartialAttack`. Pendant exact du precedent sur l'AUTRE enum. "
+        "⚠ SA SEULE BASCULE EST FAUSSE, et le module l'annonce lui-meme (<< les deux sets sont "
+        "dans deux enums differents, et l'ordinal ne les distingue pas >>) : sous la clef "
+        "`EffectType` qu'il DECLARE, `1077` nomme `HazeOfCorruption_DamageTransfer` ; un balayage "
+        "qui resoudrait son ordinal dans les trois enums ferait basculer `Volatile`, un "
+        "`TriggeredAbilityType` a ordinal egal que rien ne monte.",
     ("engine.services.static_battle_rules", "TILE_STATUS_EFFECT_TYPES"):
         "FAIT NATIF : les effets de STATUT DE TUILE. Aucun n'est monte par un item de kit -- ils "
         "sont poses par le terrain.",
@@ -440,6 +472,28 @@ ECARTES: dict[tuple[str, str], str] = {
         "lieu de l'etablir -- aucun item n'y arrive seul (mesure : 0 bascule).",
     ("engine.runner.abilities.behaviours.lifecycle", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS"):
         "DONNEE ANNEXE : meme forme, pour les arbres declenchables par `TriggerAbilityDelayed`.",
+    ("engine.runner.abilities.targeting", "TARGETING_OPTIONS_FOR_CONTINUE_OVERRIDES"):
+        "DONNEE ANNEXE (#419) : le SECOND jeu d'options (`this+0xb0`), celui du mode << continue >> "
+        "d'une ability multi-etapes, pour les deux classes qui surchargent "
+        "`AActiveAbility$$GetTargetingOptionsForContinue` au lieu d'appliquer sa loi de base. C'est "
+        "un masque, donc meme statut qu'`ABILITY_ATTACK_TYPE` : il PARAMETRE une active montee par "
+        "`ABILITY_CLASSES`, il ne la monte pas. Le module l'ecrit lui-meme -- << AUCUN CONSOMMATEUR "
+        "COTE PORT [...] C'est un RECENSEMENT, pas un chemin actif >>. "
+        "⚠ SES DEUX BASCULES SONT FAUSSES, et c'est la raison la plus forte de l'ecarter : sous la "
+        "clef `ActiveAbilityType` qu'il DECLARE, `1089`/`1168` nomment `GreatFrostAxe`/"
+        "`EntropyCannons` (deja portes) ; un balayage qui resoudrait ses ordinaux dans les trois "
+        "enums ferait basculer `RunsAround` et `ArchContaminator`, deux `TriggeredAbilityType` a "
+        "ordinal egal que rien ne monte. Exactement le partage d'ordinaux chiffre en tete de "
+        "module.",
+    ("engine.runner.operations.triggers.loki.power_up", "POWER_UP_STAT_BOOST_ABILITIES"):
+        "DONNEE ANNEXE : ce n'est PAS ce conteneur qui etablit le montage. Les cinq `PowerUp_*` de "
+        "boost sont bien inscrits a `ABILITY_TRIGGERS` (voie deja inscrite), mais par CINQ LIGNES "
+        "MANUELLES qui citent les classes -- ce dict, lui, n'est IMPORTE NULLE PART (mesure : zero "
+        "import dans `engine/**`, et `tests/test_1083r3_powerup_nonboost_offline.py` etage 7 le "
+        "nomme explicitement << un DOUBLON MORT >> dont il garde la seule chose qui compte, la "
+        "non-divergence avec le registre). L'inscrire ferait dependre le compte d'une declaration "
+        "que personne ne lit. C'est le DISCRIMINANT d'avec son voisin `POWER_UP_SPAWN_ABILITIES`, "
+        "inscrit en VOIE : celui-la est SPLATE dans le registre. Mesure : 0 bascule.",
     ("engine.entities.effects.factory", "TERTIARY_ABILITY_POSED_EFFECTS"):
         "DONNEE ANNEXE (#1038) : quel `AbilityStateReference` RE-BAKER pour un effet qu'une "
         "tertiaire pose SUR AUTRUI (level 1..4 / mult 100 de la SOURCE, et non le couple des "
