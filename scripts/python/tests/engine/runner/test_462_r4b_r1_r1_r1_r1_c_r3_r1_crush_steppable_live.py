@@ -407,9 +407,27 @@ def test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire():
                 # #1083-r3 -- les NON-BOOST inscrits par la tranche 2 (ordre alphabetique).
                 ("powupHealing", "passive:PowerUp_Healing"),
                 ("powupHealth", "passive:PowerUp_Health"),
+                # #10004 -- les NEUF `PowerUp_*Spawn*` VIVANTS. `powupHeroSpawn` et
+                # `powupSummonSpawn` (les deux BASES) n'y sont PAS : leur gameconfig ne porte
+                # aucune constante, donc elles ne spawnent rien et ne sont pas inscrites.
+                ("powupHeroSpawn_BladeChampion", "passive:PowerUp_HeroSpawn_BladeChampion"),
+                ("powupHeroSpawn_Uthar", "passive:PowerUp_HeroSpawn_Uthar"),
+                ("powupHeroSpawn_VexilusPraeto", "passive:PowerUp_HeroSpawn_VexilusPraetor"),
                 ("powupHits", "passive:PowerUp_Hits"),
                 ("powupMeleeHits", "passive:PowerUp_MeleeHits"),
-                ("powupReactivateAbility", "passive:PowerUp_ReactivateAbility")]
+                ("powupReactivateAbility", "passive:PowerUp_ReactivateAbility"),
+                ("powupSummonSpawn_bloodSmnIntercessor",
+                 "passive:PowerUp_SummonSpawn_bloodSmnIntercessor"),
+                ("powupSummonSpawn_darkaSmnHellblaster",
+                 "passive:PowerUp_SummonSpawn_darkaSmnHellblaster"),
+                ("powupSummonSpawn_darkaSmnTerminator",
+                 "passive:PowerUp_SummonSpawn_darkaSmnTerminator"),
+                ("powupSummonSpawn_templSmnAggressor",
+                 "passive:PowerUp_SummonSpawn_templSmnAggressor"),
+                ("powupSummonSpawn_ultraSmnHeavyIntercessor",
+                 "passive:PowerUp_SummonSpawn_ultraSmnHeavyIntercessor"),
+                ("powupSummonSpawn_ultraSmnInceptor",
+                 "passive:PowerUp_SummonSpawn_ultraSmnInceptor")]
     assert sorted(inscrits) == attendus, (
         "les kits Steppable inscrits a un registre d'ability-trigger sont %s ; attendus %s -- un "
         "porteur NATUREL de plus (ou de moins) : re-confronter le regime" % (sorted(inscrits), attendus))
