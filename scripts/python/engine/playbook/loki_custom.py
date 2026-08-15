@@ -76,12 +76,91 @@ class _CustomOnlyPlaybook(DefaultActiveAbilityPlaybook):
 class ArmoriumCherubPlaybook(_CustomOnlyPlaybook):
     """`IdunBattle.AI.Playbook.Loki.ArmoriumCherubPlaybook$$CalculateCustomUtility`
     = `Fix64.FromInt(1)` CONSTANT (aucune garde, aucun poids). Porteur adeptRetributor 'Vindicta'
-    [lineup]. Bonus d'action +1 identique au patron NormalAttack (common.py) : ArmoriumCherub bat
-    tout actif Comparable a Delta(pair+tile) < 1, et EGALISE l'attaque normale (elle aussi +1)."""
+    [lineup, PRESENT dans `rl_duel build --list-pool`]. Bonus d'action +1 identique au patron
+    NormalAttack (common.py) : ArmoriumCherub bat tout actif Comparable a Delta(pair+tile) < 1, et
+    EGALISE l'attaque normale (elle aussi +1).
+
+    Porte AUSSI son `ShouldExecute` depuis `#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1` -- cf. la methode.
+    Il vit ICI et pas dans `should_execute_gates.py` parce que le registre est indexe par
+    `ability_id` : deux entrees pour 1014 se seraient ECRASEES, et le gagnant aurait dependu de
+    l'ordre d'import."""
     ability_id = int(ActiveAbilityType.ArmoriumCherub)  # 1014
+
+    #: `if (n < 2)` du corps natif -- comparaison sur l'ENTIER rendu par `.<+0x10>.<+0x18 = Count>`.
+    MIN_NORMAL_ATTACK_TARGETS: int = 2
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
         return 1.0
+
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        """`IdunBattle.AI.Playbook.Loki.ArmoriumCherubPlaybook$$ShouldExecute` (1014), lu verbatim :
+
+            position = new UnitPosition(casterTile);
+            list = battleQuery.<slot d'interface 0x42 = 66 GetValidTargets>(
+                       caster, position, ActiveAbilityType.Loki_NormalAttack);   // 0x45 = 69
+            if (list.<+0x10>.<+0x18 = Count> < 2)
+                return !ArmoriumCherubPlaybook.CanKillTarget(caster, casterTile, target);
+            return true;
+
+        et la feuille, relue en entier :
+
+            // ...ArmoriumCherubPlaybook$$CanKillTarget(caster, casterTile, target)
+            abilityState = Playbook<T>.GetAbilityState(caster);
+            preds = this.<slot de vtable +0x358 = MakeDamagePredictions>(
+                        caster, new UnitPosition(casterTile), target, abilityState);
+            foreach (p in preds)
+                if (DamagePredictionResult.get_MightBeKill(p.<+0x8>)) return true;
+            return false;
+
+        DEUX clauses, et l'utilite n'est LUE dans AUCUNE des deux -- ce gate n'a pas de seuil.
+        Le sens : Vindicta lance le cherubin des qu'elle a **au moins deux** cibles d'attaque
+        normale depuis la tuile de cast ; a une seule (ou zero), elle ne le depense que si l'ability
+        ne peut PAS tuer -- l'inverse du gate `!WillNormalAttackKill` de la famille SpiritLeech, et
+        c'est LU, pas devine : ici c'est un gate d'ECONOMIE DE SURTUAGE, la cible mourant de toute
+        facon, autant garder la ressource.
+
+        ⚠ **`MightBeKill`, PAS `WillBeKill`.** `get_MightBeKill` est la borne MAX (`kill` du
+        composite du port) ; `get_WillBeKill` est le SURE-kill (`killSure`, qui compte le block du
+        defenseur). Les deux different des qu'un block est possible, et prendre `killSure` ici
+        rendrait le refus PLUS RARE que le natif -- degradation permissive silencieuse.
+
+        ⚠ **Le compte est PAR TUILE DE CAST** : `casterTile` est le `casterPosition.MainTile` que
+        `CalculateActionUtility` passe, donc la tuile CANDIDATE du sweep. Le gate departage donc
+        aussi les POSITIONS, pas seulement l'opportunite du cast.
+
+        ⚠ **La prediction est RECALCULEE, et c'est le natif qui le fait** : `CanKillTarget` rappelle
+        le slot +0x358 avec exactement les memes arguments que `CalculateUtilityFromPredictions`
+        vient de lui passer. Le port ne peut pas reutiliser la liste deja produite -- la signature
+        de `ShouldExecute` ne la porte pas, cote natif comme ici.
+
+        DEGRADATION : compte NON MESURABLE (`None` -- pas de tuile de cast, ou `visualId` absent
+        d'`observeBattle` donc portee non derivable) -> VRAI, aucun refus invente. C'est la
+        convention des cinq autres gates de la tranche. Le compte porte, lui, est une BORNE
+        SUPERIEURE (cf. le foyer) : il sur-compte plutot que sous-compte, donc il tire vers la
+        branche `>= 2` = ACCEPTER."""
+        # DIFFERE PORTEUR, MESURE : en process FRAIS, `import engine.playbook.noncomparable._base`
+        # fait deja atterrir `engine.playbook.loki_custom` dans `sys.modules` (la cascade du paquet
+        # `engine.playbook` tire ce module) -- hisser fermerait donc un cycle. Forme B (le MODULE,
+        # pas les noms) : un binding de module reste substituable sous `monkeypatch`.
+        from .noncomparable import _base as _nc_base
+        n = _nc_base.count_eligible_normal_attack_targets(ctx, ctx.uid, caster_tile, ctx.epos)
+        if n is None:
+            return True                       # canal muet -> aucun refus invente
+        if n >= self.MIN_NORMAL_ATTACK_TARGETS:
+            return True                       # `if (n < 2)` NON pris -> `return true`
+        return not self._can_kill_target(ctx, caster_tile, target, ability_id)
+
+    def _can_kill_target(self, ctx, caster_tile, target, ability_id) -> bool:
+        """`...ArmoriumCherubPlaybook$$CanKillTarget` : `preds.Any(p => p.MightBeKill)`.
+
+        `MightBeKill` = la cle `kill` du composite (`engine.utilities.damage.
+        composite_fields_from_prediction`, foyer UNIQUE de la lecture d'un `DamagePredictionResult`),
+        a ne pas confondre avec `killSure` (`get_WillBeKill`). Liste vide -> `False`, ce que rend
+        aussi le natif (`foreach` sans iteration -> `return false`)."""
+        for ev in (self.make_damage_predictions(ctx, caster_tile, target, ability_id) or ()):
+            if (ev.composite_fields() or {}).get("kill"):
+                return True
+        return False
 
 
 class LightOfSanguiniusPlaybook(_CustomOnlyPlaybook):

@@ -30,13 +30,26 @@ Les dix restants, corps LUS verbatim, `ability_id` LU dans le `.ctor` de la clas
 | `Common.HealPlaybook`                | `0x12` = 18    | `utility > 0` **+ clause BOSS** | **oui** (`common.HealPlaybook`) |
 | `Loki.ReapingScythePlaybook`         | `0x447` = 1095 | `utility > 0` **+ TurnsStarted** | **oui** |
 | `Loki.StormOfFlensingBladesPlaybook` | `0x3f2` = 1010 | `casterTile == MainTile(caster)` | **oui** |
-| `Loki.HadesAutocannonsPlaybook`      | `0x47b` = 1147 | un allie porte `Summon`        | **oui** |
-| `Loki.ArmoriumCherubPlaybook`        | `0x3f6` = 1014 | requete de zone + `CanKillTarget` | residu |
-| `BloodChalicePlaybook`               | `0x497` = 1175 | somme de deficits de PV       | residu |
-| `Loki.TacticalPrecisionPlaybook`     | `0x482` = 1154 | requete + `Count > 1`         | residu |
+| `Loki.HadesAutocannonsPlaybook`      | `0x47b` = 1147 | un ENNEMI porte `Summon`      | **oui** |
+| `Loki.TacticalPrecisionPlaybook`     | `0x482` = 1154 | `WillBeCharging` OU `Count > 1` | **oui** (#976) |
+| `Loki.ArmoriumCherubPlaybook`        | `0x3f6` = 1014 | `GetValidTargets < 2` -> `!CanKillTarget` | porte dans `loki_custom.py` |
+| `BloodChalicePlaybook`               | `0x497` = 1175 | somme de deficits de PV       | **DEAD CODE**, cf. `bespoke.py` |
 
 (La ligne `Common.HealPlaybook` est portee DANS `common.py`, la ou vit deja la premiere moitie de
-son gate : la scinder aurait fait deux corps pour un seul `ShouldExecute`.)
+son gate : la scinder aurait fait deux corps pour un seul `ShouldExecute`. Idem `1014` dans
+`loki_custom.py`, ou vit deja son `CalculateCustomUtility` : le registre etant indexe par
+`ability_id`, deux entrees se seraient ecrasees.)
+
+⚠ **LES TROIS << RESIDUS >> DE L'EN-TETE PRECEDENT SONT CLOS, ET AUCUN DES TROIS PAR LA MEME
+RAISON** (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`) :
+  * `1154` etait **DEJA PORTE** quand la fiche l'annoncait ouvert (#976) -- prémisse PERIMEE ;
+  * `1014` est **PORTE ICI** : sa << requete de zone >> est le slot `IBattleQuery` 0x42 =
+    `GetValidTargets`, dont le port a deja un mirror (`noncomparable/_base.
+    count_eligible_normal_attack_targets`, foyer partage avec `ExemplarOfTheKauyon`) ;
+  * `1175` est **DEAD CODE** : `BloodChalicePlaybook` OVERRIDE `EvaluateInternal`, et
+    `ShouldExecute` (slot +0x328) n'est appele que depuis
+    `ComparablePlaybook<T>$$CalculateActionUtility`, elle-meme appelee depuis le SEUL
+    `ComparablePlaybook<T>$$EvaluateInternal` -- que l'override remplace. Detail : `bespoke.py`.
 
 ## Les quatre corps portes ICI, verbatim
 
@@ -175,27 +188,58 @@ class HadesAutocannonsPlaybook(DefaultActiveAbilityPlaybook):
     """`IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$ShouldExecute` (1147) :
 
         owner = EntityExtensions.GetCurrentOwnerEntityId(caster);
-        foreach (u in battleQuery.<slot 0x8e>(owner))
+        foreach (u in battleQuery.<slot d'interface 0x8e = 142 GetAllEnemiesOf>(owner))
             if (UnitExtensions.HasTrait(u, UnitTrait.Summon)) return true;
         return false;
 
-    Vrai ssi le proprietaire du caster possede AU MOINS UNE unite portant `UnitTrait.Summon` (**2**,
+    Vrai ssi **l'ADVERSAIRE** du caster possede au moins une unite portant `UnitTrait.Summon` (**2**,
     qualifie par l'enum -- le littéral du décompilé ne le dit pas). L'utilite, la cible et la tuile
     de cast ne sont pas lues.
 
-    ⚠ Le CASTER lui-meme entre dans l'enumeration : le natif ne l'exclut pas. S'il portait `Summon`
-    il se validerait seul -- regime non exerce (aucun porteur de 1147 n'est un summon), mais le
-    mirror ne doit pas ajouter un test que le natif n'a pas.
+    ⚠ **LE SLOT DIT `GetAllEnemiesOf`, ET LE PORT LISAIT LES ALLIES**
+    (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`). Le slot `0x8e`
+    est `GetAllEnemiesOf` dans `data/symbols/<build>/metadata/interface_slots.tsv`
+    (`GetAllFriendsOf` est le slot VOISIN, `0x8d = 141`), et les deux corps ne different QUE par le
+    sens de la comparaison :
+
+        // IdunBattle.Core.Services.BattleQuery$$GetAllEnemiesOf(playerEntityId)
+        foreach (e in matchState.<slot 0x2f = GetPool>(0))
+            if (EntityExtensions.GetCurrentOwnerEntityId(e) != playerEntityId) set.Add(e);
+        // IdunBattle.Core.Services.BattleQuery$$GetAllFriendsOf : le MEME corps avec `==`.
+
+    Le sens tactique confirme la lecture : les autocanons Hades sont l'arme anti-nuee de la MoW
+    `blackForgefiend` -- elle les sort quand l'ADVERSAIRE a invoque, pas quand elle-meme a invoque
+    (`blackForgefiend` n'invoque rien). Voisin de FORME deja porte, meme slot, meme quantificateur :
+    `noncomparable/hellfyre_missile_rack.py` (`Sum(Select(GetAllEnemiesOf(owner), ...))`).
+
+    ⚠ Le CASTER lui-meme n'entre PAS dans l'enumeration : `GetAllEnemiesOf` exclut par construction
+    tout ce qui partage le proprietaire. (Le port d'avant, qui lisait les ALLIES, l'incluait -- d'ou
+    la mise en garde qu'il portait, devenue sans objet.)
 
     SUBSTRAT : `scene.team` pour le proprietaire (le port n'a pas d'entite JOUEUR distincte ; sur les
     duels du harnais un joueur = une team, meme equivalence que `fire_of_absolution`), et
     `prediction._shared._entity_traits` pour `HasTrait` -- le FOYER de traits de la face DECISION,
-    tri-etat (mesure `combatSnapshot` si presente, kit + grande-alliance sinon)."""
+    tri-etat (mesure `combatSnapshot` si presente, kit + grande-alliance sinon).
+
+    ⚠ `GetAllEnemiesOf` ne filtre NI la mort NI la position (cf. `battle_query.all_enemies_of`, qui
+    porte le meme natif sur le substrat `ctx.units`/`ctrl`) : ce mirror ne les filtre pas non plus.
+    Un summon MORT valide donc le gate, cote natif comme ici.
+
+    ⚠ **SUR LA ROUTE DU NATIF, CE GATE EST UNE TAUTOLOGIE -- et c'est ce qui a rendu l'inversion
+    RESTRICTIVE plutot que permissive.** Le masque de `HadesAutocannonsAbility` porte
+    `TargetIsSummon` (bit 13), mesure au RPC `abilityReason` (`hex: 0x2000`, `reasons:
+    ["TargetIsSummon"]`), et ce bit EST le meme predicat que le gate -- `HasTrait(target,
+    UnitTrait.Summon)`, cf. le bloc TRAITS de `runner/abilities/targeting.py`. Or
+    `CalculateActionUtility` n'est appelee que pour une cible que `GetEligibleTargetsSelectable` a
+    laissee passer : elle est donc DEJA un summon ENNEMI, et la boucle ci-dessous en trouve
+    forcement un. **Le natif ne peut pas refuser ici.** L'ancienne lecture (les ALLIES), elle,
+    REFUSAIT des que le camp du caster n'avait pas de summon a lui -- mesure live :
+    `natif=OUI port_ancien=NON` sur un bras a un seul summon, cote ENNEMI."""
 
     ability_id = int(ActiveAbilityType.HadesAutocannons)        # 0x47b = 1147
 
     #: `HasTrait(u, 2)` du decompile -- `UnitTrait.Summon`, nomme, jamais l'ordinal nu.
-    REQUIRED_ALLY_TRAIT = UnitTrait.Summon
+    REQUIRED_ENEMY_TRAIT = UnitTrait.Summon
 
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
         sc = getattr(ctx, "scene", None)
@@ -204,10 +248,12 @@ class HadesAutocannonsPlaybook(DefaultActiveAbilityPlaybook):
         team = sc.team(getattr(ctx, "uid", None))
         if team is None:
             return True
-        want = self.REQUIRED_ALLY_TRAIT.name
+        want = self.REQUIRED_ENEMY_TRAIT.name
         for u in (sc.units or ()):
             uid = u.get("id")
-            if uid is None or u.get("team") != team:
+            # `GetAllEnemiesOf(owner)` : `GetCurrentOwnerEntityId(u) != owner`. Aucun filtre de vie
+            # ni de position -- c'est le corps natif, relu.
+            if uid is None or u.get("team") == team:
                 continue
             if want in _entity_traits(sc, uid):
                 return True
