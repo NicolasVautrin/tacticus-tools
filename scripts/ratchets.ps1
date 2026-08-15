@@ -279,6 +279,10 @@ $Ratchets = @(
        Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build. Depuis #458 il voit AUSSI son propre perimetre : toute extension presente dans l arbre et hors des trois seaux le fait rougir. Ce second axe est ce qui le rendait creux -- ses globs passaient par Path.match, qui ne developpe pas ** : 967 fichiers versionnes tombaient dans AUCUN seau (tout scripts/python/engine, tout tests/, et par le HAUT frida/host/router.ts et frida/hooks/main.ts), lus puis jetes en silence sous un denominateur qui se lisait comme une couverture'
        Doc  = 'docs/rl/case-431-litteraux-de-build.md ; docs/rl/case-458-perimetre-derive-du-cliquet-431.md' }
 
+    @{ Id = 'probe_330r4'; Argv = @('probe_330r4_estampilles_des_generes.py', '--cliquet')
+       Seul = 'un artefact GENERE dont l en-tete DECLARE sortir d un build qui n est plus le courant. Aucune bijection ne peut le voir : probe_252, probe_275, probe_270 et probe_313 comparent une TABLE au build courant, ils ne lisent jamais ce que le fichier DECLARE -- les quatre etaient VERTS le 2026-08-15 pendant que DOUZE artefacts declaraient rnca9r7q6c ou kqkbjqfb6c. Et pour un scan d instructions (docs/rl/dsl-usage/*.tsv, xrefs du binaire) l estampille est le SEUL signal qui existe : aucune bijection membre a membre ne peut le rattraper, un deplacement de code le perime en silence. Le cliquet ecarte les lignes de DONNEES (un cache versionne porte une cle par build) et la prose historique (une case-doc datee est un fait exact), et il COMPTE ce qu il ecarte'
+       Doc  = 'docs/rl/case-330-r3-r4-r5-forme-du-hash-et-estampilles.md ; docs/rl/case-10012-deux-rouges-targeting-rule-et-l-inventaire-des-estampilles.md' }
+
     # --- TROIS ENTREES RETIREES PAR #457-r6, et pourquoi ce n'est PAS un retrecissement.
     #
     # `pytest_signatures`, `pytest_attestations` et `pytest_adjacency` invoquaient `pytest` sur

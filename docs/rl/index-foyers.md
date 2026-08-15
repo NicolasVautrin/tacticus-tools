@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 435 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 432 |
+| lignes de tableau OUVERTES | 432 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 429 |
 | dont NON ANNOTEES | 3 |
-| foyers distincts (fichiers/repertoires) | 430 |
+| foyers distincts (fichiers/repertoires) | 414 |
 
 Non annotees restantes : #120bis-spawn, #390-r1, #BL-1020r
 
@@ -152,8 +152,6 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/probe_1021_face_decision_au_registre.py` | 2 | #1032-r1, #1033-r2 |
 | `scripts/python/probe_1210_exemplar_of_the_montka.py` | 2 | #942-r1, #942-r2 |
 | `scripts/python/probe_229_effect_triggers_active.py` | 2 | #1074, #426-r1 |
-| `scripts/python/probe_330_prose_va_and_build_stamps.py` | 2 | #10011-r2, #330-r3 |
-| `scripts/python/probe_431_build_literals.py` | 2 | #10011-r2, #330-r3 |
 | `scripts/python/probe_449r2_spread_inventory.py` | 2 | #449-r2-r1, #449-r2-r3 |
 | `scripts/python/probe_486r15_declencheurs_tests.py` | 2 | #486-r20, #486-r21 |
 | `scripts/python/probe_486r2_usage_des_probes.py` | 2 | #486-r3, #486-r6 |
@@ -174,21 +172,12 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `docs/rl/backlog.md` | #468-r5 | `aucun` |
 | `docs/rl/case-1046-horreurs-thousand-sons.md` | #1046-r1 | `aucun` |
 | `docs/rl/dsl-effect-nodes.md` | #330-r1 | `aucun` |
-| `docs/rl/dsl-usage/dsl-usage-edges.tsv` | #330-r5 | `aucun` |
-| `docs/rl/dsl-usage/dsl-usage-owners.tsv` | #330-r5 | `aucun` |
-| `docs/rl/dsl-usage/dsl-usage-primitives.tsv` | #330-r5 | `aucun` |
 | `docs/rl/playbook/prediction.md` | #330-r1 | `aucun` |
 | `docs/rl/port-residuals-inventory.md` | #526-r3 | `aucun` |
 | `docs/rl/runner-engine.md` | #330-r1 | `aucun` |
 | `frida/hooks/` | #552-r2 | `capteur` |
 | `frida/hooks/ai-toolkit/bucket-decode.ts` | #988-r1 | `aucun` |
 | `frida/hooks/controller.ts` | #1064-r1 | `aucun` |
-| `frida/hooks/data/ability-names.ts` | #330-r4 | `aucun` |
-| `frida/hooks/data/effect-type-names.ts` | #330-r4 | `aucun` |
-| `frida/hooks/data/event-trigger-type-names.ts` | #330-r4 | `aucun` |
-| `frida/hooks/data/targeting-rule-names.ts` | #330-r4 | `aucun` |
-| `frida/hooks/data/triggered-ability-names.ts` | #330-r4 | `aucun` |
-| `frida/hooks/data/utility-type-names.ts` | #330-r4 | `aucun` |
 | `frida/hooks/features/ai-step/projection.ts` | #419-r1-tr10-r2 | `aucun` |
 | `frida/hooks/features/ai-step/rpc-*.ts` | #595-r3 | `capteur` |
 | `frida/hooks/features/ai-step/rpc-nc-predict.ts` | #449-r1 | `capteur` |
@@ -221,10 +210,8 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/audit_passive_ability_coverage.py` | #1041-r2 | `aucun` |
 | `scripts/python/build_fingerprint_archive.py` | #482-r5 | `aucun` |
 | `scripts/python/catalog_inject.py` | #254-bc | `aucun` |
-| `scripts/python/dsl_xref_map.py` | #330-r5 | `aucun` |
 | `scripts/python/engine/ai/tactic.py` | #334-r3 | `aucun` |
 | `scripts/python/engine/entities/abilities/**` | #20 | `aucun` |
-| `scripts/python/engine/entities/active_ability_type.py` | #330-r4 | `aucun` |
 | `scripts/python/engine/entities/behaviours.py` | #894-r4 | `aucun` |
 | `scripts/python/engine/entities/effect_targets.py` | #366-r1-effect-targets | `aucun` |
 | `scripts/python/engine/entities/effect_type.py` | #946-r3 | `porteur` |
@@ -333,7 +320,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/utilities/__init__.py` | #485-r1-r2 | `aucun` |
 | `scripts/python/engine/utilities/damage.py` | #449-r2-r4-r3 | `porteur` |
 | `scripts/python/engine/utilities/repair.py` | #271-r7 | `etage` |
-| `scripts/python/enum_maps.py` | #330-r4 | `aucun` |
 | `scripts/python/game_nav.py` | #595-r1 | `capteur` |
 | `scripts/python/gamenav/` | #596 | `capteur` |
 | `scripts/python/gamenav/carte.py` | #596-r2 | `capteur` |
@@ -358,7 +344,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_230_load_state_turn_state.py` | #462-r4c-r2 | `aucun` |
 | `scripts/python/probe_242_fabricator_claw_cap.py` | #462-r4c-r1-r1 | `aucun` |
 | `scripts/python/probe_249_unported_rule_carriers.py` | #426-r1 | `aucun` |
-| `scripts/python/probe_252_hook_name_tables.py` | #330-r4 | `aucun` |
 | `scripts/python/probe_259_gshared_coverage.py` | #259-a | `capteur` |
 | `scripts/python/probe_262_gshared_runtime.py` | #259-b | `capteur` |
 | `scripts/python/probe_271_kustom_force_field_reworked.py` | #271-r1 | `aucun` |
@@ -366,7 +351,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_281_pre_unit_ability_shortcut.py` | #281-r4 | `aucun` |
 | `scripts/python/probe_283_enum_ordinal_sweep.py` | #426-r1 | `aucun` |
 | `scripts/python/probe_287r5_etages_bloquants.py` | #287-r11 | `seeding` |
-| `scripts/python/probe_313_enum_mirror_bijection.py` | #330-r4 | `aucun` |
 | `scripts/python/probe_350r3a_r4_comparable_gate.py` | #350-r3a-r4-r1 | `aucun` |
 | `scripts/python/probe_365_versioned_imports_gitignored.py` | #462-r4c-r3 | `aucun` |
 | `scripts/python/probe_366_r1_bcpatch_port_blindspot.py` | #484-r1 | `aucun` |
@@ -424,7 +408,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_974_decision_gates_live.py` | #974-r2 | `aucun` |
 | `scripts/python/probe_987_thunderous_assault_strategy2.py` | #977-r3 | `aucun` |
 | `scripts/python/prototype_485r1_registre_explicite.py` | #485-r1-r2 | `aucun` |
-| `scripts/python/regen_hook_name_tables.py` | #330-r4 | `aucun` |
+| `scripts/python/regen_enum_mirrors.py` | #313-r2 | `aucun` |
 | `scripts/python/rl_collect_batch.py` | #961-r2 | `aucun` |
 | `scripts/python/rl_gen_enum_columns.py` | #270-b | `aucun` |
 | `scripts/python/rl_gen_ref_tables.py` | #270-b | `aucun` |
@@ -482,7 +466,7 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 | `seeding` | 21 | #1008-r1, #1011-r2, #1027-r1, #287-r11, #392-r1, #419-r1-tr9-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #433-r4-r3-r2, #447-r1-r1-r3-r1, #482-r1, #590-r1, #590-r7, #890-r4, #902-r2, #929-r2, #929-r4, #948-r3, #955-r1, #966-r6, #BF-chance |
 | `etage` | 40 | #1019-r1, #1026-r1, #1027-r3, #1030-r1, #1033-r1, #1033-r4, #1037-r1, #1065-r2, #1078-r2, #1079-r1, #17, #175-r3, #27-r9, #271-r7, #287-r11-r2-r1-r3, #419-r4, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #508-r2, #577-r2, #590-r6, #590-r8, #889-r2, #895-r4, #919-r1, #926-r1, #939-r1, #946-r1, #946-r4, #951-r1, #963-r5, #967-r1, #977-r7 |
 | `porteur` | 44 | #1022-r1, #1027-r6, #1030-r4, #1030-r6, #1042-r4, #1048-r2, #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #425-r1, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #895-r1, #915-r2, #942-r1, #945-r1, #945-r3, #946-r2, #946-r3, #957-r2, #967-r5, #969-r4, #969-r5 |
-| `aucun` | 294 | #10003, #10007, #1001-r1, #10011-r2, #1002-r2, #1002-r3, #1005-r1, #1005-r2, #1005-r3, #1008-r3, #1008-r4, #1008-r5, #1009-r1, #1009-r2, #1009-r3, #1013-r1, #1013-r3, #1015-r2, #1015-r3, #1015-r4, #1020-r6, #1021-r3, #1022-r3, #1024-r6, #1024-r7, #1025-r2, #1025-r3, #1027-r4, #1030-r3, #1031-r1, #1032-r1, #1032-r2, #1033-r2, #1035-r4, #1036-r3, #1036-r7, #1037-r2, #1038-r2, #1041-r1, #1041-r2, #1042-r2, #1042-r5, #1044-r3, #1045-r1, #1045-r2, #1046-r1, #1064-r1, #1065-r1, #1074, #1078-r1, #175-r1, #20, #202-r1, #217, #254-bc, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r8, #277-r1, #281-r4, #283-r2, #287-r14-r2, #330-r1, #330-r2, #330-r3, #330-r4, #330-r5, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #368-r2, #369, #380-r2, #389-r4, #389-r5, #390-r6, #390-r7, #390-r8, #419-r1, #419-r1-tr10-r2, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1a-r1, #419-r1-tr9-r4-r1-r2-r1b, #419-r1-tr9-r4-r1-r3, #419-r1-tr9-r4-r3, #419-r2, #419-r6-r1-r1, #420-r4, #426-r1, #429-r1-r1-r1-r1, #429-r1-r2, #429-r1-r3-r1-r2-r1, #430-r1, #430-r2, #433-r3-r2-r1, #433-r3-r2-r1-r1, #433-r3-r3-r2, #433-r4-r1-r4-r2-r2, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r3, #433-r4-r2-r4-r1-r1, #433-r4-r3-r1-r1, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r1, #447-r2, #447-r6, #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r3, #448-r6, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r3, #455-r1, #455-r2, #455-r4-r1, #456-r2-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6, #462-r4b-r1-r1-r1-r1-c-r3-r3, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r5, #468-r6, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #482-r2, #482-r4, #482-r5, #482-r6, #482-r7, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r2, #485-r1-r3, #485-r1-r4, #486-r10, #486-r16, #486-r17, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r6, #486-r7, #486-r8, #486-r9, #487-r2, #488-r2, #489-r1, #494-r2, #498-r5, #5, #510-r3, #511-r1, #512-r3, #519-r1, #521-r8, #523-r3, #526-r3, #531-r1, #547-r3, #547-r4-r1, #547-r6, #547-r9, #550-r3, #550-r4, #552-r3, #576-r2, #577-r1, #585-r1, #585-r2, #585-r4, #589-r1-r1-r2-r1-r1, #589-r1-r1-r2-r1-r3, #590-r11, #593, #594, #596-r1, #66-r2, #884-r1, #889-r4, #889-r5-r3, #889-r7, #890-r3, #893-r2, #894-r1, #894-r4, #894-r5, #895-r5, #908-r1, #908-r2, #909-r1, #909-r3, #909-r4, #909-r5, #909-r6, #910-r1, #911-r1, #915-r1, #915-r3, #919-r2, #919-r3, #920-r3, #921-r1, #922-r1, #923-r1, #924-r1, #924-r2, #927-r1, #927-r3, #928-r1, #932-r1, #932-r2, #933-r5, #934-r2, #934-r3, #935-r2, #936-r1-r2, #937-r1, #941-r2, #941-r4, #942-r2, #942-r3, #943-r2, #943-r8, #945-r2, #949-r1, #951-r4, #951-r5, #951-r6, #951-r8, #952-r2, #953-r5, #954-r1, #956-r1, #957-r1, #957-r4, #961-r1, #961-r2, #964-r2, #966-r2, #967-r4, #969-r1, #971-r1, #971-r2, #971-r4, #974-r2, #977-r3, #979-r2, #983-r2, #988-r1, #haze-ord, #o10-c |
+| `aucun` | 291 | #10003, #10007, #1001-r1, #1002-r2, #1002-r3, #1005-r1, #1005-r2, #1005-r3, #1008-r3, #1008-r4, #1008-r5, #1009-r1, #1009-r2, #1009-r3, #1013-r1, #1013-r3, #1015-r2, #1015-r3, #1015-r4, #1020-r6, #1021-r3, #1022-r3, #1024-r6, #1024-r7, #1025-r2, #1025-r3, #1027-r4, #1030-r3, #1031-r1, #1032-r1, #1032-r2, #1033-r2, #1035-r4, #1036-r3, #1036-r7, #1037-r2, #1038-r2, #1041-r1, #1041-r2, #1042-r2, #1042-r5, #1044-r3, #1045-r1, #1045-r2, #1046-r1, #1064-r1, #1065-r1, #1074, #1078-r1, #175-r1, #20, #202-r1, #217, #254-bc, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r8, #277-r1, #281-r4, #283-r2, #287-r14-r2, #313-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #368-r2, #369, #380-r2, #389-r4, #389-r5, #390-r6, #390-r7, #390-r8, #419-r1, #419-r1-tr10-r2, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1a-r1, #419-r1-tr9-r4-r1-r2-r1b, #419-r1-tr9-r4-r1-r3, #419-r1-tr9-r4-r3, #419-r2, #419-r6-r1-r1, #420-r4, #426-r1, #429-r1-r1-r1-r1, #429-r1-r2, #429-r1-r3-r1-r2-r1, #430-r1, #430-r2, #433-r3-r2-r1, #433-r3-r2-r1-r1, #433-r3-r3-r2, #433-r4-r1-r4-r2-r2, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r3, #433-r4-r2-r4-r1-r1, #433-r4-r3-r1-r1, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r1, #447-r2, #447-r6, #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r3, #448-r6, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r3, #455-r1, #455-r2, #455-r4-r1, #456-r2-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6, #462-r4b-r1-r1-r1-r1-c-r3-r3, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r5, #468-r6, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #482-r2, #482-r4, #482-r5, #482-r6, #482-r7, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r2, #485-r1-r3, #485-r1-r4, #486-r10, #486-r16, #486-r17, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r6, #486-r7, #486-r8, #486-r9, #487-r2, #488-r2, #489-r1, #494-r2, #498-r5, #5, #510-r3, #511-r1, #512-r3, #519-r1, #521-r8, #523-r3, #526-r3, #531-r1, #547-r3, #547-r4-r1, #547-r6, #547-r9, #550-r3, #550-r4, #552-r3, #576-r2, #577-r1, #585-r1, #585-r2, #585-r4, #589-r1-r1-r2-r1-r1, #589-r1-r1-r2-r1-r3, #590-r11, #593, #594, #596-r1, #66-r2, #884-r1, #889-r4, #889-r5-r3, #889-r7, #890-r3, #893-r2, #894-r1, #894-r4, #894-r5, #895-r5, #908-r1, #908-r2, #909-r1, #909-r3, #909-r4, #909-r5, #909-r6, #910-r1, #911-r1, #915-r1, #915-r3, #919-r2, #919-r3, #920-r3, #921-r1, #922-r1, #923-r1, #924-r1, #924-r2, #927-r1, #927-r3, #928-r1, #932-r1, #932-r2, #933-r5, #934-r2, #934-r3, #935-r2, #936-r1-r2, #937-r1, #941-r2, #941-r4, #942-r2, #942-r3, #943-r2, #943-r8, #945-r2, #949-r1, #951-r4, #951-r5, #951-r6, #951-r8, #952-r2, #953-r5, #954-r1, #956-r1, #957-r1, #957-r4, #961-r1, #961-r2, #964-r2, #966-r2, #967-r4, #969-r1, #971-r1, #971-r2, #971-r4, #974-r2, #977-r3, #979-r2, #983-r2, #988-r1, #haze-ord, #o10-c |
 | `RE` (HORS VOCABULAIRE) | 3 | #1020-r5, #894-r2, #965-r2 |
 
 ## Foyers qui ne designent AUCUN fichier

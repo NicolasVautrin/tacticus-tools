@@ -1,7 +1,7 @@
 # enum_maps.py -- id <-> nom des enums natifs, LU PAR L'INGEST ET LES AUDITS.
 #
 # GENERE : `python scripts/python/regen_enum_maps.py --ecrire`.
-# Source : `data/symbols/rnca9r7q6c/frida/enums.tsv` (VERSIONNEE, donc presente dans tout checkout).
+# Source : `data/symbols/t6dpr4k06g/frida/enums.tsv` (VERSIONNEE, donc presente dans tout checkout).
 # Garde  : `python scripts/python/probe_275_enum_maps_drift.py`.
 #
 # REGENERER A CHAQUE CHANGEMENT DE BUILD. Le jeu AJOUTE, RETIRE et REATTRIBUE des membres ; une
@@ -650,7 +650,8 @@ EFFECT_TYPE = {
     9999: 'STRIPPED',
 }
 
-# active_ability_type <- enum ActiveAbilityType (260 membres) -- IdunBattle.Entities.Enum.ActiveAbilityType
+# active_ability_type <- enum ActiveAbilityType (260 membres)
+# GENERE par regen_active_ability_tables.py depuis data/symbols/t6dpr4k06g/frida/enums.tsv.
 ACTIVE_ABILITY_TYPE = {
     0: 'None',
     3: 'ChainLightning',

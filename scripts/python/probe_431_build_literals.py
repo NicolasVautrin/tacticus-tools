@@ -69,13 +69,23 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "scripts" / "python") not in sys.path:
     sys.path.insert(0, str(REPO / "scripts" / "python"))
 
+import build_hash  # noqa: E402
 import repo_read  # noqa: E402
 from symbols_layout import current_build  # noqa: E402
 
-# Hash de build Tacticus : 10 caracteres, suffixe de plateforme `6c`. Meme forme que
-# `probe_330.BUILD_RE` -- les deux comptes doivent rester comparables.
-# Observes : nb3o9lmt6c, uu2fr8mv6c, kqkbjqfb6c, rmvdp0v56c, gqfc5mff6c, rnca9r7q6c.
-BUILD_RE = re.compile(r"(?<![a-z0-9])([a-z0-9]{8}6c)(?![a-z0-9])")
+# LA CIBLE DU RECENSEUR -- DERIVEE DE L'ARBRE, PLUS JAMAIS ECRITE ICI (#330-r3).
+#
+# Ce module portait, comme `probe_330`, le litteral `r"(?<![a-z0-9])([a-z0-9]{8}6c)(?![a-z0-9])"`.
+# Le suffixe `6c` etait une REGULARITE des six premiers builds observes, pas une regle : le build
+# courant `t6dpr4k06g` finit en `6g`, donc ce cliquet -- dont c'est precisement le metier -- etait
+# AVEUGLE AU BUILD COURANT. Mesure du 2026-08-15 : 68 occurrences hors de portee dans le seul seau
+# executable, dont une RESOLUTION d'artefact (`BUILD_DE_LECTURE = "t6dpr4k06g"`).
+#
+# ⚠ Et le piege est ici plus grave qu'ailleurs : les candidats de ce cliquet DERIVENT de cette
+# regex. Y ecrire le hash courant -- ou le suffixe `6g` -- l'aurait fait passer au VERT en GAGNANT
+# le gisement qu'il existe pour tenir. La forme se DERIVE (`build_hash`), elle ne s'enumere pas ;
+# et `build_hash.verifier_la_forme()` REFUSE si un build connu lui echappe (etape 0 ci-dessous).
+BUILD_RE = build_hash.build_re()
 
 # RESOLUTION vs MESSAGE -- le critere est LOCAL et EXACT, sans lecture du contexte :
 #
@@ -375,6 +385,18 @@ def main() -> int:
 
     courant = current_build()
     print("build courant (data/symbols/CURRENT) : %s" % courant)
+    # LA CIBLE DU RECENSEUR, DITE AVANT TOUT COMPTE (#330-r3). Un cliquet qui ne dit pas ce
+    # qu'il cherche laisse lire ses zeros comme des mesures -- c'est exactement ce que le
+    # suffixe `6c` en dur a produit ici.
+    try:
+        rap = build_hash.verifier_la_forme()
+        forme_refusee = ""
+    except build_hash.FormeRefusee as exc:
+        rap = build_hash.rapport_des_sources()
+        forme_refusee = str(exc)
+    build_hash.imprimer_les_sources(rap)
+    if forme_refusee:
+        print("  !! FORME REFUSEE -- %s" % forme_refusee.replace("\n", "\n     "))
     print("")
 
     files = tracked_files()
@@ -386,6 +408,8 @@ def main() -> int:
     auto_tests: list[str] = []
     inconnues: dict[str, list[str]] = defaultdict(list)
     par_seau: Counter = Counter()
+    candidats: Counter = Counter()
+    connus = set(rap["connus"])
     n_exec_scanned = n_prose_scanned = 0
 
     # Lecture PARALLELE des seuls fichiers a balayer (#457-r6). L'ouverture d'un fichier pese
@@ -413,6 +437,11 @@ def main() -> int:
             continue
         if s == "EXEC":
             n_exec_scanned += 1
+            # INVENTAIRE (non bloquant) : les jetons de la FORME d'un hash qu'aucun build connu
+            # ne porte. C'est le seul canal par lequel un build neuf peut se signaler avant
+            # d'avoir une table ou un chemin -- et il est BRUYANT par construction, donc il ne
+            # decide rien. Le dire explicitement est ce qui empeche de le promouvoir en critere.
+            candidats.update(build_hash.candidats_de_forme(text, connus))
             if not BUILD_RE.search(text):
                 continue                          # pas de hash -> denominateur seulement
             commentaires = EXT_EXEC[Path(rel).suffix.lower()]
@@ -511,8 +540,27 @@ def main() -> int:
     print("      python probe_330_prose_va_and_build_stamps.py --fail-on-header-stamp")
     print("")
 
+    # ------------------------------------------------------- (3) INVENTAIRE, jamais un verdict
+    print("=== (3) JETONS DE LA FORME D'UN HASH, qu'AUCUN build connu ne porte (inventaire) ===")
+    print("Ce canal ne decide RIEN et c'est mesure : la forme generique seule rend %d jeton(s)"
+          % len(candidats))
+    print("distinct(s) sur le seul seau executable, pour %d build(s) reel(s). Le critere qui"
+          % len(connus))
+    print("discrimine est la POSITION (`games|dumps|symbols/<x>`), pas la forme -- cf. build_hash.")
+    print("Il existe pour qu'un build NEUF puisse se signaler avant d'avoir une table ou un chemin.")
+    print("  jetons : %d distinct(s), %d occurrence(s)" % (len(candidats), sum(candidats.values())))
+    for h, n in candidats.most_common(args.top):
+        print("    %-14s %d" % (h, n))
+    if len(candidats) > args.top:
+        print("    ... et %d autre(s) jeton(s)" % (len(candidats) - args.top))
+    print("")
+
     if args.cliquet:
         ko = 0
+        if forme_refusee:
+            ko += 1
+            print("CLIQUET ROUGE : la FORME du hash de build ne reconnait plus un build CONNU.")
+            print("  %s" % forme_refusee.replace("\n", "\n  "))
         if inconnues:
             ko += len(inconnues)
             print("CLIQUET ROUGE : %d extension(s) hors de tout seau -- le perimetre a un TROU."

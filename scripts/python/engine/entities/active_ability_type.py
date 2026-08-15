@@ -1,7 +1,7 @@
 """engine.entities.ActiveAbilityType -- enum natif `ActiveAbilityType` (mirror 1:1 complet).
 
 GENERE : `python scripts/python/regen_active_ability_tables.py --ecrire`.
-Source : `data/symbols/rnca9r7q6c/frida/enums.tsv` -- `IdunBattle.Entities.Enum.ActiveAbilityType`.
+Source : `data/symbols/t6dpr4k06g/frida/enums.tsv` -- `IdunBattle.Entities.Enum.ActiveAbilityType`.
 REGENERER A CHAQUE CHANGEMENT DE BUILD : le jeu AJOUTE et RETIRE des membres (mesure #270 sur
 `gqfc5mff6c` -> `rnca9r7q6c` : 75 ids historiques Idun retires, 4 ajoutes). Un membre garde ici
 alors que le jeu l'a retire est INERTE (le jeu ne l'emet jamais) ; un membre du jeu ABSENT ici

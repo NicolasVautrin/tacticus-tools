@@ -1,6 +1,6 @@
 {
   "binary": "GameAssembly.dll",
-  "build": "rnca9r7q6c",
+  "build": "t6dpr4k06g",
   "caveats": [
     "Un xref vide ne prouve rien : corps triviaux DEDUPLIQUES (un seul proprietaire nomme pour N classes) et bases generiques non dumpees.",
     "La formule juste est 'aucun xref nomme', pas 'personne ne l'utilise'."
@@ -1411,6 +1411,10 @@
             "ghidra": 2849
           },
           "rnca9r7q6c": {
+            "frida": 0,
+            "ghidra": 2830
+          },
+          "t6dpr4k06g": {
             "frida": 0,
             "ghidra": 2830
           }

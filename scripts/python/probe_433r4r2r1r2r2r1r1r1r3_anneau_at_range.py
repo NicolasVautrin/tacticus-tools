@@ -53,6 +53,7 @@ import json
 import sys
 from pathlib import Path
 
+from build_pin import archived_build                                      # noqa: E402
 from engine.runner.abilities import targeting as TGT                      # noqa: E402
 from engine.runner.abilities.handler import ABILITY_CLASSES               # noqa: E402
 from engine.runner.abilities.targeting_rule import TargetingRule as TR    # noqa: E402
@@ -166,7 +167,14 @@ CTORS_RELUS = {
 #: Le build sur lequel `CTORS_RELUS` et `PRESETS_CCTOR` ont ete LUS. Le recensement doit porter sur
 #: le MEME, sinon il apparie des noms a des valeurs d'un autre binaire -- la desynchronisation
 #: silencieuse que le CLAUDE.md interdit.
-BUILD_DE_LECTURE = "t6dpr4k06g"
+#:
+#: Le litteral passe par le FOYER (`build_pin.archived_build`, #431) : il n'est pas interdit, il est
+#: interdit HORS du foyer, qui CONTROLE que la table de ce build est encore versionnee. Sans elle,
+#: `_ctors_du_binaire` ne compare a rien et son << aucun ctor decouvert >> se lirait comme un
+#: resultat. Rendu visible par #330-r3 : jusque-la `probe_431` ne voyait pas ce litteral, son motif
+#: codant le suffixe `6c` en dur alors que ce build finit en `6g`.
+BUILD_DE_LECTURE = archived_build("t6dpr4k06g",
+                                  "CTORS_RELUS et PRESETS_CCTOR, relus un par un au decompile")
 
 
 def _build_avec_symboles() -> str:

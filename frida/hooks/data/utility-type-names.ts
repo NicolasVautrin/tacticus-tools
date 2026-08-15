@@ -1,5 +1,5 @@
 // Auto-genere : python scripts/python/regen_hook_name_tables.py
-// Source : data/symbols/rnca9r7q6c/frida/enums.tsv -- IdunBattle.Configuration.UtilityType
+// Source : data/symbols/t6dpr4k06g/frida/enums.tsv -- IdunBattle.Configuration.UtilityType
 // id -> nom d'UtilityType (la cle d'une UtilityConfig d'IA).
 // REGENERER A CHAQUE CHANGEMENT DE BUILD. Ces valeurs sont IMPLICITES : un membre insere
 // ou retire au MILIEU decale tout ce qui suit, et une table figee ment alors SILENCIEUSEMENT
