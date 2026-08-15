@@ -12,7 +12,7 @@ TROIS DERIVATIONS, aucune saisie
    jamais d'une liste ecrite ici.
 2. **CE QUE LE PORT PORTE** vient de l'AST de `engine/runner/abilities/` : une regle est PORTEE
    si le port peut la RENDRE comme code de refus (`return int(TR.<X>)`, en POSITION DE VALEUR --
-   cf. `_tr_reason_codes`, resserre par #1114 sur une composition de masque prise pour un refus).
+   cf. `_tr_reason_codes`, resserre par #10012 sur une composition de masque prise pour un refus).
    C'est la colonne qui se perime en silence dans une table ecrite, donc c'est celle qu'on ne
    saisit jamais. Ce que la position de valeur ECARTE est NOMME (`rules_dropped_by_value_position`),
    imprime par le rapport et garde par un test : un filtre muet est le meme vice que les trois
@@ -77,7 +77,7 @@ def _tr_names(node: ast.AST) -> set:
 def _tr_int_calls_anywhere(node: ast.AST) -> set:
     """Les `int(TR.<Nom>)` N'IMPORTE OU dans un sous-arbre -- le TOTAL a partitionner.
 
-    Ce n'etait pas un helper mais LE critere (`_tr_reason_codes` d'avant #1114) : tout
+    Ce n'etait pas un helper mais LE critere (`_tr_reason_codes` d'avant #10012) : tout
     `int(TR.<X>)` sous un `return` etait compte comme un CODE DE REFUS rendu. Il est conserve
     ici parce que la PARTITION doit rester exhaustive -- un `int(TR.<X>)` que la position de
     valeur ecarte doit rester COMPTE quelque part, jamais disparaitre en silence."""
@@ -98,7 +98,7 @@ def _tr_reason_codes(node: ast.AST) -> set:
        (`return self.has(TR.CasterIsPossibleTarget)`), qui ne refusent rien -- il classait
        `TargetIsEnemy`/`CasterIsPossibleTarget` portes par de simples lectures ;
     2. « un `int(TR.<X>)` N'IMPORTE OU sous un `return` » captait une COMPOSITION DE MASQUE
-       (#1114) : `targeting.py::targeting_options_for_continue` rend un `TargetingOptions`, pas
+       (#10012) : `targeting.py::targeting_options_for_continue` rend un `TargetingOptions`, pas
        un code, et son `rules=int(options.rules) | int(TR.AllowIgnoreForcedAttackTarget)` est le
        mirror 1:1 d'`IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue`
        (`opts.<+0x28 rules> |= 0x10000000000`). Le natif POSE ce bit ; il ne le REND jamais ;
@@ -115,8 +115,11 @@ def _tr_reason_codes(node: ast.AST) -> set:
 
     CE QU'IL NE VOIT PAS, et c'est dit plutot que tu : un code de refus rendu a travers un
     WRAPPER (`return _broken(int(TR.<X>))`). Aucun site du port n'a cette forme aujourd'hui
-    (mesure : les 118 sites retenus sont tous `return int(TR.X)` ou `return ... if ... else
-    int(TR.X)`), et le sens de la degradation est le bon -- une telle forme serait comptee NON
+    (mesure du 2026-08-15 : sur les 117 sites `(nom, fichier, ligne)` de l'ancien critere, les
+    116 retenus sont tous `return int(TR.X)` ou `return ... if ... else int(TR.X)`, et le SEUL
+    ecarte est la composition de masque ci-dessus -- `nouveau \\ ancien` est VIDE, donc le
+    resserrement ne fabrique aucune entree), et le sens de la degradation est le bon -- une
+    telle forme serait comptee NON
     PORTEE, donc SUR-declaree en trou, jamais tue. La contrepartie est gardee : ce que ce
     critere ECARTE est NOMME par `rules_dropped_by_value_position`, et un ecarte NEUF fait
     rougir `test_targeting_rule_inventory.py`."""

@@ -182,7 +182,7 @@ def test_le_port_ne_rend_jamais_une_permission_qui_ne_soit_pas_un_refus_natif():
     `TargetingQuery$$GetInvalidCasterReason` rend bel et bien quand `casterTiles` est vide sans
     permission ni `CasterHasNoTile`.
 
-    ⚠ Cette assertion a accuse le MOTEUR pour une faute de l'ORACLE (#1114). Elle designait
+    ⚠ Cette assertion a accuse le MOTEUR pour une faute de l'ORACLE (#10012). Elle designait
     `AllowIgnoreForcedAttackTarget`, que le port n'a jamais rendu : il l'ECRIT dans un masque
     (`targeting.py::targeting_options_for_continue`), mirror 1:1 du `opts.<+0x28 rules> |=
     0x10000000000` d'`IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue`.
@@ -203,7 +203,7 @@ def test_le_port_ne_rend_jamais_une_permission_qui_ne_soit_pas_un_refus_natif():
 
 #: Les `int(TR.<X>)` sous un `return` que la POSITION DE VALEUR ecarte, NOMMES un par un.
 #: (nom de regle, fichier du port, fonction porteuse). Un ecarte NEUF doit etre LU et inscrit ici
-#: -- c'est ce qui empeche le resserrement de #1114 de faire disparaitre un site en silence.
+#: -- c'est ce qui empeche le resserrement de #10012 de faire disparaitre un site en silence.
 ECARTES_DECLARES = {
     # `AActiveAbility$$GetTargetingOptionsForContinue` : `opts.<+0x28 rules> |= 0x10000000000`.
     # Une COMPOSITION DE MASQUE, pas un code de refus -- le natif POSE ce bit, il ne le REND jamais.
@@ -223,7 +223,7 @@ def test_les_ecartes_de_la_position_de_valeur_sont_NOMMES():
         exerce par aucun code reel, et un futur elargissement passerait inapercu."""
     mesures = P.rules_dropped_by_value_position()
     assert mesures, (
-        "AUCUN site n'est ecarte par la position de valeur -- le resserrement de #1114 n'est "
+        "AUCUN site n'est ecarte par la position de valeur -- le resserrement de #10012 n'est "
         "plus exerce par le port reel, ce test ne garde plus rien")
     neufs = sorted(mesures - ECARTES_DECLARES)
     disparus = sorted(ECARTES_DECLARES - mesures)
@@ -375,7 +375,7 @@ def _module_synthetique(tmp_path, nom_fichier: str, source: str):
 
 
 def test_contre_epreuve_une_permission_rendue_en_position_de_valeur_ROUGIT(tmp_path, monkeypatch):
-    """Le resserrement de #1114 MORD-il encore dans le bon sens ? Un port qui rendrait vraiment
+    """Le resserrement de #10012 MORD-il encore dans le bon sens ? Un port qui rendrait vraiment
     une PERMISSION comme code de refus (`return int(TR.<permission>)`) doit toujours faire rougir.
     Sans cette morsure, la narrowing du critere pourrait avoir vide la garde de son sens."""
     f = _module_synthetique(tmp_path, "faux_refus.py", (
