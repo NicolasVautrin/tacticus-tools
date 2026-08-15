@@ -315,6 +315,68 @@ def visual_id_of(ctx: "NCContext", unit_id) -> str | None:
     return None
 
 
+def count_eligible_normal_attack_targets(ctx: "NCContext", unit_id, tile: tuple | None,
+                                         foes) -> "int|None":
+    """`<IBattleQuery slot 0x42 = 66 GetValidTargets>(unit, UnitPosition(tile), <type d'attaque
+    normale>).Count` -- **FOYER UNIQUE** du COMPTE ; `has_eligible_normal_attack_target` ci-dessous
+    n'en est que la forme `> 0`.
+
+    Deux consommateurs, deux corps natifs DISTINCTS qui appellent le MEME slot :
+
+      * `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack(unit, position)`
+        = `GetValidTargets(unit, position, UnitExtensions.GetNormalAttackType(unit))` -- la forme
+        `.Count > 0` qu'interrogent `ExemplarOfTheKauyonPlaybook$$HasEnemyInRange` et
+        `AttemptedPossessionPlaybook$$EvaluateNonComparable` ;
+      * `IdunBattle.AI.Playbook.Loki.ArmoriumCherubPlaybook$$GetNumEnemiesInNormalAttackRange(caster,
+        casterTile)` = `GetValidTargets(caster, new UnitPosition(casterTile),
+        ActiveAbilityType.Loki_NormalAttack).<+0x10>.<+0x18 = Count>` -- corps INLINE dans
+        `...ArmoriumCherubPlaybook$$ShouldExecute`, qui le compare a `2`.
+
+    ⚠ **La DIFFERENCE entre les deux call-sites est le 3e argument, et le port ne la modelise pas.**
+    `GetEligibleTargetsForNormalAttack` passe `GetNormalAttackType(unit)` (le type CONCRET de
+    l'attaque normale du porteur) ; `ArmoriumCherub` passe le LITTERAL
+    `ActiveAbilityType.Loki_NormalAttack` (**69**, qualifie par l'enum). Les deux coincident pour
+    tout porteur dont l'attaque normale n'est pas surchargee -- ce qui est le cas d'`adeptRetributor`
+    (le seul porteur `lineup` de 1014 ; aucune surcharge d'attaque normale dans son entree
+    gameconfig). Les etages portes ci-dessous (PORTEE + OBSCURCISSEMENT) ne lisent PAS ce type : la
+    distinction est donc INVISIBLE dans ce mirror, et le dire est le seul moyen de ne pas la
+    perdre.
+
+    TRI-ETAT, et c'est ce qui separe << aucune cible >> de << pas mesurable >> :
+      * `int` -- compte MESURE (0 compris : aucun adversaire a portee, ce que le natif rendrait) ;
+      * `None` -- **PAS MESURE** : pas de tuile de depart, ou `visualId` introuvable dans
+        `observeBattle` donc portee non derivable. Le port ne devine JAMAIS une portee, et un `0`
+        invente ferait basculer `ArmoriumCherub` sur sa branche restrictive.
+
+    ETAGES PORTES, et EUX SEULS (residu `#975-r1`) : la PORTEE
+    (`distance <= _max_attack_range(visualId)`, foyer partage `engine.ai.state_bridge`) et
+    l'OBSCURCISSEMENT (`bq.is_target_tile_obscured`, mirror de
+    `IdunBattle.Core.Services.TargetingQuery$$IsTargetTileObscured`, exact a distance 2).
+    NON portes : le brouillard de guerre, la walkability de la tuile de la cible, les bits du
+    masque de l'attaque normale. Les trois ne peuvent que RETIRER des cibles -> ce compte est une
+    **BORNE SUPERIEURE**."""
+    if tile is None:
+        return None
+    vis = visual_id_of(ctx, unit_id)
+    if not vis:
+        return None                 # portee non derivable : le port ne devine pas une portee
+    from engine.ai.state_bridge import _max_attack_range   # DIFFERE PORTEUR : `ai.state_bridge`
+    #   importe `engine.playbook` (le meme cycle que differe `playbook/loki_custom.py`, pour le
+    #   MEME symbole et la MEME raison). Classe VERIFIEE, pas supposee.
+    rng = int(_max_attack_range(vis))
+    n = 0
+    for q in (foes or ()):
+        if not q or q[0] is None:
+            continue
+        p = (q[0], q[1])
+        if hexgeo.distance(tile, p) > rng:
+            continue                                            # hors portee d'attaque normale
+        if bq.is_target_tile_obscured(tile, p, ctx.elev_by_pos):
+            continue                                            # `IsTargetTileObscured` -> refus
+        n += 1
+    return n
+
+
 def has_eligible_normal_attack_target(ctx: "NCContext", unit_id, tile: tuple | None,
                                       foes) -> bool:
     """`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack(unit, position)`
@@ -349,26 +411,16 @@ def has_eligible_normal_attack_target(ctx: "NCContext", unit_id, tile: tuple | N
     `IdunBattle.Core.Services.TargetingQuery$$IsTargetTileObscured`, exact a distance 2).
     NON portes : le brouillard de guerre, la walkability de la tuile de la cible, les bits du
     masque de l'attaque normale. Les trois ne peuvent que RETIRER des cibles -> ce predicat est une
-    **BORNE SUPERIEURE**. Il peut rendre `True` la ou le natif rend `False`, jamais l'inverse."""
-    if tile is None:
-        return False
-    vis = visual_id_of(ctx, unit_id)
-    if not vis:
-        return False                # portee non derivable : le port ne devine pas une portee
-    from engine.ai.state_bridge import _max_attack_range   # DIFFERE PORTEUR : `ai.state_bridge`
-    #   importe `engine.playbook` (le meme cycle que differe `playbook/loki_custom.py`, pour le
-    #   MEME symbole et la MEME raison). Classe VERIFIEE, pas supposee.
-    rng = int(_max_attack_range(vis))
-    for q in (foes or ()):
-        if not q or q[0] is None:
-            continue
-        p = (q[0], q[1])
-        if hexgeo.distance(tile, p) > rng:
-            continue                                            # hors portee d'attaque normale
-        if bq.is_target_tile_obscured(tile, p, ctx.elev_by_pos):
-            continue                                            # `IsTargetTileObscured` -> refus
-        return True                                             # `Count > 0` : court-circuit
-    return False
+    **BORNE SUPERIEURE**. Il peut rendre `True` la ou le natif rend `False`, jamais l'inverse.
+
+    ⚠ Le CORPS vit dans `count_eligible_normal_attack_targets` ci-dessus depuis
+    `#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1` : `ArmoriumCherubPlaybook$$ShouldExecute` interroge le MEME
+    slot mais compare le compte a `2`, pas a `0`. Deux transcriptions se seraient desynchronisees le
+    jour ou un des etages manquants est porte. Ce qui reste ici est la forme `> 0` et la
+    normalisation du tri-etat : `None` (pas mesurable) se lit `False`, EXACTEMENT comme avant --
+    c'est ce que rendaient les deux gardes de tete."""
+    n = count_eligible_normal_attack_targets(ctx, unit_id, tile, foes)
+    return n is not None and n > 0                              # `Count > 0`
 
 
 def eligible_target_tiles(ctx: "NCContext", ability_id: int) -> tuple[list, list]:

@@ -30,13 +30,26 @@ Les dix restants, corps LUS verbatim, `ability_id` LU dans le `.ctor` de la clas
 | `Common.HealPlaybook`                | `0x12` = 18    | `utility > 0` **+ clause BOSS** | **oui** (`common.HealPlaybook`) |
 | `Loki.ReapingScythePlaybook`         | `0x447` = 1095 | `utility > 0` **+ TurnsStarted** | **oui** |
 | `Loki.StormOfFlensingBladesPlaybook` | `0x3f2` = 1010 | `casterTile == MainTile(caster)` | **oui** |
-| `Loki.HadesAutocannonsPlaybook`      | `0x47b` = 1147 | un allie porte `Summon`        | **oui** |
-| `Loki.ArmoriumCherubPlaybook`        | `0x3f6` = 1014 | requete de zone + `CanKillTarget` | residu |
-| `BloodChalicePlaybook`               | `0x497` = 1175 | somme de deficits de PV       | residu |
-| `Loki.TacticalPrecisionPlaybook`     | `0x482` = 1154 | requete + `Count > 1`         | residu |
+| `Loki.HadesAutocannonsPlaybook`      | `0x47b` = 1147 | un ENNEMI porte `Summon`      | **oui** |
+| `Loki.TacticalPrecisionPlaybook`     | `0x482` = 1154 | `WillBeCharging` \|\| `Count > 1` | **oui** (#976) |
+| `Loki.ArmoriumCherubPlaybook`        | `0x3f6` = 1014 | `GetValidTargets < 2` -> `!CanKillTarget` | porte dans `loki_custom.py` |
+| `BloodChalicePlaybook`               | `0x497` = 1175 | somme de deficits de PV       | **DEAD CODE**, cf. `bespoke.py` |
 
 (La ligne `Common.HealPlaybook` est portee DANS `common.py`, la ou vit deja la premiere moitie de
-son gate : la scinder aurait fait deux corps pour un seul `ShouldExecute`.)
+son gate : la scinder aurait fait deux corps pour un seul `ShouldExecute`. Idem `1014` dans
+`loki_custom.py`, ou vit deja son `CalculateCustomUtility` : le registre etant indexe par
+`ability_id`, deux entrees se seraient ecrasees.)
+
+⚠ **LES TROIS << RESIDUS >> DE L'EN-TETE PRECEDENT SONT CLOS, ET AUCUN DES TROIS PAR LA MEME
+RAISON** (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`) :
+  * `1154` etait **DEJA PORTE** quand la fiche l'annoncait ouvert (#976) -- prémisse PERIMEE ;
+  * `1014` est **PORTE ICI** : sa << requete de zone >> est le slot `IBattleQuery` 0x42 =
+    `GetValidTargets`, dont le port a deja un mirror (`noncomparable/_base.
+    count_eligible_normal_attack_targets`, foyer partage avec `ExemplarOfTheKauyon`) ;
+  * `1175` est **DEAD CODE** : `BloodChalicePlaybook` OVERRIDE `EvaluateInternal`, et
+    `ShouldExecute` (slot +0x328) n'est appele que depuis
+    `ComparablePlaybook<T>$$CalculateActionUtility`, elle-meme appelee depuis le SEUL
+    `ComparablePlaybook<T>$$EvaluateInternal` -- que l'override remplace. Detail : `bespoke.py`.
 
 ## Les quatre corps portes ICI, verbatim
 

@@ -50,7 +50,43 @@ class BloodChalicePlaybook:
     - seuil = `AbilityConfiguration.GetNumberConstant(0x4f)` = config `healthPct` = 50.
     - W = `Utilities.Default.ActiveAbilities.BloodChalice_AdjacentDamagedNonMechanicalFriend` = 50.
     - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (IdunBattle.AI.Playbook.BloodChalicePlaybook$$.cctor) -> gate `count>=1` (1×50=50>1).
-    - `IdunBattle.AI.Playbook.BloodChalicePlaybook$$ShouldExecute` : `Σ(seuil − PV%)` sur amis non-méca > 0 (>=1 ami sous le seuil)."""
+
+    ⚠ **`IdunBattle.AI.Playbook.BloodChalicePlaybook$$ShouldExecute` EST DU CODE MORT, et c'est une
+    lecture de REACHABILITY, pas une absence d'observation** (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`).
+    Son corps existe et il est LU :
+
+        thr = AbilityConfiguration.GetNumberConstant(0x4f);                 // healthPct = 50
+        sum = 0;
+        foreach (u in battleQuery.<slot d'interface 0x83 = 131 GetAdjacentFriends>(casterTile, caster))
+            if (!UnitExtensions.IsMechanical(u))
+                sum += thr - UnitExtensions.GetStat(u, StatType.Health, 1, 0);   // PV%
+        return sum > 0;
+
+    Mais AUCUN chemin ne l'appelle pour une instance de `BloodChalicePlaybook` :
+      * `ShouldExecute` vit au slot de vtable **+0x328** et n'a qu'UN appelant,
+        `ComparablePlaybook<T>$$CalculateActionUtility` ;
+      * `CalculateActionUtility` n'a elle-meme qu'UN appelant (`list_xrefs` : un seul
+        `UNCONDITIONAL_CALL`), `ComparablePlaybook<T>$$EvaluateInternal` ;
+      * or `BloodChalicePlaybook$$EvaluateInternal` **OVERRIDE** ce corps generique -- meme slot
+        (+0x238, celui que `BasePlaybook$$Evaluate` invoque), meme signature `(caster,
+        casterPosition, abilityState, customUtility)` -- et son corps appelle `GenerateAction` +
+        `Bucket$$AddAction` DIRECTEMENT, sans jamais passer par `CalculateActionUtility`.
+    Le vtable porte donc l'override, et rien ne le franchit. Meme forme que `CultDemagoguePlaybook`
+    (override d'`EvaluateInternal`, AUCUN `ShouldExecute` declare) ; a l'oppose,
+    `MomentShacklePlaybook` n'override PAS `EvaluateInternal`, et c'est pour ca que SON
+    `ShouldExecute` est vivant et porte plus bas.
+
+    ⚠ Et le gate mort n'est PAS equivalent a celui d'`EvaluateInternal` -- l'ecart serait
+    OBSERVABLE s'il vivait : `EvaluateInternal` compte les amis STRICTEMENT sous le seuil
+    (`if (pct < thr) count++`, gate `count >= 1`), quand `ShouldExecute` SOMME des ecarts SIGNES
+    (`sum += thr - pct`), donc un ami a 90 % de PV y contribue **-40** et peut annuler un ami a
+    20 %. Le porter << au cas ou >> aurait ajoute un refus que le natif ne prononce pas.
+    ⚠ Les deux corps n'interrogent meme pas la MEME requete : `EvaluateInternal` appelle le slot
+    **0x84 = 132** (`GetAdjacentFriends(from: UnitPosition, unit)` -> `GetAdjacentUnits`),
+    `ShouldExecute` le slot **0x83 = 131** (`GetAdjacentFriends(from: IEntity, unit)` ->
+    `IterateAdjacentTiles` + `GetUnitsOnTiles`). Quatre surcharges vivent aux slots 129..132 ; les
+    apparier a leurs corps s'est fait par les TYPES DECLARES de `frida/methods.tsv`, pas par
+    l'ordre."""
 
     ABILITY_ID = int(ActiveAbilityType.BloodChalice)  # 1175
     W_KEY = "BloodChalice_AdjacentDamagedNonMechanicalFriend"   # cat ActiveAbilities
