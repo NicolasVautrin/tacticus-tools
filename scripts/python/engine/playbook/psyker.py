@@ -198,8 +198,24 @@ class PsykerPlaybook:
         if actx is None or tpos is None:
             return 0.0
         # 2. arme du case : mêlée -> 0 ; profil != Psychic -> 0.
+        # ⚠ L'ADJACENCE QUI CHOISIT L'ARME N'EST PAS GEOMETRIQUE (#433-r4-r1-r4-r2-r1-r1-r1-r1).
+        # Chaine LUE : le corps d'iterateur natif appelle le slot 175 d'`IBattleQuery` =
+        # `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack`, dont le
+        # corps ENTIER est `if (<slot 21 d'IAttackQuery>(attacker, attackerTiles, ignoreTrait: 1))
+        # { FindMeleeWeapon sinon FindRangedWeapon } else { l'inverse }` ; ce slot est
+        # `IdunBattle.Core.Services.AttackQuery$$ShouldApplyRangedInMelee` ->
+        # `IdunBattle.Core.Services.DamageCalculations$$ShouldApplyRangedInMelee`, qui ENUMERE la
+        # liste `+0x10` du composant de connectivite de chaque tuile de l'attaquant puis applique
+        # `...$$CanMeleeAttackOverElevationDifference`. Le nom de la methode ne dit PAS son predicat.
+        # Le canal remplace donc la couronne hex, qui SUR-ATTEINT la liste stockee ; canaux absents
+        # -> repli GEOMETRIQUE nomme du foyer, c.-a-d. le comportement d'avant.
+        # RESIDU `#433-r4-r1-r4-r2-r1-r1-r1-r1-r1` : le predicat natif porte sur << un ennemi VALIDE
+        # est adjacent a l'attaquant >>, pas sur << la CIBLE est adjacente >> -- l'ecart de PORTEE
+        # reste, il n'est pas cree ici et il concerne tous les appelants de la selection d'arme.
         d = hexgeo.distance(attack_tile, tpos)
-        _p, is_ranged, _h, prof_name = select_weapon_pierce(actx, d <= 1, d)
+        _adjacent = bq.is_adjacent(tuple(attack_tile), tuple(tpos),
+                                   sc.elev_by_pos, bq.neigh_map(sc))
+        _p, is_ranged, _h, prof_name = select_weapon_pierce(actx, _adjacent, d)
         if not is_ranged or prof_name != "Psychic":
             return 0.0
         # 3. IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$IsPsykerAttackSuppressed (caster 1191 || cible du case 1533).

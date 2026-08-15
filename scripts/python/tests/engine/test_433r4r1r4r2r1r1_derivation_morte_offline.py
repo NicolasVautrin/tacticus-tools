@@ -135,14 +135,27 @@ def test_etape1_est_CABLEE_au_verdict(monkeypatch):
     assert G.main() == 1
 
 
-def test_les_deux_replis_legitimes_sont_dans_le_perimetre_de_letape4(arbres_reels):
-    """Le vert de l'etape 4 porte bien sur les deux fonctions a risque, pas sur un ensemble vide.
+def test_les_replis_legitimes_sont_dans_le_perimetre_de_letape4(arbres_reels):
+    """Le vert de l'etape 4 porte bien sur les fonctions a risque, pas sur un ensemble vide.
 
     `is_adjacent` (repli sous `if neigh is None`) et `services.battle_query.are_tiles_adjacent`
     (geometrie APRES un bloc canal dont toutes les feuilles retournent) sont exactement les deux
-    formes que le critere de flot doit accepter."""
+    formes que le critere de flot doit accepter.
+
+    ⚠ LA TROISIEME EST ARRIVEE PAR L'ELARGISSEMENT DU CRITERE (#433-r4-r1-r4-r2-r1-r1-r1-r1,
+    2026-08-15), PAS PAR UN CODE NEUF. `utilities/tile.py::apply_tile_attributes` ecrit
+    `d <= 1` -- une forme que `_est_compare_geo` ne reconnaissait pas, l'appel de distance n'y
+    etant pas l'operande gauche. Elle est LEGITIME et c'est precisement le patron que l'etape 4
+    doit valider : elle SEPARE deja les deux substrats de la famille `AUnitEffectsUtility` --
+    `adjacent` par `battle_query.is_adjacent` (`DSLFactory$$AdjacentFriends` -> liste stockee +
+    porte d'elevation), `surrounding1`/`ranged2` par la distance nue
+    (`DSLFactory$$SurroundingFriends(1|2)` -> disque CUBE, sans liste ni porte).
+
+    Ce test assertionne l'ensemble EXACT, et c'est voulu : le relacher en inclusion ferait taire
+    l'arrivee d'un site a risque. Le prix est qu'il rougit quand le PERIMETRE bouge -- et c'est
+    alors une invitation a LIRE le nouveau venu, pas a elargir la liste sans regarder."""
     vus = {fn.name for _, fn in G._mirrors_avec_canal(arbres_reels)}
-    assert vus == {"is_adjacent", "are_tiles_adjacent"}, vus
+    assert vus == {"is_adjacent", "are_tiles_adjacent", "apply_tile_attributes"}, vus
 
 
 def test_le_VICE_REEL_de_orks_est_CORRIGE_et_la_liste_ELARGIE(arbres_reels):

@@ -344,10 +344,11 @@ GEOMETRIE_NUE_CLASSEE = {
         (GEOMETRIQUE, "BattleQuery$$GetConnectedPathTo -> GetDistance = CubeCoordinate$$Distance"),
     ("scripts/python/engine/runner/abilities/genestealer.py", "get_dynamic_invalid_target_reason"):
         (GEOMETRIQUE, "BattleQuery$$GetMinDistance -> CubeCoordinate$$Distance sur les empreintes"),
-    # ---- LISTE_STOCKEE : le natif enumere la liste stockee, le canal MANQUE. ----
-    #
-    # `PsykerPlaybook` choisit l'arme du coup par une COURONNE HEX (`d <= 1` passe en `is_adjacent`
-    # a `select_weapon_pierce`) la ou le natif descend sur la LISTE STOCKEE. Chaine LUE :
+    # ---- LISTE_STOCKEE : VIDE. Un site y est passe, et il en est sorti PAR LE HAUT dans la meme
+    # tranche -- `playbook/psyker.py::calculate_attack_utility_in_steps` choisissait l'arme du coup
+    # par une COURONNE HEX (`d <= 1` passe en `is_adjacent` a `select_weapon_pierce`) la ou le natif
+    # descend sur la liste stockee. Chaine LUE, et elle vaut d'etre gardee ici parce qu'AUCUN nom
+    # ne l'annonce :
     #   `PsykerPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext` appelle le
     #   slot **175** d'`IBattleQuery` = `BattleQuery$$GetAttackWeaponForDefaultNormalAttack`
     #   (3 args), dont le corps ENTIER est : `if (slot 21 d'IAttackQuery(attacker, attackerTiles,
@@ -356,17 +357,12 @@ GEOMETRIE_NUE_CLASSEE = {
     #   ShouldApplyRangedInMelee`, qui pour chaque tuile de l'attaquant ENUMERE la liste `+0x10` du
     #   composant de connectivite et retient un voisin ENNEMI vivant/targetable/non-steppable
     #   passant `DamageCalculations$$CanMeleeAttackOverElevationDifference`.
-    # ⚠ LE NOM DE LA METHODE EST TROMPEUR et l'ordinal ne le dit pas : le PREDICAT est
-    # « un ennemi valide est ADJACENT », d'ou la branche MELEE quand il rend vrai.
-    # Le gisement DEPASSE ce site : `damage_model.select_weapon_pierce` derive `adj = dist <= 1`
-    # des que son appelant ne passe pas `is_adjacent`, donc TOUT appelant de la selection d'arme est
-    # concerne. Residu `#433-r4-r1-r4-r2-r1-r1-r1-r1-r1` -- le cabler ICI SEULEMENT serait le fork
-    # que ce cliquet reproche.
-    ("scripts/python/engine/playbook/psyker.py", "calculate_attack_utility_in_steps"):
-        (LISTE_STOCKEE, "BattleQuery$$GetAttackWeaponForDefaultNormalAttack -> AttackQuery$$"
-                        "ShouldApplyRangedInMelee -> DamageCalculations$$ShouldApplyRangedInMelee "
-                        "(liste stockee + CanMeleeAttackOverElevationDifference) -- "
-                        "#433-r4-r1-r4-r2-r1-r1-r1-r1-r1"),
+    # ⚠ LE NOM DE LA METHODE EST TROMPEUR : le PREDICAT est « un ennemi valide est ADJACENT »,
+    # d'ou la branche MELEE quand il rend VRAI.
+    # CE QUI RESTE : l'ecart de PORTEE (le natif regarde « un ennemi VALIDE adjacent a
+    # l'attaquant », le port « la CIBLE est adjacente ») et le repli `adj = dist <= 1` de
+    # `damage_model.select_weapon_pierce`, qui concerne TOUT appelant de la selection d'arme.
+    # Residu `#433-r4-r1-r4-r2-r1-r1-r1-r1-r1`. ----
 }
 
 #: Les substrats LUS AU DECOMPILE, par classe -- c'est ce qui rend `GEOMETRIE_NUE_CLASSEE`
