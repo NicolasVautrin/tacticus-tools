@@ -448,11 +448,13 @@ class DslContext:
     # `get_IsFirstHitGroup`. Le meme couple avait deja ete re-mesure par #963 et corrige dans
     # `entities/triggers.py::IsFirstHitInSeries` ; cette ligne-ci portait encore l'ancienne valeur.
     # Et ce n'est pas « le `DamageAppliedResult` du coup courant » : c'est un entier nullable.
-    # ⚠ **AUCUN VECTEUR DU PORT NE POSE CE CHAMP** (#927-r5, mesure : 0 site construit un
-    # `DslContext` avec `is_first_hit`). Le drapeau circule bien, mais par les OPERATIONS de degat
-    # et le bus d'evenements (`AttackWithAttackDamage.is_first_hit` -> `execute_normal_like`),
-    # jamais par le contexte DSL. Consequences, toutes deux silencieuses : `IsFirstHitInSeries`
-    # rend TOUJOURS False, et ce slot ne discrimine RIEN dans la cle du noeud `Cache`.
+    # ⚠ **UN SEUL VECTEUR DU PORT POSE CE CHAMP** (#927-r5, recensement AST des 14 appels passant
+    # `is_first_hit=` : treize visent une OPERATION de degat ou un `TriggerEvent`, un seul un
+    # `DslContext`) -- `runner/operations/triggers/loki/on_toxic_damage.py`, qui est aussi le seul
+    # consommateur porte d'`IsFirstHitInSeries`. Les deux bouts se rejoignent donc, et le predicat
+    # n'est PAS inerte. Corollaire pour la cle du noeud `Cache` (qui porte ce slot) : elle ne
+    # discrimine par lui que sur ce chemin-la -- et l'arbre d'`on_toxic_damage` ne contient aucun
+    # `Cache`, donc aucune memoisation n'en depend aujourd'hui.
     is_first_hit: bool | None = None
     # `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit, triggeredAbilityType)` =
     # `unit.GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)` -- le SEUL etage du

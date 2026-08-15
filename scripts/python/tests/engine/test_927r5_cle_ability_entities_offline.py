@@ -136,13 +136,40 @@ def test_aucun_champ_manquant_n_est_seede_par_le_DslContext():
         % sorted(presents))
 
 
-def test_le_slot_is_first_hit_ne_discrimine_RIEN_aujourd_hui():
-    """Il est dans la cle, mais AUCUN vecteur du port ne le pose -- il vaut toujours `None`.
-    Le documenter par un test evite qu'on le compte comme une couverture qu'il n'assure pas."""
+def test_le_slot_is_first_hit_n_est_pose_que_par_UN_vecteur():
+    """⚠ CE TEST A D'ABORD ETE ECRIT A L'ENVERS, et c'est la lecon qu'il garde. Un premier
+    balayage textuel avait conclu « AUCUN vecteur ne pose ce champ » -- faux : sur les 14 appels
+    passant `is_first_hit=`, treize visent une OPERATION de degat ou un `TriggerEvent`, et le
+    quatorzieme un `DslContext`. Le predicat `IsFirstHitInSeries` n'est donc PAS inerte : son
+    unique poseur est aussi son unique consommateur porte.
+
+    Ce que ca change pour la cle : le slot discrimine, mais seulement sur ce chemin -- et l'arbre
+    d'`on_toxic_damage` ne porte aucun `Cache`, donc aucune memoisation n'en depend."""
+    import ast
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parents[2] / "engine"
+    poseurs = set()
+    total = 0
+    for f in racine.rglob("*.py"):
+        try:
+            arbre = ast.parse(f.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        for n in ast.walk(arbre):
+            if not (isinstance(n, ast.Call)
+                    and any(k.arg == "is_first_hit" for k in n.keywords)):
+                continue
+            total += 1
+            fn = n.func
+            nom = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "?")
+            if nom in ("replace", "DslContext"):
+                poseurs.add(f.relative_to(racine).as_posix())
+    assert total >= 10, "TEMOIN DEGENERE : %d appel(s) passant `is_first_hit=`" % total
+    assert poseurs == {"runner/operations/triggers/loki/on_toxic_damage.py"}, (
+        "les poseurs du slot `is_first_hit` sur un DslContext ont change : %s" % sorted(poseurs))
     assert "is_first_hit" in _ABILITY_ENTITIES_SLOTS
-    assert DslContext().is_first_hit is None
-    a = DslContext(caster=_u(1))
-    assert _ability_entities_key(a) == _ability_entities_key(replace(a, is_first_hit=None))
+    assert DslContext().is_first_hit is None, "defaut None = `!HasValue` du Nullable natif"
 
 
 # --------------------------------------------------------------------------------------------

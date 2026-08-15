@@ -1352,9 +1352,9 @@ class Cache(TargetsSelector):
       * `actor` `caster` `target` `owner` `effect` `active_target` -> 6 champs natifs, exactement ;
       * `caster_pos` est la PROPRIETE `get_CasterPosition`, DERIVEE de `casterTiles@+0x48` puis
         `casterTile@+0x40` -- deux entites distinctes de meme position se confondent ;
-      * `is_first_hit` est la PROPRIETE `get_IsFirstHit`, derivee de `hitIndex@+0x108`, et **aucun
-        vecteur du port ne la pose** (mesure : 0 site) -> elle vaut toujours `None` et ne
-        discrimine RIEN ;
+      * `is_first_hit` est la PROPRIETE `get_IsFirstHit`, derivee de `hitIndex@+0x108`, et un SEUL
+        vecteur du port la pose (`triggers/loki/on_toxic_damage.py`, sur les 14 appels passant
+        `is_first_hit=`) -> elle ne discrimine que sur ce chemin, ou aucun `Cache` ne vit ;
       * `subject` n'est PAS un champ : `Subject` et `ActiveTarget` sont deux noeuds portes pour LE
         MEME selecteur natif `DSLFactory+0x180`, donc deux slots pour un seul champ.
 
