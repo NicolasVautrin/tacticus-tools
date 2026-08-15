@@ -679,41 +679,52 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         LOI PORTEE (H = coups APPLIQUES, k = index 1-based du coup qui met la cible a 0 PV) :
 
             cible SURVIVANTE                -> 0            (aucune entree, pas meme le `+ extraHits`)
-            tuee au coup k                  -> max(0, H - k) + extraHits
+            tuee au coup k                  -> max(0, H - k - 1) + extraHits
             deja morte a l'entree           -> H + extraHits          (modelise, non confronte)
 
-        ⚠⚠ **LE `- 1` A DISPARU (#489-r1, 2026-08-15), ET CE N'EST PAS UN FIT : C'EST LE COMPTE
-        DES ENTREES QUE LE PORT POUSSE DEJA AILLEURS.** La loi ci-dessus n'est plus DERIVEE d'une
-        table de mesures -- elle est le CARDINAL, par construction, de ce que
-        `operations/left_over_damage.py::record_left_over_damages` (mirror LU des trois call-sites
-        d'`ApplyDamageOperation$$AddLeftoverHit`, live-valide par #209/#221) pousse avec un FLAG
-        VRAI. Ce re-jeu-la fait, coup par coup :
+        ⚠⚠ **CETTE FORME EST INCOMPLETE ET C'EST MESURE -- MAIS LES DEUX CORRECTIFS << EVIDENTS >>
+        SONT REFUTES, EUX AUSSI PAR MESURE LIVE (#489-r1, 2026-08-15).** Ne pas la changer sans
+        rejouer les DEUX montages ci-dessous ; le residu ouvert est `#489-r2`.
 
-            si (deja Overkilled) ou (hp <= 0 a l'entree) : entree, flag = VRAI      # sites (A)/(B)
-            sinon si le coup TUE                        : entree, flag = FAUX      # site (C)
+          * `max(0, H - k) + extraHits`, que la lecture des trois call-sites d'`AddLeftoverHit`
+            semble dicter (« les coups joues apres la mort »), est **REFUTEE LIVE** : elle rend
+            `test_523_heavy_warp_flamer_live.py` TROIS fois rouge (dont `test_r3` : chaine offline
+            `[79, 83, 81]` contre live `[79, 83]` -- un maillon ENTIER en trop) et
+            `test_chain_leftover_hits_live.py` DEUX fois (maillon `u81` : port `[1970, 1030, 0]`
+            contre live `[1946]`), la ou `master` est vert 13/13 sur les deux fichiers.
+          * `(H-k) - (1 si overkill) + extraHits`, que propose la fiche #489-r1, est refutee par
+            #505 : sur `1129` (coup fatal qui ECRASE, donc `IsOverkill` VRAI) elle rend `3-1 = 2`
+            la ou le live rend **3**.
 
-        et `GetLeftOverHits` ne compte QUE les entrees flag-vrai (`LeftOverDamage+0x78`, relu
-        verbatim ci-dessus). Le nombre de coups dont l'entree porte un flag VRAI est donc
-        exactement le nombre de coups joues APRES le coup fatal, c'est-a-dire **`H - k`** -- jamais
-        `H - k - 1`. Les deux ports du MEME fait divergeaient d'une unite ; ils coincident
-        desormais, et `tests/engine/test_489r1_leftover_hits_offline.py` FIGE cette identite en
-        confrontant ce compte au re-jeu, sur un balayage exhaustif de (H, k).
+        CE QUE LA LECTURE ETABLIT MALGRE TOUT, et qui reste le fil a tirer : le gate du call-site
+        (a) -- le SEUL des trois a pousser un flag LITTERAL `1`, donc le seul que `GetLeftOverHits`
+        compte -- est `UnitExtensions.HasFlag(target, UnitFlag.Overkilled = 8)`, **PAS** `IsDead`.
+        Le compte se lit donc sur l'index d'OVERKILL, pas sur celui de la MORT, et
+        `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` etant un SEUIL, cet index vaut `k`
+        ou `k+1` selon la MAGNITUDE du coup fatal :
 
-        CE QUE LE `- 1` COUTAIT, mesure par mesure (les deux etaient DEJA au dossier) :
-          * `#505` / `1129 BloodyFury` (extraHits **null**, donc extra = 0, H = 4, report lu DANS le
-            live sur un 2e maillon SURVIVANT) : PV 3000 k=1 -> live **3** ; 10000 k=2 -> **2** ;
-            15000 k=3 -> **1** ; 21000 k=4 -> **0**. `max(0,H-k)` = 4/4 ; `max(0,H-k-1)` = 1/4.
-          * `#489` / `1048 FragstormGrenadeLauncher` : « cible tuee a l'avant-dernier coup SANS
-            overkill » -> natif **1** coup reporte, port **0**.
-          Et les 4 regimes de `probe_125` (1006, extra = 1) restent satisfaits : `max(0,H-k)+1`
-          les couvre pour H = 5/5/{3..5}/6, dont le regime `H == k` qui pin le terme `+ extraHits`
-          (0 + 1 = 1 >= 1, le 2e maillon EST frappe). Aucune des six mesures ne separe donc plus
-          la lecture de la mesure.
+            if (!allowOverkill) return false
+            if (minimumHealth.HasValue && minimumHealth.Value > 0) return false
+            if (healthDamage >= targetInitialHealth && isForceOverkill) return true
+            if (!isPreventOverkill && healthDamage >= targetInitialHealth) {
+                pct = (healthDamage - targetInitialHealth) / targetInitialHealth * 100   # Fix64
+                return (pct < overkillDmgPctOfHealth) ? isCritical : true
+            }
+            return false
 
-        ⚠ La forme `(H-k) - (1 si overkill) + extraHits`, proposee par la fiche #489-r1, est
-        REFUTEE et ne doit pas etre reintroduite : sur `1129`, dont le coup fatal ECRASE la cible
-        (+167 %, donc `IsOverkill` VRAI), elle rend `3 - 1 = 2` la ou le live rend **3**. Elle
-        n'etait ajustee que sur les regimes ou l'overkill et le coup fatal coincidaient.
+        ⚠ **CE QUI A CHANGE LE 2026-08-15, ET QUI ETAIT LE BLOQUANT DECLARE** : `#489-r1` disait
+        « le retour d'`execute_ability_attack` n'expose AUCUN flag d'overkill ». L'ETAGE existait
+        deja (`damage_hits.overkill_flag_posted_by_hit`, mirror d'`IsOverkill`, porte par
+        #462-r4e-o-r1) ; seul le CABLAGE manquait. `overkilled` / `overkill_at_hit` /
+        `hits_executed` sont desormais REMONTES par `execute_ability_attack` **et repris dans
+        chaque maillon de `chain`** -- donc lisibles par un probe.
+        ⚠ ET LA PREMIERE MESURE QU'ILS PERMETTENT CONTREDIT LE MODELE SIMPLE : sur `1006` /
+        maillon `u79` (H = 6, k = 2, report NATIF = 4 avec extra = 1), le port mesure
+        `overkill_at_hit = 3`, donc un index d'overkill 1-based `o = 4`. `H - o + extra` rendrait
+        **3**, `H - o + 1 + extra` rendrait **4**. Aucune des deux ne peut etre retenue sur un
+        seul point : `#489-r2` porte le montage qui separe (lire `overkill_at_hit` sur `1129`,
+        dont #505 predit un `o` DIFFERENT de celui de 1006 -- c'est le seul couple ou les formes
+        divergent).
 
         MESURE LIVE (`probe_125_leftover_hits.py --mode sweep`, seed 4242, board MC1_67, chaine
         MultiThreatEliminator ; le report est FORCE maillon par maillon et le tuple est confronte au
@@ -780,17 +791,15 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         per_hit = list(atk.get("per_hit_health") or [])
         if not per_hit:
             return 0
+        H = len(per_hit)
         hp = int(atk.get("hp_before") or 0)
-        if hp <= 0:                       # (a) deja morte : chaque coup tombe sur le cadavre
-            return len(per_hit) + int(extra)
-        for i, h in enumerate(per_hit):   # (b) l'attaque tue-t-elle, et A QUEL coup
+        if hp <= 0:                       # deja morte : CHAQUE coup entre par le site (a)
+            return H + int(extra)
+        for i, h in enumerate(per_hit):   # l'attaque tue-t-elle, et A QUEL coup
             hp -= int(h)
             if hp <= 0:
-                # `H - k` : les coups joues APRES le coup fatal sont exactement ceux dont l'entree
-                # `LeftOverDamage` porte un flag VRAI (cf. `record_left_over_damages`). Le coup
-                # fatal lui-meme (site (c)) pousse une entree flag FAUX -> il ne compte pas, mais
-                # il rend `list.Count > 0`, ce qui ARME le terme `+ extraHits`.
-                return max(0, len(per_hit) - (i + 1)) + int(extra)
+                return max(0, H - (i + 1) - 1) + int(extra)
+        return 0                          # cible SURVIVANTE -> AUCUNE entree -> pas de `+ extraHits`
         return 0                          # cible SURVIVANTE -> AUCUNE entree -> pas de `+ extraHits`
 
     def execute(self, entities, ectx):
@@ -861,6 +870,12 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
                           "per_hit": atk.get("per_hit"),
                           "per_hit_health": atk.get("per_hit_health"),
                           "hp_before": atk.get("hp_before"),
+                          # #489-r1 : la TROISIEME entree de `_left_over_hits`, et la seule qui
+                          # separe `o = k` de `o = k+1`. Sans elle dans ce dict, un probe qui
+                          # recalcule le report depuis un maillon retombe sur le REPLI et croit
+                          # mesurer la loi alors qu'il mesure sa degradation.
+                          "overkilled": atk.get("overkilled"),
+                          "overkill_at_hit": atk.get("overkill_at_hit"),
                           "total": atk.get("total"), "attack": atk})
             ectx.emit("ChainLeftOverHitsAttackDamage", caster=caster, target=tgt, hits=hits,
                       total=atk.get("total"), attack=atk)

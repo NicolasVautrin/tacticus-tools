@@ -102,14 +102,15 @@ def clamped(seq, hp):
 
 
 def left_over_attendu(maillon):
-    """`(H, k, max(0, H - k))` du 1er maillon -- `GetLeftOverHits` sans `extraHits`.
+    """`(H, k, GetLeftOverHits(maillon))` du 1er maillon -- `extraHits` NULL pour 1194.
 
-    ⚠ Le `- 1` a disparu le 2026-08-15 (#489-r1) : le compte natif est le nombre d'entrees
-    `LeftOverDamage` dont le flag `wasAlreadyDead` (`+0x78`) est VRAI, c'est-a-dire le nombre de
-    coups joues APRES le coup fatal -- `H - k`, jamais `H - k - 1`. Cette fonction doit rester le
-    JUMEAU de `ChainLeftOverHitsAttackDamage._left_over_hits` (extra = 0) : si elle en diverge,
-    `test_523_heavy_warp_flamer_live.py::test_r2_...` compare le port a une formule perimee au lieu
-    de comparer le port au live."""
+    ⚠ Cette fonction NE RE-IMPLEMENTE PLUS la loi, elle DELEGUE au foyer (#489-r1, 2026-08-15).
+    La raison est une mesure : la loi du foyer est INCOMPLETE (residu `#489-r2`) et les deux
+    correctifs << evidents >> sont refutes LIVE -- un jumeau qui recopierait une formule
+    comparerait donc le port a une formule perimee au lieu de le comparer au LIVE, ce qui est
+    exactement la tautologie que #489-r1 reprochait au VERDICT-4 de `probe_489`. Le maillon
+    porte desormais `overkilled` / `overkill_at_hit`, l'entree qui manque a la loi."""
+    from engine.runner.abilities.behaviours.combat import ChainLeftOverHitsAttackDamage
     ph = [int(x) for x in (maillon.get("per_hit_health") or [])]
     hp0 = int(maillon.get("hp_before") or 0)
     k, acc = None, 0
@@ -118,7 +119,7 @@ def left_over_attendu(maillon):
         if hp0 - acc <= 0:
             k = i + 1
             break
-    return len(ph), k, (max(0, len(ph) - k) if k else 0)
+    return len(ph), k, ChainLeftOverHitsAttackDamage._left_over_hits(maillon, 0)
 
 
 def mesure(sid, st_file, *, seed=4242, board="MC1_67", rank="17", hp_target=3300, relay_hp=None,

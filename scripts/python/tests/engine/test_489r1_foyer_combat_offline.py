@@ -4,13 +4,21 @@ Quatre residus du meme foyer, tranches le 2026-08-15 par lecture du decompile du
 (`t6dpr4k06g`). **DEUX de leurs premisses sont FAUSSES et deux sont PERIMEES** ; ce fichier fige
 les quatre lectures, pour que personne ne les rouvre a tort ni ne les << repare >> a l'envers.
 
-ETAGE 1 -- #489-r1 (a). LA LOI DE `GetLeftOverHits` PERDAIT UN COUP.
-  `ChainLeftOverHitsAttackDamage._left_over_hits` rendait `max(0, H-k-1) + extra` ; le natif compte
-  les entrees `LeftOverDamage` dont le FLAG (`+0x78 wasAlreadyDead`) est VRAI, et ce compte vaut
-  `max(0, H-k)`. La preuve n'est pas une table de mesures : c'est que le port pousse DEJA ces
-  entrees ailleurs (`operations/left_over_damage.py::record_left_over_damages`, mirror LU des trois
-  call-sites d'`ApplyDamageOperation$$AddLeftoverHit`, live-valide par #209/#221). L'etage 1
-  confronte les DEUX ports du MEME fait sur un balayage exhaustif de (H, k).
+ETAGE 1 -- #489-r1 (a). LE BLOQUANT DECLARE N'EXISTAIT PLUS, MAIS LA LOI RESISTE (`#489-r2`).
+  La fiche annonce « la loi `(H-k) - (1 si overkill) + extraHits` reproduit 6 regimes sur 6 » et
+  « bloquant : le retour d'`execute_ability_attack` n'expose AUCUN flag d'overkill ». Le second
+  point est PERIME (l'etage `IsOverkill` est porte depuis #462-r4e-o-r1 ; seul le CABLAGE
+  manquait, et cette tranche le pose). Le premier est FAUX : cette forme rend `2` la ou #505
+  mesure `3` sur `1129 BloodyFury`.
+  ⚠ ET LE CORRECTIF QUE LA LECTURE SEMBLE DICTER EST REFUTE LUI AUSSI. Le gate du call-site (a)
+  d'`IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` -- le SEUL des trois a pousser un
+  flag LITTERAL `1`, donc le seul que `GetLeftOverHits` compte -- est
+  `UnitExtensions.HasFlag(target, UnitFlag.Overkilled = 8)`, **PAS** `IsDead` : le compte se lit
+  sur l'index d'OVERKILL. Mais `max(0, H-k)`, la forme qui en decoule quand on suppose
+  `o = k`, rend `test_523_heavy_warp_flamer_live.py` TROIS fois rouge (dont un MAILLON ENTIER en
+  trop : offline `[79, 83, 81]` contre live `[79, 83]`) et `test_chain_leftover_hits_live.py` DEUX
+  fois, la ou `master` est vert 13/13. La loi portee reste donc celle de `master`, et les etages
+  ci-dessous FIGENT a la fois ce qu'elle vaut et ce qu'on sait de sa faute.
 
 ETAGE 2 -- #489-r1 (a), le BLOQUANT declare. La fiche dit « le retour d'`execute_ability_attack`
   n'expose AUCUN flag d'overkill ». L'ETAGE existait (`overkill_flag_posted_by_hit`, mirror
@@ -102,86 +110,78 @@ DECLENCHEUR = {
 # ETAGE 1 -- la loi de `GetLeftOverHits` == le cardinal des entrees flag-vrai
 # ==================================================================================================
 
-def _entrees_flag_vrai(per_hit_health, hp_before, deja_overkilled=False):
-    """Re-joue la boucle d'`operations/left_over_damage.py::record_left_over_damages` et rend
-    `(nb d'entrees FLAG-VRAI, nb d'entrees TOTAL)`.
-
-    C'est le MEME re-jeu, aux memes conditions ; la seule chose que `record_left_over_damages` ne
-    porte pas est le FLAG lui-meme (residu nomme dans son en-tete), et c'est precisement ce que
-    `GetLeftOverHits` compte. On le reconstruit ici a partir de ses branches :
-
-        (A)/(B) cible DEJA morte (ou deja `Overkilled`) a l'entree du coup -> entree, flag VRAI
-        (C)     le coup TUE                                                -> entree, flag FAUX
-    """
-    flag_vrai = 0
-    total = 0
-    hp = int(hp_before)
-    for dmg in per_hit_health:
-        if deja_overkilled or hp <= 0:
-            flag_vrai += 1
-            total += 1
-            continue
-        applique = min(hp, int(dmg))
-        hp -= applique
-        if hp <= 0 and applique > 0:
-            total += 1              # site (C) : flag FAUX (la cible etait VIVANTE a l'entree)
-    return flag_vrai, total
+def _report(H, k, extra, ovk_at=None, overkilled=None):
+    """La loi portee, sur une serie de `H` coups a 1 PV et une cible a `k` PV (donc coup fatal au
+    rang `k` 1-based). `ovk_at` = index 0-BASED du coup qui pose `UnitFlag.Overkilled`."""
+    atk = {"per_hit_health": [1] * H, "hp_before": k,
+           "overkill_at_hit": ovk_at,
+           "overkilled": (overkilled if overkilled is not None else ovk_at is not None)}
+    return ChainLeftOverHitsAttackDamage._left_over_hits(atk, extra)
 
 
 @pytest.mark.parametrize("extra", [0, 1])
-def test_etage1_la_loi_egale_le_cardinal_des_entrees_flag_vrai(extra):
-    """Balayage EXHAUSTIF de (H, k) : la loi portee doit rendre, coup pour coup, le nombre
-    d'entrees flag-vrai + le `+ extraHits` gate par « au moins UNE entree »."""
+def test_etage1_la_loi_LIVE_VALIDEE_est_tenue(extra):
+    """Balayage EXHAUSTIF de (H, k) de la loi effectivement portee -- celle que `master` valide
+    LIVE sur `1006` (`test_chain_leftover_hits_live.py`, seeds 4242 et 777) et sur `1194`
+    (`test_523_heavy_warp_flamer_live.py`, R2 et R3). Ce n'est pas la loi NATIVE (cf. l'etage 1bis
+    et le residu `#489-r2`), c'est la loi CONFRONTEE : la changer exige de rejouer ces deux
+    fichiers, et de mesurer AVANT."""
     vus = 0
     for H in range(1, 8):
-        for pv in range(1, H + 2):          # k = pv (chaque coup retire 1 PV)
-            per_hit = [1] * H
-            attendu_flag, attendu_total = _entrees_flag_vrai(per_hit, pv)
-            attendu = attendu_flag + (extra if attendu_total > 0 else 0)
-            obtenu = ChainLeftOverHitsAttackDamage._left_over_hits(
-                {"per_hit_health": per_hit, "hp_before": pv}, extra)
-            assert obtenu == attendu, (
-                "H=%d pv=%d extra=%d : loi=%d, cardinal des entrees flag-vrai=%d"
-                % (H, pv, extra, obtenu, attendu))
+        for k in range(1, H + 2):
+            attendu = 0 if k > H else max(0, H - k - 1) + extra
+            assert _report(H, k, extra) == attendu, (H, k, extra)
             vus += 1
-    # TEMOIN NON DEGENERE : un balayage qui n'aurait exerce aucun regime passerait pour vert.
     assert vus == sum(H + 1 for H in range(1, 8)) == 35, vus
 
 
-def test_etage1_l_ancienne_loi_DIVERGE_ici_meme():
-    """CONTRE-EPREUVE. `max(0, H-k-1)` n'est pas << une autre ecriture >> de la loi : elle rend
-    STRICTEMENT moins des que la cible meurt avant le dernier coup. Sans cette assertion, l'etage 1
-    passerait aussi avec l'ancienne formule si le re-jeu temoin etait, lui aussi, faux."""
-    divergences = []
-    for H in range(1, 8):
-        for pv in range(1, H + 2):
-            per_hit = [1] * H
-            k = pv if pv <= H else None
-            if k is None:
-                continue
-            ancienne = max(0, H - k - 1)
-            attendu_flag, _ = _entrees_flag_vrai(per_hit, pv)
-            if ancienne != attendu_flag:
-                divergences.append((H, pv, ancienne, attendu_flag))
-    assert divergences, "aucun regime ne separe l'ancienne loi de la nouvelle : temoin degenere"
-    # Elle SOUS-ESTIME toujours, jamais l'inverse -- c'est la signature de l'ecart mesure par #505.
-    assert all(a < b for _H, _pv, a, b in divergences), divergences
+def test_etage1bis_le_flag_d_overkill_ne_change_PAS_ENCORE_la_loi():
+    """CE TEST EST LA POUR TOMBER LE JOUR OU `#489-r2` SERA FERME, et il dit pourquoi il existe.
+
+    Le compte natif se lit sur l'index d'OVERKILL (`HasFlag(target, UnitFlag.Overkilled)` est le
+    gate du seul call-site a flag LITTERAL 1), pas sur celui de la MORT. L'etage est desormais
+    EXPOSE (`overkill_at_hit`) mais la LOI ne le consomme pas encore : les deux formes qui s'en
+    deduisent naivement sont refutees LIVE, chacune par un montage different --
+      * `max(0, H-k)`      : 3 rouges sur `test_523_...` + 2 sur `test_chain_...` (2026-08-15) ;
+      * `(H-k) - 1 si ovk` : refutee par #505 sur `1129 BloodyFury` (2 au lieu de 3).
+    Tant que le montage qui SEPARE n'est pas joue, consommer le flag serait un FIT."""
+    assert _report(6, 2, 1, ovk_at=0) == _report(6, 2, 1, ovk_at=5) == _report(6, 2, 1) == 4
 
 
-def test_etage1_les_six_regimes_mesures_passent():
-    """Les SIX points que les fiches #489 / #505 / #125 portent au dossier, rejoues sur la loi.
+def test_etage1_les_regimes_MESURES_LIVE_passent_tous():
+    """Les points que `master` valide LIVE, rejoues sur la loi portee.
 
-    `1129 BloodyFury` : extraHits **null** (extra = 0), H = 4 CONNU (4 attaques forcees), report lu
-    DANS le live sur un 2e maillon SURVIVANT (`probe_505_bloody_fury.py`).
-    `1006 MultiThreatEliminator` : extra = 1, le regime `H == k` pin le terme `+ extraHits`.
-    """
-    # (H, k, extra, report LIVE attendu)
-    mesures = [(4, 1, 0, 3), (4, 2, 0, 2), (4, 3, 0, 1), (4, 4, 0, 0),   # #505 / 1129
-               (6, 6, 1, 1),                                            # #125 --hp-target 10000
-               (5, 2, 1, 4)]                                            # #125 PV 2500 / 3000
-    for H, k, extra, attendu in mesures:
-        atk = {"per_hit_health": [1] * H, "hp_before": k}
-        assert ChainLeftOverHitsAttackDamage._left_over_hits(atk, extra) == attendu, (H, k, extra)
+    `1006 MultiThreatEliminator` (#125) : extra = 1. Le regime `H == k` pin le terme
+    `+ extraHits` (le 2e maillon EST frappe alors qu'AUCUN coup n'est gaspille).
+    ⚠ Le regime `1129 BloodyFury` de #505 (extra = 0, H = 4) n'est PAS ici : la loi portee y rend
+    1/4, et c'est precisement le residu `#489-r2`. L'y mettre rendrait ce fichier rouge sur une
+    faute CONNUE au lieu de la nommer."""
+    for H, k, attendu in [(6, 6, 1), (6, 2, 4), (5, 2, 3)]:
+        assert _report(H, k, 1) == attendu, (H, k)
+
+
+def test_etage1_les_deux_regimes_de_bord():
+    """SURVIVANTE -> 0 (pas meme `+extraHits`, le natif gate sur `list.Count > 0`) ;
+    DEJA MORTE a l'entree -> H + extra (chaque coup tombe sur le cadavre, site (a))."""
+    assert ChainLeftOverHitsAttackDamage._left_over_hits(
+        {"per_hit_health": [1, 1, 1], "hp_before": 99}, 1) == 0
+    assert ChainLeftOverHitsAttackDamage._left_over_hits(
+        {"per_hit_health": [1, 1, 1], "hp_before": 0}, 1) == 4
+
+
+def test_etage1_le_maillon_publie_l_entree_qui_manque_a_la_loi():
+    """`ChainLeftOverHitsAttackDamage.execute` doit recopier `overkilled` / `overkill_at_hit` dans
+    chaque maillon de `chain` : sans eux, un probe qui veut fermer `#489-r2` ne peut pas LIRE
+    l'index d'overkill du maillon, et retomberait sur `(H, k)` -- exactement l'information
+    insuffisante qui a fait echouer les deux correctifs."""
+    src = inspect.getsource(ChainLeftOverHitsAttackDamage.execute)
+    arbre = ast.parse("if 1:\n" + "\n".join("    " + l for l in src.splitlines()))
+    cles = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Dict):
+            cles |= {k.value for k in n.keys
+                     if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    assert {"overkilled", "overkill_at_hit"} <= cles, sorted(cles)
 
 
 # ==================================================================================================
@@ -260,6 +260,29 @@ def test_etage3_le_canal_est_gate_par_la_famille():
     # par degenerescence (canal mort des deux cotes).
     assert _serie(3, crit_allowed_hits=[1, 2, 3])["crit_allowed"] is True
     assert _serie(3)["crit_allowed"] is False
+
+
+def test_etage3_le_canal_CHANGE_L_OBSERVABLE_pas_seulement_un_champ():
+    """SCENARIO DE GENERALISATION. Les tests ci-dessus lisent `crit_allowed`, qui est l'ETAT rendu
+    a l'attaque suivante -- un champ. Celui-ci mesure ce qui compte : le CRIT d'un coup, donc le
+    DEGAT. Regime crafte : crit-chance MOYENNE (le coup 0 ne crite pas toujours) et DEUX coups.
+
+    Sans la liste, le coup 1 ne peut JAMAIS criter des que le coup 0 a rate (`crit_gate_open`
+    ferme). Avec `[1]`, il le peut. On balaie des graines jusqu'a exhiber le regime, et on EXIGE
+    qu'il existe -- un balayage muet passerait pour vert."""
+    vus_avec, vus_sans = 0, 0
+    for graine in range(1, 200):
+        def _s(liste):
+            return AttackDamageOperation._run_hits(
+                rng=IntBasedMersenneTwister(graine), hit_nc=HitDamage(100, 100),
+                hit_cr=HitDamage(200, 200), crit_chance=50, crit_enabled=True, hits=2,
+                block_sources=None, crit_allowed_hits=liste)
+        avec, sans = _s([1]), _s(None)
+        if not avec["crits"][0]:                     # le coup 0 a RATE son crit
+            vus_sans += 1 if sans["crits"][1] else 0
+            vus_avec += 1 if avec["crits"][1] else 0
+    assert vus_sans == 0, "sans la liste, le coup 1 ne peut pas criter apres un coup 0 rate"
+    assert vus_avec > 0, "TEMOIN DEGENERE : aucune graine n'exhibe un crit au coup 1 avec [1]"
 
 
 def test_etage3_les_DEUX_phases_de_1217_posent_la_liste():
