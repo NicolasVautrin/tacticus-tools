@@ -41,7 +41,9 @@
 // ARME A LA DEMANDE, jamais auto-arme. LECTURE SEULE : aucun envoi, aucune mutation, et
 // surtout AUCUN dispatch -- ce module ne fait que lire ce que le serveur vient de dire.
 
-import { findClassAnywhere, findMethodByParamCount } from "../il2cpp/helpers.js";
+import { findClassAnywhere, findMethodByParamCount, getFieldOffset } from "../il2cpp/helpers.js";
+// Le FOYER de la resolution du `ViewCommandExecutor` -- importe, jamais re-marche.
+import { executeurVivant, Refus as RefusVue } from "./view-command.js";
 import { serializeToJson, isSerializerReady } from "../il2cpp/serializer.js";
 import { invokeMethod, createManagedString } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -168,6 +170,70 @@ const PORTES_INSTANCE: PorteInstance[] = [
 
 /** Derniere instance vue par classe. Vide = PAS ENCORE VUE, jamais << inexistante >>. */
 const instances: Record<string, NativePointer> = {};
+
+/** Le chemin de CHAQUE porteur depuis le `ViewCommandExecutor`, resolu PAR NOM.
+ *
+ *  CE QUI SUPPRIME LA DEPENDANCE A L'ECRAN. Les interceptions ci-dessus attendent un
+ *  EVENEMENT (l'affichage de l'ecran d'Operations fait tirer `CanRefreshBoard`,
+ *  `get_Points`, ...). Ces chemins-la se LISENT, donc ils marchent depuis n'importe quel
+ *  ecran -- mesure du 2026-08-15, build `t6dpr4k06g` : les CINQ ont rendu leur classe
+ *  CONCRETE alors que le jeu etait EN BATAILLE (`get_IsBattleActive` = true), sans qu'aucun
+ *  ecran d'Operations soit affiche ni aucun clic emis.
+ *
+ *  Une seule racine porte toute la famille : `ExpeditionProgression` declare SEPT champs,
+ *  dont `<Board>`, `<Level>`, `<UnitEligibility>` et `<GameEvents>`.
+ *
+ *  ⚠ Chemins par NOM DE CHAMP, jamais par les offsets mesures (+1152, +1160, +32, +48) :
+ *  meme regle que pour `_viewCommandExecutor`, dont l'offset a deja bouge d'un build a
+ *  l'autre. Un nom absent rend `null` en le DISANT, il ne se replie sur rien. */
+const CHEMINS_EXECUTEUR: Record<string, string[]> = {
+    ExpeditionProgression: ["_expeditionProgression"],
+    ExpeditionProgressionData: ["_expeditionProgressionData"],
+    ExpeditionLevelProgression: ["_expeditionProgression", "<Level>k__BackingField"],
+    ExpeditionUnitEligibility: ["_expeditionProgression", "<UnitEligibility>k__BackingField"],
+    ExpeditionBoardQuery: ["_expeditionProgression", "<Board>k__BackingField"],
+};
+
+/** Le `Il2CppClass*` d'un objet manage : son PREMIER champ. Sert a resoudre le pas SUIVANT
+ *  sur la classe REELLE, pas sur le type DECLARE du champ -- un champ declare `IFoo` porte
+ *  une implementation concrete dont les champs ne sont pas ceux de l'interface. */
+function classeReelle(obj: NativePointer): NativePointer | null {
+    try {
+        const k = obj.readPointer();
+        return k.isNull() ? null : k;
+    } catch { return null; }
+}
+
+/** Le porteur d'une classe : l'intercepte s'il a tire, SINON celui de l'executeur.
+ *
+ *  L'ordre compte : un `this` capte au vol est l'instance que le jeu utilise VRAIMENT a cet
+ *  instant ; l'executeur est le RATTRAPAGE, pour le cas -- desormais le cas normal -- ou
+ *  aucun ecran n'a ete ouvert. Ce qui est resolu est MEMOISE dans `instances`, donc `vues`
+ *  continue de dire la verite sur ce qui est disponible. */
+function porteur(cls: string): NativePointer | null {
+    const deja = instances[cls];
+    if (deja) return deja;
+    const chemin = CHEMINS_EXECUTEUR[cls];
+    if (!chemin) return null;
+    try {
+        const exec = executeurVivant();
+        if (typeof exec === "object" && exec !== null && (exec as RefusVue).ok === false) {
+            return null;
+        }
+        let cur = exec as NativePointer;
+        let k = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
+        for (const champ of chemin) {
+            if (!k) return null;
+            const off = getFieldOffset(k, champ);
+            if (off < 0) return null;      // ⚠ -1 est *truthy* : tester `< 0`, jamais `||`
+            cur = cur.add(off).readPointer();
+            if (cur.isNull()) return null;
+            k = classeReelle(cur);
+        }
+        instances[cls] = cur;
+        return cur;
+    } catch { return null; }
+}
 
 interface Porte { ns: string; cls: string; methode: string; arite: number; iDto: number }
 
@@ -363,21 +429,25 @@ export function register(ctx: Ctx): void {
             // `entrees: null`. Ca se lit comme un succes. Le porteur du plateau est
             // `ExpeditionProgressionData` et lui seul ; a defaut on REFUSE en le nommant.
             const cls = body?.classe || "ExpeditionProgressionData";
-            if (!instances[cls]) {
+            const inst = porteur(cls);
+            if (!inst) {
                 return {
                     ok: false, vues, classe: cls,
                     err: "classe '" + cls + "' NON CAPTEE"
                        + (vues.length ? " (captees : " + vues.join(", ") + ")" : "")
-                       + " -- ouvre l'ecran Operations (Crusade -> Operations) APRES "
-                       + "l'armement. Un ecran deja affiche au moment de l'armement ne "
-                       + "rejoue pas ses portes : ressors et reviens.",
+                       + (CHEMINS_EXECUTEUR[cls]
+                          ? " -- et son chemin depuis le ViewCommandExecutor ("
+                            + CHEMINS_EXECUTEUR[cls].join(".") + ") n'a rien rendu : champ "
+                            + "renomme sur ce build, ou nav pas encore initialisee."
+                          : " -- aucun chemin d'executeur connu pour cette classe ; ouvre "
+                            + "l'ecran Operations (Crusade -> Operations) APRES l'armement."),
                 };
             }
             if (!isSerializerReady()) {
                 return { ok: false, classe: cls, err: "serialiseur Newtonsoft NON RESOLU" };
             }
             let json: string | null = null;
-            try { json = serializeToJson(instances[cls]); }
+            try { json = serializeToJson(inst); }
             catch (e) {
                 return { ok: false, classe: cls,
                          err: "exception : " + String((e as Error).message || e).slice(0, 160) };
@@ -412,12 +482,13 @@ export function register(ctx: Ctx): void {
     /** La table `rarete -> rang minimum` du niveau d'expedition COURANT.
      *  body: {} -> { ok, niveau, niveauMax, seuils } */
     ctx.rpc.expeditionRankRequirements = (): Promise<unknown> => queueOnMainThread(() => {
-        const inst = instances["ExpeditionLevelProgression"];
+        const inst = porteur("ExpeditionLevelProgression");
         if (!inst) {
             return {
                 ok: false, vues: Object.keys(instances),
-                err: "AUCUNE instance d'ExpeditionLevelProgression captee -- arme puis ouvre "
-                   + "l'ecran Operations (Crusade -> Operations), et relance",
+                err: "AUCUNE instance d'ExpeditionLevelProgression -- ni captee a l'ecran, ni "
+                   + "lisible en `_expeditionProgression.<Level>k__BackingField` sur le "
+                   + "ViewCommandExecutor (champ renomme sur ce build, ou nav pas initialisee)",
             };
         }
         const klass = findClassAnywhere(
@@ -479,15 +550,15 @@ export function register(ctx: Ctx): void {
                 return { ok: false, err: "expeditionEligibilityFor: `ids` (liste non vide) "
                                        + "requis -- les `expeditionId` du plateau" };
             }
-            const data = instances["ExpeditionProgressionData"];
-            const elig = instances["ExpeditionUnitEligibility"];
+            const data = porteur("ExpeditionProgressionData");
+            const elig = porteur("ExpeditionUnitEligibility");
             if (!data || !elig) {
                 return {
                     ok: false, vues: Object.keys(instances),
                     err: "instance manquante : "
                        + (!data ? "ExpeditionProgressionData " : "")
                        + (!elig ? "ExpeditionUnitEligibility" : "")
-                       + " -- ouvre l'ecran Operations apres l'armement, puis relance",
+                       + " -- ni captee a l'ecran, ni lisible depuis le ViewCommandExecutor",
                 };
             }
             const kData = findClassAnywhere(

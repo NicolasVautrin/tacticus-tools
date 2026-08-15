@@ -206,15 +206,28 @@ def main(argv=None) -> int:
     sid = session_vivante()
     print("session %d" % sid)
 
-    # 1 PUIS 2 -- l'ordre EST le correctif, cf. docstring.
+    # 1 PUIS 2 -- l'ordre EST le correctif quand on passe par l'ECRAN, cf. docstring.
+    #
+    # ⚠ L'ECRAN N'EST PLUS REQUIS, et c'est pour ca que son echec ne fait plus tomber la
+    # passe. Les hooks lisent desormais les porteurs sur `ViewCommandExecutor` -- une seule
+    # racine, `_expeditionProgression`, qui declare `<Board>`, `<Level>`, `<UnitEligibility>`
+    # et `<GameEvents>`. Mesure du 2026-08-15 (build `t6dpr4k06g`) : les cinq porteurs ont
+    # rendu leur classe CONCRETE alors que le jeu etait EN BATAILLE, sans qu'aucun ecran
+    # d'Operations soit affiche. La navigation reste TENTEE parce qu'elle ne coute rien et
+    # qu'un `this` capte au vol est l'instance que le jeu utilise VRAIMENT a cet instant ;
+    # elle n'est plus qu'un CONFORT.
     arm = armer(sid)
     print("arme : %s porte(s)" % arm.get("armes"))
-    ecran_operations(sid)
-    arm = armer(sid)
+    try:
+        ecran_operations(sid)
+        arm = armer(sid)
+    except Panne as exc:
+        print("ecran NON ouvert (%s)" % exc)
+        print("  -> on continue : les porteurs se lisent sur le ViewCommandExecutor.")
     if not arm.get("instanceVue"):
-        raise Panne("porteur NON capte apres affichage de l'ecran. Sans lui, tout envoi "
-                    "echouera. (armement fait avant navigation ? sinon c'est un vrai defaut)")
-    print("porteur capte via %s" % arm.get("source"))
+        print("porteur non capte a l'ecran -- il sera resolu par l'executeur a la demande.")
+    else:
+        print("porteur capte via %s" % arm.get("source"))
 
     etat = lire_plateau(sid)
     board = etat["board"]
