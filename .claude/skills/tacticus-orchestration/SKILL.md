@@ -545,6 +545,38 @@ d'un projet neuf. **Arrêter ghidra-mcp d'abord** (il tient le verrou du `.gpr`)
 `gameassembly.lock*` périmés, sinon l'appel échoue. Le re-dump de l'étape 3, lui, reste à payer
 en entier.
 
+**Étape 2bis — LE SECOND APPLIER, ET IL N'EST PAS FACULTATIF.** `GhidraApplyIl2CppSymbols.java`
+nomme la quasi-totalité du binaire, mais il y a une classe de corps qu'il **ne peut pas** nommer :
+les génériques pleinement partagés (`__Il2CppFullySharedGeneric`), que les métadonnées lues par
+Frida n'exposent pas comme méthodes distinctes. Il2CppDumper, lui, les reconstruit.
+
+```powershell
+# 1. produire l'entrée (~2 min) -- script.json ~85 Mo
+& 'tools\Il2CppDumper_v39\Il2CppDumper\bin\Release\net8.0\Il2CppDumper.exe' `
+  '<...>\games\<HASH>\GameAssembly.dll' `
+  '<...>\games\<HASH>\Tacticus_Data\il2cpp_data\Metadata\global-metadata.dat' `
+  'logs\il2cppdumper\<HASH>'
+
+# 2. appliquer -- APRÈS GhidraApplyIl2CppSymbols, jamais avant (serveur arrêté, verrou libre)
+& '<GHIDRA>\support\analyzeHeadless.bat' 'C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>' gameassembly `
+  -process GameAssembly.dll -noanalysis `
+  -postScript GhidraApplyIl2CppDumperNames.java -scriptPath '<REPO>\scripts\ghidra'
+```
+
+> **⚠ L'OUBLIER NE CASSE RIEN — ça retire seulement 4 874 symboles, en silence.** Mesuré le
+> 2026-08-15 sur `t6dpr4k06g` : sans cette étape la table sort à **124 725** symboles `$$`, soit
+> **exactement** le compte de `frida/methods.tsv` — un chiffre qui a l'air juste. L'ancien build en
+> portait **130 664**. Les **5 939** manquants sont pour l'essentiel les gshared, dont **2 184**
+> `IdunBattle.AI.Playbook` : précisément la famille que le `CLAUDE.md` dit d'aller chercher dans
+> Ghidra *parce qu'elle est absente de Frida*. Rejoué : `applied=5899`, `refused=0` (il ne renomme
+> que des `FUN_*`, il n'écrase jamais la chaîne Frida), table à **130 669**.
+>
+> C'est **#259 qui récidive**, et par la seule omission de cette ligne : l'en-tête du script porte
+> déjà « ORDRE OBLIGATOIRE » et son historique décrit la panne mot pour mot — *« remplacer un
+> maillon sans re-jouer son aval laisse l'ancienne sortie faire foi »*. Le seul témoin est l'axe
+> `couverture par famille` de `symbols_sync.py` ; il rougit sur `GSHARED 4874 -> 0`. Ne pas
+> conclure de ce rouge que le jeu a changé.
+
 Puis démarrer le serveur sur le nouveau projet :
 
 ```bash
@@ -559,16 +591,35 @@ de son code. Ne jamais nettoyer un projet dont le DLL a disparu — cf.
 **Étape 3 — EXTRAIRE la table DE Ghidra, et la COMMITER.** Rien n'est relu du jeu ici : on
 sort de Ghidra ce qu'on vient d'y faire entrer, enrichi des frontières de fonctions.
 
-```bash
-python scripts/python/ghidra_symbols.py dump   # -> data/symbols/<NOUVEAU_HASH>/functions.tsv
+**Par `analyzeHeadless`, jamais par ghidra-mcp** — arrêter le serveur (verrou du `.gpr`), puis :
+
+```powershell
+& '<GHIDRA>\support\analyzeHeadless.bat' 'C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>' gameassembly `
+  -process GameAssembly.dll -noanalysis -readOnly `
+  -scriptPath '<REPO>\scripts\ghidra' -postScript GhidraDumpFunctionSymbols.java `
+  '<REPO>\data\symbols\<HASH>\ghidra\functions.tsv' '<HASH>'
 git add data/symbols/<NOUVEAU_HASH>
 ```
 
-**Compter ~1 h 15** — deux mesures du 2026-07-29 sur le même build (154 176 symboles) :
-**1 h 10 min 26 s** et **1 h 18 min 14 s**, soit ~34 symboles/s. C'est **plus long que l'analyse
-Ghidra elle-même** (54 min 52 s à l'étape 2), ce qui est contre-intuitif et faisait sous-estimer
-la migration entière. Le coût est dans les **allers-retours HTTP paginés** vers ghidra-mcp, pas
-dans un calcul.
+> **⛔ `ghidra_symbols.py dump` TUE LE SERVEUR — ne plus l'utiliser pour cette table.** Il pagine
+> `search_symbols_by_name` avec `query=".*"` en HTTP. Mesuré le 2026-08-15 : coût **plat** par page
+> (143,6 / 132,5 / 161,9 s aux offsets 0 / 2000 / 4000), puis serveur **injoignable** à l'offset
+> 6000 — **trois pages suffisent**. Pas un crash JVM : aucun `hs_err` neuf, le process vivait
+> encore avec 2,9 Go de RSS. Un **wedge**. La veille, le même appel s'était arrêté à *deux* pages.
+>
+> **Et son fichier tronqué se lit comme une table CORROMPUE, pas comme une table AMPUTÉE.** Les
+> 4 001 lignes laissées (2,6 % de la table) ont fait rendre au hook de session « 15 / 408 citations
+> résolvent (3,7 %) » puis conclure à une *notation pointée*, donc à un applier à corriger. Faux :
+> la forme était bonne (2 910 lignes en `$$` sur 4 001) et les 3,7 % ne faisaient que refléter les
+> 2,6 % de table présente. **Compter les lignes avant de diagnostiquer une forme** — l'ancien build
+> en a 154 177, le dump Frida 124 725 méthodes ; une table à 4 001 n'est pas mal écrite, elle est
+> coupée.
+>
+> La voie headless prend **quelques minutes** au lieu de 1 h 15, sans HTTP. Elle exige le verrou du
+> projet : **`-readOnly` NE SUFFIT PAS** — Ghidra prend un verrou exclusif quoi qu'il arrive
+> (`LockException: Unable to lock project!`), donc arrêter ghidra-mcp et supprimer les
+> `gameassembly.lock*` périmés. Les mesures HTTP historiques (1 h 10 min 26 s / 1 h 18 min 14 s le
+> 2026-07-29, ~34 symboles/s) ne sont gardées ici que comme **raison de ne pas y revenir**.
 
 > **Deux pièges de mesure, vécus le même jour.**
 > 1. La progression avance **par paliers avec des pauses** : une fenêtre de 5-6 s à delta nul ne

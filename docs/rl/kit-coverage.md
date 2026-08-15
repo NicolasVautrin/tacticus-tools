@@ -28,8 +28,8 @@
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **126** ; kits avec du travail : **1**
 - Volume total : **1** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **1** abilities non portees (0 mythiques, 1 reliques equipables), dont **1 PARTIELLES**
-- PARTIELS (#1041) — montage DECLARE, rien ne s'execute : **1** conditionnelle(s) (TheArdentBlade) ; **0** passif(s)
+- HORS total — voies conditionnelles : **0** abilities non portees (0 mythiques, 0 reliques equipables), dont **0 PARTIELLES**
+- PARTIELS (#1041) — montage DECLARE, rien ne s'execute : **0** conditionnelle(s) ; **0** passif(s)
 - HORS total — faces DECISION non portees : **5** actives sur 138, dont **5** dans des kits declares COMPLETS (5 kits concernes)
 - DECOMPTES par un verdict ATTESTE : **0** (et **10** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
@@ -116,7 +116,7 @@
 
 adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDestroyer, admecDominus, admecMarshall, admecRuststalker, astarCyrus*, astarLysander, astraBullgryn, astraCreed, astraDreir*, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius*, emperNoiseMarine, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauFarsight, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousDaemonPrince, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
 
-## HORS total — voies conditionnelles (1 abilities non portees)
+## HORS total — voies conditionnelles (0 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -138,6 +138,5 @@ adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, ad
 
 | ability | voie | etat | porteurs lineup | ex. | detail |
 |---|---|---|---:|---|---|
-| TheArdentBlade | item | PARTIEL | 1 | adeptCelestine | ABILITY_INIT_OWNER_EFFECTS(classe-native-non-portee) |
 
-Portees (au moins une voie dont le gate passe) : **42** — AmuletOfTheVoidwyrm, BladeOfTheAncestors, BlightedLand, BookOfFate, CabalOfSorcerers, ChaliceOfBaal, ContemptuousDisregard, DaemonfleshPlate, DawnBlade, Dw02AdvancedBurstCannon, ElectrochaffBackups, GuardianConstruct, HeadwoppasKillchoppa, Helspear, HyperCorrosiveAcid, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MastersOfManoeuvre, Maugetar, MawClawsOfThyrax, MonsterSlayerOfCaliban, MoreGitzOverEre, NetherRealmCasket, NornCrown, OnMyPosition, OrbsOfDecay, ParagonSpear, PhasalSubjugator, PhoenixGem, RelicBoltPistol, RelicOfLostCadia, RelicPowerFist, SabreOfSacrifice, ShieldOfFaith, SupaCyborkBody, TalismanOfRage, TalonOfHorus, Vitarus, VolummsMasterArtifice, WisdomOfTheAncients, WyrdmakersHelm
+Portees (au moins une voie dont le gate passe) : **43** — AmuletOfTheVoidwyrm, BladeOfTheAncestors, BlightedLand, BookOfFate, CabalOfSorcerers, ChaliceOfBaal, ContemptuousDisregard, DaemonfleshPlate, DawnBlade, Dw02AdvancedBurstCannon, ElectrochaffBackups, GuardianConstruct, HeadwoppasKillchoppa, Helspear, HyperCorrosiveAcid, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MastersOfManoeuvre, Maugetar, MawClawsOfThyrax, MonsterSlayerOfCaliban, MoreGitzOverEre, NetherRealmCasket, NornCrown, OnMyPosition, OrbsOfDecay, ParagonSpear, PhasalSubjugator, PhoenixGem, RelicBoltPistol, RelicOfLostCadia, RelicPowerFist, SabreOfSacrifice, ShieldOfFaith, SupaCyborkBody, TalismanOfRage, TalonOfHorus, TheArdentBlade, Vitarus, VolummsMasterArtifice, WisdomOfTheAncients, WyrdmakersHelm
