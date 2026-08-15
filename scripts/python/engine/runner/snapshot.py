@@ -1420,13 +1420,19 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
     leur 0 de construction (aucun lecteur porte pour `+0xec` ; `+0xf4` n'en a pas non plus) tandis
     que `+0xf0`, dont le nom EXISTE et qui est mesure exact, passe normalement.
 
-    ⚠ DEUX DES SEPT CHAMPS N'ARRIVENT QU'AVEC UNE FENETRE DE REINJECT (#545-r1 / #287-r5-r2) :
-    `attacksMadeThisTurn` (`+0x24`) et `attacksReceivedThisTurn` (`+0x38`) sont ECRITS dans
-    `frida/hooks/features/ai-step/rpc-snapshot.ts` mais ne seront PUBLIES qu'une fois le bundle
-    re-injecte. D'ici la, le tri-etat ci-dessus fait exactement son office : le champ est absent
-    du payload -> la boucle ne pose RIEN -> les deux compteurs gardent leur `0` de construction,
-    c'est-a-dire le comportement d'avant, a l'identique. C'est la raison d'etre du tri-etat, et
-    pas une degradation ajoutee."""
+    ⚠ `attacksMadeThisTurn` (`+0x24`, #545-r1) ET `attacksReceivedThisTurn` (`+0x38`, #287-r5-r2)
+    SONT EN VOL depuis la fenetre du 2026-08-15 -- MESURE, pas suppose : l'appel `actorStats` de
+    la session 93 rend les neuf cles `attacksMadeThisTurn, attacksReceivedThisTurn, entityId,
+    movement, tilesMovedLastTurn, tilesMovedThisBattle, tilesMovedThisTurn, totalAttacksMade,
+    totalTurnsWithAttacksMade`. La redaction precedente de ce bloc annoncait qu'ils << ne seront
+    PUBLIES qu'une fois le bundle re-injecte >> : elle est PERIMEE, et c'est exactement la forme
+    de peremption qui fait re-ouvrir un residu deja resolu.
+
+    ⚠ HUITIEME CHAMP, ET IL N'EST PAS UN SCALAIRE (#487-r2) : `receiveDamageTypeThisTurn`
+    (`ActorStatisticsComponent+0x80`) est un `Dictionary<DamageProfileType, int>`, pas un compteur.
+    Il ne peut donc PAS entrer dans la boucle des sept ci-dessous, et son seed vit dans
+    `_load_received_damage_types`. Le champ IL2CPP s'appelle `ReceiveDamageTypeThisTurn` -- et
+    NON `ReceivedDamageThisTurn`, que nommait la fiche."""
     for su in ((actor_stats or {}).get("units") or []):
         uid = su.get("entityId")
         if uid is None:
@@ -1511,6 +1517,52 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
                 pc = ent.get_component(PositionComponent)
                 if pc is not None:
                     pc.previous = tuiles or None
+        _seed_received_damage_types(uc, su.get("receiveDamageTypeThisTurn"))
+
+
+def _seed_received_damage_types(uc, champ) -> None:
+    """Seede `UnitComponent.received_damage_this_turn` depuis `actorStats` (#487-r2).
+
+    MIRROR : le `Dictionary<DamageProfileType, int>` de
+    `IdunBattle.Entities.Components.ActorStatisticsComponent @+0x80` -- ECRIT par
+    `...$$RegisterReceivedDamage` (`TryAdd(profil, 1)` sinon `+1`), VIDE par
+    `...$$ResetReceivedDamageThisTurn` (`Clear()`), c'est-a-dire un COMPTE D'INSTANCES PAR PROFIL,
+    jamais une somme de degats.
+
+    POURQUOI. Le lecteur porte existe depuis #202 (`engine/dsl/base.py`, le selecteur
+    `UnitsThatTakenDamageThisTurn` = `ContainsKey(profil)`), et #487-r1 en a fait le substrat de
+    la face DECISION de `1088 HellfyreMissileRack`
+    (`engine/playbook/scene.py::received_damage_profiles_by_id`). Mais AUCUN canal ne le seedait :
+    sur un etat RECHARGE, le rejeu offline voyait `{}` alors que le runner, lui, tient le vrai
+    compteur -- et le playbook s'abstenait en le DISANT (`None` = non mesure), ce qui est correct
+    mais rend la face live INCONFRONTABLE.
+
+    TRI-ETAT, comme les sept compteurs voisins et pour la meme raison, mais l'enjeu y est PLUS
+    GLISSANT : ici `{}` (mesure : rien recu ce tour) est l'etat MAJORITAIRE. Les confondre avec
+    `null` (pas mesure) ferait ecrire un dictionnaire VIDE la ou le capteur n'a rien lu, donc
+    ETEINDRE un gate au lieu de s'abstenir. On n'ecrit donc QUE si `profiles` est un Mapping ;
+    `null` laisse le champ tel quel.
+
+    ⚠ Les cles arrivent en CHAINES (JSON n'a pas de cle entiere) et les ordinaux de
+    `IdunBattle.Entities.Enum.DamageProfileType` ne sont NI contigus NI tous positifs
+    (`None = -1`, puis 0,1,3,4,...,25 -- lus dans `data/symbols/<build>/frida/enums.tsv`). On
+    convertit donc par `int()` sans jamais supposer une plage, et une cle non convertible est
+    SAUTEE plutot que d'empoisonner le dict d'un lecteur qui l'indexe par entier."""
+    if not isinstance(champ, Mapping):
+        return
+    profils = champ.get("profiles")
+    if not isinstance(profils, Mapping):
+        return                                   # `null` = PAS MESURE -> on ne touche a rien
+    recu = {}
+    for cle, valeur in profils.items():
+        try:
+            k, v = int(cle), int(valeur)
+        except (TypeError, ValueError):
+            continue                             # cle/valeur illisible : sautee, jamais devinee
+        if v < 0:
+            continue                             # compteur a increments `>= 1` : `< 0` = lecture invalide
+        recu[k] = v
+    uc.received_damage_this_turn = recu
 
 
 def _tiles_of(champ):
