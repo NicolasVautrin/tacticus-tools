@@ -40,7 +40,11 @@
 //
 // ARME A LA DEMANDE. LECTURE SEULE : aucune ecriture, aucun envoi.
 
-import { findClassAnywhere, findMethodByParamCount, MethodRef } from "../il2cpp/helpers.js";
+import {
+    findClassAnywhere, findMethodByParamCount, getFieldOffset, MethodRef,
+} from "../il2cpp/helpers.js";
+// Le FOYER de la resolution du `ViewCommandExecutor` -- importe, jamais re-marche.
+import { executeurVivant, Refus as RefusVue } from "./view-command.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
@@ -51,6 +55,35 @@ import { log } from "../runtime/diag.js";
 const MAX_IDS = 2000;
 
 let instance: NativePointer | null = null;
+
+/** L'`UnitProgression` vivante : celle captee a l'ecran, SINON celle du `ViewCommandExecutor`.
+ *
+ *  TROISIEME MODULE DE LA MEME FAMILLE, MEME REMEDE. L'interception ci-dessous attend qu'un
+ *  ecran touchant au roster s'affiche ; ce champ-ci se LIT, donc il repond depuis n'importe
+ *  ou. Mesure du 2026-08-15, build `t6dpr4k06g` : `ViewCommandExecutor._unitProgression`
+ *  (+952, declare `IUnitProgression`) rend un pointeur vivant de classe REELLE
+ *  `UnitProgression`, sans qu'aucun ecran de roster ait ete ouvert.
+ *
+ *  ⚠ Resolu PAR NOM, jamais par le +952 mesure. `getFieldOffset` rend -1 sur un nom absent,
+ *  et -1 est *truthy* : tester `< 0`, jamais `||`.
+ *  ⚠ Memoise dans `instance` -- donc `instanceVue` continue de dire la verite. */
+function progressionUnites(): NativePointer | null {
+    if (instance) return instance;
+    try {
+        const exec = executeurVivant();
+        if (typeof exec === "object" && exec !== null && (exec as RefusVue).ok === false) {
+            return null;
+        }
+        const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
+        if (!kExec) return null;
+        const off = getFieldOffset(kExec, "_unitProgression");
+        if (off < 0) return null;
+        const p = (exec as NativePointer).add(off).readPointer();
+        if (p.isNull()) return null;
+        instance = p;
+        return p;
+    } catch { return null; }
+}
 let miHasUnlocked: MethodRef | null = null;
 let miAmount: MethodRef | null = null;
 let miRank: MethodRef | null = null;
@@ -133,13 +166,15 @@ export function register(ctx: Ctx): void {
                 return { ok: false, error: "rosterOwned: " + ids.length + " ids > borne "
                                           + MAX_IDS };
             }
-            if (!instance || !miHasUnlocked) {
+            const inst = progressionUnites();
+            if (!inst || !miHasUnlocked) {
                 return {
                     ok: false,
-                    error: instance
+                    error: inst
                         ? "HasUnitUnlocked NON RESOLUE"
-                        : "AUCUNE instance de UnitProgression captee -- arme puis navigue "
-                          + "une fois (l'accueil suffit), et relance",
+                        : "AUCUNE instance d'UnitProgression -- ni captee a l'ecran, ni "
+                          + "lisible en `_unitProgression` sur le ViewCommandExecutor "
+                          + "(champ renomme sur ce build, ou nav pas initialisee)",
                 };
             }
             const possedes: string[] = [];
@@ -149,7 +184,7 @@ export function register(ctx: Ctx): void {
                 if (typeof id !== "string" || !id) { illisibles.push(String(id)); continue; }
                 let v: boolean | null = null;
                 try {
-                    v = boolBoxe(invokeMethod(miHasUnlocked.info, instance,
+                    v = boolBoxe(invokeMethod(miHasUnlocked.info, inst,
                                               [createManagedString(id)]));
                 } catch { v = null; }
                 if (v === null) illisibles.push(id);
@@ -159,7 +194,7 @@ export function register(ctx: Ctx): void {
             // Le compte que le JEU se donne. Tri-etat : `null` = pas mesure.
             let compteJeu: number | null = null;
             if (miAmount) {
-                try { compteJeu = intBoxe(invokeMethod(miAmount.info, instance, null)); }
+                try { compteJeu = intBoxe(invokeMethod(miAmount.info, inst, null)); }
                 catch { compteJeu = null; }
             }
 
@@ -178,12 +213,12 @@ export function register(ctx: Ctx): void {
                     let rank: number | null = null;
                     let rarity: number | null = null;
                     if (miRank) {
-                        try { rank = intBoxe(invokeMethod(miRank.info, instance, [s])); }
+                        try { rank = intBoxe(invokeMethod(miRank.info, inst, [s])); }
                         catch { rank = null; }
                     }
                     if (miRarity) {
                         // `UnitRarity` est un enum : type VALEUR, donc BOXE comme un entier.
-                        try { rarity = intBoxe(invokeMethod(miRarity.info, instance, [s])); }
+                        try { rarity = intBoxe(invokeMethod(miRarity.info, inst, [s])); }
                         catch { rarity = null; }
                     }
                     details[id] = {

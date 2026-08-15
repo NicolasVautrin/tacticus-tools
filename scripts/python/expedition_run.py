@@ -3,27 +3,29 @@
     python scripts/python/expedition_run.py              # plan seul, RIEN n'est envoye
     python scripts/python/expedition_run.py --envoyer    # plan PUIS envoi
 
-POURQUOI CE SCRIPT EXISTE PLUTOT QU'UNE PROCEDURE ECRITE. L'ordre des gestes n'est pas
-intuitif et se relit mal sous pression -- une prose qui dit << arme avant de naviguer >> a
-deja ete lue a l'envers, ce qui a coute une heure et une conclusion fausse (<< il faut un
-envoi manuel pour amorcer >>). Ici l'ordre est EXECUTE, pas recommande.
+L'ORDRE
 
-L'ORDRE, ET CE QU'IL RESOUT
+  1. `expeditionDispatchArm`
+  2. lire le plateau, le roster, les seuils
+  3. resoudre hors ligne
+  4. envoyer, en RE-ARMANT entre chaque
+  5. confronter au plateau
 
-  1. `expeditionDispatchArm` -- EN PREMIER, avant toute navigation.
-  2. Ecran Operations affiche (on sort et on y revient si besoin).
-  3. lire le plateau, le roster, les seuils
-  4. resoudre hors ligne
-  5. envoyer, en RE-ARMANT entre chaque
-  6. confronter au plateau
+⛔ ON NE PASSE PLUS PAR L'INTERFACE, ET CE N'EST PAS UNE OPTION. Il y avait ici une etape 2
+<< afficher l'ecran d'Operations >>, qui sortait de l'ecran courant et y revenait a coups
+d'`uiClick` -- avec tout ce que ca traine : le jeu devait etre sur l'accueil ou la carte
+Crusade (sinon PANNE), il fallait armer AVANT de naviguer (l'ordre inverse laissait les
+methodes ancrees deja tirees), et chaque clic devait etre valide par son EFFET parce que
+`interactable` precede la fin de l'animation. Surtout, elle FAISAIT DISPARAITRE L'UI du
+joueur.
 
-⛔ L'ETAPE 1 AVANT L'ETAPE 2, ET C'EST TOUT LE SUJET. `ExpeditionGameEvents` ne se capte au
-vol qu'a un envoi -- or il faut l'instance POUR envoyer : la voie est CIRCULAIRE. La sortie
-est que `ExpeditionProgression` la porte en champ `<GameEvents>k__BackingField`, et que ce
-porteur-la se capte des qu'un ecran d'Operations s'affiche, via `CanRefreshBoard` /
-`IsCrusadeEventActive` ancrees A L'ARMEMENT. Armer APRES avoir navigue laisse ces deux
-methodes deja tirees : plus rien ne passe, et le RPC repond << AUCUN ExpeditionGameEvents
-joignable >>. Ce n'est pas une panne, c'est un ordre inverse.
+Elle a ete SUPPRIMEE, pas rendue facultative : les hooks lisent les porteurs sur
+`ViewCommandExecutor`, par une seule racine `_expeditionProgression` qui declare `<Board>`,
+`<Level>`, `<UnitEligibility>` et `<GameEvents>`. Mesure du 2026-08-15, build `t6dpr4k06g` :
+les cinq porteurs rendent leur classe CONCRETE sans qu'aucun ecran d'Operations soit
+affiche, ni aucun clic emis. Le circuit qui rendait la voie CIRCULAIRE
+(`ExpeditionGameEvents` ne se capte au vol qu'a un envoi, or il faut l'instance POUR
+envoyer) est donc coupe a la racine, et non plus contourne.
 
 ⚠ RE-ARMER ENTRE CHAQUE ENVOI. Le module detache ses portes a l'emission -- il ancre la
 methode qu'il invoque et se bloquerait sur lui-meme. Sans re-armement, le 2e envoi echoue.
@@ -32,7 +34,7 @@ methode qu'il invoque et se bloquerait sur lui-meme. Sans re-armement, le 2e env
 plateau AVANT, et toute operation deja en `status != 0` est ECARTEE du plan d'envoi. Ne
 jamais retenter a l'aveugle en croyant que << ca n'a pas marche >>.
 
-⚠ LE RETOUR D'UN CLIC NE PROUVE RIEN, celui d'un envoi non plus : on confronte au plateau.
+⚠ LE RETOUR D'UN ENVOI NE PROUVE RIEN : on confronte au plateau.
 
 Le solveur, lui, est 100 % hors ligne (`expedition_solver`). Ce script ne fait que
 l'alimenter en donnees fraiches et jouer sa sortie.
@@ -51,11 +53,8 @@ sys.path.insert(0, str(REPO / "scripts" / "python"))
 import expedition_solver as ES  # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
-#: Les deux methodes ancrees par l'armement ne tirent qu'a l'AFFICHAGE de l'ecran. Si le jeu
-#: y est deja, il faut en sortir et y revenir -- d'ou ces deux boutons.
-BTN_CRUSADE = "button_special_Crusade"
-BTN_EXPEDITIONS = "Button_Expeditions"
-BTN_RETOUR = "button_special_back_specified"
+# ⚠ Les trois `BTN_*` de navigation ont ete SUPPRIMES avec `ecran_operations()` : plus aucun
+# bouton n'est cherche, clique, ni meme nomme. Voir le pave a leur ancienne place.
 
 
 class Panne(RuntimeError):
@@ -103,36 +102,23 @@ def armer(sid: int) -> dict:
     return rpc(sid, "expeditionDispatchArm")
 
 
-def ecran_operations(sid: int) -> None:
-    """ETAPE 2 -- faire AFFICHER l'ecran, meme si le jeu y est deja.
-
-    On sort puis on revient : c'est l'AFFICHAGE qui fait passer le porteur, pas sa presence.
-    Chaque clic est valide par son EFFET (le bouton suivant existe), jamais par son retour --
-    `interactable` precede la fin de l'animation, et un clic emis dans cette fenetre est
-    perdu EN RAPPORTANT `ok: true`.
-    """
-    def boutons() -> dict[str, str]:
-        r = rpc(sid, "uiList", {}) or {}
-        return {b.get("name"): b.get("path") for b in (r.get("buttons") or []) if b.get("name")}
-
-    b = boutons()
-    if BTN_RETOUR in b:                      # deja sur Operations -> on en sort
-        rpc(sid, "uiClick", b[BTN_RETOUR])
-        time.sleep(3)
-        b = boutons()
-    if BTN_EXPEDITIONS not in b:             # pas sur la carte Crusade -> y aller
-        if BTN_CRUSADE not in b:
-            raise Panne("ni `%s` ni `%s` a l'ecran : le jeu n'est pas sur l'accueil ni sur "
-                        "la carte Crusade." % (BTN_CRUSADE, BTN_EXPEDITIONS))
-        rpc(sid, "uiClick", b[BTN_CRUSADE])
-        time.sleep(3)
-        b = boutons()
-        if BTN_EXPEDITIONS not in b:
-            raise Panne("le clic sur Crusade n'a pas porte (effet absent).")
-    rpc(sid, "uiClick", b[BTN_EXPEDITIONS])
-    time.sleep(4)
-    if BTN_RETOUR not in boutons():
-        raise Panne("le clic sur Expeditions n'a pas porte (effet absent).")
+# ⚠ `ecran_operations()` VIVAIT ICI, ET ELLE EST SUPPRIMEE -- pas rendue facultative.
+#
+# Elle sortait de l'ecran d'Operations puis y revenait a coups d'`uiClick`, parce que c'est
+# l'AFFICHAGE qui faisait passer le porteur : les hooks ne captaient `ExpeditionProgression`
+# et consorts que par interception de methodes qui ne tirent qu'a l'ecran (`CanRefreshBoard`,
+# `IsCrusadeEventActive`, `get_Points`, `GetCurrentLevel`, ...). De la venait l'ordre non
+# intuitif << armer AVANT de naviguer >>, et tout le pavement de pieges qui l'entourait.
+#
+# Les hooks lisent desormais les porteurs sur `ViewCommandExecutor`, par une seule racine
+# `_expeditionProgression` qui declare `<Board>`, `<Level>`, `<UnitEligibility>` et
+# `<GameEvents>`. Il n'y a donc PLUS RIEN a afficher, et garder la navigation << au cas ou >>
+# aurait ete pire que l'enlever : elle FAIT DISPARAITRE L'UI du joueur (elle sort de l'ecran
+# courant), pour un porteur que la lecture rend de toute facon.
+#
+# Ce que ca supprime, en plus des clics : la dependance a l'ecran de depart (le jeu devait
+# etre sur l'accueil ou la carte Crusade -- sinon PANNE), les trois `time.sleep` d'animation,
+# et la validation de chaque clic par son effet.
 
 
 def lire_plateau(sid: int) -> dict:
@@ -206,28 +192,9 @@ def main(argv=None) -> int:
     sid = session_vivante()
     print("session %d" % sid)
 
-    # 1 PUIS 2 -- l'ordre EST le correctif quand on passe par l'ECRAN, cf. docstring.
-    #
-    # ⚠ L'ECRAN N'EST PLUS REQUIS, et c'est pour ca que son echec ne fait plus tomber la
-    # passe. Les hooks lisent desormais les porteurs sur `ViewCommandExecutor` -- une seule
-    # racine, `_expeditionProgression`, qui declare `<Board>`, `<Level>`, `<UnitEligibility>`
-    # et `<GameEvents>`. Mesure du 2026-08-15 (build `t6dpr4k06g`) : les cinq porteurs ont
-    # rendu leur classe CONCRETE alors que le jeu etait EN BATAILLE, sans qu'aucun ecran
-    # d'Operations soit affiche. La navigation reste TENTEE parce qu'elle ne coute rien et
-    # qu'un `this` capte au vol est l'instance que le jeu utilise VRAIMENT a cet instant ;
-    # elle n'est plus qu'un CONFORT.
+    # AUCUNE NAVIGATION. Les porteurs se LISENT sur le `ViewCommandExecutor`.
     arm = armer(sid)
     print("arme : %s porte(s)" % arm.get("armes"))
-    try:
-        ecran_operations(sid)
-        arm = armer(sid)
-    except Panne as exc:
-        print("ecran NON ouvert (%s)" % exc)
-        print("  -> on continue : les porteurs se lisent sur le ViewCommandExecutor.")
-    if not arm.get("instanceVue"):
-        print("porteur non capte a l'ecran -- il sera resolu par l'executeur a la demande.")
-    else:
-        print("porteur capte via %s" % arm.get("source"))
 
     etat = lire_plateau(sid)
     board = etat["board"]
