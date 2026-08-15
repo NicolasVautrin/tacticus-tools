@@ -51,7 +51,8 @@ sys.path.insert(0, str(PYDIR))
 from build_pin import BuildPinRefused                                          # noqa: E402
 from rl_collect_batch import _resolve_session, bind_ambient_rpc                # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _by_tile, _one, _port_leaves,  # noqa: E402
-                                            _exiger_build_des_rva, x_port)
+                                            _exiger_build_des_rva, x_port,
+                                            cause_x_nat_non_mesurable)
 from probe_212_spiritual_leader_tile_term import _apply_native_via             # noqa: E402
 from probe_477r31_attract_mechanicals_camp import LAYOUTS_CAMP                 # noqa: E402
 from probe_477r33_non_owner_registry_gaps import (_build_hash, _concrets,      # noqa: E402
@@ -610,6 +611,11 @@ def mesurer(call, rid, montage="purge", max_steps=25, trace=print) -> dict:
                          "steppable": p.get("steppable", False),
                          "tile7": vt, "elev": ve, "tile_eff": vf,
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
+        # LE CRAN (#10011) : aucune ligne mesurable = un SILENCE, pas une mesure. Sans lui,
+        # `divergences` rend 0 pour TOUS les modeles et le verdict d'accord passe A VIDE.
+        if not any(r["x_nat"] is not None for r in rows):
+            return {"erreur": cause_x_nat_non_mesurable(call, rid, tt, el, te),
+                    "rows_muettes": len(rows)}
         _l0 = _port_leaves(ctx, tiles[0])[1]
         return {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
                 "bras_a": ha, "bras_b": hb,
