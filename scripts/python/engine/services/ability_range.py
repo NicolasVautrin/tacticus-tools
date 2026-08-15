@@ -498,6 +498,20 @@ def _bit(rules, bit) -> bool:
     return rules is not None and bool(int(rules) & int(bit))
 
 
+def verse_par_ajout_aval(rules, distance) -> bool:
+    """La tuile est-elle versee dans la zone par l'un des DEUX `AddRange(casterTiles)` de
+    `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` ?
+
+    FOYER UNIQUE de cette clause (#447-r1-r1-r1) : `_zone_contains_distance` s'en sert pour DIRE que
+    la tuile est dans la zone, et `_ability_covers_tile` pour savoir qu'elle n'a PAS traverse le
+    `RemoveAll` de walkability -- deux lectures d'un meme fait natif, donc une seule ecriture.
+
+    Les deux ajouts vivent chez l'APPELANT de `GetTilesInRange` et versent `casterTiles`, donc la
+    clause porte sur `d == 0` dans le regime SINGLETON de `is_tile_in_range_of_any_ability`."""
+    return int(distance) == 0 and (_bit(rules, TR.CasterIsPossibleTarget)
+                                   or _bit(rules, TR.TargetIsCasterOrEnemy))
+
+
 def _zone_contains_distance(rules, value, only_adjacent: bool, use_whole_board: bool,
                             distance) -> bool | None:
     """La zone de `GetTilesInRange` PUIS les deux `AddRange(casterTiles)` de
@@ -523,8 +537,7 @@ def _zone_contains_distance(rules, value, only_adjacent: bool, use_whole_board: 
     else:                                                 # <slot 0x67>, `includeCenter` = bit 15
         in_range = d <= int(value) and (d != 0
                                         or _bit(rules, TR.CasterIsPossibleTarget))
-    if d == 0 and (_bit(rules, TR.CasterIsPossibleTarget)
-                   or _bit(rules, TR.TargetIsCasterOrEnemy)):
+    if verse_par_ajout_aval(rules, d):
         return True                                       # les deux ajouts, APRES `GetTilesInRange`
     return in_range
 
@@ -813,9 +826,36 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
     predicat de LIGNE DE VUE (`b__1`, #-r1-r2), puis le predicat
     `GetDynamicInvalidTargetReason` (`b__2`, #-r1-r1).
 
-    L'ORDRE natif est `GetTilesInRange` (rayon PUIS walkability), `b__0`, `b__1`, `b__2` : les
-    derniers sont des `RemoveAll`, donc COMMUTATIFS -- l'ordre du port n'est pas observable, seule
-    leur conjonction l'est. Le retrait des non marchables est le seul a etre EN AMONT.
+    L'ORDRE natif est `GetTilesInRange` (rayon PUIS walkability), les DEUX `AddRange(casterTiles)`,
+    puis `b__0`, `b__1`, `b__2` : les trois derniers sont des `RemoveAll`, donc COMMUTATIFS -- leur
+    ordre relatif n'est pas observable, seule leur conjonction l'est.
+
+    ⚠ **LE RETRAIT DES NON MARCHABLES, LUI, N'EST PAS COMMUTATIF, ET LE PORT LE PLACAIT DU MAUVAIS
+    COTE DE L'AJOUT AVAL** (#447-r1-r1-r1). Le `RemoveAll` de walkability est la DERNIERE
+    instruction de `TargetingQuery$$GetTilesInRange` (relue a l'octet : `if ((options.Rules &
+    AllowUnwalkableTargetTile) == 0) RemoveAll(zone, <>c.<GetTilesInRange>b__36_0)`), tandis que les
+    deux `AddRange(casterTiles)` vivent chez l'APPELANT, `GetPossibleTargetsForOptions`, et
+    s'executent APRES. Une tuile qui n'entre dans la zone QUE par l'ajout aval n'est donc JAMAIS
+    filtree par la walkability cote natif -- alors que le port l'y soumettait, d'ou un ecart
+    RESTRICTIF. `verse_par_ajout_aval` porte la condition, en partage avec
+    `_zone_contains_distance` pour qu'il n'y ait qu'une seule ecriture du fait.
+
+    GISEMENT, MESURE et vide -- mais mesure, pas suppose. La tuile en question est `casterTiles`,
+    c'est-a-dire celle ou se tient le caster ; l'ecart exige donc qu'elle soit NON MARCHABLE ou EN
+    BROUILLARD. Sur les deux boards sondes (`MC1_67` pvp : 63 tuiles, 0 en fog ; `C6_02` campagne :
+    63 tuiles dont **32 en fog** et 22 non marchables), l'intersection « occupee ET (fog ou non
+    marchable) » vaut **0**. Cause structurelle, LUE :
+    `IdunBattle.Operations.AddUnitOperation$$AreTilesDisallowedAndLog` refuse toute tuile qui ne
+    passe pas son gate `<IBattleQuery slot 0xa1>` ou dont le `TileContentComponent$$IsFilled` est
+    vrai, `GetMovableTilesFor` ne rend pas de tuile en brouillard, et le brouillard RECULE (il se
+    leve a l'exploration) au lieu d'avancer. Sur `C6_02` les 32 tuiles en fog sont les salles
+    fermees, ou les unites ne sont pas ENCORE instanciees (`observeBattle.counts.units = 3` pour six
+    unites demandees au build). Le mirror est donc pose ET exerce par un cran SYNTHETIQUE, pas
+    confronte live : aucun montage n'amene un caster sur une telle tuile.
+
+    L'attaque normale n'est pas concernee : aucun de ses 18 profils ne porte `CasterIsPossibleTarget`
+    ni `TargetIsCasterOrEnemy`, donc `verse_par_ajout_aval` y est toujours faux (cf.
+    `normal_attack_zone_contains`).
 
     ⚠ L'etage `GetTilesInRange` est teste par `tiles_in_range_zone_contains`, pas par une
     comparaison `d <= rayon` : un rayon ne sait pas dire si la tuile du CASTER en fait partie, et
@@ -830,11 +870,13 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
     if target_tiles_zone_is_empty(ability_id):
         return False                               # zone VIDE avant meme `GetRange`
     base = tiles_in_range_reach(ability_id, visual_id)
-    if not tiles_in_range_zone_contains(ability_id, visual_id,
-                                        hexgeo.distance(tuple(unit_pos), tuple(tile))):
+    d = hexgeo.distance(tuple(unit_pos), tuple(tile))
+    if not tiles_in_range_zone_contains(ability_id, visual_id, d):
         return False
     opts = _options_of(ability_id)
-    if _unwalkable(getattr(opts, "rules", None), tile, walkable_by_pos, is_in_fog_by_pos):
+    if (not verse_par_ajout_aval(getattr(opts, "rules", None), d)
+            and _unwalkable(getattr(opts, "rules", None), tile,
+                            walkable_by_pos, is_in_fog_by_pos)):
         return False                               # `GetTilesInRange` -- NON MARCHABLE
     if _obscured(board, unit_pos, tile, getattr(opts, "rules", None), visual_id,
                  caster_team=caster_team, team_by_pos=team_by_pos):

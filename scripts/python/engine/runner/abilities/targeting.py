@@ -2657,11 +2657,22 @@ def unit_weapon_range(visual_id: Optional[str], stats) -> Optional[int]:
 
     `stats` = un porteur de `get_stat(StatType)` (`UnitContext` ou `UnitStats`) ; None -> extra 0.
 
-    **`None` = NON OBSERVABLE**, et c'est la 1re branche : `StatType.Range` (2, marque
-    `[Obsolete] Idun Concept`) n'est PAS dans le catalogue de `combatSnapshot` -> `get_stat(2)`
-    rendrait 0, ce qui n'est pas la valeur native mais l'absence de mesure. Or 81 unites du
-    gameconfig n'ont AUCUNE arme (les Machines of War et les objets de decor) : rendre 0 pour elles
-    ferait refuser TOUTES leurs cibles. On rend donc None, que l'appelant traduit en « pas de gate ».
+    **`None` = branche 1 NON RESOLUE ICI, et l'appelant qui a le canal la resout**
+    (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1). Cette fonction ne recoit qu'un porteur de stats
+    OPTIONNEL, donc elle ne peut pas promettre `GetStat` ; ses deux appelants tranchent
+    differemment, et c'est VOULU :
+
+      * `get_range` -- le foyer natif ou `GetStat(caster, StatType.Range = 2)` est LU -- le resout
+        des que le `StatsComponent` est la. ⚠ La phrase qui vivait ici (« `StatType.Range` n'est PAS
+        dans le catalogue de `combatSnapshot` ») etait **PERIMEE** : le RPC publie `stats.range` et
+        son catalogue `statTypes` l'apparie a l'index **2**. MESURE : `0` sur toutes les unites
+        observees, arme ou non, `statDelta` vide ;
+      * `engine.runner.operations.triggers.base._max_attack_range` substitue **1** (comportement
+        historique d'`IsInAttackRange`) : un `0` y fermerait l'overwatch d'une MoW. Cet arbitrage
+        n'est PAS touche -- le mirror est pose chez `get_range`, pas ici, precisement pour ne pas
+        le deplacer sous les pieds d'un consommateur hors perimetre.
+
+    81 unites du gameconfig n'ont AUCUNE arme (les 22 Machines of War et les objets de decor).
 
     Source d'arme = gameconfig (`weapons[].Range`, absent = arme de MELEE) : c'est le meme substrat
     que `WeaponsComponent`, dont le natif tire `HasAnyWeapon` / `HasRangedWeapon` /
@@ -2933,10 +2944,23 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
     else:
         e = state.get_entity(int(caster_id))
         sc = e.get_component(StatsComponent) if e is not None else None
-        value = unit_weapon_range(_visual_id(state, caster_id),
-                                  sc.ctx if sc is not None else None)
-        # `value is None` -> portee d'arme NON OBSERVABLE. On NE SORT PAS : seule la branche DISTANCE
-        # en depend, `only_adjacent` reste exact.
+        ctx = sc.ctx if sc is not None else None
+        value = unit_weapon_range(_visual_id(state, caster_id), ctx)
+        if value is None and ctx is not None:
+            # `if (!HasAnyWeapon(caster)) v = GetStat(caster, StatType.Range = 2);` -- la PREMIERE
+            # branche d'arme du natif, celle que `unit_weapon_range` laisse a `None` faute de canal.
+            # ⚠ **LE CANAL EXISTE, et la docstring qui disait le contraire etait PERIMEE**
+            # (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1) : `combatSnapshot` publie `stats.range`, et son
+            # catalogue `statTypes` l'apparie explicitement a l'index **2** -- soit `StatType.RANGE`.
+            # `UnitStats.get_stat` rend `0` quand le composant est absent, ce qui est le mirror du
+            # `default -> return 0` de `IdunBattle.Entities.UnitExtensions$$GetStat` : les deux
+            # coincident donc, la ou un `None` inventait une indecision que le natif n'a pas.
+            # Ce que ca FERME : hors `only_adjacent`, une portee `None` desarmait le gate de distance
+            # -- le natif refusait TOUTE cible (`d > 0`), le port les acceptait toutes. Ecart
+            # PERMISSIF, le seul type qu'un entrainement puisse exploiter.
+            value = int(ctx.get_stat(int(StatType.RANGE)))
+        # `value is None` (canal ABSENT, face DECISION) -> portee NON OBSERVABLE. On NE SORT PAS :
+        # seule la branche DISTANCE en depend, `only_adjacent` reste exact.
 
     # `if (options.Range.OverrideRangeFunc != null) v = OverrideRangeFunc(caster);` -- le delegue
     # ECRASE tout ce qui precede (arme, override, config) et precede les deux clamps de melee. Le port
