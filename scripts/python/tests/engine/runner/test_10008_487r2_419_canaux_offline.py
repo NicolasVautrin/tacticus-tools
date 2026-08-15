@@ -193,6 +193,111 @@ def test_a6_valeur_negative_ou_illisible_sautee():
     assert uc.received_damage_this_turn == {14: 2}
 
 
+def test_a4bis_la_voie_DECISION_LIVE_lit_le_MEME_canal_avec_le_MEME_tri_etat():
+    """#487-r2 -- L'ETAGE QUE CE FICHIER NE COUVRAIT PAS, et l'oubli etait STRUCTUREL.
+
+    Les tests A1..A7 gardent la voie COMBAT : `actorStats` -> `snapshot._load_actor_statistics` ->
+    `UnitComponent.received_damage_this_turn`, que `Scene.from_state` relaie en rejeu OFFLINE. Mais
+    la face DECISION **LIVE** ne passe PAS par `load_state` : elle bâtit sa `Scene` par
+    `scene.build_predictor` + `Scene.from_predictor_sctx`. MESURE du 2026-08-15
+    (`probe_487r2_hellfyre_decision_live.py`) : capteur PARFAIT (`profiles: {"13": 1}` sur les trois
+    ennemis armes, `{}` sur le temoin), natif qui propose `1088` avec un bucket `util = 3` -- et
+    port a `util = None`, **zero candidat**. Le capteur et le seeder etaient hors de cause : c'est
+    la Scene LIVE qui ne consommait pas le champ, alors que `build_predictor` tirait DEJA cet appel
+    `actorStats` pour `totalAttacksMade`.
+
+    Le tri-etat est le meme qu'en A4/A5, a un niveau pres, et c'est ce niveau qui est garde ici :
+    la table ENTIERE vaut `None` quand AUCUNE ligne ne porte le champ, parce que
+    `Scene.received_damage_profiles_by_id` est lui-meme tri-etat. Un `{}` s'y lirait
+    << personne n'a pris de degat ce tour >> et ferait REFUSER l'ability (`0 < MIN_UTILITY = 1`) --
+    degradation RESTRICTIVE, l'inverse de celle des tables voisines quand elles sont vides."""
+    from engine.playbook.scene import _received_damage_profiles_from_actor_stats as lire
+
+    # (1) MESURE : trois lignes, dont une a `profiles` VIDE -- une mesure PLEINE, pas une absence.
+    tbl = lire({"units": [
+        {"entityId": 81, "receiveDamageTypeThisTurn": {"profiles": {"13": 1}}},
+        {"entityId": 87, "receiveDamageTypeThisTurn": {"profiles": {}}},
+        {"entityId": 83, "receiveDamageTypeThisTurn": {"profiles": {"13": 1, "14": 2}}}]})
+    assert tbl == {81: {13}, 87: set(), 83: {13, 14}}, tbl
+    # Les CLES seules comptent : `HasTakenDamageOfDamageProfileThisTurn` est un `ContainsKey`, donc
+    # le compte `2` du profil 14 ne doit apparaitre NULLE PART.
+    assert all(isinstance(v, set) for v in tbl.values())
+
+    # (2) NON MESURE, aux QUATRE formes de A4 -- la table ENTIERE doit valoir `None`.
+    for ligne in ({"entityId": 81},                                    # cle absente (vieux bundle)
+                  {"entityId": 81, "receiveDamageTypeThisTurn": None},
+                  {"entityId": 81, "receiveDamageTypeThisTurn": {"profiles": None}},
+                  {"entityId": 81, "receiveDamageTypeThisTurn": {"profiles": "?"}}):
+        assert lire({"units": [ligne]}) is None, ligne
+    assert lire(None) is None
+    assert lire({}) is None
+    assert lire({"units": []}) is None
+
+    # (3) MIXTE : une seule ligne mesuree suffit a rendre une table -- et les NON mesurees en sont
+    # ABSENTES (l'accesseur rendra `None` pour elles), jamais inscrites a `set()`.
+    mixte = lire({"units": [{"entityId": 81, "receiveDamageTypeThisTurn": {"profiles": {"13": 1}}},
+                            {"entityId": 99}]})
+    assert mixte == {81: {13}} and 99 not in mixte, mixte
+
+
+def test_a4ter_la_Scene_LIVE_rend_le_TRI_ETAT_bout_en_bout():
+    """Le meme cran, mais au niveau de l'ACCESSEUR que le playbook appelle reellement.
+
+    C'est le SEUL point ou l'on voit que `None` (non mesure) et `False` (mesure negative) ne se
+    confondent pas : le playbook s'abstient sur le premier et compte `0` sur le second, et les deux
+    produisent le meme << aucun candidat >> -- indistinguables de l'exterieur."""
+    from engine.playbook.scene import Scene
+
+    def _scene(tbl):
+        """`Scene` MINIMALE -- les 11 champs obligatoires a leur valeur neutre. On ne passe PAS par
+        un constructeur de commodite : ce test doit exercer l'accesseur, pas une fabrique."""
+        return Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+                     vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={},
+                     eff_state=None, received_damage_profiles_by_id=tbl)
+
+    mesuree = _scene({81: {13}, 87: set()})
+    assert mesuree.has_taken_damage_of_profile_this_turn(81, 13) is True
+    assert mesuree.has_taken_damage_of_profile_this_turn(87, 13) is False   # MESURE et negatif
+    assert mesuree.has_taken_damage_of_profile_this_turn(99, 13) is None    # unite hors table
+    # Table ENTIERE non mesuree -> `None` pour TOUT LE MONDE, y compris une unite connue.
+    muette = _scene(None)
+    assert muette.has_taken_damage_of_profile_this_turn(81, 13) is None
+
+
+def test_a4quater_from_predictor_sctx_PROPAGE_le_None_et_ne_le_rabat_PAS_sur_un_dict_vide():
+    """LE CRAN QUE LES DEUX PRECEDENTS NE COUVRENT PAS, et il garde la faute la PLUS PROBABLE.
+
+    Dans `from_predictor_sctx`, ce champ est entoure d'une quinzaine de voisins ecrits
+    `predictor.get(<nom>) or {}` -- pour eux un dict vide EST la bonne valeur neutre (l'accesseur
+    rend alors `None` par ABSENCE DE CLE). Ici c'est l'inverse : le tri-etat est porte par la TABLE
+    ENTIERE, donc un `or {}` << uniformisant >> transformerait une non-mesure en AFFIRMATION
+    (<< personne n'a pris de degat ce tour >>) et ferait REFUSER `1088` -- degradation RESTRICTIVE,
+    silencieuse, et invisible des deux tests ci-dessus qui ne regardent que le helper et
+    l'accesseur.
+
+    On lit donc le CODE SOURCE de la fonction : c'est le seul controle qui voie l'ecriture du site
+    plutot que son effet dans un montage particulier."""
+    import inspect
+    from engine.playbook import scene as SC
+
+    src = inspect.getsource(SC.Scene.from_predictor_sctx)
+    lignes = [l.strip() for l in src.splitlines()
+              if "received_damage_profiles_by_id=" in l]
+    assert len(lignes) == 1, (
+        "attendu UN seul site d'affectation dans `from_predictor_sctx`, vu %d : %s"
+        % (len(lignes), lignes))
+    assert "or {}" not in lignes[0] and "or dict()" not in lignes[0], (
+        "REGRESSION : le site rabat la non-mesure sur un dict vide -- `%s`. Un `{}` s'y lit "
+        "<< personne n'a pris de degat ce tour >>, ce qui fait REFUSER 1088 (utilite 0 < "
+        "MIN_UTILITY 1) au lieu de s'abstenir. Cf. #487-r2." % lignes[0])
+    # CONTRE-EPREUVE DU CONTROLE LUI-MEME : le motif cherche doit exister chez les VOISINS, sinon
+    # l'assertion ci-dessus serait vraie pour une raison sans rapport (ex. `or {}` jamais utilise
+    # dans cette fonction).
+    assert sum(1 for l in src.splitlines() if "or {}" in l) >= 5, (
+        "TEMOIN ABSENT : `from_predictor_sctx` ne porte plus le motif `or {}`, donc le controle "
+        "ci-dessus ne discrimine plus rien")
+
+
 def test_a7_mutant_seed_neutralise_fait_rater_l_etage(monkeypatch):
     """MUTATION ADVERSARIALE = l'arbre d'AVANT : le seed neutralise. Le dict doit rester au `{}` de
     construction meme quand le canal publie deux profils.
