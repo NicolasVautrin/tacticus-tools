@@ -25,13 +25,40 @@ from ..effect_type import EffectType   # #270-r1-r1 : `UNTARGETABLE_EFFECT_TYPES
 #:
 #: Le flag ne vient PAS de l'effet feuille : `UntargetableEffect$$ApplyInternal` fait
 #: `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE et `$$RevertInternal`
-#: le retire, pour TOUTE sous-classe. C'est donc un DOMAINE, pas une constante.
+#: le retire. C'est donc un DOMAINE, pas une constante.
+#: ⚠ **PAS << pour TOUTE sous-classe >>, ET C'EST LU (#433-r3-r2-r1, build `t6dpr4k06g`)** : la pose
+#: est GARDEE, le retrait ne l'est pas. `UntargetableEffect$$ApplyInternal` ouvre sur
+#: `if (!this.IsUntargetableEnabled(owner, target, effect)) return;` -- un VIRTUEL declare par
+#: `UntargetableEffect` elle-meme, absent des deux tables de symboles (corps deduplique), donc
+#: lisible seulement par le `global-metadata.dat`. `$$RevertInternal`, lui, est un tail call NU vers
+#: `UnitFlagsComponent$$Remove`, sans aucun gate.
 #: Fermeture NATIVE du domaine (`data/symbols/<build>/frida/classes.tsv`, parent
 #: `UntargetableEffect`) : `ATeleportingEffect` -- 4 derivees, `1035 TeleportStrike_TeleportingIn`,
 #: `1140 StormboyzStrike_TeleportingIn`, `1238 FearOfTheUnseen_TeleportingIn`,
-#: `1573 TitanhammerSquad_TeleportingIn` -- et `JustSummonedEffect`.
+#: `1573 TitanhammerSquad_TeleportingIn` -- et `JustSummonedEffect`. La base elle-meme est
+#: CONCRETE et porte son propre `EffectType` : `1044 Untargetable`.
 #: RESTENT DEHORS, et pour des raisons DISTINCTES :
-#:   * `1573` -- arrive avec #448-r2d ;
+#:   * `1573` -- **REFUS PROUVE, ce n'est PAS un manque a combler.**
+#:     `TitanhammerSquad_TeleportingInEffect` SURCHARGE `IsUntargetableEnabled` avec le corps
+#:     `32 c0 c3` (`xor al,al ; ret`) = **false**, donc `$$ApplyInternal` sort AVANT le
+#:     `UnitFlagsComponent$$Add` : cet effet ne pose JAMAIS le flag. L'inscrire produirait une
+#:     divergence **RESTRICTIVE**. C'est la SEULE classe du build a surcharger ce getter -- 2
+#:     declarantes sur 465 (la base et elle). Derive deux fois par des machineries INDEPENDANTES,
+#:     avec 3 controles d'alignement locaux. La mention anterieure (<< arrive avec #448-r2d >>) le
+#:     rangeait parmi les manques : elle etait FAUSSE, et c'est exactement le genre de ligne qui
+#:     fait porter une divergence en croyant fermer un trou.
+#:   * `1044 Untargetable` (la BASE) -- **CANDIDAT NUMERO UN, non inscrit faute de CONFRONTATION.**
+#:     Ses deux faces sont portees, dans le meme arbre DSL, sur 2 des 4 chemins natifs :
+#:     `runner/abilities/aeldari.py` (`KissOfDeathAbility$$ExecuteBehaviour` -- `AddEffect(1044,
+#:     Caster())` puis `RemoveEffect(1044, Caster())`) et `runner/abilities/loki/wall_of_mirrors.py`
+#:     (`AddEffect` ... `FlyUnit` ... `RemoveEffect`). Le critere du domaine (<< les DEUX faces >>)
+#:     est donc satisfait, et l'ecart serait PERMISSIF : pendant le vol, le caster reste enumerable
+#:     cote port la ou le natif l'exclut. Ce qui manque est la mesure exigee par la derniere ligne
+#:     de ce commentaire -- **est-ce OBSERVABLE ?** Si rien n'inspecte l'etat entre le `AddEffect` et
+#:     le `RemoveEffect` du meme arbre, l'inscription serait INERTE, c'est-a-dire le vice reproche
+#:     juste en dessous a `1`/`1230`/`1390`. Montage a jouer : un porteur de `KissOfDeath` ou de
+#:     `WallOfMirrors`, et regarder si un overwatch se declenche sur le caster pendant le `FlyUnit`,
+#:     natif contre port. Tant que ce n'est pas mesure, l'inscrire violerait la regle de ce foyer.
 #:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- **REFUS RE-MESURE (#1074)**.
 #:     L'etage manquant n'est plus le meme selon le membre, et c'est ce qui rend la regle unique :
 #:     un membre n'entre au domaine que si le port porte SES DEUX FACES, le POSEUR **et** le

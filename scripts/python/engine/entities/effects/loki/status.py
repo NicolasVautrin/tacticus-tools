@@ -334,16 +334,28 @@ class DespoiledGroundEffect(BaseEffect):
 
       * `$$CreateTargetSelector`  = `Self@0x148`  (l'effet se cible LUI-MEME : c'est un tile-effect,
         pas un effet projete sur une autre entite) ;
-      * `$$CreateActiveCondition` = `AmountIsEqualOrGreater(Walkable(Self@0x148), Const(1))
-                                     | AmountIsEqualOrGreater(AllAliveMachines(Self@0x148), Const(1))`
-        -- « la tuile est TRAVERSABLE, ou bien une machine vivante s'y tient » ;
+      * `$$CreateActiveCondition` = `DSLTriggers.IsWalkable(sel) | DSLTriggers.IsSpawnTile(sel)`
+        -- « la tuile est MARCHABLE, **ou bien c'est une tuile de SPAWN** ». Chacun des deux termes
+        est un `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger` sur
+        `IdunBattleLogic.Entities.DSLSelectors$$Walkable` / `$$SpawnTiles`.
+        ⚠ **LE SECOND TERME ETAIT FAUX ICI** (#368-r2, re-mesure du 2026-08-15) : il y etait ecrit
+        `AllAliveMachines(Self@0x148)`, d'ou se deduisait un raisonnement d'innocuite (« les deux
+        branches sont satisfaites des qu'une unite peut se tenir sur la tuile ») qui tombe avec lui
+        -- une tuile de spawn n'a rien a voir avec un occupant. Le corps est DEDUPLIQUE par l'ICF et
+        porte le nom d'un autre proprietaire,
+        `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateActiveCondition`, qu'il PARTAGE
+        avec `FireEffect` et `IceEffect` -- relu verbatim, et l'attribution re-derivee par le bloc
+        `methodPointers` (`probe_175r2`, calage global 1193/1384) ;
       * `$$.ctor` -> `ABondEffect..ctor(..., 1, 0, <struct ZERO>, 0)`.
 
     RESIDU FLAGGE (`ActiveCondition` non modelisee) : le port n'ecrit pas
     `EffectComponent.IsActive @+0x5c` pour cet effet, donc l'instance est TOUJOURS active. Degradation
-    PERMISSIVE, mais bornee : les deux branches natives sont satisfaites des qu'une unite peut se tenir
-    sur la tuile (une tuile non traversable ne peut porter d'occupant, et le DoT est justement gate sur
-    la presence d'un occupant). Le cycle de vie qui compte -- expiration a echeance -- passe, lui, par
+    PERMISSIVE. ⚠ **LA BORNE QUI ETAIT ECRITE ICI N'EN EST PAS UNE** : elle disait « les deux branches
+    natives sont satisfaites des qu'une unite peut se tenir sur la tuile », ce qui supposait le second
+    terme `AllAliveMachines` -- corrige ci-dessus en `IsSpawnTile`. Ce qui borne REELLEMENT l'ecart,
+    c'est que les trois consommateurs lus de ce canal passent `onlyActive: false` (cf.
+    `entities/triggers.py::HasEffectTrigger`), un littéral repete a trois sites et non une propriete
+    structurelle. Le cycle de vie qui compte -- expiration a echeance -- passe, lui, par
     `remaining_turns`/`consumed` (`EffectComponent$$RemoveOneTurn` + `$$ShouldBeRemoved`, PR #138),
     pas par ce flag.
 
