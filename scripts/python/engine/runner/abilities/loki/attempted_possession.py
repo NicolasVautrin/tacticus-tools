@@ -97,12 +97,14 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.behaviours import op_add, op_and
 from ....entities.effect_type import EffectType
 from ....entities.ability_variable_type import AbilityVariableType
-from ....entities.formulas import ConditionalAmount, ConfigVar, Get, Min, PercentageOf, StatAmount
+from ....entities.effects.magnitude import ability_var
+from ....entities.formulas import ConditionalAmount, Get, Min, PercentageOf, StatAmount
 from ....entities.selectors.accessors import Actor, Owner, Subject, Target
 from ....entities.selectors.geometry import SelectIf
 from ....entities.selectors.tiles import Caster, ChildrenOf
@@ -204,9 +206,43 @@ def attempted_possession_movement():
         Get(0))                                                    # `<DSLFormulas+0x18>` = 0
 
 
-def attempted_possession_damage():
+def attempted_possession_damage_vars(state: "State", caster_id: int) -> tuple:
+    """`(maxDmg, dmgPct)` de `1101` sur CE caster -- la resolution des deux `ConfigVar` natifs.
+
+    Le natif passe `AActiveAbility$$get_AbilityStateReference(this)` en `abilityState` a
+    `DSLFormulas$$ConfigVar(this, variableType, abilityState, config)`, donc `GetVariableForLevel`
+    s'indexe sur le niveau de l'ability **CASTEE**, pas sur un niveau global d'unite. Le foyer qui
+    porte ce couple est `abilities/base.py::active_ability_state` (#890) -- on ne le duplique pas.
+
+    ⚠ **POURQUOI CETTE RESOLUTION EST ICI ET PAS DANS LE NOEUD (#590-r8).** `ConfigVar.calculate`
+    lit `ctx.config`, et `entities_from_state` NE LE BRANCHE PAS : le noeud rendait donc `0` pour
+    les DEUX variables, en silence. Injecter la valeur resolue en `Const` est la convention DEJA
+    etablie du depot pour ce manque -- `thousandsons.py::doombolt_targets_selector` /
+    `doombolt_nr_of_hits_formula`, `worldeaters.py`, `blacklegion.py`,
+    `operations/triggers/loki/power_up.py`, `serene_unifier.py` l'ecrivent toutes ainsi.
+    C'est value-identique au `ConfigVar` natif tant que `(level, mult)` est celui de l'ability
+    castee, ce que le foyer garantit."""
+    from ..base import active_ability_state
+    level, mult = active_ability_state(state, int(caster_id),
+                                       int(ActiveAbilityType.AttemptedPossession))
+    max_dmg = int(ability_var(ABILITY_ID, AbilityVariableType.maxDmg.name, level,
+                              multiplier_pct=mult) or 0)
+    dmg_pct = int(ability_var(ABILITY_ID, AbilityVariableType.dmgPct.name, level,
+                              multiplier_pct=mult) or 0)
+    return max_dmg, dmg_pct
+
+
+def attempted_possession_damage(max_dmg: int, dmg_pct: int):
     """`PercentageOfAttackCappedAtMax( It@0x68, statPart: 3 = INITIAL, maxAmount = ConfigVar(maxDmg),
     percentage = ConfigVar(dmgPct), roundingRule: 0 )` -- l'amount de l'override de stat.
+
+    ⚠ **LES DEUX `ConfigVar` SONT RESOLUES PAR L'APPELANT, ET C'EST LE CORRECTIF DE `#590-r8`.**
+    Le noeud `ConfigVar` du port lit `ctx.config`, que `entities_from_state` ne branche pas : il
+    rendait `0`, donc l'override posait **ATTACK = 0** sur chaque possede, donc le moteur
+    d'utilite ne trouvait plus AUCUNE action rentable et `perform_ai_ability_unit_behaviour`
+    rendait `None`. Le residu accusait ce corps-la (<< foyer PARTAGE par huit call-sites >>) ; la
+    mesure etage-par-etage (`probe_590r8_flux_du_cast.py`) montre que le corps est INNOCENT et
+    que l'ecart nait DEUX feuilles plus haut. Cf. `attempted_possession_damage_vars`.
 
     MIRROR du corps natif de la primitive (`IdunBattleLogic.Entities.DSLFormulas$$
     PercentageOfAttackCappedAtMax`), lu terme a terme, car c'est lui qui fixe le statType :
@@ -243,16 +279,16 @@ def attempted_possession_damage():
     chaque possede lit donc SA propre stat ATTACK, pas celle du caster.
 
     ⚠ Les cles sont derivees de l'enum (`AbilityVariableType.maxDmg.name`), jamais recopiees en
-    litteral : le port de `ConfigVar` s'indexe par NOM de variable gameconfig, mais le natif y passe
+    litteral : la resolution s'indexe par NOM de variable gameconfig, mais le natif y passe
     l'ORDINAL (`0xd` / `0x4a`). Passer par le membre nomme est ce qui rend le glissement visible au
     prochain build (cf. la regle << un ENTIER qui DESIGNE passe par un ENUM >>)."""
     base = StatAmount(Subject(), int(StatType.ATTACK),         # statType `0` ECRIT par la primitive
                       int(StatPart.INITIAL))                   # `statPart: 3` (3e arg = `variant`)
-    pct = PercentageOf(ConfigVar(AbilityVariableType.dmgPct.name), base)   # (pct, base)
-    return Min(ConfigVar(AbilityVariableType.maxDmg.name), pct)
+    pct = PercentageOf(Const(int(dmg_pct)), base)              # (pct, base)
+    return Min(Const(int(max_dmg)), pct)
 
 
-def attempted_possession_tree(possedes, custom_utility=None):
+def attempted_possession_tree(possedes, custom_utility=None, max_dmg: int = 0, dmg_pct: int = 0):
     """Arbre COMPLET de `...AttemptedPossessionAbility$$ExecuteBehaviour` (cf. l'en-tete).
 
     `possedes` = l'instance PARTAGEE du selecteur (`attempted_possession_targets()`), passee par
@@ -298,7 +334,7 @@ def attempted_possession_tree(possedes, custom_utility=None):
                          duration_rounds=None, duration_turns=POSSESSION_TURNS,
                          bonded_ref=Caster())
     ovr = AddStatOverrideEffect(possedes, DMG_OVERRIDE, int(StatType.ATTACK),
-                                attempted_possession_damage(),
+                                attempted_possession_damage(max_dmg, dmg_pct),
                                 name=EffectType.AttemptedPossession_DmgOverride.name,
                                 duration_rounds=None, duration_turns=None,
                                 is_modifiable=True)          # 7e arg natif = 1
@@ -646,8 +682,13 @@ class AttemptedPossessionAbility(ActiveAbility):
         possedes = attempted_possession_targets()
         entities = entities_from_state(state, caster_id, target_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
+        # #590-r8 : les deux `ConfigVar` de l'override de degat sont RESOLUES ICI (le noeud lit
+        # `ctx.config`, que `entities_from_state` ne branche pas -- il rendait 0, donc ATTACK = 0
+        # sur chaque possede et l'attaque commandee n'aboutissait jamais).
+        max_dmg, dmg_pct = attempted_possession_damage_vars(state, int(caster_id))
         arbre = attempted_possession_tree(
-            possedes, custom_utility=attempted_possession_custom_utility(state, int(caster_id)))
+            possedes, custom_utility=attempted_possession_custom_utility(state, int(caster_id)),
+            max_dmg=max_dmg, dmg_pct=dmg_pct)
         arbre.execute(entities, ectx)
         posee = [{"effect_type": p.get("effect_type"), "target": p.get("target"),
                   "bonded": p.get("bonded")}

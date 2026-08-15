@@ -248,23 +248,30 @@ class PerformAIAbility(AbilityBehaviour):
     existe : `ShockAssaultAbility.<>c$$<CreateBehaviour>b__1_0`, 7 slots de delegate y pointent).
     Le port passe donc `NORMAL_ATTACK_ID`, comme `PerformAIAttack`.
 
-    ⚠ **LE `customUtility` EST MATERIALISE EN EXCLUSION DE CANDIDAT, PAS EN SCORE -- ECART NOMME.**
+    ⚠ **LE `customUtility` EST MATERIALISE EN EXCLUSION DE CANDIDAT, PAS EN SCORE -- ET C'EST
+    DESORMAIS LU, PAS DEDUIT (`#590-r5` TRANCHE HORS LIGNE, 2026-08-15, build `t6dpr4k06g`).**
     Le natif range l'utilite `IdunBattle.AI.Utilities.OnlyCertainTargetUtility` dans une
     `UtilityDefinition` que `ActiveAbilityActionGenerator$$GenerateActions` consulte ; son
-    `$$EvaluateAttackInSteps` yield **l'une de DEUX constantes statiques** de la classe selon que
-    `this.targets.Contains(utilityAttackCase.Target)` ou non (LU : `statics+0x00` si contient,
-    `statics+0x20` sinon). **La POLARITE de ces deux constantes n'est pas lisible offline** -- la
-    classe n'a pas de `.cctor` nomme et les deux slots sont des `DAT_*`. Le port retient
-    l'ELIMINATION (une cible hors liste n'est pas candidate), pour trois raisons LUES :
-    le nom de la classe (<< Only Certain Target >>), le fait que `GetAttackCustomUtility` rend
-    **null** -- donc AUCUNE contrainte -- quand `GetPreferredAttackTarget` ne trouve rien (il ne
-    fabrique une utilite que pour CONTRAINDRE), et le fait que la << preference >> de l'i2 est
-    deja entierement resolue en amont, dans `b__0` (repli sur la liste non filtree si le filtre
-    << non possedes >> la vide) : ce qui sort est UNE cible, pas un souhait.
-    Si la constante de rejet etait seulement BASSE et non eliminatoire, le port refuserait de
-    frapper la ou le natif frapperait faute de mieux -- degradation CONSERVATRICE (on n'invente
-    pas un degat). Residu `#590-r5` (`BLOCAGE: capteur` -- trancher demande de lire les deux
-    champs statiques a l'execution).
+    `u003CEvaluateAttackInStepsu003Ed__3$$MoveNext` yield **l'une de DEUX constantes statiques de
+    `BaseUtility`** selon que `this.targets.<slot 4 = Contains>(utilityAttackCase.Target)` ou non :
+
+        contains -> BaseUtility.statics+0x00 = Fix64(0)             # NEUTRE
+        sinon    -> BaseUtility.statics+0x20 = Fix64.MinValue       # VETO
+
+    Les DEUX valeurs sont lues (`IdunBattle.AI.Utilities.BaseUtility$$.cctor` renvoie a
+    `FixMath.NET.Fix64$$.cctor`, ou `Fix64.statics+0x18 = 0x8000000000000000` = MinValue), et leur
+    EFFET l'est aussi :
+    `ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` rend un
+    **`Nullable` VIDE** -- donc AUCUNE action pour ce couple (tuile, cible) -- des que la valeur
+    vaut `statics+0x18` ou `statics+0x20`, et prend le **chemin NORMAL** pour toute autre valeur,
+    `Fix64(0)` comprise. Table complete et chaine d'appel : `engine/utilities/decider.py`.
+
+    ⇒ **ELIMINATION pour la cible hors liste, scoring NORMAL pour l'autorisee** : c'est exactement
+    ce que le port exprime par `allowed_targets`. La fiche du residu redoutait qu'une constante
+    << seulement BASSE >> fasse refuser au port un coup que le natif porterait faute de mieux ;
+    la mesure ecarte ce regime -- MinValue n'est pas basse, elle est ELIMINATOIRE par un test
+    d'egalite explicite. Le raisonnement d'origine (nom de la classe, `null` = aucune contrainte,
+    preference deja resolue en amont dans `b__0`) est CONFIRME par le decompile, pas remplace.
 
     Effet PUR (`stop=False`). Journalise `PerformAIAbility` (diag replay-diff)."""
     __slots__ = ("selector", "override_movement", "allow_only_move", "utility_entity",

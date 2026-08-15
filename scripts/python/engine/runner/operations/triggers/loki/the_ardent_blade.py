@@ -108,13 +108,41 @@ s'eteint : la relique ne se redeclenche plus de la bataille.
 2. CE QUI N'EST PAS PORTE, ET POURQUOI
 ================================================================================================
 
-  * **`customUtility` du `PerformAIAttack`** -- la `UtilityDefinition` a deux poids
-    (`UnitMovement` + `TheArdentBlade_Geminae`). La feuille portee n'expose pas ce parametre et le
-    corps unique (`abilities/loki/summon.py::perform_ai_ability_unit_behaviour`) choisit sa cible par
-    le moteur d'utilite par DEFAUT. L'utilite 66 vaut `+GetUtilityValue("LikesAdjacentCelestine")`
-    (= **30** dans le `BC.Utilities` de la seed) quand la tuile visee est adjacente au PARENT de la
-    Geminae (`IdunBattle.AI.Utilities.TheArdentBlade_GeminaeUtility$$EvaluateAttackInSteps`). Face
-    DECISION, distincte -> residu **#1013-r3**.
+  * ~~**`customUtility` du `PerformAIAttack`**~~ -- **RESIDU `#1013-r3` FERME PAR REFUTATION
+    (2026-08-15), SANS PORT.** La `UtilityDefinition` a bien deux poids (`UnitMovement` 6 +
+    `TheArdentBlade_Geminae` 66), l'utilite 66 vaut bien `+GetUtilityValue("LikesAdjacentCelestine")`
+    = **30** (`Utilities.Default.TheArdentBlade_Geminae.LikesAdjacentCelestine` du seed BC) quand la
+    tuile visee est adjacente au PARENT de la Geminae, et la feuille portee n'expose toujours pas ce
+    parametre. Ce qui est REFUTE, c'est l'IMPLICATION : << donc la Geminae rejouee choisit sa cible
+    par l'utilite par DEFAUT >> sous-entendait que le NATIF, lui, ferait autrement. Il fait pareil.
+
+    CHAINE LUE (build `t6dpr4k06g`), du call-site jusqu'au consommateur :
+      `ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` passe `d__7+0x38`
+      (le `customUtility`) au **slot 7** du playbook ->
+      `ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` le relaie en 5e
+      argument -> `ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`,
+      dont le corps ne le SOMME JAMAIS. Il n'a que TROIS issues :
+          r == BaseUtility.statics+0x18 ou +0x20 (= Fix64.MinValue)  -> Nullable VIDE (aucune action)
+          r == BaseUtility.statics+0x10          (= Fix64.MaxValue)  -> utilite = MaxValue
+          sinon                                                      -> **chemin NORMAL, r JETEE**
+      Les valeurs des statics sont lues a `BaseUtility$$.cctor` + `FixMath.NET.Fix64$$.cctor` ;
+      detail et table complete : `engine/utilities/decider.py`.
+
+    Or `TheArdentBlade_GeminaeUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext` yield
+    `Fix64(0)` ou `Fix64(0) + 30` -- **jamais une sentinelle** -- et l'autre membre du bucket,
+    `UnitMovement(6)`, est un composite de feuilles numeriques (`Tile` + `MinDistanceToClosestEnemy`).
+    La somme n'est donc AUCUNE des trois sentinelles testees : le natif prend le chemin normal.
+    **Le port est deja conforme ; porter (a) le parametre et (b) la classe d'utilite n'aurait
+    change aucun observable.**
+
+    ⚠ Le contraste qui VALIDE la lecture est dans la meme famille :
+    `IdunBattle.AI.Utilities.OnlyCertainTargetUtility` (le `customUtility` de `1101`) yield, LUI,
+    `statics+0x20` = MinValue quand la cible n'est pas dans sa liste -> Nullable VIDE = ELIMINATION.
+    Meme mecanisme, issue OPPOSEE, parce que la valeur EST une sentinelle. C'est ce qui empeche de
+    lire la refutation comme << le customUtility ne sert jamais a rien >>.
+
+    NON CONFRONTE : aucun montage live n'a ete joue sur le regime `grp2` de cette relique. La
+    refutation est STRUCTURELLE (decompile), pas observee.
   * `abilityType` (5e argument de `Resurrect`, un `Nullable<AbilityType>`) : aucun observable d'etat
     porte (attribution) -- residu PARTAGE, deja nomme par la feuille.
   * `SortTilesByUtilityForSummon` est mirrore par `SortTilesByUtility(unit_sel = None,

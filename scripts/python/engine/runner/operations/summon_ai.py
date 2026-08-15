@@ -45,6 +45,7 @@ from typing import Optional
 from ..state import State
 from ..components import (UnitComponent, OwnerComponent, PositionComponent, UnitFlagsComponent,
                           StatsComponent, unit_is_dead)
+from ...entities.ability_variable_type import AbilityVariableType
 from ...entities.active_ability_type import ActiveAbilityType
 from ..events import EventBus
 from ..messages import ActiveAbilityMessage
@@ -258,11 +259,76 @@ def _apply_active_ability(state: State, uid: int, target: Optional[int], ability
         _name, cfg = _resolve_ability(ability)
         profile = (cfg.get("constants") or {}).get("damageProfile")
         ranged = (cfg.get("attackRangeType") == "Ranged")
-        bmin, bmax, pierce, hits = ability_attack_params(state, uid, _name, profile, ranged=ranged)
+        # #429-r1-r1-r1-r1 : les cles de degat sont DERIVEES de la config, pas figees a
+        # `minDmg`/`maxDmg`. Le natif choisit AU SITE entre `AActiveAbility$$MinMaxDamage` (0xc/0xd)
+        # et `AActiveAbility$$DmgDamage` (0xb) ; le port ne mirrorait que le premier, donc une
+        # ability a `dmg` rendait `(0, 0)` et frappait pour 0 SANS RIEN DIRE.
+        _cles = repli_variables_de_degat(cfg)
+        if _cles is None:
+            # AUCUN des deux helpers natifs ne s'applique : le repli n'a pas de base de degat. On
+            # le DIT (le no-op reste un no-op) plutot que de tirer une attaque a bornes nulles,
+            # qui se lit comme un coup porte pour 0.
+            return {"ability": ability, "target": target, "routed": "no_damage_variable",
+                    "variables": sorted((cfg.get("variables") or {}).keys())}
+        _min_key, _max_key = _cles
+        bmin, bmax, pierce, hits = ability_attack_params(state, uid, _name, profile, ranged=ranged,
+                                                        min_key=_min_key, max_key=_max_key)
         r = AttackDamageOperation.execute_ability_attack(state, uid, target, bmin, bmax, pierce, hits,
                                                          damage_profile=profile, is_melee=not ranged)
-        return {"ability": ability, "target": target, "routed": "generic_attack", "result": r}
+        return {"ability": ability, "target": target, "routed": "generic_attack",
+                "damage_variables": [_min_key, _max_key], "result": r}
     return {"ability": ability, "target": target, "routed": "noop"}
+
+
+def repli_variables_de_degat(cfg: dict):
+    """QUEL helper de degat de `AActiveAbility` ce repli mirrore-t-il ? (#429-r1-r1-r1-r1)
+
+    Le natif n'a PAS de « repli generique » : chaque `<X>Ability$$ExecuteBehaviour` appelle UN
+    helper NOMME de `IdunBattle.Entities.Abilities.AActiveAbility` pour construire le noeud de
+    degat qu'il passe en 4e argument de `IdunBattleLogic.Entities.DSLBehaviors$$
+    AttackWithAttackDamage`. DEUX de ces helpers portent le volet PRINCIPAL, et ils lisent des
+    variables DIFFERENTES -- corps LUS, pas devines :
+
+      * `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(abilityState, isPrediction)` :
+            min = GetVariableForLevel(config, 0xc, abilityState)     # AbilityVariableType.minDmg
+            max = GetVariableForLevel(config, 0xd, abilityState)     # AbilityVariableType.maxDmg
+            isPrediction == 0 -> DSLFormulas$$RandomAmount(min, max)          # EXECUTION
+            isPrediction != 0 -> DSLFormulas$$Half(Sum(Direct(min), Direct(max)))   # PREDICTION
+      * `IdunBattle.Entities.Abilities.AActiveAbility$$DmgDamage(abilityState)` :
+            v = GetVariableForLevel(config, 0xb, abilityState)       # AbilityVariableType.dmg
+            -> DSLFormulas$$Direct(v)                                # AUCUN tirage
+
+    Le port n'en mirrorait qu'UN (`minDmg`/`maxDmg`, les cles PAR DEFAUT d'
+    `ability_attack_params`) : une ability dont la config nomme `dmg` rendait donc `(0, 0)` et le
+    repli infligeait **0 SILENCIEUSEMENT**. C'est le residu, et il ne portait sur aucun DEFAUT du
+    gate #429-r1-r1-r1 -- sur le repli lui-meme.
+
+    `Direct(v)` est rendu par `bmin == bmax == v`, et c'est EXACT, pas une approximation :
+    `HitDamage$$GetDamage` gate `min == max` (cf. `damage_ops/ability.py`), donc ce couple ne
+    consomme AUCUN tirage sur le montant -- comme `Direct`. Passer `RandomAmount(v, v)` a la place
+    de `Direct(v)` serait donc observationnellement identique cote RNG.
+
+    Rend `(min_key, max_key)` ou `None` quand AUCUN des deux helpers ne s'applique -- et ce `None`
+    est le point du correctif : le repli DIT alors qu'il n'a pas de base de degat au lieu d'en
+    fabriquer une nulle.
+
+    MESURE DU GISEMENT (2026-08-15, build `t6dpr4k06g`) : sur les **17** abilities qui atteignent
+    reellement ce repli (hors `ABILITY_CLASSES` + classees attaque active), **17 portent
+    `minDmg`/`maxDmg`** et **0** est dans le cas `dmg` -- l'assiette du residu vaut donc ZERO
+    aujourd'hui, et son exemple motivant (`1015 PrecisionShot`) est ENTRE au registre depuis. Le
+    correctif est un CLIQUET, pas une reparation d'un ecart vivant : les DEUX abilities du build
+    qui nomment `dmg` (`1015 PrecisionShot`, `1091 SlashingDive`) sont au registre, donc a une
+    tranche de portage pres de retomber ici. Cliquet executable :
+    `probe_429r1r1r1r1_repli_variables_degat.py`."""
+    variables = (cfg.get("variables") or {}) if isinstance(cfg, dict) else {}
+    _min = AbilityVariableType.minDmg.name
+    _max = AbilityVariableType.maxDmg.name
+    if _min in variables or _max in variables:
+        return _min, _max                       # `AActiveAbility$$MinMaxDamage` (0xc / 0xd)
+    _dmg = AbilityVariableType.dmg.name
+    if _dmg in variables:
+        return _dmg, _dmg                       # `AActiveAbility$$DmgDamage` (0xb) -> `Direct(v)`
+    return None
 
 
 def _is_active_attack_ability(ability_id: int) -> bool:
