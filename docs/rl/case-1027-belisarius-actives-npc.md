@@ -159,7 +159,8 @@ FORMULE prioritaire sur la row. L'etage 6 de
 
 | n | quoi |
 |---|---|
-| `#1027-r1` | `SortByRow(sameColumnIsRandom: 1)` : le 3e `ThenBy(pseudoRng)` n'est pas tire (pas de substrat cle-par-element). Le port rend *un* des ordres du natif, pas un ordre invente. |
+| ~~`#1027-r1`~~ | **RESOLU** -- le 3e `ThenBy(pseudoRng)` EST tire : il ne manquait pas un substrat mais un CABLAGE (`ctx.pseudo_rng_next`). Les trois etages existaient deja (PRNG bit-exact, borne `BoardComponent+0x14 = Width`, slot 1 d'`IPseudoRNG`). |
+| ~~`#1027-r7`~~ | **RESOLU** -- l'accord **TUILE A TUILE** avec le natif est etabli **a flux PRNG ALIGNE** : capture `combatSnapshot` + `dumpRng` AVANT le cast, rejeu du meme cast dans le Runner du port avec le twister remis dans l'etat capture. **3 graines, 3 jeux de tuiles natifs DISTINCTS, accord 3/3** (`777` -> `[(0,0),(2,0),(4,0),(5,0)]` ; `31337` -> `[(2,0),(3,0),(5,0),(6,0)]` ; `4242` -> `[(0,0),(2,0),(5,0),(6,0)]`). A flux aligne, ceci etablit aussi le **COMPTE** de tirages (un par element de la source) : un tirage de trop decale tout l'aval, et c'est exactement ce que rend le mutant `tirageEnTrop`. Probe : `probe_1027r7_sort_by_row_accord_tuiles.py` ; cliquet : `tests/engine/runner/test_1027r7_sort_by_row_accord_live.py`. |
 | `#1027-r2` | 1172 : `GetEligibleTargetsSelectable` n'est pas modelise PAR POSITION (self-cast portee 0 -> position-independant). |
 | `#1027-r3` | `SolarAtomizerPlaybook$$GetUseProbability` : `BaseUnitComponent+0x5c` non identifie ; la branche 0.5 est une porte aleatoire non modelisee. |
 | `#1027-r4` | `dsl_context_for_tile_target` ne repositionne pas le caster ; or `GetTargetTiles` lit `CasterTiles`. |
