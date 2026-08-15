@@ -273,6 +273,7 @@ NATIF refuse pour toutes les autres, et les resurrections portees ne prennent pa
 """
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
@@ -1456,7 +1457,8 @@ def normal_attack_targeting_options(state: "State", caster_id: int) -> "Targetin
     return NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE.get(int(aid), NORMAL_ATTACK_TARGETING_OPTIONS)
 
 
-def normal_attack_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id) -> int:
+def normal_attack_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id,
+                                                caster_tiles=None) -> int:
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason`
     -- la regle-delegue que `AActiveAbility$$.ctor` pose a `options+0x38` pour TOUTE attaque normale.
     Corps natif, LU (5 parametres : `caster, casterTile, target, targetTiles`) :
@@ -1505,13 +1507,21 @@ def normal_attack_dynamic_invalid_target_reason(state: "State", caster_id: int, 
 
     RESIDU NOMME : les deux substrats peuvent DIVERGER (`BC.Units[].Weapons` patche a la main ne
     change pas le gameconfig). En bataille standard ils concordent, `buildNormalizedBC` derivant du
-    catalogue -- mais un montage qui vide `Weapons` dans le BC seul ferait diverger natif et port."""
+    catalogue -- mais un montage qui vide `Weapons` dans le BC seul ferait diverger natif et port.
+
+    ⚠ **`caster_tiles` EST LE 2e ARGUMENT NATIF DU DELEGUE, ET IL EST LOAD-BEARING** (#590-r6). Le
+    site d'invocation passe `d.Invoke(caster, casterTiles, cibleResolue, targetTiles)` : c'est donc
+    la position INTERROGEE, pas la position reelle, qui decide de l'ADJACENCE -- donc de l'arme
+    retenue par `SelectMaxRangeWeapon`, donc du refus. `None` = la position reelle (tous les
+    appelants d'avant, octet pour octet). Sans ce parametre le mirror de
+    `GetAllValidTargetsFromAllPossibleMovementTiles` serait livre INERTE : mesure faite, il rendait
+    `[]` sur les 25 positions candidates d'un summon a 4 de MOVEMENT."""
     import gameconfig as GC
     vid = _visual_id(state, caster_id)
     if GC.unit(vid or "") is None:                 # substrat NON MESURE -> aucun refus invente
         return 0
     board = state.board
-    caster_tiles = entity_tiles(state, caster_id)
+    caster_tiles = caster_tiles_of(state, caster_id, caster_tiles)   # `casterTile` du delegue
     target_tiles = entity_tiles(state, target_id)
     if board is None or not caster_tiles or not target_tiles:
         return 0                                   # tuiles non resolues -> permissif
@@ -1537,10 +1547,22 @@ class _NormalAttackTargeting:
         if options is not None:
             self.TARGETING_OPTIONS = options
 
-    def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
+    def get_dynamic_invalid_target_reason(self, state, caster_id, target_id,
+                                          caster_tiles=None) -> int:
         """La regle-delegue de l'attaque normale (`options+0x38`, bit `TargetMatchesDynamicRule`) --
         PORTEE depuis #419-r1-tr14-r5-r2-r1. Detail et bornes :
         `normal_attack_dynamic_invalid_target_reason`.
+
+        `caster_tiles` (#590-r6) = le 2e argument que le site d'invocation natif passe au delegue
+        (`d.Invoke(caster, casterTiles, cibleResolue, targetTiles)`). DECLARE ici -- et nulle part
+        ailleurs -- parce que c'est ce porteur-la que `get_valid_targets_in_steps` interroge sur une
+        position hypothetique ; les ~35 autres regles dynamiques gardent leur contrat a trois
+        arguments et ne recoivent rien (cf. `_invoque_regle_dynamique`).
+        ⚠ **LE RELAIS VERS LE TYPE CONCRET NE LE TRANSMET PAS**, et c'est deliberé : aucune des
+        surcharges par type (une seule existe, `1076 MV71SniperDroneSquadAttack`) ne le declare
+        aujourd'hui. Le transmettre a l'aveugle leverait `TypeError` ; le threading passe donc par
+        `_invoque_regle_dynamique`, qui teste la signature -- residu `#590-r6-r3` si une surcharge
+        de type doit un jour lire la position interrogee.
 
         Elle n'est CONSULTEE que si le masque du TYPE porte le bit : la cascade
         (`get_invalid_target_reason`) teste `options.has(TR.TargetMatchesDynamicRule)` avant
@@ -1570,9 +1592,10 @@ class _NormalAttackTargeting:
             from . import handler                                    # noqa: PLC0415
             klass = handler.ABILITY_CLASSES.get(int(aid))
             if klass is not None and "get_dynamic_invalid_target_reason" in klass.__dict__:
-                return int(klass().get_dynamic_invalid_target_reason(
-                    state, caster_id, target_id) or 0)
-        return normal_attack_dynamic_invalid_target_reason(state, caster_id, target_id)
+                return int(_invoque_regle_dynamique(klass(), state, caster_id, target_id,
+                                                    caster_tiles) or 0)
+        return normal_attack_dynamic_invalid_target_reason(state, caster_id, target_id,
+                                                           caster_tiles)
 
     def get_dynamic_invalid_caster_reason(self, state, caster_id) -> int:
         """Pendant CASTER (`options+0x30`) : le preset de l'attaque normale ne pose PAS
@@ -4188,6 +4211,47 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
     return 0
 
 
+def _invoque_regle_dynamique(ability, state: "State", caster_id: int, target_id, caster_tiles):
+    """LE DELEGUE `options+0x38` -- et il recoit `casterTiles`, ce que le port ne lui donnait PAS.
+
+    VERBATIM du site d'invocation dans la surcharge 7 arguments
+    (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`) :
+
+        if ((rules & 2) != 0) {                                  // TargetMatchesDynamicRule
+            d = options.<+0x38>;
+            rule = d.Invoke(caster, casterTiles, <cible RESOLUE>, targetTiles);
+            if (rule != 0) return GenericBrokenTargetingRule(rule);
+        }
+
+    QUATRE arguments, dont `casterTiles` en DEUXIEME. Ce n'est pas un detail de fidelite : la regle
+    de l'ATTAQUE NORMALE (`ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason`) mesure
+    l'ADJACENCE `casterTile x targetTiles` pour choisir l'arme, donc une position hypothetique en
+    change le verdict. MESURE (#590-r6, `MC1_67`, summon a 4 de MOVEMENT) : sans ce threading, la
+    branche mobile de `1101 AttemptedPossession` rendait `[]` sur TOUTES les positions candidates --
+    la portee passait, la ligne de vue passait, et le delegue refusait quand meme parce qu'il
+    mesurait l'adjacence depuis la tuile REELLE. Le mirror aurait ete livre INERTE.
+
+    THREADING PAR SIGNATURE, meme patron que `PerformAIAbility._accepte_utility_entity` (#590-r4) :
+    un porteur qui veut la donnee la DECLARE (`caster_tiles=` en mot-cle), les ~35 autres gardent
+    leur contrat `(state, caster_id, target_id)` et ne voient AUCUN changement. Un appel a l'aveugle
+    aurait leve `TypeError` sur chacun d'eux ; une signature illisible est traitee comme un refus."""
+    fn = ability.get_dynamic_invalid_target_reason
+    if caster_tiles is None or not _accepte_caster_tiles(fn):
+        return fn(state, caster_id, target_id)
+    return fn(state, caster_id, target_id, caster_tiles=caster_tiles)
+
+
+def _accepte_caster_tiles(fn) -> bool:
+    """Le porteur declare-t-il un parametre `caster_tiles` ? (cf. `_invoque_regle_dynamique`)."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind is p.VAR_KEYWORD for p in sig.parameters.values()):
+        return True
+    return "caster_tiles" in sig.parameters
+
+
 def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optional[int],
                               ability, *, apply_self_cast_switch: bool = True,
                               caster_tiles=None) -> int:
@@ -4223,12 +4287,19 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
 
     `caster_tiles` (#590-r6) -- LE `casterTiles` NATIF, 2e argument des DEUX surcharges. `None` = la
     position REELLE du caster, c'est-a-dire ce que `ActiveAbilityOperation$$ExecuteInternal` passe
-    (`EntityExtensions.GetTiles(caster, state)`) et le seul regime d'avant cette tranche. TROIS
-    etages de la cascade le consomment, et ce sont exactement les trois que le natif alimente avec :
-    le volet PORTEE (`get_range_broken_rule` -> `get_range` -> `ShouldApplyRangedInMelee`), la LIGNE
-    DE VUE (`GetTilesObscuringTerrain(caster, casterTiles, ...)`) et `TargetIsNotAdjacent` (le slot
-    `0x61` recoit `casterTiles` en 2e liste). Aucune autre regle du filtre ne lit la position du
-    caster -- verifie regle par regle sur la surcharge 7 arguments.
+    (`EntityExtensions.GetTiles(caster, state)`) et le seul regime d'avant cette tranche. **QUATRE**
+    etages de la cascade le consomment, et ce sont exactement les quatre que le natif alimente avec,
+    releves un par un sur la surcharge 7 arguments :
+      * le volet PORTEE -- `<IMovementQuery 10 GetDistance>(casterTiles, cible)` et
+        `<IBattleQuery 0x61 AreEntitiesAdjacent>(casterTiles, cible)`, plus `GetRange(caster,
+        casterTiles, options)` qui le repasse a `ShouldApplyRangedInMelee` ;
+      * la LIGNE DE VUE -- `GetTilesObscuringTerrain(caster, casterTiles, cible, options)` ;
+      * `TargetIsNotAdjacent` -- `<IBattleQuery 0x62>(targetTiles, casterTiles)` ;
+      * **LA REGLE DYNAMIQUE** -- `options.<+0x38>.Invoke(caster, casterTiles, cibleResolue,
+        targetTiles)`. C'est le quatrieme, et c'est celui qu'une lecture rapide rate : le delegue
+        n'est pas un predicat sur la CIBLE seule. Cf. `_invoque_regle_dynamique`.
+    Aucune autre regle du filtre ne lit la position du caster -- `TargetIsNotAdjacentToEnemy`, en
+    particulier, ne recoit que `targetTiles` et le CASTER (pas ses tuiles).
 
     Regles portees uniquement — l'inventaire complet et le motif de chaque non-port sont en tete de
     module."""
@@ -4606,7 +4677,8 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # slot vtable +0x480) = le `GetDynamicInvalidTargetReason` de la sous-classe. Place ici comme
     # dans le natif : APRES les regles statiques, avant le retour « valide ».
     if options.has(TR.TargetMatchesDynamicRule):
-        reason = int(ability.get_dynamic_invalid_target_reason(state, caster_id, target_id) or 0)
+        reason = int(_invoque_regle_dynamique(ability, state, caster_id, target_id,
+                                              caster_tiles) or 0)
         if reason:
             return reason
 
