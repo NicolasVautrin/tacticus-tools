@@ -101,7 +101,7 @@ def stormcaller_tree():
       `UnitsWithTrait(cache, 4=Flying, 3)` (UnitsWithFlagSelector flag=1 ; le 4e arg natif `3` =
       passthrough de kind, non discriminant — cf. case-191 même signature)."""
     # `matchAbilityEntities = 0` -- LITTERAL LU au call-site natif (#927-r3) : Stormcaller est
-    # l'un des SEPT call-sites de `DSLSelectors$$Cache` (sur 119) en mode SLOT, celui qui rend la
+    # l'un des SEPT call-sites de `DSLSelectors$$Cache` (sur 121) en mode SLOT, celui qui rend la
     # 1re valeur memoisee QUEL QUE SOIT l'`AbilityEntities` suivant. C'est ce qui garantit ici que
     # le stun [3] relit EXACTEMENT le meme ensemble que l'attaque [2].
     cache = Cache(UnitsOnTilesWithEffect(Enemies(AllAliveUnits()), ICE_TILE),

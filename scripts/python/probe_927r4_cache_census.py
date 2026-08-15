@@ -336,18 +336,17 @@ def _englobantes(arbre: ast.AST):
     return pile
 
 
-def volet_appariement(pe):
-    """Croise chaque call-site PYTHON avec le litteral que pousse SON call-site natif.
+def apparier(natif: dict[str, list[int]]):
+    """Croise chaque call-site PYTHON du noeud `Cache` avec le litteral que pousse SON
+    call-site natif. FONCTION PURE (aucune sortie console) -- partagee avec le cliquet.
 
-    L'appariement se fait par le SYMBOLE natif cite dans la docstring (ou les commentaires) de
-    la fonction/classe englobante -- jamais par le nom du fichier ni par une heuristique de
-    nommage. Un site dont aucun symbole ne s'apparie sort en `NON APPARIE`, pas en vert.
+    L'appariement se fait par le SYMBOLE natif cite dans la docstring ou les commentaires de la
+    fonction/classe englobante, de la plus PROCHE a la plus lointaine -- jamais par le nom du
+    fichier ni par une heuristique de nommage. Un site dont aucun symbole connu du census
+    n'apparait sort avec une liste d'appariement VIDE, jamais rabattu sur un defaut.
+
+    Rend [(chemin_relatif, ligne, litteral_ecrit_ou_None, [symboles_courts_apparies])].
     """
-    if not pe:
-        print("[AP] NON MESURE -- volet PE indisponible")
-        return None
-    natif = pe["par_appelant"]
-    # index : suffixe court (`Classe$$Methode`) -> valeurs poussees
     court = defaultdict(list)
     for plein, vals in natif.items():
         court[plein.rsplit(".", 1)[-1]].extend(vals)
@@ -381,7 +380,10 @@ def volet_appariement(pe):
             # Symboles cites par les englobantes, de la plus PROCHE a la plus lointaine, puis
             # le module. On ne retient que ceux que le census natif connait.
             anc = list(reversed(pile.get(id(n), [])))
-            textes = []
+            # 1re source : le VOISINAGE IMMEDIAT du site (commentaire de fin de ligne, ligne
+            # au-dessus). C'est la forme la plus PRECISE -- le symbole du call-site, pas celui
+            # de la fonction, qui peut en citer plusieurs.
+            textes = ["\n".join(src_lignes[max(0, n.lineno - 4):n.lineno + 1])]
             for a in anc:
                 d = ast.get_docstring(a) or ""
                 deb = max(0, a.lineno - 12)
@@ -397,11 +399,28 @@ def volet_appariement(pe):
                     break
             lignes.append((f.relative_to(RACINE).as_posix(), n.lineno, ecrit,
                            sorted(set(apparies))))
+    return lignes
+
+
+def litteraux_du_symbole(natif: dict[str, list[int]], courts) -> list[int]:
+    """Les litteraux DISTINCTS que poussent les call-sites des symboles cites."""
+    court = defaultdict(list)
+    for plein, vals in natif.items():
+        court[plein.rsplit(".", 1)[-1]].extend(vals)
+    return sorted({v for c in courts for v in court.get(c, ()) if isinstance(v, int)})
+
+
+def volet_appariement(pe):
+    if not pe:
+        print("[AP] NON MESURE -- volet PE indisponible")
+        return None
+    natif = pe["par_appelant"]
+    lignes = apparier(natif)
 
     print("[AP] appariement des %d call-sites PYTHON a leur call-site NATIF" % len(lignes))
     ok = sus = orph = 0
     for rel, ln, ecrit, app in lignes:
-        vals = sorted({v for c in app for v in court[c] if isinstance(v, int)})
+        vals = litteraux_du_symbole(natif, app)
         effectif = True if ecrit is None else bool(ecrit)
         if not app:
             orph += 1
@@ -420,29 +439,84 @@ def volet_appariement(pe):
     return lignes
 
 
+TABLE = "dsl_cache_call_sites.tsv"
+
+
+def chemin_table(build: str | None = None) -> Path:
+    """La table VERSIONNEE du census natif -- une ENTREE, au meme titre que
+    `remove_on_death_step.tsv` et `non_owner_slot4.tsv` (memes moeurs : produite par un
+    `--regenerer` explicite, jamais par un run ordinaire)."""
+    return build_dir(build) / "metadata" / TABLE
+
+
+def regenerer_table(pe, build: str) -> Path:
+    """Ecrit `<symbole appelant>\\t<litteraux, separes par des virgules>`, trie."""
+    dest = chemin_table(build)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    lignes = [
+        "# 3e argument (`matchAbilityEntities`) de chaque call-site de",
+        "# `IdunBattleLogic.Entities.DSLSelectors$$Cache` -- build %s." % build,
+        "# 1 = mode DICT (`+0x30.TryGetValue(entities)`), 0 = mode SLOT (`+0x28`).",
+        "# Les call-sites d'un meme appelant sont dans l'ordre des ADRESSES croissantes.",
+        "# Le compte inclut les TAIL CALLS (`jmp`) : les rater sous-compte le census (#927-r4).",
+        "# Regenerer : python scripts/python/probe_927r4_cache_census.py --regenerer",
+    ]
+    for nom in sorted(pe["par_appelant"]):
+        vals = pe["par_appelant"][nom]
+        lignes.append("%s\t%s" % (nom, ",".join(str(v) for v in vals)))
+    dest.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    return dest
+
+
+def lire_table(build: str | None = None) -> dict[str, list[int]]:
+    """La table versionnee -> {symbole appelant: [litteraux]}. Erreur DURE si absente."""
+    f = chemin_table(build)
+    if not f.is_file():
+        raise RuntimeError(
+            "table %s absente -- la regenerer par "
+            "`python scripts/python/probe_927r4_cache_census.py --regenerer`" % f)
+    out = {}
+    for ligne in f.read_text(encoding="utf-8").splitlines():
+        if ligne.startswith("#") or not ligne.strip():
+            continue
+        nom, _, vals = ligne.partition("\t")
+        out[nom] = [int(v) for v in vals.split(",") if v.strip()]
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--regenerer", action="store_true",
+                    help="reecrit data/symbols/<build>/metadata/" + TABLE)
     ap.add_argument("--pe", action="store_true", help="volet natif seul")
     ap.add_argument("--py", action="store_true", help="volet porte seul")
     ap.add_argument("--apparier", action="store_true",
                     help="croise chaque site PYTHON avec le litteral de SON call-site natif")
     ap.add_argument("--json", metavar="FICHIER", help="ecrire le resultat brut (sous logs/)")
     a = ap.parse_args()
-    cible = a.pe or a.py or a.apparier
-    faire_pe = a.pe or a.apparier or not cible
+    cible = a.pe or a.py or a.apparier or a.regenerer
+    faire_pe = a.pe or a.apparier or a.regenerer or not cible
     faire_py = a.py or not cible
 
     res = {}
     rc = 0
     pe = None
+    build = None
     if faire_pe:
         try:
-            pe = volet_pe(current_build())
+            build = current_build()
+            pe = volet_pe(build)
         except Exception as e:                                    # noqa: BLE001
             print("[PE] NON MESURE -- %s" % e)
             rc = 2
         res["pe"] = pe
         rc = rc or (2 if pe is None else 0)
+    if a.regenerer:
+        if pe is None:
+            print("[TABLE] NON REGENEREE -- le volet PE n'a rien mesure")
+            rc = rc or 2
+        else:
+            print("[TABLE] %s" % regenerer_table(pe, build))
     if faire_py:
         print("")
         r = volet_py()

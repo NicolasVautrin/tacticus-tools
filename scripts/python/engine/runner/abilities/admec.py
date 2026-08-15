@@ -1214,6 +1214,8 @@ def solar_atomizer_target_tiles(target=None) -> "Sub":
 def solar_atomizer_tree() -> "op_and":
     """Arbre complet -- `Execute( ((((addPD & rmEff) & ifGt) & setPD) & mark1) & mark2 )`."""
     others = Sub(AllUnits(), Caster())                                  # `AllUnits - Caster@+0x48`
+    # `SolarAtomizerAbility$$ExecuteBehaviour` pousse `matchAbilityEntities = 1` (mode DICT),
+    # qui est le defaut du noeud.
     cached = Cache(EntitiesWithAnyEffect(Friends(others, Caster(), selection_type=SELECTION),
                                          [AS_MACHINE_VENGEANCE]))
     add_pd = AddPersistentData(int(ActiveAbilityType.SolarAtomizer), Caster(), SA_PD_KEY,

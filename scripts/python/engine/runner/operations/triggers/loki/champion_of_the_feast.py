@@ -176,6 +176,8 @@ def champion_of_the_feast_target():
                           1, False, PICK_MAX_DUPLICATES, False)
     fallback = PickRandomly(champion_of_the_feast_possible_targets(),
                             1, False, PICK_MAX_DUPLICATES, False)
+    # `...ChampionOfTheFeastAbility$$CreateBehaviour` pousse `matchAbilityEntities = 1` (mode
+    # DICT), qui est le defaut du noeud.
     return Cache(Otherwise(prefer, fallback))
 
 

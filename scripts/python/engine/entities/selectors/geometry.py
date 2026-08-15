@@ -1281,15 +1281,32 @@ class Cache(TargetsSelector):
     rend donc la 1re valeur memoisee QUEL QUE SOIT le contexte suivant ; le mode DICT re-calcule
     des que l'`AbilityEntities` recu differe.
 
-    CENSUS PE DE TOUS LES CALL-SITES (build `t6dpr4k06g`, 2026-08-15) : **119 call-sites**, dont
-    **112 en mode DICT** et **7 en mode SLOT**. Les sept, nommes :
+    CENSUS PE DE TOUS LES CALL-SITES (build `t6dpr4k06g`, re-mesure #927-r4) : **121
+    call-sites**, dont **114 en mode DICT** et **7 en mode SLOT**. Les sept, nommes :
     `...ResurrectionOrbAbility$$GetResurrectBehaviour`, `...StormcallerAbility$$ExecuteBehaviour`,
     `...HeavyRailRifle_AttackAbility$$CreateBehaviour`, `...LightImUpAbility$$CreateBehaviour`
     (le 2e de ses deux appels), `...DakkaDakkaDakkaAbility$$ExecuteBehaviour`,
     `...DakkaDakkaDakkaAbility$$GetLeftoverHitsPerTargetFormula`,
     `...DarkTalonStrikeAbility$$ExecuteBehaviour`.
-    D'ou le defaut `True` : ce n'est pas un litteral invente, c'est celui de 112 sites sur 119, et
+    D'ou le defaut `True` : ce n'est pas un litteral invente, c'est celui de 114 sites sur 121, et
     tout call-site de la minorite l'ECRIT (`match_ability_entities=False`).
+
+    ⚠ **LE PREMIER CENSUS DISAIT 119, ET L'ECART EST UN TROU DE FORME, PAS DE COMPTAGE** : il ne
+    cherchait que l'opcode `call`, et un appel en position de QUEUE est compile en TAIL CALL.
+    `...FuryOfTheAncientsAbility$$GetTarget` et `...SorcerousFacadeAbility$$GetTarget` finissent
+    tous deux par `mov r8b, 1 ; jmp <DSLSelectors$$Cache>`. Le premier est precisement le
+    call-site que #927 declare avoir ajoute -- son propre census ne le voyait pas. Contre-controle
+    independant : Ghidra rend 125 xrefs = **121** `UNCONDITIONAL_CALL` + 4 `DATA`.
+
+    ⚠ **LE DEFAUT EST UNE COMMODITE DE PORTAGE, ET LE NATIF N'EN A AUCUN** : les 121 call-sites
+    poussent chacun un litteral CONSTANT (zero indetermine a la mesure). #927-r4 proposait de
+    rendre le parametre OBLIGATOIRE ; la mesure a fait renoncer -- les **44** call-sites Python
+    concordent **44/44** avec leur call-site natif, donc c'eut ete un durcissement, pas un
+    correctif, et un parametre obligatoire force a ECRIRE, pas a LIRE (`Cache(x, True)` pose de
+    memoire est la meme faute). Ce qui est pose a la place CONFRONTE : chaque site cite son
+    symbole natif, et `tests/engine/test_927r4_cache_litteral_offline.py` verifie le litteral
+    contre `data/symbols/<build>/metadata/dsl_cache_call_sites.tsv` -- y compris les deux sites
+    qui ecrivent deja, et un `Cache` porte SANS call-site natif, que l'obligatoire ne verrait pas.
 
     ⚠ CE QUE LA CLE COUVRE, ET CE QU'ELLE NE COUVRE PAS. Le natif keye sur la STRUCTURE
     `AbilityEntities` entiere (33 champs, egalite de `ValueType` : references pour les entites,
