@@ -517,12 +517,49 @@ class CanAddUnit(TargetsSelector):
     `.../counter_attack.py`, identifie par sa taille 16 et son absence de champ). Donc
     `ShouldTrigger` y est TOUJOURS FAUX, donc `allowSteppable` TOUJOURS VRAI a ce call-site.
 
-    RESIDU NOMME : `IsTileReservedForOtherUnit(t, parent)` et `IsTilePendingDrafting(t, state, 0)`
-    n'ont pas d'equivalent porte (ni reservation, ni drafting) -- c'est aussi pourquoi l'argument
-    `parent` du noeud natif n'a pas de contrepartie ici : le port n'a rien a en faire."""
-    def __init__(self, source: TargetsSelector, allow_steppable: bool = False):
+    `parent_sel` = LE SECOND GATE, et il n'a PAS de valeur « neutre » (#550-r4). `CanAddUnitFromAbility`
+    appelle `IsTileReservedForOtherUnit(t, parent)` juste apres `IsFreeTile`, et
+    `CanAddUnitTileSelector$$Select` resout `parent` par le SELECTEUR `<this+0x20>`
+    (`SelectUnit(entities, 3)`). Les TROIS surcharges natives de `IdunBattleLogic.Entities.DSLSelectors$$
+    CanAddUnit` construisent le meme `CanAddUnitTileSelector(state, tiles, parent, isSteppable)`, et
+    ce qu'elles mettent en `parent` est LU, pas suppose :
+
+        CanAddUnit(tiles)                    parent = <le selecteur que rend DSLSelectors$$None()>
+        CanAddUnit(tiles, isSteppable)       parent = idem
+        CanAddUnit(tiles, parent, isSteppable)  parent = celui de l'appelant
+
+    Les deux premieres allouent `new EntitySelector(state, entityId: null)` -- **le corps est
+    IDENTIQUE, instruction pour instruction, a celui de `IdunBattleLogic.Entities.DSLSelectors$$None`**
+    (meme `Il2CppClass*`, meme ctor, memes arguments `(state, 0, 0)`), et le type est NOMME par la
+    surcharge voisine `DSLSelectors$$Entity(entityId)`, dont le ctor est `IdunBattle.Entities.Selectors.
+    EntitySelector$$.ctor(this, state, entityId)`. Or `IdunBattle.Entities.Selectors.EntitySelector$$
+    GetEntity` rend `null` quand ses trois champs (`+0x18` entite, `+0x20` id, `+0x28` selecteur d'id)
+    sont nuls. ⇒ **`parent` est NUL a ces call-sites**, et `IsTileReservedForOtherUnit(t, null)` prend
+    sa branche `allowedUnit == null` = `content.<+0x34>.HasValue` : « la tuile est reservee par
+    QUICONQUE » -> refus. Polarite SAINE.
+
+    ⇒ `parent_sel=None` (defaut) N'EST PAS « pas de gate » : c'est le `None()` natif, donc le gate
+    « refuse toute tuile RESERVEE ». Un `parent_sel` non nul bascule sur l'autre branche
+    (`!(HasValue && Value == parent.Id)`), qui refuse toute tuile **NON** reservee pour ce parent --
+    c'est ce qui rend le `Reserve(Owner, targetTiles)` d'`ItItches` LOAD-BEARING. Unique call-site
+    natif de la surcharge a trois arguments : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ItItchesAbility$$ExecuteBehaviour`, qui y passe `<DSLSelectors+0x30>` = `Owner`.
+
+    SUBSTRAT : `ctx.tile_reserved_for_other_unit` (foyer unique `runner/operations/tile_reservation.py`).
+    **Absent = NON MESURE**, et le gate ne joue alors pas du tout : le rabattre sur une table VIDE
+    ferait rendre un ensemble VIDE a tout call-site `parent` non nul (contexte de prediction, arbre
+    monte hors runner). Meme tri-etat nomme que `ctx.sort_tiles_by_utility`.
+
+    RESIDU NOMME : `IsTilePendingDrafting(t, state, 0)`, le TROISIEME gate, n'a pas d'equivalent porte
+    (le `DraftingComponent` des joueurs n'est publie par aucune seed BC) -- direction PERMISSIVE, meme
+    residu que le gate G7 de `IdunBattle.Operations.MoveUnitOperation$$Execute`."""
+    def __init__(self, source: TargetsSelector, allow_steppable: bool = False,
+                 parent_sel: TargetsSelector = None):
         self.source = source
         self.allow_steppable = bool(allow_steppable)      # `!<+0x28>.ShouldTrigger` (cf. docstring)
+        # `<CanAddUnitTileSelector+0x20>` : `None` ENCODE le selecteur que rend `DSLSelectors$$None()`
+        # (un `EntitySelector` vide, donc `parent` NUL), PAS l'absence de gate. Cf. la docstring.
+        self.parent_sel = parent_sel
 
     def select(self, ctx):
         board = getattr(ctx, "board", None)
@@ -543,7 +580,16 @@ class CanAddUnit(TargetsSelector):
                 t = board.id_at(f[0], f[1])
                 if t is not None:
                     occ.add(t)
-        return [t for t in self.source.evaluate(ctx) if t not in occ and board.walkable(t)]
+        kept = [t for t in self.source.evaluate(ctx) if t not in occ and board.walkable(t)]
+        # `if (IsTileReservedForOtherUnit(tile, parent)) return false;` -- le 2e gate de
+        # `IdunBattle.Entities.TileExtensions$$CanAddUnitFromAbility`. `parent` est resolu UNE FOIS
+        # par cast, comme le natif (`Select` le calcule avant sa boucle sur les tuiles).
+        reserved = getattr(ctx, "tile_reserved_for_other_unit", None)
+        if reserved is None:
+            return kept                                   # substrat NON MESURE, cf. docstring
+        parent = resolve_unit(self.parent_sel, ctx) if self.parent_sel is not None else None
+        parent_id = (parent or {}).get("id") if parent else None
+        return [t for t in kept if not reserved(board.coord(t), parent_id)]
 
 
 class TileBehindTargetFromSourceDirection(TargetsSelector):

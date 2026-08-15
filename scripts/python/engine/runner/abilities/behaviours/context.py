@@ -36,6 +36,11 @@ from ...components import persistent_data as _pd
 from ...components import persistent_data_list as _pdl
 from ...components import previous_tiles as _pt
 from ...operations.ability_reset import entity_can_have_active_ability_reset
+# Forme B (import de MODULE) : foyer UNIQUE des cinq `IdunBattle.Entities.TileExtensions$$*` de
+# reservation (#550-r1), consomme ici par l'accesseur `ctx.tile_reserved_for_other_unit` que lit le
+# 2e gate du noeud `CanAddUnit` (#550-r4). Une liaison de module n'est jamais gelee, donc un
+# `monkeypatch.setattr` sur le foyer MORD.
+from ...operations import tile_reservation as _tres
 from ....services.trait_damage_limits import group_unit_stat_part
 from ...components import MachineComponent
 # `unit_extensions_is_alive` (`IdunBattle.Entities.UnitExtensions$$IsAlive` : flag `Dead`, pool
@@ -1059,6 +1064,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         except (TypeError, ValueError):
             return None
 
+    def _tile_reserved_for_other_unit(tile_pos, allowed_unit_id):
+        """`ctx.tile_reserved_for_other_unit` -- `IdunBattle.Entities.TileExtensions$$
+        IsTileReservedForOtherUnit(tile, allowedUnit)`, le 2e gate de `$$CanAddUnitFromAbility`.
+
+        DELEGUE au foyer unique (`operations/tile_reservation.py`), jamais une seconde
+        implementation : c'est la MEME table `State.tile_reservations` que celle qu'ecrivent les
+        noeuds DSL `Reserve`/`RemoveReservation` et le `SetReservation` de `MoveUnitOperation`.
+        ⚠ POLARITE OPPOSEE a son homonyme `BattleQuery$$IsTileReservedForAnotherUnit` : sur une tuile
+        NON reservee et un `allowedUnit` NON nul, celui-ci rend **VRAI**. Cf. l'avertissement en tete
+        du foyer."""
+        return _tres.is_tile_reserved_for_other_unit(state, tile_pos, allowed_unit_id)
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, owner=owner,
                       board=state.board,
                       # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
@@ -1081,6 +1098,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       persistent_data_all=_persistent_data_all,
                       previous_tiles=_previous_tiles,
                       entity_by_id=_entity_by_id,
+                      tile_reserved_for_other_unit=_tile_reserved_for_other_unit,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_ranged_weapon=_has_ranged_weapon,
                       has_unit_flag=_has_unit_flag,
