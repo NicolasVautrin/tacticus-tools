@@ -955,14 +955,31 @@ class HasEffect(AbilityTrigger):
     qu'aucun effet de TUILE ne porte d'ActiveCondition (aucun a ce jour) >>. Il y en a **cinq**, et
     chacune DECLARE la sienne : le slot `CreateActiveCondition` est **abstrait** sur
     `IdunBattle.Entities.Effects.BaseEffect` (son `methodPointer` vaut `0x0`), donc toute classe
-    concrete d'effet en porte une. Les cinq feuilles se scindent meme en DEUX corps distincts :
-      * `FireEffect`, `IceEffect` et `DespoiledGroundEffect` partagent le corps nomme
-        `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateActiveCondition` =
-        `DSLTriggers.IsWalkable(sel) | DSLTriggers.IsSpawnTile(sel)` (relu VERBATIM) ;
-      * `BlockEnteringUnitsTileEffect`, `Idun.DarknessEffect` et `Idun.LandMineBlockTileMovementEffect`
-        partagent celui de `Loki.WayOfTheShortBlade_AdditionalAttackMarkerEffect`.
+    concrete d'effet en porte une. Les cinq feuilles se scindent meme en DEUX corps distincts --
+    mais les deux corps n'ont PAS le meme statut, et les confondre serait la faute suivante :
+      * **UNE VRAIE CONDITION DE TUILE, portee par QUATRE classes SEULEMENT** : `FireEffect`,
+        `IceEffect`, `DespoiledGroundEffect` et `Loki.ContaminatedEffect` (le proprietaire du nom)
+        partagent le corps `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateActiveCondition`
+        = `DSLTriggers.IsWalkable(sel) | DSLTriggers.IsSpawnTile(sel)` (relu VERBATIM). `sel` est le
+        champ `DSLSelectors+0x30` -- LE MEME objet que celui rendu par leur `CreateTargetSelector`
+        (corps `Loki.WhisperingWebEffect$$CreateTargetSelector` = `return DSLSelectors+0x30`), donc
+        « Self ». Chaque terme est un `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger`.
+      * **LE CORPS PAR DEFAUT, partage par 114 CLASSES de toute nature** (`ABondEffect`,
+        `AStatModifierEffect`, `Common.UntargetableEffect`, `FirstAidHealEffect`...) : c'est lui
+        qu'ont `BlockEnteringUnitsTileEffect`, `Idun.DarknessEffect` et
+        `Idun.LandMineBlockTileMovementEffect`. Il porte le nom de
+        `Loki.WayOfTheShortBlade_AdditionalAttackMarkerEffect` par l'ICF, et son corps est
+        `return DSLTriggers+0x40` -- le trigger CONSTANT de la fabrique (`DSLTriggers$$.ctor` pose en
+        `+0x40` une instance, et en `+0x48` l'`AbilityTrigger$$op_LogicalNot` de la meme classe : le
+        couple vrai/faux). Ces trois-la n'ont donc **AUCUNE condition effective** ; il ne faut pas
+        lire << les trois autres ont leur propre condition de tuile >>.
     Et `BlockTileMovementEffect` -- la base qu'on aurait cru porteuse -- ne DECLARE PAS le slot.
-    Traiter << l'effet de tuile >> en bloc serait donc faux.
+    Traiter << l'effet de tuile >> en bloc serait donc faux, dans les DEUX sens : ni une condition
+    commune, ni cinq conditions distinctes. **Seules DEUX des cinq feuilles (`Fire`, `Ice`) sont
+    reellement concernees par un gate d'activite.**
+    (Attributions re-derivees par le bloc `methodPointers` -- `probe_175r2`, calage global
+    1193/1384 -- et CONTRE-EPREUVE 3/3 : chacun des trois proprietaires de nom retombe bien sur
+    SON propre corps, invariant falsifiable qui aurait accuse un calage decale.)
 
     CE QUI RESTE VRAI, mais pour une AUTRE raison que celle qui etait ecrite : les trois
     consommateurs de `5 EffectType.Fire` qui ont ete lus passent tous `onlyActive: false`
