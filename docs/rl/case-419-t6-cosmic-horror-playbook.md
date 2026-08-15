@@ -178,9 +178,10 @@ par un tiers — contrairement à `Lakrimae` (canal live du kit) et `BarbedOvipo
 
 ## 6. Non couvert
 
-* **Occupant `Decoy` NON `Steppable`** — le natif ne teste QUE `Decoy` ; aucune unité du catalogue
-  ne porte `Decoy` sans `Steppable`, il n'existe donc aucune donnée pour distinguer les deux gates.
-  Un port qui ajouterait `Steppable` passerait toutes ces mesures. **Résidu `#419-t6-r1`.**
+* ~~**Occupant `Decoy` NON `Steppable`**~~ — **COUVERT depuis le 2026-08-15 (`#419-t6-r1`), §8.**
+  La prémisse tenait (les 2 seuls porteurs de `Decoy` du catalogue portent aussi `Steppable`,
+  re-mesuré sur `t6dpr4k06g`) ; ce qui était faux, c'est « il n'existe aucune donnée » — **le
+  porteur se FABRIQUE**.
 * **Tuile d'attaque occupée par un `Steppable` NON leurre** — même cause : les deux porteurs de
   `Steppable` du catalogue Genestealer portent aussi `Decoy`. La tuile `C` (occupant ami, non
   leurre) en est le substitut le plus proche et suffit à faire mordre `no_trait`.
@@ -200,3 +201,63 @@ par un tiers — contrairement à `Lakrimae` (canal live du kit) et `BarbedOvipo
 * `scripts/python/probe_419_t6_cosmic_horror_pair_term.py` — montage nommé, deux régimes, mutants.
 * `scripts/python/tests/engine/test_419_t6_cosmic_horror_pair_term_live.py` — la garde jumelle
   (9 tests).
+
+## 8. `#419-t6-r1` — le gate `HasTrait(Decoy)` SEUL, MESURÉ (`BLOCAGE: porteur` tombe)
+
+Le résidu portait `BLOCAGE: porteur`. La prémisse **tient** — re-mesure sur `t6dpr4k06g` : les deux
+seuls porteurs de `Decoy` du catalogue (`genesDecoy` npc, `genesSmnDecoy` summon) portent
+`['Decoy', 'Steppable']`. Ce qui était faux, c'est la conclusion : **le porteur se fabrique**.
+
+`catalog_inject.add_unit_trait(bc, 'genesPatriarch', 'Decoy')` écrit `BC.Units[].Traits`, que
+`buildNormalizedBC` **LIT sans jamais l'ÉCRIRE** — l'injection survit à la normalisation. Le
+Patermine ne porte NI `Decoy` NI `Steppable` (`Hero, Infiltrate, Synapse, Terrifying, Unstoppable`),
+donc l'accorder produit exactement le porteur manquant.
+
+**Et c'est le CASTER qu'on équipe, par lecture et non par commodité.** Une tuile n'entre dans les
+tuiles d'action que si elle est vide ou si son occupant est `Steppable`
+(`IdunBattle.Entities.TileExtensions$$IsEmptyOrSteppable`) : un leurre NON `Steppable` posé à côté
+serait structurellement hors du movable set, et `pairUtility` refuserait la tuile — le régime serait
+**inatteignable** par cette voie. La tuile COURANTE du caster, elle, est toujours acceptée : c'est la
+tuile `C` de §3, celle qui y rend 0 parce que son occupant est ami mais **pas** leurre. Le
+discriminant est donc la tuile témoin de la tranche précédente, **retournée**.
+
+`IsFriend(u, case.Caster, state)` avec `u == caster` passe trivialement :
+`IdunBattle.Entities.UnitExtensions$$IsFriend` compare `GetCurrentPlayer(x).<+0x20>.<+0x24>` des
+deux côtés, **sans aucune exclusion de l'identité** — lu, pas supposé.
+
+### Mesure (`MC1_67` / seed `51278`, deux runners, disposés)
+
+| bras | `C` = tuile courante du caster | `F` = tuile libre voisine de la cible |
+|---|---|---|
+| SANS le trait | natif **1.320493** / port 1.320493 → terme **+0** | 0.879996 → +0 |
+| AVEC le trait | natif **11.320493** / port 11.320493 → terme **+10.000000** | 0.879996 → +0 |
+
+Le seul écart entre les deux runners est le trait accordé, et le **natif lui-même** bouge du poids
+exact. Écart natif↔port **NUL** sur les 4 lignes. Traits ECS du caster au bras AVEC :
+`[16, 34, 1004, 1006, 1042, 1053, 2024]` — `Decoy` (1053) présent, `Steppable` (27) **absent**, lu
+au canal `combatSnapshot.units[].traits`, source indépendante du substrat que consomme le port.
+
+### Les contre-épreuves, et pourquoi elles ne sont pas colinéaires
+
+* `steppable_too` (le gate `Decoy && Steppable`, c'est-à-dire **exactement le port que #419-t6 ne
+  pouvait pas écarter**) : perd le poids sur `C` **dans le bras AVEC** → 1.320493 contre un natif à
+  11.320493, **divergence de 10**.
+* `no_trait` : gagne le poids sur `C` **dans le bras SANS** → 11.320493 contre un natif à 1.320493,
+  divergence de 10.
+
+Chacune est **inerte dans l'autre bras**, et la garde l'assertionne dans les deux sens : le montage
+exerce deux faits distincts, pas deux fois le même.
+
+### Livré
+
+* `scripts/python/probe_419t6r1_decoy_sans_steppable.py` — montage nommé, deux bras, deux mutants ;
+  il **lève** si le porteur fabriqué porte aussi `Steppable` (le montage retomberait alors dans le
+  régime que #419-t6 ne séparait pas).
+* `scripts/python/tests/engine/test_419t6r1_decoy_sans_steppable_live.py` — 7 gardes.
+
+### Ce qui reste NON couvert
+
+Le second point de §6 — « tuile d'attaque occupée par un `Steppable` NON leurre » — n'est **pas**
+fermé par cette tranche : `add_unit_trait` sait poser `Steppable`, mais une unité `Steppable` non
+leurre placée sur une tuile voisine exige un montage de placement, pas seulement un trait. La tuile
+`C` reste son substitut.

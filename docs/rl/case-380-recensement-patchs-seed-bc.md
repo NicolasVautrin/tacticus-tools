@@ -101,4 +101,42 @@ de l'épingle orpheline. `refresh_ability_configs(bc, skip=, withhold=)`. Le che
   hors périmètre ici, documenté par #237.
 - `BC.Utilities` n'a **toujours** pas d'épingle : la parade est le rouge de `--check`, pas un
   mécanisme. Créer `withheldUtilities`/`pinnedUtilities` n'a pas de client — le faire sans client
-  serait du code spéculatif.
+  serait du code spéculatif. **Re-mesuré et FERMÉ sur ce constat le 2026-08-15 → §6.**
+
+## 6. `#380-r1` — « piège armé, sans victime » : RE-MESURÉ, et la réponse est la même
+
+Build `t6dpr4k06g`. Le résidu demandait d'établir **s'il existe une victime** avant d'écrire un
+`pinnedUtilities`. Réponse : **non**, et la mesure est aujourd'hui plus large qu'à l'époque.
+
+| | mesure #380 | re-mesure 2026-08-15 |
+|---|---|---|
+| modules touchant un seed BC (`--scan`) | 75 | **248** |
+| sites `bc["Utilities"]` en ÉCRITURE | 2 | **3** |
+| dont fixtures VICTIMES | **0** | **0** |
+
+Les trois sites sont `catalog_inject.refresh_ai_utilities` (le rattrapage lui-même) et les deux du
+probe de garde `tests/test_380_seed_bc_patch_survival_offline.py` — c'est-à-dire le mécanisme et son
+contrôle. **Aucune fixture ne patche un poids d'utilité.** Re-dériver :
+`python scripts/python/probe_380_seed_bc_patch_survival.py --scan`.
+
+Le piège reste **armé** : `refresh_ai_utilities` écrase `BC.Utilities` en entier dès que le
+gameconfig porte `aiUtilities`, et l'écart capture↔gameconfig vaut aujourd'hui **16 clés ajoutées,
+3 valeurs changées, 0 retirée** (identique à la mesure #27-4 sur `rnca9r7q6c`). Mais il n'a
+toujours pas de victime, et un `pinnedUtilities` sans client serait un cliquet que le premier
+refactor désarmerait. **La ligne est fermée sur ce constat, pas sur un mécanisme.**
+
+### Trouvé en re-mesurant : l'axe symétrique, celui de la LECTURE (`#380-r2`)
+
+Le recenseur regarde qui **ÉCRIT** dans `BC.Utilities`. Personne ne regardait qui la **LIT** — et
+deux fichiers prennent la table **BRUTE** de `data/seed-bc.json` pour oracle, alors que tout runner
+sert la table **RATTRAPÉE** :
+
+| fichier | catégories lues | dans les catégories dérivées ? |
+|---|---|---|
+| `tests/engine/test_932_deathwing_offline.py` | `Default/TriggeredAbilitiesNonOwner` (25 au brut, **29** au rattrapé), `Default/TriggeredAbilities` (107 / **112**) | **OUI, les deux** |
+| `tests/engine/test_448_r1_already_used_tile_offline.py` | `Default/TileEffects` (20 / 20) | non |
+
+**0 verdict faux aujourd'hui** (les clés `DEATHWING*` sont présentes des deux côtés, et aucune en
+non-owner des deux côtés) — mais l'assertion « aucune clé `DEATHWING*` en non-owner » est faite sur
+une table qui a **4 clés de moins** que celle que le runner sert. Même forme que #380-r1 : armé,
+sans victime. Ouvert en `#380-r2`, non corrigé ici (hors foyer de cette tranche).

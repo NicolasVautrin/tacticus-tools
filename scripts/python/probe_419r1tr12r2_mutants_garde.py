@@ -53,9 +53,12 @@ MUTANTS = {
         "            if False:",
     ),
     # 8. `source` ne distingue plus le mirror de catalogue du montage post-spawn
+    # ⚠ Motif RE-ANCRE par #419-r1-tr12-r2-r1 : le `return` porte desormais `zeroProfile`. Le probe
+    # LEVE sur motif introuvable (c'est son point) -- il a donc SIGNALE sa propre peremption au
+    # premier re-jeu, exactement comme il est ecrit pour le faire.
     "source_indistincte": (
-        "    return {\"source\": \"summon-spawn\", \"fields\": st, \"ability\": ability}",
-        "    return {\"source\": \"npc\", \"fields\": st, \"ability\": ability}",
+        "    return {\"source\": \"summon-spawn\", \"fields\": st, \"ability\": ability,",
+        "    return {\"source\": \"npc\", \"fields\": st, \"ability\": ability,",
     ),
 }
 

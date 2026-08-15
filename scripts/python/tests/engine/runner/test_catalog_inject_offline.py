@@ -198,3 +198,85 @@ def test_le_rattrapage_repare_exactement_les_configs_dability_qui_derivent():
     print("\n[catalog/abilities] %d configs confrontees (%d internes moteur ignorees) ; "
           "%d derivee(s) reparee(s) %r ; %d ajoutee(s) %r"
           % (nc, ni, len(derivees), sorted(derivees), len(added), added))
+
+
+# ============================================== catalogue UNITS -- l'axe AJOUT (#254-bc-r1)
+#
+# `STALE_UNIT_ENTRIES` garde la derive des entrees PRESENTES. Ce que la capture n'a PAS DU TOUT
+# relevait de `missing_from_seed_bc`, qui enumere sans comparer : l'ecart est passe de 17 a 21
+# unites `lineup` sans qu'aucun garde le dise, et la docstring du module annoncait encore 17.
+
+def test_l_ecart_d_ajout_lineup_est_exactement_celui_qui_est_epingle():
+    """Garde dans les DEUX sens, comme l'epingle voisine.
+
+    Une unite de PLUS = le gameconfig a ajoute un heros depuis la capture ; il n'est atteignable
+    que par injection (`write_augmented_seed_bc`, case-92 Sec.6) et il faut l'INSCRIRE ici apres
+    l'avoir lu. Une unite en MOINS = elle est entree au catalogue (re-dump #254-bc, ou seed BC
+    remplace) : la retirer de l'epingle.
+    """
+    gap = CI.catalog_gap(_raw_seed())
+    assert gap["lineup"]["total"] > 100, gap["lineup"]["total"]
+    obtenu = set(gap["lineup"]["missing"])
+    assert obtenu == set(CI.MISSING_LINEUP_ENTRIES), {
+        "neuves hors epingle": sorted(obtenu - set(CI.MISSING_LINEUP_ENTRIES)),
+        "epinglees mais presentes": sorted(set(CI.MISSING_LINEUP_ENTRIES) - obtenu)}
+    print("\n[catalog/gap] lineup: %d au gameconfig, %d hors catalogue (epingle)"
+          % (gap["lineup"]["total"], len(obtenu)))
+
+
+def test_tous_les_summons_du_gameconfig_sont_au_catalogue():
+    """INVARIANT, pas seuil -- et il porte une consequence de HARNAIS : un summon present au
+    catalogue s'amene en spawnant son summoner, SANS injection (gate de confrontabilite du
+    CLAUDE.md). Le jour ou le jeu en ajoute un, cette propriete tombe pour lui, et le montage qui
+    l'ignorerait conclurait « pas de porteur » a tort."""
+    gap = CI.catalog_gap(_raw_seed())
+    assert gap["summons"]["total"] > 50, "temoin summon trop maigre -- rien n'est mesure"
+    assert gap["summons"]["missing"] == [], (
+        "des summons du gameconfig ne sont plus au catalogue : %r -- ils exigent desormais une "
+        "injection catalogue, et tout verdict « non confrontable » les concernant est a relire"
+        % gap["summons"]["missing"])
+
+
+def test_les_npc_sont_RAPPORTES_et_non_gardes():
+    """La capture ne porte que les npc de CETTE bataille : les 487 autres s'injectent a la demande.
+    Les garder rougirait a chaque MAJ pour rien. Ce qui compte, et qui EST garde : les quelques
+    npc presents restent la -- `npc_witness_diff` (le seul temoin non degenere du chemin npc) n'a
+    d'objet que par eux."""
+    gap = CI.catalog_gap(_raw_seed())
+    presents = gap["npc"]["total"] - len(gap["npc"]["missing"])
+    assert presents >= 4, (
+        "il ne reste que %d npc au catalogue : le temoin de `npc_witness_diff` devient degenere"
+        % presents)
+    assert len(gap["npc"]["missing"]) > 100, "regime inattendu -- relire avant de conclure"
+
+
+def test_le_rapport_d_ecart_se_TAIT_en_regime_nominal_et_PARLE_dans_les_deux_sens():
+    """Un rapport qui parle tout le temps ne se lit plus. Celui-ci rend `None` tant que l'ecart est
+    exactement l'epingle -- et les deux mutations le font parler, chacune avec son propre mot."""
+    seed = _raw_seed()
+    assert CI.catalog_gap_report(seed) is None
+
+    # (a) une unite `lineup` NEUVE au gameconfig, absente de la capture.
+    neuve = "zzUniteQuiNexistePas"
+    idx = G._index()
+    idx["lineup"][neuve] = {"traits": []}
+    try:
+        rapport = CI.catalog_gap_report(seed)
+        assert rapport and "NEUVES hors epingle" in rapport and neuve in rapport, rapport
+    finally:
+        idx["lineup"].pop(neuve, None)
+
+    # (b) une unite EPINGLEE qui entre au catalogue (ce que ferait un re-dump).
+    entree = sorted(CI.MISSING_LINEUP_ENTRIES)[0]
+    seed2 = copy.deepcopy(seed)
+    seed2["Units"].append({"Id": entree})
+    rapport = CI.catalog_gap_report(seed2)
+    assert rapport and "epinglees mais PRESENTES" in rapport and entree in rapport, rapport
+
+    # (c) un SUMMON qui disparait du catalogue -- l'axe que `missing_from_seed_bc` ne voyait pas.
+    smn = sorted(G._index()["summons"])[0]
+    seed3 = copy.deepcopy(seed)
+    seed3["Units"] = [u for u in seed3["Units"] if u["Id"].split(":")[0] != smn]
+    rapport = CI.catalog_gap_report(seed3)
+    assert rapport and "SUMMONS absents" in rapport and smn in rapport, rapport
+    assert CI.catalog_gap_report(seed) is None       # aucune fuite d'etat entre les bras

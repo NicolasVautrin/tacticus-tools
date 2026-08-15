@@ -184,14 +184,8 @@ un premier balayage « `summonArmor` non flaggé » rendait **0 cas** parce que 
 
 ## 9. Résidus
 
-* **`#419-r1-tr12-r2-r1` — 9 summons hors portée des trois constantes.** `GetSummonStats(kind, cfg)`
-  n'interroge que `unitToSpawn`(8), `unitId`(0), `unitId_2`(4). Neuf summons ne sont atteints par
-  aucune : `thousSmnBlueHorrorHSE` / `thousSmnScreamerHSE` sont déclarés par `unitId_3` / `unitId_4`
-  (constantes que **cet** overload n'interroge pas — l'overload principal les accepterait, mais rien
-  de lu ne les lui passe), `tyranSmnTermagant` n'apparaît que dans une liste `unitIds`, et six
-  (`templNeophyte`, `templInitiatePyreblaster`, `eldarSmnGuardian`, `ultraSmnEliminator`,
-  `necroSmnDeathmark`, `darkaSmnWatcher`) ne sont nommés par **aucune** constante. Le module **lève**
-  pour eux plutôt que de rendre des zéros. Fermer demande de lire quel code les invoque.
+* ~~**`#419-r1-tr12-r2-r1` — 9 summons hors portée des trois constantes.**~~ **RÉSOLU (2026-08-15)**
+  — et l'axe de l'énoncé était **le mauvais**. Détail : §12.
 * **La branche VIDE de `PassiveAbilityLevel` n'est pas confrontée** — les 4 npc du témoin ont tous un
   passif. Elle est écrite par symétrie avec `ActiveAbilityLevel` et reste sans conséquence : une
   liste d'abilities vide ne donne rien à niveler à
@@ -306,3 +300,89 @@ restauration re-jouée → **12 passed**.
   caster, refus d'ambiguïté de `VisualId`.
 * `scripts/python/probe_419r1tr12r2_mutants_garde_reel.py` — contre-épreuve de la garde.
 * `scripts/python/tests/engine/test_419r1tr12r2_electro_shock_reel_live.py` — 12 gardes.
+
+## 12. `#419-r1-tr12-r2-r1` — DEUX ÉTAGES de stats de spawn, pas trois constantes trop étroites
+
+Build lu : `t6dpr4k06g`. La fiche proposait d'élargir `GetSummonStats` aux constantes `unitId_3` /
+`unitId_4`. Le décompilé dit que ce serait **faux**, et rendrait 8 zéros.
+
+### Ce que le natif a VRAIMENT
+
+| étage | symbole | régime choisi par | famille de variables |
+|---|---|---|---|
+| META | `IdunMetaLogic.UserProgress.UnitProgression$$GetSummonStats` | la **CONSTANTE** d'id (`isPrimary = ct == unitId(0) \|\| ct == unitToSpawn(8)`) | `summon*` / `summon*_2` |
+| BATAILLE | `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig{,2,3}` | un **ORDINAL** passé par le behaviour (1, 2, 3) | `summon*` à cet ordinal |
+| BATAILLE | `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfigSpawn` | idem | **`spawn*`** à cet ordinal |
+
+Les deux fabriques de bataille posent les **mêmes 7 `StatType`**, par sept appels à
+`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$SetStatFromConfig` — `summonHp`(0x29)→5,
+`summonDmg`(0x2a)→0, `summonArmor`(0x2b)→0x10, `summonBlockChance`(0x56)→7,
+`summonBlockDmg`(0x55)→8, `summonCritChance`(0x54)→9, `summonCritDmg`(0x57)→10 ; la version `Spawn`
+lit `spawnHp`(0x6a), `spawnDmg`(0x69), `spawnArmor`(0x6b), `spawnBlockChance`(0x6e),
+`spawnBlockDmg`(0x6f), `spawnCritChance`(0x6c), `spawnCritDmg`(0x6d).
+
+Le nom RÉEL vient de
+`IdunBattle.Configuration.AbilityConfiguration$$GetDynamicTypeu003C__Il2CppFullySharedGenericStructTypeu003E` :
+`Enum.ToString(base)`, puis `Concat(nom, "_", ordinal)` **si `ordinal > 1`**, puis `Enum.TryParse`
+— et il **lève** si le membre n'existe pas. C'est le même foyer qui sert
+`$$GetDynamicStringConstant(cfg, AbilityConstantType.unitId, ordinal)`, d'où les ids
+`unitId` / `unitId_2` / `unitId_3` … `unitId_6` (0, 4, 109, 123, 124, 125).
+
+⇒ **`unitId_3` et `unitId_4` ne sont pas des constantes « oubliées » par l'overload de sélection :
+ce sont les ordinaux 3 et 4 de la voie DYNAMIQUE**, et cette voie lit une autre famille.
+
+### Les 9, re-ventilés — et deux affirmations de la fiche tombent
+
+* **2** (`thousSmnBlueHorrorHSE` ordinal 3, `thousSmnScreamerHSE` ordinal 4) sont déclarés par
+  `EnvAllyAndEnemyNpcs:WarpSurge` — un `battleEnvironmentAbility` **PvP**
+  (`gameModeRestrictions.allowed = ["PvP"]`, `traitRestrictions.allowed = ["Chaos"]`), porté par
+  **aucune unité**, dont la classe est
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAllyAndEnemyNpcsAbility`. Son
+  `$$SpawnUnits` lit `nrOfUnitIds`(0x7a), tire un ordinal par `DSLFormulas.RandomAmount(0, n-1)`,
+  résout l'id par `$$GetDynamicStringConstant` et appelle `$$WithStatsFromConfigSpawn`. Cette
+  ability ne porte **AUCUNE** variable `summon*` — elle porte `spawnHp`, `spawnHp_2`, `spawnHp_3`,
+  `spawnHp_4`, `spawnDmg*`, `spawnArmor_2/_4`. Élargir `GetSummonStats` leur aurait rendu **8
+  zéros** (`if (var != 0)` laisse le champ), un zéro qui se lit comme une mesure.
+* **7** n'ont **aucun** invocateur : une seule occurrence textuelle dans tout le gameconfig — leur
+  propre définition sous `units.summons`. ⚠ **`tyranSmnTermagant` en fait partie** : la fiche
+  disait « n'apparaît que dans une liste `unitIds` », c'est **RÉFUTÉ** sur ce build.
+
+### Ce que la re-mesure a trouvé EN PLUS, et qui était pire
+
+Ventilation des 65 summons : 39 rendent des stats non nulles, 9 sans déclarant, 13 refusés pour
+ambiguïté — et **4 rendaient 8 ZÉROS EN SILENCE** (`astarSmnHaywireMine`,
+`blackSmnBloodletterHSE`, `genesSmnDecoy`, `thousSmnPinkHorrorHSE`). Le refus d'ambiguïté ne les
+protégeait pas : `genesSmnDecoy` a **5** abilities déclarantes dont les 5 profils sont **égaux
+parce que tous nuls** — l'accord en régime dégénéré.
+
+Deux causes, mesurées : l'ability ne porte aucune variable de stats (`HaywireMine`), ou le régime
+déduit de la constante n'est pas celui du behaviour (`SpiritualLeader` déclare `genesSmnDecoy` par
+`unitId_2`, donc régime `_2` côté META, alors qu'elle ne porte que `summonHp`/`summonDmg`/
+`summonArmor` **nus**, donc l'ordinal 1 côté bataille).
+
+**Et la victime existe, déjà documentée sans avoir été comprise** : `probe_477r35` monte
+`astarSmnHaywireMine` par `--explicit-stats` et note que « la tuile qui porte la mesure est une mine
+SPAWNÉE (2,7), pas celle posée à la main en (5,5) ». La mine posée à la main arrivait à **0 PV**.
+
+### Livré
+
+* `catalog_inject.dynamic_member_name` (mirror de `GetDynamicType<>`), `SPAWN_STAT_BASES`,
+  `DYNAMIC_ID_MAX_ORDINAL`, `spawn_declaring_abilities`, `summon_spawn_regimes` (le recensement qui
+  manquait : `--summon-regimes <id>`).
+* **REFUS** du patch `summon-spawn` intégralement nul dans `explicit_stats` — échappatoire nommée
+  `allow_zero_profile` / `--allow-zero-spawn-stats`, et `rl_duel` l'imprime en clair quand elle est
+  utilisée. `probe_477r35` migré dessus.
+* Le message du `KeyError` **nomme l'étage** : `summon ORPHELIN` vs `voie DYNAMIQUE`.
+* 6 gardes neuves + le test des déclarants **renforcé** (il exigeait un message, il exige désormais
+  la ventilation dans les deux formes) — `tests/engine/test_419r1tr12r2_stats_npc_summon_offline.py`,
+  25 tests verts.
+
+### Ce qui n'est PAS couvert
+
+* **La famille `spawn*` n'est pas portée** (6 régimes, ordinaux 105..147). Aucun consommateur ne la
+  demande : son seul porteur du gameconfig est une ability d'environnement **PvP** que le harnais
+  n'atteint pas. Porter sans porteur serait spéculatif.
+* **Le 3ᵉ régime `summon*_3`** (95..101) existe dans l'enum et n'est lu par **aucun** des trois
+  overloads de `GetSummonStats` — il n'est atteignable que par `$$WithStatsFromConfig3`. Non porté,
+  même raison.
+* Le régime `summon-spawn` reste **non exercé live** (`#419-r1-tr12-r2-r2`, inchangé).

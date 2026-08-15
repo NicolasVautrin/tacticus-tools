@@ -302,9 +302,18 @@ def build_extra(board: str, montage: str) -> list:
         # La MINE occupe la tuile `neutral` -- une tuile CANDIDATE du mover : `Steppable` veut dire
         # qu'on peut marcher DESSUS, donc elle reste dans `action_tiles`. `--explicit-stats` amene
         # le summon avec SES traits (dont `Steppable`), ce qu'un spawn de hero ne ferait pas.
+        #
+        # ⚠ `--allow-zero-spawn-stats` (#419-r1-tr12-r2-r1) : le patch `summon-spawn` de ces deux
+        # summons est INTEGRALEMENT NUL, et depuis ce residu `explicit_stats` le REFUSE par defaut.
+        # Ici c'est le regime VOULU -- on veut les TRAITS de la mine, pas ses stats -- et c'est
+        # aussi la raison mesuree du constat deja ecrit plus haut : « la tuile qui porte la mesure
+        # est une mine SPAWNEE (2,7), pas celle posee a la main en (5,5) ». La mine posee a la main
+        # arrive a 0 PV. `HaywireMine` ne porte AUCUNE variable de stats ; `genesSmnDecoy` est
+        # declare par `SpiritualLeader.unitId_2` (regime `_2`) alors que l'ability ne porte que les
+        # variables NUES -- deux causes distinctes, meme symptome.
         mine = _mine(montage)
         p_units.append(mine)
-        extra += ["--explicit-stats", mine]
+        extra += ["--explicit-stats", mine, "--allow-zero-spawn-stats"]
         places.append(("--place", "%s:%d,%d" % (mine, lay["neutral"][0], lay["neutral"][1])))
     else:
         # L'AMI NEUTRE n'est PAS decoratif : #477-r33 l'a MESURE -- sans lui la trajectoire native

@@ -150,7 +150,67 @@ aucun défaut vivant, mais le fermer demande une règle pour le hash synthétiqu
 * **`#254-bc`** — le re-dump lui-même, inchangé, toujours `[opus]`+arbitrage.
 * **`#392-r1`** — `MyWillBeDoneOverlord` reste inerte dans tout runner bâti sur ce seed ; se ferme
   avec le re-dump.
-* **`#254-bc-r1`** — l'épingle couvre l'axe `Units` **capturé**. Une unité que le gameconfig a
-  ajoutée depuis la capture n'y est pas du tout : elle relève de `missing_from_seed_bc`, qui ne
-  compare rien — aucun garde ne dit si le catalogue a *perdu* des entrées face au gameconfig vivant.
+* ~~**`#254-bc-r1`**~~ — **RÉSOLU (2026-08-15)**, §11. L'écart s'était creusé de **17 à 21** unités
+  `lineup` sans un mot, et la docstring du module annonçait encore 17.
 * **`#431-r1`** — §8, le périmètre de `probe_431` (non corrigé, hors périmètre).
+
+## 11. `#254-bc-r1` — l'axe AJOUT, et l'écart s'était creusé en silence
+
+`STALE_UNIT_ENTRIES` garde l'axe MODIFICATION (les entrées **présentes** qui ont dérivé). Ce que la
+capture n'a **pas du tout** relevait de `missing_from_seed_bc`, qui **énumérait sans comparer**.
+
+**Re-mesure du 2026-08-15 (`t6dpr4k06g`)** : **21** unités `lineup` hors catalogue, contre **17**
+au dernier relevé — et la docstring d'en-tête du module annonçait toujours 17. Personne n'a rien vu
+passer : c'est exactement le régime que ce garde ferme.
+
+### Trois catégories, trois régimes — et les confondre serait le vice du garde en SEUIL
+
+| catégorie | gameconfig | absents du catalogue | régime |
+|---|---|---|---|
+| `lineup` | 127 | **21** | **ÉPINGLÉS NOMINALEMENT** (`MISSING_LINEUP_ENTRIES`), gardés dans les deux sens |
+| `summons` | 65 | **0** | **INVARIANT** — c'est ce qui rend la voie summon confrontable SANS injection |
+| `npc` | 491 | 487 | **normal**, rapporté et jamais gardé (la capture ne porte que les npc de CETTE bataille) |
+
+L'invariant summon n'est pas cosmétique : un summon présent au catalogue s'amène en spawnant son
+summoner (gate de confrontabilité du `CLAUDE.md`). Le jour où le jeu en ajoute un, cette propriété
+tombe pour lui — et un montage qui l'ignorerait conclurait « pas de porteur » à tort.
+
+### Livré
+
+* `catalog_inject.MISSING_LINEUP_ENTRIES` / `catalog_gap` / `catalog_gap_report`.
+* `rl_collect_batch._load_seed_bc` le **DIT** — et se tait tant que l'écart est exactement l'épingle
+  (zéro bruit en régime nominal). Coût mesuré **0,27 ms**, contre 14,9 ms pour `stale_unit_report`
+  déjà présent dans le même chemin.
+* `catalog_inject.py --missing` rend les trois catégories et confronte `lineup` à l'épingle.
+* 4 gardes neuves dans `tests/engine/runner/test_catalog_inject_offline.py` (9 tests au total), dont
+  le rapport éprouvé **dans les trois sens** : unité `lineup` neuve, épinglée qui entre au
+  catalogue, summon qui en sort.
+
+## 12. `#254-bc` — l'arbitrage, RE-MESURÉ (et il reste OUVERT)
+
+La prémisse tient, **et elle n'a pas bougé** à travers une migration de build de plus
+(`rnca9r7q6c` → `t6dpr4k06g`) : toujours **1** entrée périmée, **2** champs.
+
+```
+necroOverlord  PassiveAbilities  capture=[1045] -> synthèse=[1556]
+necroOverlord  Traits            capture=[... sans Resilient] -> synthèse=[... Resilient]
+```
+
+**Ce que la re-mesure change pour l'arbitrage** : l'axe MODIFICATION est **STABLE**, tandis que
+l'axe AJOUT **CROÎT** (17 → 21, §11). Le coût du silence est donc passé sur l'axe que #254-bc-r1
+vient de fermer — le re-dump est **moins urgent** qu'il n'y paraissait, pas plus.
+
+**Ce que le re-dump toucherait, chiffré** : `MartialApotheosis` est citée par **24** fichiers
+(dont 5 tests) et a **0 porteur `lineup`** au gameconfig vivant ; `MyWillBeDoneOverlord` par **33**.
+`necroOverlord` lui-même est cité par **215** fichiers de `scripts/python`, dont **93** sous
+`tests/`.
+
+**Ce qui n'est PAS mesurable offline, et c'est ce qui rend l'arbitrage humain** : `synthesize`
+exclut **20** champs d'état JOUEUR / recalculés (`Rank`, `Rarity`, `Power`, `TertiaryAbility`, les
+8 stats de combat, les niveaux…). Un re-dump ne re-synthétise pas : il **capture l'état du compte
+AUJOURD'HUI**, donc le pool spawnable et les stats de référence dépendent de ce que le compte
+possède au moment du dump — inconnaissable sans dumper.
+
+**Et ce n'est pas un geste d'agent** : `data/seed-bc.json` est une entrée **partagée** par toute la
+flotte ; la remplacer pendant que des agents mesurent invaliderait leurs runners en vol. C'est une
+opération d'orchestration, hors campagne. La ligne reste ouverte.

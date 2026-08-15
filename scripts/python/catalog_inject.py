@@ -3,9 +3,14 @@
 
 PROBLEME (cases #92 / #54). Le seed BC sur disque (`data/seed-bc.json`) est la capture d'UNE
 bataille reelle : son `Units[]` ne contient que les 175 unites que le compte du joueur possedait
-ce jour-la. 17 heros/MoW du gameconfig n'y sont PAS (les 4 Votann, thousDaemonPrince,
+ce jour-la. Des heros/MoW du gameconfig n'y sont PAS (les Votann, thousDaemonPrince,
 necroReanimator, darkaStormSpeeder, ...) -> `rl_duel build --p-units <id>` les refuse (hors pool)
 et leurs abilities sont INCONFRONTABLES.
+
+⚠ LE COMPTE SE RE-DERIVE, IL NE SE CITE PAS : cette ligne annoncait « 17 » et en portait **21** a
+la re-mesure du 2026-08-15 (#254-bc-r1). L'ecart se creuse a chaque MAJ du jeu, sans un mot ;
+`catalog_gap` / `catalog_gap_report` et l'epingle `MISSING_LINEUP_ENTRIES` sont ce qui le DIT
+desormais (`python catalog_inject.py --missing`).
 
 POURQUOI `Units[]` EST LE CATALOGUE (RE, decompile = verite) :
   `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(this, string unitId)` resout un unitId en
@@ -624,6 +629,40 @@ def synthesize(unit_id: str, rank: int = 17, ability_level: int = 50,
 #   de harnais qui reproduit l'etat POST-SPAWN (`SpawnUnitBehaviour$$GetStatsToOverride` pose ces
 #   memes valeurs en `StatModifier` sur l'unite deja construite). Les deux voies sont donc
 #   SEPAREES ici, et `explicit_stats` le DIT dans son champ `source`.
+#
+# ⚠⚠ LE POST-SPAWN A SON PROPRE ETAGE, ET SON REGIME NE SE DEDUIT PAS DE LA CONSTANTE D'ID
+#    (#419-r1-tr12-r2-r1, lu au decompile le 2026-08-15 sur `t6dpr4k06g`). Ce que
+#    `SpawnUnitBehaviour$$GetStatsToOverride` distribue, ce sont les `StatModifier` que le
+#    BEHAVIOUR a places dans ses `SpawnUnitOptions` (`options+0x20`) ; et ces modificateurs sont
+#    poses par une famille de fabriques distincte de la couche META :
+#
+#      `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig(cfg, state, ordinal, ...)`
+#          -> 7 appels a `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$SetStatFromConfig`,
+#             famille `summon*` : summonHp(0x29)->StatType 5, summonDmg(0x2a)->0,
+#             summonArmor(0x2b)->0x10, summonBlockChance(0x56)->7, summonBlockDmg(0x55)->8,
+#             summonCritChance(0x54)->9, summonCritDmg(0x57)->10.
+#          Les trois wrappers FIGENT l'ordinal : `$$WithStatsFromConfig` (arite 4) = 1,
+#          `$$WithStatsFromConfig2` = 2, `$$WithStatsFromConfig3` = 3.
+#      `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfigSpawn(cfg, state, ordinal, ...)`
+#          -> les MEMES 7 StatType, famille `spawn*` : spawnHp(0x6a), spawnDmg(0x69),
+#             spawnArmor(0x6b), spawnBlockChance(0x6e), spawnBlockDmg(0x6f),
+#             spawnCritChance(0x6c), spawnCritDmg(0x6d).
+#
+#    Le nom REEL de la variable est construit par
+#    `IdunBattle.Configuration.AbilityConfiguration$$GetDynamicTypeu003C__Il2CppFullySharedGenericStructTypeu003E` :
+#    `Enum.ToString(base)`, puis `Concat(nom, "_", ordinal)` SI `ordinal > 1`, puis
+#    `Enum.TryParse` -- et il LEVE si le membre construit n'existe pas. C'est le meme foyer qui
+#    sert `$$GetDynamicStringConstant(cfg, AbilityConstantType.unitId, ordinal)`, d'ou les ids
+#    `unitId` / `unitId_2` / `unitId_3` / `unitId_4` du meme ordinal.
+#
+#    CONSEQUENCE, ET C'EST LE PIEGE : la couche META (`GetSummonStats`) deduit son regime de la
+#    CONSTANTE (`isPrimary = ct == unitId(0) || ct == unitToSpawn(8)`) ; la couche BATAILLE, elle,
+#    recoit un ORDINAL du behaviour. Les deux coincident pour l'immense majorite des abilities,
+#    mais rien ne l'impose -- `SpiritualLeader` declare `genesSmnDecoy` par `unitId_2` (donc regime
+#    `_2` cote META) tout en ne portant que `summonHp`/`summonDmg`/`summonArmor` NUS (donc
+#    `WithStatsFromConfig`, ordinal 1, cote bataille). Un profil summon INTEGRALEMENT NUL est le
+#    symptome de ce desalignement, ou d'une ability qui n'a aucune variable de stats du tout ;
+#    `explicit_stats` REFUSE de le poser (cf. sa docstring).
 
 # Les 8 stats de combat de `UnitConfiguration`, dans l'ordre du layout `UnitStats` meta
 # (`IdunMetaLogic.UserProgress.Model.UnitStats$$Init` : +0x00 Health, +0x04 Damage, +0x0c Armor,
@@ -650,6 +689,45 @@ SUMMON_STAT_VARS = (
 # deduit. `GetSummonStats(kind, cfg)` : kind 0 -> `unitToSpawn`(8) puis `unitId`(0) ; kind 1 ->
 # `unitId_2`(4). Le regime PRIMARY est `constantType in (0, 8)` -- lu tel quel au decompile.
 SUMMON_ID_CONSTANTS = (("unitToSpawn", 8, True), ("unitId", 0, True), ("unitId_2", 4, False))
+
+# --------------------------------------------- la voie DYNAMIQUE du spawn (#419-r1-tr12-r2-r1)
+#
+# Les 7 stats que `SpawnUnitOptions$$WithStatsFromConfig{,2,3}` (famille `summon*`) et
+# `$$WithStatsFromConfigSpawn` (famille `spawn*`) posent en `StatModifier`, dans l'ordre des sept
+# appels a `$$SetStatFromConfig` -- lu au decompile, y compris la valeur de `StatType`.
+# Ce sont EXACTEMENT les memes 7 champs que `SUMMON_STAT_VARS` : la difference n'est pas la liste,
+# c'est la FAMILLE de base et la facon dont l'ordinal est choisi (ordinal du BEHAVIOUR ici,
+# constante d'id la-bas).
+SPAWN_STAT_BASES = (
+    ("Health",      "summonHp",          "spawnHp"),          # StatType 5
+    ("Damage",      "summonDmg",         "spawnDmg"),         # StatType 0
+    ("FixedArmor",  "summonArmor",       "spawnArmor"),       # StatType 0x10
+    ("BlockChance", "summonBlockChance", "spawnBlockChance"), # StatType 7
+    ("BlockDamage", "summonBlockDmg",    "spawnBlockDmg"),    # StatType 8
+    ("CritChance",  "summonCritChance",  "spawnCritChance"),  # StatType 9
+    ("CritDamage",  "summonCritDmg",     "spawnCritDmg"),     # StatType 10
+)
+
+#: Les constantes d'id que la voie DYNAMIQUE sait produire, par ordinal. Ce ne sont pas des
+#: constantes « de plus » : c'est la MEME base `AbilityConstantType.unitId` passee a
+#: `$$GetDynamicStringConstant` avec un ordinal, donc le nom se DERIVE (cf. `dynamic_member_name`).
+#: L'enum du build s'arrete a `unitId_6` (125) -- au-dela, `Enum.TryParse` echoue et le natif LEVE.
+DYNAMIC_ID_MAX_ORDINAL = 6
+
+
+def dynamic_member_name(base: str, ordinal: int) -> str:
+    """Mirror EXACT de la construction de nom de
+    `IdunBattle.Configuration.AbilityConfiguration$$GetDynamicTypeu003C__Il2CppFullySharedGenericStructTypeu003E` :
+
+        string name = Enum.ToString(base);
+        if (ordinal > 1) name = String.Concat(name, "_", ordinal.ToString());
+        if (!Enum.TryParse<T>(name, out t)) throw;   // GetDynamicTypeNotFoundErrorMessage
+
+    L'ordinal 1 rend donc le nom NU (`unitId`, `summonHp`), et 2 rend `unitId_2` / `summonHp_2`.
+    Le `> 1` est LU : un ordinal 0 rendrait lui aussi le nom nu, et le natif n'en produit pas.
+    """
+    o = int(ordinal)
+    return base if o <= 1 else "%s_%d" % (base, o)
 
 
 def unit_level_from_id(unit_id: str) -> int:
@@ -766,6 +844,85 @@ def summon_declaring_abilities(unit_id: str) -> list[tuple[str, str, bool]]:
     return out
 
 
+def spawn_declaring_abilities(unit_id: str) -> list[tuple[str, str, int]]:
+    """(abilityName, constantKey, ordinal) de la voie DYNAMIQUE -- `unitId` .. `unitId_6`.
+
+    Pendant exact de `summon_declaring_abilities` sur l'autre etage. Le natif ne cherche pas
+    davantage ici : il appelle
+    `IdunBattle.Configuration.AbilityConfiguration$$GetDynamicStringConstant(cfg,
+    AbilityConstantType.unitId, ordinal)` avec l'ordinal que le behaviour a choisi. C'est donc,
+    comme le balayage voisin, un RECOURS DE HARNAIS (case-92 Sec.5bis, recours 2) : retrouver
+    l'ability a partir du summon, ce que le jeu n'a jamais a faire.
+
+    L'ordinal rendu est celui qui reconstruit le nom de la cle (`unitId` -> 1, `unitId_2` -> 2,
+    ...), donc celui que `WithStatsFromConfig{,2,3}` / `WithStatsFromConfigSpawn` passeraient a
+    `$$SetStatFromConfig` si le behaviour suivait la meme numerotation. ⚠ Rien ne l'IMPOSE : le
+    behaviour choisit son ordinal de variable independamment (cf. le bloc RE en tete de section).
+    """
+    pure = str(unit_id).split(":")[0]
+    out = []
+    for name, a in (G._cfg()["units"]["abilities"] or {}).items():
+        consts = a.get("constants") or {}
+        for ordinal in range(1, DYNAMIC_ID_MAX_ORDINAL + 1):
+            key = dynamic_member_name("unitId", ordinal)
+            if str(consts.get(key, "")).split(":")[0] == pure:
+                out.append((name, key, ordinal))
+    return out
+
+
+def summon_spawn_regimes(unit_id: str) -> dict:
+    """RECENSEMENT des voies par lesquelles un summon peut recevoir des stats -- l'outil qui
+    manquait pour trancher `#419-r1-tr12-r2-r1`.
+
+    Rend `{"meta": [...], "dynamic": [...], "verdict": "<mot>"}` ou :
+
+      * `meta`    = ce que `UnitProgression$$GetSummonStats` peut atteindre : les 3 constantes
+        FIXES de `SUMMON_ID_CONSTANTS`, avec le regime PRIMARY/`_2` qu'il en deduit, et les
+        variables `summon*` que l'ability porte REELLEMENT pour ce regime ;
+      * `dynamic` = ce que la voie de BATAILLE peut atteindre : `unitId` .. `unitId_6`, avec les
+        variables `summon*` ET `spawn*` de l'ordinal correspondant.
+      * `verdict` : `meta` (au moins une variable lue non nulle par la voie META),
+        `dynamic-only` (rien cote META, mais l'ability porte des variables a l'ordinal dynamique),
+        `zero` (l'ability est trouvee mais ne porte AUCUNE variable de stats exploitable),
+        `orphelin` (AUCUNE ability du gameconfig ne nomme ce summon).
+
+    POURQUOI CE RECENSEMENT EXISTE. La fiche du residu classait 9 summons « hors portee des trois
+    constantes » et proposait d'elargir `GetSummonStats`. La lecture du decompile dit que c'est le
+    mauvais axe : `unitId_3`(109) / `unitId_4`(123) ne sont pas des constantes « oubliees » par
+    l'overload de selection, ce sont les ordinaux 3 et 4 de la voie DYNAMIQUE, qui lit une AUTRE
+    famille de variables. Elargir aurait fait rendre 8 zeros -- un zero qui se lit comme une mesure.
+    """
+    pure = str(unit_id).split(":")[0]
+    meta, dyn = [], []
+    for name, key, primary in summon_declaring_abilities(pure):
+        a = G.ability(name) or {}
+        variables = a.get("variables") or {}
+        lues = {}
+        for field, key_primary, key_secondary in SUMMON_STAT_VARS:
+            vk = key_primary if primary else key_secondary
+            if variables.get(vk):
+                lues[field] = vk
+        meta.append({"ability": name, "constant": key, "primary": primary, "variables": lues})
+    for name, key, ordinal in spawn_declaring_abilities(pure):
+        a = G.ability(name) or {}
+        variables = a.get("variables") or {}
+        smn = {f: dynamic_member_name(b_smn, ordinal) for f, b_smn, _b_spw in SPAWN_STAT_BASES
+               if variables.get(dynamic_member_name(b_smn, ordinal))}
+        spw = {f: dynamic_member_name(b_spw, ordinal) for f, _b_smn, b_spw in SPAWN_STAT_BASES
+               if variables.get(dynamic_member_name(b_spw, ordinal))}
+        dyn.append({"ability": name, "constant": key, "ordinal": ordinal,
+                    "summonVariables": smn, "spawnVariables": spw})
+    if not meta and not dyn:
+        verdict = "orphelin"
+    elif any(m["variables"] for m in meta):
+        verdict = "meta"
+    elif any(d["summonVariables"] or d["spawnVariables"] for d in dyn):
+        verdict = "dynamic-only"
+    else:
+        verdict = "zero"
+    return {"unitId": pure, "meta": meta, "dynamic": dyn, "verdict": verdict}
+
+
 def summon_stats(unit_id: str, ability_name: str | None = None,
                  ability_level: int = 50, multiplier_pct: int | None = None) -> dict:
     """Les 8 stats de combat qu'un summon recoit A SON SPAWN -- mirror de
@@ -782,9 +939,28 @@ def summon_stats(unit_id: str, ability_name: str | None = None,
     cands = summon_declaring_abilities(unit_id)
     if ability_name is None:
         if not cands:
+            # ⚠ Le message NOMME l'etage, il ne se contente pas de constater (#419-r1-tr12-r2-r1) :
+            # `summon_spawn_regimes` distingue le summon ORPHELIN (aucune ability du gameconfig ne
+            # le nomme, donc le natif lui-meme n'a rien a lui donner) de celui que seule la voie
+            # DYNAMIQUE atteint (`unitId_3` .. `unitId_6`), qui n'est PAS un elargissement de
+            # `GetSummonStats` mais un AUTRE etage.
+            reg = summon_spawn_regimes(unit_id)
+            if reg["verdict"] == "orphelin":
+                raise KeyError(
+                    f"{unit_id!r} est un summon ORPHELIN : AUCUNE ability du gameconfig ne le "
+                    f"nomme, ni par les constantes fixes {[c[0] for c in SUMMON_ID_CONSTANTS]} "
+                    f"(voie META `UnitProgression$$GetSummonStats`) ni par un ordinal dynamique "
+                    f"`unitId`..`unitId_{DYNAMIC_ID_MAX_ORDINAL}` (voie BATAILLE "
+                    f"`SpawnUnitOptions$$WithStatsFromConfig*`). Il n'y a pas de stats a mirrorer.")
             raise KeyError(
-                f"aucune ability du gameconfig ne declare {unit_id!r} "
-                f"(constantes {[c[0] for c in SUMMON_ID_CONSTANTS]})")
+                f"{unit_id!r} n'est atteint par AUCUNE des constantes fixes "
+                f"{[c[0] for c in SUMMON_ID_CONSTANTS]} que "
+                f"`UnitProgression$$GetSummonStats` interroge -- il est declare par la voie "
+                f"DYNAMIQUE : {[(d['ability'], d['constant']) for d in reg['dynamic']]}. Cette "
+                f"voie lit un ORDINAL de behaviour, pas une constante "
+                f"(`SpawnUnitOptions$$WithStatsFromConfig{{,2,3}}` / `$$WithStatsFromConfigSpawn`), "
+                f"et une autre famille de variables : elargir `GetSummonStats` a ces constantes "
+                f"rendrait 8 zeros. Recenser d'abord : `summon_spawn_regimes({unit_id!r})`.")
         if len(cands) > 1:
             # Un summon peut etre declare par PLUSIEURS abilities (`necroSmnSwarm` l'est par
             # `ScarabHive` ET `ScarabSummon`), et elles n'ont aucune raison de porter les memes
@@ -829,12 +1005,31 @@ def summon_stats(unit_id: str, ability_name: str | None = None,
 
 def explicit_stats(unit_id: str, level: int | None = None,
                    ability_name: str | None = None, ability_level: int = 50,
-                   multiplier_pct: int | None = None) -> dict:
+                   multiplier_pct: int | None = None,
+                   allow_zero_profile: bool = False) -> dict:
     """Patch de champs `UnitConfiguration` a poser pour un porteur que la formule HEROS refuse.
 
     Rend `{"source": "npc"|"summon-spawn", "fields": {...}}`. Le `source` n'est pas cosmetique :
       * `npc`          = mirror du CATALOGUE (ce que le jeu ECRIT dans `BC.Units[]`) ;
       * `summon-spawn` = MONTAGE, il reproduit l'etat POST-SPAWN. Le jeu, lui, ecrit 0 (65/65).
+
+    ⚠ REFUS DU PROFIL INTEGRALEMENT NUL (#419-r1-tr12-r2-r1). Un patch `summon-spawn` dont les
+    8 stats valent 0 ne « reproduit » rien : il pose un porteur a **0 PV** que le RPC
+    `explicitStats` ecrit sans broncher (`_normalize_and_extract_pool` ne leve que si AUCUNE entree
+    n'est honoree -- une entree honoree A ZERO passe). C'est un echec RENDU, donc lu comme une
+    mesure. MESURE du 2026-08-15 sur `t6dpr4k06g` : **4** des 65 summons sont dans ce cas
+    (`astarSmnHaywireMine`, `blackSmnBloodletterHSE`, `genesSmnDecoy`, `thousSmnPinkHorrorHSE`), et
+    le refus d'ambiguite ne les protegeait PAS -- `genesSmnDecoy` a **5** abilities declarantes dont
+    les 5 profils sont nuls, donc tous EGAUX : l'accord y est degenere.
+
+    La cause est toujours l'une des deux, et `summon_spawn_regimes` la nomme : soit l'ability
+    declarante ne porte AUCUNE variable de stats (`HaywireMine`), soit le regime deduit de la
+    CONSTANTE n'est pas celui que le behaviour passe a `SpawnUnitOptions$$WithStatsFromConfig*`
+    (`SpiritualLeader` declare par `unitId_2` mais ne porte que les variables NUES).
+
+    `allow_zero_profile=True` est l'echappatoire EXPLICITE : elle vaut pour un montage qui veut
+    seulement amener le summon AU POOL (la formule heros le refuserait) et ne mesure pas ses stats.
+    Elle est NOMMEE au site d'appel, jamais un defaut.
     """
     pure = str(unit_id).split(":")[0]
     gc = G.unit(pure)
@@ -845,9 +1040,20 @@ def explicit_stats(unit_id: str, level: int | None = None,
     st = summon_stats(unit_id, ability_name, ability_level, multiplier_pct)
     ability = st.pop("_ability")
     st.pop("_primary")
+    zero = not any(st[f] for f in COMBAT_STAT_FIELDS)
+    if zero and not allow_zero_profile:
+        reg = summon_spawn_regimes(pure)
+        raise ValueError(
+            f"{unit_id!r} : le patch `summon-spawn` derive de {ability!r} est INTEGRALEMENT NUL "
+            f"(8 stats a 0) -- il poserait un porteur a 0 PV, pas un etat post-spawn. "
+            f"Recensement des voies : verdict={reg['verdict']!r} meta={reg['meta']!r} "
+            f"dynamic={reg['dynamic']!r}. Nommer `ability_name` si une autre declarante porte les "
+            f"variables, ou passer `allow_zero_profile=True` si le montage veut seulement amener "
+            f"le summon AU POOL sans mesurer ses stats.")
     st["ActiveAbilityLevel"] = ability_level
     st["PassiveAbilityLevel"] = ability_level
-    return {"source": "summon-spawn", "fields": st, "ability": ability}
+    return {"source": "summon-spawn", "fields": st, "ability": ability,
+            "zeroProfile": zero}
 
 
 # Champs que le TEMOIN npc confronte : les 8 stats de combat + les champs de progression que
@@ -1068,6 +1274,74 @@ def missing_from_seed_bc(seed_bc: dict) -> list:
     """Ids `units.lineup` du gameconfig absents du catalogue capture (= porteurs bloques)."""
     have = {u["Id"].split(":")[0] for u in seed_bc.get("Units") or []}
     return sorted(k for k in G._index()["lineup"] if k not in have)
+
+
+# ══ L'AXE AJOUT du catalogue capture (#254-bc-r1) ═════════════════════════════════════════════════
+#
+# CE QUE `STALE_UNIT_ENTRIES` NE COUVRE PAS. L'epingle voisine garde la derive des entrees
+# PRESENTES dans la capture (une unite dont le gameconfig a change le kit). Une unite que le
+# gameconfig a AJOUTEE depuis la capture n'y est pas du tout : elle releve de
+# `missing_from_seed_bc`, qui ENUMERE sans comparer -- donc rien ne disait si l'ecart se CREUSAIT.
+#
+# ET IL S'EST CREUSE, EN SILENCE : la fiche du residu relevait **17** manquantes ; re-mesure le
+# 2026-08-15 sur `t6dpr4k06g`, il y en a **21**. Le module lui-meme annonce encore « 17 » dans sa
+# docstring d'en-tete. Personne n'a rien vu passer -- c'est exactement le regime que ce garde ferme.
+#
+# TROIS CATEGORIES, TROIS REGIMES DIFFERENTS -- et les confondre serait le vice du garde en SEUIL :
+#
+#   `lineup`  (127)  -> 21 absents. EPINGLES NOMINALEMENT ci-dessous, gardes dans les DEUX sens.
+#                       Chacun est un porteur qui ne s'amene qu'en INJECTANT (case-92 Sec.6).
+#   `summons` (65)   -> **0** absent. C'est un INVARIANT, pas un compte : il est ce qui rend la
+#                       voie summon confrontable SANS injection (on spawne le summoner). Le jour ou
+#                       le jeu en ajoute un, cette propriete tombe -- et il faut le savoir.
+#   `npc`     (491)  -> 487 absents, et c'est NORMAL : la capture ne porte que les 4 npc de CETTE
+#                       bataille, les autres s'injectent a la demande. Rapporte, jamais garde.
+#
+# CE GARDE N'EST PAS UN RATTRAPAGE. Comme #254-bc, il MESURE et il DIT ; injecter les 21 au seed
+# partage changerait le pool spawnable de tous les tests live.
+MISSING_LINEUP_ENTRIES = frozenset({
+    "adeptCelestine", "astarCyrus", "astarLysander", "bloodTerminator", "darkaSternguard",
+    "darkaStormSpeeder", "eldarLhykhis", "emperExultant", "emperFlawlessBlade", "emperLucius",
+    "necroChronomancer", "necroReanimator", "spaceWolfPriest", "tauFarsight", "thousDaemonPrince",
+    "thousSekhetar", "votanBeserk", "votanChampion", "votanIronmaster", "votanMemnyr", "votanUthar",
+})
+
+
+def catalog_gap(seed_bc: dict) -> dict:
+    """`{kind: {"total": n, "missing": [...]}}` -- ce que le gameconfig VIVANT porte et que la
+    capture n'a pas, ventile par categorie d'unite. Pendant de `stale_unit_entries` sur l'axe AJOUT.
+    """
+    have = {u["Id"].split(":")[0] for u in seed_bc.get("Units") or []}
+    idx = G._index()
+    out = {}
+    for kind in ("lineup", "npc", "summons"):
+        table = idx.get(kind) or {}
+        out[kind] = {"total": len(table),
+                     "missing": sorted(k for k in table if k not in have)}
+    return out
+
+
+def catalog_gap_report(seed_bc: dict) -> str | None:
+    """Une ligne ASCII decrivant l'ecart d'AJOUT, ou `None` s'il est exactement celui qui est
+    epingle. Les entrees hors `MISSING_LINEUP_ENTRIES` sont marquees, dans les DEUX sens.
+    """
+    gap = catalog_gap(seed_bc)
+    lineup = set(gap["lineup"]["missing"])
+    neuves = sorted(lineup - MISSING_LINEUP_ENTRIES)
+    injectees = sorted(MISSING_LINEUP_ENTRIES - lineup)
+    smn = gap["summons"]["missing"]
+    if not neuves and not injectees and not smn:
+        return None
+    parts = []
+    if neuves:
+        parts.append("lineup NEUVES hors epingle (%d) : %s" % (len(neuves), ",".join(neuves)))
+    if injectees:
+        parts.append("lineup epinglees mais PRESENTES (%d) : %s"
+                     % (len(injectees), ",".join(injectees)))
+    if smn:
+        parts.append("SUMMONS absents du catalogue (%d) : %s -- la voie summon n'est plus "
+                     "confrontable sans injection pour eux" % (len(smn), ",".join(smn)))
+    return ("ecart d'AJOUT catalogue<-gameconfig (#254-bc-r1) : " + " | ".join(parts))
 
 
 # --------------------------------------------------------- 3e catalogue : la RELIQUE (#237)
@@ -2301,12 +2575,31 @@ def main(argv: list[str]) -> int:
                          "mirror de UnitProgression$$GetNpcStats / $$GetSummonStats")
     ap.add_argument("--explicit-stats-witness", action="store_true",
                     help="confronte le mirror NPC aux entrees npc du seed BC (ecrites PAR LE JEU)")
+    ap.add_argument("--allow-zero-spawn-stats", action="store_true",
+                    help="--explicit-stats : accepte un patch summon-spawn INTEGRALEMENT NUL "
+                         "(porteur a 0 PV). A n'utiliser que pour amener le summon AU POOL sans "
+                         "mesurer ses stats (#419-r1-tr12-r2-r1)")
+    ap.add_argument("--summon-regimes", default=None, metavar="UNITID",
+                    help="recense les voies de stats d'un summon : constantes FIXES "
+                         "(UnitProgression$$GetSummonStats) vs ordinaux DYNAMIQUES "
+                         "(SpawnUnitOptions$$WithStatsFromConfig*)")
     a = ap.parse_args(argv)
 
     seed = _load_seed(a.seed_bc)
 
+    if a.summon_regimes:
+        print(json.dumps(summon_spawn_regimes(a.summon_regimes), indent=2, sort_keys=True))
+        return 0
+
     if a.explicit_stats:
-        rep = explicit_stats(a.explicit_stats, ability_level=a.ability_level)
+        # Le refus de profil nul (#419-r1-tr12-r2-r1) doit sortir comme un DIAGNOSTIC, pas comme
+        # une trace : c'est un fait mesure sur le gameconfig, pas un plantage de l'outil.
+        try:
+            rep = explicit_stats(a.explicit_stats, ability_level=a.ability_level,
+                                 allow_zero_profile=a.allow_zero_spawn_stats)
+        except (KeyError, ValueError) as exc:
+            print(f"[error] --explicit-stats {a.explicit_stats}: {exc}", file=sys.stderr)
+            return 2
         print(json.dumps(rep, indent=2, sort_keys=True))
         return 0
 
@@ -2428,6 +2721,18 @@ def main(argv: list[str]) -> int:
             tag = "MoW" if "MachineOfWar" in (gc.get("traits") or []) else "   "
             print(f"  {tag} {uid:24s} {gc.get('FactionId','?'):18s} "
                   f"act={gc.get('activeAbilities')} pas={gc.get('passiveAbilities')}")
+        # #254-bc-r1 : ENUMERER ne dit pas si l'ecart se CREUSE. On rend donc les trois categories
+        # et on confronte `lineup` a l'epingle -- c'est ce qui manquait quand l'ecart est passe de
+        # 17 a 21 sans un mot.
+        gap = catalog_gap(seed)
+        for kind in ("lineup", "npc", "summons"):
+            g = gap[kind]
+            print(f"[gap] {kind:8s} gameconfig={g['total']:4d}  absents du catalogue="
+                  f"{len(g['missing']):4d}")
+        rapport = catalog_gap_report(seed)
+        print("[gap] " + (rapport if rapport else
+                          "ecart d'AJOUT conforme a l'epingle (%d lineup, 0 summon)"
+                          % len(MISSING_LINEUP_ENTRIES)))
         return 0
 
     if a.show:
