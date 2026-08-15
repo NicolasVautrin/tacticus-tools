@@ -102,7 +102,14 @@ def clamped(seq, hp):
 
 
 def left_over_attendu(maillon):
-    """`(H, k, max(0, H - k - 1))` du 1er maillon -- `GetLeftOverHits` sans `extraHits`."""
+    """`(H, k, max(0, H - k))` du 1er maillon -- `GetLeftOverHits` sans `extraHits`.
+
+    ⚠ Le `- 1` a disparu le 2026-08-15 (#489-r1) : le compte natif est le nombre d'entrees
+    `LeftOverDamage` dont le flag `wasAlreadyDead` (`+0x78`) est VRAI, c'est-a-dire le nombre de
+    coups joues APRES le coup fatal -- `H - k`, jamais `H - k - 1`. Cette fonction doit rester le
+    JUMEAU de `ChainLeftOverHitsAttackDamage._left_over_hits` (extra = 0) : si elle en diverge,
+    `test_523_heavy_warp_flamer_live.py::test_r2_...` compare le port a une formule perimee au lieu
+    de comparer le port au live."""
     ph = [int(x) for x in (maillon.get("per_hit_health") or [])]
     hp0 = int(maillon.get("hp_before") or 0)
     k, acc = None, 0
@@ -111,7 +118,7 @@ def left_over_attendu(maillon):
         if hp0 - acc <= 0:
             k = i + 1
             break
-    return len(ph), k, (max(0, len(ph) - k - 1) if k else 0)
+    return len(ph), k, (max(0, len(ph) - k) if k else 0)
 
 
 def mesure(sid, st_file, *, seed=4242, board="MC1_67", rank="17", hp_target=3300, relay_hp=None,
