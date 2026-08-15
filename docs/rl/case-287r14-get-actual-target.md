@@ -258,3 +258,58 @@ Trois choix de conception, tous **derives** :
 Le cliquet **assertionne son propre non-vide** (`0 tile-target` fait rougir), et l'etage 2
 verifie que le releve de sites-a-tuile n'est pas vide **avant** de conclure qu'il est conforme :
 un `hors_contrat == []` obtenu sur un releve vide ne prouverait rien.
+
+## 9. `#287-r14-r2` : la branche `MachinePlatform` NE SERA PAS PORTEE -- et la raison ecrite etait fausse
+
+`IdunBattle.Entities.UnitExtensions$$GetMachine` a trois branches, relues sur le build COURANT
+`t6dpr4k06g` (la fiche notait « Ghidra sert encore l'ANCIEN build » : c'est perime) :
+
+    if (entity == null)          return null;
+    if (EntityType(entity) == 6) return entity;                            # Machine
+    if (EntityType(entity) == 7) return TileExtensions
+                                        .GetMachinePlatformContent(entity, state);
+    return null;
+
+et `GetMachinePlatformContent` lit `MachinePlatformComponent.MachineId` (`Nullable`, `@+0x14`
+hasValue / `@+0x18` value) puis **rend `null` si `HasValue` est faux** (`if (*pcVar4 == 0) return 0`).
+
+### La raison de ne pas porter a CHANGE, parce que l'ancienne est tombee
+
+L'ancienne : « le substrat est publie A MOITIE -- une MoW porte DEUX plateformes, le canal n'en
+publie qu'UNE -- donc porter le mapping ferait reussir la resolution sur l'une et echouer sur
+l'autre, en silence ». **Elle est fausse.** `frida/hooks/game/match-state.ts::readMachinePlatformLink`
+ne retient que les plateformes dont `MachineId.HasValue` est vrai -- **la meme condition** que le
+natif. Une plateforme absente de `decisionView.mows[].platformIds` est donc une plateforme sur
+laquelle `GetMachinePlatformContent` rendrait `null` lui aussi : le mapping publie est **COMPLET
+pour tout ce qui est LIABLE**. Le « deux plateformes, une publiee » est un FAIT NATIF.
+
+### Ce qui interdit reellement le port : la REACHABILITE, et elle est MESUREE
+
+Deux portes seulement mènent a `machine_id()` avec autre chose qu'une Machine :
+
+| voie | bit | porteurs au registre (182 entrees) |
+|---|---|---|
+| `TargetIsMachine` -- appelle `machine_id()` SANS essayer `unit_id()` d'abord | 44 | **0** |
+| `TargetIsActor` -- `unit_id() ?? machine_id()` | 46 | **1** : `1160 HeavyRailRifle` |
+
+Et le canal de ciblage natif ne remet jamais une plateforme. Mesure du 2026-08-15
+(`--p-mow tauBroadside --a-mow orksRukkatrukk`, board `MC1_67`, seed 777) :
+
+    decisionView.mows -> id=75 machineId=80 (tauBroadside)   platformIds=[75]
+                         id=76 machineId=79 (orksRukkatrukk) platformIds=[76]
+    abilityTargets(caster=80, ability=1160).fromHere -> [77, 79]
+        INTERSECTION avec les PLATEFORMES {75, 76} = {}       <- VIDE
+        INTERSECTION avec les MACHINES    {79, 80} = {79}     <- la MACHINE, pas sa plateforme
+    port, MEME etat charge : machine_id(79) = 79, machine_id(80) = 80   <- ACCORD
+
+Porter la branche ajouterait donc du code qu'aucun vecteur n'exerce, et son premier test devrait
+FABRIQUER une cible que le natif ne produit jamais -- « pas de porteur = speculatif ».
+
+### Le verdict est sous CLIQUET, pas en prose
+
+`tests/engine/test_287r14r2_reachability_plateforme_offline.py`, 4 tests. Le premier est un
+**temoin de non-degenerescence** : les deux comptes gardes valent `0` et `1`, donc un registre
+vide, un `TargetingRule` renomme ou un `TARGETING_OPTIONS` introuvable les rendraient verts en
+n'ayant rien regarde -- on exige d'abord que le gisement existe. Le fichier ROUGIT le jour ou une
+ability entre au registre avec `TargetIsMachine`, ou ou `1160` change de masque : le port devient
+alors exigible **avec** son vecteur de confrontation, qui est exactement ce qui manquait.

@@ -261,3 +261,70 @@ callable `unit_health_of` retiré → branche non doublée), `CRITDMG_AVANT` (l'
   Reste ouvert : l'**ARGMAX natif**, qui ne demande aucun capteur non plus (les quatre porteurs
   sont HERO `lineup`, montage de relique ÉCRIT depuis #237) ;
 * `$$GetLocalizationDataInternal` : affichage seul, aucun observable de combat — non porté.
+
+## 11. `#922-r1` volet (a) : le TROISIEME etage, LOCALISE -- le MOMENT de lecture, pas la formule
+
+L'ecart `[462, 1600, 988]` survivait a la fermeture du SEED (#1005/#1081) et a la refutation de la
+REACTIVATION. Il est desormais **localise, et sa cause est LUE**.
+
+### Ce que la decomposition par etage dit (bras `--n 0 --thrilled --inactifs`)
+
+| grandeur | natif | port |
+|---|---|---|
+| coups qui CRITENT | `Attack_DidCrit: 1` x3 | `crits: [true, true, true]` |
+| degat par coup | `[6996, 6221, 5998]` | `[6534, 4621, 5010]` |
+| compteur AU CALCUL | (bonus applique) | `compteur = 0`, `bonus_signe = None` |
+| compteur APRES la salve | -- | `compteur_apres_rejeu = 1` |
+| effets du porteur apres rejeu | -- | `[IntoxicatingElixir, ObsessiveAnnunciation_ExtraDmg, ThrillSeekers]` |
+
+Les trois coups critent des DEUX cotes : ce n'est pas un ecart de crit-CHANCE. Le port POSE bien
+`ThrillSeekers` en cours de salve et son compteur MONTE : l'hypothese « le port ne pose pas le
+debuff » est refutee elle aussi. Mais **au moment du calcul** il lit `0` et ne verse rien.
+
+### La contre-epreuve qui localise, sans payer le rayon
+
+Bras `COMPTEUR_APRES` de `probe_922_intoxicating_elixir_live.py` : on ne touche NI la formule NI le
+pipeline de degat, on **substitue l'ENTREE** -- le compteur d'APRES `On(PreAttackHit = 6)`. Le port
+rend alors **`[6996, 6221, 5998]`**, soit le LIVE exact : ecart `[462, 1600, 988]` -> **`[0, 0, 0]`**.
+
+⚠ **IL Y A DEUX PORTES, et n'en substituer qu'une NE MORD PAS** (mesure : le seul callable de
+magnitude laisse la salve inchangee) :
+
+1. **ACTIVITE** -- `UnitEffectStateView["debuffed_units_in_range"]` alimente la
+   `CreateActiveCondition` ; a `0` l'instance est **exclue d'`active_effects`**, donc `_crit_params`
+   ne la voit meme pas et la magnitude n'est jamais evaluee ;
+2. **MAGNITUDE** -- le callable `debuffed_units_in_range_of` d'`att_ctx`.
+
+### La cause, lue dans `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`
+
+L'ordre du corps, slot par slot :
+
+    slot 0xad (profil) -> AttackHit..ctor -> **slot 0xa RollCritical** -> AbilityEntities..ctor
+      -> EnqueueOperation(6) -> EnqueueOperation(7) -> IsAttackMaxOutDamage
+      -> **slot 0xb (crit-DEGAT)** -> slot 4 -> sub-op 0x42 -> EvaluateAfterHitTriggers
+
+**La dissymetrie est la.** La crit-CHANCE est tiree **AVANT** l'event : le coup 0 n'a pas le bonus
+pose par `On(6)`, et le port le porte deja correctement (`crit_chance` / `crit_chance_after`,
+#522-r1). La crit-DEGAT est calculee **APRES** : elle voit le bonus **des le coup 0** -- ce qui
+explique les 462 du premier coup, qu'une lecture « le stepping ne commence qu'au coup 1 » ne
+pouvait pas expliquer.
+
+### La borne ecrite dans le port est juste sur un axe, fausse sur l'autre
+
+`damage_hits.py` justifie de ne pas retoucher `crit_damage` ainsi : « `GetCritDamageBonusFromEffects`
+-- QUATRE arguments, **pas de `hitIndex`** ⇒ le canal crit-DEGAT n'est pas index-dependant ».
+C'est **vrai sur l'axe INDEX** et **muet sur l'axe TEMPOREL** : l'absence de `hitIndex` ne dit rien
+de la dependance a l'ETAT, qui change des qu'`On(6)` pose un effet. C'est cette phrase, exacte mais
+partielle, qui a fait renoncer.
+
+### Ce qui reste, et pourquoi ce n'est pas fait ici
+
+Porter l'axe TEMPOREL sur la crit-DEGAT : un `crit_damage_after` pris par **TOUS** les coups, coup 0
+compris (pas de decalage d'index, contrairement a la chance). Foyer = le pipeline de degat PARTAGE
+(`operations/damage.py::_crit_params`, `operations/damage_hits.py::_run_hits`, et les TROIS vecteurs
+`damage_ops/normal.py` / `ability.py` / `normal_like.py`) -- une tranche a soi seule. Residu
+**#922-r5**, avec son montage discriminant deja ecrit et sa cible chiffree.
+
+Portee : tout owner-effect a condition dependante de l'etat pose pendant la salve --
+`AmuletOfTheVoidwyrm_CritDamageReduction` (1460) et `NetherRealmCasket_CritDamageReduction` (1455)
+ont la meme forme, non mesuree chez eux.

@@ -274,3 +274,74 @@ que ce montage MELANGE. `orksBigMek` porte le trait `Mechanic` et pose un `statD
 peut pas servir d'A/B de position. Sur un roster de N `orksNob` IDENTIQUES, l'ecart residuel est un
 TIE-BREAK : `sorted(by id)` cote port contre l'enumeration de tuiles `cube-lex (x,y)` rotee d'un
 cran cote natif. Residu **`#494-r1`** ; rejouer `probe_494_doombolt_sort_order.py`.
+
+## 9. `#487-r2` : la face DECISION est CONFRONTEE -- et le foyer declare etait incomplet
+
+Probe neuf : `probe_487r2_hellfyre_decision_live.py`. Deux regimes, deux oracles natifs, un temoin
+negatif, et un releve du canal BRUT qui NOMME le maillon quand le port s'abstient.
+
+### Le natif, mesure
+
+| regime | `ncPlaybookPredict(via="evaluate")` | `aiDryRunAllUnits` |
+|---|---|---|
+| aucun Psychic ce tour | bucket **VIDE**, `actions = 0` | `ability = 69` (attaque normale) |
+| apres `1102 Doombolt` d'Ahriman | bucket **`util = 3`**, `actions = 1` | **`ability = 1088`** |
+
+Le gate `MIN_UTILITY = 1` MORD donc, l'utilite EST un comptage, et le 4e ork -- hors portee du
+Doombolt, vivant et a portee de Hellfyre -- en est **exclu** (3 sur 4). Les deux oracles sont lus
+parce qu'ils ne voient pas la meme chose : `Evaluate/3` ne traverse pas `ShouldEvaluate`, le
+generateur si. Un `ok: false` LEVE dans les deux cas -- un capteur muet se lirait sinon comme le
+refus meme qu'on cherche a mesurer.
+
+### Le port, premier jet : `util = None`, zero candidat AUX DEUX BRAS
+
+Accord APPARENT a vide, desaccord arme. C'est la degradation RESTRICTIVE que la docstring du
+playbook annoncait : sans canal, on s'abstient et on le DIT.
+
+### Le maillon defaillant n'etait NI le capteur NI le seeder
+
+Le canal brut, lu sans passer par le port :
+
+    actorStats.units[] -> 81: {profiles: {"13": 1}}   83: {profiles: {"13": 1}}
+                          85: {profiles: {"13": 1}}   87: {profiles: {}}
+    receiveDamageLayout -> channelResolved: true, fieldOffset: 128 (= 0x80),
+                           errors: [], drift: []
+
+Le capteur (#10008) rend **exactement** l'etat natif, et concorde au bit pres avec `util = 3`. La
+cause est ailleurs : **la face DECISION LIVE ne passe pas par `snapshot.load_state`**. Elle batit sa
+`Scene` par `scene.build_predictor` + `Scene.from_predictor_sctx`, qui tiraient **deja** cet appel
+`actorStats` pour `totalAttacksMade` -- sans lire ce champ-la.
+
+⚠ Le **FOYER** que le residu declarait (`receive-damage-types.ts`, `rpc-snapshot.ts`,
+`runner/snapshot.py`) etait donc incomplet : ces trois-la servent la voie COMBAT. La voie DECISION
+LIVE vit dans `engine/playbook/scene.py`.
+
+### Le cablage, et le piege du voisinage
+
+Deux hunks additifs, **aucun RPC de plus** : `_received_damage_profiles_from_actor_stats` +
+le passage dans `from_predictor_sctx`. Le tri-etat y est **inverse de celui des voisins**, et c'est
+tout le piege : la quinzaine de champs adjacents s'ecrivent `predictor.get(<nom>) or {}`, parce que
+pour eux un dict vide est la bonne valeur neutre (l'accesseur rend `None` par absence de CLE). Ici
+le tri-etat est porte par la **TABLE ENTIERE** -- un `or {}` affirmerait « personne n'a pris de
+degat ce tour » et ferait **REFUSER** l'ability (`0 < MIN_UTILITY = 1`), degradation restrictive et
+silencieuse. Le defaut est donc `None`, explicitement.
+
+### Apres cablage
+
+| regime | natif | port |
+|---|---|---|
+| non arme | bucket vide | `util = 0.0`, 0 candidat |
+| arme | `util = 3`, propose 1088 | `util = 3.0`, 1 candidat, **meme cible** |
+
+Generalise : board `C1_74` + seed `31337` -> accord identique, et la cible CHANGE (85 au lieu de
+87), donc le montage n'est pas degenere.
+
+### Cliquets
+
+`tests/engine/runner/test_10008_487r2_419_canaux_offline.py`, trois etages neufs :
+`a4bis` (le helper, aux quatre formes de non-mesure + le mixte), `a4ter` (l'accesseur `Scene`, ou
+`None` et `False` se separent), et `a4quater` -- qui lit le **CODE SOURCE** du site et rougit sur un
+`or {}`, la faute la plus probable puisque tous les voisins l'ecrivent. Ce dernier porte sa propre
+contre-epreuve (le motif `or {}` doit exister chez les voisins, sinon l'assertion serait vraie pour
+une raison sans rapport) et sa morsure a ete **jouee** : mutation appliquee -> rouge, mutation
+retiree -> vert.
