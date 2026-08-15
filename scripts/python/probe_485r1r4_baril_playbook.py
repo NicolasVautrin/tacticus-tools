@@ -27,6 +27,22 @@ Sur 34 symboles re-exportes, **4** sont consommes (`get_playbook_or_default` 25 
 `REGISTRY` 4 + 32 accces attributaires, `get_playbook` 12, `tile_utility` 2) ; les **30** autres
 ne sont reclames NULLE PART. Les retirer vaut -15 porteurs pour **0** lecteur casse.
 
+ETAGE [0] -- INVENTAIRE DES CINQ BARILS A REGISTRE (bloquant sur `engine.playbook` SEUL)
+    Mesure du 2026-08-15, APRES le nettoyage de `playbook` :
+
+        engine.playbook                          re-exports   4   MORTS   0   <- BLOQUANT
+        engine.runner.abilities                  re-exports   4   MORTS   4
+        engine.runner.abilities.loki             re-exports 106   MORTS  92
+        engine.runner.operations.triggers.loki   re-exports  62   MORTS  51
+        engine.utilities                         re-exports  32   MORTS  30
+
+    **177 re-exports morts hors `playbook`** -- meme forme que les 29 qu'on vient de retirer ici.
+    C'est le VRAI gisement de `#485-r1-r2`, qui visait au contraire les ENREGISTREURS
+    (`charger_tout()`) : mesure sur arbre temoin, retirer les 9 enregistreurs de `playbook` vaut
+    **-4** porteurs, retirer ses re-exports morts en vaut **-15**. Residu ouvert : `#485-r3`.
+    ⚠ NON BLOQUANT hors de `PAQUET`, et c'est deliberе : ces quatre barils sont les foyers d'autres
+    tranches, et un cliquet qui rougit sur ce qu'on n'a pas le droit de reparer se fait desarmer.
+
 ETAGE [1] -- AUCUN RE-EXPORT MORT
     Tout symbole re-exporte par le baril doit avoir au moins un consommateur. C'est le cliquet de
     NON-RETOUR : sans lui, le baril se re-remplit au premier port qui ajoute son import << pour
@@ -74,6 +90,14 @@ ICI = Path(__file__).resolve().parent
 PAQUET = "engine.playbook"
 RACINE_PAQUET = ICI / "engine" / "playbook"
 
+#: Les barils a REGISTRE du depot (`migrate_485r1_barils_reexport.py inventaire`). L'etage [0] les
+#: balaie TOUS et n'est BLOQUANT que sur `PAQUET` : les quatre autres sont des foyers d'autres
+#: tranches, et un cliquet qui rougirait sur ce qu'on n'a pas le droit de reparer se ferait
+#: desarmer. Leur compte est imprime a chaque run -- c'est ce qui rend le gisement dispatchable
+#: (residu #485-r3).
+BARILS_A_REGISTRE = ("engine.playbook", "engine.runner.abilities", "engine.runner.abilities.loki",
+                     "engine.runner.operations.triggers.loki", "engine.utilities")
+
 EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
 
 #: `from __future__ import annotations` atterrit dans les `ImportFrom` du preambule sans etre un
@@ -91,18 +115,22 @@ def _est_prive(nom: str) -> bool:
     return nom.startswith("_")
 
 
-def sous_modules() -> set[str]:
+def _racine(paquet: str) -> Path:
+    return ICI / Path(*paquet.split("."))
+
+
+def sous_modules(paquet: str = PAQUET) -> set[str]:
     """Les enfants directs du paquet -- ce que `from engine.playbook import X` resout SANS que
     le baril ait rien a re-exporter (Python importe le sous-module lui-meme)."""
-    out = {p.stem for p in RACINE_PAQUET.glob("*.py") if p.stem != "__init__"}
-    out |= {d.name for d in RACINE_PAQUET.iterdir()
-            if d.is_dir() and (d / "__init__.py").exists()}
+    rac = _racine(paquet)
+    out = {p.stem for p in rac.glob("*.py") if p.stem != "__init__"}
+    out |= {d.name for d in rac.iterdir() if d.is_dir() and (d / "__init__.py").exists()}
     return out
 
 
-def reexports() -> set[str]:
+def reexports(paquet: str = PAQUET) -> set[str]:
     """Les symboles que le baril EXPOSE et qui ne sont pas des sous-modules."""
-    arbre = ast.parse((RACINE_PAQUET / "__init__.py").read_text(encoding="utf-8"))
+    arbre = ast.parse((_racine(paquet) / "__init__.py").read_text(encoding="utf-8"))
     out: set[str] = set()
     for n in arbre.body:
         if isinstance(n, ast.ImportFrom):
@@ -111,10 +139,16 @@ def reexports() -> set[str]:
             out.add(n.name)
         elif isinstance(n, ast.Assign):
             out |= {c.id for c in n.targets if isinstance(c, ast.Name)}
-    return {s for s in (out - sous_modules() - _NON_REEXPORTS) if not _est_prive(s)}
+    return {s for s in (out - sous_modules(paquet) - _NON_REEXPORTS) if not _est_prive(s)}
 
 
-def consommateurs() -> dict[str, set[str]]:
+def morts_du_baril(paquet: str) -> list[str]:
+    """Les re-exports de `paquet` qu'AUCUN fichier ne reclame -- par les DEUX voies."""
+    lus = consommateurs(paquet)
+    return sorted(s for s in reexports(paquet) if not lus.get(s))
+
+
+def consommateurs(paquet: str = PAQUET) -> dict[str, set[str]]:
     """`{symbole: {fichiers}}` -- LES DEUX VOIES, `ImportFrom` ET acces attributaire."""
     out: dict[str, set[str]] = defaultdict(set)
     for p in sorted(ICI.rglob("*.py")):
@@ -127,12 +161,12 @@ def consommateurs() -> dict[str, set[str]]:
         rel = str(p.relative_to(ICI))
         alias: set[str] = set()
         for n in ast.walk(arbre):
-            if isinstance(n, ast.ImportFrom) and n.module == PAQUET and n.level == 0:
+            if isinstance(n, ast.ImportFrom) and n.module == paquet and n.level == 0:
                 for a in n.names:
                     out[a.name].add(rel)
             elif isinstance(n, ast.Import):
                 for a in n.names:
-                    if a.name == PAQUET:
+                    if a.name == paquet:
                         #: `import engine.playbook` SANS `as` lie le nom `engine` : tout
                         #: `engine.playbook.X` qui suit est un acces a DEUX niveaux, capte
                         #: ci-dessous par le `Attribute(Attribute(Name))`.
@@ -145,10 +179,26 @@ def consommateurs() -> dict[str, set[str]]:
             base = n.value
             if isinstance(base, ast.Name) and base.id in alias and base.id != "engine":
                 out[n.attr].add(rel)
-            elif (isinstance(base, ast.Attribute) and base.attr == "playbook"
-                  and isinstance(base.value, ast.Name) and base.value.id == "engine"):
+            elif _chemin_pointe(base) == paquet:
+                #: `import engine.playbook` SANS `as` : la chaine complete `engine.playbook.X` est
+                #: une cascade d'`Attribute`. Elle est RECONSTRUITE, jamais testee sur le seul
+                #: dernier segment -- sinon un paquet imbrique (`engine.runner.abilities.loki`)
+                #: serait confondu avec son parent, et le compte des morts s'en trouverait fausse.
                 out[n.attr].add(rel)
     return out
+
+
+def _chemin_pointe(node: ast.AST) -> str | None:
+    """`engine.runner.abilities.loki` pour le noeud AST de cette expression pointee, `None` sinon."""
+    bouts: list[str] = []
+    cur = node
+    while isinstance(cur, ast.Attribute):
+        bouts.append(cur.attr)
+        cur = cur.value
+    if not isinstance(cur, ast.Name):
+        return None
+    bouts.append(cur.id)
+    return ".".join(reversed(bouts))
 
 
 #: Les registres du paquet, `(module porteur, attribut)`. Chacun est mesure DANS SON PROPRE
@@ -253,6 +303,26 @@ def main(argv: list[str]) -> int:
     if not RACINE_PAQUET.is_dir():
         print("  paquet INTROUVABLE (%s)." % RACINE_PAQUET)
         return EX_PAS_MESURE
+
+    #: ⚠ ETAGE [0] -- INVENTAIRE, JAMAIS BLOQUANT hors de `PAQUET`. Les quatre autres barils a
+    #: registre sont des foyers d'autres tranches : un cliquet qui rougirait sur ce qu'on n'a pas
+    #: le droit de reparer se ferait desarmer (c'est la lecon de #486-r4 et de `probe_181` d'avant
+    #: #430). Ce qui est exigible, c'est que le gisement soit COMPTE a chaque run -- sans quoi il
+    #: reste invisible, exactement comme les 29 morts de `playbook` l'ont ete jusqu'ici.
+    print("\n=== [0] INVENTAIRE des barils a REGISTRE (bloquant sur `%s` SEUL) ===" % PAQUET)
+    total_hors = 0
+    for b in BARILS_A_REGISTRE:
+        if not _racine(b).is_dir():
+            print("      %-42s INTROUVABLE (paquet deplace ou renomme)" % b)
+            continue
+        ex, mts = reexports(b), morts_du_baril(b)
+        total_hors += 0 if b == PAQUET else len(mts)
+        print("      %-42s re-exports %3d   MORTS %3d%s"
+              % (b, len(ex), len(mts), "   <- BLOQUANT" if b == PAQUET else ""))
+    print("      %d re-export(s) mort(s) hors `%s` -- gisement OUVERT, residu #485-r3."
+          % (total_hors, PAQUET))
+    print("      Meme forme que celui que cette tranche vient de fermer ici (29 morts -> -15")
+    print("      differes PORTEURS) : ce sont des re-exports, pas des enregistreurs.")
 
     exposes = reexports()
     if not exposes:
