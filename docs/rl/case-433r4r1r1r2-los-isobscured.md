@@ -163,6 +163,13 @@ déplacement : **712 modules, 0 non importable seul**). `movement_query` ré-exp
 donc aucun call-site `MQ.<nom>` ne bouge, et aucun patcheur n'est désarmé (vérifié :
 `git grep "setattr(.*movement_query"` ne rend qu'un **commentaire**, sur `get_distance`).
 
+Le tracé y est aussi **mémoïsé** — `_draw_line_cached`, `lru_cache(65536)`. C'est value-preserving
+par construction (le tracé ne dépend que de `(start, end, nudgeDirection)`, ni du plateau, ni des
+élévations, ni des murs, ni du seuil), et ce n'est pas un confort : mesure sur le consommateur
+réel `get_tiles_obscuring_terrain` (20 000 appels, plateau 12×12) — **88,6 → 28,7 µs/appel,
+facteur 3,1×**, pour **9 031 paires bloquées des deux côtés**. Le gain profite dès maintenant à
+`services/ability_range.py`, seul consommateur du foyer.
+
 **Écrit puis RETIRÉ — volet 2, le passe-plat.** Brancher `is_target_tile_obscured` sur le foyer
 rougit **deux** assertions de `tests/engine/test_433r4r1r4r1_unobscured_canal_offline.py`
 (étages 1 et 3), et elles ont **une seule cause** : un **CONFLIT DE CONTRAT sur l'inconnu**.

@@ -202,9 +202,32 @@ même ensemble ET même ordre), et sert de repli aux contextes qui ne peuplent p
 natif compare des EMPREINTES là où le port compare des tuiles principales (`#419-r1-tr10-r2`),
 l'ordre d'énumération natif (`GetAllAliveUnits`) approximé par celui de `ctx.enemies`.
 
-Validation : 76 offline (identique à la baseline `master`) + 8 live
-(`test_971_summon_decision_live.py`, `test_ironkin_steeljack_live.py`) + 13 live
-(`test_433_r4_r2_adjacency_foyer_live.py`, `test_master_tutelaries_active_gate_live.py`).
+**Le cliquet a trouvé DEUX fautes — dans le cliquet.** `test_971r1_nearest_enemy_foyer_offline.py`
+rejoue les trois corps d'avant, recopiés verbatim, contre le foyer. Écrit d'abord sur un tirage
+aléatoire seul, il rougissait à l'étage 0 : **0 morsure** du tie-break `(adj && !bestAdj)` sur
+14 plateaux. Il faut **CRAFTER** — deux ennemis à distance hex 1 de l'ancre, le premier énuméré
+séparé par `|Δelev| >= 2`. Et l'étage 6, qui vérifie qu'aucun fork ne revient, accusait les trois
+passe-plats : leur **docstring** cite `AreEntitiesAdjacent`. Le discriminant est le corps
+exécutable, donc l'AST — pas le texte de la source.
+
+**Contre-épreuve par MUTATION du foyer** (arbre restauré bit-exact, vérifié par sha256) :
+
+| mutation | cliquet |
+|---|---|
+| tie-break collapsé en `min` | **ROUGE** |
+| `bestDist` part de « pas de best » | **ROUGE** |
+| l'ancre ignore le `Nullable` PLEIN | **ROUGE** |
+| `is_adjacent` au lieu d'`are_entities_adjacent` | **ROUGE** — *après correction* |
+
+La dernière passait VERT au premier jeu : les deux primitives ne diffèrent que sur le
+court-circuit d'identité `t1 == t2`, et ce régime ne sort d'aucun tirage (l'ancre est soit la tuile
+du caster, soit une tuile de spawn LIBRE). Il a fallu crafter l'ancre COÏNCIDANT avec un ennemi
+**et** un second candidat de PLAIN-PIED — avec une crête, les deux bras coïncident encore.
+
+Validation : **156 offline** (dont la banque LoS/adjacence, identique à la baseline `master`
+mesurée sur worktree détaché) + **21 live** (`test_971_summon_decision_live.py`,
+`test_ironkin_steeljack_live.py`, `test_433_r4_r2_adjacency_foyer_live.py`,
+`test_master_tutelaries_active_gate_live.py`), rejoués APRÈS rebase sur `origin/master`.
 
 ---
 
