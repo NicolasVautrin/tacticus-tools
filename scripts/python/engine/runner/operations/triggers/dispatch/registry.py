@@ -314,7 +314,8 @@ from ..loki.wyrdmakers_helm import WyrdmakersHelmAbility               # #1037 (
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
 from ..loki.orbs_of_decay import OrbsOfDecayAbility                    # #1003 (relique 1465, DG)
-from ..loki.lakrimae import LakrimaeAddContaminationAbility            # #1003 (relique 1541, DG)
+from ..loki.lakrimae import (LakrimaeAddContaminationAbility,         # #1003 (relique 1541, DG)
+                             LakrimaeSummonPoxwalkerAbility)          # #462-...-r4-r1
 from ..loki.chalice_of_baal import (ChaliceOfBaalAbility,             # #1005 (relique 1550,
                                     ChaliceOfBaalResetAbility)        #  bloodSanguinary)
 from ..loki.vitarus import VitarusAbility                              # #1005 (relique 1470,
@@ -1760,12 +1761,17 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #   * `Lakrimae_AddContamination_Ability` -- `On(0x26 = NormalAttack) & get_OwnerIsActor &
     #     IsMeleeAttack & IsNormalAttack` -> `AddEffect(1244 Contaminated, source = Owner@+0x30,
     #     targets = TargetTiles@+0x78)`   <- PORTEE ;
-    #   * `Lakrimae_SummonPoxwalker_Ability` -- `On(0x35 = PostUnitKill)` + 8 conjoints ->
-    #     `Spawn(deathPoxwalker)` : NON portee, residu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1` (etages
-    #     `ContagionsOfNurgleRange(.., 1, ..)` / `IsUnitWithVisualId` / `FreeTilesOrAdjacentFreeTiles`
-    #     non portes). L'inscrire vide serait un mensonge de couverture.
+    #   * `Lakrimae_SummonPoxwalker_Ability` -- `On(0x35 = PostUnitKill, ignoreOverkill = 1)` + NEUF
+    #     conjoints -> `Spawn(deathPoxwalker)`   <- PORTEE (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1).
+    #     ⚠ DEUX corrections de la fiche, toutes deux RELUES au decompile : le 4e conjoint est
+    #     `<DSLTriggers+0x28>` = **`IsTurnOf(Owner)`** et non `get_OwnerIsActor` (donc pas de
+    #     Poxwalker sur un kill d'overwatch pendant le tour adverse), et le `Filter` porte sur
+    #     `AllAliveUnits@DSLSelectors+0x20` et non `AllUnits` (les Poxwalkers morts ne comptent pas
+    #     dans le cap `nrOfUnits`). Le SEUL etage qui manquait etait `FreeTilesOrAdjacentFreeTiles`,
+    #     ecrit dans la meme tranche comme FACTORY composee (`entities/selectors/tiles.py`) --
+    #     `IsObjectOrSteppable` et `ContagionsOfNurgleRange` etaient PORTES depuis longtemps.
     # Cf. loki/lakrimae.py.
-    "Lakrimae": [LakrimaeAddContaminationAbility],
+    "Lakrimae": [LakrimaeAddContaminationAbility, LakrimaeSummonPoxwalkerAbility],
     # ChaliceOfBaal (relique `R_Health_ChaliceOfBaal`, `TriggeredAbilityType` 0x60e = 1550 ;
     # porteur `bloodSanguinary` << Nicodemus >>, HERO du pool). DEUX classes natives pour UNE cle
     # -- et c'est LU, pas suppose : `IdunBattle.Core.Services.AbilitiesDatabase.u003Cu003Ec$$
