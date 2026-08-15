@@ -293,18 +293,32 @@ def get_nearest_enemy(ctx, position: tuple | None = None):
     return best
 
 
+_SUBSTRAT_ABSENT = object()
+
+
 def _enemy_id_pos(ctx):
     """Les ennemis d'un contexte de decision en `(id, (col, row))` -- `ctx.enemies` d'abord (elle
-    seule porte l'id), repli sur `ctx.epos` (id `None`). Cf. `get_nearest_enemy` (SUBSTRAT)."""
+    seule porte l'id), repli sur `ctx.epos` (id `None`). Cf. `get_nearest_enemy` (SUBSTRAT).
+
+    ⚠ TRI-ETAT : le repli se declenche sur l'ABSENCE du substrat, jamais sur son VIDE. Le natif
+    n'a qu'UNE source (`GetAllAliveUnits` filtre par `IsEnemy`) ; `enemies` et `epos` en sont deux
+    projections du MEME ensemble (`ai/context.py` derive la seconde de la premiere). Une liste
+    `enemies` VIDE est donc une mesure -- « aucun ennemi » -- et se rendre sur `epos` la nierait.
+    Mesure du 2026-08-15 : le repli sur le vide a fait rougir `master`
+    (`test_945_loki_decision_faces_offline::test_alpha_sans_aucun_ennemi_ne_propose_rien`), ou
+    `GetNearestEnemy` doit rendre `null` et elire un ennemi a la place. Le repli reste indispensable
+    aux contextes qui ne peuplent PAS `enemies` (19 fichiers posent `epos` seul) -- il n'est pas
+    retire, il est reconditionne."""
+    enemies = getattr(ctx, "enemies", _SUBSTRAT_ABSENT)
+    if enemies is _SUBSTRAT_ABSENT or enemies is None:
+        return [(None, (p[0], p[1])) for p in (getattr(ctx, "epos", None) or ())]
     out = []
-    for e in (getattr(ctx, "enemies", None) or ()):
+    for e in enemies:
         p = (e or {}).get("pos") or {}
         if p.get("col") is None:
             continue
         out.append((e.get("id"), (p["col"], p["row"])))
-    if out:
-        return out
-    return [(None, (p[0], p[1])) for p in (getattr(ctx, "epos", None) or ())]
+    return out
 
 
 def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None,
