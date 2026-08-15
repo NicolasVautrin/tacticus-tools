@@ -249,8 +249,20 @@ laissées en verdict analytique — résidu nommé.
   `TriggerAbilityDelayed`, et `HaywireMine_ResetAbility` le ré-armement. Conséquence : le port ne **crée**
   jamais de mine — il ne sait que la faire exploser quand la capture live en pose une. Toute simulation
   offline partant d'un état sans mine n'en verra jamais apparaître.
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r6`** — **les autres classes du blast radius ne sont pas confrontées
-  LIVE.** Deux voies « owner = le MOVER » sont exercées (§6) ; les autres n'ont qu'un verdict
-  **analytique** (gate lu). Les plus atteignables restent `HazeCorruptionBonusHitAbility`,
-  `DawnBladeHealAbility` et la famille **revive** — cette dernière étant la seule capable d'**annuler** un
-  crush (garde revive), donc la plus visible si le port divergeait.
+* ~~**`#462-r4b-r1-r1-r1-r1-c-r3-r1-r6`**~~ — **FERMÉ**, cf.
+  `case-462-r4b-r1-r1-r1-r1-c-r3-r1-r6-prevent-revive.md` §1.
+  ⚠ **SA PRÉMISSE ÉTAIT FAUSSE, ET ELLE VENAIT DU §6 CI-DESSUS.** La famille revive n'est pas « la
+  seule capable d'annuler un crush » : elle en est **structurellement incapable**.
+  `IdunBattle.Core.Services.BattleQuery$$CanBeRevived` a **CINQ** étages, et le §6 n'en énumère que
+  quatre — il saute `!HasFlag(target, 0xd = UnitFlag.PreventRevive)`. Or
+  `IdunBattle.Operations.KillUnitOperation$$Execute` pose ce flag sous
+  `options.<+0x45> ? true : IsSteppable(killed)`, et
+  `IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable` écrit
+  `*(undefined2 *)(opts + 0x44) = 0x101` ⇒ `+0x45 = 1` : **tout crushé le reçoit sans condition**, et
+  le rang le place **AVANT** `On(1 = PreUnitDeath)`, donc avant le vecteur qui porte les revives.
+  ⇒ la phrase du §6 « un apothicaire adjacent **peut** annuler un crush » est à lire comme **FAUSSE**.
+  Le port, lui, avait le bug **INVERSE** : ne lisant pas le flag, il ressuscitait un crushé que le
+  natif refuse (dégradation PERMISSIVE). **CORRIGÉ** — mesuré `can_be_revived(crushé)` `True` →
+  `False`, témoin mort ordinaire `True` → `True`.
+  Ce qui reste ouvert de ce résidu part sous **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r6-r2`** :
+  `HazeCorruptionBonusHitAbility` et `DawnBladeHealAbility`, toujours en verdict analytique.

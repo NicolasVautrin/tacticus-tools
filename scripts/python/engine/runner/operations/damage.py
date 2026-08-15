@@ -102,6 +102,9 @@ from ...entities.effects import board_effect_carriers
 from ...entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from ...entities.traits.unit_trait import entity_trait_names
+# `has_trait` / `UnitTrait` : le second bras du gate `PreventRevive` de
+# `KillUnitOperation$$Execute` est `UnitExtensions.IsSteppable(killed)` = `HasTrait(0x1b)`.
+from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ..components import (HealthComponent, OwnerComponent, StatsComponent, UnitComponent,
                                   adjacent_enemies_count,
                                   adjacent_enemy_ids,
@@ -662,7 +665,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     @staticmethod
     def _kill_unit_operation(state: State, target_id: int, attacker_id,
                              overkill: bool,
-                             attack_range_type: Optional[str] = None) -> list:
+                             attack_range_type: Optional[str] = None,
+                             prevent_revive_option: bool = False) -> list:
         """`IdunBattle.Operations.KillUnitOperation$$Execute` -- l'APPLICATION d'une mort deja
         enqueuee. Emet la SEQUENCE COMPLETE 1 -> 2 -> 0 -> 0x36 -> 0x35 ; les CINQ sont portes,
         DANS CET ORDRE. La garde revive (`if (!unitComponent.PendingRevive@+0xa8 .HasValue)`)
@@ -722,6 +726,30 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # un `from ... import unit_death_triggers` hisse deviendrait INERTE, en silence.
         from .triggers.dispatch import move_death
         from .revive import kill_unit_revive_gate
+        # ── `flags.Add(0x0d = UnitFlag.PreventRevive)` -- AVANT `On(1 = PreUnitDeath)` ────────────
+        # RANG NATIF EXACT, lu aux adresses de retour de `KillUnitOperation$$Execute` :
+        # `RecordDeathReason` -> `Add(0x08 = Overkilled)` -> **`Add(0x0d)`** -> `On(1)`. Le flag est
+        # donc DEJA pose quand le vecteur qui porte les revives s'execute.
+        # Le gate, LU :
+        #     bool preventRevive = options.<+0x45> ? true : UnitExtensions.IsSteppable(killed);
+        #     if (preventRevive) flags.Add(0x0d);
+        # `prevent_revive_option` mirroite `KillUnitOptions+0x45` : `False` sous `ForDefault` (toutes
+        # les morts par degat, la feuille DSL `Kill`), `True` sous
+        # `IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable`, qui ecrit
+        # `*(undefined2 *)(opts + 0x44) = 0x101`. Un CRUSHE le recoit donc SANS CONDITION, et un
+        # `Steppable` mort autrement le recoit par le second bras.
+        # ⚠ CE N'EST PAS COSMETIQUE : son lecteur est le 3e etage de
+        # `IdunBattle.Core.Services.BattleQuery$$CanBeRevived` (`!HasFlag(target, 0xd)`), que le port
+        # ne jouait pas -- il ressuscitait donc un crushe que le natif refuse
+        # (#462-r4b-r1-r1-r1-r1-c-r3-r1-r6). Le flag `Dead` (6), lui, reste POSE PLUS BAS, dans la
+        # branche non-revive : les deux n'ont pas le meme rang cote natif et n'ont pas a l'avoir ici.
+        _e_pr = state.get_entity(int(target_id))
+        _fl_pr = _e_pr.get_component(UnitFlagsComponent) if _e_pr is not None else None
+        if _fl_pr is not None:
+            _sc_pr = _e_pr.get_component(StatsComponent)
+            _tr_pr = getattr(_sc_pr.ctx, "traits", None) if _sc_pr is not None else None
+            if prevent_revive_option or has_trait(_tr_pr or [], UnitTrait.Steppable):
+                _fl_pr.add(UnitFlagsComponent.PREVENT_REVIVE)
         out = move_death.after_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # `unitComponent.DefeatedByMeleeAttack@+0x178 = inMelee` (#951-r1), LU aux octets :
         #

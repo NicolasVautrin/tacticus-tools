@@ -31,8 +31,22 @@ from ...entities.pathfinding import pathfinders as _pf
 from ...entities.pathfinding.fly_pathfinder import is_like_flying
 from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos, get_path_by_pos
 from ...entities.traits.unit_trait import UnitTrait, has_trait
-from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
-                                            get_pathfinder_type_for_unit, unit_has_effect_fn)
+from ...services.movement_query import get_connected_path_to, get_num_tiles_moved
+# ⚠ FORME MODULE (B) POUR CES DEUX-LA, ET C'EST LOAD-BEARING -- pas un gout de style.
+# `get_pathfinder_type_for_unit` est le SEUL point de dispatch entre la marche, le vol et les huit
+# types DECORES ; c'est donc l'unique endroit qu'une contre-epreuve puisse neutraliser pour
+# demontrer que le dispatch SERT (« le port d'AVANT rendait autre chose »). En liaison DIRECTE
+# (`from ... import get_pathfinder_type_for_unit`), un `setattr` sur le module
+# `engine.services.movement_query` NE MORD PAS : le nom est fige ici a l'import, et la contre-epreuve
+# compare alors le port A LUI-MEME -- elle rend un ensemble VIDE, quel que soit le board, quels que
+# soient les porteurs. C'est la cause EXACTE du rouge de `master` (`88471bcd`) sur
+# `test_448_r1_r1_r1_r1_flying_tiles_moved_live::test_le_walkpathfinder_diverge_sur_letat_live` :
+# montage SAIN (3 porteurs, dispatch mesure `Fly` et `TeleportStrikeFly x2`), patch INERTE.
+# C'est le gisement « HISSER EN FORME A fait passer de MORD a NE MORD PAS » du CLAUDE.md, pris
+# dans l'autre sens : on RE-DESCEND en forme B, ce qui ne peut que RE-ARMER un patch, jamais en
+# desarmer un. Cout en cascade : NUL (`from pkg import mod` charge les memes modules).
+from ...services import movement_query as _mq
+from ...services.movement_query import unit_has_effect_fn
 from .aura_stat_mods import refresh_aura_stat_modifiers
 from .damage import AttackDamageOperation
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
@@ -152,7 +166,7 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     me0 = state.get_entity(int(mover_id))
     sc0 = me0.get_component(StatsComponent) if me0 is not None else None
     traits0 = getattr(sc0.ctx, "traits", None) if sc0 is not None else None
-    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits0 or [])
+    ptype = _mq.get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits0 or [])
     # TOUT sauf `Walk` passe par le foyer CHEMIN : le vol (3), les huit types DECORES (6..13,
     # dont 6/8/10/12 qui ont pourtant une base MARCHE -- c'est `ATeleportPathfinder$$FindPath`
     # qui les detourne, pas leur base), et le `Beeline` (2), qu'aucun call-site ne produit ici.
@@ -279,7 +293,7 @@ def _calculate_path(state: State, mover_id: int, from_pos, to_pos,
     e = state.get_entity(int(mover_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits or [])
+    ptype = _mq.get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits or [])
     if pathfinder_type_override is not None:
         ptype = int(pathfinder_type_override)    # `options.<+0x8>` ECRASE, y compris un forcage Fly
     if ptype != int(_pf.PathfinderType.Walk):
@@ -672,7 +686,7 @@ def _movement_start_position(state: State, mover_id: int) -> list:
 
 
 def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
-                    pathfinder_type_override=None) -> int:
+                    pathfinder_type_override=None, num_tiles_moved: "int | None" = None) -> int:
     """Le `movementSteps` que `IdunBattle.Operations.MoveUnitOperation$$Execute` passe a
     `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` -- l'entree UNIQUE de la
     formule `IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()`
@@ -742,6 +756,14 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
     (`if (previousPosition.IsEmpty()) pathfinderType = 3`) : il n'entre PAS dans `IsLikeFlying`, il
     ne touche que `path`.
 
+    `num_tiles_moved` (#448-r1-r1-r3) -- LE COMPTE DEJA MESURE, quand l'appelant l'a. Le natif
+    n'appelle `CalculatePaths` **qu'une fois** et consomme ses DEUX out-params bien plus bas ; le
+    port, lui, appelait `_num_tiles_moved` DEUX FOIS, a deux MOMENTS differents (ici, avant la
+    mutation ; puis sous `RecordTilesMoved`, apres). Passer le compte deja pris est ce qui replie
+    les deux lectures sur un seul point de mesure, au rang natif. `None` = « pas de mesure
+    fournie », et la fonction retombe sur son propre appel -- c'est ce que font les probes qui
+    l'invoquent hors `Execute`.
+
     ⚠ CE `movementSteps` RESTE DERIVE de `_num_tiles_moved`, PAS de `_calculate_path`, et c'est
     VOULU. Les deux listes natives sont distinctes (`path` = 8e out-param, `connectedPath` = 9e),
     et la valeur rendue ici est CONFRONTEE LIVE (#448-r1-r1-r1 : 70 vols, la greffe de
@@ -757,7 +779,8 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
     if _is_like_flying(traits, pathfinder_type_override):
         d = hex_distance(from_pos, to_pos) if (from_pos is not None and to_pos is not None) else None
         return int(d) if d is not None else 0
-    n = _num_tiles_moved(state, mover_id, from_pos, to_pos)
+    n = (_num_tiles_moved(state, mover_id, from_pos, to_pos) if num_tiles_moved is None
+         else int(num_tiles_moved))
     # `path.Count` : `_num_tiles_moved` rend deja `Count - 1`. Destination injoignable / pas de
     # board -> il rend 0, et le natif serait sur `IsNullOrEmpty(path)` : on rend 0 aussi (le `+1`
     # ne s'applique qu'a un chemin REEL, sinon on fabriquerait un pas qui n'existe pas).
@@ -891,8 +914,15 @@ def _kill_steppable_kill_unit(state: State, dead_id: int, killer_id) -> list:
     state.trigger_ability_type = None          # `KillUnitOptions+0x04` = 0 -> `TriggeringAbility` VIDE
     try:
         # `+0x46 = 0` -> le flag `Overkilled` n'est jamais pose : `overkill=False` sur tout le vecteur.
+        # `+0x45 = 1` -> `prevent_revive_option=True` : le natif pose `UnitFlag.PreventRevive` (0xd)
+        # SANS CONDITION sur un crushe, AVANT `On(1 = PreUnitDeath)`. Son lecteur est le 3e etage de
+        # `IdunBattle.Core.Services.BattleQuery$$CanBeRevived` -- c'est ce qui rend un crushe
+        # DEFINITIVEMENT irrevivable, et c'est ce que le port ne jouait pas
+        # (#462-r4b-r1-r1-r1-r1-c-r3-r1-r6 : la fiche `-r1` §6 annonce l'inverse, « un apothicaire
+        # adjacent PEUT annuler un crush », en sautant cet etage de `CanBeRevived`).
         return AttackDamageOperation._kill_unit_operation(
-            state, int(dead_id), None if killer_id is None else int(killer_id), False) or []
+            state, int(dead_id), None if killer_id is None else int(killer_id), False,
+            prevent_revive_option=True) or []
     finally:
         state.triggering_ability = prev_current
         state.trigger_ability_type = prev_trigger
@@ -1153,9 +1183,24 @@ class MoveUnitOperation(Operation):
             foreach (var tile in position) TileExtensions.RemoveReserveForUnit(tile, unit);
 
         Le gate d'identite est DANS `RemoveReserveForUnit` (une unite ne libere que SA propre
-        reservation) -- cf. `operations/tile_reservation.py`. Quatre call-sites natifs, tous portes :
-        les trois abandons (`TilesAreEmpty` faux, override invalide/mort, `path` vide) et le chemin
-        nominal."""
+        reservation) -- cf. `operations/tile_reservation.py`.
+
+        ⚠ **TROIS instructions d'appel dans le binaire, CINQ chemins logiques** -- et le compte
+        « quatre call-sites » porte ici jusqu'a #448-r1-r2-r1 en OUBLIAIT un, celui de la RELANCE,
+        que le port jouait pourtant deja. Les xrefs de
+        `IdunBattle.Operations.MoveUnitOperation$$RemoveReservation` rendent exactement trois
+        `UNCONDITIONAL_CALL`, toutes dans `IdunBattle.Operations.MoveUnitOperation$$Execute` :
+
+          1. le LABEL D'ABANDON PARTAGE, ou convergent TROIS tests distincts du decompile --
+             `TilesAreEmpty` faux, `!ovr.HasValue || IsDead(unit)`, et `path == null ||
+             path.Count == 0` (ce dernier apres son log) ;
+          2. la RELANCE : juste avant `options+0x12 = 1` et l'appel recursif d'`Execute` sur la
+             destination deviee ;
+          3. le chemin NOMINAL, apres `SetMovedFlag` / `Add(ArrivedAtFinalTile)` / le bloc
+             `Nullable<AbilityOrEffect>` et AVANT le calcul de `movementSteps`.
+
+        Le port a bien ses cinq sites (les quatre abandons + le nominal) : c'etait l'ENONCE qui
+        etait faux, pas le code."""
         for t in position:
             tile_reservation.remove_reserve_for_unit(state, t, self.unit_id)
 
@@ -1375,11 +1420,43 @@ class MoveUnitOperation(Operation):
             self._remove_reservation(state, position)
             return
         self.last_abandoned = ""
+        # ── `connectedPath` : LE SECOND OUT-PARAM, MESURE ICI ET UNE SEULE FOIS (#448-r1-r1-r3) ───
+        # RANG NATIF EXACT. `CalculatePaths` produit `path` ET `connectedPath` **dans le meme
+        # appel**, avant que quoi que ce soit n'ait bouge ; `Execute` ne les CONSOMME que bien plus
+        # bas (`movementSteps` puis `RecordTilesMoved`), mais sur des listes deja FIGEES. Le port
+        # appelait `_num_tiles_moved` DEUX FOIS -- ici, puis sous `record_tiles_moved`, APRES
+        # `SetUnitPosition`, `KillSteppableUnits` et toute la cascade de mort du crush.
+        #
+        # ⚠ CE N'ETAIT PAS QU'UN COUT. `_num_tiles_moved` est pure EN SES ARGUMENTS mais LIT
+        # `state` : `_blocking_positions` derive des occupants ENNEMIS VIVANTS. Si la cascade de
+        # mort tue, ressuscite ou deplace un bloqueur -- le blast radius de
+        # `#462-r4b-r1-r1-r1-r1-c-r3-r1-r6`, quatre classes reelles -- la seconde lecture rend un
+        # AUTRE compte que celui que le natif a fige. MESURE (`probe_448r1r1r3_double_parcours.py`,
+        # `C4_09`, `(0,0) -> (0,2)` avec un bloqueur en `(0,1)`) : le port enregistrait
+        # `tiles_moved = 2` la ou le natif ecrit `10`, pendant que `movement_steps` restait a `11`
+        # -- c'est ce dernier, INCHANGE, qui etablit que la cause est le RANG et non la geometrie.
+        #
+        # ⚠ ON NE DESCEND PAS SOUS **DEUX** parcours, et c'est LU : `CalculatePaths` appelle
+        # `Pathfinders.<slot 4>(pathfinderType, unit, from, to, useTeleporter)` PUIS
+        # `BattleQuery.<slot 0x15>(unit, from, to)` -- deux parcours natifs distincts, dont le
+        # second ne voit NI les options NI l'override. Deriver le compte de `self.last_path`
+        # ferait passer l'override dans `connectedPath` : INFIDELE (cf. `_movement_steps`).
+        #
+        # Le calcul est saute quand AUCUN lecteur n'en a besoin -- condition etablie AVANT toute
+        # mutation, donc insensible a ce que la cascade fera : `record_tiles` est un octet
+        # d'options, et la branche VOLANTE de `movementSteps` rend une DISTANCE sans lire ce compte.
+        _sc_ms = e.get_component(StatsComponent)
+        _traits_ms = getattr(_sc_ms.ctx, "traits", None) if _sc_ms is not None else None
+        _lit_le_compte = self.record_tiles or not _is_like_flying(_traits_ms,
+                                                                  self.pathfinder_type_override)
+        num_tiles = (_num_tiles_moved(state, self.unit_id, old_pos, self.to)
+                     if _lit_le_compte else 0)
         # `movementSteps` -- calcule AVANT la mutation de position (`old_pos` est son entree), comme
         # le natif qui derive `path` de `CalculatePaths(startTile = position.MainTile, ...)` avant
         # de bouger l'unite.
         self.last_movement_steps = _movement_steps(state, self.unit_id, old_pos, self.to,
-                                                   self.pathfinder_type_override)
+                                                   self.pathfinder_type_override,
+                                                   num_tiles_moved=num_tiles)
         if pc is None:
             # Unite SANS position : soit un spawn, soit -- depuis #448-r1 -- une unite qui REVIENT
             # sur le plateau (`RemoveUnitFromItsTiles` lui avait pose `feet = []`, cf.
@@ -1460,9 +1537,12 @@ class MoveUnitOperation(Operation):
         # `MoveUnitOperation$$GetNumTilesMovedForSimulation` : ce gate n'existe QUE cote SIMULATION
         # (economie de pathfinding). Un mouvement JOUE compte ses tuiles pour TOUTE unite.
         # `RecordTilesMoved` fait `+=` sur `+0xec` ET `+0xf0`, et no-op si le compte est < 1.
+        # ⚠ LE COMPTE EST CELUI DE `num_tiles`, PRIS AU RANG DE `CalculatePaths` (#448-r1-r1-r3) --
+        # PAS un recalcul. Le natif lit ici un `connectedPath` produit avant `SetUnitPosition` ; le
+        # re-deriver a ce rang-ci le ferait porter sur un plateau que `KillSteppableUnits` et sa
+        # cascade de mort ont deja change. Cf. le bloc de mesure au-dessus de `_calculate_path`.
         if self.record_tiles:
-            record_tiles_moved(state, self.unit_id,
-                               _num_tiles_moved(state, self.unit_id, old_pos, self.to))
+            record_tiles_moved(state, self.unit_id, num_tiles)
         # AURA stat-mod PROJETEE — `UpdateEffectTargets` : le selecteur d'un `AStatModifierEffect` a
         # projection est purement GEOMETRIQUE, donc un move le change. Le natif re-evalue et
         # applique/reverte la `ValueModification` chez les cibles. GROUND TRUTH live (statModSources,

@@ -1427,6 +1427,26 @@ class UnitFlagsComponent(Component):
     TURN_FINISHED_FORCED = UnitFlag.TurnTerminated   # flag 0x1b = `UnitFlag.TurnTerminated`
                                 # (`FinishUnitTurnOperation` sous `isTerminated`) — nom du PORT,
                                 # membre du BUILD ; cf. la docstring de classe.
+    PREVENT_REVIVE = UnitFlag.PreventRevive   # flag 0xd (`enums.tsv` : `13=PreventRevive`) — posé
+                                # par `IdunBattle.Operations.KillUnitOperation$$Execute`, dont le
+                                # gate est LU :
+                                #     bool preventRevive = options.<+0x45> ? true
+                                #                                         : UnitExtensions.IsSteppable(killed);
+                                #     if (preventRevive) flags.Add(0x0d);
+                                # `KillUnitOperationOptions$$ForSteppable` écrit
+                                # `*(undefined2*)(opts+0x44) = 0x101`, donc `+0x45 = 1` : **tout
+                                # CRUSHÉ le reçoit sans condition**, et hors crush (`ForDefault`,
+                                # tout à zéro) c'est `IsSteppable(killed)` qui décide.
+                                # SON LECTEUR : `IdunBattle.Core.Services.BattleQuery$$CanBeRevived`,
+                                # dont le 3e étage est `!HasFlag(target, 0xd)`.
+                                # ⚠ LE RANG EST CE QUI COMPTE, et il est LU aux adresses de retour :
+                                # `Add(0x0d)` tombe AVANT `On(1 = PreUnitDeath)`, donc avant le
+                                # vecteur qui porte les revives. La justification qui vivait dans
+                                # `revive_effect.py::can_be_revived` — « flag 0xd pas encore posé à
+                                # l'instant de l'OnPreDeath » — était donc FAUSSE, et rendait le port
+                                # PERMISSIF : il ressuscitait un crushé que le natif refuse
+                                # (#462-r4b-r1-r1-r1-r1-c-r3-r1-r6, mesuré par
+                                # `probe_462r4br6_revive_apres_crush.py`).
 
     def __init__(self, flags=None):
         self.flags = set(int(f) for f in flags) if flags else set()
