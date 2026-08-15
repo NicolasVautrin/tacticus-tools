@@ -12,6 +12,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
 from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 from ...traits.unit_trait import UnitTrait, has_any_trait, has_trait
+from ...kill_unit_step import KillUnitStep   # feuille pure (#1088)
 from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle...CTOR_ARGS`
 # #998 : le litteral 0x5b4 teste par `ActorHasTriggeredAbility` dans le multiplicateur
 # `GetMultiplierBasedOnDefeatedInMelee` est un `TriggeredAbilityType`, PAS un `EffectType`
@@ -818,6 +819,15 @@ class TauntedEffect(BaseEffect):
     # `TauntedEffect` est l'une des DEUX SEULES classes du build (sur 465) a surcharger ce getter :
     # a la prise de controle, `ChangeUnitOwnerOperation$$RemoveEffects` PURGE le taunt.
     keep_on_change_owner = False
+    # #1088 -- `IEffect` slot 4 `get_RemoveOnDeathStep` -> `b8 02 00 00 00 c3` = `AfterDeathTrigger`.
+    # La classe SURCHARGE le defaut `AfterUnitRemove` de `BaseEffect` : le taunt SURVIT donc aux
+    # deux premiers retraits de `KillUnitOperation$$Execute` et n'est purge qu'APRES les events
+    # `On(UnitDeath)` / `On(UnitDefeated)`. C'est ce que le natif exige pour qu'un trigger sur la
+    # mort puisse encore LIRE le taunt du mourant -- mesure live #911-r1 : `DaemonicPatrons` se
+    # re-arme sur un kill de cible TAUNTEE, ce qui suppose `HasEffect(Target, 27)` vrai a
+    # `On(UnitDefeated)`. Le port retirait ce composite au tout premier step, rendant cette face
+    # structurellement inerte.
+    remove_on_kill_step = KillUnitStep.AfterDeathTrigger
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [

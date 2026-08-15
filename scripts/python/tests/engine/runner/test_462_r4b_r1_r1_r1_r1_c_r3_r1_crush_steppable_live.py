@@ -46,7 +46,7 @@ from engine.runner.components import (HealthComponent, OwnerComponent, PositionC
 from engine.runner.messages import MoveUnitMessage
 from engine.runner.operations import movement as MV
 from engine.runner.operations.movement import _kill_steppable_kill_unit, _kill_steppable_units
-from engine.runner.operations.remove_effects import KillUnitStep
+from engine.entities.kill_unit_step import KillUnitStep
 from engine.runner.operations.spawn import spawn_decoy
 from engine.runner.operations.triggers.base import EffectTrigger, TriggerEvent
 from engine.runner.operations.triggers.dispatch import core as CORE

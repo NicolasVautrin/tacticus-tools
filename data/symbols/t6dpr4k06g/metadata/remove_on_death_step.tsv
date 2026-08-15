@@ -1,0 +1,11 @@
+# `get_RemoveOnDeathStep` (`IEffect` slot 4) de la fermeture transitive de `IdunBattle.Entities.Effects.BaseEffect` -- build t6dpr4k06g.
+# Domaine : `IdunBattle.Operations.KillUnitStep` = 0=PreUnitRemove, 1=AfterUnitRemove, 2=AfterDeathTrigger.
+# DEFAUT de la base = 1. Sont listees les classes qui DECLARENT le getter (les autres
+# heritent du defaut) -- y compris quand leur valeur EGALE le defaut.
+# Regenerer : python scripts/python/probe_1088_remove_on_death_step.py --regenerer
+#classe	parent	propre	corps
+IdunBattle.Entities.Effects.BaseEffect	System.Object	1	b8 01 00 00 00 c3 cc cc
+IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect	IdunBattle.Entities.Effects.BaseEffect	2	b8 02 00 00 00 c3 cc cc
+IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect	IdunBattle.Entities.Effects.ABondEffect	0	33 c0 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.TauntedEffect	IdunBattle.Entities.Effects.ABondEffect	2	b8 02 00 00 00 c3 cc cc
+IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeed_ExtraExplodeEffect	IdunBattle.Entities.Effects.BaseEffect	2	b8 02 00 00 00 c3 cc cc

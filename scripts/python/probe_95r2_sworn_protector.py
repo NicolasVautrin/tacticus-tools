@@ -112,7 +112,8 @@ def main() -> int:
     # --- 5. la mort de Kell reverte ----------------------------------------------------------------
     # #389-r2 : le volet etroit `_revert_ability_modifications_of_dead` est remplace par le
     # `RemoveEffects` complet de `IdunBattle.Operations.KillUnitOperation$$Execute` (step 0).
-    from engine.runner.operations.remove_effects import remove_effects_operation, KillUnitStep
+    from engine.runner.operations.remove_effects import remove_effects_operation
+    from engine.entities.kill_unit_step import KillUnitStep
     state.get_entity(kell).get_component(UnitComponent).alive = False
     remove_effects_operation(state, kell, step=KillUnitStep.PreUnitRemove)
     mn2 = get_ability_stat_modification(state.get_entity(creed), CONST_NR_OF_SUMMONS)

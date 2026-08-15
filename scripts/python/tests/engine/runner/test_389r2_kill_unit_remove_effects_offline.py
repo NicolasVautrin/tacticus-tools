@@ -38,8 +38,9 @@ from engine.entities.effects.base import BaseEffect  # noqa: E402
 from engine.entities.effects_state import EffectsState                     # noqa: E402
 from engine.runner.components import HealthComponent, UnitComponent        # noqa: E402
 from engine.runner.operations.damage import AttackDamageOperation          # noqa: E402
+from engine.entities.kill_unit_step import KillUnitStep                    # noqa: E402
 from engine.runner.operations.remove_effects import (                      # noqa: E402
-    KillUnitStep, remove_effect_instance, remove_effects_operation)
+    remove_effect_instance, remove_effects_operation)
 
 COLS, ROWS = 5, 5
 KILLER_ID, VICTIM_ID = 10, 20

@@ -125,7 +125,7 @@ def step_emission(mutate: str | None = None) -> int:
     if mutate == "sans-emission":
         def _retrait_seul(state, dead_id, killer_id):
             from engine.runner.operations.damage import _kill_unit_remove_effects
-            from engine.runner.operations.remove_effects import KillUnitStep
+            from engine.entities.kill_unit_step import KillUnitStep
             return [_kill_unit_remove_effects(state, dead_id, s)
                     for s in (KillUnitStep.PreUnitRemove, KillUnitStep.AfterUnitRemove,
                               KillUnitStep.AfterDeathTrigger)]

@@ -45,13 +45,29 @@ IL2CPP (getteurs constants) : ni `frida/methods.tsv` ni `ghidra/functions.tsv` n
     `KillUnitOperation.RemoveEffects(killed:IEntity, step:KillUnitStep)` (`frida/methods.tsv`) ;
   * les TROIS valeurs litterales passees par `KillUnitOperation$$Execute` (0, 1, 2) et le second
     champ d'options a 0 aux trois call-sites.
-  ⚠ HYPOTHESE NOMMEE : le step par DEFAUT est `PreUnitRemove` (0) -- le corps par defaut de
-  `IdunBattle.Entities.Effects.BaseEffect` est un getteur constant, illisible offline. Toute
-  surcharge se pose ici en attribut de classe `BaseEffect.remove_on_kill_step`. Consequence NULLE
-  sur l'observable de premier ordre (a la sortie de la sequence de mort les trois steps ont tourne,
-  donc TOUS les effets sont partis quel que soit leur step) ; elle ne mordrait que sur un
-  consommateur de `On(UnitDeath)`/`On(UnitDefeated)` qui LIRAIT un effet du mort -- il n'y en a
-  aucun de porte (cf. `damage.py::_kill_unit_operation`).
+
+⚠ CE QUI ETAIT UNE HYPOTHESE NOMMEE EST DESORMAIS **LU** (#1088), et elle etait **FAUSSE**. Le port
+posait `BaseEffect.remove_on_kill_step = 0` (`PreUnitRemove`) faute de pouvoir lire le getteur
+constant. `probe_1088_remove_on_death_step.py` le derive sur les **465** classes de la fermeture
+transitive de `BaseEffect` (declaration lue dans le `global-metadata.dat`, valeur lue aux OCTETS
+dans le bloc `methodPointers`, **0 indeterminee**) :
+
+  * le DEFAUT de `IdunBattle.Entities.Effects.BaseEffect` est **1** (`AfterUnitRemove`) ;
+  * **quatre** classes surchargent -- trois a `AfterDeathTrigger` (`TauntedEffect`,
+    `Loki.ArmourOfShriekingSoulsEffect`, `Active.Loki.RammingSpeed_ExtraExplodeEffect`) et une a
+    `PreUnitRemove` (`Loki.AttemptedPossession_PossessedEffect`).
+
+⚠ ET LE FILTRE PAR STEP EST GARDE PAR `HasValue`, ce que le resume << compare le slot 4 a
+options.step >> ne montre pas : `if (options.step.HasValue && effect.<slot 4> != options.step.Value)
+-> ne pas retirer`. Un appel SANS step retire donc TOUT, quel que soit le slot 4 -- c'est le regime
+`step = None` ci-dessous, et il ne doit surtout pas heriter du filtre.
+
+L'ecart n'est PAS sans consequence, contrairement a ce qui etait ecrit ici : a la sortie de la
+sequence de mort les trois steps ont bien tourne, mais `KillUnitOperation$$Execute` place
+`On(UnitDeath)` et `On(UnitDefeated)` ENTRE le step 1 et le step 2. Un effet a `AfterDeathTrigger`
+est donc encore porte quand ces deux events partent -- c'est exactement ce que le natif exige pour
+re-armer `DaemonicPatrons` sur un kill de cible TAUNTEE (mesure live #911-r1), et ce que le port
+rendait impossible en retirant tout au step 0.
 
 Le second predicat (`options.<+0x08>`) n'est PAS porte : ses trois call-sites de mort le passent a
 0, aucun appelant porte ne l'active, et son slot n'a pas de nom. Le documenter vaut mieux que
@@ -93,10 +109,12 @@ RESIDUS NOMMES (inchanges par ce foyer, deja presents avant lui) :
 """
 from __future__ import annotations
 
-from enum import IntEnum
 from typing import Optional
 
 from ..state import State
+# FEUILLE PURE -- l'enum a DEMENAGE la (#1088) parce qu'il lui fallait un second lecteur,
+# `entities/effects/base.py`, que la cascade de CE module traverse.
+from ...entities.kill_unit_step import KillUnitStep
 from ...entities.effects import effect_stat_mod_key
 # Gate de TYPE du 3e event de `RemoveEffectOperation$$Execute` (`is UntargetableEffect`) : le
 # domaine vit dans son foyer UNIQUE, il n'est pas re-liste ici. Import de MODULE (forme B) pour que
@@ -105,26 +123,6 @@ from ...entities.effects import aura_selectors as _aura
 from .effects import unregister_name, AddEffectOperation
 from .stat_ops import revert_change_stat
 from .traits import revert_traits_of_effect
-
-
-class KillUnitStep(IntEnum):
-    """`IdunBattle.Operations.KillUnitStep` — VERBATIM du dump d'enums (`frida/enums.tsv`,
-    build `rnca9r7q6c`) : `0=PreUnitRemove,1=AfterUnitRemove,2=AfterDeathTrigger`.
-
-    Les trois valeurs sont les trois call-sites de
-    `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` dans
-    `IdunBattle.Operations.KillUnitOperation$$Execute` -- cf. `damage.py::_kill_unit_operation`
-    pour leur placement exact dans la sequence de mort.
-
-    Les noms sont ceux DU JEU, caractere pour caractere (#427). Le port les avait d'abord ecrits
-    en UPPER_SNAKE (`PRE_UNIT_REMOVE`) : `probe_313` n'aurait alors pu le garder qu'en
-    `strict=False`, mode qui relache les NOMS pour TOUT le mirror et rend muet le sens
-    RENUMEROTE -- le pire des trois (il resout, pointe ailleurs, rien ne proteste). Une
-    exception de confort n'est pas payee par le membre qui la demande, elle est payee par les
-    autres membres du meme mirror."""
-    PreUnitRemove = 0
-    AfterUnitRemove = 1
-    AfterDeathTrigger = 2
 
 
 def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
@@ -272,7 +270,13 @@ def remove_effects_operation(state: State, owner_id: Optional[int], *,
     for eff in state.effects.by_unit.get(uid, []):
         if eff.consumed:
             continue                       # l'id n'est plus dans `ActiveEffectIds`
-        if step is not None and int(getattr(eff, "remove_on_kill_step", 0)) != int(step):
+        # ⚠ LE DEFAUT DE SECOURS EST CELUI DU NATIF, PAS `0`. Un objet-effet sans l'attribut (stub
+        # de test, effet hydrate par un chemin qui ne passe pas par `BaseEffect`) doit se comporter
+        # comme `IdunBattle.Entities.Effects.BaseEffect`, dont le getteur rend `AfterUnitRemove`
+        # (#1088). Le `0` ecrit ici retirait ces effets au TOUT PREMIER step -- le meme faux defaut
+        # que celui du foyer, mais recopie a un endroit qu'aucune surcharge de classe ne corrige.
+        defaut = KillUnitStep.AfterUnitRemove
+        if step is not None and int(getattr(eff, "remove_on_kill_step", defaut)) != int(step):
             continue                       # `effectObj.<IEffect slot 4> != options.step.Value`
         candidates.append(eff)
     removed = []

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from ....dsl.event_trigger_type import EventTriggerType
 from ...effect_type import EffectType
+from ...kill_unit_step import KillUnitStep   # feuille pure (#1088)
 from ..base import BaseEffect
 
 #: La cle gameconfig de l'ability 1101.
@@ -66,6 +67,14 @@ class AttemptedPossessionPossessedEffect(BaseEffect):
     liste pas) : une cible `Immune` peut porter cet effet. Le gate `Immune` de l'ability vit dans
     l'ARBRE (`If(HasTrait(Target, Immune), ...)`) et n'exclut que la CIBLE elle-meme, pas ses
     summons -- lire `attempted_possession_targets()`.
+
+    ⚠ Il SURCHARGE en revanche `IEffect` slot 4 `get_RemoveOnDeathStep` -> `33 c0 c3` =
+    `PreUnitRemove` (#1088), et c'est la SEULE classe du build (sur 465) a le faire. La valeur
+    coincide avec l'ancien defaut FAUX du port, donc l'ecrire explicitement n'est pas cosmetique :
+    sans cette ligne, la correction du defaut (`PreUnitRemove` -> `AfterUnitRemove`) aurait
+    silencieusement decale CET effet d'un step. Le sens est net -- la possession se defait AVANT
+    tout le reste de la sequence de mort, donc `ResetUnitOwner` rend l'unite a son camp d'origine
+    avant que `On(UnitDeath)` ne parte.
 
     ⚠ **`CreateHandleTriggerAbilitiesInternal` -- la PROPAGATION, portee a part.** Le natif greffe
     sur cet effet un trigger declaratif supplementaire (lu terme a terme) :
@@ -116,6 +125,11 @@ class AttemptedPossessionPossessedEffect(BaseEffect):
     # (`effect_type` est un CHAMP d'instance de `BaseEffect`, ecrit a la pose par
     # `AddEffectOperation` -- la classe ne le redeclare pas : meme regime que
     # `MindControlTaunterEffect`. La valeur attendue est `0x4b9 = 1209`.)
+
+    # #1088 -- `IEffect` slot 4 `get_RemoveOnDeathStep` -> `33 c0 c3` = `PreUnitRemove`. SEULE
+    # classe du build a surcharger vers cette valeur ; ECRITE explicitement parce qu'elle ne
+    # coincide plus avec le defaut de `BaseEffect` (`AfterUnitRemove`).
+    remove_on_kill_step = KillUnitStep.PreUnitRemove
 
     def overrides_unit_owner(self) -> bool:
         """`ApplyInternal` = `ChangeUnitOwner(target, bonded)` / `RevertInternal` =

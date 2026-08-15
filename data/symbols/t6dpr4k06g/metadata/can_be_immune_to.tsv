@@ -1,0 +1,21 @@
+# `get_CanBeImmuneTo` de la fermeture transitive de `IdunBattle.Entities.Effects.BaseEffect` -- build t6dpr4k06g.
+# DECLARE = la classe a une entree de ce nom dans son `Il2CppTypeDefinition` (metadata).
+# PROPRE  = le corps lu dans le bloc `methodPointers` (`b0 01 c3` / `32 c0 c3`) ; vide si
+#           la classe ne declare pas. EFFECTIF = PROPRE, ou la valeur du plus proche
+#           ancetre qui declare.
+# Seules les classes a EFFECTIF vrai sont listees (les autres heritent le faux de la base).
+# Regenerer : python scripts/python/probe_175r2_can_be_immune_to.py --regenerer
+#classe	parent	declare	propre	effectif	herite_de	corps
+Idun.Source.IdunBattle.Logic.Entities.Effects.DespoiledGroundEffect	IdunBattle.Entities.Effects.BaseEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.BlockEnteringUnitsTileEffect	IdunBattle.Entities.Effects.BlockTileMovementEffect	0		1	IdunBattle.Entities.Effects.BlockTileMovementEffect	
+IdunBattle.Entities.Effects.BlockTileMovementEffect	IdunBattle.Entities.Effects.BaseEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.BlockUnitMovementBondEffect	IdunBattle.Entities.Effects.ABondEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.FireEffect	IdunBattle.Entities.Effects.BlockTileMovementEffect	0		1	IdunBattle.Entities.Effects.BlockTileMovementEffect	
+IdunBattle.Entities.Effects.IceEffect	IdunBattle.Entities.Effects.BlockTileMovementEffect	0		1	IdunBattle.Entities.Effects.BlockTileMovementEffect	
+IdunBattle.Entities.Effects.Idun.DarknessEffect	IdunBattle.Entities.Effects.BlockTileMovementEffect	0		1	IdunBattle.Entities.Effects.BlockTileMovementEffect	
+IdunBattle.Entities.Effects.Idun.LandMineBlockTileMovementEffect	IdunBattle.Entities.Effects.BlockTileMovementEffect	0		1	IdunBattle.Entities.Effects.BlockTileMovementEffect	
+IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect	IdunBattle.Entities.Effects.AMutantStatModifierEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.ContaminatedEffect	IdunBattle.Entities.Effects.BaseEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.PinnedEffect	IdunBattle.Entities.Effects.BaseEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.StunnedEffect	IdunBattle.Entities.Effects.BaseEffect	1	1	1		b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.TauntedEffect	IdunBattle.Entities.Effects.ABondEffect	1	1	1		b0 01 c3 cc cc cc cc cc

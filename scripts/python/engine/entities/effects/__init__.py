@@ -234,6 +234,20 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
             # contribution dans `attackModifiers`. Cf. `BaseEffect.DEFENSE_MALUS_NATIVE_FACE`.
             mb.native_face = e.DEFENSE_MALUS_NATIVE_FACE
             maluses.append(mb)
+            # #1008-r2 -- LA PENETRATION D'ARMURE PORTEE PAR UN EFFET DU **DEFENSEUR**.
+            # `IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense` (le corps de ce slot
+            # 0x1a) n'evalue pas que les formules de l'`EffectBonus` : elle appelle AUSSI
+            # `this.IgnoreArmor()` (slot virtuel `+0x718`) et range le resultat dans
+            # `DamageBonus+0x38`, que `CalculateDefenderModifiersForPrediction` accumule dans
+            # `DamageModifiers+0x28` -- le MEME axe armure que la face attaquant.
+            # ⚠ DANS CE BLOC, ET C'EST LA FIDELITE MEME : le natif evalue `IgnoreArmor()` APRES
+            # avoir teste le trigger de l'`EffectBonus` et sous ce test. Lire la penetration hors
+            # du bloc l'activerait meme quand la gate est fausse (pour `Helspear` :
+            # `IsUnit(Caster)`, donc face a une source non-unite). La gate n'est donc pas
+            # dupliquee ici -- c'est celle du malus, une seule fois, comme dans le natif.
+            pen = e.get_armor_penetration(is_normal_attack=True)
+            if pen:
+                maluses.append(for_armor_penetration(False, pen))
         # #112 : axe PERCAGE porte par la CIBLE (`<Effect>.CreatePiercingBonusForAttack`, trigger
         # `OwnerIsTarget` -- ex. `Supercharge_ExtraPiercingEffect`). Slot d'interface DISTINCT ;
         # `add_modifier` route le kind "Piercing" vers `extra_pierce` (axe @0x20), JAMAIS vers le

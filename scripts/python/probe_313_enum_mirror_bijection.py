@@ -218,7 +218,12 @@ REGISTRE: list[Mirror] = [
     # `strict=False` relache les NOMS pour TOUT le mirror et rend muet le sens RENUMEROTE.
     Mirror("PathfinderType", "engine/entities/pathfinding/pathfinders.py",
            "IdunBattle.Entities.Pathfinding.PathfinderType"),
-    Mirror("KillUnitStep", "engine/runner/operations/remove_effects.py",
+    # ⚠ CHEMIN CHANGE PAR #1088 : la feuille a quitte `runner/operations/remove_effects.py` pour
+    # `entities/kill_unit_step.py`. Motif MESURE, pas cosmetique -- il lui fallait un second
+    # lecteur, `entities/effects/base.py` (`BaseEffect.remove_on_kill_step`), que la cascade de
+    # `remove_effects` traverse (177 modules charges, `base` compris) : l'importer de la aurait
+    # ferme un cycle. Voie (1) de la doctrine (supprimer l'arete), pas voie (3) (differer).
+    Mirror("KillUnitStep", "engine/entities/kill_unit_step.py",
            "IdunBattle.Operations.KillUnitStep"),
     # #270-r1 volet 2 : les 18 cles des trois tables de TRIANGLE (`battle_query._TRIANGLE_EVEN_COL`
     # / `_ODD_COL`, `selectors/geometry._TRIANGLE_SHAPE_DIRECTIONS`) designent le parametre
