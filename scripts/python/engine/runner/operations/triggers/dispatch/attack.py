@@ -503,7 +503,7 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     L'inversion etait SILENCIEUSE tant qu'aucun consommateur de `On(0xe)` ne touchait aux drapeaux
     de tour ; elle rend INERTE tout consommateur qui en RETIRE (`ResetTurn` de `RapidFire`,
     `ResetMovement` de `Maugetar_ResetMovementAbility`), puisque la pose qui suit les remet.
-    MESURE (`probe_10015_rapid_fire_live.py`, runner 188) : cote port les drapeaux du porteur
+    MESURE (`probe_10018_rapid_fire_live.py`, runner 188) : cote port les drapeaux du porteur
     valaient `[]` a l'entree du trigger -- il n'avait donc RIEN a retirer -- et `[0,1,2,3,4]` a la
     fin, alors que le flux natif publie `UnitStats_TurnFinished = 1` PUIS `0` sur le MEME coup.
 

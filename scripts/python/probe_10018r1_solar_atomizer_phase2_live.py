@@ -6,7 +6,7 @@ MONTAGE, ET C'EST LUI LE FAIT NEUF. La fiche declarait ce residu bloque en `seed
 jamais l'empreinte. `IdunBattle.Operations.SetupGameOperation$$AddBossUnit` est le SEUL chemin qui
 pose une unite sur PLUSIEURS tuiles (il lit `BC.BossUnit` et la `BossPlatform` du board), et
 `BC.BossUnit` vaut `null` dans le seed partage. Ecrit, le porteur arrive a `feet = 3` et le gate
-rend `ValidRequest` -- mesure et contre-epreuve dans `probe_10016_bossunit_footprint.py`.
+rend `ValidRequest` -- mesure et contre-epreuve dans `probe_10018r1_bossunit_footprint.py`.
 
 CE QUE CE PROBE MESURE :
 
@@ -21,7 +21,7 @@ CE QUE CE PROBE MESURE :
      declencher. Sans elle, un port qui frapperait par un autre chemin passerait pour juste.
 
 Usage :
-    python probe_10017_solar_atomizer_phase2_live.py [--seed 777]
+    python probe_10018r1_solar_atomizer_phase2_live.py [--seed 777]
 """
 from __future__ import annotations
 

@@ -1518,7 +1518,7 @@ def occupied_positions(ctx, base: set | None = None, include_origin: bool = True
 #: les designe que par leur `MethodInfo*`, resolu au runtime — donc leur `EffectType` n'etait pas
 #: lisible par xref. Il l'est par le CODE MACHINE d'`InitializeEffects`, ou la cle de chaque
 #: `Dictionary<EffectType, Func<BaseEffect>>.Add` est un immediat : 607 cles pour 607 lambdas, en
-#: alternance stricte cle/delegue. `scripts/python/probe_10015_effectsdatabase_registry.py` rejoue
+#: alternance stricte cle/delegue. `scripts/python/probe_10018_effectsdatabase_registry.py` rejoue
 #: la mesure et REFUSE de conclure si l'un de ses six controles tombe.
 ACTIVE_ABILITY_BLOCKER_EFFECTS: dict[int, dict] = {
     26:   {"name": "Taunted_CantUseAbility",   # b__14_14
@@ -1584,7 +1584,7 @@ def can_use_ability(unit: dict, ability: dict) -> bool:
     d'une Machine of War) n'a pas de substrat dans le canal `decisionView` — le port la fond donc
     dans `ActiveAbilitiesAreBlocked`. Le repli est EXACT tant que tout membre du registre porte
     `includeMachinePrimaryAbility = True`, ce qui est le cas des trois ; c'est un test offline qui
-    garde cette condition (`test_10015_rapid_fire_offline.py`), pas cette phrase.
+    garde cette condition (`test_10018_rapid_fire_offline.py`), pas cette phrase.
 
     Les effets decisionView sont deja IsActive-filtres (on ignore `remaining`)."""
     blockers = _active_ability_blockers(unit)

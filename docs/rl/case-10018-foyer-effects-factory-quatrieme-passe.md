@@ -1,4 +1,4 @@
-# #10015 — le foyer `effects/factory.py`, quatrieme passe : deux verrous leves par la MEME methode, et un rang de vecteur inverse depuis toujours
+# #10018 — le foyer `effects/factory.py`, quatrieme passe : deux verrous leves par la MEME methode, et un rang de vecteur inverse depuis toujours
 
 Tranche du 2026-08-15, build `t6dpr4k06g`. Les CINQ residus que la 3e passe (#1120) avait
 re-mesures sans les porter.
@@ -29,7 +29,7 @@ designe que par leur `MethodInfo*`, resolu au runtime. Ni Ghidra ni les tables n
 lambda a sa cle.
 
 **Ce qui a marche** : la cle de chaque `Dictionary<EffectType, Func<BaseEffect>>.Add` est un
-**immediat**, donc elle est dans le code, en clair. `probe_10015_effectsdatabase_registry.py`
+**immediat**, donc elle est dans le code, en clair. `probe_10018_effectsdatabase_registry.py`
 desassemble `InitializeEffects` **depuis le PE** (capstone + pefile, RVA calculee en code) et rend
 la sequence des cles. Six controles, et le probe REFUSE de conclure si l'un tombe :
 
@@ -84,7 +84,7 @@ traits et son arme** : `ultraNpc4HeavyIntercessor`. C'est load-bearing ici, parc
 DAMAGE de cette ability passe par le trait `HeavyWeapon` du caster — precisement ce qu'une greffe
 n'aurait pas donne.
 
-**Confrontation live** (`probe_10015_rapid_fire_live.py`, `MC1_67`, seed 777) — le natif publie
+**Confrontation live** (`probe_10018_rapid_fire_live.py`, `MC1_67`, seed 777) — le natif publie
 lui-meme l'appariement, ce qui est un TEMOIN INDEPENDANT du decompile :
 
 ```
@@ -171,7 +171,7 @@ RemainingHealth @0x28  Nullable<int>
 Modifiers       @0x30  List<UnitModifier>
 ```
 
-**Mesure et contre-epreuve** (`probe_10016_bossunit_footprint.py`), meme board, meme unite :
+**Mesure et contre-epreuve** (`probe_10018r1_bossunit_footprint.py`), meme board, meme unite :
 
 | | `feet` | `abilityReason` du cast 1174 |
 |---|---|---|
@@ -191,7 +191,7 @@ SolarAtomizer_PendingTarget` sur **3 tuiles** ; au tour suivant, l'attaque diffe
 
 L'arbre de phase 2 est porte (`triggers/loki/solar_atomizer_attack.py`,
 `TRIGGERED_ABILITY_BEHAVIOURS[1297]`), mirror 1:1 du decompile. Sa **chaine de selecteurs est
-confrontee** (`probe_10017_solar_atomizer_phase2_live.py`) :
+confrontee** (`probe_10018r1_solar_atomizer_phase2_live.py`) :
 
 ```
 tuiles 1372 seedees : 3     EntitiesWithAnyEffect : 3     Units : 1     Enemies : 1
@@ -240,7 +240,7 @@ visible. L'inscription est donc **ecrite en commentaire, prete**, et le gate est
 | rail de phase 2 | `1371` hors de `PENDING_ATTACK_EFFECTS` -> 0 declenchement, 0 marque consommee | **MORD** |
 | `BC.BossUnit` | temoin sans le champ -> `feet = 1` et `CasterHas3Tiles` | **MORD** |
 
-Garde offline : `tests/engine/runner/test_10015_rapid_fire_offline.py` (9 etages), dont l'etage 8
+Garde offline : `tests/engine/runner/test_10018_rapid_fire_offline.py` (9 etages), dont l'etage 8
 est la contre-epreuve de la convention de nom et l'etage 9 la condition du repli documente
 (`includeMachinePrimaryAbility` vrai pour TOUS les membres — le jour ou un membre ne le porte plus,
 le test rougit et la branche machine doit etre separee, residu **#1020-r9**).

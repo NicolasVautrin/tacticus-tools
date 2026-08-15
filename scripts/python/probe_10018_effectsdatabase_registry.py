@@ -1,4 +1,4 @@
-"""Probe #10015 -- LIRE la table `EffectType -> fabrique` d'`EffectsDatabase$$InitializeEffects`.
+"""Probe #10018 -- LIRE la table `EffectType -> fabrique` d'`EffectsDatabase$$InitializeEffects`.
 
 POURQUOI. `IdunBattle.Entities.Effects.BlockActiveAbilityEffect$$.ctor` a exactement TROIS
 appelants, tous des lambdas `EffectsDatabase.<>c$$<InitializeEffects>b__14_<N>` aux memes

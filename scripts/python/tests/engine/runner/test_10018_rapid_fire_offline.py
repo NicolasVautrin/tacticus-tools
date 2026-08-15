@@ -68,7 +68,7 @@ DECLENCHEUR = {
               "`FightingRetreat` et rendrait l'unite mobile ; la duree `Direct(1)` DEJA EN TOURS ; "
               "et le TROISIEME membre de `BlockActiveAbilityEffect` (1137 RapidFire_BlockAbilities), "
               "que la reconnaissance par SUFFIXE `_CantUseAbility` ratait structurellement -- lu par "
-              "`probe_10015_effectsdatabase_registry.py` dans le code machine d'InitializeEffects.",
+              "`probe_10018_effectsdatabase_registry.py` dans le code machine d'InitializeEffects.",
 }
 
 RAPID_FIRE = 1135                      #: `TriggeredAbilityType.RapidFire`, ordinal MESURE
@@ -239,7 +239,7 @@ def test_etape8_le_suffixe_ratait_structurellement_un_membre():
     # et l'appariement du registre reste concordant avec l'enum, nom PAR nom
     for et, spec in BQ.ACTIVE_ABILITY_BLOCKER_EFFECTS.items():
         assert EffectType(et).name == spec["name"], (
-            "l'enum a bouge sous le registre : re-derivez `probe_10015_effectsdatabase_registry.py`")
+            "l'enum a bouge sous le registre : re-derivez `probe_10018_effectsdatabase_registry.py`")
 
 
 # --- etage 9 : la condition du repli documente --------------------------------------------------

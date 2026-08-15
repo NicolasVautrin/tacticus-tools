@@ -36,8 +36,8 @@ build `t6dpr4k06g` -- 56 octets, 5 champs) :
     Modifiers       @0x30  List<UnitModifier>
 
 Usage :
-    python probe_10016_bossunit_footprint.py            # monte et mesure `feet`
-    python probe_10016_bossunit_footprint.py --temoin   # le MEME montage SANS BossUnit
+    python probe_10018r1_bossunit_footprint.py            # monte et mesure `feet`
+    python probe_10018r1_bossunit_footprint.py --temoin   # le MEME montage SANS BossUnit
 """
 from __future__ import annotations
 

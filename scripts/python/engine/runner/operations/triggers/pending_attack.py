@@ -236,7 +236,7 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
     # rendrait une liste VIDE, `IsTurnOf(<vide>)` firerait au tour de n'importe quel joueur et le
     # `TriggerAbility` ne declencherait RIEN.
     #
-    # ⛔ **PAS INSCRIT, ET C'EST UNE MESURE** (#894-r2, `probe_10017_solar_atomizer_phase2_live.py`).
+    # ⛔ **PAS INSCRIT, ET C'EST UNE MESURE** (#894-r2, `probe_10018r1_solar_atomizer_phase2_live.py`).
     # L'arbre de phase 2 EST porte (`loki/solar_atomizer_attack.py`,
     # `TRIGGERED_ABILITY_BEHAVIOURS[1297]`) et sa chaine de selecteurs est CONFRONTEE live -- 3
     # tuiles marquees / 3 rendues par `EntitiesWithAnyEffect` / 1 occupant / 1 ennemi, exactement

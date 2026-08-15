@@ -29,7 +29,7 @@ CE QUE LE PROBE MESURE, et pourquoi chaque observable est SEPARANT :
      regime d'avant #1020-r7) ne voit PAS 1137 -- la mesure montre la faute au lieu de la raconter.
 
 Usage :
-    python probe_10015_rapid_fire_live.py [--seed 777] [--board MC1_67]
+    python probe_10018_rapid_fire_live.py [--seed 777] [--board MC1_67]
 """
 from __future__ import annotations
 
