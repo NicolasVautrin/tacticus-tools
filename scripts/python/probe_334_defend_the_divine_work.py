@@ -56,10 +56,25 @@ def _unwrap(r):
     return r.get("result") if isinstance(r, dict) and "result" in r else r
 
 
-def build_args(damaged: int, advance: int) -> list[str]:
-    """Arguments `rl_duel build` du montage (hors `--seed`/`--state-file`)."""
+def build_args(damaged: int, advance: int, blind: str | None = None) -> list[str]:
+    """Arguments `rl_duel build` du montage (hors `--seed`/`--state-file`).
+
+    `blind` (#334-r3) = le `visualId` d'un allie mecanique dont on met le `Damage` a **0**. C'est le
+    montage DISCRIMINANT de #334-r3, realise par un levier de STATS et non par la GEOMETRIE : le
+    residu demandait « rendre le 1er acteur adjacent mais INCAPABLE de frapper », or un
+    `admecDestroyer` (portee d'arme 3) ne peut pas etre a la fois adjacent au caster et hors de
+    portee de l'ennemi que le caster jouxte -- la contrainte geometrique est INSATISFIABLE. Un
+    `Damage = 0` la contourne sans toucher aux positions : l'acteur reste ADJACENT (donc H2 reste
+    exercee) et son coup ne change PLUS l'etat de la cible (donc H1 est neutralisee).
+
+    ⚠ Ce n'est PAS un `Damage` quelconque : le volet attaque de `GalvanicField` REMPLACE l'Attack de
+    l'acteur par `Min(maxDmg, Attack_INITIALE x dmgPct)` (`AddStatOverrideEffect(1242)`, `StatPart =
+    3 = Initial`), donc mettre le `Damage` de BC a 0 met AUSSI l'override a 0 -- l'acteur est
+    reellement inoffensif, pas seulement affaibli."""
     stats = ";".join("%s:RemainingHealth=%d" % (v, damaged)
                      for v in (CASTER_VIS, ADJ_VIS, FAR_VIS))
+    if blind:
+        stats += ";%s:Damage=0" % blind
     argv = ["--p-units", "%s,%s,%s" % (CASTER_VIS, ADJ_VIS, FAR_VIS),
             "--a-units", ",".join(ENEMY_VIS),
             "--board", BOARD,
@@ -78,12 +93,12 @@ def build_args(damaged: int, advance: int) -> list[str]:
     return argv
 
 
-def _build_subprocess(damaged: int, advance: int) -> int:
+def _build_subprocess(damaged: int, advance: int, blind: str | None = None) -> int:
     state = _ROOT / "logs" / ("_probe334-%d.json" % os.getpid())
     state.parent.mkdir(parents=True, exist_ok=True)
     state.unlink(missing_ok=True)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", SEED,
-            "--state-file", str(state), *build_args(damaged, advance)]
+            "--state-file", str(state), *build_args(damaged, advance, blind)]
     p = subprocess.run(argv, cwd=str(_PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if not state.exists():
@@ -244,7 +259,8 @@ def _drive_two_adjacent_attackers(rpc, rid, board, live, sq, enemy_tiles):
 
 
 def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
-                 damaged: int | None = None, build_runner=None, keep: bool = False) -> dict:
+                 damaged: int | None = None, build_runner=None, keep: bool = False,
+                 blind: str | None = None) -> dict:
     """Monte le scenario, caste 1117 OFFLINE puis LIVE, rend les mesures.
 
     `rpc(method, body, timeout)` = appel RPC deballe. `build_runner` = fabrique pytest du conftest ;
@@ -268,10 +284,11 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     damaged = damaged if damaged is not None else (200000 if advance else 2000)
 
     if build_runner is not None:
-        rid = build_runner(SEED, extra=build_args(damaged, advance))["rid"]
+        rid = build_runner(SEED, extra=build_args(damaged, advance, blind))["rid"]
     else:
-        rid = _build_subprocess(damaged, advance)
-    out = {"rid": rid, "scenario": scenario, "advance": advance, "ok": False, "why": None}
+        rid = _build_subprocess(damaged, advance, blind)
+    out = {"rid": rid, "scenario": scenario, "advance": advance, "ok": False, "why": None,
+           "blind": blind}
 
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):
@@ -310,7 +327,9 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
                                           sq[CASTER_VIS], sq[ADJ_VIS], enemy_tiles):
             out["why"] = "l'allie ne peut pas se poser adjacent au caster et LOIN des ennemis"
             return out
-    elif scenario == "two":
+    elif scenario in ("two", "two_blind"):
+        # `two_blind` = MEME geometrie que `two` (les deux allies adjacents au caster ET au contact
+        # d'un ennemi) ; seul `--blind` change, en mettant le `Damage` d'un des deux a 0 (#334-r3).
         if not _drive_two_adjacent_attackers(rpc, rid, board, live, sq, enemy_tiles):
             out["why"] = "aucune tuile ne donne DEUX voisins libres partages avec un ennemi"
             return out
@@ -325,7 +344,7 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     ct = board.id_at(U[sq[CASTER_VIS]]["col"], U[sq[CASTER_VIS]]["row"])
     # Dans le regime `two`, le second allie est justement ADJACENT (c'est le point du regime) : on
     # ne l'eloigne que dans les regimes ou il joue le TEMOIN NEGATIF.
-    out["far_driven"] = (False if scenario == "two"
+    out["far_driven"] = (False if scenario in ("two", "two_blind")
                          else _drive_away(rpc, rid, board, live, sq[FAR_VIS], ct))
 
     U = live()
@@ -501,9 +520,11 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="repair",
-                    choices=("repair", "attack", "caster", "two"))
+                    choices=("repair", "attack", "caster", "two", "two_blind"))
     ap.add_argument("--advance", type=int, default=None)
     ap.add_argument("--damaged", type=int, default=None)
+    ap.add_argument("--blind", default=None,
+                    help="visualId d'un allie mecanique dont le Damage est mis a 0 (#334-r3)")
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
 
@@ -513,9 +534,11 @@ def main() -> int:
     def rpc(method, body=None, timeout=90):
         return _unwrap(R._rpc(sid, method, [body] if body is not None else [], timeout=timeout))
 
-    r = run_scenario(rpc, args.scenario, args.advance, args.damaged, keep=args.keep)
-    print("runner=%s scenario=%s advance=%s ok=%s why=%s"
-          % (r.get("rid"), r.get("scenario"), r.get("advance"), r.get("ok"), r.get("why")))
+    r = run_scenario(rpc, args.scenario, args.advance, args.damaged, keep=args.keep,
+                     blind=args.blind)
+    print("runner=%s scenario=%s advance=%s blind=%s ok=%s why=%s"
+          % (r.get("rid"), r.get("scenario"), r.get("advance"), r.get("blind"),
+             r.get("ok"), r.get("why")))
     if not r.get("ok"):
         return 1
     g = r["geometry"]
