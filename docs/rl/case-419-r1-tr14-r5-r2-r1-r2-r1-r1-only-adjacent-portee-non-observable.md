@@ -220,16 +220,39 @@ motive son ecriture). Port restaure et re-verifie identique a HEAD (0 diff).
 
 ## 8. Residus nommes
 
-* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r1` — `Range.UseWholeBoard` n'est pas modelise.** Le natif rend
-  un troisieme champ, que `GetTilesInRange` lit ; le port court-circuite `use_whole_board` en amont
-  (`get_range` rend `None`) et obtient le MEME comportement observable sur le seul consommateur
-  porte — le gate `UseWholeBoard` de `GetInvalidTargetReason` porte de toute facon sur
-  `options.Range.UseWholeBoard`, pas sur le champ du `Range`. Aucun ecart mesurable aujourd'hui ;
-  a modeliser si un jour le port mirror `GetTilesInRange` a partir de `get_range`.
-* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r2` — le court-circuit `casterTiles` vide n'est pas mirrore.**
-  Le natif rend `Range(0, false, UseWholeBoard)` (donc un gate de DISTANCE a `d > 0`) ; le port rend
-  `None`. Sans consequence : `get_range_broken_rule` sort deja sur `src_feet` vide. Non confronte
-  (aucun montage n'a de caster sans tuile).
+* ~~**`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r1`**~~ — **MIRRORE (2026-08-15), et la RE a rendu mieux
+  qu'une equivalence de comportement.** `Range` porte son troisieme champ, et `get_range` ne rabat
+  plus `UseWholeBoard` sur un `None` : il rend le litteral natif `0x10000000001` =
+  `{1, false, true}`. Ce qui rend le mirror sur n'est pas l'inventaire des consommateurs — c'est
+  que le champ est un **ALIAS EXACT** d'`options.Range.UseWholeBoard`, les TROIS sorties du corps
+  natif l'ecrivant depuis cette meme source : (1) `casterTiles` vide le RECOPIE
+  (`((*(ulonglong *)(options + 8) >> 0x28) & 0xff) << 0x28`) ; (2) le court-circuit n'est atteint
+  que s'il vaut vrai ; (3) la sortie complete laisse les bits 40..47 a zero et n'est atteinte que
+  s'il vaut faux. MESURE : **364** couples (182 abilities x 2 regimes), **0** ecart. L'ancienne
+  justification, elle, se serait perimee au premier consommateur neuf.
+  Le gate `UseWholeBoard` de `GetInvalidTargetReason` devient explicite dans
+  `get_range_broken_rule`, a sa position native — DANS la branche `!OnlyAdjacent`, et il lit les
+  **OPTIONS**. Un cran MUTANT le verifie (`Range` a `true`, options a `false` : le port doit quand
+  meme poser son gate).
+* ~~**`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r2`**~~ — **MIRRORE, et son PORTEUR EXISTE : la MACHINE OF
+  WAR.** La fiche ecrivait « NON CONFRONTE — aucun montage du lot n'a de caster sans tuile » :
+  **refute**. `MachineFactory$$Build` ne pose aucune tuile a une MoW — d'ou le bit
+  `AllowNullCasterTile` sur ses masques — et **8 MoW sont au pool spawnable**. MESURE live
+  (`--step mow_sans_tuile`, deux MoW distinctes) : `decisionView.mows[]` rend `pos: null`,
+  `feet: []`, `platformTiles: []`.
+  Le natif rend alors `Range(0, false, options.Range.UseWholeBoard)`, et
+  `IdunBattle.Core.Services.MovementQuery$$GetDistance` sur une liste VIDE rend `int.MaxValue` (son
+  minimum est initialise a `0x7fffffff` et la boucle externe n'est pas entree) — donc un refus
+  `TargetIsInRange` systematique **hors `UseWholeBoard`**. Le regime d'ECART est neanmoins VIDE, et
+  c'est MESURE : **22/22** masques `AllowNullCasterTile` portent `use_whole_board`, et les **22**
+  unites `MachineOfWar` du gameconfig (11 hero + 11 npc) n'ont QUE ces deux actives-la, plus aucune
+  attaque normale. Le mirror est donc exact ET sans effet observable — ce qui est exactement ce qui
+  le rend sur a poser.
+  **Reste NON MIRRORE, et c'est nomme** : `get_range_broken_rule` garde son rabat permissif sur
+  `src_feet`/`dst_feet` vides. `entity_tiles` rend `[]` aussi bien pour « cette entite n'a pas de
+  tuile » que pour « le port ne sait pas la resoudre » ; refuser sur le second inventerait une
+  mesure. Le mirror exact du court-circuit vit donc un etage plus haut, dans `get_range`, la ou il
+  est DECIDABLE.
 * **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r3` — FERME, mirror structurel.** Voir §10.
 * **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4` — les deux clamps de melee sur une valeur `None` : FERME,
   CONFRONTE sur le bras `ForceMeleeTarget`.** Voir §9. Le bras `ForcedInMelee` reste NON CONFRONTE,
@@ -352,17 +375,26 @@ meme bloc), donc confronter `(c)` confronte la lecture partagee — mais cela ne
 
 ### 9.5 Residu ouvert par cette tranche
 
-* **`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1` — `GetStat(StatType.Range = 2) = 0`, MESURE.** Le port
-  declare cette valeur « non observable » (`unit_weapon_range` rend `None` sur `!HasAnyWeapon`) ;
-  la sonde la MESURE a `0` sur `genesSmnDecoy`. Consequence : quand `only_adjacent` est FAUX et la
-  portee non observable, le natif refuse TOUT et le port ACCEPTE tout — ecart PERMISSIF, chiffre par
-  la sonde (3 lignes sur 3).
-  **Ce n'est PAS un gisement** : ce regime exige `only_adjacent` faux sur un caster sans arme, ce
-  qu'aucune combinaison reelle ne produit (les 57 porteurs reels sont tous sur `69`, dont
-  `IfNotRangedCaster` est VRAI faute d'arme — cf. §5). Il n'est atteint qu'en POSANT le trait.
-  A instruire si l'on veut generaliser `GetStat(Range) = 0` aux 81 unites : une mesure sur UNE unite
-  ne le prouve pas, meme si `UnitConfiguration.Range = 0` sur les 175 entrees capturees
-  (`catalog_inject._CONST_FIELDS`).
+* ~~**`#419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1`**~~ — **FERME (2026-08-15) : la valeur n'est pas
+  « non observable », LE CANAL EXISTAIT.** La docstring du port declarait `StatType.Range` (2) hors
+  du catalogue de `combatSnapshot` : **perime**. Le RPC publie `stats.range`, et son catalogue
+  `statTypes` l'apparie explicitement a l'index **2** — verifie a chaque passe, sans quoi on
+  mesurerait une cle homonyme.
+  `get_range` lit donc desormais `GetStat(caster, StatType.Range = 2)` dans la branche
+  `!HasAnyWeapon`, **des que le `StatsComponent` est la** ; sans canal (face DECISION) il rend
+  toujours `None`. L'ecart PERMISSIF est ferme : hors `only_adjacent`, le natif refusait TOUTE
+  cible (`d > 0`) la ou le port desarmait le gate.
+  **Ce qui rend le correctif independant de la valeur** : le port LIT la stat, il ne la suppose pas
+  nulle. Si un build lui donnait 3, le port rendrait 3. La « generalisation aux 81 unites » que ce
+  residu exigeait cesse donc d'etre une CONDITION du fix — elle reste une mesure, faite par etage :
+  **CATALOGUE** `UnitConfiguration.Range` = **175/175 a 0** ; **MODIFICATION** aucun champ
+  `statType`/`stat` du gameconfig ne nomme `range` (seules valeurs : `hp`, `dmg`, `fixedArmor`) ;
+  **RESOLU** 24 observations, 12 unites distinctes dont **8 SANS ARME** (les 8 MoW du pool, contre
+  **une** seule unite dans la mesure d'origine), toutes a `0`, `statDelta` vide.
+  ⚠ `engine.runner.operations.triggers.base._max_attack_range` garde son arbitrage (substitution de
+  **1** quand `unit_weapon_range` rend `None`) : un `0` y fermerait l'overwatch d'une MoW. Le mirror
+  est pose chez `get_range`, PAS dans le helper partage, precisement pour ne pas le deplacer sous
+  les pieds d'un consommateur hors perimetre.
 
 ## 10. `-r3` — l'ORDRE des deux tests de `GetTilesInRange`
 
