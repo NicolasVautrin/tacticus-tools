@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 421 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 418 |
+| lignes de tableau OUVERTES | 420 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 417 |
 | dont NON ANNOTEES | 3 |
-| foyers distincts (fichiers/repertoires) | 421 |
+| foyers distincts (fichiers/repertoires) | 420 |
 
 Non annotees restantes : #120bis-spawn, #390-r1, #BL-1020r
 
@@ -90,7 +90,7 @@ Ces residus **ne partent pas ensemble**.
 | `docs/rl/kit-coverage.md` | 2 | #909-r5, #951-r6 |
 | `frida/hooks/features/ai-step/rpc-snapshot.ts` | 2 | #419-r1-tr14-r5-r2-r1-r2-r1-r2, #487-r2 |
 | `frida/hooks/features/observe.ts` | 2 | #462-r4e-o-r2-r1-r1-r1-r1, #595-r3 |
-| `frida/hooks/features/scorer-damage-trace.ts` | 2 | #10011-r1, #10011-r3 |
+| `frida/hooks/features/scorer-damage-trace.ts` | 2 | #10011-r3, #475-r4 |
 | `frida/hooks/features/ui-windows.ts` | 2 | #390-r6, #390-r7 |
 | `scripts/cliquets-cache/probe_477r24r1_slots_interface.tsv` | 2 | #943-r2, #943-r9 |
 | `scripts/hooks/loop-status.ps1` | 2 | #467-r3, #467-r5 |
@@ -183,7 +183,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `frida/hooks/features/bucket-audit.ts` | #475-r3 | `capteur` |
 | `frida/hooks/features/dsl-ctor-trace.ts` | #1009-r3 | `aucun` |
 | `frida/hooks/features/introspect.ts` | #982-r6 | `capteur` |
-| `frida/hooks/features/modifier-observe.ts` | #475-r2 | `capteur` |
+| `frida/hooks/features/modifier-observe.ts` | #475-r4 | `capteur` |
 | `frida/hooks/features/movement-trace.ts` | #547-r6 | `aucun` |
 | `frida/hooks/features/retreat-capture.ts` | #390-r6 | `aucun` |
 | `frida/hooks/features/sim-engine.ts` | #595-r3 | `capteur` |
@@ -194,7 +194,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `frida/hooks/game/state.ts` | #596 | `capteur` |
 | `frida/hooks/game/weapons.ts` | #419-r1-tr14-r5-r2-r1-r2-r1-r2 | `aucun` |
 | `frida/hooks/il2cpp/` | #259-b | `capteur` |
-| `frida/hooks/il2cpp/build-pin.ts` | #475-r2 | `capteur` |
 | `frida/hooks/il2cpp/invoke.ts` | #595-r2 | `capteur` |
 | `frida/hooks/probes/valid-targets-from.ts` | #1064-r1 | `aucun` |
 | `frida/host/ai-trace-store.ts` | #273-r | `capteur` |
@@ -469,7 +468,7 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 
 | blocage | n | residus |
 |---|---|---|
-| `capteur` | 30 | #10011-r1, #10011-r3, #1020-r9, #1027-r5, #1044-r1, #259-a, #259-b, #273-r, #347-r1, #419-r1-tr11-r2, #419-r1-tr5-r8, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #552-r2, #595-r1, #595-r2, #595-r3, #596, #596-r2, #940-r1, #943-r7-r1, #971-r3, #982-r6 |
+| `capteur` | 29 | #10011-r3, #1020-r9, #1027-r5, #1044-r1, #259-a, #259-b, #273-r, #347-r1, #419-r1-tr11-r2, #419-r1-tr5-r8, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r3, #475-r4, #552-r2, #595-r1, #595-r2, #595-r3, #596, #596-r2, #940-r1, #943-r7-r1, #971-r3, #982-r6 |
 | `seeding` | 16 | #1008-r1, #1011-r2, #287-r11, #392-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #482-r1, #590-r1, #890-r4, #902-r2, #927-r5, #929-r2, #929-r4, #948-r3, #966-r6, #BF-chance |
 | `etage` | 34 | #10015-r1, #10015-r2, #1019-r1, #1026-r1, #1027-r3, #1030-r1, #1033-r1, #1033-r4, #1037-r1, #1065-r2, #1078-r2, #17, #27-r9, #287-r11-r2-r1-r3, #419-r4, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #577-r2, #590-r6, #590-r8, #889-r2, #895-r4, #919-r1, #926-r1, #939-r1, #946-r1, #946-r4, #967-r1 |
 | `porteur` | 42 | #1022-r1, #1027-r6, #1030-r4, #1030-r6, #1042-r4, #1048-r2, #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #895-r1, #915-r2, #942-r1, #945-r1, #945-r3, #946-r2, #946-r3, #957-r2, #967-r5, #969-r4, #969-r5 |
