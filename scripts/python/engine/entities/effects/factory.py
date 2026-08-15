@@ -3449,6 +3449,77 @@ def get_owner_flags_added_on_ability_init(ability_name: str) -> list[int]:
     return ABILITY_INIT_OWNER_FLAGS.get(ability_name, [])
 
 
+# `<Ability>.CreateBehaviour` -> `DSLBehaviors$$AddBondEffect(effectType, abilityState, source,
+# targets, **bondedEntity**, options)` a l'INIT de l'ability. #963-r5.
+#
+# LE TROISIEME CANAL D'INIT, apres les owner-effects ORDINAIRES (`ABILITY_INIT_OWNER_EFFECTS`) et
+# les FLAGS (`ABILITY_INIT_OWNER_FLAGS`) : meme boucle native consommatrice
+# (`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute`), meme moment, meme lecteur
+# port (`runner/operations/spawn.py::_seed_ability_owner_effects`). Ce qui le distingue est le
+# CINQUIEME argument natif -- l'entite BONDEE --, que le seed ne savait pas ecrire : c'etait
+# l'etage NOMME de #963-r5, et il est leve.
+#
+# CE QUE LE NATIF FAIT DE CET ARGUMENT, LU VERBATIM dans
+# `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder` (les DEUX surcharges disent
+# la meme chose, l'une par `if (id == 0) method = <ordinaire>`, l'autre par
+# `if (id != 0) method = <bond>`) :
+#
+#     object+0x34 = (int)bondedEntityId
+#     method = (bondedEntityId != 0) ? <builder de BOND> : <builder ORDINAIRE>
+#     return new EffectBuilder(object, method)
+#
+# ⇒ **un `bondedEntity` qui ne se resout pas ne fait PAS echouer la pose** : le natif bascule
+# simplement sur le builder ordinaire et l'effet est pose SANS lien. Le port fait pareil
+# (`bonded = None`), et c'est la seule degradation fidele -- refuser de poser serait RESTRICTIF.
+#
+# LE SELECTEUR EST UN MOT, PAS UN CALLABLE : ce registre est une feuille de donnees, lue par le
+# seed impératif. Chaque valeur nomme le selecteur natif du 5e argument, LU au decompile ; le seed
+# le resout par le foyer deja porte de ce selecteur (`runner/components.py::parent_of`, mirror
+# d'`IdunBattle.Entities.UnitExtensions$$GetParent(u, state, root = false)`, que
+# `IdunBattle.Entities.Selectors.ParentSelector$$Select` appelle).
+BOND_PARENT_OF_OWNER = "Parent(Owner)"
+#: Les selecteurs de `bondedEntity` que le seed sait resoudre. Un mot inconnu = pose SANS lien,
+#: jamais une pose devinee.
+BOND_SELECTORS_RESOLVABLE = (BOND_PARENT_OF_OWNER,)
+
+ABILITY_INIT_OWNER_BOND_EFFECTS: dict[str, list[tuple[str, str]]] = {
+    # `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateBehaviour`
+    # (decompile `t6dpr4k06g`, lu VERBATIM) :
+    #
+    #     If( NOT HasEffect(Owner@<DSLSelectors+0x30>, 0x424 = 1060, onlyActive: 0, effectTarget: 6),
+    #         AddBondEffect( 0x424,
+    #                        get_AbilityStateReference(this),
+    #                        source       = Owner@<DSLSelectors+0x30>,
+    #                        targets      = Owner@<DSLSelectors+0x30>,
+    #                        bondedEntity = Parent(Owner@<DSLSelectors+0x30>, root: 0),
+    #                        options      = <ZEROEES> ) )
+    #
+    # sous le trigger d'INIT partage `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & YesTrigger &
+    # get_OwnerIsActor` (corps ICF, resolu slot a slot par #963-r3). `Parent(., root: 0)` = le
+    # parent DIRECT, donc le SUMMONER -- pour la Geminae, Celestine.
+    #
+    # PORTEUR : `adeptSmnGeminaeSuperia`, dont le gameconfig porte litteralement
+    # `passiveAbilities = ["Lifewards"]` -- l'ability est donc DANS la liste que
+    # `_seed_ability_owner_effects` balaie, sans rien ajouter au recensement.
+    #
+    # ⚠ POURQUOI CETTE ENTREE N'ETAIT PAS ECRIVABLE AVANT, et pourquoi elle l'est maintenant. #963-r5
+    # l'avait refusee, a raison, avec DEUX consequences chiffrees -- (1) l'instance sans lien
+    # satisfait le gate `NOT HasEffect(Owner, 0x424)` et **bloque la pose correcte** au premier coup ;
+    # (2) `BOND_REMOVAL_GATES[1060]` (gate (a), `RemoveOnBondedEntityDeath = true`) lit
+    # `BaseEffect.bonded`, donc le retrait ne mordrait jamais. Les DEUX ont la MEME cause : l'absence
+    # de `bonded`. Ecrire le lien les supprime toutes les deux -- ce n'est pas contourner le refus,
+    # c'est retirer ce sur quoi il portait.
+    "Lifewards": [(EffectType.Lifewards_BondEffect.name, BOND_PARENT_OF_OWNER)],
+}
+
+
+def get_owner_bond_effects_added_on_ability_init(ability_name: str) -> list[tuple[str, str]]:
+    """Owner-effects de type BOND poses par `<Ability>.CreateBehaviour` a l'INIT (DSL
+    `AddBondEffect(owner)`), avec le selecteur natif de leur `bondedEntity`.
+    Ability sans bond-a-l'init porte -> []."""
+    return ABILITY_INIT_OWNER_BOND_EFFECTS.get(ability_name, [])
+
+
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility`
 # — dict `ActiveAbility` +0x50 (peuplé par le `.cctor` de la même classe), lu par la boucle ABILITIES
 # d'`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` : owner-effects ajoutés au PORTEUR à
