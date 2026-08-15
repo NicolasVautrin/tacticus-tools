@@ -29,6 +29,14 @@ TEMOINS, et ce que chacun NE voit PAS
   * ⚠ CE QU'AUCUN TEMOIN D'ICI NE VOIT : le bonus de crit de `1520` ne mord que sur une cible
     portant `UnitTrait.Summon`, et aucun ennemi du montage n'en est un. L'effet est donc POSE et
     confronte dans sa STRUCTURE, jamais dans sa MAGNITUDE -- dit, pas tu.
+  * **`effectsAll` (#231-r) -- LE TEMOIN QUI TRANCHE LE VOLET (b) DE `#889-r5-r3`.** Les deux
+    temoins ci-dessus (`footprint`, `live_caster_effects`) partent tous deux de
+    `decisionView.units[].effects`, donc d'`EffectsOwnedComponent.ActiveEffectIds` : un `1520`
+    absent y est AMBIGU entre « le natif ne le pose pas » et « ce canal ne le publie pas ».
+    `effectsAll` enumere les entites-effet du STATE, hors liste possedee, avec `inOwnerList` /
+    `removed` / `source` / `targetIds` -- les trois regimes se lisent alors separement. Le residu
+    `#889-r5-r3` exigeait « un capteur d'effets INDEPENDANT de `decisionView` » : il EXISTE et il
+    est DEPLOYE, ce probe le CONSOMME (`--effects-all`, actif par defaut).
 """
 from __future__ import annotations
 
@@ -214,6 +222,22 @@ def coups_natifs(act: dict) -> dict:
     return out
 
 
+def effects_all(sid, rid, effect_type: int | None = None) -> dict:
+    """`effectsAll` (#231-r) -- TOUTES les entites-effet du state, `EffectsOwnedComponent` NON
+    consulte. C'est le canal INDEPENDANT de `decisionView` que `#889-r5-r3` (b) reclamait.
+
+    Les trois regimes se lisent au couple (`inOwnerList`, `removed`), cf. la docstring du hook :
+      * l'entite n'apparait PAS         -> JAMAIS POSE (gate d'`AddEffectOperation`) ;
+      * `inOwnerList=false, removed=1`  -> POSE PUIS RETIRE ;
+      * `inOwnerList=false, removed=0`  -> ORPHELIN (vivant hors liste).
+    Un `ok:false` est rendu TEL QUEL -- jamais rabattu sur « aucun effet », qui se lirait comme
+    une mesure alors que c'est une non-mesure."""
+    body = {"runnerId": rid, "includeRemoved": True}
+    if effect_type is not None:
+        body["effectType"] = int(effect_type)
+    return rpc(sid, "effectsAll", body, 60) or {"ok": False, "error": "reponse vide"}
+
+
 def _dhp(avant: dict, apres: dict) -> dict:
     return {int(k): (int(avant[k]), int(apres.get(k, avant[k])))
             for k in avant if int(apres.get(k, avant[k])) != int(avant[k])}
@@ -307,6 +331,11 @@ def _measure_on(sid: int, rid: int, regime: str) -> dict:
     dec1 = decision(sid, rid)
     live_cast = delta(live_before, footprint_live(dec1))
     live_hp1, live_pos1 = hp_live(sid, rid), pos_live(dec1)
+    # VOLET (b) de `#889-r5-r3` : le canal INDEPENDANT de `decisionView`. On tire DEUX vues --
+    # la vue FILTREE sur `1520` (la question posee) et la vue TOTALE (le temoin de non-degenerescence :
+    # un `count: 0` filtre ne prouve rien si le canal rend 0 effet en tout).
+    ea_1520 = effects_all(sid, rid, ME_EXTRA_CRIT)
+    ea_tous = effects_all(sid, rid)
 
     return {
         "regime": regime, "rid": rid, "caster": caster_id, "target": target_id,
@@ -329,6 +358,20 @@ def _measure_on(sid: int, rid: int, regime: str) -> dict:
             for e in (u.get("effects") or [])],
         "live_event_names": sorted({str(e.get("name") or e.get("type") or "?")
                                     for e in (act.get("events") or [])})[:14],
+        # VOLET (b) `#889-r5-r3` -- tri-etat STRICT : `ok:false` reste `ok:false`, jamais un zero.
+        "effects_all_1520": {
+            "ok": ea_1520.get("ok"), "error": ea_1520.get("error"),
+            "count": ea_1520.get("count"), "orphanCount": ea_1520.get("orphanCount"),
+            "removedCount": ea_1520.get("removedCount"),
+            "effects": [{k: e.get(k) for k in
+                         ("entityId", "effectType", "inOwnerList", "removed", "active",
+                          "ownerId", "sourceId", "targetIds", "remainingTurns")}
+                        for e in (ea_1520.get("effects") or [])],
+        },
+        "effects_all_total": {"ok": ea_tous.get("ok"), "count": ea_tous.get("count"),
+                              "types": sorted({int(e["effectType"])
+                                               for e in (ea_tous.get("effects") or [])
+                                               if e.get("effectType") is not None})},
     }
 
 
@@ -365,6 +408,23 @@ def main() -> int:
                   % json.dumps(m["diag"], default=str, sort_keys=True)[:2600])
             print("  [F] EFFETS live du caster APRES = %s"
                   % json.dumps(m.get("live_caster_effects"), default=str))
+            ea = m.get("effects_all_1520") or {}
+            tot = m.get("effects_all_total") or {}
+            print("  [G] effectsAll(1520) = %s" % json.dumps(ea, default=str, sort_keys=True))
+            print("      effectsAll(TOUS)  ok=%s count=%s types=%s"
+                  % (tot.get("ok"), tot.get("count"),
+                     json.dumps(tot.get("types"), default=str)))
+            if ea.get("ok") is not True:
+                print("      VERDICT (b) : NON MESURE -- le canal a refuse (%s)" % ea.get("error"))
+            elif tot.get("ok") is not True or not (tot.get("count") or 0):
+                print("      VERDICT (b) : NON MESURE -- canal DEGENERE (0 effet en tout)")
+            elif (ea.get("count") or 0) == 0:
+                print("      VERDICT (b) : LE NATIF NE POSE PAS 1520 "
+                      "(canal non degenere : %s effets au total)" % tot.get("count"))
+            else:
+                print("      VERDICT (b) : 1520 EST POSE -- c'est `decisionView` qui ne le publie "
+                      "pas (count=%s, orphelins=%s, retires=%s)"
+                      % (ea.get("count"), ea.get("orphanCount"), ea.get("removedCount")))
         finally:
             dispose()
     return 0
