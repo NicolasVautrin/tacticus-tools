@@ -113,7 +113,6 @@ from .....entities.triggers import HasUnit
 from ....abilities.behaviours.lifecycle import Kill
 from ....abilities.behaviours.summon import PerformAIAttack, Spawn
 from ....state import State
-from ..base import _unit_trait_names
 from .power_up import APowerUpAbility
 
 #: `GetStringConstant(config, 0x7e)` d'`PowerUp_HeroSpawnAbility` -- la cle que la feuille `Spawn`
@@ -136,8 +135,16 @@ def spawn_tile_tree():
 
     RESIDU 1 : les deux `Filter(..., NOT IsSpawnTile/IsTerritoryTile(...))` du natif ne sont pas
     portes -- ils RESTREIGNENT, donc le port retient un sur-ensemble."""
-    ennemis = NormalUnits(Enemies(Actor(), AllUnits()))
-    tuiles_ennemis = Tiles(ennemis)
+    # ⚠ L'ORDRE DES ARGUMENTS EST INVERSE entre le natif et le port, et l'erreur est SILENCIEUSE :
+    # natif `Enemies(of = Actor, entities = AllUnits, selectionType)` contre port
+    # `Enemies(inner = <le set a filtrer>, reference = <par rapport a qui>)`. Ecrit
+    # `Enemies(Actor(), AllUnits())`, le port retenait TOUT LE MONDE comme ennemi -- mesure live :
+    # il tuait `ultraCalgar` (son propre ramasseur) et le power-up, la ou le natif tuait `orksNob`.
+    ennemis = NormalUnits(Enemies(AllUnits(), Actor()))
+    # ⚠ `as_ids=True` : `Tiles` rend des COORDONNEES par defaut, alors que tout le reste de la
+    # cascade (`AllTiles`, `TilesWithoutPowerUps`, `CanAddUnit`) travaille en IDS de tuile. Melanger
+    # les deux domaines leve `KeyError` sur `board.coord` -- mesure, pas suppose.
+    tuiles_ennemis = Tiles(ennemis, as_ids=True)
     libres = SortByDistance(CanAddUnit(Randomize(AllTiles())), Actor())
     # `GetPreferredTiles(x)` = `TilesWithoutPowerUps(Filter(x, NOT IsTerritoryTile(...)))` -- le
     # `Filter` interne est le RESIDU 1, le `TilesWithoutPowerUps` est porte.
@@ -156,8 +163,13 @@ def kill_behaviour_tree(tuile):
             Kill(Owner, tuile, ForClearTile()), null )
 
     Le `NOT HasTrait(Steppable)` est ce qui empeche de detruire un AUTRE power-up pose sur la tuile
-    visee. RESIDU 2 : `Kill` ne lit pas d'options, donc `ForClearTile()` n'est pas transmis."""
-    return IfBehaviour(_TuileOccupeeParUnNonSteppable(tuile), Kill(tuile))
+    visee. RESIDU 2 : `Kill` ne lit pas d'options, donc `ForClearTile()` n'est pas transmis.
+
+    ⚠ Le natif passe la TUILE en cible et laisse `KillUnitBehaviour$$Execute` en resoudre les
+    occupants ; la feuille portee `Kill(subject_sel, units_sel)` attend des UNITES. On interpose
+    donc `Units(tuile)` -- c'est la MEME resolution, faite un cran plus haut, pas un choix de
+    ciblage different."""
+    return IfBehaviour(_TuileOccupeeParUnNonSteppable(tuile), Kill(Owner(), Units(tuile)))
 
 
 class _TuileOccupeeParUnNonSteppable(HasUnit):
@@ -175,12 +187,14 @@ class _TuileOccupeeParUnNonSteppable(HasUnit):
         if not super().should_trigger(ctx):
             return False                       # `HasUnit(spawnTile)` faux -> pas de kill
         occupants = Units(self.tiles).select(ctx) or []
-        etat = getattr(ctx, "state", None)
+        # ⚠ `ctx.state` est None dans un trigger : le canal de trait est `ctx.has_trait`, celui
+        # qu'utilisent deja les feuilles portees (`is_mechanical`, gardes de `Heal`). Y toucher par
+        # `state.get_entity` leve -- mesure, pas suppose.
+        ht = getattr(ctx, "has_trait", None)
+        if ht is None:
+            return False                       # sans resolveur de trait, on ne TUE pas (prudent)
         for u in occupants:
-            uid = u.get("id") if isinstance(u, dict) else u
-            if uid is None:
-                continue
-            if TRAIT_STEPPABLE in _unit_trait_names(etat, int(uid)):
+            if ht(u, int(TRAIT_STEPPABLE)):
                 return False                   # `NOT HasTrait(..., Steppable)`
         return True
 
