@@ -294,6 +294,9 @@ from ...services import battle_query as _bq
 from ...services.custom_normal_attack import custom_normal_attack
 from ...services.movement_query import get_distance
 from ...services.movement_query import get_tiles_obscuring_terrain_from_tiles
+import engine.services.movement_query as _mq   # FORME B (#547-r2), et ABSOLUE : `get_movable_
+# tiles_for` / `get_movable_positions_for` sont SUBSTITUABLES par les probes de #590-r6 via le
+# chemin PLEIN. Aucune arete neuve -- ce module importe deja `services.movement_query` ci-dessus.
 from ..components import ForcedAttackTargetsComponent
 from ..components import MachineComponent
 from ..components import MachineComponent, UnitComponent
@@ -2176,7 +2179,8 @@ class UnportedAbilityTargeting:
         return 0
 
 
-def valid_normal_attack_targets(state: "State", caster_id: int, range_override=None) -> list:
+def valid_normal_attack_targets(state: "State", caster_id: int, range_override=None,
+                                caster_tiles=None) -> list:
     """`IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` (MIRROR du decompile) :
 
         unit  = SelectSingle(unitSel@+0x18)                 # le caster
@@ -2213,10 +2217,15 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
 
     `GetValidTargets` = enumeration du domaine puis filtre par la MEME cascade que le gate de cible
     (`get_invalid_target_reason`) -> on la reutilise TELLE QUELLE avec le masque de l'attaque
-    normale, plutot que d'ecrire un 2e filtre. Les tuiles de cast sont celles du caster : le port
-    n'a pas de variante « depuis une tuile hypothetique » (`get_invalid_target_reason` mesure la
-    portee depuis la position REELLE) -- exact au call-site COMBAT, ou le cast part de la position
-    courante du caster.
+    normale, plutot que d'ecrire un 2e filtre.
+
+    `caster_tiles` (#590-r6) -- LES TUILES DE CAST, `None` = celles du caster sur le plateau. Le
+    selecteur natif passe `Select(unitTileSel@+0x20)`, donc les tuiles du caster ; mais la fonction
+    qu'il appelle en dessous (`TargetingQuery$$GetValidTargets(caster, casterTiles, options,
+    skipAddCasterChecks, onlySendFirst)`) prend la liste en PARAMETRE, et c'est cette voie-la qu'emprunte
+    `AttackQuery$$GetValidTargetsInSteps(unit, possibleUnitTiles, abilityType)` pour interroger une
+    position HYPOTHETIQUE. Le port suit : la valeur par defaut rend le comportement d'avant, octet
+    pour octet, et le parametre ouvre le mirror de la branche MOBILE (`get_valid_targets_in_steps`).
 
     ORDRE D'ENUMERATION = celui de `state.entities` (ordre d'insertion). RESIDU NOMME : le natif
     enumere `GetPossibleTargetsForOptions` -> `GetUnitsInRange`, dont l'ordre n'est pas porte ; il
@@ -2243,7 +2252,7 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
     # nommait. Ici il est presque toujours INERTE (aucun masque d'attaque normale ne pose de bit
     # `Caster*`) SAUF par la clause TUILE-NULLE, qui n'est gatee par aucun bit : une unite SANS
     # tuile (`Burrowers` sous terre) n'a aucune cible d'attaque normale, et c'est le natif.
-    if get_invalid_caster_reason(state, int(caster_id), probe):
+    if get_invalid_caster_reason(state, int(caster_id), probe, caster_tiles):
         return []
     out = []
     for uid in list(state.entities.keys()):
@@ -2254,9 +2263,131 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
         # n'a NI aiguillage self-cast NI volet caster -- c'est son APPELANTE qui porte le volet,
         # ci-dessus. Meme couple que `turnflow.py`.
         if get_invalid_target_reason(state, int(caster_id), int(uid), probe,
-                                     apply_self_cast_switch=False) == 0:
+                                     apply_self_cast_switch=False,
+                                     caster_tiles=caster_tiles) == 0:
             out.append(int(uid))
     return out
+
+
+def get_valid_targets_in_steps(state: "State", caster_id: int, positions) -> list:
+    """`IdunBattle.Core.Services.AttackQuery$$GetValidTargetsInSteps(unit, possibleUnitTiles,
+    abilityType)` -- MIRROR du corps de son iterateur
+    `AttackQuery.u003CGetValidTargetsInStepsu003Ed__18$$MoveNext`, LU terme a terme :
+
+        result = new ValidTargets();                                  # etat +0x40
+        foreach (from in possibleUnitTiles) {                          # +0x48 = l'enumerateur
+            yield return null;                                         # etat 1 -- le << InSteps >>
+            other = this.GetValidTargets(unit, from, abilityType);     # la surcharge 1-POSITION
+            result.Merge(other);
+        }
+        yield return result;                                           # etat 2
+
+    C'est donc l'UNION, position par position, de la MEME cascade que `valid_normal_attack_targets`
+    -- rien d'autre. Le `yield return null` intermediaire est le decoupage en pas de temps du
+    natif (il laisse la frame respirer) : il n'a aucune contrepartie offline et n'entre dans AUCUN
+    resultat, l'appelant non-`InSteps`
+    (`AttackQuery$$GetValidTargets(unit, possibleUnitTiles, abilityType)`) bouclant sur `MoveNext`
+    jusqu'a epuisement avant de lire l'accumulateur.
+
+    ⚠ **CABLE SUR L'ATTAQUE NORMALE**, comme son unique consommateur porte. Le natif prend un
+    `abilityType` quelconque ; le seul call-site porte
+    (`AttemptedPossessionAbility$$GetPreferredAttackTarget`) y passe
+    `UnitExtensions$$GetNormalAttackType(unit)`, ce que `valid_normal_attack_targets` resout deja
+    par caster. La generalisation a une ability quelconque demanderait de propager `caster_tiles`
+    dans `valid_targets_for` : residu, pas un port speculatif.
+
+    ORDRE : `ValidTargets$$Merge` accumule dans un `OrderedSet`, donc premiere apparition d'abord et
+    doublons ignores -- ce que la deduplication ci-dessous reproduit. L'ordre des POSITIONS est celui
+    que l'appelant fournit.
+
+    ⚠ NON PORTE, et c'est BORNE : `ValidTargets` transporte AUSSI une `MainTile` (le natif construit
+    `new ValidTargets(mainTile, targets)` par position, et `Merge` ne garde que les cibles). Le seul
+    consommateur porte ne lit que `res.<+0x10>`, la liste -- le champ `MainTile` n'entre dans aucun
+    verdict de cette tranche."""
+    out: list = []
+    vus: set = set()
+    for pos in (positions or ()):
+        for t in valid_normal_attack_targets(state, int(caster_id), caster_tiles=pos):
+            if int(t) in vus:
+                continue                       # `OrderedSet.Add` -- doublon ignore
+            vus.add(int(t))
+            out.append(int(t))
+    return out
+
+
+def all_valid_targets_from_all_possible_movement_tiles(state: "State", unit_id: int) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAllValidTargetsFromAllPossibleMovementTiles(unit,
+    abilityType, ignoreMovementFlag)` (slot `IBattleQuery 69`) -- MIRROR.
+
+    Le `BattleQuery` DELEGUE au slot 5 d'`IDamagePredictionQuery`
+    (`DamagePredictionQuery$$GetAllValidTargetsFromAllPossibleMovementTiles`), dont le corps est
+    l'iterateur `DamagePredictionQuery.u003CGetAllValidTargetsFromAllPossibleMovementTilesInStepsu003E
+    d__29$$MoveNext`, LU etat par etat :
+
+        // etat 0
+        tiles = <IMovementQuery 2 GetMovablePositionsFor>(attacker, ignoreMovementFlag, out default);
+        tiles.Add(EntityExtensions.GetUnitPosition(attacker, state));      // la position COURANTE
+        // etat 1
+        result = <IAttackQuery 4 GetValidTargetsInSteps>(attacker, tiles, abilityType);
+
+    Les DEUX slots sont LUS dans `data/symbols/<build>/metadata/interface_slots.tsv`
+    (`IMovementQuery 2 GetMovablePositionsFor 3` et `IAttackQuery 4 GetValidTargetsInSteps 3`),
+    jamais devines : c'est l'ARITE qui les confirme (3 arguments chacun, comme les call-sites).
+
+    L'`Add` de la position courante n'est PAS redondant avec l'union interne de
+    `MovementQuery$$GetMovablePositionsFor` (`movable.AddRange(IterateTiles(unit, state))`) : sur
+    une unite MULTI-HEX le regroupement en positions a N pieds peut ne pas reproduire l'empreinte
+    exacte. La cible etant un `OrderedSet`, l'ajout est un no-op quand elle y est deja.
+
+    `ignoreMovementFlag` est INERTE cote port : il desarme la garde d'entree
+    `UnitFlagsComponent$$Has(unitFlags, 1)` de `MovementQuery$$FindAnyOrAllMoveableTiles`, garde qui
+    n'a aucun substrat dans `services/movement_query.get_movable_tiles_for` (residu partage, deja
+    nomme par `MovableTilesInRange` et par `genestealer.py`). Il n'est donc pas un parametre ici.
+
+    PORTEE DU PATHFINDING : `options = default` cote natif, donc `overrideRange = null`, donc
+    `StatComponent(Movement).CurrentValue` -- le MOVEMENT courant de l'unite, la meme grandeur que
+    l'`overrideMovement` de `1101 AttemptedPossession`.
+
+    Rend la liste des ids de cible, ou `[]` quand le substrat manque (pas de board, pas de position)
+    -- aucun refus ni aucune cible inventes."""
+    board = state.board
+    if board is None:
+        return []
+    feet = entity_tiles(state, int(unit_id))
+    if not feet:
+        return []
+    tid = board.id_at(int(feet[0][0]), int(feet[0][1]))
+    if tid is None:
+        return []
+    e = state.get_entity(int(unit_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    if sc is None or getattr(sc, "ctx", None) is None:
+        return []
+    move = int(sc.ctx.get_stat(int(StatType.MOVEMENT)) or 0)
+    # OCCUPATION PAR EMPREINTE VIVANTE -- meme convention que les trois collapses de `genestealer.py`
+    # (`_living_occupants_map`) : la valeur est l'EQUIPE de l'occupant, ce a quoi
+    # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` compare `moving_team`.
+    occupants = {}
+    for eid, ent in state.entities.items():
+        uc = ent.get_component(UnitComponent)
+        if uc is None or not uc.alive:
+            continue
+        team = ent.get_component(OwnerComponent)
+        for t in get_unit_feet(state, int(eid)) or ():
+            t_id = board.id_at(int(t[0]), int(t[1]))
+            if t_id is not None:
+                occupants[t_id] = None if team is None else team.team
+    stop = _mq.get_movable_tiles_for(board, state, int(unit_id), int(tid), move, occupants,
+                                     None if oc is None else oc.team)
+    # `GetMovablePositionsFor` = le regroupement en positions a N pieds AU-DESSUS du stop-set.
+    positions = _mq.get_movable_positions_for(board, state, int(unit_id),
+                                              [board.coord(int(t)) for t in sorted(stop)])
+    positions = [list(p) for p in positions]
+    # `tiles.Add(GetUnitPosition(attacker, state))` -- la position COURANTE, en QUEUE comme le natif.
+    if sorted(feet) not in [sorted(p) for p in positions]:
+        positions.append(list(feet))
+    return get_valid_targets_in_steps(state, int(unit_id), positions)
 
 
 def has_valid_targets(state: "State", unit_id, ability_type) -> Optional[bool]:
@@ -2726,6 +2857,35 @@ def _tile_of(state: "State", entity_id):
     return None if pc is None else (pc.col, pc.row)
 
 
+def _first_tile(tiles):
+    """`IdunBattle.Core.UnitPosition$$get_MainTile(casterTiles)` -- la PREMIERE tuile d'une position
+    interrogee, ou `None` si la liste est vide. Meme convention que `entity_tiles(...)[0]`, qui EST
+    `EntityExtensions$$GetMainTileId` (cf. `_obscuring_target_tile`)."""
+    for t in (tiles or ()):
+        if t is None:
+            continue
+        return (int(t[0]), int(t[1]))
+    return None
+
+
+def caster_tiles_of(state: "State", caster_id: int, caster_tiles=None) -> list:
+    """`EntityExtensions$$GetTiles(caster, state)` OU la position INTERROGEE (#590-r6).
+
+    LE FOYER UNIQUE du repli : partout ou le natif prend un parametre `casterTiles`, le port accepte
+    desormais `caster_tiles=None` (« la position REELLE », le comportement de tous les appelants
+    historiques, octet pour octet) ou une LISTE de tuiles `(col, row)` -- la position hypothetique
+    que `IdunBattle.Core.Services.TargetingQuery$$GetValidTargets(caster, casterTiles, options,
+    skipAddCasterChecks, onlySendFirst)` recoit de son appelant.
+
+    Ce n'est PAS une commodite : le natif ne DEPLACE jamais l'unite pour interroger une position
+    candidate, il passe la liste. Simuler par un `MoveUnitOperation` reversible aurait libere la
+    tuile d'origine et change l'occupation du plateau -- une divergence que le paramètre supprime
+    par construction."""
+    if caster_tiles is not None:
+        return [(int(t[0]), int(t[1])) for t in caster_tiles if t is not None]
+    return entity_tiles(state, caster_id)
+
+
 def _has_forced_in_melee(state: "State", unit_id) -> bool:
     """`EntityExtensions.HasEffect(caster, state, 0x529 ForcedInMelee, activeOnly = false)` lu par
     `GetRange` juste avant le cap final. Poseur porte : le trigger de free-attack de
@@ -2736,9 +2896,17 @@ def _has_forced_in_melee(state: "State", unit_id) -> bool:
     return bool(state.effects.has_effect(int(unit_id), effect_type=EFFECT_FORCED_IN_MELEE))
 
 
-def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
+def should_apply_ranged_in_melee(state: "State", caster_id: int, caster_tiles=None) -> bool:
     """`IdunBattle.Core.Services.AttackQuery$$ShouldApplyRangedInMelee(caster, casterTiles,
     ignoreTrait)` -> `IdunBattle.Core.Services.DamageCalculations$$ShouldApplyRangedInMelee`.
+
+    `caster_tiles` (#590-r6) -- LA POSITION INTERROGEE, `None` = celle du caster sur le plateau.
+    Le slot est `IAttackQuery 21 ShouldApplyRangedInMelee` (arite 3,
+    `data/symbols/<build>/metadata/interface_slots.tsv`) et son 2e argument est bien `casterTiles` :
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange` le lui transmet VERBATIM
+    (`(*puVar10)(plVar1, caster, casterTiles, 1, method)`). Le clamp melee se mesure donc depuis la
+    position CANDIDATE quand on interroge une position hypothetique -- c'est ce que le mirror de
+    `GetAllValidTargetsFromAllPossibleMovementTiles` exige (un summon qui s'approche entre en melee).
 
     `GetRange` l'appelle avec **`ignoreTrait = 1`** (litteral du call-site ; le thunk d'`AttackQuery`
     se contente de forwarder R9 et d'injecter `this.state` en 3e argument — VERIFIE a l'octet, la
@@ -2783,11 +2951,18 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     Le canal existe et il est COMPLET : `combatSnapshot.units[].unitFlags` publie le resultat de
     `IdunBattle.Entities.UnitExtensions$$HasFlag` pour **chaque valeur** de l'enum lue au runtime
     (`internals.ts::unitFlagValues`), et `snapshot._load_unit_flags` seede tout ce qu'il recoit --
-    donc ce gate MORD des qu'un etat charge porte le drapeau, sans capteur neuf."""
+    donc ce gate MORD des qu'un etat charge porte le drapeau, sans capteur neuf.
+
+    ⚠ RESIDU NOMME (#590-r6-r1, INCHANGE PAR CETTE TRANCHE) : le natif fait
+    `foreach (tile in casterTiles) foreach (adj in <voisins de tile>)`, le port ne regarde que la
+    MAIN TILE. Les deux coincident sur toute unite a 1 pied ; sur une multi-hex le port sous-estime
+    le clamp (ecart PERMISSIF sur la portee). Le parametre `caster_tiles` ci-dessus reprend la MEME
+    convention -- sa premiere tuile -- pour rester value-preservant : le corriger est une reparation
+    a part entiere, pas un effet de bord de ce port-ci."""
     board = state.board
     if board is None:
         return False
-    src = _tile_of(state, caster_id)
+    src = _tile_of(state, caster_id) if caster_tiles is None else _first_tile(caster_tiles)
     if src is None:
         return False
     src_tid = board.id_at(src[0], src[1])
@@ -2865,7 +3040,8 @@ def set_config_values_in_targeting_options(options: "TargetingOptions",
     return replace(options, range=replace(rng, override_range=cfg))
 
 
-def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Optional[Range]:
+def get_range(state: "State", caster_id: int, options: "TargetingOptions",
+              caster_tiles=None) -> Optional[Range]:
     """`IdunBattle.Core.Services.TargetingQuery$$GetRange(caster, casterTiles, options)` — mirror :
 
         if (casterTiles == null || casterTiles.Count == 0)   return default(Range);
@@ -2920,12 +3096,18 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
     ensuite, les deux CLAMPS de melee en dernier. Un clamp applique avant l'override serait ecrase
     par lui. Et **tout chemin qui clampe force `only_adjacent`** (les deux `Math.Min(1, v)` du
     decompile sont dans le MEME bloc que `onlyAdjacent = true`) : la valeur clampee n'est donc jamais
-    lue par le consommateur, ce qui rend le clamp d'un `None` sans consequence."""
+    lue par le consommateur, ce qui rend le clamp d'un `None` sans consequence.
+
+    `caster_tiles` (#590-r6) : la position INTERROGEE, `None` = celle du caster. Elle entre dans les
+    DEUX endroits ou le natif lit `casterTiles` -- le court-circuit « liste vide » de tete et le
+    `ShouldApplyRangedInMelee` de queue. Rien d'autre du corps n'en depend (la portee d'arme, les
+    stats et les deux `RangedBool` lisent le CASTER, pas sa position)."""
     rng = options.range
     if rng is None:
         return None                                   # `TargetingRange` non RE-lu -> pas de gate
     uwb = bool(rng.use_whole_board)
-    if _tile_of(state, caster_id) is None:
+    if (_tile_of(state, caster_id) if caster_tiles is None
+            else _first_tile(caster_tiles)) is None:
         # `if (casterTiles == null || casterTiles.Count == 0)` -- le PREMIER test du corps natif,
         # AVANT le court-circuit `UseWholeBoard`. Il rend `{0, false, options.Range.UseWholeBoard}`.
         return Range(value=0, only_adjacent=False, use_whole_board=uwb)
@@ -2972,7 +3154,7 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
         value = None if value is None else min(1, value)
         only_adjacent = True
     if ranged_bool_is_true(options.force_melee_target, state, caster_id):
-        if should_apply_ranged_in_melee(state, caster_id):
+        if should_apply_ranged_in_melee(state, caster_id, caster_tiles):
             value = None if value is None else min(1, value)
             only_adjacent = True
     # Sortie COMPLETE : bits 40..47 du retour natif restent a zero (`(cVar2 != 0) << 0x20` puis
@@ -3010,7 +3192,7 @@ def are_tiles_adjacent(board, src_tid, dst_tid) -> bool:
 
 
 def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[int],
-                          options: "TargetingOptions") -> int:
+                          options: "TargetingOptions", caster_tiles=None) -> int:
     """LE VOLET PORTEE du filtre statique (surcharge 7 arguments de
     `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`), sur le chemin
     `ignoreRangeChecks = false` — le seul emprunte par
@@ -3064,11 +3246,16 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
     Les CINQ abilities tile-target du registre a gate de portee reel etaient concernees : 1017
     FragBomb, 1092 DarkTalonStrike, 1116 RadBombardment, 1151 TheQuickening, 1219 IronkinSteeljack.
     Pour une cible UNITE le resultat est INCHANGE (`entity_tiles` commence par `get_unit_feet` et le
-    rend tel quel)."""
-    rr = get_range(state, caster_id, options)
+    rend tel quel).
+
+    #590-r6 : `caster_tiles` est le `casterTiles` natif -- le 2e argument de la surcharge 7
+    arguments, que `TargetingQuery$$GetValidTargets` lui transmet depuis SON propre 2e argument.
+    `None` = la position REELLE, le seul regime d'avant cette tranche. Les DEUX branches (adjacence
+    et distance) le consomment, comme le natif, et `get_range` le recoit lui aussi."""
+    rr = get_range(state, caster_id, options, caster_tiles)
     if rr is None:
         return 0
-    src_feet = entity_tiles(state, caster_id)
+    src_feet = caster_tiles_of(state, caster_id, caster_tiles)
     dst_feet = entity_tiles(state, target_id)
     if not src_feet or not dst_feet:
         # DIVERGENCE DE SUBSTRAT, NOMMEE (#419-r1-tr14-r5-r2-r1-r2-r1-r1-r2). Le natif ne teste rien
@@ -3136,7 +3323,7 @@ def is_friend_or_has_friendly_unit_on_it(state: "State", entity_id, unit_id) -> 
 
 
 def get_tiles_obscuring_terrain(state: "State", caster_id: int, target_id,
-                                options: "TargetingOptions") -> set:
+                                options: "TargetingOptions", caster_tiles=None) -> set:
     """`IdunBattle.Core.Services.TargetingQuery$$GetTilesObscuringTerrain(caster, casterTiles,
     target, options)` (surcharge LISTE) -- LA LIGNE DE VUE, et le SEUL endroit ou les bits 24/25/26
     sont lus. VERBATIM :
@@ -3172,7 +3359,11 @@ def get_tiles_obscuring_terrain(state: "State", caster_id: int, target_id,
     une tuile en son OCCUPANT (dont la main tile peut differer de la tuile visee si elle est
     multi-hex). Non resolue -> `GetMainTile(null)` est nul cote natif aussi, et le set est vide.
 
-    Rend le SET des positions obscurcissantes (cardinal seul lu par la cascade)."""
+    Rend le SET des positions obscurcissantes (cardinal seul lu par la cascade).
+
+    #590-r6 : le premier argument du slot `IMovementQuery 15 GetTilesObscuringTerrain` EST
+    `casterTiles` -- la ligne de vue part donc de la position INTERROGEE, pas de la position reelle.
+    `caster_tiles=None` rend exactement le comportement d'avant."""
     if not getattr(state, "enable_obscuring_terrain", True):
         return set()
     resolved = _resolved_target_id(state, target_id, options)
@@ -3190,8 +3381,8 @@ def get_tiles_obscuring_terrain(state: "State", caster_id: int, target_id,
     if t2 == 0:
         return set()
     return get_tiles_obscuring_terrain_from_tiles(
-        state.board, entity_tiles(state, caster_id), _obscuring_target_tile(state, resolved),
-        t2, 2)
+        state.board, caster_tiles_of(state, caster_id, caster_tiles),
+        _obscuring_target_tile(state, resolved), t2, 2)
 
 
 def _obscuring_target_tile(state: "State", target_id):
@@ -3683,7 +3874,7 @@ def get_adjacent_friends(state: "State", tiles, unit_id) -> list:
 CASTER_HAS_2_TURNS_LEFT_ARG = 2
 
 
-def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
+def get_invalid_caster_reason(state: "State", caster_id: int, ability, caster_tiles=None) -> int:
     """`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` — volet CASTER du meme
     filtre, evalue AVANT le volet cible par l'overload 5 arguments de
     `TargetingQuery$$GetInvalidTargetReason` (`if (casterReason.IsInvalid()) return casterReason;`).
@@ -3798,7 +3989,18 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     `combatSnapshot.units[].unitFlags` (`snapshot._load_unit_flags`, introduit par `f02e30f`). MESURE :
     `probe_210_blackrage_targeting.py` cas `S4a` -- Lucien bouge LIVE, on capture, et le port rend
     `CasterHasNotMoved` en accord avec l'oracle `abilityReason`, sans pose manuelle. Elle mord aussi
-    sur le chemin replay/self-play OFFLINE, ou c'est `MoveUnitOperation` -> `set_moved_flag`."""
+    sur le chemin replay/self-play OFFLINE, ou c'est `MoveUnitOperation` -> `set_moved_flag`.
+
+    #590-r6 -- `caster_tiles` : la position INTERROGEE (`None` = la position REELLE). DEUX clauses
+    la lisent, et une SEULE change de verdict quand elle differe des tuiles reelles :
+      * `CasterHasNotMoved` -- la 2e clause native est `GetTiles(caster).IsEquivalentTo(casterTiles)`,
+        donc une position HYPOTHETIQUE fait rendre `0x10` meme si l'unite n'a pas bouge. Elle est
+        desormais ECRITE, et elle est INERTE sur le seul consommateur porte de la position
+        hypothetique (l'attaque normale, preset `0x4002`, ne pose pas le bit `0x10`) ;
+      * la clause TUILE-NULLE (4a) teste `IsNullOrEmpty(casterTiles)`, donc bien la position
+        interrogee -- une position candidate non vide ne la rompt jamais.
+    Les trois filtres `CasterHasNTiles` lisent `GetFeetCount(caster, state)`, c'est-a-dire le CASTER
+    et non `casterTiles` : ils restent sur les pieds REELS, comme le natif."""
     options = getattr(ability, "TARGETING_OPTIONS", None)
     if options is None:
         return 0
@@ -3809,14 +4011,28 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
         # Seul un `False` MESURE allege : `None` = substrat non capte, et sauter sur une non-mesure
         # fabriquerait une acceptation (cf. le tri-etat du foyer).
         if is_turn_of_unit(state, int(caster_id)) is not False:
-            if unit_has_moved(state, int(caster_id)):
+            # `if (!DidMove(caster) && GetTiles(caster).IsEquivalentTo(casterTiles)) -> ok`
+            # -- la 2e clause REFUSE une position de cast hypothetique (#590-r6). `IsEquivalentTo`
+            # est ensembliste : on compare les MULTI-ENSEMBLES de tuiles, pas leur ordre. Le
+            # court-circuit `caster_tiles is None` la rend litteralement inexistante dans le regime
+            # d'avant cette tranche (la position interrogee EST celle du caster).
+            deplacee = (caster_tiles is not None
+                        and sorted(caster_tiles_of(state, int(caster_id), caster_tiles))
+                        != sorted(entity_tiles(state, int(caster_id))))
+            if deplacee or unit_has_moved(state, int(caster_id)):
                 return int(TR.CasterHasNotMoved)
     # CLAUSE TUILE-NULLE (4a) -- placee ici, au rang NATIF : APRES `CasterHasNotMoved`, AVANT
     # `CasterMatchesDynamicRule`. L'ordre n'est pas cosmetique, c'est lui qui fixe la RAISON rendue :
     # une unite sous terre rompt CETTE regle et non la regle-delegue de son ability (cf. la section
     # dediee dans la docstring).
+    # `IsNullOrEmpty(casterTiles)` porte sur la position INTERROGEE (#590-r6). Le repli reste
+    # `get_unit_feet` -- PAS `caster_tiles_of` -- pour etre value-preservant a l'octet : `entity_tiles`
+    # a un 2e bras (une TUILE se rend elle-meme) que `get_unit_feet` n'a pas, et cette clause-ci
+    # lisait `get_unit_feet` avant cette tranche.
     if not (options.has(TR.AllowNullCasterTile) or options.has(TR.CasterHasNoTile)):
-        if not get_unit_feet(state, int(caster_id)):
+        interrogee = (get_unit_feet(state, int(caster_id)) if caster_tiles is None
+                      else caster_tiles_of(state, int(caster_id), caster_tiles))
+        if not interrogee:
             return int(TR.AllowNullCasterTile)
     # `CasterMatchesDynamicRule` -- LE POINT D'EXTENSION du volet caster (#250), place ici comme dans
     # le natif (apres la paire tuile-nulle, avant les filtres de `FeetCount`). Le natif rend le code
@@ -3973,7 +4189,8 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
 
 
 def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optional[int],
-                              ability, *, apply_self_cast_switch: bool = True) -> int:
+                              ability, *, apply_self_cast_switch: bool = True,
+                              caster_tiles=None) -> int:
     """`IdunBattle.Entities.Abilities.AActiveAbility$$GetInvalidTargetReason` (-> ...WithRules ->
     `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`) : rend le PREMIER
     `TargetingRule` rompu, dans l'ORDRE NATIF de la cascade, ou 0 (cible valide).
@@ -4003,6 +4220,15 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
 
     Le port n'a qu'un corps ; ce drapeau NOMME la surcharge. `False` = la 7 arguments -- reserve aux
     mirrors d'ENUMERATION (`caster_is_valid_target`), jamais au chemin du cast.
+
+    `caster_tiles` (#590-r6) -- LE `casterTiles` NATIF, 2e argument des DEUX surcharges. `None` = la
+    position REELLE du caster, c'est-a-dire ce que `ActiveAbilityOperation$$ExecuteInternal` passe
+    (`EntityExtensions.GetTiles(caster, state)`) et le seul regime d'avant cette tranche. TROIS
+    etages de la cascade le consomment, et ce sont exactement les trois que le natif alimente avec :
+    le volet PORTEE (`get_range_broken_rule` -> `get_range` -> `ShouldApplyRangedInMelee`), la LIGNE
+    DE VUE (`GetTilesObscuringTerrain(caster, casterTiles, ...)`) et `TargetIsNotAdjacent` (le slot
+    `0x61` recoit `casterTiles` en 2e liste). Aucune autre regle du filtre ne lit la position du
+    caster -- verifie regle par regle sur la surcharge 7 arguments.
 
     Regles portees uniquement — l'inventaire complet et le motif de chaque non-port sont en tete de
     module."""
@@ -4170,7 +4396,7 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # L'ordre n'est pas cosmetique : c'est lui qui fixe la RAISON rendue quand plusieurs regles sont
     # rompues (le natif s'arrete a la premiere). `get_range_broken_rule` rend 0 des que le port ne
     # sait pas mesurer.
-    reason = get_range_broken_rule(state, caster_id, target_id, options)
+    reason = get_range_broken_rule(state, caster_id, target_id, options, caster_tiles)
     if reason:
         return reason
 
@@ -4204,7 +4430,7 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # resolues) -- meme convention permissive que le reste du module. La regle ne peut rendre un
     # refus que sur des positions et des elevations REELLES.
     if state.board is not None:
-        if get_tiles_obscuring_terrain(state, caster_id, target_id, options):
+        if get_tiles_obscuring_terrain(state, caster_id, target_id, options, caster_tiles):
             return int(TR.TargetIsUnobscured)
 
     # TargetIsSummon -- « la cible doit etre un SUMMON ». VERBATIM du filtre statique (surcharge 7
@@ -4355,7 +4581,7 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # de l'ability (mesure #226 sur HammerOfWrath : d=1 refuse, d>=2 accepte).
     if options.has(TR.TargetIsNotAdjacent):
         board = state.board
-        src = entity_tiles(state, caster_id)
+        src = caster_tiles_of(state, caster_id, caster_tiles)     # `casterTiles` (#590-r6)
         dst = entity_tiles(state, target_id)
         if board is not None and src and dst and are_entities_adjacent(board, dst, src):
             return int(TR.TargetIsNotAdjacent)
