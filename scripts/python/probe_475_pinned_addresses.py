@@ -17,8 +17,8 @@ CE QUE CE CLIQUET EST SEUL A VOIR
 ADRESSE DANS l'artefact, qui ne contient aucun hash et qu'aucun de ses criteres ne regarde.
 `probe_283` garde les ORDINAUX d'enum, `probe_365` les imports. Aucun ne lit d'adresse.
 
-DEUX REGLES, ET LA SECONDE EST CELLE QUI ATTRAPE UNE TRANSCRIPTION FAUSSE
-------------------------------------------------------------------------
+TROIS REGLES, ET CHACUNE VOIT CE QUE LES AUTRES NE PEUVENT PAS VOIR
+-------------------------------------------------------------------
 R1 -- ARITHMETIQUE D'ADRESSE HORS FOYER. Dans le TypeScript de `frida/hooks/**`, hors du foyer
      `frida/hooks/il2cpp/build-pin.ts`, sont interdits : `il2cppBase.add(`,
      `Module.findBaseAddress(`, tout litteral hexa dans ]base, base+0x10000000[ -- SAUF quand ce
@@ -44,6 +44,24 @@ R2 -- LE PIN EST CONFRONTE A LA TABLE VERSIONNEE. Un pin declare `va` + `build` 
      la faute deja commise dans ce depot (`RVA_VALUE_MOD_MODIFY` valait `0x1fadfc0` pour une VA
      dont la RVA est `0xfadfc0`, et pointait en plein corps d'une classe sans rapport, latente
      parce que c'etait un fallback derriere un `findMethod` qui reussissait).
+
+R3 -- LE BUILD DECLARE CONFRONTE AU BUILD INSTALLE. R2 resout chaque pin dans la table du build
+     que le PIN DECLARE : elle reste donc VERTE pour l'eternite sur un pin epingle sur un build
+     DISPARU, puisque cette table-la est encore versionnee. C'est exactement l'angle mort qui a
+     ete paye le 2026-08-15 : R1 et R2 vertes, `probe_475` VERT -- et les onze pins de la session
+     REFUSES, `scorerElevTraceDump` / `scorerLeafTraceDump` a **0 entree**, `X_nat` a `None` sur
+     toutes les tuiles, et `test_477r33_non_owner_playbooks_live.py` a 12 F / 29 P en accusant ses
+     montages. Un pin perime ne fire PAS : `pinnedAddress` refuse, et c'est son contrat -- ce qui
+     manquait, c'est quelqu'un pour le DIRE avant qu'un consommateur lise ce silence.
+
+     Le verdict porte sur ce qui est RE-DERIVABLE OFFLINE (symbole UNIQUE, debut de fonction) :
+     ne pas l'avoir migre est une MIGRATION MANQUANTE, et le probe donne la VA neuve. Quatre
+     formes ne le sont pas (donnee `DAT_*`, placeholder `FUN_*`, point interne, symbole a
+     plusieurs occurrences) : elles sont NOMMEES et COMPTEES, jamais tues, jamais bloquantes --
+     les migrer exige de lire le binaire.
+
+     Tri-etat : quand le build installe n'est pas lisible, l'etape le DIT et se tait. Elle ne
+     rend alors NI vert NI rouge -- un zero fabrique serait le vice qu'elle corrige.
 
 L'AUTO-EPREUVE TOURNE A CHAQUE RUN
 ---------------------------------
@@ -388,6 +406,51 @@ def confronter(pin: Pin, table: Table) -> "str | None":
                pin.va, "%s+0x%x" % eng if eng else "rien"))
 
 
+# ------------------------------------------------------------------ R3 : pin PERIME
+# Un `FUN_<hex>` n'est pas un symbole : c'est l'ADRESSE deguisee. Le retrouver dans la table d'un
+# AUTRE build ne prouve rien sur l'identite de la fonction -- il prouve seulement qu'une fonction
+# commence encore la. Il n'est donc jamais << re-derivable >>.
+RX_PLACEHOLDER = re.compile(r"^FUN_[0-9a-fA-F]+$")
+
+
+def rederivable(pin: Pin, par_nom: dict) -> "tuple[int | None, str]":
+    """(VA re-derivee, raison) -- `None` quand la re-derivation OFFLINE n'est pas legitime.
+
+    QUATRE formes ne se re-derivent PAS d'une table de symboles, et chacune a deja coute :
+      * `kind == "data"`   -- un `DAT_*` n'est pas dans `functions.tsv`, par construction ;
+      * placeholder `FUN_` -- son NOM EST son ancienne adresse (cf. `RX_PLACEHOLDER`) ;
+      * point INTERNE      -- transposer l'offset sur la nouvelle base est EXACTEMENT la faute
+                              deja commise (`+0x18EE` transpose est tombe 243 octets a cote, en
+                              plein milieu d'une instruction). Il faut DESASSEMBLER ;
+      * symbole a PLUSIEURS occurrences -- deux surcharges ; seule la SIGNATURE au decompile les
+                              departage (`GetMultiplierFromDamageBonus`, singulier vs pluriel).
+    Tout le reste est un debut de fonction porte par un symbole UNIQUE : la re-derivation est un
+    grep, et ne pas l'avoir faite est une MIGRATION MANQUANTE, pas une limite."""
+    if pin.kind == "data":
+        return None, "donnee (`DAT_*`) : absente de functions.tsv par construction"
+    if RX_PLACEHOLDER.match(pin.symbole):
+        return None, "placeholder `FUN_*` : le nom EST l'ancienne adresse, il ne PROUVE rien"
+    m = RX_SYMBOLE_INTERNE.match(pin.symbole)
+    if m:
+        return None, ("point INTERNE (`%s`) : a DESASSEMBLER, jamais a transposer" % pin.symbole)
+    hits = par_nom.get(pin.symbole) or []
+    if len(hits) == 1:
+        return hits[0], "symbole UNIQUE dans la table du build installe"
+    if len(hits) > 1:
+        return None, ("symbole a %d occurrences : departager les surcharges au decompile"
+                      % len(hits))
+    return None, "symbole ABSENT de la table du build installe (renomme ? disparu ?)"
+
+
+def build_installe() -> "tuple[str | None, str]":
+    """(build installe, pourquoi None). Tri-etat : `None` = PAS MESURE, jamais un zero."""
+    try:
+        import build_pin
+        return build_pin.installed_build(), ""
+    except Exception as exc:                                        # noqa: BLE001
+        return None, "%s: %s" % (type(exc).__name__, exc)
+
+
 def table_du_build(build: str, cache: dict) -> "tuple[Table | None, str]":
     if build in cache:
         return cache[build]
@@ -469,6 +532,72 @@ def self_test(verbose: bool) -> list:
         ko.append("AUTO-EPREUVE : R2 refuse un symbole JUSTE")
     if verbose:
         print("    R2       %-32s -> %s" % ("symbole faux / juste", "OK" if not ko else "KO"))
+    # R3 : le TRI entre << migration manquante >> et << non re-derivable offline >> est ce qui
+    # decide du verdict. Un tri qui laisse tout passer en NOMME rendrait un cliquet inerte ; un
+    # tri qui rougit sur un `DAT_*` se ferait desarmer. Les DEUX sens sont eprouves.
+    par_nom = {"Unique$$Symbole": [0x181000000],
+               "Deux$$Surcharges": [0x181000000, 0x181000100]}
+    cas = [
+        ("symbole UNIQUE -> re-derivable", "Unique$$Symbole", "code", 0x181000000),
+        ("donnee DAT_*", "DAT_1833407b0", "data", None),
+        ("placeholder FUN_*", "FUN_180031990", "code", None),
+        ("point INTERNE", "X$$Y+0x17fb", "code", None),
+        ("symbole a DEUX occurrences", "Deux$$Surcharges", "code", None),
+        ("symbole ABSENT", "Disparu$$Symbole", "code", None),
+    ]
+    for nom, sym, kind, attendu in cas:
+        vu, _raison = rederivable(Pin("<synth>", 1, 0x1, "vieux", sym, kind, (0, 0)), par_nom)
+        if verbose:
+            print("    R3       %-32s -> %s" % (nom, "OK" if vu == attendu else "KO (%r)" % vu))
+        if vu != attendu:
+            ko.append("AUTO-EPREUVE : R3 classe '%s' en %r au lieu de %r" % (nom, vu, attendu))
+    return ko
+
+
+def etape_r3(tous_pins: list, cache: dict, verbose: bool) -> list:
+    """R3 -- LE BUILD DECLARE PAR LE PIN CONFRONTE AU BUILD INSTALLE. Rend la liste des ecarts."""
+    print("=== (4) R3 -- LES PINS CONFRONTES AU BUILD INSTALLE ===")
+    installe, why = build_installe()
+    if installe is None:
+        # NON MESURE n'est ni un vert ni un rouge -- et surtout pas un zero. On le DIT.
+        print("  NON MESURE : le build installe n'est pas lisible (%s)." % why)
+        print("  Cette etape est donc MUETTE sur cette machine ; elle n'a rien confirme.")
+        return []
+    par_nom: dict = {}
+    tinst, err = table_du_build(installe, cache)
+    if tinst is None:
+        print("  NON MESURE : %s" % err)
+        return []
+    for a, n in zip(tinst.addrs, tinst.names):
+        par_nom.setdefault(n, []).append(a)
+    print("build installe : %s (table : %d symbole(s))" % (installe, len(tinst.addrs)))
+    perimes = [p for p in tous_pins if p.build != installe]
+    print("pins PERIMES (build declare != build installe) : %d / %d"
+          % (len(perimes), len(tous_pins)))
+    ko, nommes = [], 0
+    for pin in sorted(perimes, key=lambda p: (p.rel, p.ligne)):
+        neuve, raison = rederivable(pin, par_nom)
+        if neuve is None:
+            nommes += 1
+            print("  NOMME %s:%d  [%s] %s -- %s"
+                  % (pin.rel, pin.ligne, pin.build, pin.symbole[:70], raison))
+            continue
+        print("  ROUGE %s:%d  [%s] MIGRATION MANQUANTE : `%s` vaut 0x%x sur %s (declare 0x%x)"
+              % (pin.rel, pin.ligne, pin.build, pin.symbole[:70], neuve, installe, pin.va))
+        ko.append("pin perime re-derivable %s:%d" % (pin.rel, pin.ligne))
+    if perimes:
+        print("  dont %d NOMME(S) -- non re-derivables OFFLINE, ils exigent de lire le binaire ;"
+              " ils ne comptent pas dans le verdict, et ils sont comptes ici pour qu'un"
+              " renoncement reste VISIBLE." % nommes)
+    if ko:
+        print("  Un pin perime NE FIRE PAS : `pinnedAddress` refuse (c'est son contrat), donc le"
+              " capteur est MUET. Mesure du 2026-08-15 : `scorerElevTraceDump` et"
+              " `scorerLeafTraceDump` rendaient 0 entree, `X_nat` valait None partout, et"
+              " `test_477r33_non_owner_playbooks_live.py` rendait 12 F / 29 P en accusant ses"
+              " montages. Cette etape est ce qui l'aurait dit AVANT.")
+    elif verbose and not perimes:
+        print("  aucun pin perime.")
+    print("")
     return ko
 
 
@@ -556,11 +685,14 @@ def main(argv) -> int:
                   % (pin.rel, pin.ligne, pin.va, pin.build, pin.symbole))
     print("")
 
+    ko.extend(etape_r3(tous_pins, cache, args.verbose))
+
     if ko:
         print("CLIQUET ROUGE : %d ecart(s)." % len(ko))
         return 1
-    print("CLIQUET VERT : aucune adresse du binaire en dur hors du foyer, et les %d pin(s)"
-          " declares coincident avec la table versionnee de leur build." % len(tous_pins))
+    print("CLIQUET VERT : aucune adresse du binaire en dur hors du foyer ; les %d pin(s) declares"
+          " coincident avec la table versionnee de leur build (R2) ; et aucun pin PERIME"
+          " re-derivable offline n'attend sa migration (R3)." % len(tous_pins))
     return 0
 
 
