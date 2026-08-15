@@ -914,8 +914,15 @@ def _kill_steppable_kill_unit(state: State, dead_id: int, killer_id) -> list:
     state.trigger_ability_type = None          # `KillUnitOptions+0x04` = 0 -> `TriggeringAbility` VIDE
     try:
         # `+0x46 = 0` -> le flag `Overkilled` n'est jamais pose : `overkill=False` sur tout le vecteur.
+        # `+0x45 = 1` -> `prevent_revive_option=True` : le natif pose `UnitFlag.PreventRevive` (0xd)
+        # SANS CONDITION sur un crushe, AVANT `On(1 = PreUnitDeath)`. Son lecteur est le 3e etage de
+        # `IdunBattle.Core.Services.BattleQuery$$CanBeRevived` -- c'est ce qui rend un crushe
+        # DEFINITIVEMENT irrevivable, et c'est ce que le port ne jouait pas
+        # (#462-r4b-r1-r1-r1-r1-c-r3-r1-r6 : la fiche `-r1` §6 annonce l'inverse, « un apothicaire
+        # adjacent PEUT annuler un crush », en sautant cet etage de `CanBeRevived`).
         return AttackDamageOperation._kill_unit_operation(
-            state, int(dead_id), None if killer_id is None else int(killer_id), False) or []
+            state, int(dead_id), None if killer_id is None else int(killer_id), False,
+            prevent_revive_option=True) or []
     finally:
         state.triggering_ability = prev_current
         state.trigger_ability_type = prev_trigger

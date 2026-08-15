@@ -84,6 +84,8 @@ from typing import Optional
 
 from ...state import State
 from ...components import StatsComponent, OwnerComponent, UnitComponent, HealthComponent
+# `UnitFlagsComponent` : le 3e etage de `BattleQuery$$CanBeRevived` est `!HasFlag(target, 0xd)`.
+from ...components import UnitFlagsComponent
 from ...abilities.behaviours.context import entities_from_state
 from ...abilities.behaviours.stats import is_mechanical
 from ....entities.behaviours import op_add, Maybe
@@ -300,12 +302,30 @@ def can_be_revived(entities, target_liveunit, target_id: int, state: State,
     `NOT HasFlag(unit,0xd)` & `NOT HasTrait(PermaDeath=0x41a=1050)` & `NOT HasHealBlockers`.
 
     `healType` = le virtuel `get_HealType @vtable+0x748` de la sous-classe (0 base/Narthecium/Tainted/
-    RitesOfMorkai, **1** ReanimationBeam, **2** PhoenixGem via le litteral de son IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour) -- cf. `is_affected_by_heal_type`. Flag 0xd (pas encore pose a l'instant de l'OnPreDeath)
-    & HealBlockers non modelises -> non-bloquants."""
+    RitesOfMorkai, **1** ReanimationBeam, **2** PhoenixGem via le litteral de son IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour) -- cf. `is_affected_by_heal_type`.
+
+    ⚠ **LE FLAG `0xd` EST DESORMAIS LU, ET LA JUSTIFICATION QUI VIVAIT ICI ETAIT FAUSSE**
+    (#462-r4b-r1-r1-r1-r1-c-r3-r1-r6). Elle disait « flag 0xd (pas encore pose a l'instant de
+    l'OnPreDeath) -> non-bloquant » ; le rang natif dit l'inverse. Aux adresses de retour de
+    `IdunBattle.Operations.KillUnitOperation$$Execute` :
+
+        RecordDeathReason  ->  Add(0x08 = Overkilled)  ->  **Add(0x0d = PreventRevive)**
+        ->  On(1 = PreUnitDeath)  ->  <garde revive, UnitComponent+0xa8>  ->  ...
+
+    le flag tombe AVANT le vecteur qui porte les revives. Et son gate est
+    `options.<+0x45> ? true : IsSteppable(killed)`, avec `+0x45 = 1` sous
+    `KillUnitOperationOptions$$ForSteppable` : **un CRUSHE le recoit sans condition**. Le port,
+    qui ne le lisait pas, ressuscitait donc un crushe que le natif refuse -- degradation
+    PERMISSIVE, donc invisible en self-play. Mesure : `probe_462r4br6_revive_apres_crush.py`.
+
+    `HasHealBlockers` reste non modelise -> non-bloquant (residu inchange, direction PERMISSIVE)."""
     e = state.get_entity(target_id)
     hc = e.get_component(HealthComponent) if e is not None else None
     if hc is None or hc.hp is None or int(hc.hp) >= 1:        # GetStat(Health,0) < 1 : doit etre mort
         return False
+    fl = e.get_component(UnitFlagsComponent)
+    if fl is not None and fl.has(UnitFlagsComponent.PREVENT_REVIVE):
+        return False                                         # NOT HasFlag(unit, 0xd) -- cf. docstring
     ht = entities.has_trait
     if ht is None:
         return True                                          # pas de resolveur trait -> defaut revivable
