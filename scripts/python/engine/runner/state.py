@@ -103,6 +103,9 @@ class State:
                  "trigger_ability_type",
                  "pending_deaths", "draining_deaths", "ability_states_seed",
                  "pending_triggered_abilities", "draining_pending_abilities",
+                 # #443-r2-b2 -- la file `IMatchState` slot 7 (`GetDamageEvents`) et son garde de
+                 # re-entrance. MEME forme que le couple ci-dessus.
+                 "pending_damage_events", "draining_damage_events",
                  "enable_obscuring_terrain", "unit_flags_seed",
                  # #999-r3-r2 -- rapport de la passe `snapshot._load_unit_rarity` (compte par
                  # BLOC + etat du canal `unitsNotAlive`). MEME tri-etat que `unit_flags_seed` :
@@ -364,6 +367,20 @@ class State:
         # `RunPhase(PhaseType.ProcessPendingTriggeredAbilities /*0xf*/, ..., isInternalPhase: 1)` qui RE-DRAINE la file. Le traitement est donc par
         # VAGUES (une ability enfilee pendant le drain part a la vague suivante), pas en FIFO plat.
         self.draining_pending_abilities: bool = False
+        # #443-r2-b2 -- LA FILE DES DAMAGE-EVENTS, mirror de la `Queue<T>` que rend `IMatchState`
+        # slot **7** (`GetDamageEvents`). Elle est ALIMENTEE par le slot **8**
+        # (`AddDamageEvent(source, caster, target)` -> `IdunBattle.Core.MatchState$$AddDamageEvent`,
+        # qui `Enqueue` un struct `{source: AbilityOrEffect@+0x0..+0x1b, casterId@+0x1c,
+        # targetId@+0x20}`), et DRAINEE par
+        # `IdunBattle.Messages.InputMessageProcessor$$ProcessDamageEvents`.
+        # SEUL enfileur natif : `IdunBattle.Operations.ApplyDamageOperation$$Execute` -- balayage
+        # LITTERAL du slot 8 d'`IMatchState` dans tout le decompile : **1 site**.
+        # Chaque entree = `(source_ability, caster_id, target_id)`.
+        self.pending_damage_events: list = []
+        # Re-entrance du drain, MEME forme que `draining_pending_abilities` : le natif SNAPSHOTE
+        # (`new List<T>(q)`) puis `q.Clear()` AVANT d'iterer, et chaque vague tourne dans un
+        # `RunPhase(PhaseType 0xe, ..., isInternalPhase: 1)` qui RE-DRAINE la file.
+        self.draining_damage_events: bool = False
         # #363 -- TRACE du canal du seed TERTIAIRE (`snapshot._auto_ability_states`), pose par
         # `load_state` : `{"source": <str>, "seeded": <int|None>}`. `seeded = None` veut dire « le
         # seed n'a PAS tourne », et `source` dit POURQUOI (`refused`, `no-snapshot`, `no-transport`,

@@ -249,8 +249,13 @@ def test_1078r2_registre_et_vecteurs_distincts():
 
 
 def test_1078r2_le_volet_tour_exige_le_tour_du_porteur():
-    """`IsTurnOf(Owner@+0x30)` collapse : joueur non threade -> FAUX (on ne fabrique pas un tour) ;
-    joueur ADVERSE -> FAUX ; joueur du porteur -> VRAI."""
+    """`<DSLTriggers+0x28>` = `IsTurnOf(Owner@+0x30)`.
+
+    LE VICE QUE CE TEST GARDE : re-collapser `IsTurnOf` a la main dans `matches` (un SECOND port du
+    meme noeud natif). Le noeud lit `ctx.current_player_id` -- la garde de tete du natif
+    (`ctx@+0x50 == null -> false`) -- et **PAS** le `player_id` de l'evenement. Les deux valeurs
+    sont donc posees SEPAREMENT ici, et volontairement DISCORDANTES : un port qui lirait
+    `ev.player_id` passerait le 3e cas et echouerait sur le 4e."""
     from engine.runner.operations.triggers.base import TriggerEvent
     st = _state()
     ab = HOS.HunterOfSoulsAbility(SUMMON_ID)
@@ -258,9 +263,17 @@ def test_1078r2_le_volet_tour_exige_le_tour_du_porteur():
     def _ev(player):
         return TriggerEvent(int(EventTriggerType.TurnStart_Actions), -1, -1,
                             ranged=False, profile=None, player_id=player)
-    assert ab.matches(st, _ev(None)) is False
-    assert ab.matches(st, _ev(2)) is False
-    assert ab.matches(st, _ev(1)) is True
+    st.current_player_id = None
+    assert ab.matches(st, _ev(1)) is False, "`ctx@+0x50 == null -> return false`"
+    st.current_player_id = 2                       # tour de l'ADVERSAIRE
+    assert ab.matches(st, _ev(1)) is False
+    st.current_player_id = 1                       # tour du porteur
+    assert ab.matches(st, _ev(None)) is True, \
+        "le noeud lit `current_player_id`, pas `ev.player_id` (sinon : SECOND port du noeud)"
+    st.current_player_id = 2                       # discordant avec `ev.player_id = 1`
+    assert ab.matches(st, _ev(1)) is False, \
+        "un collapse par `ev.player_id` passerait ici -- c'est le fork que ce cas interdit"
+    st.current_player_id = 1
     st.get_entity(SUMMON_ID).get_component(UnitComponent).alive = False
     assert ab.matches(st, _ev(1)) is False, "`ownerNeedsToBeAlive = 1`"
 

@@ -94,7 +94,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....components import OwnerComponent, UnitComponent
+from ....components import UnitComponent
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect
 from ....abilities.behaviours.flags import AddFlag
@@ -106,7 +106,7 @@ from .....entities.behaviours import If, op_add
 from .....entities.effect_type import EffectType
 from .....entities.selectors.accessors import Owner
 from .....entities.selectors.tiles import Parent
-from .....entities.triggers import HasEffect, HasUnitFlag, Not, YesTrigger
+from .....entities.triggers import HasEffect, HasUnitFlag, IsTurnOf, Not, YesTrigger
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.unit_flag import UnitFlag
 from ..base import TriggeredAbility, TriggerEvent
@@ -171,18 +171,19 @@ class HunterOfSoulsAbility(TriggeredAbility):
     TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.HunterOfSouls)             # 0x5d9 = 1497
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        # `IsTurnOf(Owner@+0x30)` -- `start_turn_triggers` porte le JOUEUR dont le tour debute ;
-        # `IdunBattle.Entities.Triggers.IsTurnOfTrigger` compare le joueur courant a celui du
-        # selecteur. Non threade -> FAUX (on ne fabrique pas un tour). MEME collapse que
-        # `ArmourOfShriekingSoulsDrainOnTurnStart`, qui porte le MEME `<DSLTriggers+0x28>`.
-        if ev.player_id is None:
-            return False
+        # `<DSLTriggers+0x28>` = `IsTurnOf(Owner@DSLSelectors+0x30)` -- evalue par le NOEUD DSL
+        # (`entities/triggers.py::IsTurnOf`), FOYER UNIQUE du mirror de
+        # `IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger`. Le re-collapser a la
+        # main ici en fabriquerait un SECOND port : le noeud lit `ctx.current_player_id`
+        # (`ctx@+0x50 == null -> false`, la garde de tete du natif), pas le `player_id` de
+        # l'evenement -- et sur CE vecteur les deux coincident, `set_current_player` posant
+        # `state.current_player_id` a l'ENTRANT (ChangeTurn) AVANT que `StartTurn` n'emette `On(0x16)`.
         ent = state.get_entity(int(self.owner_id))
-        oc = ent.get_component(OwnerComponent) if ent is not None else None
-        if oc is None or oc.player is None or int(oc.player) != int(ev.player_id):
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None or not uc.alive:                # `ownerNeedsToBeAlive = 1`
             return False
-        uc = ent.get_component(UnitComponent)
-        return uc is not None and uc.alive            # `ownerNeedsToBeAlive = 1`
+        entities = entities_from_state(state, self.owner_id, self.owner_id)
+        return bool(IsTurnOf(Owner()).should_trigger(entities))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
