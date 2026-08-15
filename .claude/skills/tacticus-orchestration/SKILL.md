@@ -1254,18 +1254,31 @@ python scripts/python/fleet_board.py    # derniere ligne : "N agents ; FLOTTE = 
 **Avant CHAQUE annonce du chiffre, et avant CHAQUE decision de refill, joue cette commande.**
 Pas « je crois », pas « il m'en reste deux » : la derniere ligne de sortie.
 
-⚠ **MAIS CE CHIFFRE EST UN MAJORANT, PAS UNE AUTORITE — et l'arbitre est le DASHBOARD DU CLI.**
-`fleet_board` classe « en vol » tout agent ayant ecrit dans son transcript il y a moins de
-15 min, et **aucun seuil ne separe** les deux populations : ses propres lignes 171-191 le
-mesurent (un agent VIVANT peut etre a 8,2 min de silence, un agent TERMINE a 12,1 — il n'y a
-pas de trou entre les deux a cette echelle). Un agent qui vient de rendre est donc compte
-« vif » pendant un quart d'heure. Mesure du 2026-08-15 : le script annonce **4**, l'utilisateur
-en voit **3** sur son dashboard, et le meme script rend **3** quelques minutes plus tard sans
-qu'aucun agent n'ait bouge. Corollaire ecrit dans sa source : `libres = plafond - en_vol` est
-une **borne INFERIEURE** du nombre de slots libres.
-⇒ **Il ne DECOMPTE pas, il MAJORE.** Quand il annonce le plafond, il reste probablement de la
-place. Quand l'utilisateur corrige le chiffre, **c'est lui qui a raison** — et c'est le SCRIPT
-qu'on corrige, jamais la mesure de l'utilisateur qu'on discute.
+⚠ **LE CRITERE EST LE SIGNAL D'ARRET DU TRANSCRIPT, PLUS UN TIMER (corrige le 2026-08-15).**
+Un agent a RENDU ssi la derniere entree de son transcript est un message `assistant` **sans
+aucun bloc `tool_use`** — rien n'est en attente. Il TRAVAILLE si elle finit sur un `tool_use`
+(il appelle) ou un `tool_result` (il vient de recevoir). Aucun delai n'intervient.
+
+**Ne JAMAIS revenir a `stop_reason == "end_turn"`** : ce champ est **absent** sur des agents
+pourtant finis — typiquement celui qui a ete REPRIS par `SendMessage` puis a rendu. C'etait la
+cause exacte des annonces fausses (« 5 en vol » pour 4, puis pour 3) : le critere le manquait,
+l'agent retombait sur le timer de 15 min et comptait « vif » un quart d'heure apres sa fin.
+Effet du correctif, mesure sur la flotte reelle : **4 annonces -> 2**, les deux restants etant
+bien les seuls a travailler.
+
+⚠ **Et la lecon de METHODE, qui vaut au-dela de ce script** : son propre commentaire affirmait
+« AUCUN MARQUEUR STRUCTUREL NE SEPARE LES DEUX […] seul le harnais sait, et un script Python
+n'y a pas acces ». **Faux** — et faux pour une raison instructive : la mesure qui l'appuyait
+avait balaye `stop_reason`, `type` et les jeux de CLES, **jamais la composition du CONTENU**.
+Cette conclusion negative a fait renoncer au correctif pendant trois jours. **Une conclusion
+negative ne vaut que pour les axes REELLEMENT balayes — la dire, c'est dire lesquels.**
+
+⚠ Le seuil `SILENCE_MORT_MIN` reste en place comme **repli** pour un transcript illisible, mais
+il ne gouverne plus. S'il redevient le critere effectif, il ne peut que **SUR-compter** (un
+fini passe pour vif ; l'inverse est impossible), donc `libres = plafond - en_vol` serait une
+borne INFERIEURE et bloquerait un refill.
+⇒ Et dans tous les cas : **quand l'utilisateur corrige le chiffre, c'est lui qui a raison** —
+c'est le SCRIPT qu'on corrige, jamais sa mesure qu'on discute.
 
 **Pourquoi** : un compteur mental se decremente au fil des merges et **derive**. Mesure du
 2026-08-15 : annonce « 5 en vol » alors que la flotte en portait **4** ; re-annonce « 5 »
