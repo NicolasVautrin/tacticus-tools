@@ -72,7 +72,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_pin import BuildPinRefused                                    # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc                      # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _by_tile, _one, _port_leaves,   # noqa: E402
-                                            _exiger_build_des_rva, x_port)
+                                            _exiger_build_des_rva, x_port,
+                                            cause_x_nat_non_mesurable)
 from probe_212_spiritual_leader_tile_term import _apply_native_via       # noqa: E402
 from probe_477r31_attract_mechanicals_camp import LAYOUTS_CAMP           # noqa: E402
 
@@ -736,7 +737,7 @@ def mesurer(call, rid, montage="kardio", max_steps=25, trace=print) -> dict:
             step += 1
             continue
 
-        call("scorerDamageTraceOn", {"runnerId": rid}, 90)
+        armement = call("scorerDamageTraceOn", {"runnerId": rid}, 90)
         call("scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
         try:
             call("aiStepDryRun", {"runnerId": rid}, 90)
@@ -779,10 +780,24 @@ def mesurer(call, rid, montage="kardio", max_steps=25, trace=print) -> dict:
                          "tile7": vt, "elev": ve, "tile_eff": vf,
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
         _l0 = _port_leaves(ctx, tiles[0])[1]
-        return {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
-                "bras_a": ha, "bras_b": hb,
-                "friend_units": list(_l0.get("friend_units") or ()),
-                "enemy_units": list(_l0.get("enemy_units") or ())}
+        out = {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
+               "bras_a": ha, "bras_b": hb,
+               "friend_units": list(_l0.get("friend_units") or ()),
+               "enemy_units": list(_l0.get("enemy_units") or ())}
+        # LE CRAN : une mesure ou AUCUNE ligne n'a de `x_nat` n'est pas une mesure, c'est un
+        # SILENCE. Sans lui, `divergences` rend 0 pour TOUS les modeles (elle saute les `None`),
+        # `test_le_natif_suit_le_PORT` passe A VIDE, et seules les contre-epreuves rougissent --
+        # 12 rouges qui accusaient les montages pour une panne de CAPTEUR (2026-08-15, #10011).
+        #
+        # ⚠ C'EST UN CHAMP, PAS UN ECRASEMENT, et la difference porte. Rendre `{"erreur": ...}`
+        # detruirait `bras_a`/`bras_b`/`prof` -- qui sont MESURES et JUSTES : le montage a bien
+        # place ses deux bras, la trajectoire a bien ete marchee, les tuiles ont bien ete hookees.
+        # Seul le canal NATIF manque. Les gardes de MONTAGE doivent donc rester VERTES (elles ne
+        # mentent pas), et seules celles qui consomment `X_nat` doivent rougir. Ecraser reviendrait
+        # a faire accuser le montage par la panne du capteur -- exactement ce qu'on repare.
+        if not any(r["x_nat"] is not None for r in rows):
+            out["x_nat_indisponible"] = cause_x_nat_non_mesurable(call, rid, tt, el, te, armement)
+        return out
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}

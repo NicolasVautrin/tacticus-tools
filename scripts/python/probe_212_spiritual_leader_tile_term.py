@@ -64,9 +64,46 @@ def _leaf_names():
     return {int(c.UTILITY_TYPE): type(c).__name__ for c in TILE_UTILITY.children}
 
 
-def _decoys_adjacent(leaf_ctx, tile):
+def decoys_adjacent(leaf_ctx, tile):
+    """Les decoys ALLIES sur une tuile ADJACENTE a `tile`, au sens de l'ADJACENCE NATIVE.
+
+    FOYER UNIQUE de ce comptage, partage avec la garde `test_spiritual_leader_tile_term_live.py`
+    -- et c'est ce partage qui est l'objet du correctif. Les deux lisaient
+    `hexgeo.distance(tile, u["pos"]) == 1`, c'est-a-dire la COURONNE HEX, la ou le port (comme le
+    natif) passe par `engine.battle_query.is_adjacent`, mirror de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` -- la liste
+    STOCKEE du `ConnectivityComponent` PUIS la porte INCONDITIONNELLE `|elev(t) - elev(v)| < 2`.
+
+    ⚠ L'ECART EST STRICTEMENT PERMISSIF, DONC IL SUR-COMPTE : la couronne hex est un SUR-ENSEMBLE
+    du voisinage natif (mesure #271 : 0 faux sur 4 963 paires pour `is_adjacent`, contre 9 / 22 / 2
+    faux pour `hexgeo.distance == 1`, TOUJOURS dans le sens permissif). Un oracle bati sur la
+    couronne annonce donc des decoys que ni le natif ni le port ne comptent, et le desaccord se lit
+    comme un trou du PORT alors qu'il est dans l'ORACLE. Mesure du 2026-08-15 sur `MC1_67`/777 :
+    la tuile `(1,3)` est a l'elevation 4 et DEUX de ses six voisins hex, `(1,2)` et `(2,2)`, sont a
+    l'elevation 2 -- `|dElev| = 2`, donc exclus par la porte. Elle rendait `(terme 0.0, n 2)` et
+    faisait tomber `test_term_is_capped_at_one_adjacent_decoy`.
+
+    L'ANCRAGE COMPTE : `is_adjacent(tile, pos)` enumere les voisins DE `tile` (la tuile candidate),
+    comme le natif -- la liste stockee n'est pas garantie symetrique, contrairement a la porte
+    d'elevation. C'est l'ordre qu'emploie
+    `AdjacentUnitPreferenceTriggeredAbilityPlaybook.calculate_movement_utility_in_steps`."""
+    from engine import battle_query as bq
+    elev = leaf_ctx.get("elev_by_pos")
+    neigh = bq.neigh_map(leaf_ctx)
     return [u for u in (leaf_ctx.get("friend_units") or ())
-            if hexgeo.distance(tile, u["pos"]) == 1 and DECOY_TRAIT in (u.get("traits") or ())]
+            if u.get("pos") and bq.is_adjacent(tile, tuple(u["pos"]), elev, neigh)
+            and DECOY_TRAIT in (u.get("traits") or ())]
+
+
+def decoys_adjacent_hex(leaf_ctx, tile):
+    """Le MEME comptage sur la COURONNE HEX -- gardé pour le DIRE, jamais pour en conclure.
+
+    C'est l'ancien oracle. Il n'est plus consomme par aucun verdict : la table de `_measure`
+    l'imprime a cote du comptage natif pour que l'ecart (`nHex != nNat`) soit VISIBLE au lieu
+    d'etre un rouge inexplique."""
+    return [u for u in (leaf_ctx.get("friend_units") or ())
+            if u.get("pos") and hexgeo.distance(tile, tuple(u["pos"])) == 1
+            and DECOY_TRAIT in (u.get("traits") or ())]
 
 
 def _has_steppable_occupant(leaf_ctx, tile) -> bool:
@@ -80,19 +117,27 @@ def _has_steppable_occupant(leaf_ctx, tile) -> bool:
 
 
 def _profile(ctx, tiles):
-    """{tuile: (n decoys adjacents, occupant steppable ?)} sur `tiles`."""
+    """{tuile: (n decoys adjacents NATIF, occupant steppable ?, n decoys couronne HEX)}.
+
+    Le 3e membre n'entre dans AUCUN verdict : il n'est la que pour rendre l'ecart entre les deux
+    adjacences LISIBLE dans la table (cf. `decoys_adjacent`)."""
     out = {}
     for t in tiles:
         lc = _port_leaves(ctx, t)[1]
-        out[t] = (len(_decoys_adjacent(lc, t)), _has_steppable_occupant(lc, t))
+        out[t] = (len(decoys_adjacent(lc, t)), _has_steppable_occupant(lc, t),
+                  len(decoys_adjacent_hex(lc, t)))
     return out
 
 
 def _regime_ok(prof) -> bool:
     """Le regime que le volet A EXIGE : parmi les tuiles SANS occupant steppable, au moins une a
     `n = 0` et au moins une a `n >= MIN_RICH`. Sans les deux, un port qui somme `30 x n` rend la
-    MEME chose qu'un port qui borne -- la mesure ne peut rien contredire."""
-    ns = {n for (n, occ) in prof.values() if not occ}
+    MEME chose qu'un port qui borne -- la mesure ne peut rien contredire.
+
+    `n` est le comptage NATIF (`decoys_adjacent`) : c'est celui que le terme borne. Un regime
+    etabli sur la couronne hex serait un regime ANNONCE et non REALISE -- la tuile compterait
+    2 decoys pour l'oracle et 0 pour le natif comme pour le port."""
+    ns = {n for (n, occ, _h) in prof.values() if not occ}
     return bool(ns) and 0 in ns and max(ns) >= MIN_RICH
 
 
@@ -110,15 +155,27 @@ def _ally_decoys(leaf_ctx):
             if DECOY_TRAIT in (u.get("traits") or ()) and u.get("pos")]
 
 
-def _rich_tiles(decoys, min_n=MIN_RICH):
-    """Tuiles ayant `>= min_n` decoys allies a distance hex 1 -- l'ensemble que le CAP borne.
+def _rich_tiles(decoys, leaf_ctx, min_n=MIN_RICH):
+    """Tuiles ayant `>= min_n` decoys allies ADJACENTS AU SENS NATIF -- l'ensemble que le CAP borne.
 
-    Balaye la couronne R1 de chaque decoy (au plus 6 x |decoys| candidates) plutot que le plateau."""
-    counts = {}
-    for d in decoys:
-        for t in hexgeo.neighbors(d[0], d[1]):
-            counts[t] = counts.get(t, 0) + 1
-    return sorted(t for t, n in counts.items() if n >= min_n)
+    Deux etages, et le premier n'est qu'une ENUMERATION : la couronne hex de chaque decoy sert de
+    SUR-ENSEMBLE de candidates (au plus 6 x |decoys|, plutot que le plateau entier), ce qui est
+    licite parce que le voisinage natif y est INCLUS (l'ecart mesure est strictement permissif,
+    cf. `decoys_adjacent`). Le comptage, lui, passe par `bq.is_adjacent`.
+
+    ⚠ VISER UNE TUILE RICHE POUR L'ORACLE ET PAUVRE POUR LE NATIF fait croire au drive qu'il a
+    atteint le regime alors qu'il ne l'a pas atteint : le pas est retenu, la mesure est prise, et
+    le cap n'est jamais mis en defaut. C'est la MEME faute que celle du comptage, un etage plus
+    haut -- d'ou le partage de `bq.is_adjacent` entre le but et la mesure."""
+    from engine import battle_query as bq
+    elev = leaf_ctx.get("elev_by_pos")
+    neigh = bq.neigh_map(leaf_ctx)
+    cand = {t for d in decoys for t in hexgeo.neighbors(d[0], d[1])}
+    out = []
+    for t in sorted(cand):
+        if sum(1 for d in decoys if bq.is_adjacent(t, d, elev, neigh)) >= min_n:
+            out.append(t)
+    return out
 
 
 def walk_driven(call, rid, carrier_id, wants, goals_of, max_steps=120, drive=True):
@@ -284,7 +341,7 @@ def _measure(sid, rid, ctx, dv, uid, names, wt, pb):
     prof = _profile(ctx, tiles)
     print("\n===== u%s (%s) origin=%s natif joue %s ; %d tuiles hookees ====="
           % (uid, (me or {}).get("visualId"), origin, nat_tile, len(tiles)))
-    print("\n  tuile      X_nat  X_port  DELTA  terme_pb  nDecoy step occupant           "
+    print("\n  tuile      X_nat  X_port  DELTA  terme_pb  nNat nHex step occupant           "
           "feuilles NON NULLES du port")
     by_n, bad, rows = {}, [], 0
     for t in tiles:
@@ -292,13 +349,17 @@ def _measure(sid, rid, ctx, dv, uid, names, wt, pb):
         leaves, leaf_ctx = _port_leaves(ctx, t)
         p_x = x_port(leaves)                     # foyer UNIQUE du retranchement (#254, cf. `x_port`)
         term = pb.calculate_movement_utility_in_steps(t, leaf_ctx, wt)
-        n, occ_step = prof[t]
+        n, occ_step, n_hex = prof[t]
         x = (vt - ve - vf) if None not in (vt, ve, vf) else None
         d = (x - p_x) if x is not None else None
         nz = ", ".join("%s=%g" % (names.get(k, k), v) for k, v in sorted(leaves.items())
                        if abs(v) > 1e-9 and k not in x_excluded())
-        print("  %-10s %-6s %-7.4g %-6s %-9.4g %-6d %-4s %-18s %s"
+        # `nNat` != `nHex` = la tuile porte un decoy que la COURONNE HEX voit et que la liste
+        # stockee (ou la porte d'elevation) ECARTE. Ce n'est pas un ecart du port : c'est ce que
+        # `IterateAdjacentTiles` fait, et l'imprimer evite qu'un lecteur relise le port.
+        print("  %-10s %-6s %-7.4g %-6s %-9.4g %-4d %-4s %-4s %-18s %s"
               % (t, x, p_x, ("%.4g" % d) if d is not None else "?", term, n,
+                 ("%d *" % n_hex) if n_hex != n else str(n_hex),
                  "OUI" if occ_step else "-", occupant.get(t, "-"), nz or "-"))
         if x is None:
             continue
@@ -337,6 +398,18 @@ def _verdict(got) -> int:
         print("\n  VOLET A : OK -- `X_nat` = %g pour tout n >= 1 (n vus : %r) et %r a n=0. Le cap "
               "MORD : le terme est borne a UN decoy." % (plateau[0], [n for n in ns if n >= 1],
                                                          sorted(by_n.get(0, ()))))
+    if not got["rows"]:
+        # `X_nat` n'est calculable que si les TROIS canaux repondent (`Tile7`, `Elevation`,
+        # `TileEffects`). Quand les hooks de feuille sont muets -- typiquement une adresse epinglee
+        # que `pinnedAddress` REFUSE apres un changement de build -- chaque ligne sort a `None` et
+        # la boucle les saute TOUTES. Sans ce cran, `bad` reste vide et le volet B s'annonce « OK
+        # sur les 0 tuiles » : un VERT QUI MENT, sur zero assertion evaluee.
+        print("\n  VOLET B : NON MESURE -- aucune tuile ne porte un `X_nat` calculable (les %d "
+              "tuiles hookees sortent toutes a None). Les trois canaux sont-ils vivants ? "
+              "`scorerElevTraceDump` et `scorerLeafTraceDump` rendent 0 entree des que leurs "
+              "adresses epinglees sont refusees par `build_pin` (build du jeu != build declare "
+              "par le pin)." % got["tiles"])
+        return rc | 1
     if bad:
         print("  VOLET B : ECHEC -- %d/%d tuiles en desaccord `X_nat != X_port` "
               "(tuile, DELTA, n, occupant steppable) : %r" % (len(bad), got["rows"], bad))
@@ -355,8 +428,10 @@ def goals_212(ctx, lc, decoys):
     """Les tuiles que le drive de #212 vise : celles a `>= MIN_RICH` decoys allies adjacents.
 
     S'y poser fait de la tuile RICHE l'ORIGINE du carrier au tour suivant -- donc une candidate
-    GARANTIE a `n >= MIN_RICH`, pendant que les tuiles du bord de son rayon restent a `n = 0`."""
-    return _rich_tiles(decoys)
+    GARANTIE a `n >= MIN_RICH`, pendant que les tuiles du bord de son rayon restent a `n = 0`.
+    « Adjacents » y est l'adjacence NATIVE, comme dans le comptage : `lc` porte les deux cartes
+    (`elev_by_pos`, `neigh_by_pos`) que `bq.is_adjacent` consomme."""
+    return _rich_tiles(decoys, lc)
 
 
 def run(sid, rid, max_steps, drive=True, max_arm=6):

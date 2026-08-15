@@ -80,7 +80,8 @@ import catalog_inject                                              # noqa: E402
 from build_pin import BuildPinRefused                              # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc                # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _by_tile, _one, _port_leaves,   # noqa: E402
-                                            _exiger_build_des_rva, x_port)
+                                            _exiger_build_des_rva, x_port,
+                                            cause_x_nat_non_mesurable)
 from probe_212_spiritual_leader_tile_term import _apply_native_via   # noqa: E402  (`call` injecte)
 
 PYDIR = Path(__file__).resolve().parent
@@ -424,8 +425,14 @@ def mesurer(call, rid, max_steps=25, trace=print) -> dict:
                          "na": prof[t][0], "ne": prof[t][1],
                          "self": _self_is_marshal(t, lc),
                          "tile7": vt, "elev": ve, "tile_eff": vf})
-        return {"rows": rows, "prof": prof, "ctx": ctx, "wt": wt, "step": step, "uid": carrier_id,
-                "bras_allie": ha, "bras_ennemi": he}
+        out = {"rows": rows, "prof": prof, "ctx": ctx, "wt": wt, "step": step, "uid": carrier_id,
+               "bras_allie": ha, "bras_ennemi": he}
+        # LE CRAN (#10011) : aucune ligne mesurable = un SILENCE, pas une mesure. Sans lui,
+        # `divergences` rend 0 pour TOUS les modeles et le verdict d'accord passe A VIDE. CHAMP et
+        # non ecrasement : le MONTAGE est mesure et juste, seul le canal NATIF manque.
+        if not any(r["x_nat"] is not None for r in rows):
+            out["x_nat_indisponible"] = cause_x_nat_non_mesurable(call, rid, tt, el, te)
+        return out
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}

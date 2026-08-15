@@ -60,7 +60,7 @@ import { Ctx } from "../controller.js";
 import {
     findClassAnywhere, findMethod, il2cppBase, class_get_name, s, class_get_parent,
 } from "../il2cpp/helpers.js";
-import { pinnedAddress, PinnedAddress } from "../il2cpp/build-pin.js";
+import { pinnedAddress, PinnedAddress, installedBuild } from "../il2cpp/build-pin.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
@@ -111,10 +111,11 @@ const CAP = 4000;
 // classe des enfants (une fois par instance `this`) pour IDENTIFIER de façon déterministe la feuille
 // -25 (plutôt que hooker feuille par feuille).
 const PIN_COMPOSED_UTILITY: PinnedAddress = {
-    va: 0x181212640, build: "rnca9r7q6c",
+    va: 0x1812130f0, build: "t6dpr4k06g",
     symbol: "IdunBattle.AI.Utilities.ComposedUtility.u003CEvaluateMovementInStepsu003Ed__8$$MoveNext",
     what: "itérateur du composite Tile(7) — énumère ses enfants",
-    how: "search_symbols_by_name sur ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext",
+    how: "search_symbols_by_name sur ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext,"
+        + " ou grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)",
 };
 
 // DamageCalculations.GetMultiplierFromDamageBonus @181005210 (RVA 0x1005210) — convertit un bonus %
@@ -149,17 +150,30 @@ const PIN_GET_MULT_DMG_BONUS: PinnedAddress[] = [{
 // Ces slots sont résolus au RUNTIME → non mappables offline. Ce résolveur lit, pendant une prédiction
 // live, la VA CONCRÈTE que chaque délégué invoque → on la décompile ensuite. Ciblage pur, aucune
 // formule devinée.
+// ⚠ CES DEUX-LA SONT MIGRES, LE BLOC AUQUEL ILS APPARTIENNENT NE L'EST PAS — et c'est voulu.
+// `installBaseOverrideResolver` refuse EN BLOC (six pins). Les quatre autres ne se re-dérivent
+// PAS offline : deux `DAT_*` (donnée, absente de `functions.tsv`), un placeholder `FUN_*` (son
+// nom EST son ancienne adresse : le retrouver dans la table neuve ne prouve RIEN sur l'identité
+// de la fonction), et un point INTERNE dont le commentaire ci-dessous interdit explicitement la
+// transposition d'offset. Le résolveur #49 reste donc NON POSÉ sur `t6dpr4k06g` — il le DIT dans
+// son log. Migrer ces deux-ci ne l'arme pas ; ça évite seulement de laisser croire que leur
+// adresse est celle d'un build disparu.
+// ⚠ ET L'ADRESSE NE SUFFIRA PAS : sur `rnca9r7q6c` la FORME du corps de `b__0` avait changé, et
+// `ATTACK_IFACE_IDX` était passé de 0xb4 à 0xb5. Les deux sont à RELIRE au décompilé avant de
+// croire ce résolveur, même une fois les quatre autres pins résolus.
 const PIN_PROFILE_B0: PinnedAddress = {
-    va: 0x1812edc90, build: "rnca9r7q6c",
+    va: 0x1812ee740, build: "t6dpr4k06g",
     symbol: "IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility"
         + ".u003Cu003Ec__DisplayClass9_0$$u003CGetAttackHitPredictionu003Eb__0",
     what: "délégué b__0 de GetAttackHitPrediction — porte l'override de base (vtable+0x4d8)",
+    how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)",
 };
 const PIN_PROFILE_B1: PinnedAddress = {
-    va: 0x1812eddd0, build: "rnca9r7q6c",
+    va: 0x1812ee880, build: "t6dpr4k06g",
     symbol: "IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility"
         + ".u003Cu003Ec__DisplayClass9_0$$u003CGetAttackHitPredictionu003Eb__1",
     what: "délégué b__1 de GetAttackHitPrediction — override de base via interface idx 0xb5",
+    how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)",
 };
 // ⚠ L'INDEX A BOUGÉ AVEC LE BUILD : 0xb4 → 0xb5. Relevé DEUX fois dans `b__1` — dans le scan de
 // l'itable `(off + 0xb5) * 0x10 + 0x138 + klass`, et dans le repli `FUN_1801e7040(svc, DAT, 0xb5)`.
@@ -252,9 +266,12 @@ function resolveSharedPlaybookBody(method: string): NativePointer | null {
 // DOMAINE PERTINENT, et la sortie de feuille yieldée (d__8+0x18, Fix64). d__8+0x20 = l'ElevationUtility ;
 // d__8+0x28 = la position candidate (MainTile via +0x18). À REFAIRE au changement de hash.
 const PIN_ELEVATION_LEAF: PinnedAddress = {
-    va: 0x181212b60, build: "rnca9r7q6c",
+    va: 0x181213610, build: "t6dpr4k06g",
     symbol: "IdunBattle.AI.Utilities.ElevationUtility.u003CEvaluateMovementInStepsu003Ed__8$$MoveNext",
     what: "feuille Elevation (itérateur MoveNext) — valeur d'élévation native + sortie de feuille",
+    how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv — occurrence UNIQUE,"
+        + " donc re-dérivable sans décompiler. C'est l'un des DEUX canaux que `X_nat = Tile7 -"
+        + " Elevation - TileEffects` retranche : quand il est muet, X_nat vaut None PARTOUT.",
 };
 
 // (CalculateUtilityFromTilePrediction se résout par `resolveSharedPlaybookBody` — cf. plus haut.
@@ -340,14 +357,18 @@ const bonusTrace: { buf: OriginBuffers<BonusEvent>; stacksLeft: number } =
 // composite Tile de toute façon). La position candidate est décodée par essai d'offsets (0x28/0x20).
 // (`IL2CPP_VA_BASE` et `rva()` sont déclarés en tête, avec le bloc des cibles par adresse.)
 const LEAF_HOOKS: Array<[PinnedAddress, string]> = [
-    [{ va: 0x18120cd60, build: "rnca9r7q6c",
+    [{ va: 0x18120d810, build: "t6dpr4k06g",
        symbol: "IdunBattle.AI.Utilities.TileEffectsUtility"
            + ".u003CEvaluateMovementInStepsu003Ed__1$$MoveNext",
-       what: "feuille -25 (Thorns_DefenseReduction)" }, "TileEffects"],
-    [{ va: 0x181210fd0, build: "rnca9r7q6c",
+       what: "feuille -25 (Thorns_DefenseReduction) — SECOND canal retranché par X_nat",
+       how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)" },
+     "TileEffects"],
+    [{ va: 0x181211a80, build: "t6dpr4k06g",
        symbol: "IdunBattle.AI.Utilities.CapturePointTileUtility"
            + ".u003CEvaluateMovementInStepsu003Ed__3$$MoveNext",
-       what: "contrôle : feuille connue-firing (sanity du mécanisme de hook)" }, "CapturePointTile"],
+       what: "contrôle : feuille connue-firing (sanity du mécanisme de hook)",
+       how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)" },
+     "CapturePointTile"],
 ];
 const LEAF_POS_OFFSETS = [0x28, 0x20];
 
@@ -540,9 +561,10 @@ function installStatModsHook(): boolean {
 // `CodeStage.AdvancedFPSCounter...FPSCounterData$$set_Average` — latente uniquement parce que c'est un
 // FALLBACK derrière un `findMethod` qui réussit. C'est la faute exacte que la forme `rva(<VA>)` supprime.
 const PIN_VALUE_MOD_MODIFY: PinnedAddress = {
-    va: 0x1810b8600, build: "rnca9r7q6c",
+    va: 0x1810b90b0, build: "t6dpr4k06g",
     symbol: "IdunBattle.Entities.Components.ValueModification$$Modify",
     what: "repli quand findMethod échoue — capture les Modify de gros montant",
+    how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)",
 };
 interface ModifyEvent {
     seq: number;
@@ -604,9 +626,10 @@ function installModifyHook(): boolean {
 // le base à l'entrée de PredictAttackRaw (posé en amont), PAS un modifier interne. On lit plusieurs offsets
 // candidats (le layout Nullable peut décaler). PredictAttackRaw = gshared → findMethod peut échouer → RVA fallback.
 const PIN_PREDICT_ATTACK_RAW: PinnedAddress = {
-    va: 0x181114610, build: "rnca9r7q6c",
+    va: 0x1811150c0, build: "t6dpr4k06g",
     symbol: "IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw",
     what: "repli quand findMethod échoue (gshared) — base pré-spread au contexte+0x58",
+    how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)",
 };
 interface PredBaseEvent {
     seq: number;
@@ -839,17 +862,32 @@ function installHook(): boolean {
 // (le ctor findMethod ci-dessus, lui, survit au hash et reste auto-armé). RAFRAÎCHIR CES RVA DEPUIS LE DUMP
 // À CHAQUE CHANGEMENT DE HASH avant de ré-armer. cf. feedback_rva_transcription_from_va.
 let rvaInstalled = false;
+/** Ce que CHAQUE sous-hook a réellement obtenu. `rvaInstalled: true` disait seulement « on a
+ *  ESSAYÉ » : mesuré le 2026-08-15, il valait `true` pendant que `installElevHook` et
+ *  `installLeafHooks` renonçaient tous deux (pins refusés), donc `scorerElevTraceDump` et
+ *  `scorerLeafTraceDump` rendaient **0 entrée** — et le seul consommateur de `X_nat` lisait ce
+ *  silence comme une mesure. Un booléen d'INTENTION n'est pas un booléen d'ÉTAT. */
+const rvaHooks: Record<string, boolean> = {};
 function installRvaHooks(): boolean {
     if (rvaInstalled) return true;
-    log("[scorer-trace] ⚠ arming BUILD-SPECIFIC RVA hooks (valid for hash rnca9r7q6c ONLY — "
-        + "refresh RVAs from dump on hash change)");
-    installUtilHook();
-    installElevHook();
-    installTileTermHook();
-    installLeafHooks();
-    installComposedHook();
-    installBonusHook();
-    installBaseOverrideResolver();   // #49 : résout la VA concrète de l'override de base (b__0/b__1)
+    const probe = installedBuild();
+    log("[scorer-trace] arming BUILD-SPECIFIC pinned hooks — build chargé = "
+        + (probe.build === null ? "NON MESURABLE (" + probe.why + ")" : probe.build));
+    rvaHooks.util = installUtilHook();
+    rvaHooks.elev = installElevHook();
+    rvaHooks.tileTerm = installTileTermHook();
+    rvaHooks.leaf = installLeafHooks();
+    rvaHooks.composed = installComposedHook();
+    rvaHooks.bonus = installBonusHook();
+    // #49 : résout la VA concrète de l'override de base (b__0/b__1). Refuse EN BLOC.
+    rvaHooks.baseOverride = installBaseOverrideResolver();
+    const morts = Object.keys(rvaHooks).filter((k) => !rvaHooks[k]);
+    if (morts.length > 0) {
+        log("[scorer-trace] SOUS-HOOKS NON POSÉS : " + morts.join(", ")
+            + " — leur dump rendra 0 entrée. Un consommateur qui soustrait ces canaux"
+            + " (X_nat = Tile7 - Elevation - TileEffects) obtiendra None sur TOUTES les tuiles."
+            + " Cause probable : cf. les lignes [build-pin] REFUS ci-dessus.");
+    }
     rvaInstalled = true;
     return true;
 }
@@ -952,9 +990,13 @@ function installTileTermHook(): boolean {
 let leafInstalled = false;
 function installLeafHooks(): boolean {
     if (leafInstalled) return true;
+    // Le retour dit ce qui est ATTACHÉ, pas ce qui a été TENTÉ : il valait `true` même quand les
+    // DEUX pins étaient refusés, ce qui faisait passer un canal mort pour un canal vide.
+    let poses = 0;
     for (const [pin, label] of LEAF_HOOKS) {
         const ptrFn = pinnedAddress(pin);
         if (ptrFn === null) continue;
+        poses++;
         Interceptor.attach(ptrFn, {
             onEnter(args) {
                 (this as { _d?: NativePointer })._d = args[0];
@@ -983,10 +1025,10 @@ function installLeafHooks(): boolean {
                 } catch { /* transient — skip */ }
             },
         });
-        log("[scorer-trace] hooked leaf " + label + " (RVA) @ " + ptrFn);
+        log("[scorer-trace] hooked leaf " + label + " (pinned) @ " + ptrFn);
     }
-    leafInstalled = true;
-    return true;
+    leafInstalled = poses > 0;
+    return leafInstalled;
 }
 
 // RVA hook sur ComposedUtility.MoveNext — énumère les enfants (List<IUtility> @ this+0x18) de chaque
@@ -1033,9 +1075,11 @@ function installComposedHook(): boolean {
 let bonusInstalled = false;
 function installBonusHook(): boolean {
     if (bonusInstalled) return true;
+    let poses = 0;                   // ce qui est ATTACHÉ, pas ce qui a été TENTÉ (cf. installLeafHooks)
     for (const pin of PIN_GET_MULT_DMG_BONUS) {
     const ptrFn = pinnedAddress(pin);
     if (ptrFn === null) continue;
+    poses++;
     Interceptor.attach(ptrFn, {
         onEnter(args) {
             if (!trace.on) return;
@@ -1081,10 +1125,10 @@ function installBonusHook(): boolean {
             } catch { /* transient — skip */ }
         },
     });
-    log("[scorer-trace] hooked GetMultiplierFromDamageBonus SINGLE (RVA) @ " + ptrFn);
+    log("[scorer-trace] hooked GetMultiplierFromDamageBonus SINGLE (pinned) @ " + ptrFn);
     }
-    bonusInstalled = true;
-    return true;
+    bonusInstalled = poses > 0;
+    return bonusInstalled;
 }
 
 // #49 — résolveurs de VA concrète des délégués d'override de base (b__0/b__1). Ciblage pur : lit, pendant
@@ -1294,6 +1338,12 @@ export function register(ctx: Ctx): void {
             return {
                 ok, ...armedReport("scorerDamage", body?.runnerId),
                 installed, rvaInstalled, allModsInstalled,
+                // ⚠ `rvaInstalled` dit « on a ESSAYÉ », `rvaHooks` dit CE QUI EST ATTACHÉ. Le
+                // premier valait `true` avec `elev` et `leaf` morts (pins refusés) — donc les
+                // dumps rendaient 0 entrée et `X_nat` valait None partout, en silence. Un
+                // consommateur DOIT lire celui-ci avant de conclure quoi que ce soit d'un dump
+                // vide. `pinnedAddressRefusals` (RPC `nameResolutionStatus`) donne la cause.
+                rvaHooks: { ...rvaHooks },
             };
         });
 

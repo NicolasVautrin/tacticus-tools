@@ -84,6 +84,19 @@ La contrainte est PRE-EXISTANTE et PARTAGEE : les deux fichiers voisins l'avaien
 tranche, elle n'avait simplement jamais ete nommee. Un rouge de cette famille en passe parallele
 n'accuse donc PAS le port -- le rejouer SEUL est le premier geste.
 
+CE FICHIER NE PEUT PAS ETRE VERT SANS SON CAPTEUR, ET IL LE DIT DESORMAIS (2026-08-15).
+`X_nat = Tile(7) - Elevation - TileEffects` exige les TROIS canaux de `scorer-damage-trace`. Le
+jeu est passe au build `t6dpr4k06g` : le foyer live `frida/hooks/il2cpp/build-pin.ts` a REFUSE les
+onze adresses epinglees de la session -- non pas parce que le build differait, mais parce que son
+motif de forme codait en dur le suffixe `6c` et que ce build finit en `6g`, donc `installedBuild()`
+rendait `null` (NON MESURABLE). `scorerTileTermTraceDump` survivait (il se resout au RUNTIME par
+`resolveSharedPlaybookBody`), `scorerElevTraceDump` et `scorerLeafTraceDump` rendaient **0
+entree**. Toutes les lignes sortaient a `x_nat = None`, `divergences` rendait 0 pour TOUS les
+modeles -- y compris `ABSENT`, qui vaut pourtant 0.0 par construction -- et `test_le_natif_suit_le_
+PORT` passait A VIDE : 12 F / 29 P, douze rouges qui accusaient les montages pour UNE panne de
+capteur. `mesurer` refuse maintenant en NOMMANT la panne (`cause_x_nat_non_mesurable`), et le
+verdict assertionne son propre non-vide. Le retour au VERT demande une FENETRE DE REINJECT.
+
 ASCII only.
 """
 from __future__ import annotations
@@ -148,12 +161,27 @@ def r33_case(request, rpc, build_runner):
 
 
 def _rows(r33_case) -> list:
-    """Les lignes de la mesure, ou un ROUGE qui NOMME la panne au lieu d'un `KeyError`."""
+    """Les lignes de la mesure, ou un ROUGE qui NOMME la panne au lieu d'un `KeyError`.
+
+    DEUX pannes DISTINCTES, et les separer est ce qui empeche l'une d'accuser l'autre :
+      * `erreur`             -- le MONTAGE n'a pas abouti (trajectoire epuisee, bras non hookes) ;
+      * `x_nat_indisponible` -- le montage a abouti, les tuiles sont hookees, mais le CANAL NATIF
+        est muet, donc `X_nat` n'existe sur aucune ligne. Les gardes de MONTAGE restent alors
+        VERTES a bon droit -- elles ne mentent pas -- et seules celles qui consomment `X_nat`
+        rougissent. C'est exactement l'inverse de ce qui se passait avant #10011, ou douze rouges
+        accusaient les montages pour une panne de capteur."""
     mes = r33_case.mes
     assert not mes.get("erreur"), (
         "aucune mesure (%s/%s/%s) : %s. Les gardes suivantes ne disent RIEN tant que ce point "
         "n'est pas regle (cf. `test_le_montage_a_bien_ete_mesure`)"
         % (r33_case.board, r33_case.seed, r33_case.montage, mes.get("erreur")))
+    assert not mes.get("x_nat_indisponible"), (
+        "le montage %s/%s/%s a ABOUTI (%d tuiles hookees, bras %d/%d) mais le canal NATIF est "
+        "MUET, donc `X_nat` n'existe sur aucune ligne : ce n'est PAS le port qui est en cause, "
+        "c'est le CAPTEUR. %s"
+        % (r33_case.board, r33_case.seed, r33_case.montage, len(mes.get("rows") or ()),
+           len(mes.get("bras_a") or ()), len(mes.get("bras_b") or ()),
+           mes.get("x_nat_indisponible")))
     return mes["rows"]
 
 
@@ -391,11 +419,28 @@ def test_les_deux_bras_sont_hookes(r33_case):
 
 
 def test_le_natif_suit_le_PORT(r33_case):
-    """LE VERDICT : `X_nat == X_port`, tuile par tuile, sur toutes les tuiles hookees."""
+    """LE VERDICT : `X_nat == X_port`, tuile par tuile, sur toutes les tuiles hookees.
+
+    ATTENTION -- IL ASSERTIONNE SON PROPRE NON-VIDE, et ce n'est pas une precaution. `ecarts` saute les
+    lignes dont `X_nat` vaut `None` -- la forme naturelle, puisqu'une tuile non hookee n'a rien a
+    dire. Quand les TROIS canaux ne repondent pas, elles sont TOUTES a `None` et ce verdict rend
+    VERT sur zero assertion evaluee. Mesure du 2026-08-15 : c'est exactement ce qui s'est produit
+    quand le jeu est passe a `t6dpr4k06g` et que le foyer `build-pin` a refuse les adresses
+    epinglees de `scorerElevTraceDump` / `scorerLeafTraceDump` -- 12 F / 29 P, et le fichier
+    accusait ses montages. `mesurer` refuse desormais en amont (`cause_x_nat_non_mesurable`) ;
+    ce cran-ci est le second verrou, pour qu'un changement de `mesurer` ne rouvre pas le trou en
+    silence."""
     rows = _rows(r33_case)
+    mesurees = [r for r in rows if r["x_nat"] is not None]
+    assert mesurees, (
+        "%d tuile(s) hookee(s), AUCUNE avec un `X_nat` calculable (%s/%s/%s). Ce verdict serait "
+        "VERT sur zero assertion evaluee. `X_nat = Tile7 - Elevation - TileEffects` exige les "
+        "TROIS canaux de `scorer-damage-trace` : lire `scorerDamageTraceOn.rvaHooks` et le RPC "
+        "`nameResolutionStatus` (champ `pinnedAddressRefusals`) avant de conclure quoi que ce "
+        "soit du port" % (len(rows), r33_case.board, r33_case.seed, r33_case.montage))
     ecarts = [(r["tile"], r["na"], r["ne"], r["x_nat"], r["x_port"], r["leaves"])
-              for r in rows
-              if r["x_nat"] is not None and abs(r["x_nat"] - r["x_port"]) > 1e-6]
+              for r in mesurees
+              if abs(r["x_nat"] - r["x_port"]) > 1e-6]
     assert not ecarts, (
         "%d tuile(s) en desaccord X_nat vs X_port sur %d (%s/%s/%s) : %r -- la derniere colonne "
         "est la VENTILATION du port par feuille. Un terme natif NON PORTE d'une AUTRE feuille "

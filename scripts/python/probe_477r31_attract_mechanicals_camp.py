@@ -102,7 +102,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_pin import BuildPinRefused                              # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc                # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _by_tile, _one, _port_leaves,   # noqa: E402
-                                            _exiger_build_des_rva, x_port)
+                                            _exiger_build_des_rva, x_port,
+                                            cause_x_nat_non_mesurable)
 from probe_212_spiritual_leader_tile_term import _apply_native_via   # noqa: E402  (`call` injecte)
 
 PYDIR = Path(__file__).resolve().parent
@@ -547,10 +548,18 @@ def mesurer(call, rid, montage="camp", max_steps=25, trace=print) -> dict:
                          # mis le terme attendu et si un AUTRE terme manque -- c'est la
                          # decomposition par etage, cote port.
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
-        return {"rows": rows, "prof": prof, "step": step, "uid": carrier_id,
-                "bras_a": ha, "bras_b": hb, "montage": montage,
-                "friend_units": list(_port_leaves(ctx, tiles[0])[1].get("friend_units") or ()),
-                "enemy_units": list(_port_leaves(ctx, tiles[0])[1].get("enemy_units") or ())}
+        out = {"rows": rows, "prof": prof, "step": step, "uid": carrier_id,
+               "bras_a": ha, "bras_b": hb, "montage": montage,
+               "friend_units": list(_port_leaves(ctx, tiles[0])[1].get("friend_units") or ()),
+               "enemy_units": list(_port_leaves(ctx, tiles[0])[1].get("enemy_units") or ())}
+        # LE CRAN (#10011) : aucune ligne mesurable = un SILENCE, pas une mesure. `divergences`
+        # saute les `None`, donc elle rend 0 pour TOUS les modeles et le verdict d'accord passe A
+        # VIDE -- mesure du 2026-08-15 : 8 F / 43 P sur ce fichier, TOUS sur les contre-epreuves,
+        # pour une panne de CAPTEUR. C'est un CHAMP et non un ecrasement : `bras_a`/`bras_b`/`prof`
+        # sont MESURES et JUSTES, seul le canal NATIF manque.
+        if not any(r["x_nat"] is not None for r in rows):
+            out["x_nat_indisponible"] = cause_x_nat_non_mesurable(call, rid, tt, el, te)
+        return out
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}

@@ -125,6 +125,12 @@ def _rows(r37_case) -> list:
     assert not mes.get("erreur"), (
         "aucune mesure (%s/%s/%s) : %s. Les gardes suivantes ne disent RIEN tant que ce point "
         "n'est pas regle" % (r37_case.board, r37_case.seed, r37_case.montage, mes.get("erreur")))
+    # SECONDE panne, DISTINCTE (#10011) : montage abouti, tuiles hookees, canal NATIF muet ->
+    # `X_nat` n'existe sur aucune ligne et le verdict d'accord passerait A VIDE.
+    assert not mes.get("x_nat_indisponible"), (
+        "le montage a ABOUTI (%d tuiles hookees) mais le canal NATIF est MUET : ce n'est PAS le "
+        "port qui est en cause, c'est le CAPTEUR. %s"
+        % (len(mes.get("rows") or ()), mes.get("x_nat_indisponible")))
     return mes["rows"]
 
 
