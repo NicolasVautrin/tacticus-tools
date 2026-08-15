@@ -28,6 +28,32 @@ from engine.entities.effects.loki.legendary_commander import (
     ABILITY_ID, CTX_USED_ACTIVE_BY_ID, LegendaryCommanderExtraDamageEffect)
 from engine.entities.effects.loki.extra_damage_aura import CTX_TGT_ADJACENT_UNIT_PROFILES
 
+#: Ce que ce fichier LIT, donc ce qui doit changer pour qu'il puisse changer de verdict.
+#: PRIS LARGE a dessein (trop etroit est un faux vert) : `hits.py` y entre parce que l'etage 11
+#: confronte le port au JUMEAU 1395 par son source ; les DEUX foyers de prediction/combat parce
+#: que l'etage 13 exige que la cle de contexte soit posee des DEUX cotes ; `extra_damage_aura`
+#: parce que la constante `CTX_TGT_ADJACENT_UNIT_PROFILES` y vit (foyer de nommage #1025-r1).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/loki/legendary_commander.py",
+        "scripts/python/engine/entities/effects/loki/hits.py",
+        "scripts/python/engine/entities/effects/loki/extra_damage_aura.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/playbook/prediction/_shared.py",
+        "scripts/python/engine/services/effect_bonus.py",
+        "data/gameconfig.json",
+    ),
+    "build": False,          # ne lit ni le binaire ni `data/symbols/**`
+    "toujours": False,
+    "raison": "le port de 1394 (classe, registre, canal aura-defense) et les DEUX substrats de "
+              "contexte qui l'alimentent ; plus le gameconfig, dont `LegendaryCommander.extraDmg` "
+              "et `variablesAffectedByRarityBonus` sont lus par les etages 3 et 4.",
+}
+
 _NOM = "LegendaryCommander_ExtraDamage"
 _NOM_JUMEAU = "LegendaryCommander_ExtraHits"
 #: equipes arbitraires mais DISTINCTES -- le port ne lit que l'egalite, jamais la valeur.

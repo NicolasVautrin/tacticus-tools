@@ -41,6 +41,28 @@ from engine.runner.components import (HealthComponent, OwnerComponent, StatsComp
 from engine.runner.operations.spawn import _seed_ability_owner_effects
 from engine.runner.state import State
 
+#: Ce que ce fichier LIT, donc ce qui doit changer pour qu'il puisse changer de verdict.
+#: PRIS LARGE a dessein : `snapshot.py` y entre parce que l'etage 8 asserte que la voie CAPTURE
+#: appelle bien le seed (c'est le fait qui refute la fiche) ; `attack_query.py` parce que l'etage 2
+#: garde l'existence du LECTEUR du flag, sans lequel l'entree serait un mensonge de couverture ;
+#: le gameconfig parce que l'etage 3 lit `passiveAbilities` des deux unites.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/unit_flag.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/abilities/attack_query.py",
+        "data/gameconfig.json",
+    ),
+    "build": False,          # ne lit ni le binaire ni `data/symbols/**`
+    "toujours": False,
+    "raison": "le registre `ABILITY_INIT_OWNER_FLAGS` et son unique consommateur "
+              "(`_seed_ability_owner_effects`), ses TROIS call-sites, le lecteur du flag, et le "
+              "kit gameconfig d'ou le seed tire la liste d'abilities.",
+}
+
 CARRIER = "admecManipulus"     # porte `GalvanicField` en `passiveAbilities`
 WITNESS = "tauCrisis"          # ne le porte pas -> TEMOIN
 _FLAG = int(UnitFlag.CanRepairFullHealthUnits)
