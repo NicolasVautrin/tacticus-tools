@@ -99,7 +99,7 @@ from ... import battle_query as _bq
 #:         top-level) : la fenetre d'intouchabilite ne depasse pas le message qui l'a ouverte --
 #:         exactement le << immediately >> de l'i2.
 #:     Le cran executable est BIDIRECTIONNEL (`test_448_r2b_stormboyz_teleporting_in_offline.py::
-#:     test_the_just_summoned_family_stays_out_because_its_REMOVAL_is_not_ported`) : il gardait
+#:     test_the_just_summoned_family_enters_the_domain_only_when_BOTH_faces_are_ported`) : il garde
 #:     l'appariement pose/retrait dans les DEUX sens, et c'est lui qui a rappele la seconde moitie.
 #: On n'inscrit que ce qui est porte ET confronte SUR CE CANAL : un ajout speculatif retirerait des
 #: cibles a l'IA sans mesure, et c'est une degradation SILENCIEUSE.
