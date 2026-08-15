@@ -238,18 +238,33 @@ def test_le_filtre_du_multiplicateur_est_DISCRIMINANT():
 
 def test_declarants_couvrent_les_trois_constantes_du_natif():
     """`GetSummonStats(kind, cfg)` n'interroge QUE `unitToSpawn`(8), `unitId`(0) et `unitId_2`(4).
-    On fige cette liste : l'elargir sans relire le decompile inventerait un chemin."""
+    On fige cette liste : l'elargir sans relire le decompile inventerait un chemin.
+
+    ⚠ REECRIT par #419-r1-tr12-r2-r1, et RENFORCE. L'ancienne version exigeait le message
+    « aucune ability » pour le premier hors-portee venu, ce qui melangeait DEUX causes que le
+    decompile separe : le summon ORPHELIN (aucune ability du gameconfig ne le nomme, par aucune
+    voie) et celui que seule la voie DYNAMIQUE atteint (`unitId_3` .. `unitId_6` -- ordinal de
+    behaviour, autre famille de variables). Le refus doit NOMMER laquelle.
+    """
     assert [k for k, _o, _p in CI.SUMMON_ID_CONSTANTS] == \
         ["unitToSpawn", "unitId", "unitId_2"]
     assert [p for _k, _o, p in CI.SUMMON_ID_CONSTANTS] == [True, True, False]
-    # 9 summons ne sont atteints par AUCUNE de ces trois constantes (`unitId_3`/`unitId_4`, une
-    # liste `unitIds`, ou rien du tout) : ils sont HORS PORTEE de ce chemin, et le module le dit
-    # en levant plutot qu'en rendant des zeros.
     smn = G._cfg()["units"]["summons"]
-    orphelins = [k for k in smn if not CI.summon_declaring_abilities(k)]
-    assert orphelins, "plus aucun orphelin -- re-mesurer la portee avant de relacher ce test"
-    with pytest.raises(KeyError, match="aucune ability"):
-        CI.summon_stats(orphelins[0])
+    hors_portee = [k for k in smn if not CI.summon_declaring_abilities(k)]
+    assert hors_portee, "plus aucun hors-portee -- re-mesurer avant de relacher ce test"
+    par_verdict: dict = {}
+    for uid in hors_portee:
+        par_verdict.setdefault(CI.summon_spawn_regimes(uid)["verdict"], []).append(uid)
+    # Les DEUX formes existent sur ce build : sans cela le test ne separerait rien.
+    assert sorted(par_verdict) == ["dynamic-only", "orphelin"], par_verdict
+    with pytest.raises(KeyError, match="summon ORPHELIN"):
+        CI.summon_stats(par_verdict["orphelin"][0])
+    with pytest.raises(KeyError, match="voie\\s+DYNAMIQUE"):
+        CI.summon_stats(par_verdict["dynamic-only"][0])
+    print("\n[419r1tr12r2r1] hors portee des 3 constantes fixes : %d "
+          "(orphelins %d, dynamic-only %d)"
+          % (len(hors_portee), len(par_verdict["orphelin"]),
+             len(par_verdict["dynamic-only"])))
 
 
 def test_niveau_d_ability_deplace_les_stats_du_summon():
@@ -307,3 +322,119 @@ def test_le_porteur_npc_a_bien_le_kit_du_summon():
     assert npc["Movement"] == smn["Movement"]
     # La difference EST le trait `Summon` -- et elle est reelle, pas cosmetique.
     assert "Summon" in smn["traits"] and "Summon" not in npc["traits"]
+
+
+# ==================================================================================================
+# #419-r1-tr12-r2-r1 -- LES DEUX ETAGES DE STATS DE SPAWN
+#
+# Le residu classait 9 summons « hors portee des trois constantes » et proposait d'elargir
+# `GetSummonStats`. Le decompile de `t6dpr4k06g` dit que c'est le mauvais axe : la couche META
+# (`IdunMetaLogic.UserProgress.UnitProgression$$GetSummonStats`) deduit son regime d'une CONSTANTE
+# d'id, la couche BATAILLE (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig`
+# et `$$WithStatsFromConfigSpawn`) recoit un ORDINAL du behaviour et lit une famille de variables
+# qui peut etre AUTRE (`spawn*`). Elargir aurait rendu 8 zeros.
+# ==================================================================================================
+
+def test_le_nom_dynamique_est_nu_a_l_ordinal_1():
+    """Mirror de `IdunBattle.Configuration.AbilityConfiguration$$GetDynamicTypeu003C__Il2CppFullySharedGenericStructTypeu003E` :
+    `if (ordinal > 1) name = Concat(name, "_", ordinal)`. Le `> 1` est LU -- un mirror qui
+    suffixerait des l'ordinal 1 chercherait `unitId_1`, qui n'existe dans AUCUN des deux enums."""
+    assert CI.dynamic_member_name("unitId", 1) == "unitId"
+    assert CI.dynamic_member_name("unitId", 0) == "unitId"       # le natif n'en produit pas, mais
+    assert CI.dynamic_member_name("unitId", 2) == "unitId_2"     # la borne est `> 1`, pas `>= 1`
+    assert CI.dynamic_member_name("summonHp", 3) == "summonHp_3"
+    assert CI.dynamic_member_name("spawnHp", 4) == "spawnHp_4"
+    # Et les noms construits SONT des membres du build : `Enum.TryParse` LEVE sinon.
+    consts = CI.enum_map("IdunBattle.Configuration.AbilityConstantType")
+    variables = CI.enum_map("IdunBattle.Configuration.AbilityVariableType")
+    assert consts, "table d'enums vide -- rien n'est confronte"
+    for o in range(1, CI.DYNAMIC_ID_MAX_ORDINAL + 1):
+        assert CI.dynamic_member_name("unitId", o) in consts, o
+    assert "unitId_%d" % (CI.DYNAMIC_ID_MAX_ORDINAL + 1) not in consts, \
+        "l'enum porte un ordinal de plus -- relire le decompile avant de relever la borne"
+    for _f, base_smn, base_spw in CI.SPAWN_STAT_BASES:
+        assert base_smn in variables and base_spw in variables
+
+
+def test_les_deux_familles_de_variables_sont_disjointes_et_completes():
+    """`WithStatsFromConfig*` pose les MEMES 7 StatType dans les deux familles -- c'est la BASE qui
+    change, pas la liste. Un mirror qui melangerait les deux lirait la mauvaise cle."""
+    champs_smn = {f for f, _p, _s in CI.SUMMON_STAT_VARS}
+    champs_spawn = {f for f, _a, _b in CI.SPAWN_STAT_BASES}
+    assert champs_smn == champs_spawn, (champs_smn, champs_spawn)
+    assert len(CI.SPAWN_STAT_BASES) == 7
+    bases_smn = {b for _f, b, _s in CI.SPAWN_STAT_BASES}
+    bases_spw = {b for _f, _s, b in CI.SPAWN_STAT_BASES}
+    assert not (bases_smn & bases_spw)
+    assert all(b.startswith("summon") for b in bases_smn)
+    assert all(b.startswith("spawn") for b in bases_spw)
+    # La voie META lit les MEMES bases `summon*` a l'ordinal 1/2 : c'est le meme jeu de variables,
+    # atteint autrement. Une divergence ici voudrait dire que l'un des deux mirrors a derive.
+    assert {p for _f, p, _s in CI.SUMMON_STAT_VARS} == bases_smn
+    assert {s for _f, _p, s in CI.SUMMON_STAT_VARS} == \
+        {CI.dynamic_member_name(b, 2) for b in bases_smn}
+
+
+def test_les_deux_summons_HSE_sont_atteints_par_la_voie_DYNAMIQUE_seule():
+    """Ce que la fiche appelait « constantes que l'overload n'interroge pas » : `unitId_3`(109) et
+    `unitId_4`(123) sont les ORDINAUX 3 et 4 de la meme base `unitId`, et l'ability qui les porte
+    ne detient AUCUNE variable `summon*` -- elle detient des `spawn*`."""
+    for uid, ordinal in (("thousSmnBlueHorrorHSE", 3), ("thousSmnScreamerHSE", 4)):
+        reg = CI.summon_spawn_regimes(uid)
+        assert reg["verdict"] == "dynamic-only", reg
+        assert reg["meta"] == []
+        assert [d["ability"] for d in reg["dynamic"]] == ["EnvAllyAndEnemyNpcs:WarpSurge"]
+        d = reg["dynamic"][0]
+        assert d["ordinal"] == ordinal and d["constant"] == "unitId_%d" % ordinal
+        assert d["summonVariables"] == {}, "une variable summon* est apparue -- relire l'ability"
+        assert d["spawnVariables"], "l'ability ne porte plus de spawn* -- le verdict tombe"
+    # CONTRE-BRAS : les ordinaux 1 et 2 de la MEME ability sont, eux, atteints par les constantes
+    # FIXES -- et pourtant leur profil META est nul, pour la meme raison (aucune variable summon*).
+    for uid in ("blackSmnBloodletterHSE", "thousSmnPinkHorrorHSE"):
+        reg = CI.summon_spawn_regimes(uid)
+        assert reg["meta"] and reg["meta"][0]["variables"] == {}, reg
+        assert reg["verdict"] == "dynamic-only", reg
+
+
+def test_le_patch_summon_spawn_integralement_nul_est_REFUSE():
+    """Un patch a 8 zeros pose un porteur a 0 PV, et le RPC l'ecrit sans broncher : c'est un echec
+    RENDU, donc lu comme une mesure. L'echappatoire existe et elle est NOMMEE."""
+    smn = G._cfg()["units"]["summons"]
+    nuls = []
+    for uid in sorted(smn):
+        try:
+            st = CI.summon_stats(uid)
+        except KeyError:
+            continue
+        if not any(st[f] for f in CI.COMBAT_STAT_FIELDS):
+            nuls.append(uid)
+    assert nuls, "aucun profil nul -- le refus ne garde plus rien, re-mesurer"
+    for uid in nuls:
+        with pytest.raises(ValueError, match="INTEGRALEMENT NUL"):
+            CI.explicit_stats(uid)
+        rep = CI.explicit_stats(uid, allow_zero_profile=True)
+        assert rep["zeroProfile"] is True
+        assert all(rep["fields"][f] == 0 for f in CI.COMBAT_STAT_FIELDS)
+    # CONTRE-BRAS : un summon au profil NON nul passe, et ne se declare pas `zeroProfile`.
+    ok = CI.explicit_stats(SMN_ID)
+    assert ok["zeroProfile"] is False and ok["fields"]["Health"] > 0
+    print("\n[419r1tr12r2r1] profils summon-spawn INTEGRALEMENT NULS refuses : %d %r"
+          % (len(nuls), nuls))
+
+
+def test_le_refus_d_ambiguite_ne_protegeait_PAS_du_profil_nul():
+    """La cause pour laquelle le refus d'ambiguite laissait passer `genesSmnDecoy` : ses cinq
+    abilities declarantes rendent des profils EGAUX -- egaux parce que tous NULS. C'est l'accord en
+    regime degenere, qui ne prouve rien. Sans ce test, la reparation se lirait comme redondante."""
+    cands = CI.summon_declaring_abilities("genesSmnDecoy")
+    assert len(cands) >= 2, cands
+    profils = {n: tuple(CI.summon_stats("genesSmnDecoy", n)[f] for f in CI.COMBAT_STAT_FIELDS)
+               for n, _k, _p in cands}
+    assert len(set(profils.values())) == 1, profils      # donc AUCUNE ambiguite detectee
+    assert not any(any(v) for v in profils.values()), profils   # et tous NULS
+    # Le desalignement qui l'explique, LU dans le gameconfig : la constante dit `_2`, l'ability ne
+    # porte que les variables NUES (donc l'ordinal 1 de `WithStatsFromConfig`).
+    sl = next(c for c in cands if c[0] == "SpiritualLeader")
+    assert sl[1] == "unitId_2" and sl[2] is False
+    variables = (G.ability("SpiritualLeader") or {}).get("variables") or {}
+    assert "summonHp" in variables and "summonHp_2" not in variables
