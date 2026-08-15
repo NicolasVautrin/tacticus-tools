@@ -425,6 +425,42 @@ class BaseEffect:
     # qui atterrit ici. Meme defaut pour la pose OFFLINE (`AddEffectOperation`), dont le `captured`
     # n'a pas de cle `active` : le natif cree l'entite-effet ACTIVE et delegue l'inertie a
     # `<Effect>.CreateActiveCondition` (la METHODE `is_active` ci-dessous).
+    #
+    # ⚠ **IL Y A UNE SECONDE VOIE D'ECRITURE, ET ELLE N'EST PAS SYMETRIQUE** (#368-r2, RE du
+    # 2026-08-15 sur `t6dpr4k06g`). Le paragraphe ci-dessus ne cite que les feuilles DSL
+    # `ActivateEffect`/`DeactivateEffect`. Le REFRESH en est une autre, et c'est elle qui evalue la
+    # `CreateActiveCondition` : `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` ecrit
+    # `+0x5c` **EN LIGNE** pour la mise a 1 (`*(byte*)(effectComponent + 0x5c) = 1`, sans passer par
+    # `$$ActivateEffect`), et delegue a `$$DeactivateEffect` pour la mise a 0. Chercher les deux
+    # ecritures par leur seul symbole rate donc la moitie du mecanisme.
+    #
+    # QUAND la condition est EVALUEE -- `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive`,
+    # qui ne SAIT QUE REPONDRE (elle n'ecrit rien ; l'ecriture est chez `$$RefreshEffect` ci-dessus) :
+    #   * `refreshType == 1` -> **true** sans rien evaluer ; `== 2` -> **false** de meme ;
+    #     hors `{0, 1, 2}` -> `System.ArgumentOutOfRangeException` ;
+    #   * `effectComponent->+0x5e != 0` -> **false** (court-circuit, drapeau distinct de `+0x5c`) ;
+    #   * `!effect.ShouldRefreshForTrigger(trigger)` (`IEffect` slot 12) -> **retourne `+0x5c`
+    #     INCHANGE**, c.-a-d. que l'etat persiste tel quel : un refresh qui ne concerne pas ce
+    #     trigger ne REEVALUE PAS la condition et ne peut donc ni activer ni desactiver ;
+    #   * sinon seulement -> `effect.ShouldBeActive(entities)` (`IEffect` slot 11 =
+    #     `IdunBattle.Entities.Effects.BaseEffect$$ShouldBeActive`, slot de CLASSE 15), qui evalue la
+    #     `CreateActiveCondition` (slot de classe 62) et la met en cache dans `<effet>+0x90` via
+    #     `IdunBattle.Entities.Effects.BaseEffect$$CreateActiveConditionAndCache`.
+    # L'`AbilityEntities` passe est un struct de 0x128 octets memset a ZERO dont seuls `+0x08` et
+    # `+0x18` (owner), `+0x50` (activePlayer) et `+0x58` (effectEntity) sont renseignes -- cf. #576-r1,
+    # qui en tire qu'il n'y a AUCUN `ActiveTarget` a threader.
+    #
+    # ⚠⚠ **PIEGE DE PORT, a lire AVANT de mirrorer `CreateActiveCondition`** : les deux consommateurs
+    # natifs de la condition NE TRAITENT PAS `null` PAREIL.
+    # `IdunBattle.Entities.Effects.BaseEffect$$ShouldBeActive` **LEVE une `NullReferenceException`**
+    # si la condition est nulle sur cache FROID, la ou
+    # `IdunBattle.Entities.Effects.BaseEffect$$NeedsRefreshing` la **TOLERE** (elle branche dessus).
+    # Un port qui rendrait `None` pour dire << cet effet n'a pas de condition >> ne mirrorerait donc
+    # PAS le natif : cote natif, << pas de condition >> s'ecrit comme le trigger CONSTANT de la
+    # fabrique (`DSLTriggers+0x40`), jamais comme `null` -- c'est ce que rendent les **114 classes**
+    # qui partagent le corps par defaut du slot 62. Rendre `None` transformerait un effet
+    # inconditionnellement actif en exception, ou (si le port avale le `None`) masquerait la
+    # difference entre << toujours actif >> et << condition absente >>.
     active: bool = True
     # `AbilityVariablesMultiplierPercentage` de l'unité porteuse (BC, défaut 100). Le natif bake le
     # scaling dans la config par-unité ; ici l'effet le porte pour scaler ses variables d'ability
