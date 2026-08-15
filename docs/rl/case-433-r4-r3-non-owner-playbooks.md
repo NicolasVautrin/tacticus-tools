@@ -322,3 +322,60 @@ unite portera 1522.
   residu preexistant, inchange.
 * **`PrimarchOfTheFirstLegion` n'a qu'un porteur npc** (`darkaBossLion`) : le confront passe par la
   greffe, qui est fidele ici (§9.3) mais ne prouve rien sur les stats/traits du vrai porteur.
+
+## 14. `#433-r4-r3-r1-r3` — le TROISIÈME jumeau unionnait encore (RÉSOLU, 2026-08-15)
+
+**Prémisse CONFIRMÉE par re-mesure live**, mais **son accusé était faux**.
+
+Ce que la fiche disait : « `entity_triggered_ability_ids` FUSIONNE le kit gameconfig par
+`visualId` ». C'est **inexact depuis #456-r1** — ce foyer est en tri-état et **REMPLACE**
+(mesuré : `ctx` mesuré → `[1524, 1030]`, aucune union avec `[1028]`).
+
+La cause réelle : **`engine/utilities/tile.py::_adjacent_units`**, le jumeau `AiDecisionContext`,
+était le **dernier des trois producteurs** à unionner :
+
+```python
+_trig = list(triggered_ability_ids(u.get("visualId")))   # kit GAMECONFIG
+for _t in (live_kits.get(u.get("id")) or ()):            # UNION avec la mesure
+    if _t not in _trig:
+        _trig.append(_t)
+```
+
+Le MOVER était passé au remplacement par **#304**, les deux autres jumeaux
+(`runner_tile_leaf_ctx`, `scene_tile_leaf_ctx`) par **#456-r1** — tous deux sur la même mesure :
+une union ne peut qu'AJOUTER, donc elle RÉINTRODUIT un passif que la bataille n'a **pas** monté.
+Les VOISINS, eux, sont restés en union. L'asymétrie vivait **dans le même producteur**.
+
+### La mesure, re-jouée LIVE le 2026-08-15 (`t6dpr4k06g`, montage §11 étape A)
+
+```
+avant   kit greffon -- port = [1028, 1524, 1030]   AbilitiesComponent NATIF = [1524, 1030]
+après   kit greffon -- port = [1524, 1030]         AbilitiesComponent NATIF = [1524, 1030]
+```
+
+`1028` = `AvalancheOfMuscle`, le passif de kit que `graft_passive_ability(..., replace=True)` avait
+justement remplacé dans `BC.Units[].PassiveAbilities`. Le verdict de #433-r4-r3-r1 est **intact** :
+le natif SUIT toujours le terme (argmax `(1,4)` des deux côtés).
+
+### Portée du correctif
+
+Le repli gameconfig reste **entier** quand la mesure est vide pour cette entité (RPC indisponible,
+entité absente, contexte offline sans pont) — c'est le seul régime que le motif d'union protégeait.
+Consommateurs de `friend_units[].triggered` / `enemy_units[].triggered` :
+`AttractToDecoysUtility` (64), `SteppableUnitUtility` (19), et les playbooks non-owner.
+
+### Validation
+
+* `tests/engine/test_433r4r3r1r3_kit_voisin_remplacement_offline.py` — **6 gardes**, dont le repli
+  dans les trois formes de mesure vide, la lecture PAR ENTITÉ (deux voisins de même `visualId`, un
+  mesuré et un non), et l'égalité de traitement MOVER/VOISINS. Contre-épreuve : remettre l'union →
+  **4 rouges**, restauration → 6 verts.
+* Re-jeu des consommateurs, **76 tests verts** : `test_433_r4_r3_r1_adjacent_to_owner_live.py` (38),
+  `test_433_r4_r3_non_owner_playbooks_live.py` (12), `test_steppable_decoy_tile_leaves_live.py`
+  (14), `test_tile_term_triggered_playbooks_live.py` (12) ; puis
+  `test_kustom_force_field_reworked_live.py` (9) et `test_tile_term_unit_gated_playbooks_live.py`
+  (30).
+* **Deux rouges rencontrés, tous deux PRÉ-EXISTANTS** (baseline mesurée en restaurant `tile.py` à
+  l'état antérieur, résultats **identiques** au bit près) : `test_477r33_non_owner_playbooks_live.py`
+  12 failed / 29 passed, et `test_spiritual_leader_tile_term_live.py` 1 failed / 9 passed
+  (`(1,3)` : terme 0 avec 2 decoys adjacents). **Ce ne sont pas des régressions de cette tranche.**
