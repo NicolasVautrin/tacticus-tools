@@ -64,6 +64,33 @@ from engine.runner.operations.triggers.loki.geminae_superia import (     # noqa:
     JustSummonedRemoveOnOwnerMove, JustSummonedRemoveOnPhaseEnd)
 from engine.runner.snapshot import load_state                            # noqa: E402
 
+#: `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+#: Volontairement LARGE : trop etroit est un FAUX VERT (le fichier ne se rejoue pas sous `--since`
+#: quand ce qu'il garde a bouge). Les quatre foyers cites sont ceux que les six blocs LISENT.
+DECLENCHEUR = {
+    "chemins": (
+        # les DEUX arbres gardes, et leurs registres
+        "scripts/python/engine/runner/operations/triggers/loki/act_of_faith.py",
+        "scripts/python/engine/runner/operations/triggers/loki/geminae_superia.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # le DOMAINE de non-ciblabilite (bloc 6) et son lecteur
+        "scripts/python/engine/entities/effects/aura_selectors.py",
+        # la file des differees : c'est elle qui rend `queued` vrai (blocs 1 et 2)
+        "scripts/python/engine/runner/abilities/behaviours/lifecycle.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/pending.py",
+        # le noeud du conjoint verifie sur l'ARBRE (bloc 3)
+        "scripts/python/engine/entities/triggers.py",
+    ),
+    # OFFLINE PURE : aucun RPC, aucun runner, aucune lecture de symbole du build. Les deux arbres
+    # sont exerces sur un `State` monte a la main, donc un changement de build ne peut pas changer
+    # ce verdict -- ce qui le changerait, ce sont les MIRRORS d'enum, et ils sont dans `chemins`
+    # par leurs consommateurs.
+    "build": False,
+    "toujours": False,
+    "raison": ("les six blocs ne lisent que ces foyers ; un changement ailleurs ne peut pas "
+               "changer leur verdict sans passer par l'un d'eux (registres, arbres, domaine, file)"),
+}
+
 COLS, ROWS = 7, 7
 CARRIER, ALLY, FOE = 10, 40, 20
 
