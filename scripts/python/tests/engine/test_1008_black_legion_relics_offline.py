@@ -282,19 +282,49 @@ def test_book_of_fate_constante_affectedUnitId():
 # ETAGE 5 -- les RESIDUS, assertionnes pour qu'ils ne se referment pas en silence
 # =====================================================================================
 
-def test_residu_1008_r2_la_magnitude_de_l_effet_1583_n_est_PAS_branchee():
-    """`#1008-r2` (BLOCAGE `etage`) : `get_armor_penetration` est ATTAQUANT-side, le porteur de
-    l'effet est le DEFENSEUR. Le port EXPOSE la magnitude (`ignore_armor`) sans la brancher.
+def test_residu_1008_r2_la_magnitude_de_l_effet_1583_est_branchee_SOUS_SA_GATE():
+    """`#1008-r2` -- LE CLIQUET S'EST DECLENCHE, ET IL A ETE HONORE ; il garde maintenant l'autre
+    sens. ROUGE DE `master` REPARE ICI (#1008-r4) : ce test asserta longtemps
+    `"get_armor_penetration" not in vars(HelspearIgnoreArmorEffect)` en disant << si un jour
+    quelqu'un surcharge cette methode, ce test rougit -- et c'est voulu : il faudra alors avoir RE-lu
+    le canal defenseur, pas juste cable >>. Le canal A ETE RE-LU (#1008-r2, la lecture vit en tete
+    d'`entities/effects/loki/helspear.py`) et la methode a ete surchargee dans la foulee -- mais
+    personne n'a retourne le cliquet, qui rougissait donc sur `origin/master`.
 
-    Si un jour quelqu'un surcharge `get_armor_penetration` sur cette classe, ce test rougit -- et
-    c'est voulu : il faudra alors avoir RE-lu le canal defenseur, pas juste cable."""
+    CE QU'IL GARDE DESORMAIS, et c'est le fait que la RE a etabli : la magnitude n'est pas
+    << branchee >> n'importe ou -- elle est lue DANS le bloc ou le malus est rendu, donc SOUS la
+    meme gate que lui, exactement comme `IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense`
+    evalue `this.<vtable +0x718>()` apres avoir teste le trigger de l'`EffectBonus`."""
+    import inspect
+
+    from engine.entities.effects import build_defender_modifiers_from_effects
+
     eff = HelspearIgnoreArmorEffect(HS.IGNORE_ARMOR_EFFECT_NAME)
-    assert "get_armor_penetration" not in vars(HelspearIgnoreArmorEffect), (
-        "residu #1008-r2 referme sans RE : lire d'abord le lecteur natif d'`IgnoreArmor` "
-        "pour un effet DEFENSEUR")
+    assert "get_armor_penetration" in vars(HelspearIgnoreArmorEffect), (
+        "la surcharge a disparu : la penetration du DEFENSEUR retomberait sur le `None` de "
+        "`BaseEffect`, sans erreur et sans qu'aucun degat ne change")
     assert hasattr(eff, "ignore_armor")                     # la magnitude EST lisible
     assert eff.applies_to_incoming_attack(attacker_id=None) is False    # degradation RESTRICTIVE
     assert eff.applies_to_incoming_attack(attacker_id=7) is True
+
+    # LA GATE N'EST PAS DUPLIQUEE : la boucle defenseur lit la penetration DANS le bloc du malus.
+    # Un `get_armor_penetration` appele hors de ce bloc l'activerait meme quand le trigger est faux.
+    src = inspect.getsource(build_defender_modifiers_from_effects)
+    avant, _, apres = src.partition("get_armor_penetration")
+    assert "if mb is not None:" in avant, "la penetration est lue HORS du bloc gate par le malus"
+    assert apres, "`get_armor_penetration` n'est plus lu par la boucle defenseur"
+
+    # LE CONTRASTE AVEC SON VOISIN DE CANAL, mesure : `StrikeFromTheShadows` (1549) vit sur le MEME
+    # slot mais avec une gate DIFFERENTE (`IsRangedAttack()` la ou 1583 porte `IsUnit(Caster)`).
+    # Recopier l'une sur l'autre serait le piege du voisin de forme.
+    from engine.entities.effects.loki.strike_from_the_shadows import StrikeFromTheShadowsEffect
+    voisin = StrikeFromTheShadowsEffect("StrikeFromTheShadows")
+    assert voisin.create_effect_damage_malus_for_defense(is_melee=True) is None
+    assert voisin.create_effect_damage_malus_for_defense(is_melee=None) is None
+    assert voisin.create_effect_damage_malus_for_defense(is_melee=False) is not None
+    # ... et 1583, lui, n'a AUCUN gate de nature de coup : la melee passe.
+    assert eff.create_effect_damage_malus_for_defense(
+        is_melee=True, attacker_ctx={"id": 7}) is not None
 
 
 def test_residu_1008_r3_le_sixieme_conjoint_du_reset_n_est_PAS_porte():

@@ -816,6 +816,16 @@ CONSOMMATEURS: list[Consommateur] = [
     Consommateur("ABILITY_INIT_OWNER_FLAGS", "engine.entities.effects.factory",
                  "ABILITY_INIT_OWNER_FLAGS", ("ActiveAbilityType", "TriggeredAbilityType"),
                  raison="`<Ability>_InitAbility.CreateBehaviour` -> `AddFlag(owner)` a l'init"),
+    # TROISIEME canal d'init (#963-r5), meme boucle native et meme lecteur port que ses deux
+    # voisins ci-dessus -- seule la MUTATION differe (`AddBondEffect`, qui porte en plus un
+    # `bondedEntity`). MEMES deux enums, pour la MEME raison deja ecrite deux fois :
+    # `spawn.py::_seed_ability_owner_effects` boucle sur `activeAbilities + passiveAbilities` (plus
+    # la TERTIAIRE), donc la voie ne dit pas l'enum.
+    # PAS de `noms_sup`, comme `ABILITY_INIT_OWNER_FLAGS` : `TRAIT_DERIVED_ABILITIES` n'alimente que
+    # les deux dicts d'EFFETS ordinaires, pas celui-ci.
+    Consommateur("ABILITY_INIT_OWNER_BOND_EFFECTS", "engine.entities.effects.factory",
+                 "ABILITY_INIT_OWNER_BOND_EFFECTS", ("ActiveAbilityType", "TriggeredAbilityType"),
+                 raison="`<Ability>.CreateBehaviour` -> `AddBondEffect(owner)` a l'init"),
     # #1038 -- `snapshot._rebake_tertiary_posed_effects` :
     # `get_effects_posed_by_tertiary_ability(str(tert)) or ()`. MEME lecture `.get(<nom>, [])`, donc
     # MEME degradation muette que ses cinq voisins : un nom disparu rend `[]`, la passe ne re-bake
