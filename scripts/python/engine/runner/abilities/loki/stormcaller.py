@@ -100,7 +100,12 @@ def stormcaller_tree():
     - stun = `AddEffect(0x48a, ..., TurnsFromRounds(1))` explicite (≠ durée défaut) sur
       `UnitsWithTrait(cache, 4=Flying, 3)` (UnitsWithFlagSelector flag=1 ; le 4e arg natif `3` =
       passthrough de kind, non discriminant — cf. case-191 même signature)."""
-    cache = Cache(UnitsOnTilesWithEffect(Enemies(AllAliveUnits()), ICE_TILE))
+    # `matchAbilityEntities = 0` -- LITTERAL LU au call-site natif (#927-r3) : Stormcaller est
+    # l'un des SEPT call-sites de `DSLSelectors$$Cache` (sur 119) en mode SLOT, celui qui rend la
+    # 1re valeur memoisee QUEL QUE SOIT l'`AbilityEntities` suivant. C'est ce qui garantit ici que
+    # le stun [3] relit EXACTEMENT le meme ensemble que l'attaque [2].
+    cache = Cache(UnitsOnTilesWithEffect(Enemies(AllAliveUnits()), ICE_TILE),
+                  match_ability_entities=False)
     ice = AddEffect(ICE_TILE, "Ice", stormcaller_get_add_ice_tiles(), duration_rounds=None)
     attack = AttackWithAttackDamage(cache, "Stormcaller", "Psychic", is_melee=False, multi=True,
                                     native_factory="ability",   # IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> AbilityDamageOperation (1 tirage/coup, cf. combat.py)

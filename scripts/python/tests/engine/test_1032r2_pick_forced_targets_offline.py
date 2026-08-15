@@ -254,6 +254,24 @@ def test_allow_duplicates_vrai_ne_retire_rien():
     assert [u["id"] for u in candidates] == [1, 2, 3]
 
 
+def test_les_noeuds_restent_VISIBLES_a_un_walk_d_arbre():
+    """CE CRAN EXISTE PARCE QUE LE PIEGE A MORDU. La refonte avait pose `__slots__` sur la BASE
+    `APickSelector` : les attributs quittent alors le `__dict__` sans entrer dans le `__slots__`
+    de la classe CONCRETE, or les walks d'arbre du depot enumerent `vars(n)` puis
+    `type(n).__slots__` -- sur la classe EXACTE, jamais la MRO. Resultat mesure : deux tests de
+    #889-r6 tombes sur « aucun SortByFormula trouve : le walk ne voit plus l'arbre », sans qu'AUCUN
+    test de selecteur ne bronche. Un noeud invisible a un walk est un faux vert par construction :
+    le walk ne trouve rien, donc il n'accuse rien."""
+    src = _Src([_u(1)])
+    for noeud in (First(src, 1), PickFirstN(src, 1), PickLastN(src, Const(1)), AtIndex(src, 0)):
+        enfants = dict(vars(noeud)) if hasattr(noeud, "__dict__") else {}
+        for nom in (getattr(type(noeud), "__slots__", ()) or ()):
+            enfants[nom] = getattr(noeud, nom, None)
+        assert any(v is src for v in enfants.values()), (
+            "%s n'expose PAS sa source a un walk `vars()` + `type().__slots__` : %r"
+            % (type(noeud).__name__, sorted(enfants)))
+
+
 def test_max_amount_borne_la_passe():
     """`if (picked.Count >= maxAmount) return;` -- teste AVANT chaque ajout."""
     candidates = [_u(1), _u(2), _u(3)]

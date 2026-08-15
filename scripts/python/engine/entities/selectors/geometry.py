@@ -1134,6 +1134,53 @@ class UnitsWithId(TargetsSelector):
                 if has_unit_id(u, uid) and selection_ok_from_ctx(u, self.mode, ctx)]
 
 
+#: Les champs du `DslContext` qui correspondent a un slot d'`IdunBattle.Entities.Abilities.
+#: AbilityEntities` -- l'ORDRE est celui du `.ctor` natif, dont Ghidra rend les 33 parametres nommes
+#: (`caster, actor, target, owner, casterTile, activePlayer, casterTiles, effect, targetTile,
+#: targetTiles, activeTarget, previousActiveTarget, currentAbilityOrEffect, ...`).
+#: Les offsets des trois premiers sont LUS, pas supposes : `ActorSelector$$Select` lit `entities+0x0`,
+#: `IdunBattle.Entities.Selectors.CasterSelector$$Select` lit `+0x8`,
+#: `IdunBattle.Entities.Selectors.TargetSelector$$Select` lit `+0x10`.
+#: `subject` n'a pas de slot PROPRE : le port l'emploie comme l'element courant lie par un
+#: `Filter`/`Foreach`, ce que le natif ecrit dans `activeTarget` (surcharge
+#: `AbilityEntities$$.ctor(entities, activeTarget)`, une COPIE-avec-activeTarget). Il entre donc
+#: dans la cle, au meme titre.
+#: ⚠ CE QUI N'Y EST PAS, et c'est un RESULTAT : les 20+ champs de DEGAT de la structure
+#: (`damageReason`, `hitIndex`, `usedDamageProfiles`, `wasCrit`, ...) dont le `DslContext` ne
+#: modelise que `is_first_hit`. Un `Cache` reevalue sous deux `hitIndex` differents dans la MEME
+#: serie de coups verrait donc un HIT la ou le natif re-calcule. Aucun call-site porte n'est dans
+#: ce cas (les `Cache` portes vivent au-dessus de la boucle de coups) -- residu NOMME.
+_ABILITY_ENTITIES_SLOTS = ("actor", "caster", "target", "owner", "caster_pos",
+                           "effect", "active_target", "subject", "is_first_hit")
+
+
+def _entity_key(x):
+    """Reduit un slot de role a une CLE HACHABLE qui mirrore l'egalite native.
+
+    `AbilityEntities` est un `struct` sans `Equals`/`GetHashCode` propres : le `Dictionary` compare
+    donc champ a champ, et les champs ENTITE (`IEntity`) le sont par REFERENCE. Cote port,
+    l'identite stable d'une entite est son `id` (le dict d'unite est reconstruit d'un canal a
+    l'autre, l'`id` non) -- on preferera donc l'`id` quand il existe, et l'identite d'OBJET sinon,
+    qui est la traduction litterale de la reference native."""
+    if x is None:
+        return None
+    if isinstance(x, dict):
+        v = x.get("id")
+        return ("e", v) if v is not None else ("o", id(x))
+    if isinstance(x, (bool, int, float, str, bytes)):
+        return x
+    if isinstance(x, (list, tuple, set, frozenset)):
+        return tuple(_entity_key(y) for y in x)
+    v = getattr(x, "id", None)                       # `LiveUnit` & co : meme identite que le dict
+    return ("e", v) if v is not None else ("o", id(x))
+
+
+def _ability_entities_key(ctx):
+    """La CLE du `Dictionary<AbilityEntities, List<IEntity>>` de `CacheSelector+0x30` (#927-r3),
+    construite sur les SEULS slots que le port modelise (cf. `_ABILITY_ENTITIES_SLOTS`)."""
+    return tuple(_entity_key(getattr(ctx, nom, None)) for nom in _ABILITY_ENTITIES_SLOTS)
+
+
 class Cache(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Cache(source)` → `IdunBattle.Entities.Selectors.CacheSelector$$Select` : **MÉMOÏSE** le résultat
     du sous-arbre. Décompilé : 1re éval calcule (`source.evaluate` + `ToList`) et STOCKE dans le slot
@@ -1143,18 +1190,62 @@ class Cache(TargetsSelector):
     LIBRES PRÉ-spawn) et `PerformAIAttackFromCurrentPosition` (relit ces MÊMES tuiles POST-spawn pour y
     trouver les grots) ; sans mémoïsation, `CanAddUnit` recalculé exclurait les tuiles désormais occupées
     → zéro grot trouvé. Portée = l'instance du nœud ; l'arbre étant rebâti par cast (`getemruntz_tree()`),
-    le cache est **par-cast**. Slot unique (suffisant pour GetEmRuntz : même contexte top-level aux deux
-    évals ; la variante dict-keyée par contexte reste à porter si un `Cache` est éval sous un `Foreach`)."""
-    def __init__(self, source):
+    le cache est **par-cast**.
+
+    ⚠ **LES DEUX MODES SONT PORTES (#927-r3), ET LE PORT N'AVAIT QUE LE MINORITAIRE.** La factory est
+    `IdunBattleLogic.Entities.DSLSelectors$$Cache(entities, matchAbilityEntities)` ; le ctor pose
+    `+0x18 = source`, `+0x20 = matchAbilityEntities`, `+0x28 = 0` (le slot) et alloue TOUJOURS le
+    `Dictionary` de `+0x30`. `IdunBattle.Entities.Selectors.CacheSelector$$Select`, terme a terme :
+
+        result = 0
+        if (this+0x20 == 0)  result = this+0x28                      // mode SLOT
+        else                 this+0x30.TryGetValue(entities, out result)   // mode DICT
+        if (result != 0) return result
+        result   = <source>.Select(entities).ToList()
+        this+0x28 = result                                           // TOUJOURS
+        this+0x30.Add(entities, result)                              // TOUJOURS
+        return result
+
+    Seule la LECTURE branche sur le flag ; l'ECRITURE alimente les deux emplacements. Le mode SLOT
+    rend donc la 1re valeur memoisee QUEL QUE SOIT le contexte suivant ; le mode DICT re-calcule
+    des que l'`AbilityEntities` recu differe.
+
+    CENSUS PE DE TOUS LES CALL-SITES (build `t6dpr4k06g`, 2026-08-15) : **119 call-sites**, dont
+    **112 en mode DICT** et **7 en mode SLOT**. Les sept, nommes :
+    `...ResurrectionOrbAbility$$GetResurrectBehaviour`, `...StormcallerAbility$$ExecuteBehaviour`,
+    `...HeavyRailRifle_AttackAbility$$CreateBehaviour`, `...LightImUpAbility$$CreateBehaviour`
+    (le 2e de ses deux appels), `...DakkaDakkaDakkaAbility$$ExecuteBehaviour`,
+    `...DakkaDakkaDakkaAbility$$GetLeftoverHitsPerTargetFormula`,
+    `...DarkTalonStrikeAbility$$ExecuteBehaviour`.
+    D'ou le defaut `True` : ce n'est pas un litteral invente, c'est celui de 112 sites sur 119, et
+    tout call-site de la minorite l'ECRIT (`match_ability_entities=False`).
+
+    ⚠ CE QUE LA CLE COUVRE, ET CE QU'ELLE NE COUVRE PAS. Le natif keye sur la STRUCTURE
+    `AbilityEntities` entiere (33 champs, egalite de `ValueType` : references pour les entites,
+    valeurs pour les scalaires). Le `DslContext` du port n'en modelise qu'un SOUS-ENSEMBLE, et
+    `_ability_entities_key` ci-dessous ne prend QUE ces champs-la -- surtout pas le contexte entier,
+    qui porte aussi `units`, `board` et une trentaine d'accesseurs que la structure native ignore :
+    les inclure ferait RATER le cache a chaque reconstruction de contexte, et c'est exactement la
+    memoisation load-bearing de GetEmRuntz qu'on casserait."""
+    def __init__(self, source, match_ability_entities: bool = True):
         self.source = source
-        self._has = False
-        self._cached = None
+        self.match_ability_entities = bool(match_ability_entities)   # `+0x20`
+        self._cached = None                          # `+0x28`, initialise a 0 par le ctor natif
+        self._by_entities: dict = {}                 # `+0x30`, alloue par le ctor natif
 
     def select(self, ctx):
-        if not self._has:                            # slot +0x28 : miss -> calcule + stocke
-            self._cached = self.source.evaluate(ctx)
-            self._has = True
-        return self._cached                          # hit -> renvoie le cache (mémoïsation observable)
+        if not self.match_ability_entities:          # `if (this+0x20 == 0)`
+            cached = self._cached
+        else:                                        # `TryGetValue(entities, out result)`
+            cached = self._by_entities.get(_ability_entities_key(ctx))
+        # `if (result != 0) return result` -- une liste VIDE est un pointeur NON NUL cote natif,
+        # donc un resultat vide EST memoise. `is not None`, jamais un test de verite Python.
+        if cached is not None:
+            return cached
+        result = self.source.evaluate(ctx)           # `<source>.Select(entities).ToList()`
+        self._cached = result                        # `this+0x28 = result` -- INCONDITIONNEL
+        self._by_entities[_ability_entities_key(ctx)] = result   # `this+0x30.Add(...)` -- idem
+        return result
 
 
 class Entity(TargetsSelector):

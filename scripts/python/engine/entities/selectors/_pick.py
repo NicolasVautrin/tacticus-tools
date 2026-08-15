@@ -118,8 +118,15 @@ class APickSelector(TargetsSelector):
 
     `ignore_forced_targets` PORTE desormais son effet -- il etait TRANSCRIT et inerte jusqu'a
     #1032-r2. Le litteral se lit au call-site ; le defaut `False` est celui de **144 call-sites
-    de `First` sur 145** et de **4 sur 5** de `Last` (census PE ci-dessus)."""
-    __slots__ = ("source", "amount", "ignore_forced_targets")
+    de `First` sur 145** et de **4 sur 5** de `Last` (census PE ci-dessus).
+
+    AUCUN `__slots__` DANS CETTE FAMILLE, ET C'EST UNE MESURE, PAS UN OUBLI. La base
+    `TargetsSelector` n'en declare pas -- les instances gardent donc un `__dict__` et le gain
+    serait nul -- mais surtout les WALKS d'arbre du depot enumerent `vars(n)` PUIS
+    `type(n).__slots__`, sur la classe EXACTE et jamais la MRO. Declarer les attributs sur la
+    BASE les faisait sortir du `__dict__` sans entrer dans le `__slots__` de la classe concrete :
+    ils devenaient invisibles aux DEUX voies, et l'arbre paraissait VIDE. Mesure : deux tests de
+    #889-r6 tombes sur << aucun SortByFormula trouve : le walk ne voit plus l'arbre >>."""
 
     def __init__(self, source: TargetsSelector, amount, ignore_forced_targets: bool = False):
         self.source, self.amount = source, amount
@@ -156,8 +163,6 @@ class PickFirstN(APickSelector):
     reproduit les deux sans clamp maison.
 
     `amount` = noeud VALEUR (`Direct(nrOfSummons)`) ou int."""
-    __slots__ = ()
-
     def select(self, ctx):
         n = self._amount(ctx)
         candidates = list(self.source.evaluate(ctx))          # `.ToList()`
@@ -199,8 +204,6 @@ class PickLastN(APickSelector):
     pas et `i = Count_initial - n`. Aucune garde `i >= 0` n'est ajoutee -- elle serait du code
     que le natif n'a pas, et elle est de toute facon inatteignable dans cette branche
     (`n < Count`)."""
-    __slots__ = ()
-
     def select(self, ctx):
         n = self._amount(ctx)
         candidates = list(self.source.evaluate(ctx))

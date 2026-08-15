@@ -382,8 +382,11 @@ def dark_talon_strike_tree(target_ref):
       par leurs cles de config : evaluation strictement identique au natif.
     - `native_factory="ability"` = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (lu au
       decompile de `DamageUnit`) -> `AbilityDamageOperation.ExecuteHits` = 1 tirage/coup, pas de crit."""
-    # `Cache(Units(gs@0x60 = target, unique: 1, 3))` -- 4e argument NATIF LU (#585-r1).
-    main_sel = Cache(Units(target_ref, selection_type=SELECTION))
+    # `Cache(Units(gs@0x60 = target, unique: 1, 3), matchAbilityEntities: 0)` -- 4e argument NATIF
+    # LU (#585-r1) et flag de cache LU (#927-r3). DarkTalonStrike est l'un des SEPT call-sites (sur
+    # 119) en mode SLOT, et c'est ce qui compte ICI : ce `Cache` est evalue PAR ELEMENT du `Foreach`
+    # (chaque element rebinde `Subject()`), donc en mode DICT il serait re-calcule a chaque tour.
+    main_sel = Cache(Units(target_ref, selection_type=SELECTION), match_ability_entities=False)
     is_main = AreEqual(Subject(), main_sel)
     main_hit = AttackWithAttackDamage(
         Subject(), DARK_TALON_STRIKE_ID, _ability_profile(DARK_TALON_STRIKE_ID, "damageProfile"),

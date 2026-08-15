@@ -804,9 +804,10 @@ class First(PickFirstN):
     `amount` = noeud VALEUR ou int. Le defaut **1** n'est pas un litteral natif invente : c'est
     l'`amount` que transcrivent les call-sites portes (`First(sel, 1, 0)` chez BookOfFate,
     InstrumentsOfVengeance, MindControl...), et c'est le litteral de **104 des 145** call-sites du
-    binaire. Un site qui prend un autre nombre l'ECRIT."""
-    __slots__ = ()
+    binaire. Un site qui prend un autre nombre l'ECRIT.
 
+    (Aucun `__slots__` : cf. l'avertissement d'`APickSelector` -- il rendait l'arbre invisible aux
+    walks du depot.)"""
     def __init__(self, source: TargetsSelector, amount=1, ignore_forced_targets: bool = False):
         super().__init__(source, amount, ignore_forced_targets)
 
