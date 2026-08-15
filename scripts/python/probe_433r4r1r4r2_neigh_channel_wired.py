@@ -183,30 +183,37 @@ NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacent
                         # parler l'etape 5 : 0 foyer HORS TOLERANCE ne le justifie, donc la
                         # suspension serait PERIMEE d'avance. `DSLSelectors$$AdjacentEnemies` =
                         # `Enemies(unit, Units(AdjacentTiles(unit)) - unit, selType)`.
-                        "AdjacentEnemies")
+                        "AdjacentEnemies",
+                        # ARME le 2026-08-15 (#943-r7) -- TROISIEME sortie par la porte du haut, et
+                        # c'est encore l'etape 5 qui l'a DEMANDE : apres le cablage de ses trois
+                        # derniers foyers (`imperative.py` x2 -- dont le ctx portait DEJA `board` sur
+                        # ses deux faces -- et `triggers/loki/icon_of_obstinacy.py`, cable EN MEME
+                        # TEMPS que sa jumelle d'aura pour ne pas ouvrir de divergence), l'armer ne
+                        # faisait plus rougir personne. `DSLSelectors$$AdjacentFriends(unit, unique,
+                        # selType)` = `Friends(unit, Units(AdjacentTiles(unit), unique, selType) -
+                        # unit, selType)`, LU au decompile -- donc `AdjacentTiles`, donc la liste
+                        # stockee.
+                        "AdjacentFriends")
 
 # Natifs LUS au decompile comme substrat stocke, mais dont l'ARMEMENT est SUSPENDU : les faire
 # entrer ci-dessus ferait rougir la banque sur un vice OUVERT, hors du perimetre qui les a lus --
 # meme sequencement que #614 s'est impose pour `orks.py`. La valeur est le residu qui porte la dette.
 # C'est l'etape 5 qui empeche cette suspension de devenir un oubli : elle RE-MESURE a chaque passe
 # que la suspension est encore justifiee.
-NATIFS_LISTE_STOCKEE_SUSPENDUS = {
-    # ⚠ `AdjacentTiles` (#943-r7) puis `AdjacentUnits` (#983) ont QUITTE ce registre par la porte
-    # du haut -- l'etape 5, une fois leur DERNIER foyer cable. Le registre ne s'est pas vide pour
-    # autant, et c'est une MESURE de #983 : les DEUX natifs ci-dessous etaient LUS (ils figurent
-    # dans `SUBSTRATS_LUS[LISTE_STOCKEE]` et dans les valeurs de `GEOMETRIE_NUE_CLASSEE`) et
-    # pourtant NI armes NI suspendus -- donc en SILENCE TOTAL, exactement ce que la suspension
-    # existe pour interdire. Les inscrire ne DEGRADE rien : ca les rend re-mesures a chaque passe.
+NATIFS_LISTE_STOCKEE_SUSPENDUS: dict = {
+    # ⚠ LE REGISTRE EST VIDE, ET C'EST UN RESULTAT DE L'ETAPE 5, PAS UNE DISPENSE. Les trois natifs
+    # qui y ont vecu en sont sortis PAR LE HAUT, chacun quand son DERNIER foyer a ete cable, et
+    # chaque fois c'est l'etape 5 qui l'a demande en declarant la suspension PERIMEE :
+    # `AdjacentTiles` (#943-r7, 2026-08-12), `AdjacentUnits` (#983, 2026-08-12), `AdjacentFriends`
+    # (#943-r7, 2026-08-15). `AdjacentEnemies`, lui, n'y a fait qu'un aller-retour dans la meme
+    # passe : inscrit par #983, immediatement declare PERIME, donc arme.
     #
-    # `DSLSelectors$$AdjacentFriends(unit, unique, selType)` =
-    # `Friends(unit, Units(AdjacentTiles(unit)) - unit, selType)` -- donc `AdjacentTiles`, donc la
-    # liste stockee. L'armer ferait rougir SIX foyers, dont trois hors tolerance
-    # (`imperative.py` x2, `triggers/loki/icon_of_obstinacy.py`), tous bloques par #943-r7.
-    "AdjacentFriends": "#271/#943-r7",
-    # ⚠ `AdjacentEnemies`, son pendant exact avec `Enemies`, a fait le chemin INVERSE dans la MEME
-    # tranche : inscrit ici, l'etape 5 l'a immediatement declare PERIME (0 foyer HORS TOLERANCE ne
-    # le justifie -- ses trois foyers sont deja nommes dans `GEOMETRIE_NUE_TOLEREE`), donc il est
-    # ARME ci-dessus. C'est la mecanique qui tranche, pas la symetrie des noms.
+    # VIDE != INERTE. L'etape 5 rend alors `(0 perime, 0 suspendu)` et ne pese sur rien -- c'est
+    # explicite dans sa docstring (<< Registre VIDE = rien a garder ici (tout est arme), pas un
+    # perimetre casse >>). Ce qui garde le gisement dans cet etat, ce sont les etapes 2/4/6, qui
+    # voient desormais TOUS ces natifs. La seule chose que ce registre doit rester capable de faire,
+    # c'est d'accueillir un natif LU dont l'armement ferait rougir un vice ENCORE OUVERT : le
+    # laisser vide sans le supprimer est ce qui rend cette porte disponible.
 }
 
 # TOLERANCE NOMMEE de l'etape 2 -- les mirrors declares dont la geometrie nue est un ECART ASSUME,

@@ -67,9 +67,13 @@ devine.
     natif, lui, la recalcule quand le `BlockDamage` de la cible bouge.
   * `selectionType = 3` (`OnlyAliveAndTargetable`) du selecteur : le port n'honore que le volet
     ALIVE, comme partout ailleurs dans cette famille.
-  * L'adjacence est `hexgeo.distance == 1` (foyer partage avec `entities/effect_targets.py`), sans
-    le gate d'elevation `|delta| < 2` de `TileQuery$$IterateAdjacentTiles` (#271). PERMISSIF au bord
-    d'une marche >= 2.
+  * ~~L'adjacence est `hexgeo.distance == 1` ... PERMISSIF au bord d'une marche >= 2.~~ **CABLE
+    (#943-r7)** : `icon_of_obstinacy_affected_units` passe desormais par le foyer
+    `engine.battle_query.is_adjacent`, donc par la liste STOCKEE du `ConnectivityComponent` PUIS la
+    porte `|dElev| < 2`. Le couple est ferme DANS LE MEME COMMIT avec l'autre expression du meme
+    `AIconOfObstinacyAbility$$GetAffectedUnits`
+    (`entities/effects/loki/icon_of_obstinacy.py::create_aura_attack_damage_bonus_for_ally`) : les
+    cabler separement aurait fait diverger le buff d'ARMURE du bonus de DEGAT.
 
 DOCTRINE #149 : le trigger (predicats + selecteur) est COLLAPSE imperativement -- lecture d'etat --
 et la feuille `AddDynamicStatModifierEffect` est le noeud DSL deja porte, qui delegue a
@@ -79,9 +83,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-import hexgeo
-
 from ....state import State
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1). Aucun seeding :
+# `State.board` est deja la, et c'est le MEME board que celui d'ou la face jumelle (le ctx d'aura)
+# tire les siens.
+from .....entities.pathfinding import board as _board
+from ..... import battle_query as _bq
 from ....components import (OwnerComponent, PositionComponent, UnitComponent,
                             unit_attacks_made_this_turn)
 from ....abilities.base import convert_rounds_to_turns
@@ -140,6 +147,11 @@ def icon_of_obstinacy_affected_units(state: State, owner_id: int) -> list:
     ooc = owner.get_component(OwnerComponent)
     if opc is None or ooc is None:
         return []
+    # #943-r7 -- `AdjacentFriends(Owner)` = `Friends(Owner, Units(AdjacentTiles(Owner)) - Owner, 3)`
+    # : l'ENUMERATION part du PORTEUR, sur la liste STOCKEE du `ConnectivityComponent`, puis la
+    # porte `|dElev| < 2` de `TileQuery$$IterateAdjacentTiles`. Board absent (`State.board is None`)
+    # -> `(None, None)` -> repli geometrique NOMME, le comportement d'avant.
+    elev_by_pos, neigh_by_pos = _board.adjacency_channels(getattr(state, "board", None))
     out = [int(owner_id)]                        # `op_Addition` : le porteur, INCONDITIONNEL
     for uid, ent in state.entities.items():
         if int(uid) == int(owner_id):
@@ -151,8 +163,9 @@ def icon_of_obstinacy_affected_units(state: State, owner_id: int) -> list:
         pc = ent.get_component(PositionComponent)
         if oc is None or pc is None or oc.team != ooc.team:
             continue                             # `Friends` = meme equipe que le porteur
-        if hexgeo.distance((opc.col, opc.row), (pc.col, pc.row)) != 1:
-            continue                             # ring-1 (cf. residu elevation, §3)
+        if not _bq.is_adjacent((opc.col, opc.row), (pc.col, pc.row),
+                               elev_by_pos, neigh_by_pos):
+            continue                             # `AdjacentTiles(Owner)` : la liste STOCKEE (#943-r7)
         if not _has_terminator_armour(state, uid):
             continue                             # `UnitsWithTrait(0x40f = TerminatorArmour)`
         out.append(int(uid))

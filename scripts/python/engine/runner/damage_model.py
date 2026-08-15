@@ -1050,6 +1050,13 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # natif frais. ⚠ Le contexte est PER-COUP : il porte la position ET le compteur, exactement
     # comme l'`AbilityEntities` natif que `BaseEffect$$DamageBonusForAttack` recoit.
     att_ctx = dict(att_ctx or {})
+    # #943-r7 -- le BOARD, d'ou se derivent les DEUX canaux du substrat d'adjacence NATIF. Pose
+    # INCONDITIONNELLEMENT ici (et non dans `_positional_att_ctx`, qui rend `None` des que le board
+    # manque, donc ne pourrait pas porter la cle). MEME cle et MEME semantique que partout ailleurs ;
+    # pendant EXACT de la face PREDICTION (`playbook/prediction/_shared.py`). Consommateur :
+    # `TerrorsLament_DamageReduction`, dont le trigger `IsAdjacent(Caster@+0x48, Owner@+0x30, 3)`
+    # descend sur `BattleQuery$$AreEntitiesAdjacent`.
+    att_ctx["board"] = getattr(state, "board", None)
     att_ctx["tiles_moved_this_turn"] = unit_tiles_moved_this_turn(state, unit_id)
     # #911 : `GetNumAdjacentTauntedEnemies()` de la base native `ADaemonicPatronsEffect`. MEME
     # regime que `tiles_moved_this_turn` ci-dessus -- sur ce canal l'OWNER de chaque effet parcouru
@@ -1507,6 +1514,9 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # semantique que la face PREDICTION -- pas de fork. TRI-ETAT : `None` =
                            # non mesure -> le gate se FERME (cf. `_unit_rarity`).
                            "tgt_rarity": _unit_rarity(state, unit_id),
+                           # #943-r7 -- le BOARD du substrat d'adjacence NATIF, MEME cle que sur la
+                           # face PREDICTION (`playbook/prediction/_shared.py`).
+                           "board": getattr(state, "board", None),
                            "damage_profile": damage_profile,
                            # `IsUnit(caster@0x160)` (= `DSLSelectors+0x48`) -- MEME cle/semantique
                            # que l'`att_ctx["is_unit"]` du canal defenseur ci-dessus, relayee au
