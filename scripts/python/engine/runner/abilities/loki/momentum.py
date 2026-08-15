@@ -192,6 +192,9 @@ from ....entities.selectors.tiles import Caster
 from ....entities.selectors.units import Enemies, Units, UnitSet
 from ....entities.traits.unit_trait import UnitTrait, has_any_trait
 from ....entities.unit_flag import UnitFlag
+# #943-r7 -- le canal du `ConnectivityComponent` BRUT (SANS porte d'elevation), en FORME B
+# (#485-r1-r1). `entities.pathfinding.board` n'importe RIEN d'`engine`.
+from ....entities.pathfinding import board as _board
 
 if TYPE_CHECKING:
     from ...state import State
@@ -497,9 +500,30 @@ class UnstoppableMomentumReworkedAbility(ActiveAbility):
         tile_pos = board.coord(tile_id)
         if caster_pos is None or tile_pos is None:
             return False
-        import hexgeo
-        if hexgeo.distance(caster_pos, (int(tile_pos[0]), int(tile_pos[1]))) != 1:
-            return False                                      # TileExtensions.IsNeighbourOf
+        # `TileExtensions$$IsNeighbourOf(targetTile, GetMainTile(caster))` -- LU (#943-r7), et ce
+        # N'EST PAS le meme substrat que le reste de la famille : le corps enumere
+        # `ConnectivityComponent+0x10` de la tuile CIBLE et compare l'id de la tuile du caster,
+        # **SANS AUCUNE PORTE D'ELEVATION** (contraste avec `IterateAdjacentTiles`, qui en porte
+        # une). Ni `battle_query.is_adjacent` ni `Board.neighbours_native` ne conviennent donc :
+        # tous deux ajouteraient la porte, et le champ `neighbours` capte EST deja
+        # `connectivity INTERSECTE {|dElev| < 2}` (identite lue dans `Board.base_add_neighbours`).
+        # Le canal juste est `Board.neighbours_connectivity`, TRI-ETAT.
+        #
+        # ⚠ TRI-ETAT, ET LE `None` N'EST PAS RARE : le champ `connectivity` du `boardGraph` n'existe
+        # QU'EN LIVE (`InitializeConnectivityOperation$$Execute` le construit en bataille), les
+        # `data/boards/*.json` etant des ASSETS qui ne peuvent structurellement pas le porter.
+        # Canal absent -> repli GEOMETRIQUE nomme, c.-a-d. le comportement d'avant ce cablage.
+        # L'inclusion mesuree est `neighbours SOUS-ENSEMBLE connectivity SOUS-ENSEMBLE geometrie`,
+        # donc le cablage est strictement RESTRICTIF -- il ferme des pas que la couronne ouvrait.
+        conn = _board.connectivity_neighbours(board, tile_id)
+        if conn is None:
+            import hexgeo
+            if hexgeo.distance(caster_pos, (int(tile_pos[0]), int(tile_pos[1]))) != 1:
+                return False                                  # repli : canal non capte
+        else:
+            caster_tid = board.id_at(int(caster_pos[0]), int(caster_pos[1]))
+            if caster_tid is None or int(caster_tid) not in {int(x) for x in conn}:
+                return False                                  # TileExtensions.IsNeighbourOf
         if _is_empty_or_steppable(state, board, tile_id):
             return self._move(state, caster_id, tile_id, out)
         # --- tuile OCCUPEE : retrait de l'effet 0x425, attaque, effet, poussee -------------------
