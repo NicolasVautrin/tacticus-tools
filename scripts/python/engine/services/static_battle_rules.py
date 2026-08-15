@@ -16,6 +16,10 @@ from __future__ import annotations
 import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 from ..entities.effect_type import EffectType
 from ..entities.traits.unit_trait import UnitTrait
+# Feuille pure (`enum` seul) : `import engine.entities.triggered_ability_type` charge 3 modules
+# `engine.*` (le paquet, son parent et lui-meme) -- MESURE, pas suppose. Ce module en charge
+# deja 8 : l'ajouter n'allonge la cascade d'AUCUN module.
+from ..entities.triggered_ability_type import TriggeredAbilityType
 
 # ─── #485-r1-r1 : LA CONTRAINTE DE PLACEMENT A DISPARU -- MESUREE, PAS SUPPOSEE
 #
@@ -76,6 +80,83 @@ def is_tile_status_effect(effect_type) -> bool:
     """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsTileStatusEffect
     -- cet EffectType compte-t-il comme un STATUS de tuile ? (cf. `TILE_STATUS_EFFECT_TYPES`)"""
     return effect_type is not None and int(effect_type) in TILE_STATUS_EFFECT_TYPES
+
+
+# --- `StaticBattleRules` : les DEUX sets de l'ATTAQUE PARTIELLE ----------------------------------
+# LUS PAR LES OCTETS DU PE (`probe_419r1tr9r4r1r2r1a_partial_attack_sets.py`), pas au decompile :
+# le `.cctor` de `StaticBattleRules.Effect` fait 0xd120 octets et DEPASSE le budget de
+# `mcp__ghidra__decompile_function` -- deux tranches (#1103, #1107) ont bute dessus. La voie qui
+# marche lit l'ACCESSEUR (petit) pour obtenir le couple `(Il2CppClass*, offset du champ statique)`,
+# puis delimite dans le `.cctor` le segment entre les DEUX stores au bloc de statiques qui
+# l'encadrent : les immediats `mov dword ptr [rbp+N], IMM` poses juste avant chaque `Add` SONT les
+# membres. Le probe re-derive ces deux ensembles a chaque run et rougit sur ecart.
+#
+#   `StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility` -- statics +0x80, `HashSet.Contains`
+#   `StaticBattleRules.Effect$$IsPartialAttack`                  -- statics +0x38, `HashSet.Contains`
+#
+# ⚠ LES DEUX SETS SONT DANS DEUX ENUMS DIFFERENTS, ET L'ORDINAL NE LES DISTINGUE PAS -- c'est
+# exactement la confusion SILENCIEUSE que le nom rend visible : `1032` vaut
+# `TriggeredAbilityType.DeathToTheFalseEmperor` ici et `EffectType.UnstoppableFerocity_OwnerEffect`
+# ailleurs ; `1076` vaut `TriggeredAbilityType.HazeOfCorruption` ici et
+# `EffectType.CondemnorStake_ExtraDmg` ailleurs ; `1077` vaut
+# `EffectType.HazeOfCorruption_DamageTransfer` ici et `TriggeredAbilityType.Volatile` ailleurs.
+PARTIAL_ATTACK_TRIGGERED_ABILITY_TYPES: frozenset = frozenset({
+    TriggeredAbilityType.DeathToTheFalseEmperor,        # 0x408 = 1032
+    TriggeredAbilityType.HazeOfCorruption,              # 0x434 = 1076
+})
+
+PARTIAL_ATTACK_EFFECT_TYPES: frozenset = frozenset({
+    EffectType.HazeOfCorruption_DamageTransfer,         # 0x435 = 1077
+})
+
+
+def is_partial_attack_ability(triggered_ability_type) -> bool:
+    """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility(abilityType)`
+    = `HashSet.Contains(<set statique +0x80>, abilityType)`. Le parametre est un
+    **`TriggeredAbilityType`** (signature LUE dans `frida/methods.tsv`)."""
+    return (triggered_ability_type is not None
+            and int(triggered_ability_type) in PARTIAL_ATTACK_TRIGGERED_ABILITY_TYPES)
+
+
+def is_partial_attack(effect_type) -> bool:
+    """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsPartialAttack(effectType)`
+    = `HashSet.Contains(<set statique +0x38>, effectType)`. Le parametre est un **`EffectType`**
+    (signature LUE dans `frida/methods.tsv`)."""
+    return effect_type is not None and int(effect_type) in PARTIAL_ATTACK_EFFECT_TYPES
+
+
+def ability_is_partial_attack(ability_or_effect) -> bool:
+    """`Idun.Source.IdunBattle.Logic.Entities.Triggers.AbilityIsPartialAttackAbilityTrigger$$IsPartialAttack(abilityType)`
+    -- le noeud DSL `IdunBattleLogic.Entities.DSLTriggers$$IsPartialAttackAbility`, mirror du corps
+    natif LU par les octets (`Nullable<AbilityOrEffect>` en entree) :
+
+        if (!a.HasValue)                 return false                          # `Nullable.get_HasValue`
+        v = a.Value                                                            # `AbilityOrEffect`, 40 octets
+        if (v.TriggeredAbility.HasValue) return TriggeredAbility.IsPartialAttackAbility(v.TriggeredAbility.Value)
+        if (v.Effect.HasValue)           return Effect.IsPartialAttack(v.Effect.Value)
+        return false                                                           # -> une ACTIVE rend TOUJOURS faux
+
+    Les trois `Nullable` sont lus a `AbilityOrEffect+0x00` (`ActiveAbility`, JAMAIS consulte ici),
+    `+0x08` (`TriggeredAbility`) et `+0x10` (`Effect`) -- ordre du corps natif, la branche
+    `TriggeredAbility` PRIME sur `Effect`.
+
+    ⚠ LE DISCRIMINANT DE TYPE N'EXISTE PAS DANS LE CANAL DU PORT (residu nomme). Le port thread
+    l'`AbilityOrEffect` comme un ENTIER NU partout (`state.trigger_ability_type`,
+    `state.triggering_ability`, `att_ctx["ability_type"]`, `NORMAL_ATTACK_KIND` -- qui melange deja
+    un `TriggeredAbilityType` a des `ActiveAbilityType` dans le meme espace d'entiers). On ne peut
+    donc pas savoir LEQUEL des trois `Nullable` est arme, et on teste l'UNION des deux ensembles.
+    C'est une SUR-approximation, et son SENS est mesure : l'unique consommateur porte
+    (`LegendaryCommander_ExtraHitsEffect$$IsValidAttack`) l'utilise sous un
+    `!(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility)`, donc rendre VRAI plus souvent
+    RESTREINT -- jamais n'elargit. Les six noms concernes sont ecrits ci-dessus ; les trois qui
+    seraient a tort classes `partial` sont `EffectType.UnstoppableFerocity_OwnerEffect` (1032),
+    `EffectType.CondemnorStake_ExtraDmg` (1076) et `TriggeredAbilityType.Volatile` (1077).
+    `ActiveAbilityType.MV71SniperDroneSquadAttack` (1076) ne compte pas : il est dans
+    `REGULAR_ATTACK_ABILITY_TYPES`, donc le gate `!IsNormalAttack` en amont l'a deja ferme."""
+    if ability_or_effect is None:                          # `Nullable.HasValue == false`
+        return False
+    t = int(ability_or_effect)
+    return (t in PARTIAL_ATTACK_TRIGGERED_ABILITY_TYPES) or (t in PARTIAL_ATTACK_EFFECT_TYPES)
 
 
 # --- `StaticBattleRules.Effect` : traits EXEMPTS d'un effet de tuile qui bloque le mouvement ------

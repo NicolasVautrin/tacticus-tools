@@ -19,6 +19,12 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_subtraction_capped)
 from ....services.damage_combat import BlockSource
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
+# FORME B (liaison de MODULE, pas de nom) -- la seule des trois qui laisse un
+# `monkeypatch.setattr("engine.services.static_battle_rules.<f>", ...)` MORDRE. Differe GRATUIT
+# hisse : `import engine.services.static_battle_rules` en process frais charge 9 modules `engine.*`
+# et n'y met PAS `engine.entities.effects.loki.hits` -- aucun cycle a fermer (mesure #419-r1-tr9-
+# r4-r1-r2-r1a). Le module est de toute facon deja importe par la ligne au-dessus.
+from ....services import static_battle_rules as _static_battle_rules
 from ..base import BaseEffect, is_at_range as _is_at_range, is_charging_attack, owner_is_caster
 from ..magnitude import ability_var, global_value, trait_var
 # #270-r1-r1 : les cles composites `LET_THE_GALAXY_BURN_PERSISTENT_KEY` / `SWARM_HIT_REDUCTION_SOURCE`
@@ -2495,18 +2501,31 @@ class LegendaryCommanderExtraHitsEffect(BaseEffect):
     EffectSource(Get(effect)), EntityId(Target@0x60)))` -- purge la cle d'UNE cible au retrait de
     l'effet ; `AddEffect` posant 1395 SANS duree, le retrait n'a aucun vecteur porte (residu nomme).
 
-    ## RESIDU NOMME -- `IsPartialAttackAbility` non porte, conjonction APPROXIMEE PAR EXCES
+    ## `IsPartialAttackAbility` -- PORTE (#419-r1-tr9-r4-r1-r2-r1a), et l'inertie du 1er conjoint
     `Idun.Source.IdunBattle.Logic.Entities.Triggers.AbilityIsPartialAttackAbilityTrigger$$IsPartialAttack`
     teste l'appartenance du `CurrentAbility` a l'un de DEUX `HashSet` statiques
     (`StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility` pour un `TriggeredAbilityType`,
     `StaticBattleRules.Effect$$IsPartialAttack` pour un `EffectType`) et rend FAUX pour toute
-    ACTIVE. Ces deux ensembles ne sont pas lus ici. Le port remplace donc
-    `!(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility)` par son PREMIER conjoint seul,
-    `!TriggeringAbilityIsNormalAttack` -- une borne qui ne peut que RESTREINDRE (fermer le gate
-    alors que le natif l'aurait laisse passer), jamais elargir. Regime concerne : une attaque
-    d'ability DECLENCHEE par une attaque normale ; hors de lui les deux formes coincident, le
-    premier conjoint etant deja faux. `TriggeringAbilityIsNormalAttack` =
-    `IsNormalAttack(TriggeringAbility@DSLSelectors+0x90)` = le canal `trigger_ability_type` du board.
+    ACTIVE. Les deux ensembles sont desormais LUS -- pas au decompile (le `.cctor` de
+    `StaticBattleRules.Effect` fait 0xd120 octets et depasse le budget de decompilation, ce sur quoi
+    #1103 et #1107 ont bute) mais par les OCTETS du PE :
+    `probe_419r1tr9r4r1r2r1a_partial_attack_sets.py`. Ils valent
+    `{DeathToTheFalseEmperor 1032, HazeOfCorruption 1076}` et
+    `{HazeOfCorruption_DamageTransfer 1077}` -- foyer `services/static_battle_rules.py`, ou le
+    discriminant de type PERDU par le canal (le port thread un entier nu) est nomme et son sens
+    mesure (SUR-approximation, donc RESTRICTIVE sous cette negation).
+
+    ⚠ RESIDU DEPLACE D'UN CRAN, ET IL EST MESURE : c'est le PREMIER conjoint qui est inerte.
+    `TriggeringAbilityIsNormalAttack` = `IsNormalAttack(TriggeringAbility@DSLSelectors+0x90)` = le
+    canal `trigger_ability_type` du board de coups -- et ce canal n'est alimente QUE par la face
+    NORMALE (`damage_ops/normal.py` passe `trigger_ability_type=triggering_ability` a
+    `build_hits_board`) ; la face ABILITY (`damage_ops/ability.py`) ne le passe PAS, il y reste a
+    `None`. Or le gate `!IsNormalAttack(CurrentAbility)` juste au-dessus FERME la face normale. La
+    conjonction complete ne peut donc mordre sur AUCUNE face portee tant que la face ABILITY
+    n'alimente pas ce canal -- ce qui n'est pas fait ici parce que le canal a un AUTRE consommateur
+    (`PurgeResponse` 1538, `TriggeringAbilityIs(EffectType 1009 Overwatch_AutoAttack)`) qu'un
+    alignement sur `ability_type` ferait firer a tort des que l'ordinal coincide.
+    Residu #419-r1-tr9-r4-r1-r2-r1a-r1.
 
     ## FACE PREDICTION -- structurellement INERTE, et c'est le natif
     Les deux facades de prediction qui traversent `attack_hits_with_modifiers`
@@ -2575,10 +2594,14 @@ class LegendaryCommanderExtraHitsEffect(BaseEffect):
         # `!IsNormalAttack(CurrentAbility@0x88)` -- le SEUL gate du canal COUPS pose en NEGATION.
         if c.get("is_normal_attack", True):
             return False
-        # `!(TriggeringAbilityIsNormalAttack & IsPartialAttackAbility(CurrentAbility@0x88))`,
-        # APPROXIME par son premier conjoint seul (residu nomme, cf. docstring de classe).
-        from ....runner.abilities.attack_type import is_regular_attack
-        if is_regular_attack(c.get("trigger_ability_type")):
+        # `!( TriggeringAbilityIsNormalAttack & IsPartialAttackAbility(CurrentAbility@0x88) )`
+        # -- LES DEUX CONJOINTS, depuis #419-r1-tr9-r4-r1-r2-r1a. Le second etait absent parce que
+        # ses deux `HashSet` statiques n'etaient pas lisibles (le `.cctor` de
+        # `StaticBattleRules.Effect` depasse le budget de decompilation) ; ils le sont maintenant,
+        # par les OCTETS du PE (`probe_419r1tr9r4r1r2r1a_partial_attack_sets.py`).
+        from ....runner.abilities.attack_type import is_regular_attack   # differe PORTEUR (runner)
+        if (is_regular_attack(c.get("trigger_ability_type"))
+                and _static_battle_rules.ability_is_partial_attack(c.get("ability_type"))):
             return False
         return True
 

@@ -1780,7 +1780,8 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
 
 def build_hits_board(state: State, att_id: int, tgt_id: int,
                      attack_pos, t_pos, is_melee: Optional[bool],
-                     trigger_ability_type: Optional[int] = None):
+                     trigger_ability_type: Optional[int] = None,
+                     ability_type: Optional[int] = None):
     """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS
     (positions/teams/effets REELS). `board` = {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee,
     pos_by_id, team_by_id} (base_hits posé par la Formule) ; `aura_sources` = [(owner_id, pos, team, effets)]
@@ -1909,6 +1910,16 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              # comme le `Nullable` vide du natif (`TriggeringAbilityIsNoneTrigger`).
              "trigger_ability_type": (None if trigger_ability_type is None
                                       else int(trigger_ability_type)),
+             # `AbilityEntities+0x60` (`CurrentAbility`, slot `DSLSelectors+0x88`) sur le canal
+             # COUPS -- MEME champ natif et MEME nom de cle que sur le canal DEGAT
+             # (`attacker_modifiers`, #509). `DamagePrediction$$GetAttackHits` synthetise un
+             # `AbilityEntities` et le passe a CHAQUE effet de la boucle : le canal COUPS voit donc
+             # `CurrentAbility` comme le canal DEGAT. Consommateur : le SECOND conjoint de
+             # `LegendaryCommander_ExtraHitsEffect$$IsValidAttack`
+             # (`IsPartialAttackAbility(CurrentAbility@0x88)`, #419-r1-tr9-r4-r1-r2-r1a).
+             # `None` (appelant qui ne le connait pas) -> cle a None, et le noeud rend FAUX,
+             # exactement comme le `Nullable` vide du natif -- jamais << inconnu = vrai >>.
+             "ability_type": (None if ability_type is None else int(ability_type)),
              # `HasUsedActiveAbilityThisTurn(Subject@0x68)` du `Filter` de
              # `IdunBattle.Entities.Effects.Loki.ALegendaryCommander_BaseEffect$$CreateTargetSelector`
              # -- MEME store (`UnitFlagsComponent`, flag 2 `ActiveAbilityUsed`) et MEME foyer que le

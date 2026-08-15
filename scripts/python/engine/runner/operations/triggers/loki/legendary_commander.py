@@ -108,7 +108,13 @@ def _owner_ctx(state: State, owner_id: int, ev: TriggerEvent) -> Optional[dict]:
         return None
     board, _auras, _tgt_eff = build_hits_board(state, int(att), int(tgt),
                                                (apc.col, apc.row), (tpc.col, tpc.row),
-                                               is_melee=None)
+                                               is_melee=None,
+                                               # `CurrentAbility@0x88` -- le SECOND conjoint
+                                               # d'`IsValidAttack` en a besoin ici EXACTEMENT comme
+                                               # sur le canal COUPS, sinon les deux expressions du
+                                               # MEME predicat natif divergeraient
+                                               # (#419-r1-tr9-r4-r1-r2-r1a).
+                                               ability_type=ev.ability_type)
     oe = state.get_entity(int(owner_id))
     opc = oe.get_component(PositionComponent) if oe is not None else None
     ooc = oe.get_component(OwnerComponent) if oe is not None else None
@@ -123,6 +129,8 @@ def _owner_ctx(state: State, owner_id: int, ev: TriggerEvent) -> Optional[dict]:
             "is_normal_attack": (True if ev.is_normal_attack is None else bool(ev.is_normal_attack)),
             # `TriggeringAbilityIsNormalAttack` = `IsNormalAttack(TriggeringAbility@0x90)`.
             "trigger_ability_type": ev.triggering_effect}
+    # NB : `ability_type` (`CurrentAbility@0x88`) est pose PAR `build_hits_board` ci-dessus depuis
+    # `ev.ability_type` -- un seul foyer, pas une seconde ecriture ici.
 
 
 class LegendaryCommanderExtraHitsMarkCaster(EffectTrigger):

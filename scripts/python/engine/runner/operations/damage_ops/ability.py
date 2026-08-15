@@ -538,7 +538,15 @@ class _AbilityAttack:
             _melee_ch = hits_channel_is_melee(state, attacker_id, target_id, is_melee)
             _board_h, _auras_h, _tgt_eff_h = build_hits_board(
                 state, attacker_id, target_id, (_ap_h.col, _ap_h.row), (_tp_h.col, _tp_h.row),
-                is_melee=_melee_ch)
+                is_melee=_melee_ch,
+                # `CurrentAbility` (`AbilityEntities+0x60`) sur le canal COUPS -- MEME valeur que
+                # celle deja threadee au canal DEGAT juste au-dessus (`attacker_modifiers(
+                # ability_type=...)`, #509). Ce site est le SEUL vecteur ou l'effet
+                # `LegendaryCommander_ExtraHits` reste ouvert (le gate `!IsNormalAttack` ferme la
+                # face normale), donc c'est ici que son second conjoint doit pouvoir lire l'ability
+                # courante. Le gate FAMILLE des voisins ne s'applique PAS : `GetAttackHits` est
+                # appele par la seule famille ATTACK, et ce bloc est deja sous `is_attack_damage_op`.
+                ability_type=ability_type)
             # A3 (#113) : gate compute-time LightCover, mirror du call-site de l'attaque normale.
             _t_terrain_h = state.board.terrain_at(_tp_h.col, _tp_h.row)
             _on_cover_h = (_t_terrain_h == LIGHT_COVER_TILE_ID) if _t_terrain_h is not None else None
