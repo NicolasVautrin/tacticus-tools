@@ -6,23 +6,31 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....components import StatsComponent, OwnerComponent
+from ....components import StatsComponent, OwnerComponent, UnitComponent
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect, RemoveEffect
+from ....abilities.behaviours.lifecycle import TriggerAbilityDelayed
 from .....entities.stats import StatType
 from .....entities.effect_type import EffectType
 from .....entities.behaviours import op_add, If, Maybe
-from .....entities.triggers import TriggerAnd, HasGrandAlliance, AreFriends, AreEqual, IsMeleeAttack
+from .....entities.triggers import (TriggerAnd, HasGrandAlliance, AreFriends, AreEnemies, AreEqual,
+                                    IsMeleeAttack)
 from .....entities.formulas import UnitNormalAttackType, ConfigVarForEntity
-from .....entities.selectors.accessors import Actor
+from .....entities.selectors.accessors import Actor, Owner, Target
 from .....entities.selectors.tiles import Caster
 from .....entities.active_ability_type import ActiveAbilityType
+from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _faction_id
 
 ACTOFFAITH_EFFECT = int(EffectType.ActOfFaith_Effect)  # 1017 — ActOfFaithBuffEffect, buff crit empilable
+#: `TriggerAbilityDelayed(Owner@+0x30, 0x3fa, 3)` de la branche `!= Custom` du reset (#1001-r1) : le
+#: `TriggeredAbilityType` de l'ability elle-meme, exactement comme `BladeOfTheAncestors` (0x5d3).
+ACT_OF_FAITH_ABILITY = int(TriggeredAbilityType.ActOfFaithAbility)          # 0x3fa = 1018
+#: `unitSelectionType` (4e argument natif) du `TriggerAbilityDelayed` -- trace, jamais lu.
+DELAYED_UNIT_SELECTION_TYPE = 3
 #   (ATTENTION #158 : 1017 = EffectType.ActOfFaith_Effect ICI, PAS UnitTrait.BigTarget=1017 — contexte = effet)
 # Grand-alliance « Imperial » = trait 0x1a=26 (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait → 0x1a si "Imperial").
 # Le natif teste `HasTrait(unit, 26)` ; offline = appartenance de `FactionId` au groupe Imperial. Les 10
@@ -36,13 +44,16 @@ CRIT_CHANCE_MAX = 100   # crit-chance plafonnée (StatComponent.GetClampedValue 
 
 
 def act_of_faith_accumulate_tree(effect_type: int):
-    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE ; branche gshared
-    `param_3 != 0x20` — la branche `==0x20` = `Nothing`, cross-instantiation ecartee comme pour le reset
-    IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE ; branche
+    `triggerType != 0x20 = Custom` — la branche `== 0x20` = `DSLBehaviors$$Nothing()`, appelee au DRAIN
+    et qui ne fait RIEN, exactement comme celle de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BladeOfTheAncestorsAbility$$CreateBehaviour`, son
+    jumeau de forme -- cf. `act_of_faith_delayed_tree` pour l'autre moitie de la fourche, #1001-r1) :
         op_Addition(
-            AddEffect(0x3f9, source=AbilityStateReference, target=Self@0x148),                    # [1] GARANTI
-            If( HasTrait(killer@0x158, Imperial=0x1a) & AreFriends(killer@0x158, owner@0x148)
-                  & AreEqual(UnitNormalAttackType(killer@0x158), RighteousRepugnance_NormalAttack=1182)
+            AddEffect(0x3f9, source=AbilityStateReference, target=Owner@+0x30),                   # [1] GARANTI
+            If( HasTrait(killer@+0x40, Imperial=0x1a) & AreFriends(killer@+0x40, Owner@+0x30)
+                  & AreEnemies(Target@+0x60, Owner@+0x30, 0)
+                  & AreEqual(UnitNormalAttackType(killer@+0x40), RighteousRepugnance_NormalAttack=1182)
                   & IsMeleeAttack(...),
                 Maybe( AddEffect(0x3f9), chance=ConfigVar(RighteousRepugnance=1107, killer, chance) ) ) )  # [2]
 
@@ -76,11 +87,16 @@ def act_of_faith_accumulate_tree(effect_type: int):
     # IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour, deja porte -- cf. `act_of_faith_reset_tree`). Le port passait le defaut positionnel
     # `duration_rounds=1` (les stacks se seraient evapores au 1er tick) -> `duration_rounds=None`.
     base = AddEffect(effect_type, "ActOfFaith_Effect", Caster(), duration_rounds=None)   # [1] AddEffect(0x3f9, Self@0x148)
-    # [2] cond = HasTrait(killer,Imperial=0x1a) & AreFriends(killer,owner) & AreEqual(UnitNormalAttackType(
-    #            killer), RighteousRepugnance_NormalAttack=1182) & IsMeleeAttack  (op_BitwiseAnd, gauche->droite)
-    cond = TriggerAnd(TriggerAnd(TriggerAnd(
-        HasGrandAlliance(Actor(), IMPERIAL_FACTIONS),                    # HasTrait(killer@0x158, 26=Imperial)
-        AreFriends(Actor(), Caster())),                                  # AreFriends(killer@0x158, owner@0x148)
+    # [2] cond = HasTrait(killer,Imperial=0x1a) & AreFriends(killer,owner) & AreEnemies(Target,owner)
+    #            & AreEqual(UnitNormalAttackType(killer), RighteousRepugnance_NormalAttack=1182)
+    #            & IsMeleeAttack  (op_BitwiseAnd, gauche->droite)
+    # ⚠ `AreEnemies(Targets@+0x60, Owner@+0x30, 0)` etait ABSENT du port (#1001-r1, mesure du meme
+    # decompile) : sans lui, la branche 1 du `CreateTrigger` (« un allie Imperial MEURT ») pouvait
+    # accorder le 2e stack PROBA alors que le natif le reserve au cas ou la VICTIME est un ennemi.
+    cond = TriggerAnd(TriggerAnd(TriggerAnd(TriggerAnd(
+        HasGrandAlliance(Actor(), IMPERIAL_FACTIONS),                    # HasTrait(killer@+0x40, 26=Imperial)
+        AreFriends(Actor(), Owner())),                                   # AreFriends(killer@+0x40, Owner@+0x30)
+        AreEnemies(Target(), Owner())),                                  # AreEnemies(Target@+0x60, Owner@+0x30)
         AreEqual(UnitNormalAttackType(Actor()),                         # UnitNormalAttackType(killer) == 1182
                  Const(int(ActiveAbilityType.RighteousRepugnance_NormalAttack)))),
         IsMeleeAttack())                                                 # coup fatal en melee (ctx.attack_kind)
@@ -90,30 +106,59 @@ def act_of_faith_accumulate_tree(effect_type: int):
     return op_add(base, bonus)                                           # op_Addition([1] garanti, [2] conditionnel)
 
 
-def act_of_faith_reset_tree(effect_type: int):
-    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
-        RemoveEffect( target = Self@0x148, effectType = Nullable(0x3f9=1017) )
-    Port : `RemoveEffect(ACTOFFAITH_EFFECT, Caster())` (Owner==Caster pour un triggered). Retire TOUS les
-    stacks ActOfFaith du porteur et revert leur ChangeStat (crit-chance + crit-damage, `reverted_stats()`) --
-    MEME Operation de revert par-source (`revert_change_stat`) que l'ancien `_reset_act_of_faith` -> bit-exact
-    BY CONSTRUCTION. `effect_type` passe par l'appelant (constante `ACTOFFAITH_EFFECT`) pour eviter le
-    couplage d'import.
+def act_of_faith_delayed_tree():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour`,
+    branche `triggerType != 0x20 = Custom` = `TriggerAbilityDelayed(Owner@+0x30, 0x3fa = 1018, 3)` --
+    l'ENFILEMENT, aucun retrait ici (#1001-r1).
 
-    ⚠ BODY GSHARED : IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour est un corps `Il2CppFullySharedGenericStruct` (param_3 = token de type). La
-    branche `param_3==0x20` = `RemoveEffect(Self, 0x3f9)` = LE behaviour retenu (nom `RemoveEffectAbility` +
-    port validé #151) ; la branche `!=0x20` = `TriggerAbilityDelayed(Self, 0x3fa=1018, 3, 0)` est ECARTEE
-    (cross-instantiation gshared : cf. l'accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour qui a `Nothing` en `==0x20` et le RÉEL en
-    `!=0x20` -- assignations OPPOSEES entre les deux methodes -> on retient RemoveEffect(0x3f9), le natif que
-    le port fait deja et que #151 a validé)."""
-    return RemoveEffect(effect_type, Caster())
+    ⚠ CE QUE #1001-r1 A CORRIGE, ET POURQUOI L'ANCIENNE LECTURE ETAIT FAUSSE. Le port ecartait cette
+    branche en la disant << cross-instantiation d'un corps gshared >>. Le corps N'EST PAS gshared : il
+    est NOMME, il appartient a cette seule classe, et le seul appel `Il2CppFullySharedGeneric` qu'il
+    contient est le `.ctor` de `System.Nullable<EffectType>` -- une construction de valeur, pas un
+    partage de corps. La preuve est le JUMEAU DE FORME
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BladeOfTheAncestors_RemoveEffectAbility$$CreateBehaviour`,
+    dont le decompile est structurellement IDENTIQUE au token pres (`0x5d3`/`0x5d1` au lieu de
+    `0x3fa`/`0x3f9`) et dont la lecture a ete CONFRONTEE LIVE (#1001) : le natif retire le buff APRES
+    la cloture de l'attaque, pas au milieu de la salve.
+
+    L'argument qui avait fait ecarter la branche -- << l'accumulate a `Nothing` en `==0x20` et le REEL
+    en `!=0x20`, donc les assignations sont OPPOSEES >> -- ne conclut rien : les deux classes de 1018
+    fourchent sur le MEME test et se PARTAGENT le travail, exactement comme les deux classes de 1491.
+    Au drain, le natif rappelle le slot 4 de CHACUNE avec `triggerType = Custom` :
+
+        ActOfFaithAbility                  (Custom) -> `DSLBehaviors$$Nothing()`   = no-op
+        ActOfFaith_RemoveEffectAbility     (Custom) -> `RemoveEffect(Owner, 0x3f9)`
+
+    OBSERVABLE : les coups SUIVANTS de l'attaque qui a crite gardent le buff crit ; il ne tombe qu'une
+    fois l'attaque TERMINEE (drain de `ProcessPendingTriggeredAbilities`, cf. `dispatch/pending.py`)."""
+    return TriggerAbilityDelayed(Owner(), ACT_OF_FAITH_ABILITY,
+                                 unit_selection_type=DELAYED_UNIT_SELECTION_TYPE)
+
+
+def act_of_faith_reset_tree(effect_type: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour`,
+    branche `triggerType == 0x20 = Custom` (MIRROR 1:1 du DECOMPILE) :
+        RemoveEffect( targets = Owner@+0x30, effectType = Nullable(0x3f9 = 1017),
+                      replaceableEffectType = null )
+    Retire TOUS les stacks ActOfFaith du porteur et revert leur ChangeStat (crit-chance + crit-damage,
+    `reverted_stats()`) -- MEME Operation de revert par-source (`revert_change_stat`) que l'ancien
+    `_reset_act_of_faith` -> bit-exact BY CONSTRUCTION. `effect_type` passe par l'appelant (constante
+    `ACTOFFAITH_EFFECT`) pour eviter le couplage d'import.
+
+    ⚠ Cette branche n'est PLUS atteinte par le bus d'events (#1001-r1) : elle n'est joignable que par
+    le DRAIN de `state.pending_triggered_abilities`, via `CUSTOM_TRIGGERED_ABILITIES[1018]`."""
+    return RemoveEffect(effect_type, Owner())
 
 
 def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
-    """`ActOfFaith_RemoveEffectAbility` behaviour = arbre DSL `act_of_faith_reset_tree()` (mirror
-    `RemoveEffect(0x3f9, Self)` IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour) : retire chaque ActOfFaithBuffEffect du porteur et revert son
+    """Branche `Custom` de `ActOfFaith_RemoveEffectAbility` = arbre DSL `act_of_faith_reset_tree()`
+    (mirror `RemoveEffect(Owner@+0x30, 0x3f9)`
+    IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour) :
+    retire chaque ActOfFaithBuffEffect du porteur et revert son
     ChangeStat (soustrait par-source ; la somme annule exactement l'accumulation compound, quel que soit
-    l'ordre). No-op si pas d'effets. Le gate `matches` (On(9) ability-only & WasCrit & HasEffect) reste
-    upstream (hors CreateBehaviour). Le report (cc_back/cd_back/removed) est reconstruit autour de l'arbre."""
+    l'ordre). No-op si pas d'effets. Le gate `matches` (On(9) & OwnerIsCaster & WasCrit & HasEffect) reste
+    upstream, sur la classe qui ENFILE ; ici le seul gate est celui du drain (`IsUnit => IsAlive`).
+    Le report (cc_back/cd_back/removed) est reconstruit autour de l'arbre."""
     owner = state.get_entity(owner_id)
     sc = owner.get_component(StatsComponent) if owner is not None else None
     if sc is None or state.effects is None:
@@ -210,16 +255,22 @@ class ActOfFaithResetAbility(TriggeredAbility):
     ability-only → il n'émettait `On(9)` qu'en voie ability, d'où un reset MANQUANT sur crit normal (bug). Depuis
     G6b, `On(9)` est émis EN PLUS par `after_hit_normal_attack` (FinishAttack générique), gaté `is_crit` — le
     reset fire donc désormais sur les DEUX voies. Il N'écoute PAS le vecteur after-hit `On(8)` (per-coup).
-    `OwnerIsCaster` = owner est l'attaquant (`actor_id`). BehaviourIdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour = `RemoveEffect(0x3f9)` →
-    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur `after_hit_ability_
-    attack` (crit d'ABILITY/splash — ArmoriumCherub, AoE FireOfAbsolution) ET `after_hit_normal_attack` (crit
-    d'attaque NORMALE, G6b) ; idempotent (`HasEffect` garde le no-op après le 1er reset).
-    ⚠ Approximation (pré-existante) : reset AGRÉGÉ (1×/attaque d'ability, `is_crit` agrégé) et non per-coup
-    — le natif reset per-coup, donc si le coup i d'une attaque multi-coups crit, les coups i+1.. perdraient
-    le buff ; ici tous les coups d'UNE même sous-attaque utilisent les params crit d'avant-reset. Le reset
-    per-CIBLE de splash est en revanche fidèle (chaque cible = un `execute_ability_attack` distinct qui relit
-    GetStat post-reset). overwatch = non couvert (pas de vecteur ability-attack dédié)."""
+    `OwnerIsCaster` = owner est l'attaquant (`actor_id`).
+    ⚠ **LE BEHAVIOUR N'EST PLUS LE RETRAIT, C'EST L'ENFILEMENT (#1001-r1)** :
+    `...ActOfFaith_RemoveEffectAbility$$CreateBehaviour` FOURCHE sur son 3e parametre, et la branche
+    prise par le bus d'events (`triggerType != 0x20 = Custom`) vaut
+    `TriggerAbilityDelayed(Owner@+0x30, 0x3fa = 1018, 3)`. Le `RemoveEffect(0x3f9)` est l'AUTRE
+    branche (`== Custom`), rappelee au DRAIN -- cf. `ActOfFaithCustomRemoveEffectAbility` plus bas.
+    Le port collapsait la fourche sur `RemoveEffect` en croyant la branche differee inatteignable ;
+    consequence mesurable : les stacks tombaient UN CRAN TROP TOT (au milieu de la salve au lieu
+    d'apres sa cloture). Le gate `HasEffect` reste ici et garde l'idempotence (une seule mise en file
+    par attaque tant que le buff n'est pas retire).
+    ⚠ Approximation (pré-existante) : le vecteur reste AGRÉGÉ (1×/attaque d'ability, `is_crit` agrégé)
+    et non per-coup — mais depuis #1001-r1 l'ecart qu'elle causait est ETEINT sur l'axe qui comptait :
+    le natif lui-meme ne retire rien avant la cloture de l'attaque. overwatch = non couvert (pas de
+    vecteur ability-attack dédié)."""
     event_id = EventTriggerType.Attack
+    TRIGGERED_ABILITY_ID = ACT_OF_FAITH_ABILITY                  # 0x3fa = 1018
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if self.owner_id != ev.actor_id:                         # OwnerIsCaster
@@ -229,6 +280,39 @@ class ActOfFaithResetAbility(TriggeredAbility):
         if state.effects is None or not state.effects.has_effect(  # HasEffect(owner, 0x3f9)
                 self.owner_id, effect_type=ACTOFFAITH_EFFECT):
             return False
+        return True
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        # branche `triggerType != Custom` = `TriggerAbilityDelayed(Owner@+0x30, 0x3fa, 3)`
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, int(self.owner_id), None, actor_id=ev.actor_id)
+        act_of_faith_delayed_tree().execute(entities, ectx)
+        delayed = [p for n, p in ectx.emitted if n == "TriggerAbilityDelayed"]
+        return {"trait": "ActOfFaith", "owner": int(self.owner_id),
+                "queued": bool(delayed and delayed[0].get("queued")),
+                "dispatched": bool(delayed and delayed[0].get("dispatched")), "dsl": True}
+
+
+class ActOfFaithCustomRemoveEffectAbility(TriggeredAbility):
+    """`ActOfFaith_RemoveEffectAbility$$CreateBehaviour`, branche `triggerType == 0x20 = Custom` --
+    LE RESET (#1001-r1). Jamais atteinte par le bus d'events : inscrite dans
+    `CUSTOM_TRIGGERED_ABILITIES[1018]`, elle n'est joignable que par le drain de
+    `state.pending_triggered_abilities`.
+
+    `matches` rend `True` : sur ce chemin le natif ne RE-EVALUE aucun trigger
+    (`IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` n'appelle que le slot 4).
+    Le seul gate qui reste est celui du drain (`IsUnit(entity) => IsAlive(entity)`), porte par
+    `dispatch/pending.trigger_triggered_ability`.
+
+    ⚠ Le jumeau `ActOfFaithAbility` a LUI AUSSI une branche `Custom`, et elle vaut
+    `IdunBattleLogic.Entities.DSLBehaviors$$Nothing()` : le natif l'appelle au drain et elle ne fait
+    RIEN. Elle n'est donc pas inscrite au registre -- une classe de no-op y serait un mensonge de
+    couverture, pas une fidelite. MEME arbitrage que `BladeOfTheAncestors` (#1001)."""
+
+    event_id = int(EventTriggerType.Custom)          # 0x20 -- jamais emis par le bus du port
+    TRIGGERED_ABILITY_ID = ACT_OF_FAITH_ABILITY      # 0x3fa = 1018
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
         return True
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:

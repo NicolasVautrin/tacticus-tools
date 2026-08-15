@@ -278,11 +278,15 @@ def test_1140_makes_its_carrier_untargetable(state):
 def test_the_untargetable_domain_holds_only_the_confronted_slices():
     """CLIQUET. Fermeture NATIVE de `UntargetableEffect` = les 4 `ATeleportingEffect` +
     `JustSummonedEffect`. Le port n'inscrit que ce qu'il a CONFRONTE SUR CE CANAL : 1035 (#448-r2),
-    1140 (#448-r2b) et 1238 (#448-r2b-r1).
+    1140 (#448-r2b), 1238 (#448-r2b-r1) et **1061 (#1074)**.
 
     ⚠ `1573` reste DEHORS -- il arrive avec #448-r2d et son poseur n'est pas porte.
+    ⚠ `1061` est entre avec #1074, DANS LE MEME COMMIT que son RETIREUR
+    (`JustSummonedEffect$$CreateRemoveEffectTrigger`, trois vecteurs dans `EFFECT_TRIGGERS[1061]`) --
+    c'est la regle des DEUX FACES, exercee juste en dessous.
     Ce test tombe des qu'une inscription se fait sans sa confrontation."""
     assert sorted(UNTARGETABLE_EFFECT_TYPES) == [TELEPORT_STRIKE_TELEPORTING_IN,
+                                                 int(EffectType.GeminaeSuperia_JustSummonedEffect),
                                                  STORMBOYZ_STRIKE_TELEPORTING_IN,
                                                  int(EffectType.FearOfTheUnseen_TeleportingIn)]
     assert int(EffectType.TitanhammerSquad_TeleportingIn) not in UNTARGETABLE_EFFECT_TYPES, (
@@ -381,23 +385,26 @@ def _doit_entrer_au_domaine(ordinal: int, poses: dict, retraits: dict) -> bool:
     return bool(poses.get(ordinal)) and bool(retraits.get(ordinal))
 
 
-def test_the_just_summoned_family_stays_out_because_its_REMOVAL_is_not_ported():
-    """CLIQUET du REFUS RE-MESURE (#1074). La premisse de #448-r2b-r1 -- « aucun site du port ne
-    les POSE » -- est MORTE : `GeminaeSuperiaAbility$$CreateBehaviour` est porte depuis #963
-    (`triggers/loki/geminae_superia.py`), et son `opts.<+0x10>` fait
-    `AddEffect(0x425 = GeminaeSuperia_JustSummonedEffect, ..., Target@+0x60)`.
+def test_the_just_summoned_family_enters_the_domain_only_when_BOTH_faces_are_ported():
+    """CLIQUET de la regle des DEUX FACES, exercee sur la famille `JustSummonedEffect`.
 
-    LA QUESTION RE-TRANCHEE. `JustSummonedEffect` derive bien d'`UntargetableEffect`
-    (`data/symbols/<build>/frida/classes.tsv`), donc 1061 rend son porteur -- CELESTINE, le trigger
-    exigeant `get_OwnerIsTarget` -- non ciblable. Mais l'arbre du passif ne le retire JAMAIS : c'est
-    l'effet lui-meme qui porte `$$CreateRemoveEffectTrigger`, et ce trigger-la n'est PAS porte
-    (`EFFECT_TRIGGERS` n'a aucune entree pour 1061). Inscrire 1061 au domaine aujourd'hui rendrait
-    donc Celestine non ciblable POUR LE RESTE DE LA BATAILLE.
+    Il a servi DEUX refus successifs, dont les fondements se sont succede -- et il est desormais
+    ce qui GARDE l'inscription faite par #1074 :
 
-    Le refus tient toujours, mais son FONDEMENT a change : ce n'est plus l'absence de POSEUR, c'est
-    l'absence de RETIREUR. Le cran ci-dessous est BIDIRECTIONNEL -- il rougit aussi le jour ou le
-    retrait est porte sans que l'inscription suive, c'est-a-dire quand le blocage est leve.
-    Residu ouvert : `#1074` (porter `JustSummonedEffect$$CreateRemoveEffectTrigger`, puis inscrire).
+      * #448-r2b-r1 refusait pour « aucun site du port ne les POSE ». Premisse MORTE depuis #963 :
+        `GeminaeSuperiaAbility$$CreateBehaviour` (`triggers/loki/geminae_superia.py`) fait
+        `AddEffect(0x425 = GeminaeSuperia_JustSummonedEffect, ..., Target@+0x60)`.
+      * #1074 (etat anterieur) refusait pour l'absence de RETIREUR : le retrait ne vit pas dans
+        l'arbre du passif mais dans l'effet, `JustSummonedEffect$$CreateRemoveEffectTrigger`, et il
+        n'etait pas porte. Inscrire alors aurait rendu CELESTINE non ciblable POUR LE RESTE DE LA
+        BATAILLE, le flag `UnitFlag 0x11` d'`UntargetableEffect$$ApplyInternal` ne partant que par
+        `$$RevertInternal`.
+
+    #1074 a porte ce retrait (trois vecteurs, `EFFECT_TRIGGERS[1061]`) ET inscrit 1061 au domaine,
+    dans le MEME commit -- ce que ce cran EXIGE, puisqu'il est BIDIRECTIONNEL : il rougit aussi bien
+    sur un poseur sans retireur (non ciblable a jamais) que sur un retireur sans inscription (le
+    blocage leve et l'inscription oubliee). Les TROIS autres membres (1, 1230, 1390) restent dehors
+    pour la premiere raison : aucun POSEUR porte.
     """
     from pathlib import Path
     base = Path(__file__).resolve().parents[3] / "engine"

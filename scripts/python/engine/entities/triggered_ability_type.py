@@ -25,6 +25,12 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+# FORME B (#485-r1-r1) sur une FEUILLE d'enum : `ActiveAbilityType` est la CLE du dict des
+# triggered-abilities DERIVEES (`StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities`),
+# donc ce module en depend. Aucune arete nouvelle : `active_ability_type` est lui aussi une feuille
+# (il n'importe rien d'`engine.*`), verifie par import isole.
+from .active_ability_type import ActiveAbilityType
+
 
 class TriggeredAbilityType(IntEnum):
     """Mirror 1:1 de `IdunBattle.Entities.Enum.TriggeredAbilityType`. Valeur == id natif.
@@ -518,21 +524,157 @@ class TriggeredAbilityType(IntEnum):
     testAssetBundles = 9999
 
 
+def resolve_unit_id_from_visual_id(visual_id: str | None) -> str | None:
+    """`visualId` -> `unitId` gameconfig, **SEULEMENT quand l'appariement est UNIQUE** (#894-r7).
+
+    POURQUOI CE FOYER EXISTE. `UnitContext.visual_id` porte le `visualId`, pas la cle du
+    gameconfig, et les deux DIFFERENT souvent : `admecBossBelisarius` a pour `visualId`
+    `GuildBoss10Boss1AdmecBelisarius`, que `GC.unit(...)` ne connait PAS. Tout lecteur de kit keye
+    sur `visual_id` rend donc `[]` sur ces unites -- sans erreur, sans trace. C'est la cause (a) de
+    #894-r7, mesuree sur le boss de `SolarAtomizer`.
+
+    ⚠ **LA RESOLUTION INVERSE N'EST PAS TOUJOURS SURE, ET C'EST MESURE** : sur le gameconfig du
+    build courant, **429** unites ont `visualId != unitId`, et **100 `visualId` sont partages par
+    plusieurs `unitId`** (jusqu'a **7**) ; **72** seulement sont uniques. Rendre le premier venu
+    ferait lire le kit d'une AUTRE unite -- une faute pire que le `[]` qu'on repare, parce qu'elle
+    est plausible. Ce foyer ne resout donc que l'appariement **UNIQUE** et rend `None` sinon.
+    `GuildBoss10Boss1AdmecBelisarius` est dans le cas sur : **un seul** porteur,
+    `admecBossBelisarius`.
+
+    ⚠ **`gameconfig.resolve_unit_id` NE FAIT PAS CE TRAVAIL** (verifie) : il resout une cle exacte,
+    un nom d'affichage ou une sous-chaine unique -- il rend `None` sur ce `visualId`. La fiche
+    #894-r7 le citait comme foyer existant ; c'est cette fonction-ci qui manquait."""
+    if not visual_id:
+        return None
+    import gameconfig as GC
+    if GC.unit(visual_id):                    # deja une cle gameconfig -> rien a resoudre
+        return visual_id
+    idx = GC._index()
+    hits = [uid for grp in ("lineup", "npc", "summons")
+            for uid, u in (idx.get(grp) or {}).items()
+            if isinstance(u, dict) and u.get("visualId") == visual_id]
+    return hits[0] if len(hits) == 1 else None   # AMBIGU -> None, jamais un choix arbitraire
+
+
+#: `idun...StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities` -- le dict
+#: `<statics>+0x30`, `Dictionary<ActiveAbilityType, List<TriggeredAbilityType>>`, RELU VERBATIM
+#: dans `...StaticBattleRules.ActiveAbility$$.cctor` sur le build courant : **43 entrees**.
+#:
+#: `IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities(entity, config, ...)` enumere
+#: `config@+0xa0` (= `UnitConfiguration.ActiveAbilities`) et, par element, `HasDerivedTriggered
+#: Abilities` -> `GetDerivedTriggeredAbilities` -> `TriggeredAbilityComponent$$TryAdd`. Ces
+#: triggered-abilities SONT donc dans le kit declenche de l'unite, au meme titre que ses
+#: `passiveAbilities` -- et le recensement du port les ignorait (#894-r7).
+#:
+#: ⚠ CE N'EST PAS `ACTIVE_ABILITY_TRIGGERS` (`triggers/dispatch/registry.py`) : celui-la est un
+#: registre de DISPATCH, il ne porte que les derivees PORTEES. Un gate de kit qui le lirait
+#: repondrait « l'unite ne porte pas cette ability » pour toute derivee non encore portee --
+#: exactement le `notCarrying` qui bloque le cablage de la phase 2 de `SolarAtomizer`.
+#:
+#: ⚠ UNE SEULE entree a DEUX valeurs (`NovaShield`), et la structure `List<T>` du natif est ce qui
+#: le permet : ne pas rabattre sur un scalaire.
+ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS: dict[int, tuple[int, ...]] = {
+    ActiveAbilityType.ValkyrieStrike: (TriggeredAbilityType.ValkyrieStrike_Attack,),
+    ActiveAbilityType.SeekerMissileFrequencyLock: (TriggeredAbilityType.SeekerMissileFrequencyLock_Attack,),
+    ActiveAbilityType.TargetingProtocols: (TriggeredAbilityType.TargetingProtocols_Attack,),
+    ActiveAbilityType.CallRipperSwarms: (TriggeredAbilityType.CallRipperSwarms_Spawn,),
+    ActiveAbilityType.CallRipperSwarms2: (TriggeredAbilityType.CallRipperSwarms_Spawn2,),
+    ActiveAbilityType.CallRipperSwarms3: (TriggeredAbilityType.CallRipperSwarms_Spawn3,),
+    ActiveAbilityType.AnnihilatorBeam: (TriggeredAbilityType.AnnihilatorBeam_Attack,),
+    ActiveAbilityType.NeedsMoreDakka: (TriggeredAbilityType.NeedsMoreDakka_Attack,),
+    ActiveAbilityType.TheLantern: (TriggeredAbilityType.TheLantern_Attack,),
+    ActiveAbilityType.EreWeGo: (TriggeredAbilityType.EreWeGo_Attack,),
+    ActiveAbilityType.MasterOfTheTutelaries: (TriggeredAbilityType.MasterOfTheTutelaries_Summon,),
+    ActiveAbilityType.SorcerousFacade: (TriggeredAbilityType.SorcerousFacade_Switch,),
+    ActiveAbilityType.Doombolt: (TriggeredAbilityType.Doombolt_Reset,),
+    ActiveAbilityType.OptimizedGait_NormalAttack: (TriggeredAbilityType.OptimizedGait,),
+    ActiveAbilityType.PoundThemToDust: (TriggeredAbilityType.PoundThemToDust_Attack,),
+    ActiveAbilityType.GunnersKillOnSight: (TriggeredAbilityType.GunnersKillOnSight_Attack,),
+    ActiveAbilityType.OverwhelmingWrath: (TriggeredAbilityType.OverwhelmingWrath_Attack,),
+    ActiveAbilityType.MalleusRocketLauncher: (TriggeredAbilityType.MalleusRocketLauncher_Attack,),
+    ActiveAbilityType.TheWailingDoomSweeps: (TriggeredAbilityType.TheWailingDoomSweeps_DelayedAttack,),
+    ActiveAbilityType.TheWailingDoomStrikes: (TriggeredAbilityType.TheWailingDoomStrikes_DelayedAttack,),
+    ActiveAbilityType.TheWrathOfKhaineUnleashed: (TriggeredAbilityType.TheWrathOfKhaineUnleashed_Attack,),
+    ActiveAbilityType.TheWrathOfKhaineUnleashedReworked: (TriggeredAbilityType.TheWrathOfKhaineUnleashedRework_Attack,),
+    ActiveAbilityType.HeavyRailRifle: (TriggeredAbilityType.HeavyRailRifle_Attack,),
+    ActiveAbilityType.TacticalPrecision: (TriggeredAbilityType.TacticalPrecision_Reset,),
+    ActiveAbilityType.HammerOfWrath: (TriggeredAbilityType.HammerOfWrath_ConditionalDamage,),
+    ActiveAbilityType.BlackRage: (TriggeredAbilityType.BlackRage_Activation,),
+    ActiveAbilityType.MacroPlasmaIncinerator: (TriggeredAbilityType.MacroPlasmaIncinerator_Attack,),
+    ActiveAbilityType.ExplosivePresents: (TriggeredAbilityType.ExplosivePresents_Cooldown,),
+    ActiveAbilityType.HeroicFusillade: (TriggeredAbilityType.HeroicFusillade_Reset,),
+    ActiveAbilityType.SolarAtomizer: (TriggeredAbilityType.SolarAtomizer_PendingAttack,),
+    ActiveAbilityType.DevastatingRefrain: (TriggeredAbilityType.DevastatingRefrain_Attack,),
+    ActiveAbilityType.MomentShackle: (TriggeredAbilityType.MomentShackle_Attack,),
+    ActiveAbilityType.NovaBoost: (TriggeredAbilityType.NovaBoost_Attack,),
+    ActiveAbilityType.NovaCharge: (TriggeredAbilityType.NovaCharge_Attack,),
+    ActiveAbilityType.NovaShield: (TriggeredAbilityType.NovaShield_Attack,
+                                   TriggeredAbilityType.NovaShield_BlockVisual),
+    ActiveAbilityType.DaemonicPatrons: (TriggeredAbilityType.DaemonicPatrons_Finale,),
+    ActiveAbilityType.Drachnyen: (TriggeredAbilityType.Drachnyen_ExtraAttack,),
+    ActiveAbilityType.AncestralFortune: (TriggeredAbilityType.AncestralFortune_Reset,),
+    ActiveAbilityType.Hailstrike: (TriggeredAbilityType.Hailstrike_Attack,),
+    ActiveAbilityType.HeavyWarpFlamer: (TriggeredAbilityType.HeavyWarpFlamer_AttackTrackingAbility,),
+    ActiveAbilityType.TheLionsWrath: (TriggeredAbilityType.TheLionsWrath_PendingAttack,),
+    ActiveAbilityType.SternguardFocus: (TriggeredAbilityType.SternguardFocus_Cooldown,),
+    ActiveAbilityType.EmpyricAmbush: (TriggeredAbilityType.EmpyricAmbush_Reset,),
+}
+
+#: Le PENDANT sur l'autre voie de la MEME boucle native :
+#: `idun...StaticBattleRules.TriggeredAbility$$GetDerivedTriggeredAbilities` lit `<statics>+0x88`,
+#: pose par `...StaticBattleRules.TriggeredAbility$$.cctor` -- **DEUX entrees**, relues verbatim.
+#: `UnitFactory$$AddDerivedAbilities` enumere `config@+0xa8` (= `UnitConfiguration.PassiveAbilities`)
+#: et applique le meme `TryAdd`.
+TRIGGERED_DERIVED_TRIGGERED_ABILITY_IDS: dict[int, tuple[int, ...]] = {
+    TriggeredAbilityType.LivingLightning: (TriggeredAbilityType.LivingLightning_MoveEffect,),
+    TriggeredAbilityType.TheWrathfulDead: (TriggeredAbilityType.TheWrathfulDead_Overkill,),
+}
+
+
 def triggered_ability_ids(visual_id: str | None) -> list[int]:
-    """Ids `TriggeredAbilityType` du KIT PASSIF d'une unité (gameconfig `passiveAbilities` -> enum).
+    """Ids `TriggeredAbilityType` du KIT DECLENCHE d'une unité, tel que la FABRIQUE native le monte.
 
     Source OFFLINE du dispatcher `TriggeredAbilitiesUtility(2)` (le natif lit l'AbilitiesComponent
     ECS de l'unité qui bouge, `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` — cf. case-36). Les abilities DÉCLENCHÉES du jeu sont les
     `passiveAbilities` du gameconfig (namespace natif `Abilities.Triggered.Loki.*Ability`).
-    [] si unité inconnue ou passif hors enum."""
+    [] si unité inconnue ou passif hors enum.
+
+    ⚠ **DEUX SOURCES DE PLUS depuis #894-r7, et ce ne sont pas des ajouts d'agrement** :
+    `IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities` inscrit AUSSI, dans le MEME
+    `TriggeredAbilityComponent`, les derivees des ACTIVES (`config@+0xa0`) et celles des PASSIFS
+    (`config@+0xa8`). Sans elles, tout gate de kit -- au premier rang `_unit_has_triggered_ability`,
+    le mirror du `GetAbilityState` de `TriggerTriggeredAbilityOperation$$TriggerAbility` -- rend
+    `notCarrying` pour une triggered DERIVEE et n'execute RIEN, sans erreur et sans qu'aucun test
+    ne rougisse. C'est ce qui bloquait le cablage de la phase 2 de `SolarAtomizer` (`1174 -> 1297`).
+
+    ⚠ Le parametre s'appelle `visual_id` et c'en est bien un : il est resolu vers la cle gameconfig
+    par `resolve_unit_id_from_visual_id` (cause (a) de #894-r7). Un `visualId` AMBIGU (100 le sont)
+    rend `None` -> `[]`, comme avant : on ne devine pas."""
     if not visual_id:
         return []
     import gameconfig as GC
+    uid = resolve_unit_id_from_visual_id(visual_id) or visual_id
     out: list[int] = []
-    for a in (GC.unit_abilities(visual_id).get("passive") or []):
+    for a in (GC.unit_abilities(uid).get("passive") or []):
         m = TriggeredAbilityType.__members__.get(a.get("name") or "")
         if m is not None:
             out.append(int(m))
+    # `UnitFactory$$AddDerivedAbilities`, boucle 2 : `config@+0xa8` (PassiveAbilities) ->
+    # `StaticBattleRules.TriggeredAbility$$GetDerivedTriggeredAbilities`.
+    for tid in list(out):
+        for d in TRIGGERED_DERIVED_TRIGGERED_ABILITY_IDS.get(tid, ()):
+            if int(d) not in out:
+                out.append(int(d))
+    # `UnitFactory$$AddDerivedAbilities`, boucle 1 : `config@+0xa0` (ActiveAbilities) ->
+    # `StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities`. La cle est un
+    # `ActiveAbilityType` -- deux enums, meme dict, cf. la table ci-dessus.
+    for a in ((GC.unit(uid) or {}).get("activeAbilities") or []):
+        m = ActiveAbilityType.__members__.get(str(a))
+        if m is None:
+            continue
+        for d in ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS.get(int(m), ()):
+            if int(d) not in out:
+                out.append(int(d))
     return out
 
 

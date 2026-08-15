@@ -236,29 +236,31 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
     # rendrait une liste VIDE, `IsTurnOf(<vide>)` firerait au tour de n'importe quel joueur et le
     # `TriggerAbility` ne declencherait RIEN.
     #
-    # ⛔ **PAS INSCRIT, ET C'EST UNE MESURE** (#894-r2, `probe_10018r1_solar_atomizer_phase2_live.py`).
-    # L'arbre de phase 2 EST porte (`loki/solar_atomizer_attack.py`,
-    # `TRIGGERED_ABILITY_BEHAVIOURS[1297]`) et sa chaine de selecteurs est CONFRONTEE live -- 3
-    # tuiles marquees / 3 rendues par `EntitiesWithAnyEffect` / 1 occupant / 1 ennemi, exactement
-    # les 3 tuiles et l'unique victime du natif. Mais le `TriggerAbility(Caster(), 1297)` du rail
-    # est REFUSE par son gate `GetAbilityState` : `notCarrying = [<le boss>]`, parce que le kit
-    # DECLENCHE que le port recense ne contient pas `1297`. DEUX causes, toutes deux MESUREES :
-    #   (a) le repli kit est keye sur le `visualId`, et pour ce porteur il DIFFERE de l'id
-    #       gameconfig -- `GC.unit("GuildBoss10Boss1AdmecBelisarius")` rend `None` (donc kit `[]`),
-    #       la ou `GC.unit("admecBossBelisarius")` rend l'unite ;
-    #   (b) meme avec le bon id le kit vaut `[1474, 1293]` : `1297` n'y est pas, parce que le port
-    #       ne modelise pas la voie ACTIVE -> TRIGGERED DERIVEE
-    #       (`StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities[1174] = [1297]`) dans le
-    #       RECENSEMENT du kit -- `ACTIVE_ABILITY_TRIGGERS` est un registre de DISPATCH, pas un kit.
-    # Inscrire `1371` ici AVANT d'avoir ferme ce gate produirait exactement le vice que
-    # `runner/abilities/loki/instruments_of_vengeance.py` nomme : le `RemoveEffect` du meme arbre
-    # CONSOMME la marque (mesure : `removed: 1`) et rien ne frappe -- un no-op SILENCIEUX, pire que
-    # le manque visible. Residu : **#894-r7**.
-    #
-    #   int(EffectType.SolarAtomizer_PendingAttack): PendingAttackSpec(
-    #       "IdunBattle.Entities.Effects.Loki.SolarAtomizer_PendingAttackEffect",
-    #       int(TriggeredAbilityType.SolarAtomizer_PendingAttack),   # 0x511 = 1297, LU au corps
-    #       ATTACKER_EFFECT_SOURCE),                                 # pose par `AddEffect`
+    # ⚠ **INSCRIT PAR #894-r7, ET PAS AVANT : LE GATE QUI L'INTERDISAIT EST FERME.** L'arbre de
+    # phase 2 etait deja porte (`loki/solar_atomizer_attack.py`, `TRIGGERED_ABILITY_BEHAVIOURS[1297]`)
+    # et sa chaine de selecteurs CONFRONTEE live -- 3 tuiles marquees / 3 rendues par
+    # `EntitiesWithAnyEffect` / 1 occupant / 1 ennemi, exactement les 3 tuiles et l'unique victime du
+    # natif. Ce qui manquait etait le `TriggerAbility(Caster(), 1297)` du rail, REFUSE par son gate
+    # `GetAbilityState` (`notCarrying = [<le boss>]`) faute d'avoir `1297` au kit recense. Les DEUX
+    # causes sont reparees dans `engine/entities/triggered_ability_type.py` :
+    #   (a) `resolve_unit_id_from_visual_id` -- le repli kit etait keye sur le `visualId`, qui
+    #       DIFFERE de l'id gameconfig pour ce porteur (`GC.unit("GuildBoss10Boss1AdmecBelisarius")`
+    #       rendait `None`, donc kit `[]`). La resolution n'est faite que si l'appariement est
+    #       UNIQUE -- mesure : 429 unites ont `visualId != unitId` et **100 `visualId` sont partages**
+    #       (jusqu'a 7 porteurs), donc un choix arbitraire lirait le kit d'une AUTRE unite ;
+    #   (b) `ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS` -- les **43** entrees de
+    #       `StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities` (`<statics>+0x30`),
+    #       RELUES au `.cctor`, plus les **2** de `...TriggeredAbility$$...` (`<statics>+0x88`).
+    #       `UnitFactory$$AddDerivedAbilities` les inscrit au MEME `TriggeredAbilityComponent` que
+    #       les `passiveAbilities` ; `ACTIVE_ABILITY_TRIGGERS` est un registre de DISPATCH, pas un kit.
+    # Mesure d'apres correctif : `triggered_ability_ids("GuildBoss10Boss1AdmecBelisarius")` rend
+    # `[1474, 1293, 1297]` -- `1297` y EST, et le kit par `visualId` est desormais identique a celui
+    # par `unitId`. Le vice que `runner/abilities/loki/instruments_of_vengeance.py` nomme (le
+    # `RemoveEffect` du meme arbre CONSOMME la marque et rien ne frappe) est donc ecarte a la source.
+    int(EffectType.SolarAtomizer_PendingAttack): PendingAttackSpec(
+        "IdunBattle.Entities.Effects.Loki.SolarAtomizer_PendingAttackEffect",
+        int(TriggeredAbilityType.SolarAtomizer_PendingAttack),   # 0x511 = 1297, LU au corps
+        ATTACKER_EFFECT_SOURCE),                                 # pose par `AddEffect`
 }
 
 

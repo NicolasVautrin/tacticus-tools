@@ -26,8 +26,11 @@ from .fire import (FireTileDoT, env_fire_tile_tree, on_fire_damage_tree, fire_of
                    FIRE_TILE, FIRE_DMG_PCT_KEY, FIRE_IMMUNE_TRAITS, FIRE_PROFILE,
                    fire_of_absolution_ignite_chance)
 from .act_of_faith import (ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
-                           act_of_faith_accumulate_tree, act_of_faith_reset_tree, _reset_act_of_faith,
-                           ACTOFFAITH_EFFECT, IMPERIAL_FACTIONS, CRIT_CHANCE_MAX)
+                           ActOfFaithCustomRemoveEffectAbility,
+                           act_of_faith_accumulate_tree, act_of_faith_reset_tree,
+                           act_of_faith_delayed_tree, _reset_act_of_faith,
+                           ACTOFFAITH_EFFECT, ACT_OF_FAITH_ABILITY, IMPERIAL_FACTIONS,
+                           CRIT_CHANCE_MAX)
 from .betrayer import (TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
                        betrayer_add_effect_tree, _add_betrayer_effect, _betrayer_target,
                        _betrayer_stop_tile, _betrayer_take_turn,
@@ -63,8 +66,10 @@ __all__ = [
     "fire_of_absolution_ignite_chance",
     # act_of_faith
     "ActOfFaithAccumulateAbility", "ActOfFaithResetAbility",
-    "act_of_faith_accumulate_tree", "act_of_faith_reset_tree", "_reset_act_of_faith",
-    "ACTOFFAITH_EFFECT", "IMPERIAL_FACTIONS", "CRIT_CHANCE_MAX",
+    "ActOfFaithCustomRemoveEffectAbility",
+    "act_of_faith_accumulate_tree", "act_of_faith_reset_tree", "act_of_faith_delayed_tree",
+    "_reset_act_of_faith",
+    "ACTOFFAITH_EFFECT", "ACT_OF_FAITH_ABILITY", "IMPERIAL_FACTIONS", "CRIT_CHANCE_MAX",
     # betrayer
     "TheBetrayerAddEffectAbility", "TheBetrayerTakeTurnAbility",
     "betrayer_add_effect_tree", "_add_betrayer_effect", "_betrayer_target",

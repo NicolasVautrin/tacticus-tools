@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from ..base import TriggeredAbility, EffectTrigger
 from ..loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
+                   ActOfFaithCustomRemoveEffectAbility, ACT_OF_FAITH_ABILITY,
                    FinalJusticeAbility, TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
                    ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility,
                    LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE,
@@ -293,7 +294,11 @@ from ..loki.aggressive_onslaught import (AggressiveOnslaughtPrepareAbility,   # 
                                          AggressiveOnslaughtUnsummonAbility)  #  3 classes natives)
 from ..loki.red_rampage import (RedRampageAttackAbility,              # #963 (passif bloodTerminator,
                                 RedRampageBuffAbility)                #  2 classes natives)
-from ..loki.geminae_superia import GeminaeSuperiaAbility              # #963 (passif adeptCelestine)
+from ..loki.geminae_superia import (GeminaeSuperiaAbility,           # #963 (passif adeptCelestine)
+                                    JustSummonedRemoveOnPhaseEnd,     # #1074 -- le RETRAIT du
+                                    JustSummonedRemoveOnOwnerMove,    #   marqueur 1061, trois
+                                    JustSummonedRemoveOnOwnerAbility, #   vecteurs disjoints
+                                    JUST_SUMMONED_EFFECT)
 from ..loki.lifewards import (LifewardsAbility,                       # #963-r3 (passif du SUMMON
                               LifewardsProtectingRemove,              #  adeptSmnGeminaeSuperia, 1049)
                               PROTECTING_EFFECT as LIFEWARDS_PROTECTING)
@@ -2121,6 +2126,20 @@ CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
     # ⚠ SANS CETTE ENTREE le noeud retomberait sur le collapse INLINE, qui deplacerait le porteur
     # AU MILIEU de la resolution de l'attaque au lieu d'apres.
     BATTLE_FOCUS_ABILITY: [BattleFocusMoveAbility],
+    # 1018 ActOfFaith (#1001-r1) : la branche `triggerType == 0x20 = Custom` de
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour`
+    # = `RemoveEffect(Owner@+0x30, Nullable(0x3f9 = 1017))` -- LE RESET des stacks crit. Armee par le
+    # `TriggerAbilityDelayed(Owner, 0x3fa, 3)` de la branche `!= Custom` de la MEME classe, sur
+    # `On(9) & OwnerIsCaster & WasCrit & HasEffect(Owner, 0x3f9)`.
+    # ⚠ Le port ECARTAIT cette fourche en la disant << cross-instantiation d'un corps gshared >>. Le
+    # corps n'est pas gshared, et son JUMEAU DE FORME
+    # `...BladeOfTheAncestors_RemoveEffectAbility$$CreateBehaviour` -- decompile structurellement
+    # IDENTIQUE, au token pres -- a ete CONFRONTE LIVE (#1001). Sans cette entree, le noeud retombe
+    # sur le collapse INLINE et retire le buff AU MILIEU de la salve au lieu d'apres sa cloture.
+    # ⚠ L'AUTRE classe de 1018, `ActOfFaithAbility`, a elle aussi une branche `Custom` -- et elle vaut
+    # `DSLBehaviors$$Nothing()`. Le natif l'appelle au drain et elle ne fait RIEN : l'inscrire ici
+    # serait un mensonge de couverture, pas une fidelite (meme arbitrage que 1491).
+    ACT_OF_FAITH_ABILITY: [ActOfFaithCustomRemoveEffectAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
@@ -2592,3 +2611,25 @@ EFFECT_TRIGGERS.setdefault(_lions_wrath_attack.LW_PENDING_ATTACK, []).append(
 # -> `$$CreateTargetTriggerBehaviour` = `TriggerAbilityDelayed(Owner@<+0x30>, 0x494, 3)`.
 # Le DEPLACEMENT ne tombe PAS ici : il tombe au drain, dans `CUSTOM_TRIGGERED_ABILITIES[1172]`.
 EFFECT_TRIGGERS.setdefault(BATTLE_FOCUS_EFFECT, []).append(BattleFocusEffectTrigger)
+
+
+# #1074 -- `IdunBattle.Entities.Effects.Loki.JustSummonedEffect` (1061
+# `GeminaeSuperia_JustSummonedEffect`), le marqueur que `GeminaeSuperiaAbility$$CreateBehaviour`
+# pose sur `Target@+0x60` (donc sur CELESTINE) et que l'arbre du passif ne retire JAMAIS.
+# Le retrait vit dans la CLASSE D'EFFET :
+# `...JustSummonedEffect$$CreateRemoveEffectTrigger` = `(On(0x3a = PhaseEnd, alive 0)
+#   | (On(0x1f = PreUnitMove, alive 1) & get_OwnerIsActor))
+#   | (On(0x2a = PreUnitAbility, alive 1) & get_OwnerIsActor)` -- corps RELU verbatim -- et son
+# behaviour est la GREFFE `Triggered(<ce trigger>, RemoveEffect(df@0x150))` que
+# `IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` ajoute au MEME `ArraySet`.
+# Rail ARRAYSET -> AUCUN gate `EffectComponent.IsActive` (cliquet `probe_229`).
+# ⚠ SANS CES TROIS ENTREES, inscrire 1061 dans `UNTARGETABLE_EFFECT_TYPES` rendrait Celestine non
+# ciblable POUR LE RESTE DE LA BATAILLE : le flag `UnitFlag 0x11` que pose
+# `UntargetableEffect$$ApplyInternal` ne part QUE par le `$$RevertInternal` du retrait.
+# ⚠ Les TROIS AUTRES membres de la famille (1 `JustSummoned`, 1230 `SwornProtector_*`,
+# 1390 `DecoysAndMisdirection_*`) restent DEHORS pour l'AUTRE raison : aucun POSEUR porte.
+# Cf. loki/geminae_superia.py, section « LE RETRAIT DU MARQUEUR 1061 ».
+EFFECT_TRIGGERS.setdefault(int(JUST_SUMMONED_EFFECT), []).extend(
+    [JustSummonedRemoveOnPhaseEnd,        # On(0x3a = PhaseEnd), sans conjoint
+     JustSummonedRemoveOnOwnerMove,       # On(0x1f = PreUnitMove)   & get_OwnerIsActor
+     JustSummonedRemoveOnOwnerAbility])   # On(0x2a = PreUnitAbility) & get_OwnerIsActor

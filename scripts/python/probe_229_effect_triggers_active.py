@@ -283,6 +283,17 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ShockAssaultBuffEffect$$CreateRemoveEffectTrigger"),
     "HatefulAssaultAlreadyAttackedRemove":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.UntilOfEndTurnEffect$$CreateRemoveEffectTrigger"),
+    # #1074 -- les TROIS vecteurs du retrait de `1061 GeminaeSuperia_JustSummonedEffect`. Un SEUL
+    # corps natif, une DISJONCTION de trois `On()` -> trois classes portees (le dispatch du port est
+    # keye par `event_id`). Rail ARRAYSET, comme tout `CreateRemoveEffectTrigger` : le `Triggered()`
+    # est GREFFE par `IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` dans le
+    # MEME `ArraySet`, donc AUCUN gate `IsActive` -- ces trois-la ne doivent PAS lire `+0x5c`.
+    "JustSummonedRemoveOnPhaseEnd":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger"),
+    "JustSummonedRemoveOnOwnerMove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger"),
+    "JustSummonedRemoveOnOwnerAbility":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger"),
     "WireweaveNetDeactivateOnOwnerTurnStart":
         (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
     "WireweaveNetActivateOnOwnerTurnEnd":
