@@ -92,9 +92,10 @@ dépendent. Ils sont tous dans le même état tant que la fenêtre n'a pas eu li
 
 ## Résidus
 
-* **#10011-r1** — les **5** pins non re-dérivables offline (2 `DAT_*`, 1 placeholder `FUN_*`,
-  1 point interne, 1 symbole à deux occurrences). Le résolveur d'override de base refuse **en
-  bloc** et reste non posé.
+* ~~**#10011-r1**~~ — **FERMÉ le 2026-08-15**, `case-475-adresses-epinglees.md` §8. Les **5** pins
+  (2 `DAT_*`, 1 placeholder `FUN_*`, 1 point interne, 1 symbole à deux occurrences) sont LUS au
+  binaire — plus le 6ᵉ de `modifier-observe` (`#475-r2`). `probe_475` R3 : **0 périmé sur 14**. Le
+  résolveur d'override de base ne refuse plus en bloc ; il n'est pas encore confronté (`#475-r4`).
 * **#10011-r2** — `probe_330.BUILD_RE` et `probe_431.BUILD_RE` codent le même `6c` en dur : les
   deux cliquets sont **aveugles au build courant**. L'inventaire de `probe_330` en est la preuve
   directe — il liste 489 mentions de six hashes et **zéro** du hash courant.

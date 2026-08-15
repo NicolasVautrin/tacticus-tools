@@ -27,7 +27,7 @@
 // depuis #259-b — leurs corps pleinement partagés se lisent sur le MethodInfo de l'instance INFLATÉE
 // (`resolveSharedPlaybookBody`, mesuré par `probe_262_gshared_runtime.py`). Elles n'ont PLUS d'adresse en dur.
 // Le RESTE (itérateurs ElevationUtility / tile-leaf, ComposedUtility.MoveNext, GetMultiplierFromDamageBonus)
-// reste hooké par adresse en dur, valable pour le hash `rnca9r7q6c` UNIQUEMENT.
+// reste hooké par adresse en dur, valable pour le hash `t6dpr4k06g` UNIQUEMENT.
 // ⚠ Ces cas-là ne sont PAS de même nature : ce sont des ITÉRATEURS et des corps sans classe porteuse
 // atteignable — la recette « remonter au parent inflaté » ne s'y applique pas telle quelle. Ne pas
 // généraliser #259-b sans re-mesurer cible par cible.
@@ -78,7 +78,7 @@ import { readTileCoord } from "./ai-step/internals.js";
 // Cap PAR BUCKET (par origine) de chaque famille de buffers ci-dessous.
 const CAP = 4000;
 
-// ================= CIBLES PAR ADRESSE — build `rnca9r7q6c` (migrées le 2026-07-29) =================
+// ================= CIBLES PAR ADRESSE — build `t6dpr4k06g` (les 13 y sont, #10011 + #10011-r1) =====
 //
 // ⚠ ON STOCKE LA **VA COMPLÈTE**, la RVA se calcule EN CODE. Écrire la RVA directement obligeait à
 // soustraire 0x180000000 à la main — et cette soustraction a DÉJÀ été ratée : `RVA_VALUE_MOD_MODIFY`
@@ -125,19 +125,26 @@ const PIN_COMPOSED_UTILITY: PinnedAddress = {
 // le RETURN-ADDRESS = le CALL SITE source, qui distingue ATTAQUANT (CalculateAttackerModifiersForPrediction
 // @181000590 : 4 sites — statmods @181001947 ; positionnels elevation/RangedInMelee/Trench @181001ef9/
 // 181001ff2/1810020df) vs DÉFENSEUR (CalculateDefenderModifiersForPrediction @181002c30, site @181003d51).
-// ⚠ ON NE HOOKE QUE la variante SINGLE. Le symbole en porte DEUX (@18110bed0 et @18110bfc0) — départagées
-// le 2026-07-29 par leur SIGNATURE au décompilé, PAS par l'ordre des adresses :
-//   @18110bed0 prend `damageBonus` (SINGULIER), lit le Nullable via `in_R8` (= param_3) et appelle
-//              `BaseCalculations$$GetFloatMultiplierFromPercentage`  → C'EST CELLE-CI.
-//   @18110bfc0 prend `damageBonuses` (PLURIEL), énumère une List<> et RAPPELLE la single en interne.
+// ⚠ ON NE HOOKE QUE la variante SINGLE. Le symbole porte DEUX occurrences, et l'ORDRE DES ADRESSES NE
+// LES DÉPARTAGE PAS — il faut lire les corps. Re-mesuré sur `t6dpr4k06g` (les deux occurrences sont
+// `18110c980` et `18110ca70`), avec les MÊMES trois critères qu'au 2026-07-29 sur `rnca9r7q6c` :
+//   la SINGLE prend `damageBonus` (SINGULIER), lit le Nullable via `in_R8` (= param_3) et appelle
+//              `IdunBattle.Core.Services.BaseCalculations$$GetFloatMultiplierFromPercentage` → C'EST CELLE-CI ;
+//   la LIST   prend `damageBonuses` (PLURIEL), énumère une `List<>` et RAPPELLE la single en interne.
+// Les trois critères concordent tous les trois sur la MÊME occurrence — aucun n'a eu à trancher seul.
 // Hooker la LIST lisait un `args[2]` parasite (bonus=1) ; et comme elle délègue, la single capte DÉJÀ
 // chaque bonus.
+// ⚠ ET IL Y EN A UNE TROISIÈME, SUR UNE AUTRE CLASSE : `IdunBattle.Core.Services.RepairCalculations`
+// porte le MÊME nom court. Un `search_symbols_by_name GetMultiplierFromDamageBonus` rend donc TROIS
+// lignes, pas deux — c'est le symbole PLEINEMENT QUALIFIÉ (`DamageCalculations$$…`) qui en ramène deux.
 const PIN_GET_MULT_DMG_BONUS: PinnedAddress[] = [{
-    va: 0x18110bed0, build: "rnca9r7q6c",
+    va: 0x18110c980, build: "t6dpr4k06g",
     symbol: "IdunBattle.Core.Services.DamageCalculations$$GetMultiplierFromDamageBonus",
     what: "convertit UNE contribution en multiplicateur — variante SINGLE (pas la LIST)",
-    how: "search_symbols_by_name GetMultiplierFromDamageBonus, puis départager les DEUX"
-        + " surcharges par leur SIGNATURE au décompilé (singulier vs pluriel)",
+    how: "search_symbols_by_name GetMultiplierFromDamageBonus rend TROIS lignes : filtrer sur la"
+        + " classe DamageCalculations (la 3e est RepairCalculations), puis départager les DEUX"
+        + " surcharges restantes par leur SIGNATURE au décompilé (singulier vs pluriel) — JAMAIS"
+        + " par l'ordre des adresses dans la table",
 }];
 
 // #49 — RÉSOLVEUR DE L'OVERRIDE DE BASE (profileMethod). Deux délégués de GetAttackHitPrediction portent
@@ -146,21 +153,27 @@ const PIN_GET_MULT_DMG_BONUS: PinnedAddress[] = [{
 //        ⚠ CE DÉLÉGUÉ A CHANGÉ DE FORME sur `rnca9r7q6c` : il fait désormais un appel de VTABLE
 //        `(*(code **)(*plVar1 + 0x4d8))(plVar1, &arg, *(plVar1 + 0x4e0))` — slot @+0x4d8, MethodInfo
 //        @+0x4e0 — là où il passait par l'invocateur d'interface. Re-RE avant d'exploiter b__0.
-//   b__1 @1812eddd0 : appelle l'interface `DAT_1833407b0` **idx 0xb5** sur (param_1+0x10)+0x20.
+//   b__1 @1812eddd0 : appelle l'interface `DAT_1833419e0` **idx 0xb5** sur (param_1+0x10)+0x20.
 // Ces slots sont résolus au RUNTIME → non mappables offline. Ce résolveur lit, pendant une prédiction
 // live, la VA CONCRÈTE que chaque délégué invoque → on la décompile ensuite. Ciblage pur, aucune
 // formule devinée.
-// ⚠ CES DEUX-LA SONT MIGRES, LE BLOC AUQUEL ILS APPARTIENNENT NE L'EST PAS — et c'est voulu.
-// `installBaseOverrideResolver` refuse EN BLOC (six pins). Les quatre autres ne se re-dérivent
-// PAS offline : deux `DAT_*` (donnée, absente de `functions.tsv`), un placeholder `FUN_*` (son
-// nom EST son ancienne adresse : le retrouver dans la table neuve ne prouve RIEN sur l'identité
-// de la fonction), et un point INTERNE dont le commentaire ci-dessous interdit explicitement la
-// transposition d'offset. Le résolveur #49 reste donc NON POSÉ sur `t6dpr4k06g` — il le DIT dans
-// son log. Migrer ces deux-ci ne l'arme pas ; ça évite seulement de laisser croire que leur
-// adresse est celle d'un build disparu.
-// ⚠ ET L'ADRESSE NE SUFFIRA PAS : sur `rnca9r7q6c` la FORME du corps de `b__0` avait changé, et
-// `ATTACK_IFACE_IDX` était passé de 0xb4 à 0xb5. Les deux sont à RELIRE au décompilé avant de
-// croire ce résolveur, même une fois les quatre autres pins résolus.
+// ⚠ LES SIX PINS SONT MIGRÉS SUR `t6dpr4k06g` (#10011-r1) — le bloc n'est donc plus refusé.
+// `installBaseOverrideResolver` refuse toujours EN BLOC, mais c'est désormais une garde, plus un
+// constat. Aucun des quatre derniers ne s'est re-dérivé par un grep de symbole, et c'est le point :
+//   * les deux `DAT_*` viennent des corps décompilés qui les LISENT (b__1 pour l'un,
+//     `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` pour l'autre) ;
+//   * le placeholder `FUN_*` vient de la XREF ENTRANTE — c'est le CALLEE du call idx-0xd de
+//     `PredictAttackRaw` — et de son CORPS (il fait le walk d'itable
+//     `klass+0xb0` / count `klass+0x12e` / `vid = klass+0x138 + (off+idx)*0x10`, repli
+//     `FUN_1801e72b0`). Son adresse n'a PAS bougé de `rnca9r7q6c` à `t6dpr4k06g` : c'est une
+//     OBSERVATION, jamais la preuve — le nom d'un `FUN_*` étant son ancienne adresse, il aurait
+//     pu désigner n'importe quoi ;
+//   * le point INTERNE est DÉSASSEMBLÉ (cf. plus bas), jamais transposé.
+// ⚠ ET L'ADRESSE NE SUFFIT PAS : sur `rnca9r7q6c` la FORME du corps de `b__0` avait changé, et
+// `ATTACK_IFACE_IDX` était passé de 0xb4 à 0xb5. Les DEUX ont été RELUS au décompilé sur
+// `t6dpr4k06g` et sont INCHANGÉS : `b__0` fait toujours
+// `(*(code **)(*plVar1 + 0x4d8))(plVar1, &arg, *(plVar1 + 0x4e0))`, et `b__1` porte `0xb5` aux
+// DEUX endroits (scan d'itable et repli). Les relire reste obligatoire au prochain build.
 const PIN_PROFILE_B0: PinnedAddress = {
     va: 0x1812ee740, build: "t6dpr4k06g",
     symbol: "IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility"
@@ -175,43 +188,58 @@ const PIN_PROFILE_B1: PinnedAddress = {
     what: "délégué b__1 de GetAttackHitPrediction — override de base via interface idx 0xb5",
     how: "grep du symbole dans data/symbols/<build>/ghidra/functions.tsv (occurrence UNIQUE)",
 };
-// ⚠ L'INDEX A BOUGÉ AVEC LE BUILD : 0xb4 → 0xb5. Relevé DEUX fois dans `b__1` — dans le scan de
-// l'itable `(off + 0xb5) * 0x10 + 0x138 + klass`, et dans le repli `FUN_1801e7040(svc, DAT, 0xb5)`.
-// Transposer la seule adresse en gardant 0xb4 aurait résolu LE MAUVAIS SLOT, en rendant un pointeur
-// de fonction parfaitement valide — donc sans la moindre erreur visible.
+// ⚠ L'INDEX AVAIT BOUGÉ AVEC LE BUILD : 0xb4 → 0xb5. Il est RELU à chaque migration, jamais reconduit.
+// Sur `t6dpr4k06g` il vaut TOUJOURS 0xb5, relevé DEUX fois dans `b__1` — dans le scan de l'itable
+// `(off + 0xb5) * 0x10 + 0x138 + klass`, et dans le repli `FUN_1801e72b0(svc, DAT, 0xb5)`.
+// Transposer la seule adresse en gardant un index périmé résoudrait LE MAUVAIS SLOT, en rendant un
+// pointeur de fonction parfaitement valide — donc sans la moindre erreur visible.
 // DONNÉE, pas code : `kind: "data"` le DIT, et c'est ce qui dispense le cliquet de chercher un
 // symbole de fonction (il vérifie au lieu que la VA tombe hors de la zone des fonctions).
+// La VA se LIT dans le corps de `b__1` (l'opérande comparée aux entrées d'itable) — un `DAT_*` est
+// absent de `functions.tsv` par construction, donc aucun grep ne peut le rendre.
 const PIN_ATTACK_IFACE: PinnedAddress = {
-    va: 0x1833407b0, build: "rnca9r7q6c", kind: "data", symbol: "DAT_1833407b0",
+    va: 0x1833419e0, build: "t6dpr4k06g", kind: "data", symbol: "DAT_1833419e0",
     what: "Il2CppClass* de l'interface ability (scan de l'itable de b__1)",
 };
 const ATTACK_IFACE_IDX = 0xb5;
-// Le VRAI override de base : `PredictAttackRaw` fait `FUN_180031990(recv, idx=0xd, DAT_18334a0c8)`
+// Le VRAI override de base : `PredictAttackRaw` fait `FUN_180031990(out, idx=0xd, DAT_18334b2f8, recv)`
 // → Nullable<Fix64> ; si HasValue, remplace la base. On résout le receiver (R9=args[3]) sur CE site
 // (filtre returnAddress) → classe concrète + VA de la méthode idx 0xd → à décompiler pour LIRE la formule.
+// L'ordre des paramètres est RELU sur le corps de l'invocateur : `(param_1 out, param_2 idx (ushort),
+// param_3 iface, param_4 receiver, ...)` — c'est `param_4` dont il déréférence l'`Il2CppClass*`.
 const PIN_IFACE_DMG: PinnedAddress = {
-    va: 0x18334a0c8, build: "rnca9r7q6c", kind: "data", symbol: "DAT_18334a0c8",
+    va: 0x18334b2f8, build: "t6dpr4k06g", kind: "data", symbol: "DAT_18334b2f8",
     what: "Il2CppClass* de l'interface portant l'override de base (idx 0xd)",
 };
 const PIN_FUN_INVOKE: PinnedAddress = {
-    va: 0x180031990, build: "rnca9r7q6c", symbol: "FUN_180031990",
-    what: "invocateur d'interface générique (CHAUD) — hook filtré par returnAddress",
-    how: "placeholder FUN_* : aucun MethodInfo, donc NON résoluble par symbole ;"
-        + " re-lire le call site dans PredictAttackRaw et suivre le callee",
+    va: 0x180031990, build: "t6dpr4k06g", symbol: "FUN_180031990",
+    // `list_xrefs` rend DEUX appels DIRECTS (les deux dans `PredictAttackRaw`, idx 0xd et 0xe) plus
+    // UNE référence DATA : le filtre `returnAddress` reste donc obligatoire — une invocation
+    // indirecte par cette table n'apparaîtrait dans aucun appel direct.
+    what: "invocateur d'interface générique — hook filtré par returnAddress",
+    how: "placeholder FUN_* : aucun MethodInfo, donc NON résoluble par symbole. Partir de la XREF"
+        + " ENTRANTE (le call idx-0xd de PredictAttackRaw) puis VÉRIFIER LE CORPS : il doit faire"
+        + " le walk d'itable klass+0xb0 / count klass+0x12e / vid = klass+0x138 + (off+idx)*0x10."
+        + " Son adresse est restée la même de rnca9r7q6c a t6dpr4k06g — c'est une observation,"
+        + " jamais la preuve.",
 };
 // return-addr du call idx-0xd (isole CE site, évite le hot broad-hook).
-// ⚠ DÉSASSEMBLÉ, PAS TRANSPOSÉ. `list_xrefs` sur le CALLEE donne deux appels dans `PredictAttackRaw`
-// (181115e06 et 181116368) ; le premier est précédé d'un `mov edx, 0xd` explicite @181115dc6. Le call
-// est à 181115e06, long de 5 octets → retour @181115e0b. L'ancien offset (+0x18EE) aurait donné 0x1115efe :
-// 243 octets à côté, en plein milieu d'une instruction.
-// RÉSIDU NOMMÉ : l'index du SECOND appel (181116368) n'est pas établi. S'il vaut aussi 0xd, ce filtre
-// sélectionne un site parmi deux équivalents — à vérifier avant de conclure qu'on capte le bon.
+// ⚠ DÉSASSEMBLÉ, PAS TRANSPOSÉ. `list_xrefs` sur le CALLEE donne DEUX appels dans `PredictAttackRaw`
+// (1811168b6 et 181116e18 sur `t6dpr4k06g`). Le premier porte `0xd`, le call fait 5 octets
+// (`e8 d5 b0 f1 fe`, vérifié à l'octet), donc le retour est à `1811168bb`. L'ancien offset (+0x18EE)
+// avait déjà donné 243 octets à côté, en plein milieu d'une instruction : on ne transpose pas.
+// ⚠ LE RÉSIDU QUI ÉTAIT NOMMÉ ICI EST FERMÉ : l'index du SECOND appel est ÉTABLI, il vaut **0xe**,
+// pas 0xd (`FUN_180031990(&local_7c8, 0xe, DAT_18334b2f8)`). Le filtre `returnAddress` sélectionne
+// donc bien un site UNIQUE pour l'override de base — les deux sites ne sont pas équivalents.
+// ⚠ L'offset `+0x17fb` est le MÊME que sur `rnca9r7q6c` — coïncidence de corps inchangé dans cette
+// zone, PAS une règle : il a été re-dérivé par désassemblage, pas reconduit.
 const PIN_OVERRIDE_RETADDR: PinnedAddress = {
-    va: 0x181115e0b, build: "rnca9r7q6c",
+    va: 0x1811168bb, build: "t6dpr4k06g",
     symbol: "IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x17fb",
-    what: "return-address du call idx-0xd — isole CE site du hot invocateur",
-    how: "DÉSASSEMBLER, ne pas transposer : list_xrefs sur le CALLEE, repérer le `mov edx,0xd`,"
-        + " le call fait 5 octets. Un offset transposé était déjà tombé 243 octets à côté.",
+    what: "return-address du call idx-0xd — isole CE site (le second call porte l'idx 0xe)",
+    how: "DÉSASSEMBLER, ne pas transposer : list_xrefs sur le CALLEE, LIRE l'idx de chaque site"
+        + " (0xd vs 0xe), le call fait 5 octets. Un offset transposé était déjà tombé 243 octets"
+        + " à côté.",
 };
 const baseOverrideResolved = new Set<string>();
 let overrideIdxdResolved = false;      // resolve-once (reset au clear global)
@@ -857,7 +885,7 @@ function installHook(): boolean {
 
 // ⚠ RVA BUILD-SPÉCIFIQUES — attaches DIFFÉRÉES (armées seulement par scorerDamageTraceOn, PAS au register).
 // Toutes les fonctions ci-dessous sont gshared / itérateurs → NON résolubles par findMethod → hookées par
-// Adresse hardcodée valide UNIQUEMENT pour le hash `rnca9r7q6c`. Au prochain changement de build, ces RVA
+// Adresse hardcodée valide UNIQUEMENT pour le hash `t6dpr4k06g`. Au prochain changement de build, ces RVA
 // pointent du CODE ALÉATOIRE et `Interceptor.attach` corromprait le prologue → on N'ATTACHE PAS au register
 // (le ctor findMethod ci-dessus, lui, survit au hash et reste auto-armé). RAFRAÎCHIR CES RVA DEPUIS LE DUMP
 // À CHAQUE CHANGEMENT DE HASH avant de ré-armer. cf. feedback_rva_transcription_from_va.
@@ -1136,7 +1164,7 @@ function installBonusHook(): boolean {
 let baseOverrideInstalled = false;
 function installBaseOverrideResolver(): boolean {
     if (baseOverrideInstalled) return true;
-    // Les CINQ adresses de ce résolveur sont épinglées ensemble : si l'une est refusée, aucune
+    // Les SIX adresses de ce résolveur sont épinglées ensemble : si l'une est refusée, aucune
     // n'a de sens (b__1 et l'override lisent un `DAT_` du même build). On refuse en BLOC.
     const pb0 = pinnedAddress(PIN_PROFILE_B0);
     const pb1 = pinnedAddress(PIN_PROFILE_B1);
@@ -1165,7 +1193,7 @@ function installBaseOverrideResolver(): boolean {
             } catch { /* transient */ }
         },
     });
-    // b__1 : interface `DAT_1833407b0` idx 0xb5 sur svc = *((param_1+0x10)+0x20) — signature (target, position).
+    // b__1 : interface `DAT_1833419e0` idx 0xb5 sur svc = *((param_1+0x10)+0x20) — signature (target, position).
     Interceptor.attach(pb1, {
         onEnter(args) {
             if (!trace.on) return;
@@ -1193,8 +1221,10 @@ function installBaseOverrideResolver(): boolean {
             } catch { /* transient */ }
         },
     });
-    // VRAI override : FUN_180031950(recv, idx 0xd, DAT_183287db8) @181034898. Hook gaté trace.on + filtré
-    // returnAddress (isole CE site du hot invocateur) + resolve-once → non-intrusif. Lit le receiver (R9=args[3]),
+    // VRAI override : `FUN_180031990(out, idx 0xd, DAT_18334b2f8, recv)`, appelé depuis
+    // `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x17f6`. Hook gaté trace.on + filtré
+    // returnAddress (isole CE site — le SECOND call du même invocateur dans PredictAttackRaw porte l'idx
+    // 0xe) + resolve-once → non-intrusif. Lit le receiver (R9=args[3] = param_4 de l'invocateur),
     // résout la méthode concrète idx 0xd + son nom de classe, ET capture la valeur override en sortie.
     Interceptor.attach(pInvoke, {
         onEnter(args) {
@@ -1232,7 +1262,7 @@ function installBaseOverrideResolver(): boolean {
         },
     });
     baseOverrideInstalled = true;
-    log("[scorer-trace] hooked base-override resolvers b__0/b__1 + idx0xd(FUN_180031950 site-filtered)");
+    log("[scorer-trace] hooked base-override resolvers b__0/b__1 + idx0xd(FUN_180031990 site-filtered)");
     return true;
 }
 

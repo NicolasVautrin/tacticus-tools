@@ -81,14 +81,15 @@ build, le foyer le **confronte** au build réellement chargé, et **refuse en le
   verbatim, `what`, et `how` (la procédure de re-dérivation, sinon le refus est un cul-de-sac).
 - C'est le **seul** module où `il2cppBase.add(<constante>)` a le droit d'exister.
 
-`DISPATCH_HELPER_PIN` est épinglé sur `gqfc5mff6c` — c'est-à-dire **refusé** sur le build
-courant. C'est la réponse honnête : la VA est mesurée sur ce build-là, la re-mesurer demande
-une session ghidra (résidu `#475-r2`).
+`DISPATCH_HELPER_PIN` a été épinglé sur `gqfc5mff6c` — c'est-à-dire **refusé** sur les builds
+suivants. C'était la réponse honnête : la VA est mesurée sur ce build-là, la re-mesurer demande
+une session ghidra. **Fait le 2026-08-15, cf. §8** (résidu `#475-r2` fermé).
 
 **`scorer-damage-trace.ts` y passe aussi** : ses **13** adresses épinglées (11 code + 2 `DAT_`)
-sont déclarées sur `rnca9r7q6c`, donc le pin est un **no-op** aujourd'hui — aucun changement de
-comportement, et la mine est désarmée pour le prochain build. Son en-tête disait déjà « au
-prochain build ces RVA pointent du code aléatoire » ; il ne l'**empêchait** pas.
+ont été déclarées sur `rnca9r7q6c`, donc le pin était un **no-op** — aucun changement de
+comportement, et la mine désarmée pour le prochain build. Son en-tête disait déjà « au
+prochain build ces RVA pointent du code aléatoire » ; il ne l'**empêchait** pas. Les 8
+re-dérivables par symbole ont migré avec #10011, les **5 derniers** au §8.
 
 ## 5. Le cliquet — `probe_475_pinned_addresses.py`
 
@@ -142,8 +143,45 @@ pourquoi la fermer coûterait 20 faux positifs légitimes.
 
 - **L'activation attend une fenêtre de reinject** : le correctif vit dans `frida/hooks/*`. Le
   bundle est construit (`frida-compile`, rc 0) et typecheck sans erreur nouvelle, mais aucun
-  comportement de hook n'a été confronté live. Résidus `#475-r2` (re-mesurer `FUN_1800267c0`)
-  et `#475-r3` (montage de confrontation de `bucket-audit`).
+  comportement de hook n'a été confronté live. Résidus `#475-r3` (montage de confrontation de
+  `bucket-audit`) et `#475-r4` (§8 — les six pins re-mesurés).
 - **La RVA inerte** (`#475-r1`).
 - **Les autres langages** : le périmètre est `frida/hooks/**/*.ts`. `scripts/frida/*.js` et
   `frida/host/*.ts` n'attachent pas d'`Interceptor` et ne sont pas balayés.
+
+## 8. Les SIX pins que `probe_475` R3 déclarait NON re-dérivables offline (2026-08-15)
+
+`#475-r2` + `#10011-r1`. R3 les nommait et les comptait sans bloquer — **6 pins périmés sur 14**,
+tous « exigent de lire le binaire ». Ils ont été lus. **14/14 sur `t6dpr4k06g`, 0 périmé.**
+
+Aucun ne s'est re-dérivé par un grep de symbole, et **aucun n'est une transposition** :
+
+| pin | ancien (build) | neuf (`t6dpr4k06g`) | ce qui l'établit |
+|---|---|---|---|
+| `modifier-observe` dispatch-42 | `FUN_1800267c0` (`gqfc5mff6c`) | **`FUN_180028580`** | CALL SITE dans `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (7 args, le 2ᵉ vaut `0x42`) **+ le CORPS du callee** : walk d'itable `klass+0xb0` / count `klass+0x12e` / `vid = klass+0x138 + (off+slot)*0x10`, repli `FUN_1801e72b0` — exactement ce que le hook réplique |
+| `GetMultiplierFromDamageBonus` | `18110bed0` (`rnca9r7q6c`) | **`18110c980`** | DEUX occurrences du symbole PLEINEMENT QUALIFIÉ (`18110c980`, `18110ca70`) ; départagées par les **trois** critères du site, tous concordants sur la même : param `damageBonus` SINGULIER, Nullable lu via `in_R8`, appel de `IdunBattle.Core.Services.BaseCalculations$$GetFloatMultiplierFromPercentage`. L'autre est la LIST (`damageBonuses`, énumère, rappelle la single). ⚠ Le nom COURT en rend **trois** — `IdunBattle.Core.Services.RepairCalculations$$GetMultiplierFromDamageBonus` est une AUTRE classe |
+| iface ability de `b__1` | `DAT_1833407b0` | **`DAT_1833419e0`** | LU dans le corps de `…u003CGetAttackHitPredictionu003Eb__1` (l'opérande comparée aux entrées d'itable). `ATTACK_IFACE_IDX` **relu**, toujours `0xb5`, aux DEUX endroits (scan + repli) |
+| iface de l'override de base | `DAT_18334a0c8` | **`DAT_18334b2f8`** | LU dans `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`, opérande du `mov r8, [rip+…]` qui précède le call idx-`0xd` |
+| invocateur d'interface | `FUN_180031990` | **`FUN_180031990`** (inchangé) | XREF ENTRANTE (le callee du call idx-`0xd`) **+ le CORPS** (même walk d'itable). L'adresse identique est une **observation**, pas la preuve — le nom d'un `FUN_*` étant son ancienne adresse. Les deux invocateurs portent aussi une référence **DATA** : « 2 appelants » borne les appels DIRECTS, pas les invocations indirectes — d'où le filtre `returnAddress` |
+| return-addr du call idx-`0xd` | `181115e0b` | **`1811168bb`** | DÉSASSEMBLÉ : `e8 d5 b0 f1 fe` à `1811168b6`, 5 octets, cible `180031990` (vérifiée par le rel32) |
+
+**Trois résultats de plus, qui ne sont pas des adresses :**
+
+1. **Le résidu nommé dans le commentaire de `PIN_OVERRIDE_RETADDR` est FERMÉ.** Il demandait
+   l'index du **second** call de l'invocateur dans `PredictAttackRaw`, « s'il vaut aussi `0xd`,
+   ce filtre sélectionne un site parmi deux équivalents ». Il vaut **`0xe`**
+   (`FUN_180031990(&local_7c8, 0xe, DAT_18334b2f8)` à `181116e18`) : le filtre `returnAddress`
+   isole bien un site UNIQUE.
+2. **Le filtre `slot == 0x42` de `modifier-observe`, lui, N'ISOLE PAS `ExecuteHit`.**
+   L'invocateur n'a que **deux** appelants DIRECTS et **les deux** passent `0x42` sur la **même**
+   interface : `…AttackDamageOperation$$ExecuteHit` et
+   `IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo` (`mov edx,0x42` lu à
+   l'octet à `180f5cc51`, iface `18336edb0` par le `mov r8,[rip+…]` à `180f5cc3f`). Conséquence
+   sur la **lecture**, pas sur la sûreté : le dump peut porter deux entrées, discriminées par
+   `topRva` et `cls`. Écrit au site.
+3. **`b__0` n'a PAS rechangé de forme** : toujours
+   `(*(code **)(*plVar1 + 0x4d8))(plVar1, &arg, *(plVar1 + 0x4e0))`. Le hook lit le bon slot.
+
+**Ce qui n'est PAS prouvé, et c'est tout le reste** : qu'un seul de ces pins **FIRE**. La tranche
+est offline par construction (armer un pin exige un reinject). Montage de vérification écrit dans
+`#475-r4`.
