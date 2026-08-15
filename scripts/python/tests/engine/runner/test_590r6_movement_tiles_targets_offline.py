@@ -343,6 +343,54 @@ def test_le_clamp_MELEE_se_mesure_depuis_casterTiles():
                                        caster_tiles=[(1, 0)]) == int(TR.TargetIsInRange)
 
 
+def _board_plat(elev=None):
+    """Board synthetique : `MC1_67` ne fait basculer la LIGNE DE VUE sur AUCUNE de ses 63 tuiles pour
+    les couples de ce fichier (balayage). Un relief CHOISI est donc le seul moyen de l'exercer."""
+    elev = elev or {}
+    n = 9
+    cells = {(c, r): int(elev.get((c, r), 0)) for c in range(n) for r in range(n)}
+    ids = {q: i + 1 for i, q in enumerate(sorted(cells))}
+    tiles = [{"id": ids[q], "col": q[0], "row": q[1], "elevation": e, "walkable": True,
+              "isWall": False,
+              "neighbours": [ids[x] for x in hexgeo.neighbors(q[0], q[1]) if x in ids]}
+             for q, e in cells.items()]
+    return Board(tiles)
+
+
+def test_la_LIGNE_DE_VUE_se_mesure_DEPUIS_casterTiles():
+    """⚠ LE CRAN STRUCTUREL CI-DESSUS NE SUFFIT PAS, et c'est mesure : il verifie que la fonction
+    RECOIT le parametre, pas qu'elle l'UTILISE -- muter son corps pour qu'il reparte de
+    `entity_tiles(caster)` le laissait VERT. Ici on mesure la VALEUR, sur un relief bloquant choisi.
+
+    `GetTilesObscuringTerrain(caster, casterTiles, cible, options)` : le premier argument du slot
+    `IMovementQuery 15` EST `casterTiles`. Depuis la position reelle la ligne passe ; depuis la
+    candidate elle bute sur le bloc haut. Les DEUX sens sont assertes -- un seul ne prouverait pas
+    que le terme mord."""
+    board = _board_plat({(c, 4): 5 for c in (2, 3, 4)})
+    units = [_u(1, 1, (0, 4), "astarCyrus"), _u(2, 2, (6, 4), "astarLysander")]
+    st = _state(board, units)
+    opts = T.normal_attack_targeting_options(st, 1)
+    assert T.get_tiles_obscuring_terrain(st, 1, 2, opts, None) == set(), \
+        "depuis la position REELLE, la ligne passe"
+    obstruee = T.get_tiles_obscuring_terrain(st, 1, 2, opts, [(1, 4)])
+    assert obstruee, "depuis (1,4) le bloc haut obscurcit -- c'est ce que `casterTiles` porte"
+    assert (2, 4) in obstruee
+
+
+def test_la_clause_TUILE_NULLE_porte_sur_la_position_INTERROGEE():
+    """`if ((rules & AllowNullCasterTile) == 0 && (rules & CasterHasNoTile) == 0
+    && CollectionExtensions.IsNullOrEmpty(casterTiles)) -> broken(AllowNullCasterTile)`.
+
+    Le predicat porte sur `casterTiles`, PAS sur `GetTiles(caster)` : une position interrogee VIDE
+    rompt la regle meme quand l'unite est bien posee sur le plateau. Sans ce test, muter le repli
+    pour qu'il reparte toujours de `get_unit_feet` restait vert (mesure)."""
+    _, st = _montage()
+    probe = _probe(st, 2)
+    assert T.get_invalid_caster_reason(st, 2, probe, None) == 0, "l'unite EST sur le plateau"
+    assert T.get_invalid_caster_reason(st, 2, probe, []) == int(TR.AllowNullCasterTile), \
+        "position interrogee VIDE -> le natif rompt, quelle que soit la position reelle"
+
+
 def test_le_threading_ne_passe_le_parametre_QU_AUX_porteurs_qui_le_DECLARENT():
     """Les ~35 regles dynamiques du registre gardent le contrat `(state, caster_id, target_id)`.
     Un appel a l'aveugle leverait `TypeError` sur chacune ; le threading teste donc la SIGNATURE,

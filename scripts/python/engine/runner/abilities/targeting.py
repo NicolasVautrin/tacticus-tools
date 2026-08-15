@@ -2275,7 +2275,7 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
     # nommait. Ici il est presque toujours INERTE (aucun masque d'attaque normale ne pose de bit
     # `Caster*`) SAUF par la clause TUILE-NULLE, qui n'est gatee par aucun bit : une unite SANS
     # tuile (`Burrowers` sous terre) n'a aucune cible d'attaque normale, et c'est le natif.
-    if get_invalid_caster_reason(state, int(caster_id), probe, caster_tiles):
+    if _relais(get_invalid_caster_reason, (state, int(caster_id), probe), caster_tiles):
         return []
     out = []
     for uid in list(state.entities.keys()):
@@ -2285,9 +2285,15 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
         # (`GetInvalidTargetReason(caster, casterTiles, t, options, onlyTiles: true, range)`), qui
         # n'a NI aiguillage self-cast NI volet caster -- c'est son APPELANTE qui porte le volet,
         # ci-dessus. Meme couple que `turnflow.py`.
-        if get_invalid_target_reason(state, int(caster_id), int(uid), probe,
-                                     apply_self_cast_switch=False,
-                                     caster_tiles=caster_tiles) == 0:
+        # `caster_tiles` est KEYWORD-ONLY sur cette fonction-ci, donc une substitution positionnelle
+        # ne peut pas casser dessus ; on garde neanmoins l'appel HISTORIQUE a l'identique quand
+        # l'argument est nul, pour la meme raison que les quatre relais ci-dessus.
+        r = (get_invalid_target_reason(state, int(caster_id), int(uid), probe,
+                                       apply_self_cast_switch=False) if caster_tiles is None
+             else get_invalid_target_reason(state, int(caster_id), int(uid), probe,
+                                            apply_self_cast_switch=False,
+                                            caster_tiles=caster_tiles))
+        if r == 0:
             out.append(int(uid))
     return out
 
@@ -2891,6 +2897,20 @@ def _first_tile(tiles):
     return None
 
 
+# ⚠ **UN ARGUMENT AJOUTE A UNE SIGNATURE CASSE LES SUBSTITUTIONS DEJA POSEES, ET C'EST MESURE.**
+# `test_419r1tr14r5r2r1r2r1r1r1_court_circuits_getrange_live` substitue `get_range` par un lambda a
+# TROIS parametres ; transmettre `caster_tiles` en 4e position le faisait lever
+# `TypeError: <lambda>() takes 3 positional arguments but 4 were given` -- un rouge LIVE, sur un
+# fichier que rien dans le diff ne designait. Les CINQ relais internes ci-dessous n'ajoutent donc
+# l'argument QUE lorsqu'il est non nul : le regime historique redevient l'appel EXACT d'avant,
+# substitutions comprises, et c'est ce que le contrat « `None` = comportement d'avant, octet pour
+# octet » promet vraiment. Le prix est la verbosite de cet idiome ; le prix de l'autre choix est un
+# harnais qu'on perime en silence.
+def _relais(fn, args: tuple, caster_tiles):
+    """Appelle `fn(*args)` -- et n'ajoute `caster_tiles` que s'il est FOURNI (cf. le bloc ci-dessus)."""
+    return fn(*args) if caster_tiles is None else fn(*args, caster_tiles)
+
+
 def caster_tiles_of(state: "State", caster_id: int, caster_tiles=None) -> list:
     """`EntityExtensions$$GetTiles(caster, state)` OU la position INTERROGEE (#590-r6).
 
@@ -3177,7 +3197,7 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions",
         value = None if value is None else min(1, value)
         only_adjacent = True
     if ranged_bool_is_true(options.force_melee_target, state, caster_id):
-        if should_apply_ranged_in_melee(state, caster_id, caster_tiles):
+        if _relais(should_apply_ranged_in_melee, (state, caster_id), caster_tiles):
             value = None if value is None else min(1, value)
             only_adjacent = True
     # Sortie COMPLETE : bits 40..47 du retour natif restent a zero (`(cVar2 != 0) << 0x20` puis
@@ -3275,7 +3295,7 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
     arguments, que `TargetingQuery$$GetValidTargets` lui transmet depuis SON propre 2e argument.
     `None` = la position REELLE, le seul regime d'avant cette tranche. Les DEUX branches (adjacence
     et distance) le consomment, comme le natif, et `get_range` le recoit lui aussi."""
-    rr = get_range(state, caster_id, options, caster_tiles)
+    rr = _relais(get_range, (state, caster_id, options), caster_tiles)
     if rr is None:
         return 0
     src_feet = caster_tiles_of(state, caster_id, caster_tiles)
@@ -4467,7 +4487,7 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # L'ordre n'est pas cosmetique : c'est lui qui fixe la RAISON rendue quand plusieurs regles sont
     # rompues (le natif s'arrete a la premiere). `get_range_broken_rule` rend 0 des que le port ne
     # sait pas mesurer.
-    reason = get_range_broken_rule(state, caster_id, target_id, options, caster_tiles)
+    reason = _relais(get_range_broken_rule, (state, caster_id, target_id, options), caster_tiles)
     if reason:
         return reason
 
@@ -4501,7 +4521,8 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # resolues) -- meme convention permissive que le reste du module. La regle ne peut rendre un
     # refus que sur des positions et des elevations REELLES.
     if state.board is not None:
-        if get_tiles_obscuring_terrain(state, caster_id, target_id, options, caster_tiles):
+        if _relais(get_tiles_obscuring_terrain, (state, caster_id, target_id, options),
+                   caster_tiles):
             return int(TR.TargetIsUnobscured)
 
     # TargetIsSummon -- « la cible doit etre un SUMMON ». VERBATIM du filtre statique (surcharge 7
