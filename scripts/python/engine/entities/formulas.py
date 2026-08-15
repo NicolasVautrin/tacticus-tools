@@ -552,6 +552,50 @@ class TilesMovedThisTurn(AAmountFormula):
         return int((u or {}).get("tilesMovedThisTurn", 0) or 0)
 
 
+class CriticalHitsThisTurn(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$CriticalHitsThisTurn(unit)` ->
+    `IdunBattle.Entities.Formulas.CriticalHitsThisTurnFormula$$Calculate` -- MIRROR du decompile :
+    resout le selecteur (`this+0x10`, slot 8 = `SelectActor`), prend l'`ActorStatisticsComponent` de
+    l'unite et rend **`*(uint *)(comp + 0x54)`** -- combien de COUPS CRITIQUES cette unite a PORTES
+    depuis le debut de son tour.
+
+    La fabrique est un simple `new <Formula>(unit)` : le corps ENTIER de
+    `DSLFormulas$$CriticalHitsThisTurn` alloue la formule et lui passe le selecteur, rien d'autre --
+    meme forme que `TilesMovedThisTurn` ci-dessus.
+
+    SUBSTRAT PORTE PAR LA MEME TRANCHE (#521-r10), aux DEUX bouts, et les deux sont LUS :
+      * ECRITURE `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackMade`
+        (`*(int *)(this + 0x54) += (int)totalCrits`), seul appelant natif
+        `IdunBattle.Operations.RegisterAttackOperation$$Execute` -- port
+        `runner/components.py::register_attack_made`, appele par le chokepoint de degat ;
+      * RESET `...$$ResetUnitsAttackedThisTurn` (`this[0x54] = 0`), appele par
+        `IdunBattle.Operations.StartTurnOperation$$Execute` / `$$ResetUnit` / `$$ResetMachine` --
+        port `runner/components.py::reset_units_attacked_this_turn`.
+    C'est donc bien un compteur PER-TOUR : aucun des deux `ActorStatisticsComponent$$ResetThisTurn`
+    ne touche `+0x54`, mais l'entree de tour l'efface.
+
+    LA CLE EST LIVE, pour la MEME raison mesuree que `timesHealedThisTurn` / `tilesMovedThisTurn` :
+    l'increment natif PRECEDE l'emission du vecteur qui fait relire le nombre. Le seul consommateur
+    lit sur `On(0xe = UnitPostAbility)`, c'est-a-dire APRES l'attaque qui vient de produire les
+    crits ; figee au seed, la valeur serait celle d'AVANT et le gate ne matcherait jamais.
+
+    Unite hors-`State` (dict fige de la face PREDICTION) -> 0, meme regime que `TimesHealedThisTurn`
+    et `TilesMovedThisTurn`. Le natif, lui, LEVE sur un composant manquant (cf.
+    `runner/components.py::unit_critical_hits_this_turn`, qui porte la mesure et dit pourquoi le
+    port rabat sur 0).
+
+    Consommateur porte : le gate `AmountIsEqualOrGreater(CriticalHitsThisTurn(Owner@DSLSelectors+0x30),
+    Direct(GetHits2()))` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnance_RemoveCritChance$$CreateBehaviour`
+    (#521-r4). C'est aussi le SEUL call-site natif du noeud."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return int((u or {}).get("criticalHitsThisTurn", 0) or 0)
+
+
 class TimesRepaired(AAmountFormula):
     """`DSLFactory.TimesRepaired` : compteur runtime de réparations du caster (Mechanical — ex.
     DakkaDakkaDakka `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` : +extraHits coups par réparation). NON capté offline →

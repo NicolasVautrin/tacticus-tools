@@ -201,6 +201,17 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # Const(1))` de `WyrdmakersHelmAbility$$CreateTrigger` ne matcherait JAMAIS. 0 par defaut.
         "timesHealedThisTurn": (int(getattr(uc, "times_healed_this_turn", 0) or 0)
                                 if uc is not None else 0),
+        # #521-r10 -- `ActorStatisticsComponent @+0x54`, lu par le noeud formule `CriticalHitsThisTurn`
+        # (`IdunBattle.Entities.Formulas.CriticalHitsThisTurnFormula$$Calculate`, qui rend ce champ tel
+        # quel). MEME raison d'etre dans `_LIVE_KEYS` que `timesHealedThisTurn` : le compteur est
+        # allonge par `RegisterAttackOperation$$Execute` PENDANT l'execution de la behaviour (port :
+        # `components.register_attack_made`, appele par `AttackDamageOperation._apply_damage_pipeline`),
+        # donc AVANT le `On(0xe = UnitPostAbility)` qui fait relire la valeur -- c'est exactement le
+        # vecteur de `DaemonicOrdnance_RemoveCritChance`. Fige au seed, son gate
+        # `AmountIsEqualOrGreater(CriticalHitsThisTurn(Owner), Direct(nrOfHits_2))` lirait la valeur
+        # d'AVANT l'attaque et ne matcherait jamais au tour ou les crits tombent. 0 par defaut.
+        "criticalHitsThisTurn": (int(getattr(uc, "critical_hits_this_turn", 0) or 0)
+                                 if uc is not None else 0),
         # #999-r1 -- `ActorStatisticsComponent @+0xf0`, lu par le noeud formule `TilesMovedThisTurn`
         # (`IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate`, qui rend ce champ tel
         # quel). MEME raison d'etre dans `_LIVE_KEYS` que `timesHealedThisTurn` juste au-dessus, et
@@ -253,7 +264,8 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 #: AVANT l'appel a `EvaluateAfterMoveTriggers`, qui publie `On(4 = UnitAfterMove)` -- c'est-a-dire le
 #: vecteur meme qui fait relire ce compteur. Fige au seed, il rendrait 0 au premier move du tour.
 _LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet", "unitsAttackedThisTurn",
-                        "defeatedUnits", "timesHealedThisTurn", "tilesMovedThisTurn"})
+                        "defeatedUnits", "timesHealedThisTurn", "tilesMovedThisTurn",
+                        "criticalHitsThisTurn"})
 
 
 class LiveUnit(dict):

@@ -412,6 +412,7 @@ class UnitComponent(Component):
                  "blocks_made_this_turn", "blocks_made_this_battle",
                  "times_healed_this_turn",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
+                 "critical_hits_this_turn",
                  "total_attacks_made", "defeated_units_melee", "defeated_units_other",
                  "total_defeated_units", "death_killer_id", "previous_position_this_turn",
                  "movement_target_override", "rarity", "defeated_by_melee")
@@ -511,6 +512,17 @@ class UnitComponent(Component):
         # `reset_units_attacked_this_turn` -- ce dernier NOM ne le dit pas, l'assembleur si
         # (`*(undefined8*)(this + 0x24) = 0` : une ecriture 64 bits qui couvre +0x24 ET +0x28).
         self.attacks_made_this_turn = 0
+        # `ActorStatisticsComponent+0x54` = les COUPS CRITIQUES portes CE TOUR (#521-r10). Le champ
+        # est ecrit d'un `+= totalCrits` par `IdunBattle.Entities.Components.ActorStatisticsComponent$$
+        # RegisterAttackMade` (LU : `*(int *)((longlong)this + 0x54) = *(int *)((longlong)this + 0x54)
+        # + (int)totalCrits;`) et remis a 0 par `...$$ResetUnitsAttackedThisTurn` -- le MEME couple
+        # ecrivain/reset qu'`attacks_made_this_turn` (+0x24), d'ou son voisinage ici. ⚠ Ce n'est PAS
+        # un cumul de bataille : les deux `ActorStatisticsComponent$$ResetThisTurn` ne le touchent
+        # pas, mais `ResetUnitsAttackedThisTurn` -- appele par `IdunBattle.Operations.
+        # StartTurnOperation$$Execute` / `$$ResetUnit` / `$$ResetMachine` -- l'efface a chaque entree
+        # de tour. LECTEUR UNIQUE cote natif : `IdunBattle.Entities.Formulas.
+        # CriticalHitsThisTurnFormula$$Calculate` (`unit_critical_hits_this_turn` ici).
+        self.critical_hits_this_turn = 0
         # `ActorStatisticsComponent+0x20` = `TotalAttacksMade` (#926). ⚠ Ce n'est NI
         # `turns_with_attacks_made` (+0x30, un compte de TOURS), NI `attacks_made_this_turn` (+0x24,
         # remis a 0 chaque tour) : c'est un CUMUL DE BATAILLE que RIEN ne remet a zero
@@ -2628,9 +2640,10 @@ def reset_tiles_moved_this_turn(state, unit_id: int, was_own_turn: bool) -> None
     uc.tiles_moved_this_turn = 0
 
 
-def register_attack_made(state, attacker_id: int, target_id: int) -> None:
+def register_attack_made(state, attacker_id: int, target_id: int,
+                         total_crits: int = 0) -> None:
     """`IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackMade(this, target,
-    rangeType, totalCrits)` -- volet PORTE (les deux champs qu'un consommateur porte lit), lu a
+    rangeType, totalCrits)` -- volet PORTE (les champs qu'un consommateur porte lit), lu a
     l'assembleur :
 
         this[0x50] = target.Id;                          // derniere unite attaquee (non porte)
@@ -2638,7 +2651,7 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
             if (Count(this[0x40]) == 0) this[0x30] += 1; // <- TotalTurnsWithAttacksMade
             Add(this[0x40], target.Id);
             this[0x20] += 1;                             // <- TotalAttacksMade (#926)
-            this[0x54] += totalCrits;                    //                       (non porte)
+            this[0x54] += totalCrits;                    // <- CriticalHitsThisTurn (#521-r10)
             this[0x24] += 1;                             // <- AmountOfAttacksMadeThisTurn (#508-r1)
             if (rangeType == 1) this[0x2c] += 1;         // variante Melee        (non portee)
             if (rangeType == 2) this[0x28] += 1;         // variante Ranged       (non portee)
@@ -2705,9 +2718,22 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     bougent donc au meme instant, comme cote natif : **l'attaque qui declenche l'increment ne le
     voit PAS elle-meme** (elle a deja calcule son degat).
 
+    **`+0x54` EST PORTE DEPUIS #521-r10** -- `total_crits` = le 4e argument natif, c'est-a-dire le
+    nombre de coups CRITIQUES de l'attaque. Le rang differe et c'est DIT : le natif somme les crits
+    de TOUTE l'attaque et appelle `RegisterAttack` une seule fois a la cloture
+    (`FinishAttackOperation`, `totalCrits = currentAttack+0x28`), la ou ce mirror est appele PAR
+    GROUPE de degat depuis `_apply_damage_pipeline` avec les crits de CE groupe. La SOMME par tour
+    -- la seule chose que lise `CriticalHitsThisTurnFormula` -- coincide tant que chaque coup
+    traverse le chokepoint ; c'est le meme ecart de rang que celui deja documente ci-dessus pour
+    `+0x24`, et il porte sur les deux champs ENSEMBLE, jamais sur l'un sans l'autre.
+    Un appelant qui ne mesure pas les crits passe `0` : le natif, lui, passe TOUJOURS une valeur
+    (jamais un `Nullable` vide) -- mais un vecteur de degat SANS jet de crit (DoT, degat direct)
+    n'appelle pas cette fonction du tout, le gate `is_attack` du chokepoint le tenant deja.
+
     LECTEURS PORTES : `MartialInspiration_ExtraDamageEffect` (#509), via
     `IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate` ;
-    `unit_attacks_made_this_turn` ci-dessous (#508-r1) ; et `unit_total_attacks_made` (#926)."""
+    `unit_attacks_made_this_turn` ci-dessous (#508-r1) ; `unit_total_attacks_made` (#926) ; et
+    `unit_critical_hits_this_turn` (#521-r10, noeud DSL `CriticalHitsThisTurn`)."""
     if attacker_id is None or target_id is None:
         return                                           # `attacker == null` -> le natif ne fait rien
     e = state.get_entity(attacker_id)
@@ -2721,6 +2747,10 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     # C'est le contrat que lit `Last(UnitsAttackedThisTurn(caster), 1)` (#940).
     uc.units_attacked_this_turn[int(target_id)] = None
     uc.total_attacks_made = int(uc.total_attacks_made or 0) + 1           # `this[0x20] += 1`
+    # `this[0x54] += totalCrits` -- ORDRE NATIF conserve : l'increment des crits est ENTRE `+0x20`
+    # et `+0x24` dans le decompile. Aucun observable n'en depend (trois `+=` independants), mais on
+    # ne reordonne pas un mirror.
+    uc.critical_hits_this_turn = int(uc.critical_hits_this_turn or 0) + int(total_crits or 0)
     uc.attacks_made_this_turn = int(uc.attacks_made_this_turn or 0) + 1   # `this[0x24] += 1`
 
 
@@ -2806,7 +2836,7 @@ def reset_units_attacked_this_turn(state, unit_id: int) -> None:
 
         if (this[0x40] == null) throw
         Clear(this[0x40])
-        this[0x54] = 0                       // totalCrits du tour           (non porte)
+        this[0x54] = 0                       // <- CriticalHitsThisTurn (#521-r10)
         *(long long*)(this + 0x24) = 0       // <- UNE ecriture 64 bits : +0x24 ET +0x28
         this[0x2c] = 0
 
@@ -2827,7 +2857,37 @@ def reset_units_attacked_this_turn(state, unit_id: int) -> None:
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is not None:
         uc.units_attacked_this_turn.clear()
+        uc.critical_hits_this_turn = 0                   # `this[0x54] = 0`  (#521-r10)
         uc.attacks_made_this_turn = 0                    # `*(long long*)(this + 0x24) = 0`
+
+
+def unit_critical_hits_this_turn(state, unit_id: int) -> int:
+    """`IdunBattle.Entities.Formulas.CriticalHitsThisTurnFormula$$Calculate` -- MIRROR du decompile,
+    l'unite du selecteur `this+0x10` etant deja resolue par l'appelant (meme convention que
+    `unit_turns_with_attacks_made` / `unit_attacks_made_this_turn`) :
+
+        unit = <selecteur this+0x10>.<slot 8 = SelectActor>(entities)
+        if (unit == null) return 0
+        comp = unit.GetComponent<ActorStatisticsComponent>()
+        if (comp != null) return *(uint *)(comp + 0x54)
+        <NullReference>                                  // le natif NE rend pas 0 ici
+
+    C'est ce que resout le noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$CriticalHitsThisTurn`
+    (`entities/formulas.py::CriticalHitsThisTurn`).
+
+    ⚠ **LES DEUX ABSENCES NE SE VALENT PAS COTE NATIF**, et le port les rabat pourtant toutes deux
+    sur `0` : `unit == null` rend bien `0`, mais un composant MANQUANT leve. Le rabattement est
+    volontaire et sans effet observable -- cote natif tout `Unit`/`Machine` porte un
+    `ActorStatisticsComponent` (pose par la factory), donc la branche qui leve est inatteignable
+    pour un selecteur qui a deja rendu une unite ; cote port l'absence de composant designe une
+    entite NON-UNITE (tuile en feu), pour laquelle rendre 0 est le comportement de tous les mirrors
+    voisins de ce module. Faire lever ici transformerait une entite non-unite en crash.
+
+    SEUL consommateur natif : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    DaemonicOrdnance_RemoveCritChance$$CreateBehaviour` (#521-r4)."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return int(uc.critical_hits_this_turn or 0) if uc is not None else 0
 
 
 def unit_has_teleported(state, unit_id: int) -> bool:

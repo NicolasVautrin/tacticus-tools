@@ -1206,7 +1206,20 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # `units_attacked_this_turn` (+0x40) ; lecteurs portes :
             # `MartialInspiration_ExtraDamageEffect` via `TotalTurnsWithAttacksMadeFormula`, et
             # `FirstAmongTraitors_ExtraDmgEffect` via `TotalAttacksMadeFormula` (#926).
-            register_attack_made(state, attacker_id, target_id)
+            #
+            # #521-r10 -- le 4e argument natif (`totalCrits`) est desormais threade : il alimente
+            # `ActorStatisticsComponent+0x54`, que lit `CriticalHitsThisTurnFormula`. `hits_result
+            # ["crits"]` est la liste des jets de crit du GROUPE (un booleen par coup, produite par
+            # `damage_hits._run_hits`), donc `sum(...)` = le nombre de coups critiques de ce groupe.
+            # ⚠ SOUS-COMPTAGE ASSUME sur les vecteurs qui ne threadent PAS `hits_result` (coups
+            # ADDITIONNELS de `additional_hits.py`, knockback) : ils passent `0`. Le natif, lui,
+            # somme les crits de toute l'`OngoingAttack` au `FinishAttackOperation`. Rendre un
+            # 0 la ou le natif compte est FIDELE AU SENS (jamais un crit invente) et c'est le meme
+            # ecart de rang que celui deja documente pour `+0x24` dans `register_attack_made` --
+            # il porte sur les deux champs ensemble.
+            register_attack_made(state, attacker_id, target_id,
+                                 total_crits=sum(1 for c in ((hits_result or {}).get("crits") or ())
+                                                 if c))
         AttackDamageOperation._register_received_damage(
             state, target_id, profile, total, shield_dmg, armor_dmg)
         AttackDamageOperation._record_last_hit_damage_taken(
