@@ -521,6 +521,18 @@ def _echappe(nom: str) -> str:
 
 _CACHE_MIRROR = None
 
+#: ⚠ MODE ESPION, pose par `--verifier-cache` (#486-r17). A `True`, les DEUX caches sont
+#: construits avec `relire=False` : le fichier est charge mais jamais servi, donc tout est
+#: recalcule et `verdict_cache.verifier` peut confronter le disque au calcul. C'est le SEUL
+#: controle qui voie une entree FALSIFIEE DE FACON COHERENTE -- un verdict faux ecrit en face du
+#: hash JUSTE. Aucune cle ne peut la voir, par construction.
+_ESPION = False
+
+#: Les caches que ce run a REECRITS. `main` leur demande ensuite si l'ecriture a CHANGE le
+#: fichier VERSIONNE (cran de fraicheur #486-r22). Deux caches, et `--step` n'en ecrit qu'un a la
+#: fois : c'est pourquoi c'est une liste alimentee au fil de l'eau et pas un couple fixe.
+_ECRITS: list = []
+
 
 def _cache_mirror():
     """Cache PAR FICHIER de l'EXTRACTION de `step_mirror` (#1029).
@@ -538,6 +550,7 @@ def _cache_mirror():
         _CACHE_MIRROR = verdict_cache.CacheCliquet(
             "probe_283_step_mirror",
             contexte=verdict_cache.sha_fichiers_texte(ici / "probe_283_enum_ordinal_sweep.py"),
+            relire=not _ESPION,
             notes=("# On cache l'EXTRACTION (`_int_enum_classes` restreinte aux 4 enums), PAS le",
                    "# verdict : elle ne depend que du contenu du fichier. La comparaison aux tables",
                    "# du build reste hors cache, donc un re-dump ne perime AUCUNE entree."))
@@ -584,7 +597,11 @@ def step_mirror(verbose: bool) -> list:
     for rel, cls, m, v, attendu in bad:
         print("   FAIL %s : %s.%s = %s ; le build %s dit %s"
               % (rel, cls, m, v, cur, attendu if attendu is not None else "MEMBRE ABSENT"))
-    cache.enregistrer()
+    #: MODE ESPION : ce run sert a CONFRONTER le disque, pas a le refaire. Reecrire effacerait
+    #: precisement l'entree falsifiee qu'on cherche a voir.
+    if not _ESPION:
+        cache.enregistrer()
+        _ECRITS.append(cache)
     return bad
 
 
@@ -936,6 +953,7 @@ def _cache_283(cur: str, prev):
             contexte=verdict_cache.sha_texte(
                 verdict_cache.sha_fichiers_texte(ici / "probe_283_enum_ordinal_sweep.py")
                 + "|" + cle),
+            relire=not _ESPION,
             notes=("# DEUX appels par fichier : `sigs` (contribution a la table des signatures,",
                    "# cle = sha du fichier SEUL) et `hits` (cle = sha du fichier COMPOSE avec celui",
                    "# de la table globale, dont les hits dependent). Un port ordinaire ne change",
@@ -1027,7 +1045,9 @@ def step_exec(verbose: bool) -> list:
         #: mais un appelant qui repointe le cache ne doit pas lever, il doit compter zero.
         for lineno, enum, quoi, val, membre in v.get("confrontes", []):
             confrontes.append((rel, lineno, enum, quoi, val, membre))
-    cache.enregistrer()
+    if not _ESPION:                                    # cf. `step_mirror`
+        cache.enregistrer()
+        _ECRITS.append(cache)
     print("[283] etape 2 : litteraux EXECUTABLES en contexte enum -- %d FAUX aujourd'hui, "
           "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes) "
           "(+%d CONFRONTES au membre ecrit dans le code, NON comptes)"
@@ -1832,7 +1852,14 @@ def main(argv) -> int:
                     help="etape prose : reecrit les citations dont le nombre vaut EXACTEMENT "
                          "l'ordinal du build precedent (les seules prouvees perimees)")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--verifier-cache", action="store_true",
+                    help="RECALCULE tout en ignorant les caches versionnes des etapes `mirror` "
+                         "et `exec`, et les confronte entree par entree (#486-r1) -- le seul "
+                         "controle qui voie une entree falsifiee de facon coherente")
     args = ap.parse_args(argv)
+
+    global _ESPION
+    _ESPION = args.verifier_cache
 
     print("[283] build courant : %s ; archives : %s"
           % (current_build(), ", ".join(archived_builds()) or "-"))
@@ -1855,8 +1882,42 @@ def main(argv) -> int:
         ko += len(step_on(args.verbose, args.racine)[3])
     if args.step == "live":                # hors `all` : exige une session vivante et warmee
         ko += step_live(args.verbose)
+    if args.verifier_cache:
+        import verdict_cache
+        print()
+        print("=== VERIFICATION DES CACHES VERSIONNES (#486-r1) ===")
+        divergences = []
+        for c in (_CACHE_MIRROR, *_CACHE_283.values()):
+            if c is None:
+                continue
+            d = verdict_cache.verifier(c)
+            print("  %-24s entrees sur disque : %5d   recalculees : %5d"
+                  % (c.nom, len(c._sur_disque), len(c._vues)))
+            divergences += ["%s : %s" % (c.nom, x) for x in d]
+        for d in divergences:
+            print("  DIVERGENCE %s" % d)
+        if divergences:
+            #: rc DEDIE : ce n'est pas le verdict du cliquet sur le depot, c'est le CACHE qui
+            #: ment. Les confondre ferait corriger le code a la place de l'artefact.
+            print("  rc=3 -- un cache versionne n'atteste PAS ce que le calcul rend. Le")
+            print("  REGENERER : python scripts/python/probe_283_enum_ordinal_sweep.py --step all")
+            return 3
+        print("  OK -- chaque entree vaut ce que le recalcul integral produit.")
+
     print("[283] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
-    return 0 if ko == 0 else 1
+    if ko:
+        return 1
+    #: CRAN DE FRAICHEUR (#486-r22) -- MESURE du 2026-08-15 : jouer `--step mirror` reecrivait
+    #: `probe_283_step_mirror.tsv` (402 lignes ajoutees, 237 retirees) et rendait `rc=0`. Ce
+    #: cliquet est dans la banque, donc cette derive se produisait a CHAQUE passe sans que rien ne
+    #: la signale -- exactement le regime que #486-r22 disait avoir ferme, sur un cliquet que son
+    #: cran ne couvrait pas.
+    import verdict_cache
+    for c in _ECRITS:
+        rc = verdict_cache.rendre_compte_du_cache(c, 0)
+        if rc:
+            return rc
+    return 0
 
 
 if __name__ == "__main__":
