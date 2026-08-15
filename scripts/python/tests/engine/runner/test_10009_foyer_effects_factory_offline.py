@@ -1,4 +1,4 @@
-"""#10007 -- garde OFFLINE des trois ports livres sur le foyer `engine/entities/effects/factory.py`
+"""#10009 -- garde OFFLINE des trois ports livres sur le foyer `engine/entities/effects/factory.py`
 par la tranche du 2026-08-15 : `#963-r3` (Lifewards), `#999-r1` (la pose de MastersOfManoeuvre) et
 `#922-r1` volet b (les trois owner-effects de relique).
 
