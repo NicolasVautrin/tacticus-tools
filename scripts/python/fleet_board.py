@@ -115,6 +115,50 @@ def _texte_du_message(msg) -> str:
     return ""
 
 
+#: Budget de lecture PAR TRANSCRIPT D'AGENT, pris PAR LA FIN.
+#:
+#: **SEULE LA DERNIERE ENTREE TRANCHE l'etat d'un agent** (`rendu` = dernier message
+#: `assistant` sans `tool_use`). Tout ce qu'on lit au-dela est de la decoration -- donc le
+#: budget se dimensionne sur << une poignee de lignes >>, pas sur << une fraction du fichier >>.
+#: 64 Ko couvre largement une ligne, meme grosse (un `tool_result` volumineux).
+#:
+#: Mesure du 2026-08-15, 48 transcripts (jusqu'a 3,2 Mo piece) :
+#:     fichier ENTIER, ligne par ligne  -> **> 120 s**, le tool tue le process : l'outil cense
+#:                                         mesurer la flotte ne rend plus AUCUN chiffre ;
+#:     768 Ko par la fin                -> 51,8 s ;
+#:     64 Ko par la fin                 -> voir le commentaire de `_lignes_bornees`.
+BUDGET_AGENT_KO = 64
+
+
+def _lignes_bornees(path: Path):
+    """Les lignes du transcript, LUES PAR LA FIN.
+
+    Tout ce qui decide de l'etat d'un agent est a la FIN : la derniere entree (qui donne
+    `rendu`) et le dernier `usage` (qui donne le contexte courant). Remonter depuis le debut
+    pour l'atteindre, c'est payer le fichier entier pour ses derniers kilo-octets.
+
+    On lit donc les `BUDGET_AGENT_KO` derniers octets, et on rend les lignes DANS L'ORDRE
+    (l'appelant depend de l'ordre chronologique pour `first`/`last`). La premiere ligne du
+    bloc est jetee : une lecture par offset tombe presque toujours au milieu d'une ligne.
+
+    ⚠ Ce que la troncature change, et qu'il faut assumer plutot que cacher : sur un gros
+    transcript, `first` n'est plus le PREMIER `usage` de l'agent mais le premier de la
+    fenetre, `brief` peut manquer, et `tools` devient une BORNE INFERIEURE. Aucun des trois
+    n'entre dans le calcul de la FLOTTE -- ce sont des colonnes d'affichage.
+    """
+    taille = path.stat().st_size
+    budget = BUDGET_AGENT_KO * 1024
+    if taille <= budget:
+        yield from path.open(encoding="utf-8", errors="replace")
+        return
+    with path.open("rb") as fh:
+        fh.seek(taille - budget)
+        brut = fh.read().decode("utf-8", errors="replace")
+    lignes = brut.split("\n")
+    for ln in lignes[1:]:              # la 1re est tronquee par l'offset
+        yield ln
+
+
 def scan(path: Path) -> dict:
     first = last = None
     first_ts = last_ts = None
@@ -125,8 +169,8 @@ def scan(path: Path) -> dict:
     # `stop_reason` du DERNIER enregistrement porteur d'un message, quel qu'il soit -- pas seulement
     # des lignes a `usage`, sans quoi un `tool_result` final passerait inapercu.
     dernier_role = dernier_stop = None
-    dernier_a_tool_use = False
-    for ln in path.open(encoding="utf-8", errors="replace"):
+    dernier_a_tool_use = dernier_a_texte = False
+    for ln in _lignes_bornees(path):
         if '"usage"' not in ln and '"tool_use"' not in ln and '"user"' not in ln:
             continue
         try:
@@ -140,9 +184,10 @@ def scan(path: Path) -> dict:
             # Un agent qui a rendu finit sur un message `assistant` SANS `tool_use` ; un agent
             # qui travaille finit soit sur un `tool_use` (il appelle), soit sur un `tool_result`
             # (il vient de recevoir). Cf. `rendu` plus bas.
-            _c = msg.get("content")
-            dernier_a_tool_use = isinstance(_c, list) and any(
-                isinstance(b, dict) and b.get("type") == "tool_use" for b in _c)
+            _c = msg.get("content") if isinstance(msg.get("content"), list) else []
+            _types = {b.get("type") for b in _c if isinstance(b, dict)}
+            dernier_a_tool_use = "tool_use" in _types
+            dernier_a_texte = "text" in _types
         # Le BRIEF n'est PAS dans le meta.json (qui ne porte que agentType / description /
         # worktree* / toolUseId / spawnDepth) : c'est le PREMIER message `user` du transcript.
         # Les suivants sont les relances par SendMessage -- on ne garde que le premier.
@@ -171,20 +216,28 @@ def scan(path: Path) -> dict:
         last, last_ts = sz, t or last_ts
     return dict(first=first, last=last, first_ts=first_ts, last_ts=last_ts,
                 says=says, tools=tools, brief=brief,
-                # RENDU = le dialogue s'arrete sur une reponse FINALE de l'agent : dernier
-                # message `assistant`, et AUCUN `tool_use` dedans (rien n'est en attente).
+                # RENDU = le dialogue s'arrete sur une REPONSE FINALE : dernier message
+                # `assistant`, portant un bloc `text`, et AUCUN `tool_use`. Les trois
+                # conditions sont necessaires -- voir les contre-exemples ci-dessous.
                 #
-                # ⚠ NE PAS revenir a `stop_reason == "end_turn"` : ce champ est ABSENT sur des
-                # agents pourtant finis. Mesure du 2026-08-15 sur 4 temoins de verite-terrain --
-                #   TERMINE  a9eb14ee : assistant, blocs=['text'],       stop=end_turn
-                #   TERMINE  a8050980 : assistant, blocs=['text'],       stop=None    <-- MANQUE
-                #   EN COURS ae5942a3 : assistant, blocs=['tool_use'],   stop=None
-                #   EN COURS af6e0d53 : user,      blocs=['tool_result'], stop=None
-                # -- l'agent REPRIS puis rendu porte `stop=None`, echappait donc au critere et
-                # retombait sur le timer, ou il comptait << vif >> pendant 15 min. C'est la cause
-                # exacte des annonces fausses (<< 5 en vol >> pour 4, puis pour 3).
-                # La COMPOSITION DES BLOCS separe les quatre sans exception, et sans delai.
-                rendu=(dernier_role == "assistant" and not dernier_a_tool_use))
+                # ⚠ NE PAS revenir a `stop_reason == "end_turn"` : le champ est ABSENT sur des
+                # agents pourtant finis (typiquement un agent REPRIS par `SendMessage` puis
+                # rendu). Il echappait au critere, retombait sur le timer, et comptait << vif >>
+                # 15 min apres sa fin -- cause exacte des annonces fausses (<< 5 en vol >> pour
+                # 4, puis pour 3).
+                #
+                # ⚠ ET << assistant sans tool_use >> NE SUFFIT PAS : un message `assistant` qui
+                # ne porte QU'UN BLOC `thinking` est un etat INTERMEDIAIRE (l'agent raisonne
+                # avant d'emettre son appel). Sans l'exigence de `text`, il passe pour rendu.
+                # Mesure du 2026-08-15, verite-terrain sur 4 temoins :
+                #   TERMINE  a9eb14ee : assistant, ['text']          stop=end_turn -> RENDU
+                #   TERMINE  a8050980 : assistant, ['text']          stop=None     -> RENDU
+                #   EN COURS ae5942a3 : assistant, ['thinking']      stop=None     -> EN COURS
+                #   EN COURS af6e0d53 : assistant, ['tool_use']      stop=None     -> EN COURS
+                # Le biais des deux erreurs va dans des sens OPPOSES, et le second est le pire :
+                # sur-compter BLOQUE un refill, sous-compter fait SUR-DISPATCHER.
+                rendu=(dernier_role == "assistant" and dernier_a_texte
+                       and not dernier_a_tool_use))
 
 
 # Un agent qui TRAVAILLE ecrit dans son transcript a chaque aller-retour d'outil. Au-dela de ce
