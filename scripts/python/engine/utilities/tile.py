@@ -23,7 +23,8 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   is_territory : bool                                      (CapturePoint 25 — via tileMeta.isTerritory) [ACTIF #175,
                                                             mais 0 tuile territoire hors ruleset Territories]
   occupant_is_powerup : bool                               (PowerUp 27)
-  tile_effect_type_ids : [int]                             (Contaminated 1244 / MoltenForm 5,10 / DespoiledGround 1476)
+  tile_effect_type_ids : [int]                             (ids EffectType : Contaminated 1244 ; MoltenForm lit
+                                                            Fire 5 et FirstAidHeal 10 ; DespoiledGround 1476)
                                                            [ACTIF #175 — via tileMeta.effects[].effectType]
   effect_target_ids : [int]                                (EnvEndBombardment 1359/1360)
   pending_summons : [{type_id:int, owner_is_enemy:bool}]   (TilePendingBlockableSummon 1094)
