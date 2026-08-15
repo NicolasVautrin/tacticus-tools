@@ -30,9 +30,29 @@ import { log } from "../runtime/diag.js";
  *  `0xfadfc0` -- elle pointait en plein corps de `FPSCounterData$$set_Average`). */
 export const IL2CPP_VA_BASE = 0x180000000;
 
-/** Forme d'un hash de build Tacticus (`rnca9r7q6c`, `gqfc5mff6c`, ...) -- meme motif que
- *  `probe_431.BUILD_RE`, pour que les deux faces restent comparables. */
-const BUILD_SHAPE = /^[a-z0-9]{8}6c$/;
+/** Forme d'un hash de build Tacticus (`rnca9r7q6c`, `gqfc5mff6c`, `t6dpr4k06g`, ...).
+ *
+ *  ⚠ CE MOTIF A DEJA EPINGLE UNE REGULARITE ACCIDENTELLE, ET CA A COUTE TOUT LE CAPTEUR.
+ *  Il valait `/^[a-z0-9]{8}6c$/` -- le suffixe `6c` etait ecrit EN DUR parce que les six
+ *  premiers builds observes le portaient. Le build `t6dpr4k06g` finit en `6g` : le motif l'a
+ *  refuse, `installedBuild()` a rendu `build: null` (« NON MESURABLE »), et `pinnedAddress` a
+ *  donc refuse les ONZE pins de la session -- pas parce que le build differait, mais parce
+ *  qu'il n'etait plus LISIBLE. Mesure du 2026-08-15 (`nameResolutionStatus`) :
+ *  `buildWhy = "le segment 't6dpr4k06g' n'a pas la forme d'un hash de build"`,
+ *  `pinnedAddressRefusals` = 11. Cote consommateur, `scorerElevTraceDump` et
+ *  `scorerLeafTraceDump` rendaient 0 entree, donc `X_nat = Tile7 - Elevation - TileEffects`
+ *  etait `None` sur TOUTES les tuiles -- et les gardes qui en dependent passaient A VIDE.
+ *
+ *  LE GATE EST DONC DELIBEREMENT LARGE, et c'est un raisonnement sur la DIRECTION DE PANNE,
+ *  pas un relachement : ce qui identifie le build est sa POSITION (le segment juste apres
+ *  `games/`), pas sa forme. Une forme trop STRICTE degrade en `build: null` -> refus de TOUT,
+ *  en silence. Une forme trop LARGE degrade en `probe.build != pin.build` -> refus de ce pin,
+ *  ce qui est le meme cote sur. Il n'existe aucun chemin ou un segment lu par erreur fasse
+ *  ACCEPTER un pin : il faudrait qu'il soit EGAL au build declare. On garde donc le minimum
+ *  qui ecarte un repertoire de service (`.tmp`, `backup-1`) : alphanumerique minuscule.
+ *  Les SEPT builds observes le verifient (`nb3o9lmt6c`, `uu2fr8mv6c`, `kqkbjqfb6c`,
+ *  `rmvdp0v56c`, `gqfc5mff6c`, `rnca9r7q6c`, `t6dpr4k06g`). */
+const BUILD_SHAPE = /^[a-z0-9]+$/;
 
 export interface PinnedAddress {
     /** VA ghidra COMPLETE, telle qu'elle se grepe dans

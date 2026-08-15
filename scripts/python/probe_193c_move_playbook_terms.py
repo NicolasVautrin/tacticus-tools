@@ -141,6 +141,64 @@ def x_excluded() -> tuple:
     return (int(UtilityType.Elevation), int(UtilityType.TileEffects))
 
 
+def cause_x_nat_non_mesurable(call, rid, tt, el, te, armement=None) -> str:
+    """La panne NOMMEE quand `X_nat` n'est calculable sur AUCUNE tuile -- jamais un silence.
+
+    `X_nat = Tile(7) - Elevation - TileEffects` exige les TROIS canaux de `scorer-damage-trace`.
+    Il suffit que l'un soit muet pour que CHAQUE ligne sorte a `None` -- et tout consommateur qui
+    saute les `None` (c'est la forme naturelle : `if x_nat is None: continue`) conclut alors
+    « 0 desaccord » sur ZERO assertion evaluee.
+
+    ⚠ CE N'EST PAS UNE PRECAUTION, C'EST UNE MESURE (2026-08-15). Le jeu est passe a `t6dpr4k06g`
+    et le foyer live `frida/hooks/il2cpp/build-pin.ts` a refuse les ONZE adresses epinglees de la
+    session. `scorerTileTermTraceDump` rendait 14 entrees (il se resout au RUNTIME, par
+    `resolveSharedPlaybookBody`), mais `scorerElevTraceDump` et `scorerLeafTraceDump` rendaient
+    **0**. Consequence sur `test_477r33_non_owner_playbooks_live.py` : `test_le_natif_suit_le_PORT`
+    -- LE verdict du fichier -- passait A VIDE, et seules les deux contre-epreuves rougissaient
+    (12 F / 29 P). Douze rouges qui accusaient les montages pour UNE panne de capteur.
+
+    FOYER PARTAGE de ce diagnostic : `x_port` / `x_excluded` declarent le RETRANCHEMENT pour toute
+    la famille (#193c, #211, #212, #241, #242, #477r29, #477r31, #477r33) ; ceci en declare
+    l'INDISPONIBILITE, au meme endroit et pour les memes appelants.
+
+    `armement` = la reponse de `scorerDamageTraceOn`. Depuis #1112 elle porte `rvaHooks`, l'etat
+    REEL de chaque sous-hook (`rvaInstalled`, lui, ne dit que « on a essaye »).
+    """
+    vides = [nom for nom, d in (("Tile7", tt), ("Elevation", el), ("TileEffects", te))
+             if not d]
+    bouts = ["X_nat NON MESURABLE : aucune tuile hookee ne porte les TROIS canaux "
+             "(Tile7=%d, Elevation=%d, TileEffects=%d entree(s) par tuile)"
+             % (len(tt or {}), len(el or {}), len(te or {}))]
+    if vides:
+        bouts.append("canal(aux) MUET(S) : %s" % ", ".join(vides))
+    morts = [k for k, v in ((armement or {}).get("rvaHooks") or {}).items() if not v]
+    if morts:
+        bouts.append("sous-hooks NON POSES (scorerDamageTraceOn.rvaHooks) : %s" % ", ".join(morts))
+    try:
+        st = call("nameResolutionStatus", {}, 60) or {}
+    except Exception as exc:                                        # noqa: BLE001
+        st = {"_err": str(exc)}
+    if st.get("_err"):
+        bouts.append("nameResolutionStatus INTERROGEABLE ? %s" % st["_err"])
+    else:
+        # Tri-etat : `build: None` = le foyer n'a pas pu LIRE le build (ce n'est pas
+        # « un autre build »), et `buildWhy` dit laquelle des trois pannes c'est.
+        bouts.append("build charge = %s%s"
+                     % (st.get("build"),
+                        "" if not st.get("buildWhy") else " (%s)" % st["buildWhy"]))
+        refus = st.get("pinnedAddressRefusals")
+        if refus is None:
+            bouts.append("refus d'adresses epinglees : NON MESURE")
+        elif refus:
+            bouts.append("%d refus d'adresses epinglees, le premier : %s"
+                         % (len(refus), refus[0][:300]))
+    bouts.append("REMEDE : re-deriver les VA de `frida/hooks/features/scorer-damage-trace.ts` "
+                 "depuis `data/symbols/<build>/ghidra/functions.tsv`, rebuild du bundle, puis "
+                 "une FENETRE DE REINJECT (un agent ne reinjecte pas). Tant qu'elle n'a pas eu "
+                 "lieu, ce fichier ne PEUT PAS etre vert -- et c'est ce qu'il doit dire.")
+    return " | ".join(bouts)
+
+
 def _port_leaves(ctx, pos):
     """Les feuilles du `Tile(7)` du PORT, evaluees UNE PAR UNE sur la meme (tuile, meta, leaf_ctx).
 
