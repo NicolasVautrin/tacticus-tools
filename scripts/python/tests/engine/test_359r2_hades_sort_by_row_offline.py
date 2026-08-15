@@ -156,15 +156,26 @@ def test_sort_is_stable_on_row_ties():
         "ex aequo de row rendus dans l'ordre %s : le tri n'est pas stable" % src)
 
 
-def test_unported_sort_options_refuse_instead_of_guessing():
-    """`sameColumnIsRandom` et `additionalSortingFormula` sont MIRRORISES mais REFUSES : le premier
-    demande le `pseudoRng` du match (flux RNG partage), le second une formule `ThenBy`. Aucun
-    call-site porte ne les pose. Les degrader en no-op produirait un ordre INVENTE que rien ne
-    signalerait -- on LEVE. Ce test garde ce refus, qui est la partie du port qu'on serait le plus
-    tente de <<simplifier>>."""
-    src = dsl.UnitSet([_u(2, 1, (0, 1), True)])
-    ctx = dsl.DslContext(units=[])
-    with pytest.raises(NotImplementedError):
-        SortByRow(src, same_column_is_random=True).evaluate(ctx)
-    with pytest.raises(NotImplementedError):
-        SortByRow(src, additional_sorting=object()).evaluate(ctx)
+def test_les_deux_options_de_tri_sont_PORTEES_et_degradent_en_le_DISANT():
+    """CE TEST ETAIT UN GARDE DE RESIDU PERIME, ET IL RENDAIT `master` ROUGE. Il exigeait un
+    `NotImplementedError` sur `sameColumnIsRandom` et `additionalSortingFormula` : le second a ete
+    porte par #1027 (le `raise` a disparu, le test est reste), le premier par #1027-r1. Un garde
+    qui survit a ce qu'il gardait n'est pas un garde -- c'est une passe rouge de plus.
+
+    Ce qu'il garde DESORMAIS, et qui est la vraie chose a ne pas <<simplifier>> : les deux options
+    sont evaluables, et quand leur substrat manque le noeud rend l'ordre SOURCE **sans tirer**, ce
+    qui est *un* des ordres que le natif peut rendre -- jamais un ordre invente.
+    (Le port POSITIF des deux options vit a l'etage 6 et a l'etage 9 de
+    `tests/engine/runner/test_1027_belisarius_actives_offline.py`, avec son call-site.)"""
+    src = dsl.UnitSet([_u(2, 1, (0, 1), True), _u(3, 1, (1, 1), True)])
+    ctx = dsl.DslContext(units=[])          # ni `board`, ni `pseudo_rng_next` : hors runner
+    ordre = [u["id"] for u in SortByRow(src).evaluate(ctx)]
+    assert [u["id"] for u in SortByRow(src, same_column_is_random=True).evaluate(ctx)] == ordre, (
+        "sans canal PRNG, `sameColumnIsRandom` ne doit RIEN changer -- et surtout pas lever")
+
+    class _Zero:
+        def evaluate(self, c):
+            return 0
+
+    assert [u["id"] for u in SortByRow(src, additional_sorting=_Zero()).evaluate(ctx)] == ordre, (
+        "une formule secondaire CONSTANTE ne departage rien : l'ordre source stable tient")

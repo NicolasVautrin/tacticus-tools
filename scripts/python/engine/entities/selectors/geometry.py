@@ -344,6 +344,32 @@ class SortReverse(TargetsSelector):
         return list(reversed(list(v)))
 
 
+def _board_width(board):
+    """`BoardComponent+0x14` = le `Width` (nombre de COLONNES) du plateau -- la borne du tirage
+    `pseudoRng.Next(...)` du 3e `ThenBy` de `SortByRowSelector$$Select`.
+
+    ⚠ LE CANAL NE PUBLIE PAS CE CHAMP, ET LA DERIVATION EST MESUREE, PAS SUPPOSEE. Le `Board` du
+    port est bati depuis le RPC `boardGraph` (`playbook/scene.py::build_board`), qui rend des
+    tuiles `{col, row, ...}` sans les dimensions. Or les definitions de plateau, elles, les
+    portent : `data/boards/**/*.json` -> `board.Width` / `board.Height`, et les `Tiles` y sont une
+    grille PLEINE (`len(Tiles) == Width`, `len(Tiles[i].Tile) == Height`). Mesure sur les **779**
+    plateaux versionnes : **0 divergence**, colonnes `0..Width-1` et lignes `0..Height-1`. Donc
+    `max(col) + 1` EST le `Width` -- tant que la source publie toutes les colonnes.
+
+    `None` = pas derivable (board absent, ou aucune tuile) -> l'appelant NE TIRE PAS.
+
+    (Pas de memoisation : ce serait un cache keye par `id(board)`, donc PERIMABLE des qu'un board
+    est collecte et qu'un autre reprend son adresse -- pour economiser un `max` sur ~200 tuiles,
+    sur le SEUL call-site qui arme `sameColumnIsRandom`.)"""
+    if board is None:
+        return None
+    try:
+        cols = [int(t["col"]) for t in board.by_id.values() if t.get("col") is not None]
+    except Exception:                                    # noqa: BLE001  (board bati a la main)
+        return None
+    return (max(cols) + 1) if cols else None
+
+
 class SortByRow(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$SortByRow(tiles, sameColumnIsRandom, additionalSorting,
     ascending)` -> `IdunBattle.Entities.Selectors.SortByRowSelector$$Select`.
@@ -389,14 +415,36 @@ class SortByRow(TargetsSelector):
     l'identique, et l'element courant est lie au slot `AbilityEntities+0x20` (`Subject`/
     `ActiveTarget`), comme chez `SortByFormula`.
 
-    ⚠ `same_column_is_random` reste un RESIDU NOMME (`#1027-r1`), et le noeud NE LEVE PLUS quand on
-    le pose : le natif l'applique en DERNIER (`ThenBy(pseudoRng)`), donc il ne peut departager que
-    des elements DEJA ex aequo sur (row, additionalSorting). Ne pas tirer rend alors *un* des ordres
-    que le natif peut rendre -- l'ordre source, stable -- et non un ordre INVENTE. Le substrat
-    manquant est le `pseudoRng` du match : `ctx.pick_randomly` existe mais mirrore
-    `PickRandomAmountSelector` (tirer N elements), pas une CLE de tri par element. Consequence
-    observable, bornee : quand plusieurs tuiles partagent row ET cle secondaire, le port prend
-    toujours la premiere du selecteur source la ou le natif tire."""
+    ⚠ **`same_column_is_random` EST PORTE (#1027-r1), ET LE << SUBSTRAT MANQUANT >> ETAIT UN
+    CABLAGE.** La fiche annoncait `BLOCAGE: seeding` -- << aucune CLE DE TRI PAR ELEMENT issue du
+    pseudoRng >>. Le decompile de la 4e lambda dit exactement quelle est cette cle, et chacun de ses
+    deux etages existait deja :
+
+        `...SortByRowSelector.u003Cu003Ec__DisplayClass6_0$$u003CSelectu003Eb__3(this, s)` :
+            board = StateExtensions.GetMatchBoard(<selecteur>.state)   // le BoardComponent
+            return <selecteur>.pseudoRng.<IPseudoRNG slot 1>(board.<+0x14>)
+
+    TROIS choses s'y lisent, dont deux qu'on n'aurait pas devinees :
+      * **`s` N'EST PAS UTILISE.** La cle ne DEPEND PAS de l'element : c'est un TIRAGE FRAIS par
+        element, `LINQ` appelant le selecteur de cle une fois par element. C'est ce qui en fait un
+        melange, et non une fonction de hachage.
+      * la borne est `BoardComponent+0x14`, et c'est le **WIDTH** :
+        `IdunBattle.Entities.Components.BoardComponent$$Initialize(width, height)` ecrit
+        `+0x14 = width` / `+0x10 = height`, et `$$IsPositionInside` confirme l'appariement
+        (`row < +0x10`, `column < +0x14`).
+      * le slot **1** d'`IPseudoRNG` est `Next(n)` a UN argument (le 0 est `get_Seed`, les 2 et 3
+        les surcharges a deux arguments, les 4 et 5 des `NextBool`) -- LU dans
+        `data/symbols/<build>/metadata/interface_slots.tsv`, pas deduit.
+
+    ORDRE DE CONSOMMATION. `Enumerable.OrderBy(...).ThenBy(...).ThenBy(...)` calcule les cles par
+    NIVEAU (`EnumerableSorter.ComputeKeys` descend la chaine), donc : toutes les rows, puis toutes
+    les cles `additionalSorting`, puis **UN tirage par element, dans l'ordre SOURCE**. Le port tire
+    donc `len(items)` fois, apres l'evaluation de la formule secondaire. Ni plus ni moins : un
+    tirage de trop decale tout le flux aval.
+
+    DEGRADATION NOMMEE : `ctx.pseudo_rng_next` absent (contexte de PREDICTION, arbre hors runner) ou
+    board sans largeur derivable -> **AUCUN tirage**, ordre source stable, c'est-a-dire le
+    comportement d'avant. C'est *un* des ordres que le natif peut rendre, jamais un ordre invente."""
     def __init__(self, source: TargetsSelector, same_column_is_random: bool = False,
                  additional_sorting=None, ascending: bool = False):
         self.source = source
@@ -430,10 +478,33 @@ class SortByRow(TargetsSelector):
                 w = self.additional_sorting.evaluate(replace(ctx, subject=it, active_target=it))
                 return int(w or 0)
             classables.sort(key=_key)
+        if self.same_column_is_random:                                     # +0x28
+            # `ThenBy(<pseudoRng.Next(board.Width)>)` -- TROISIEME critere, applique en DERNIER,
+            # donc pose EN PREMIER ici (les `sort` de Python sont stables : `OrderBy(a).ThenBy(b)`
+            # se realise en triant par `b` puis par `a`). LES TIRAGES SONT FAITS POUR **TOUS** LES
+            # ELEMENTS, DANS L'ORDRE SOURCE -- pas seulement pour les classables et pas dans
+            # l'ordre courant de `classables` : c'est ce que fait `EnumerableSorter.ComputeKeys`,
+            # et le nombre comme l'ordre des tirages sont OBSERVABLES sur tout le flux aval.
+            cles = self._pseudo_rng_keys(ctx, len(items))
+            if cles is not None:
+                classables.sort(key=lambda ri: cles[ri[1]])
         classables.sort(key=lambda ri: ri[0], reverse=not self.ascending)   # +0x38 ascending
         out = [items[i] for _, i in classables]
         out.extend(items[i] for i, r in enumerate(rows) if r is None)
         return out
+
+    def _pseudo_rng_keys(self, ctx, combien: int):
+        """`[ pseudoRng.Next(board.Width) for _ in items ]` -- les cles du 3e `ThenBy`.
+
+        Rend `None` (et NE TIRE PAS) quand un des deux etages manque, ce qui est la degradation
+        NOMMEE de la docstring : accesseur non branche, ou largeur de plateau non derivable."""
+        tirer = getattr(ctx, "pseudo_rng_next", None)
+        if tirer is None or combien <= 0:
+            return None
+        largeur = _board_width(getattr(ctx, "board", None))
+        if largeur is None:
+            return None
+        return [int(tirer(largeur)) for _ in range(combien)]
 
 
 class Blocking(TargetsSelector):
