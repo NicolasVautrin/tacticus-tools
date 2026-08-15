@@ -540,6 +540,13 @@ EXPECTED_DEFAULT = {
     #: justification qui ne designe plus rien est une garde qui a survecu a son gisement.
     ("engine/runner/operations/additional_hits.py", "execute_additional_hits",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
+    #: Porte de variance ARRIVEE avec `#1050-r1` (PR #1077) et jamais attestee -- `master` en
+    #: etait ROUGE, trouve en mesurant le rayon de souffle de #449-r2-r4-r1. L'attestation est
+    #: MECANIQUE et n'a demande aucun decompile neuf : le site passe son `spread_pct` tel quel a
+    #: `AttackDamageOperation.execute`, donc son `None` retombe sur `resolve_spread_pct` -- le
+    #: MEME canal que l'attaque normale dont cette boucle rejoue le vecteur, mot pour mot.
+    ("engine/runner/abilities/loki/ancient_fury.py", "execute_widened_normal_attack",
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage.py", "DamageHandler",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage_hits.py", "from_base",

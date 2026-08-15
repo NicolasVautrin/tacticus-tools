@@ -1051,6 +1051,18 @@ def _load_seed_bc(path=None) -> dict:
                 f"BC.Abilities: {present} (sidecar {catalog_inject.pins_path(p)})")
         print(f"[seed-bc] configs d'ability RETENUES (absence deliberee, #380), non comblees: "
               f"{withheld}", file=sys.stderr)
+    # #448-r3-r1-r1-r1 -- TROISIEME sidecar, meme fichier, meme raison. Un seed BC custom peut
+    # avoir ete GREFFE par un AUTRE processus ; le registre de greffes est un fait de PROCESSUS,
+    # donc ici il est vide et `snapshot._refuse_if_grafted` reste muet -- alors que c'est
+    # exactement le regime ou le port serait AMPUTE (les classes greffees non montees, et toute
+    # assertion NEGATIVE passant a vide, en vert). On RE-DECLARE ce que le fichier porte : le
+    # processus qui charge devient aussi informe que celui qui a greffe, sans avoir a le savoir.
+    if path:
+        n_greffes = catalog_inject.redeclare_grafts_from(p)
+        if n_greffes:
+            print(f"[seed-bc] {n_greffes} greffe(s) ESTAMPEE(S) dans ce seed BC re-declaree(s) "
+                  f"pour ce processus (#448-r3-r1-r1-r1) : "
+                  f"{catalog_inject.read_grafts(p)}", file=sys.stderr)
     refreshed, added = catalog_inject.refresh_ability_configs(bc, skip=pins, withhold=withheld)
     if refreshed or added:
         print(f"[seed-bc] configs d'ability re-synthetisees depuis le gameconfig courant: "
@@ -1310,6 +1322,96 @@ def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = _TARGET_RARITY,
     return specs
 
 
+#: Champs de `BC.Units[]` que `buildNormalizedBC` RECALCULE, donc qu'un patch du SEED BC ne peut
+#: PAS porter (#914-r1). DERIVE du foyer natif -- `frida/hooks/features/normalize-bc/json-build.ts`,
+#: toutes ses ecritures `u.<champ> = ...` -- et NON recopie de memoire ; le cliquet
+#: `tests/engine/test_914r1_champs_recalcules_offline.py` re-derive la liste du TS et rougit sur
+#: tout ecart, dans les DEUX sens.
+#:
+#: Les huit premiers sortent du buffer de `IStatsFormula.StatsUsingProgressionIndexFor` ;
+#: `RemainingHealth` est reposee a `Health` (« spawned unit starts at full HP ») ; `Rank` vient de
+#: `targetRank` ; les cinq derniers ne sont ecrits que si l'appelant fournit le `target*` associe --
+#: `_normalize_and_extract_pool` les fournit TOUS, donc les 16 sont ecrits sur ce chemin-la.
+CHAMPS_RECALCULES_PAR_NORMALISATION = (
+    "Health", "Damage", "Armor", "FixedArmor",
+    "CritChance", "CritDamage", "BlockChance", "BlockDamage",
+    "RemainingHealth", "Rank",
+    "Rarity", "Level", "StarLevel", "ActiveAbilityLevel", "PassiveAbilityLevel",
+    "TertiaryAbilityLevel",
+)
+
+
+def _seed_bc_reference() -> dict:
+    """`data/seed-bc.json` BRUT (aucun rattrapage), mis en cache. Le TEMOIN de « non patche »."""
+    if _REF_CACHE.get("bc") is None:
+        try:
+            _REF_CACHE["bc"] = json.loads(SEED_BC.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _REF_CACHE["bc"] = {}          # reference illisible -> on se TAIT, on n'invente pas
+    return _REF_CACHE["bc"]
+
+
+_REF_CACHE: dict = {"bc": None}
+
+
+def _rapport_champs_ecrases(base_bc: dict, template: dict) -> list:
+    """Lignes de diagnostic pour les patchs du SEED BC que la normalisation vient d'ECRASER.
+
+    LE VICE (#914) : deux probes jumeaux ecrivaient `Health = 900000` dans le seed BC et
+    l'ANNONCAIENT (`[bc] astraBullgryn : PV portes a 900000`) ; la cible arrivait a ~9539 PV,
+    mourait en cours de serie, et le dernier montant live devenait un OVERKILL -- ce qui a fait
+    accuser la magnitude d'un percage porte. Rien, nulle part, ne disait que le champ etait
+    recalcule. `--unit-stat` sait deja avertir sur un champ JAMAIS LU (#342) ; il n'existait
+    aucun equivalent pour un champ ECRASE, et un patch de seed BC ne passe meme pas par lui.
+
+    LES TROIS CONDITIONS, et pourquoi chacune est necessaire :
+      * le champ est dans `CHAMPS_RECALCULES_PAR_NORMALISATION` -- sinon il traverse INTACT ;
+      * la valeur du seed DIFFERE de `data/seed-bc.json` : c'est ce qui distingue un PATCH
+        DELIBERE du recalcul ordinaire, que subissent les 175 entrees et qui n'interesse
+        personne. Une unite ABSENTE de la reference (injectee par `catalog_inject.augment`) est
+        ignoree -- on ne sait rien de ce qu'elle « aurait du » valoir, et parler la serait du bruit ;
+      * la valeur a EFFECTIVEMENT change entre le seed et le BC rendu. C'est le seul discriminant
+        d'ecrasement, et il est SUFFISANT.
+
+    ⚠ CE QU'UNE MUTATION A APPRIS. Ce rapport testait d'abord une QUATRIEME condition -- « l'unite
+    est dans `result.normalized` » -- posee pour eviter le faux positif que la fiche nomme : un
+    CARRIER DE SUMMON fait LEVER la formule heros, part en `skipped`, et son patch de PV est
+    legitime. Elle a ete RETIREE parce que la mutation qui la neutralise laisse le fichier de
+    garde INTEGRALEMENT VERT : elle est redondante, et pour une raison structurelle lisible dans
+    `json-build.ts` -- une unite `skipped` n'est pas modifiee du tout (les ecritures `u.<champ> =`
+    suivent l'appel de formule, donc une levee saute au `catch`), si bien que sa valeur SORT
+    IDENTIQUE et que la troisieme condition la couvre deja. La garder aurait laisse une branche
+    qu'aucune contre-epreuve ne peut faire mordre.
+
+    Rend `[]` quand il n'y a rien a dire, c.-a-d. sur le chemin par defaut (seed BC = reference).
+    """
+    ref = {u.get("Id"): u for u in (_seed_bc_reference().get("Units") or []) if u.get("Id")}
+    if not ref:
+        return []
+    apres = {u.get("Id"): u for u in (template.get("Units") or []) if u.get("Id")}
+    lignes = []
+    for u in (base_bc.get("Units") or []):
+        uid = u.get("Id")
+        if uid not in ref:
+            continue
+        ecrases = []
+        for champ in CHAMPS_RECALCULES_PAR_NORMALISATION:
+            if champ not in u or champ not in ref[uid]:
+                continue
+            if u[champ] == ref[uid][champ]:
+                continue                                   # pas un patch : valeur d'origine
+            arrive = apres.get(uid, {}).get(champ)
+            if arrive != u[champ]:
+                ecrases.append(f"{champ}={u[champ]!r} -> {arrive!r}")
+        if ecrases:
+            lignes.append(
+                f"ATTENTION {uid} : patch du SEED BC ECRASE par buildNormalizedBC -- "
+                f"{', '.join(ecrases)}. Ces champs sont RECALCULES (formule "
+                f"IStatsFormula.StatsUsingProgressionIndexFor) : le seul levier qui mord est "
+                f"`--unit-stat {uid}:<champ>=<valeur>`, applique au BC DEJA NORMALISE (#914-r1).")
+    return lignes
+
+
 def _normalize_and_extract_pool(
     sid: int, base_bc: dict, target_rank: int,
     board_dump: dict | None = None,
@@ -1419,6 +1521,11 @@ def _normalize_and_extract_pool(
     template = json.loads(out["configJson"])
     normalized = set(out.get("normalized") or [])
     mow_set = set(out.get("mow") or [])
+    # #914-r1 -- un champ RECALCULE patche en amont ne disait RIEN, et le montage mentait alors
+    # dans son propre `print`. C'est ICI, et nulle part ailleurs, qu'on voit les TROIS termes
+    # necessaires : le seed BC recu, le BC rendu, et QUELLES unites la formule a normalisees.
+    for ligne in _rapport_champs_ecrases(base_bc, template):
+        print(f"[normalize] {ligne}", file=sys.stderr)
     pool_regular = sorted(normalized - mow_set)
     pool_mow = sorted(mow_set)
     return template, pool_regular, pool_mow

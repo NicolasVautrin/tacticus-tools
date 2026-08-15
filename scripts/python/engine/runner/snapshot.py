@@ -390,6 +390,16 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     _vic = victory_conditions_from_bc(victory_config)
     if _vic is not None:
         state.victory_conditions = _vic
+    # #449-r2-r4-r1 -- CANAL AMBIANT. `damage_config` n'etait alimente par AUCUN appelant reel
+    # (mesure : seuls les deux `probe_449r2r4*` le passent), donc tous les runners retombaient sur
+    # le defaut DERIVE de `data/seed-bc.json`. Exact tant qu'ils partent de cette seed, FAUX des
+    # qu'un montage passe `--seed-bc` avec une section `Damage` modifiee -- et muet, puisque le
+    # port lirait alors la variance d'une AUTRE BC que celle qui court. Le chainon manquant etait
+    # que `load_state` ne recoit ni la BC ni le state-file ; elle connait en revanche le RUNNER,
+    # et c'est par la que la section voyage (meme patron que le registre de greffes, #448-r3-r1-r1-r1).
+    # L'argument EXPLICITE prime toujours : ce canal ne se substitue qu'au `None`.
+    if damage_config is None:
+        damage_config = _section_bc_du_runner(runner_label(decision, observe, snapshot), "Damage")
     _dmgcfg = DamageConfiguration.from_bc(damage_config)
     if _dmgcfg is not None:
         # #449-r2-r4-r4 : toute la section, pas seulement les deux champs de la variance. La liste
@@ -1703,19 +1713,100 @@ class GraftedStateWithoutChannel(RuntimeError):
 _MUTE_BY_ACCIDENT = ("no-transport", "no-runner-label", "unavailable:")
 
 
-def _declared_grafts() -> list:
-    """Les greffes declarees par CE processus (`catalog_inject.declare_graft`, #448-r3-r1-r1).
+def _fichier_runner(label: Optional[str], dossier: str) -> Optional["object"]:
+    """Chemin d'un sidecar PAR RUNNER, ou `None` si le label est absent.
+
+    `engine/` LIT ces fichiers, il n'en ecrit aucun : ils sont publies par le montage
+    (`rl_duel build`). C'est la seule voie par laquelle un fait connu du BUILD atteint
+    `load_state`, qui ne recoit ni la BC ni le state-file."""
+    if not label:
+        return None
+    from pathlib import Path
+    racine = Path(__file__).resolve().parents[4]     # scripts/python/engine/runner/ -> checkout
+    return (racine / "logs" / "runners" / dossier
+            / (str(label).replace("#", "-").replace("/", "_") + ".json"))
+
+
+def _section_bc_du_runner(label: Optional[str], section: str):
+    """La section de `BattleConfiguration` publiee pour ce runner, ou `None` (#449-r2-r4-r1).
+
+    TRI-ETAT STRICT, et c'est tout l'interet : `None` = « pas mesure » -> l'appelant retombe sur
+    le defaut derive de la seed versionnee, comme avant. Un dict VIDE resterait un dict -- la BC a
+    parle et elle dit zero, ce que `DamageConfiguration.from_bc` distingue deja explicitement.
+    On ne fabrique donc jamais de section, et une lecture impossible se comporte exactement comme
+    l'absence de canal."""
+    p = _fichier_runner(label, "bc-sections")
+    if p is None:
+        return None
+    import json
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    val = data.get(section)
+    return val if isinstance(val, dict) else None
+
+
+def _grafts_du_runner(label: Optional[str]) -> list:
+    """Les greffes publiees sur DISQUE pour ce label de runner (#448-r3-r1-r1-r1).
+
+    SECONDE SOURCE du refus, et elle couvre le regime que la premiere ne peut pas voir : un seed BC
+    greffe par un AUTRE PROCESSUS puis passe par `--seed-bc`. Le registre de `catalog_inject` est un
+    fait de PROCESSUS -- cote consommateur il est VIDE, donc muet, alors que c'est exactement le
+    regime ou le port serait ampute. Le RUNNER est le seul identifiant que les deux cotes
+    partagent, et `load_state` le connait toujours (`runner_label`) alors qu'elle ne recoit ni la
+    BC ni le state-file.
+
+    Gisement mesure : **15** fichiers de `scripts/python/**` exposent `--seed-bc` en option CLI,
+    dont **13** ne portent aucune primitive de greffe.
+
+    ⚠ On relit un FICHIER, on n'importe PAS `catalog_inject` : `engine/` ne gagne aucune dependance
+    vers un module de montage (meme raison que la lecture par `sys.modules` ci-dessous). Toute
+    lecture impossible rend `[]` -- ce garde-fou ne doit jamais faire echouer un chargement par
+    lui-meme, et un registre absent signifie exactement « ce runner n'a rien publie »."""
+    if not label:
+        return []
+    # Imports LOCAUX, comme le `sys` de `_declared_grafts` : ce module ne porte au niveau global
+    # que ses dependances de moteur, et ce garde-fou est le seul consommateur de ces deux-la.
+    import json
+    from pathlib import Path
+    racine = Path(__file__).resolve().parents[4]     # scripts/python/engine/runner/ -> checkout
+    p = (racine / "logs" / "runners" / "grafts"
+         / (str(label).replace("#", "-").replace("/", "_") + ".json"))
+    try:
+        items = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [g for g in items if isinstance(g, dict)] if isinstance(items, list) else []
+
+
+def _declared_grafts(label: Optional[str] = None) -> list:
+    """Les greffes connues pour cet etat : celles de CE processus, PLUS celles publiees par le
+    processus qui a construit le runner (`catalog_inject.declare_graft`, #448-r3-r1-r1 puis -r1).
 
     ⚠ On lit `sys.modules`, on n'IMPORTE PAS `catalog_inject` : si le module n'a jamais ete
     importe, aucune greffe n'a pu etre faite -- le test est donc exact, et `engine/` ne gagne
-    aucune dependance vers un module de montage."""
+    aucune dependance vers un module de montage.
+
+    Les deux sources sont FUSIONNEES sans doublon : le greffeur qui charge lui-meme son etat est
+    present des DEUX cotes, et le compter deux fois gonflerait le message du refus sans rien
+    apporter."""
     import sys
     mod = sys.modules.get("catalog_inject")
     fn = getattr(mod, "declared_grafts", None) if mod is not None else None
     try:
-        return list(fn()) if callable(fn) else []
+        out = list(fn()) if callable(fn) else []
     except Exception:
-        return []
+        out = []
+    vus = {(g.get("kind"), g.get("unitId"), g.get("what")) for g in out if isinstance(g, dict)}
+    for g in _grafts_du_runner(label):
+        cle = (g.get("kind"), g.get("unitId"), g.get("what"))
+        if cle not in vus:
+            vus.add(cle)
+            out.append(g)
+    return out
 
 
 def _grafts_concerning(decision: dict, grafts: list) -> tuple:
@@ -1771,7 +1862,9 @@ def _refuse_if_grafted(source: str, snapshot, decision: dict) -> None:
         return
     if not any(source.startswith(p) for p in _MUTE_BY_ACCIDENT):
         return
-    grafts = _declared_grafts()
+    # Le label est ce qui ouvre la SECONDE source (#448-r3-r1-r1-r1) : les greffes publiees par le
+    # processus qui a construit CE runner, que le registre de processus ne peut pas voir.
+    grafts = _declared_grafts(runner_label(decision, snapshot))
     if not grafts:
         return
     concernees, indecidable = _grafts_concerning(decision, grafts)
@@ -1779,6 +1872,19 @@ def _refuse_if_grafted(source: str, snapshot, decision: dict) -> None:
         return
     montrees = concernees or grafts
     apercu = ", ".join("%s %s <- %s" % (g["kind"], g["unitId"], g["what"]) for g in montrees[:4])
+    # NOMMER L'ORIGINE. Depuis #448-r3-r1-r1-r1 une greffe peut venir du PROCESSUS courant ou du
+    # registre publie par celui qui a CONSTRUIT le runner. Dire « declarees par ce processus »
+    # dans le second cas envoie le lecteur chercher dans le mauvais fichier -- et c'est justement
+    # le regime ou le greffeur est ailleurs, donc le plus dur a retrouver.
+    du_disque = _grafts_du_runner(runner_label(decision, snapshot))
+    cles_disque = {(g.get("kind"), g.get("unitId"), g.get("what")) for g in du_disque}
+    cles_vues = {(g.get("kind"), g.get("unitId"), g.get("what")) for g in montrees}
+    if cles_vues and cles_vues <= cles_disque:
+        origine = "par le processus qui a CONSTRUIT ce runner (registre publie sur disque)"
+    elif cles_vues & cles_disque:
+        origine = "par ce processus ET par celui qui a construit ce runner"
+    else:
+        origine = "par ce processus"
     raise GraftedStateWithoutChannel(
         "load_state : %s (%s%s) et le canal `unitAbilityStates` est MUET (source=%r). Le port "
         "serait AMPUTE -- les classes greffees ne seraient pas montees et les assertions negatives "
@@ -1786,11 +1892,11 @@ def _refuse_if_grafted(source: str, snapshot, decision: dict) -> None:
         "Sorties : `snapshot.bind_live_rpc(rpc)` ; ou `load_state(..., ability_states=<payload>)` ; "
         "ou `ability_states=False` / `catalog_inject.clear_declared_grafts()` si l'etat charge n'a "
         "deliberement pas de greffe."
-        % ("cet etat porte %d greffe(s) declaree(s) par ce processus" % len(concernees)
+        % ("cet etat porte %d greffe(s) declaree(s) %s" % (len(concernees), origine)
            if concernees else
-           "cet etat porte une unite SANS `visualId` (hors plateau) et ce processus a declare "
-           "%d greffe(s) -- indecidable, on refuse plutot que de mesurer un port peut-etre ampute"
-           % len(grafts),
+           "cet etat porte une unite SANS `visualId` (hors plateau) et %d greffe(s) sont "
+           "declaree(s) %s -- indecidable, on refuse plutot que de mesurer un port peut-etre "
+           "ampute" % (len(grafts), origine),
            apercu, " ..." if len(montrees) > 4 else "", source))
 
 

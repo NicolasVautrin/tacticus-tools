@@ -130,6 +130,115 @@ def clear_declared_grafts() -> None:
     _GRAFTS.clear()
 
 
+# --------------------------------------------- le registre PAR RUNNER, sur DISQUE (#448-r3-r1-r1-r1)
+#
+# CE QUE LE REGISTRE DE PROCESSUS NE COUVRE PAS, et que celui-ci ferme. Le patron mesure : un
+# processus greffe et ECRIT un seed BC (`rl_duel build --graft`, `write_relic_seed_bc`, ...) ; un
+# SECOND processus le recoit par `--seed-bc <chemin>` et charge l'etat sans canal
+# `unitAbilityStates`. Cote consommateur, `_GRAFTS` est VIDE (la greffe a eu lieu ailleurs) et le
+# refus de `snapshot._refuse_if_grafted` ne mord pas -- alors que c'est exactement le regime ou le
+# port serait AMPUTE.
+#
+# GISEMENT CHIFFRE (#448-r3-r1-r1-r1) : **15** fichiers de `scripts/python/**` exposent `--seed-bc`
+# en option CLI -- le seul regime ou un seed BC arrive d'un AUTRE processus -- et **13** ne portent
+# aucune primitive de greffe : ce sont les points d'entree du patron.
+#
+# LA CLE EST LE RUNNER, et c'est le seul identifiant que les deux cotes partagent. `load_state` ne
+# recoit ni la BC ni le state-file, mais elle connait le runner (`snapshot.runner_label` : tout
+# payload de capture porte `runner: "build#<id>"`). Le greffeur ECRIT donc son registre sous ce
+# label au moment ou il connait le `runnerId`, et le consommateur le RELIT par la meme cle.
+#
+# L'EMPLACEMENT est `logs/`, jamais `data/` (#349 : `data/` = ce qu'on LIT, et rien d'un run n'y
+# va). Il vit donc dans le worktree du greffeur -- ce qui est exactement la portee voulue, puisque
+# les deux processus d'un meme montage sont lances par le meme acteur, dans le meme checkout.
+_GRAFT_REGISTRY_DIR = ROOT / "logs" / "runners" / "grafts"
+
+
+def runner_graft_path(label: str) -> Path:
+    """Fichier de registre d'un label de runner. `"build#37"` -> `logs/runners/grafts/build-37.json`.
+
+    Le `#` est remplace : il est legal sous Windows mais penible en ligne de commande, et le label
+    n'a pas d'autre caractere a echapper (`live` ou `build#<entier>`)."""
+    return _GRAFT_REGISTRY_DIR / (str(label).replace("#", "-").replace("/", "_") + ".json")
+
+
+def publish_runner_grafts(label: str, grafts=None) -> Path | None:
+    """ECRIT les greffes de ce processus sous le label du runner qu'il vient de construire.
+
+    Rend le chemin ecrit, ou `None` s'il n'y avait RIEN a publier -- on ne cree pas un fichier vide
+    qui se lirait « mesure, et aucune greffe » alors que rien n'a ete monte. Un echec d'ecriture est
+    AVALE : ce registre est un garde-fou, il ne doit jamais faire echouer un build par lui-meme.
+    """
+    items = list(_GRAFTS if grafts is None else grafts)
+    if not items:
+        return None
+    p = runner_graft_path(label)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(items), encoding="utf-8")
+    except OSError:
+        return None
+    return p
+
+
+def clear_runner_grafts(label: str) -> None:
+    """Retire le registre d'un label -- a appeler quand le runner est DISPOSE, puisque son id peut
+    etre recycle par un build ulterieur (meme raison que `snapshot.clear_ability_states_cache`)."""
+    try:
+        runner_graft_path(label).unlink()
+    except OSError:
+        pass
+
+
+# ------------------------------------- les SECTIONS DE BC publiees par runner (#449-r2-r4-r1)
+#
+# MEME chainon, autre charge. `engine.runner.snapshot.load_state` ne recoit ni la BC ni le
+# state-file : les sections de `BattleConfiguration` qui n'ont AUCUN RPC pour les publier
+# (`Damage`, et de la meme famille `Targeting` #444) lui sont structurellement invisibles. Elle
+# connait en revanche le RUNNER -- donc le montage, qui tient la BC, la depose sous ce label.
+#
+# CE QUE CA CHANGE, mesure : `damage_config` n'etait alimente par AUCUN appelant reel (seuls les
+# deux `probe_449r2r4*` le passaient), si bien que tout runner retombait sur le defaut DERIVE de
+# `data/seed-bc.json`. C'est exact tant qu'on part de cette seed, et FAUX -- silencieusement --
+# des qu'un montage passe `--seed-bc` avec une section `Damage` modifiee.
+_BC_SECTIONS_DIR = ROOT / "logs" / "runners" / "bc-sections"
+
+#: Sections publiees. STRICTEMENT celles qu'un consommateur LIT : publier une section que personne
+#: ne lit fabriquerait du code mort qui aurait l'air d'un canal.
+BC_SECTIONS_PUBLIEES = ("Damage",)
+
+
+def runner_bc_sections_path(label: str) -> Path:
+    return _BC_SECTIONS_DIR / (str(label).replace("#", "-").replace("/", "_") + ".json")
+
+
+def publish_runner_bc_sections(label: str, bc: dict) -> Path | None:
+    """Depose les sections de CETTE BC sous le label du runner. `None` si aucune n'est presente.
+
+    Une section absente de la BC n'est PAS ecrite comme `{}` : le tri-etat du lecteur distingue
+    « pas mesure » (pas de cle -> defaut derive de la seed) de « la BC a parle et elle dit zero »
+    (dict vide). Fabriquer le second a partir du premier est exactement le vice que ce canal
+    ferme."""
+    charge = {s: bc.get(s) for s in BC_SECTIONS_PUBLIEES if isinstance(bc.get(s), dict)}
+    if not charge:
+        return None
+    p = runner_bc_sections_path(label)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(charge), encoding="utf-8")
+    except OSError:
+        return None
+    return p
+
+
+def clear_runner_bc_sections(label: str) -> None:
+    """Meme cycle de vie que le registre de greffes : l'id de runner est RECYCLE."""
+    try:
+        runner_bc_sections_path(label).unlink()
+    except OSError:
+        pass
+
+
 # --------------------------------------------------------------------------- enums per-build
 
 def _build_hash() -> str:
@@ -951,6 +1060,7 @@ def write_augmented_seed_bc(out_path, unit_ids, *, seed_bc: dict | None = None,
     p = host_inputs.reject_data_output(out_path, "write_augmented_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(p)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     return p, added, added_ab
 
 
@@ -1154,6 +1264,7 @@ def write_relic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     p = host_inputs.reject_data_output(out_path, "write_relic_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(p)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     return p, reports
 
 
@@ -1341,6 +1452,7 @@ def write_mythic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     p = host_inputs.reject_data_output(out_path, "write_mythic_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(p)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     return p, reports
 
 
@@ -1526,6 +1638,7 @@ def write_trait_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     p = host_inputs.reject_data_output(out_path, "write_trait_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(p)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     return p, reports
 
 
@@ -1562,6 +1675,7 @@ def write_grafted_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     p = host_inputs.reject_data_output(out_path, "write_grafted_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(p)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     return p, reports
 
 
@@ -1722,16 +1836,97 @@ def read_withheld(seed_bc_path) -> list:
     return [str(x) for x in w]
 
 
+def read_grafts(seed_bc_path) -> list:
+    """Les greffes ESTAMPEES dans le sidecar de ce seed BC (#448-r3-r1-r1-r1). `[]` si aucune.
+
+    C'est « faire porter la marque par le seed BC lui-meme », la piste que la fiche nomme en
+    premier -- et c'est ce qui ferme le patron COMPLET : un processus greffe et ECRIT le fichier,
+    un AUTRE le recoit par `--seed-bc` et n'a aucun moyen de savoir qu'il est greffe. Le registre
+    par runner ne suffit pas seul, puisque le processus qui construit le runner peut n'avoir rien
+    greffe lui-meme -- il ne fait que charger un BC deja greffe.
+
+    Tolerante a la cle manquante : les sidecars ecrits avant ne portent que pins/withheld."""
+    data = _read_sidecar(seed_bc_path)
+    if not data:
+        return []
+    g = data.get("declaredGrafts", [])
+    if not isinstance(g, list):
+        raise ValueError("%s : cle 'declaredGrafts' non-liste" % pins_path(seed_bc_path))
+    return [x for x in g if isinstance(x, dict)]
+
+
+def stamp_grafts(seed_bc_path, grafts=None) -> Path | None:
+    """ESTAMPE les greffes de ce processus dans le sidecar du seed BC ecrit.
+
+    Lecture-modification-ecriture : les epingles (#375) et les retenues (#380) deja presentes sont
+    PRESERVEES -- ce sidecar est partage par trois mecanismes et en ecraser un depuis l'autre
+    ferait disparaitre un montage en silence, exactement le genre de panne que ces trois-la
+    existent pour empecher.
+
+    Rend `None` s'il n'y a RIEN a estamper : on ne cree pas un sidecar qui se lirait « mesure, et
+    aucune greffe » alors que rien n'a ete monte."""
+    items = list(_GRAFTS if grafts is None else grafts)
+    if not items:
+        return None
+    p = pins_path(seed_bc_path)
+    data = _read_sidecar(seed_bc_path) or {}
+    data.setdefault("pinnedAbilityConfigs", [])
+    data.setdefault("withheldAbilityConfigs", [])
+    connues = {(g.get("kind"), g.get("unitId"), g.get("what"))
+               for g in data.get("declaredGrafts", []) if isinstance(g, dict)}
+    fusion = list(data.get("declaredGrafts") or [])
+    for g in items:
+        if (g.get("kind"), g.get("unitId"), g.get("what")) not in connues:
+            connues.add((g.get("kind"), g.get("unitId"), g.get("what")))
+            fusion.append(g)
+    data["declaredGrafts"] = fusion
+    try:
+        p.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        return None
+    return p
+
+
+def redeclare_grafts_from(seed_bc_path) -> int:
+    """RE-DECLARE dans CE processus les greffes estampees dans le sidecar. Rend le nombre ajoute.
+
+    Appelee au chargement d'un seed BC custom (`_load_seed_bc`) : un processus qui recoit un BC
+    deja greffe devient ainsi aussi informe que celui qui l'a greffe, sans avoir a le savoir. Les
+    doublons exacts ne sont pas re-ajoutes -- greffer puis recharger son propre fichier ne doit pas
+    gonfler le registre."""
+    try:
+        items = read_grafts(seed_bc_path)
+    except ValueError:
+        return 0
+    connues = {(g.get("kind"), g.get("unitId"), g.get("what")) for g in _GRAFTS}
+    n = 0
+    for g in items:
+        cle = (g.get("kind"), g.get("unitId"), g.get("what"))
+        if cle not in connues:
+            connues.add(cle)
+            _GRAFTS.append({"kind": g.get("kind"), "unitId": g.get("unitId"),
+                            "what": g.get("what")})
+            n += 1
+    return n
+
+
 def write_pins(seed_bc_path, pins, withheld=()) -> Path:
     """Ecrit le sidecar. `pins` / `withheld` = iterables de `"<node>/<ability>"`.
 
     Les DEUX cles sont toujours ecrites (une liste vide reste une liste) : `read_pins` exige
     `pinnedAbilityConfigs`, et un sidecar qui ne porterait qu'une retenue la ferait lever.
+
+    ⚠ Les greffes deja ESTAMPEES (#448-r3-r1-r1-r1) sont PRESERVEES. Le sidecar porte desormais
+    trois mecanismes ; un ecrivain qui ecrase les deux autres ferait disparaitre un montage en
+    silence -- precisement la panne que ces trois-la existent pour empecher.
     """
     p = pins_path(seed_bc_path)
-    p.write_text(json.dumps({"pinnedAbilityConfigs": sorted(set(pins)),
-                             "withheldAbilityConfigs": sorted(set(withheld))}),
-                 encoding="utf-8")
+    data = {"pinnedAbilityConfigs": sorted(set(pins)),
+            "withheldAbilityConfigs": sorted(set(withheld))}
+    deja = _read_sidecar(seed_bc_path) or {}
+    if deja.get("declaredGrafts"):
+        data["declaredGrafts"] = deja["declaredGrafts"]
+    p.write_text(json.dumps(data), encoding="utf-8")
     return p
 
 
@@ -1760,6 +1955,7 @@ def write_variable_patched_seed_bc(out_path, patches, *, seed_bc: dict | None = 
     p = host_inputs.reject_data_output(out_path, "write_variable_patched_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(p)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     write_pins(p, [r["node"] + "/" + r["ability"] for r in reports])
     return p, reports
 
@@ -2281,6 +2477,7 @@ def main(argv: list[str]) -> int:
     outp = Path(a.out)
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(bc), encoding="utf-8")
+    stamp_grafts(outp)   # #448-r3-r1-r1-r1 : la marque voyage AVEC le fichier
     print(f"[inject] ecrit {outp} ({outp.stat().st_size} octets)")
     print(f"[inject] usage: python rl_duel.py build --seed-bc {outp} --board <id> ...")
     return 0

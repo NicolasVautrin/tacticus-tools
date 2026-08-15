@@ -109,6 +109,60 @@ def _winner_label(w) -> str:
     return {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
 
 
+def _traits_regenerants_de(u: dict) -> list:
+    """`[(trait, pct|None)]` des traits REGENERANTS portes par l'entree `u` de `BC.Units` (#419-r1-tr9-r5).
+
+    DERIVE, jamais code en dur : un trait est regenerant si sa description i2
+    (`Traits/<id>_Description`) parle de regeneration, et son montant est la variable en `*Hp` que
+    `gameconfig.trait` apparie dans `globalValues.traitVariables`. Mesure du 2026-08-15 sur
+    `t6dpr4k06g` : un SEUL trait repond -- `LivingMetal` (`livingMetalHp = 10`) -- porte par
+    **13** entrees du seed BC (`necroWarden`, `necroDestroyer`, `necroSpyder`, `necroPlasmancer`,
+    `necroOverlord`, et 8 npc/summon necrons).
+
+    `pct = None` = trait regenerant dont le montant n'a pas pu etre lu : on avertit SANS chiffre
+    plutot que d'en inventer un. i2 illisible -> liste VIDE (pas mesure, donc on se tait).
+    """
+    import re                                   # local : cette fonction est le seul consommateur
+    import gameconfig as G                      # local : n'alourdit pas l'import de `rl_duel`
+    out = []
+    for trait_id in (u.get("Traits") or []):
+        try:
+            desc = G.trait_description(str(trait_id)) or ""
+        except Exception:                                            # noqa: BLE001
+            continue                                                 # i2 illisible -> silence
+        if not re.search(r"regenerat", desc, re.I):
+            continue
+        pct = None
+        for k, v in ((G.trait(str(trait_id)) or {}).get("variables") or {}).items():
+            if k.lower().endswith("hp") and isinstance(v, (int, float)):
+                pct = v
+                break
+        out.append((str(trait_id), pct))
+    return out
+
+
+def _diag_porteur_ecarte(uid: str, seed_bc: dict, template_bc: dict) -> str:
+    """Suffixe de diagnostic quand un montage TERTIAIRE echoue sur `uid` (#237-r1).
+
+    `equip_relic` / `equip_mythic` ne connaissent QUE le BC qu'on leur passe : leur `KeyError` dit
+    « absent de BC.Units -- injecter d'abord le porteur », ce qui est ACTIONNABLE quand le porteur
+    manque au catalogue, et TROMPEUR quand il y est mais que `buildNormalizedBC` l'a ecarte (npc,
+    unite non normalisable au rank demande) -- l'appelant vient alors de faire exactement ce que le
+    message lui demande. Ces deux regimes se distinguent en confrontant les deux BC, la seule
+    position d'ou on les voit tous les deux.
+
+    Rend `""` hors de ces regimes : un diagnostic qui parle a tort est pire que pas de diagnostic.
+    """
+    au_seed = uid in {u.get("Id") for u in (seed_bc.get("Units") or [])}
+    au_norm = uid in {u.get("Id") for u in (template_bc.get("Units") or [])}
+    if au_seed and not au_norm:
+        return (f"\n[diag] {uid!r} EST au catalogue du seed BC mais ABSENT du BC normalise : "
+                f"buildNormalizedBC l'a ecarte (npc, ou non normalisable a ce rank). "
+                f"Injecter le porteur ne changera rien -- verifier `--list-pool` et "
+                f"data/unspawnable_rank<N>.json.")
+    return ""
+
+
 def _plan_ab_map(res: dict) -> dict:
     """{(unitId, targetId): abilityId} depuis les attackPlans d'un decisionView
     (l'attaque concrète que le plan propose pour chaque cible). Auto-résolution de
@@ -776,6 +830,29 @@ def cmd_build(sid: int, a) -> int:
                   f"fixedArmor={rep['fields'].get('FixedArmor')}"
                   + ("   [MONTAGE: le jeu ecrit 0 au catalogue pour un summon,"
                      " ces valeurs sont celles du SPAWN]" if src == "summon-spawn" else ""))
+    # --equip-relic : injection catalogue du porteur AVANT la normalisation (#237-r1). PENDANT
+    # EXACT du bloc `--equip-mythic` ci-dessous, et pour la meme raison structurelle : `equip_relic`
+    # court APRES `_normalize_and_extract_pool` (le niveau EXACT l'exige, cf. bloc en tete de
+    # `cmd_build`), donc un porteur absent du seed BC n'est PAS dans le BC normalise et la commande
+    # sortait en `rc 2`. Mesure du gisement (2026-08-15, gameconfig de `t6dpr4k06g`) : sur les 32
+    # abilities de relique, **5** n'ont AUCUN porteur au seed BC (`BladeOfTheAncestors`/`votanUthar`,
+    # `DawnBlade`/`tauFarsight`, `TheArdentBlade`/`adeptCelestine`, `VolummsMasterArtifice`/
+    # `votanIronmaster`, `WyrdmakersHelm`/`spaceWolfPriest`) et **9 porteurs sur 65** sont hors seed
+    # -- c'est l'ETAT 3 de la gate de confrontabilite, qui exigeait deux commandes sans que rien ne
+    # le dise. Aucun effet quand le porteur est deja la (l'immense majorite : etats 1 et 2).
+    if relic_specs:
+        have = {x.get("Id") for x in (seed_bc.get("Units") or [])}
+        missing_r = sorted({u for u, _a, _l in relic_specs if u not in have})
+        if missing_r:
+            try:
+                seed_bc, added, added_ab, unresolved = catalog_inject.augment(
+                    seed_bc, missing_r, rank=a.rank)
+            except KeyError as e:
+                print(f"[error] --equip-relic: {e}", file=sys.stderr)
+                return 2
+            print(f"[relic] catalogue: +{len(added)} unites {added} "
+                  f"+{len(added_ab)} configs d'ability"
+                  + (f" | sans config (marqueurs): {unresolved}" if unresolved else ""))
     # --equip-mythic : injection catalogue du porteur AVANT la normalisation (cf. bloc plus haut).
     if mythic_specs:
         have = {x.get("Id") for x in (seed_bc.get("Units") or [])}
@@ -801,7 +878,8 @@ def cmd_build(sid: int, a) -> int:
                 template_bc, uid, ability, lvl,
                 allow_unlisted=bool(getattr(a, "allow_unlisted_relic", False)))
         except (ValueError, KeyError) as e:
-            print(f"[error] --equip-relic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            print(f"[error] --equip-relic {uid}:{ability}:{lvl} -> {e}"
+                  f"{_diag_porteur_ecarte(uid, seed_bc, template_bc)}", file=sys.stderr)
             return 2
         clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
                  if rep["clamped"] else "")
@@ -814,7 +892,8 @@ def cmd_build(sid: int, a) -> int:
                 template_bc, uid, ability, lvl,
                 allow_unlisted=bool(getattr(a, "allow_unlisted_mythic", False)))
         except (ValueError, KeyError) as e:
-            print(f"[error] --equip-mythic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            print(f"[error] --equip-mythic {uid}:{ability}:{lvl} -> {e}"
+                  f"{_diag_porteur_ecarte(uid, seed_bc, template_bc)}", file=sys.stderr)
             return 2
         clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
                  if rep["clamped"] else "")
@@ -1066,6 +1145,21 @@ def cmd_build(sid: int, a) -> int:
                     return 2
                 for u in touched:
                     u[key] = parsed
+                if key in ("RemainingHealth", "Health"):
+                    # #419-r1-tr9-r5 -- les PV forces d'un porteur REGENERANT ne TIENNENT pas :
+                    # ils remontent au debut de chaque tour de son joueur. Le montage a l'air
+                    # d'avoir mordu (le champ EST dans le BC envoye, verifie) et la valeur relue
+                    # est pourtant autre -- c'est ce qui a fait ouvrir ce residu, puis le
+                    # RE-QUALIFIER a tort en « c'est l'armure ».
+                    for trait_id, pct in _traits_regenerants_de(touched[0]):
+                        montant = (f"{pct}% de ses PV max" if pct is not None
+                                   else "un pourcentage de ses PV max (montant illisible)")
+                        print(f"[warn] --unit-stat {vis}:{key}={parsed} ne TIENDRA PAS : {vis} "
+                              f"porte le trait {trait_id}, qui regenere {montant} au DEBUT de "
+                              f"chaque tour de son joueur. Relever les PV APRES un debut de tour "
+                              f"mesure {parsed} + k x regen, pas {parsed} (#419-r1-tr9-r5). "
+                              f"Prendre la mesure AVANT le premier debut de tour, ou choisir un "
+                              f"porteur sans ce trait.", file=sys.stderr)
                 if key == "Shield" and parsed:
                     # #342 -- MESURE, pas supposition : le champ est bien ECRIT dans le BC envoye
                     # a `initAndStart`, et le NATIF ne le lit jamais.
@@ -1219,6 +1313,20 @@ def cmd_build(sid: int, a) -> int:
                     if u.get("ctrl")), None)
     _save_state({"runnerId": rid, "bc": bc, "seed": a.seed, "myTeam": my_team,
                  "playerUnits": player_units})
+    # #448-r3-r1-r1-r1 : PUBLIER les greffes de ce build sous le label du runner. C'est ce qui rend
+    # le refus de `snapshot._refuse_if_grafted` visible depuis un AUTRE PROCESSUS -- le patron
+    # mesure etant « ce build ecrit un seed BC greffe, un probe le recoit par `--seed-bc` et charge
+    # l'etat sans canal ». Le registre de `catalog_inject` etant un fait de PROCESSUS, il est vide
+    # chez le consommateur ; le RUNNER, lui, est partage. Rien de monte -> rien d'ecrit.
+    publie = catalog_inject.publish_runner_grafts(f"build#{rid}")
+    if publie is not None:
+        print(f"[build] greffes publiees pour build#{rid} "
+              f"({len(catalog_inject.declared_grafts())}) -> {publie}", file=sys.stderr)
+    # #449-r2-r4-r1 : les sections de BC qu'AUCUN RPC ne publie (`Damage`). `load_state` ne recoit
+    # ni la BC ni le state-file, donc sans ce depot elle retombe sur le defaut derive de la seed
+    # versionnee -- juste tant qu'on part de cette seed, FAUX et muet des qu'un montage passe
+    # `--seed-bc` avec une section `Damage` modifiee. Le runner est le seul terme commun.
+    catalog_inject.publish_runner_bc_sections(f"build#{rid}", bc)
     # #287-r13-r1 : le refus est desormais DUR (rc 3), comme celui des placements -- et il l'est
     # sur une MESURE, pas sur un principe (`probe_287r13r1_rayon_refus_roster.py`) :
     #
@@ -2223,6 +2331,11 @@ def cmd_status(sid: int, a) -> int:
 def cmd_dispose(sid: int, a) -> int:
     st = _load_state()
     _rpc(sid, "disposeRunner", [{"runnerId": st["runnerId"]}], timeout=15)
+    # #448-r3-r1-r1-r1 : le registre de greffes MEURT avec son runner. L'id est recycle par un
+    # build ulterieur, et un registre survivant ferait refuser un etat qui n'a aucune greffe --
+    # meme raison que `snapshot.clear_ability_states_cache` au teardown.
+    catalog_inject.clear_runner_grafts(f"build#{st['runnerId']}")
+    catalog_inject.clear_runner_bc_sections(f"build#{st['runnerId']}")   # #449-r2-r4-r1, meme cycle
     print(f"[dispose] runner {st['runnerId']} libéré")
     return 0
 
@@ -2944,8 +3057,10 @@ def main(argv: list[str]) -> int:
                          "Pose BC.Units[].TertiaryAbility + TertiaryAbilityLevel (>=1 OBLIGATOIRE : "
                          "Idun.Shared.Level$$ToZeroBasedIndex leve sur <=0) ET injecte la config "
                          "d'ability dans BC.Abilities.PassiveAbilities (29 des 32 abilities de "
-                         "relique sont absentes du seed capture). Ids/porteurs : "
-                         "`python catalog_inject.py --list-relics`.")
+                         "relique sont absentes du seed capture). Le porteur est injecte au "
+                         "catalogue s'il manque (#237-r1 : 5 des 32 reliques n'ont AUCUN porteur "
+                         "au seed BC), donc l'ETAT 3 de la gate tient en UNE commande. "
+                         "Ids/porteurs : `python catalog_inject.py --list-relics`.")
     ap.add_argument("--allow-unlisted-relic", action="store_true",
                     help="build: --equip-relic sur un porteur hors allowedUnits (greffe assumee)")
     ap.add_argument("--equip-mythic", action="append", default=None,
