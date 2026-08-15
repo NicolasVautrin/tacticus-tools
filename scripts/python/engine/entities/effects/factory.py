@@ -3418,12 +3418,19 @@ ABILITY_INIT_OWNER_FLAGS: dict[str, list[int]] = {
     # que `EcogSupport` ci-dessus (`attack_query.entity_can_be_repaired`, 4e disjunct) : l'entree
     # n'est donc pas inerte, elle reutilise un canal deja mordant.
     #
-    # ⚠ CE QUI EST LU, ET CE QUI NE L'EST PAS. Le `CreateBehaviour` de `GalvanicField_InitAbility`
-    # a TROIS feuilles -- `AddFlag(Owner, 0x18 CanRepairFullHealthUnits)`,
-    # `RemoveActiveAbility(Owner, 0x1c Repair)`, `AddActiveAbility(Owner, 0x45f
-    # Repair_GalvanicField, abilityState)` -- lecture de #952. Cette entree ne porte QUE LA
-    # PREMIERE : `ABILITY_INIT_OWNER_FLAGS` est un canal de FLAGS, les deux echanges d'ability n'ont
-    # aucun canal d'init cote port (residu #952-r2, volet restant).
+    # ⚠ CE QUI EST LU, ET OU VIT CHAQUE FEUILLE. L'artefact est
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GalvanicFieldAbility$$CreateBehaviour`
+    # (il n'existe AUCUNE classe `GalvanicField_InitAbility` dans le build -- meme forme de piege
+    # que #922-r1) et il a TROIS feuilles, relues verbatim sur `t6dpr4k06g` :
+    #     AddFlag(Owner@<DSLSelectors+0x30>, 0x18 = CanRepairFullHealthUnits)
+    #   & RemoveActiveAbility(Owner@+0x30, 0x1c = 28 Repair)
+    #   & AddActiveAbility(Owner@+0x30, 0x45f = 1119 Repair_GalvanicField, abilityState)
+    # Cette entree ne porte QUE LA PREMIERE -- `ABILITY_INIT_OWNER_FLAGS` est un canal de FLAGS.
+    # ⚠ LES DEUX AUTRES ONT LEUR CANAL, et la phrase qui disait le contraire ici est PERIMEE : le
+    # RETRAIT vit dans `entities/active_abilities.py::PASSIVE_REMOVES_ACTIVE_ABILITY` (#1015-r1) et
+    # l'AJOUT dans son jumeau `PASSIVE_ADDS_ACTIVE_ABILITY` (#952-r2). Les deux registres portent les
+    # MEMES trois passifs, parce que `DSLBehaviors$$RemoveActiveAbility` et `$$AddActiveAbility`
+    # n'ont chacun que TROIS appelants de code dans le build, et que ce sont les memes.
     #
     # CONFIRMATION LIVE des trois feuilles sur le build `t6dpr4k06g`
     # (`probe_a899_952r2_galvanic_field.py`, board MC1_67, seed 777, runner 57), TEMOIN INCLUS :
