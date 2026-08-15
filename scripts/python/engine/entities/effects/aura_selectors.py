@@ -86,19 +86,21 @@ from ... import battle_query as _bq
 #:         (`triggers/loki/spiritual_leader.py` : « ni le flag 17 ni l'effet 1390 ne sont poses par
 #:         le port ») ; `1` n'a aucun site. Les inscrire serait **strictement inerte** (`has_effect`
 #:         rendrait toujours faux) tout en donnant l'illusion d'avoir ferme le trou.
-#:       - `1061` : POSE depuis #963 -- `GeminaeSuperiaAbility$$CreateBehaviour`
-#:         (`triggers/loki/geminae_superia.py`) fait `AddEffect(0x425, ..., Target@+0x60)`, donc sur
-#:         CELESTINE. Ce qui manque ici est le RETRAIT :
+#:       - `1061` : **LES DEUX FACES SONT PORTEES DEPUIS #1074 -> INSCRIT.** Le POSEUR est #963
+#:         (`GeminaeSuperiaAbility$$CreateBehaviour`, `triggers/loki/geminae_superia.py` :
+#:         `AddEffect(0x425, ..., Target@+0x60)`, donc sur CELESTINE) ; le RETIREUR est
 #:         `IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger`
-#:         = `On(0x3a = PhaseEnd) | (On(0x1f = PreUnitMove, true) & get_OwnerIsActor)
-#:         | (On(0x2a = PreUnitAbility, true) & get_OwnerIsActor)` n'est PAS porte (aucune entree
-#:         `EFFECT_TRIGGERS[1061]`), et le flag `UnitFlag 0x11` ne part QUE par `$$RevertInternal`,
-#:         c'est-a-dire au retrait de l'effet. L'inscrire aujourd'hui rendrait Celestine non
-#:         ciblable POUR LE RESTE DE LA BATAILLE -- divergence bien pire que l'absence
-#:         d'inscription, et RESTRICTIVE au point de la rendre inattaquable en self-play.
+#:         = `(On(0x3a = PhaseEnd, alive 0) | (On(0x1f = PreUnitMove, alive 1) & get_OwnerIsActor))
+#:         | (On(0x2a = PreUnitAbility, alive 1) & get_OwnerIsActor)`, corps RELU verbatim sur
+#:         `t6dpr4k06g` et porte en TROIS classes (`EFFECT_TRIGGERS[1061]`, rail ARRAYSET).
+#:         C'est cet ordre qui compte : le flag `UnitFlag 0x11` ne part QUE par `$$RevertInternal`,
+#:         donc inscrire AVANT le retrait aurait rendu Celestine non ciblable POUR LE RESTE DE LA
+#:         BATAILLE. Le vecteur DOMINANT est `PhaseEnd` (publie a la cloture de chaque message
+#:         top-level) : la fenetre d'intouchabilite ne depasse pas le message qui l'a ouverte --
+#:         exactement le << immediately >> de l'i2.
 #:     Le cran executable est BIDIRECTIONNEL (`test_448_r2b_stormboyz_teleporting_in_offline.py::
-#:     test_the_just_summoned_family_stays_out_because_its_REMOVAL_is_not_ported`) : il rougit aussi
-#:     le jour ou le retrait est porte sans que l'inscription suive.
+#:     test_the_just_summoned_family_stays_out_because_its_REMOVAL_is_not_ported`) : il gardait
+#:     l'appariement pose/retrait dans les DEUX sens, et c'est lui qui a rappele la seconde moitie.
 #: On n'inscrit que ce qui est porte ET confronte SUR CE CANAL : un ajout speculatif retirerait des
 #: cibles a l'IA sans mesure, et c'est une degradation SILENCIEUSE.
 # #270-r1-r1 : membres nommes -- le commentaire ci-dessus nomme deja les quatre derivees, dont ces
@@ -114,9 +116,20 @@ from ... import battle_query as _bq
 # Deathleaper vanishes and CANNOT BE TARGETED or damaged for 1 round ». Ecart PERMISSIF ferme ;
 # le sens du correctif est RESTRICTIF, et c'est pourquoi il est confronte live
 # (`test_448_r2b_r1_fear_of_the_unseen_untargetable_live.py`).
+#
+# `1061` INSCRIT par #1074, dans le MEME commit que son retrait. Meme critere que `1238` ci-dessus,
+# et les trois points sont LUS : (i) `IdunBattle.Entities.Effects.Loki.JustSummonedEffect` derive
+# directement d'`UntargetableEffect` (`frida/classes.tsv`) et ne SURCHARGE PAS `IsUntargetableEnabled`
+# (le seul surchargeur du build est `TitanhammerSquad_TeleportingInEffect`), donc `$$ApplyInternal`
+# atteint bien son `UnitFlagsComponent$$Add(0x11)` ; (ii) l'effet est REELLEMENT POSE par le port
+# depuis #963 (`triggers/loki/geminae_superia.py`, sur CELESTINE -- `adeptCelestine`, HERO) ; et
+# (iii) son RETRAIT est porte dans ce commit (`EFFECT_TRIGGERS[1061]`, trois vecteurs), ce qui BORNE
+# la fenetre au message top-level courant. L'ecart ferme est PERMISSIF (Celestine restait enumerable
+# comme cible pendant la fenetre ou le natif l'exclut) ; le sens du correctif est RESTRICTIF.
 UNTARGETABLE_EFFECT_TYPES = (EffectType.TeleportStrike_TeleportingIn,      # 1035
                              EffectType.StormboyzStrike_TeleportingIn,    # 1140
-                             EffectType.FearOfTheUnseen_TeleportingIn)    # 1238
+                             EffectType.FearOfTheUnseen_TeleportingIn,    # 1238
+                             EffectType.GeminaeSuperia_JustSummonedEffect)  # 1061
 
 
 def hex_distance(a, b) -> "int | None":

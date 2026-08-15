@@ -145,12 +145,12 @@ from .....entities.triggers import (AmountIsEqualOrGreater, AmountIsGreaterThanZ
                                     OwnerIsTarget, TriggerAnd)
 from .....entities.unit_selection_type import UnitSelectionType
 from ....abilities.behaviours.context import entities_from_state
-from ....abilities.behaviours.effects import AddEffect
+from ....abilities.behaviours.effects import AddEffect, RemoveEffect
 from ....abilities.behaviours.lifecycle import TriggerAbility
 from ....abilities.behaviours.summon import Spawn
 from ....components import StatsComponent
 from ....state import State
-from ..base import TriggeredAbility, TriggerEvent
+from ..base import EffectTrigger, TriggeredAbility, TriggerEvent
 
 ABILITY_ID = "GeminaeSuperia"
 SUMMON_UNIT_ID_CONSTANT = AbilityConstantType.unitId          # `GetStringConstant(config, 0)`
@@ -299,3 +299,102 @@ class GeminaeSuperiaAbility(TriggeredAbility):
                 "lifewards_targets": (trig.get("targets") if trig else None),
                 "lifewards_dispatched": (trig.get("dispatched") if trig else None),
                 "dsl": True}
+
+
+# =================================================================================================
+# LE RETRAIT DU MARQUEUR 1061 (#1074) -- `JustSummonedEffect$$CreateRemoveEffectTrigger`
+# =================================================================================================
+# `IdunBattle.Entities.Effects.Loki.JustSummonedEffect` derive d'
+# `IdunBattle.Entities.Effects.Common.UntargetableEffect` (base LUE dans
+# `data/symbols/<build>/frida/classes.tsv`), dont `$$ApplyInternal` fait
+# `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE et `$$RevertInternal`
+# le `$$Remove(0x11)`. Le flag ne part donc QUE par le retrait de l'effet -- d'ou l'ordre imperatif
+# de #1074 : porter le retrait AVANT d'inscrire 1061 au domaine de non-ciblabilite
+# (`entities/effects/aura_selectors.py::UNTARGETABLE_EFFECT_TYPES`), sans quoi Celestine resterait
+# non ciblable POUR LE RESTE DE LA BATAILLE.
+#
+# `IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger`, corps RELU
+# VERBATIM sur `t6dpr4k06g` (ordre des `op_BitwiseOr` compris) :
+#
+#     ( On(0x3a = PhaseEnd,       ownerNeedsToBeAlive = 0)
+#     | (On(0x1f = PreUnitMove,   ownerNeedsToBeAlive = 1) & get_OwnerIsActor) )
+#     | (On(0x2a = PreUnitAbility, ownerNeedsToBeAlive = 1) & get_OwnerIsActor)
+#
+# Le BEHAVIOUR n'est pas dans la classe d'effet : c'est
+# `IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` qui, quand le virtuel
+# `CreateRemoveEffectTrigger` rend un trigger non nul, AJOUTE au MEME `ArraySet` de l'effet
+#     Triggered( CreateRemoveEffectTrigger(), DSLFactory.RemoveEffect(df@0x150) )
+# (== `IdunBattle.Entities.Effects.BaseEffect$$GetRemoveEffectBehaviour`, `df@0x150` = le selecteur
+# d'ENTITE-EFFET COURANTE). RAIL ARRAYSET, donc **AUCUN gate `EffectComponent.IsActive`** --
+# `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities` n'accede
+# jamais a `+0x5c` (cliquet `probe_229_effect_triggers_active.py`).
+#
+# DISJONCTION `op_BitwiseOr` de TROIS `On()` distincts -> TROIS classes portees (patron
+# `TerrifyingCrescendo` / `ActOfFaith` : le dispatch du port est keye par `event_id`).
+#
+# COLLAPSE ASSUME, identique a `ChronometronExtraDamageRemove` : le natif retire **l'instance**
+# (`RemoveEffect(df@0x150)`), le port retire tous les 1061 non consommes du porteur
+# (`RemoveEffect(effectType, Caster())`, la seule forme portee). Le gate << deja present >> d'
+# `AddEffectOperation` garantit au plus UNE instance de 1061 par unite -> les deux formes
+# coincident.
+
+
+def just_summoned_remove_tree():
+    """`IdunBattle.Entities.Effects.BaseEffect$$GetRemoveEffectBehaviour` greffe sur le trigger de
+    `JustSummonedEffect$$CreateRemoveEffectTrigger` = `RemoveEffect(<cette instance>)`.
+
+    Une NOUVELLE instance a chaque appel : les TROIS vecteurs partagent le meme behaviour natif."""
+    return RemoveEffect(int(JUST_SUMMONED_EFFECT), Caster())
+
+
+class _JustSummonedRemoveBase(EffectTrigger):
+    """Socle des trois vecteurs de `JustSummonedEffect$$CreateRemoveEffectTrigger` -- ils ne
+    different QUE par leur `On()` et par la presence du conjoint `get_OwnerIsActor`."""
+    effect_type = int(JUST_SUMMONED_EFFECT)                       # 0x425 = 1061
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        if state.effects is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        just_summoned_remove_tree().execute(
+            entities_from_state(state, int(self.owner_id), int(self.owner_id)), ectx)
+        removed = sum(int(p.get("removed") or 0) for n, p in ectx.emitted if n == "RemoveEffect")
+        if not removed:
+            return None
+        return {"effect": JUST_SUMMONED_EFFECT.name, "owner": int(self.owner_id),
+                "removed": removed, "vector": int(self.event_id), "dsl": True}
+
+
+class JustSummonedRemoveOnPhaseEnd(_JustSummonedRemoveBase):
+    """1er terme : `On(0x3a = PhaseEnd, ownerNeedsToBeAlive = 0)`, **SANS aucun conjoint**.
+
+    C'est le vecteur DOMINANT : `IdunBattle.Operations.EndPhaseOperation$$Execute` publie `0x3a` a
+    la cloture de CHAQUE message top-level (`dispatch/phase.py`), donc le marqueur ne survit pas au
+    message qui l'a pose. Ne PAS lui ajouter de `get_OwnerIsActor` : le natif ne l'a que sur les
+    deux autres termes, et l'event de phase n'a NI acteur NI cible (`actor_id = target_id = -1`)."""
+    event_id = int(EventTriggerType.PhaseEnd)                     # 0x3a = 58
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return True                                               # `On(0x3a)` nu
+
+
+class JustSummonedRemoveOnOwnerMove(_JustSummonedRemoveBase):
+    """2e terme : `On(0x1f = PreUnitMove, ownerNeedsToBeAlive = 1) & get_OwnerIsActor`.
+
+    `get_OwnerIsActor` = `AreEqual(DSLSelectors+0x30 = Owner, +0x40 = Actor)` -- le porteur du
+    marqueur EST l'unite qui bouge."""
+    event_id = int(EventTriggerType.PreUnitMove)                  # 0x1f = 31
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return ev.actor_id is not None and int(ev.actor_id) == int(self.owner_id)
+
+
+class JustSummonedRemoveOnOwnerAbility(_JustSummonedRemoveBase):
+    """3e terme : `On(0x2a = PreUnitAbility, ownerNeedsToBeAlive = 1) & get_OwnerIsActor`.
+
+    Meme conjoint que ci-dessus ; l'emetteur du port est `dispatch/ability.py`, qui passe le CASTER
+    en `actor_id`."""
+    event_id = int(EventTriggerType.PreUnitAbility)               # 0x2a = 42
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return ev.actor_id is not None and int(ev.actor_id) == int(self.owner_id)
