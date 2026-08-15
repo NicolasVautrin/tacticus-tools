@@ -809,6 +809,10 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # lue QUE par des feuilles -- les bonus de degat a magnitude positionnelle la consomment aussi.
     scene = (Scene.from_predictor_sctx(
         predictor, sctx, elev_by_pos, tile_effects_by_pos=active_effects_by_pos,
+        # #425-r1 -- la liste POSSEDEE, pour la SEULE feuille `TileEffects(10)` (`SceneTileState`).
+        # Les lecteurs de `tile_effects_by_pos` (bonus de degat a magnitude positionnelle) ne
+        # bougent PAS : c'est ce qui rend le rayon de souffle NUL, et mesurable.
+        tile_effects_owned_by_pos=effects_by_pos,
         machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
                                                          mow_slot_by_player, cur,
                                                          mow_position_by_player))
@@ -1017,6 +1021,10 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     mow_position_by_player = _board_mow_positions(rpc, rid)   # #302-5 — gratuit (boardGraph déjà fetché)
     scene = (Scene.from_predictor_sctx(
         predictor, sctx, elev_by_pos, tile_effects_by_pos=active_effects_by_pos,
+        # #425-r1 -- la liste POSSEDEE, pour la SEULE feuille `TileEffects(10)` (`SceneTileState`).
+        # Les lecteurs de `tile_effects_by_pos` (bonus de degat a magnitude positionnelle) ne
+        # bougent PAS : c'est ce qui rend le rayon de souffle NUL, et mesurable.
+        tile_effects_owned_by_pos=effects_by_pos,
         machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
                                                          mow_slot_by_player, cur,
                                                          mow_position_by_player))

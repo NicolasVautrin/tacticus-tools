@@ -1913,9 +1913,26 @@ class SceneTileState:
     ferait donc lever `getattr(state, "effects")` sur une bound method — dégradation silencieuse
     exactement du genre que ce dépôt bannit.
 
-    `by_unit` est construit UNE FOIS depuis `Scene.tile_effects_by_pos` (canal `tileMeta`, DYNAMIQUE)
-    croisé avec `Scene.board` pour passer de la POSITION à l'id de tuile. Carte absente -> dict vide
-    -> le foyer retombe sur le seul `terrain_tile_effects` (repli statique déjà en place)."""
+    `by_unit` est construit UNE FOIS depuis `Scene.tile_effects_owned_by_pos` (canal `tileMeta`,
+    DYNAMIQUE) croisé avec `Scene.board` pour passer de la POSITION à l'id de tuile. Carte absente
+    -> dict vide -> le foyer retombe sur le seul `terrain_tile_effects` (repli statique déjà en
+    place).
+
+    ⚠ **LA TABLE LUE EST LA LISTE POSSÉDÉE, PAS LA TABLE ACTIF-ONLY (#425-r1).** Le natif
+    `IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
+    itère `EffectsOwnedComponent.ActiveEffectIds` (dont le nom trompe : le filtre d'activité n'y est
+    PAS) et fait `Enum.ToString(EffectComponent+0x58)` → `HasUtilityValue` → `GetUtilityValue`
+    **sans aucun gate sur `IsActive` ni `Removed`** — relu sur DEUX corps, l'autre étant
+    `DespoiledGroundUtility.<...>d__5$$MoveNext`. La face MOVE lisait déjà la liste possédée
+    (`ctx.effects_by_pos`) ; la face PRÉDICTION, elle, était restée ACTIF-ONLY, donc les DEUX
+    chemins du MÊME natif ne rendaient pas la même chose.
+    Le rayon de souffle de la bascule est NUL **par construction** : `Scene.tile_effects_by_pos`
+    (actif-only) reste servi tel quel à ses autres lecteurs — les bonus de dégât à magnitude
+    positionnelle (`playbook/avalanche_of_muscle.py`, `entities/effects/base.py` via `att_ctx`),
+    dont le natif est un AUTRE nœud (`HasTileStatusEffect` / `EntitiesWithAnyEffect`) et qui ne
+    sont pas confrontés sur cet axe.
+    REPLI : `tile_effects_owned_by_pos` absente (Scene bâtie hors `context.py`) -> on retombe sur
+    `tile_effects_by_pos`, c.-à-d. le comportement d'avant. Jamais un vide inventé."""
     __slots__ = ("board", "effects")
 
     class _Effects:
@@ -1927,7 +1944,10 @@ class SceneTileState:
     def __init__(self, scene):
         self.board = getattr(scene, "board", None)
         by_unit: dict = {}
-        fx = getattr(scene, "tile_effects_by_pos", None)
+        # #425-r1 : la liste POSSEDEE d'abord (ce que le natif itere), repli sur l'actif-only.
+        fx = getattr(scene, "tile_effects_owned_by_pos", None)
+        if fx is None:
+            fx = getattr(scene, "tile_effects_by_pos", None)
         if fx and self.board is not None:
             for pos, names in fx.items():
                 if not names:
