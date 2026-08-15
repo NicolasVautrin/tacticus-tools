@@ -1949,7 +1949,10 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              # -- MEME store (`UnitFlagsComponent`, flag 2 `ActiveAbilityUsed`) et MEME foyer que le
              # gate d'entree du generateur d'abilities de l'IA. Table par unite VIVANTE, montee ici
              # parce que le selecteur d'aura doit la parcourir (il ne connait qu'un board).
-             "used_active_by_id": used_active_by_id,
+             # #1042-r5 (etage 2) : la cle passe par la CONSTANTE `_LC_CTX_USED_ACTIVE`, deja
+             # importee ci-dessus -- ce site etait le DERNIER literal NU du depot doublant une
+             # constante de cle de ctx (mesure `probe_1042r5_cles_ctx_dupliquees.py --verbeux`).
+             _LC_CTX_USED_ACTIVE: used_active_by_id,
              # Accesseur au sac `PersistentDataComponent` d'une unite ARBITRAIRE (le natif lit celui
              # de l'`EffectSource`, pas celui de l'attaquant) -- meme tri-etat que
              # `entities.triggers.IsInPersistentDataList` : `None` hors runner -> liste vide, ce que

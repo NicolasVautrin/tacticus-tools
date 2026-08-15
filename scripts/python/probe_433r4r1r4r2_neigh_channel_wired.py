@@ -332,8 +332,37 @@ GEOMETRIE_NUE_CLASSEE = {
         (GEOMETRIQUE, "DSLSelectors$$UnitsDirectlyBehind -> SurroundingTiles(target, 1, 1)"),
     ("scripts/python/engine/services/movement_query.py", "is_valid_unit_feet_list"):
         (GEOMETRIQUE, "MovementQuery$$IsValidUnitFeetList -> GetDistance = CubeCoordinate$$Distance"),
-    # ---- LISTE_STOCKEE : VIDE (#943-r7, 2026-08-15). Cf. le bloc ci-dessus : les 19 sites ont ete
-    # CABLES, pas dispenses -- ils ne comparent plus aucune distance a 1. La classe reste declaree.
+    # ---- LES QUATRE ENTREES CI-DESSOUS SONT ARRIVEES AVEC L'ELARGISSEMENT DU CRITERE
+    # (#433-r4-r1-r4-r2-r1-r1-r1-r1, 2026-08-15) : elles etaient INVISIBLES parce qu'elles ecrivent
+    # `> 1` / `< 2` (la NEGATION) ou passent la distance par une VARIABLE, pas parce qu'elles
+    # seraient nouvelles. Les trois premieres sont GEOMETRIQUES par lecture, la quatrieme est une
+    # DETTE. ----
+    ("scripts/python/engine/entities/effects/loki/destroy_the_witch.py",
+     "create_aura_attack_damage_bonus_for_ally"):
+        (GEOMETRIQUE, "DSLSelectors$$SurroundingFriends -> SurroundingTiles -> IterateSurroundingTiles"),
+    ("scripts/python/engine/services/movement_query.py", "get_connected_path_to"):
+        (GEOMETRIQUE, "BattleQuery$$GetConnectedPathTo -> GetDistance = CubeCoordinate$$Distance"),
+    ("scripts/python/engine/runner/abilities/genestealer.py", "get_dynamic_invalid_target_reason"):
+        (GEOMETRIQUE, "BattleQuery$$GetMinDistance -> CubeCoordinate$$Distance sur les empreintes"),
+    # ---- LISTE_STOCKEE : VIDE. Un site y est passe, et il en est sorti PAR LE HAUT dans la meme
+    # tranche -- `playbook/psyker.py::calculate_attack_utility_in_steps` choisissait l'arme du coup
+    # par une COURONNE HEX (`d <= 1` passe en `is_adjacent` a `select_weapon_pierce`) la ou le natif
+    # descend sur la liste stockee. Chaine LUE, et elle vaut d'etre gardee ici parce qu'AUCUN nom
+    # ne l'annonce :
+    #   `PsykerPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext` appelle le
+    #   slot **175** d'`IBattleQuery` = `BattleQuery$$GetAttackWeaponForDefaultNormalAttack`
+    #   (3 args), dont le corps ENTIER est : `if (slot 21 d'IAttackQuery(attacker, attackerTiles,
+    #   ignoreTrait: 1)) { FindMeleeWeapon sinon FindRangedWeapon } else { l'inverse }` ;
+    #   le slot 21 est `AttackQuery$$ShouldApplyRangedInMelee` -> `DamageCalculations$$
+    #   ShouldApplyRangedInMelee`, qui pour chaque tuile de l'attaquant ENUMERE la liste `+0x10` du
+    #   composant de connectivite et retient un voisin ENNEMI vivant/targetable/non-steppable
+    #   passant `DamageCalculations$$CanMeleeAttackOverElevationDifference`.
+    # ⚠ LE NOM DE LA METHODE EST TROMPEUR : le PREDICAT est « un ennemi valide est ADJACENT »,
+    # d'ou la branche MELEE quand il rend VRAI.
+    # CE QUI RESTE : l'ecart de PORTEE (le natif regarde « un ennemi VALIDE adjacent a
+    # l'attaquant », le port « la CIBLE est adjacente ») et le repli `adj = dist <= 1` de
+    # `damage_model.select_weapon_pierce`, qui concerne TOUT appelant de la selection d'arme.
+    # Residu `#433-r4-r1-r4-r2-r1-r1-r1-r1-r1`. ----
 }
 
 #: Les substrats LUS AU DECOMPILE, par classe -- c'est ce qui rend `GEOMETRIE_NUE_CLASSEE`
@@ -345,8 +374,14 @@ GEOMETRIE_NUE_CLASSEE = {
 SUBSTRATS_LUS = {
     GEOMETRIQUE: ("IterateSurroundingTiles", "SurroundingTiles", "CubeCoordinate$$Distance",
                   "DetermineBlockingTiles"),
+    #: `ShouldApplyRangedInMelee` est entre le 2026-08-15 (#433-r4-r1-r4-r2-r1-r1-r1-r1) : c'est un
+    #: substrat a liste stockee que RIEN dans son NOM n'annonce -- il enumere la liste `+0x10` du
+    #: composant de connectivite de chaque tuile de l'attaquant, puis applique la porte d'elevation
+    #: par `DamageCalculations$$CanMeleeAttackOverElevationDifference`. C'est la preuve, par
+    #: l'exemple, que cette table doit se remplir par LECTURE et non par famille de noms.
     LISTE_STOCKEE: ("AdjacentTiles", "AdjacentUnits", "AdjacentFriends", "AdjacentEnemies",
-                    "IterateAdjacentTiles", "IsNeighbourOf", "AreEntitiesAdjacent"),
+                    "IterateAdjacentTiles", "IsNeighbourOf", "AreEntitiesAdjacent",
+                    "ShouldApplyRangedInMelee"),
 }
 
 # Les foyers qui rougiraient, PAR natif suspendu, remplis par `etape5` a chaque passe et imprimes
@@ -467,31 +502,95 @@ def etape1(arbres) -> tuple[list, int]:
     return manquants, total
 
 
-def _est_compare_geo(node) -> bool:
+#: Les SIX ecritures d'une adjacence hexagonale sur des entiers, en `(operateur, constante)`.
+#: `> 1` et `>= 2` sont la NEGATION de `<= 1` / `< 2` -- la forme de GARDE (`if d > 1: return None`),
+#: qui est la plus repandue dans nos mirrors et que le critere d'origine ne voyait pas.
+#: `<= 2` / `== 2` n'y sont PAS : ils mirrorent `IterateSurroundingTiles`, qui EST geometrique.
+_ADJACENCE_HEX = ((ast.Eq, 1), (ast.NotEq, 1), (ast.LtE, 1), (ast.Lt, 2),
+                  (ast.Gt, 1), (ast.GtE, 2))
+#: L'ecriture MIROIR (`1 == d`, `2 > d`, ...) : meme predicat, operateur retourne.
+_ADJACENCE_HEX_MIROIR = ((ast.Eq, 1), (ast.NotEq, 1), (ast.GtE, 1), (ast.Gt, 2),
+                         (ast.Lt, 1), (ast.LtE, 2))
+
+
+def _est_appel_distance(node) -> bool:
+    """CE noeud est-il un appel a une fonction de distance hexagonale ?"""
+    return (isinstance(node, ast.Call)
+            and (getattr(node.func, "attr", None) == "distance"
+                 or getattr(node.func, "id", "").endswith("distance")
+                 or getattr(node.func, "attr", None) == "get_distance"
+                 or getattr(node.func, "id", "").endswith("get_distance")))
+
+
+def _vars_de_distance(fn) -> set:
+    """Les noms LOCAUX lies a une distance hexagonale (`d = hexgeo.distance(a, b)`).
+
+    ⚠ SANS CETTE RESOLUTION, LE CRITERE EST AVEUGLE A LA MOITIE DU GISEMENT
+    (#433-r4-r1-r4-r2-r1-r1-r1-r1, re-mesure du 2026-08-15). `_est_compare_geo` exigeait que
+    l'operande GAUCHE soit l'APPEL lui-meme, donc l'ecriture
+
+        d = hexgeo.distance(op, ap)
+        adjacent = (d == 1)            # AdjacentFriends -- liste STOCKEE
+
+    ne comptait pour rien. Mesure : **4 sites** dans cette seule forme, dont TROIS portent le meme
+    selecteur natif partage x4 (`DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector`) --
+    exactement le genre de site que le registre existe pour voir."""
+    noms = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign) and _est_appel_distance(n.value):
+            noms |= {t.id for t in n.targets if isinstance(t, ast.Name)}
+        elif isinstance(n, ast.AnnAssign) and n.value is not None \
+                and _est_appel_distance(n.value) and isinstance(n.target, ast.Name):
+            noms.add(n.target.id)
+    return noms
+
+
+def _est_compare_geo(node, vars_dist=()) -> bool:
     """CE noeud est-il la comparaison d'une distance hexagonale a 1 ?
-    (`distance(...) == 1`, `!= 1`, `<= 1`)
 
     C'est la forme EXACTE de la geometrie nue : une adjacence decidee sur la couronne hex au lieu
     de la liste stockee. `<= 2` (un disque) et `== 2` (un ring-2) n'en sont pas -- ils mirrorent
-    `IterateSurroundingTiles`, qui EST geometrique."""
+    `IterateSurroundingTiles`, qui EST geometrique.
+
+    ⚠ LE CRITERE A ETE ELARGI DEUX FOIS, ET LES DEUX FOIS SUR UNE MESURE, PAS SUR UNE INTUITION :
+    il ne connaissait que `== 1` / `!= 1` / `<= 1`, l'appel de distance devant etre l'operande
+    GAUCHE. Il ratait donc (a) la NEGATION `> 1` -- la forme de garde `if d > 1: return None`,
+    **3 sites** -- et (b) la distance passee par une VARIABLE locale, **4 sites**. Soit
+    **7 sites invisibles**, dont deux dans le foyer meme du residu. Un cliquet dont le critere
+    ne couvre qu'une des six ecritures d'un predicat rend un ZERO qui ne prouve rien.
+
+    L'ordre des operandes est traite par `_ADJACENCE_HEX_MIROIR` (`1 == d`), pour la meme raison :
+    une ecriture equivalente ne doit pas dependre de la position du litteral."""
     if not isinstance(node, ast.Compare):
         return False
-    gauche = node.left
-    appel = (isinstance(gauche, ast.Call)
-             and (getattr(gauche.func, "attr", None) == "distance"
-                  or getattr(gauche.func, "id", "").endswith("distance")))
-    if not appel:
-        return False
-    for op, cmp in zip(node.ops, node.comparators):
-        if isinstance(op, (ast.Eq, ast.NotEq, ast.LtE)) and \
-                isinstance(cmp, ast.Constant) and cmp.value == 1:
-            return True
+
+    def _porte_distance(n) -> bool:
+        return (_est_appel_distance(n)
+                or (isinstance(n, ast.Name) and n.id in vars_dist))
+
+    # ECRITURE DIRECTE : la distance a gauche, le litteral a droite (`d == 1`, `d > 1`).
+    if _porte_distance(node.left):
+        for op, cmp in zip(node.ops, node.comparators):
+            if not isinstance(cmp, ast.Constant):
+                continue
+            for cls, val in _ADJACENCE_HEX:
+                if isinstance(op, cls) and cmp.value == val:
+                    return True
+    # ECRITURE MIROIR : le litteral a gauche, la distance a droite (`1 == d`, `2 > d`).
+    if isinstance(node.left, ast.Constant):
+        for op, cmp in zip(node.ops, node.comparators):
+            if not _porte_distance(cmp):
+                continue
+            for cls, val in _ADJACENCE_HEX_MIROIR:
+                if isinstance(op, cls) and node.left.value == val:
+                    return True
     return False
 
 
 def _compare_distance_a_un(fn) -> bool:
     """Le corps compare-t-il une distance hexagonale a 1 quelque part ?"""
-    return any(_est_compare_geo(n) for n in ast.walk(fn))
+    vars_dist = _vars_de_distance(fn)
+    return any(_est_compare_geo(n, vars_dist) for n in ast.walk(fn))
 
 
 def etape2(arbres) -> tuple[list, int]:

@@ -2203,9 +2203,19 @@ class DefenderOfTheGreaterGoodExtraHitsEffect(BaseEffect):
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return False
-        d = hexgeo.distance(tuple(op), tuple(ap))
-        adjacent = (d == 1)                                   # AdjacentFriends(range 1, TOUTE faction)
-        tau_ring = (d <= 2 and c.get("att_faction") == self._TAU_FACTION)   # UnitsFromFaction(2, Tau)
+        # ⚠ LES DEUX TIERS N'ONT PAS LE MEME SUBSTRAT NATIF (#433-r4-r1-r4-r2-r1-r1-r1-r1), et les
+        # decider par la MEME distance melangeait une liste STOCKEE et un disque CUBE :
+        #   * `AdjacentFriends` -> `DSLSelectors$$AdjacentTiles` -> liste stockee du
+        #     `ConnectivityComponent` + porte `|dElev| < 2` -> canal `battle_query.is_adjacent` ;
+        #   * `SurroundingFriends(2)` -> `SurroundingTiles` -> `BattleQuery.u003CIterateSurrounding
+        #     Tilesu003Ed__6$$MoveNext` (cube, sans porte) -> la distance nue EST le mirror exact.
+        # CABLE EN MEME TEMPS que sa JUMELLE `extra_damage_aura::DefenderOfTheGreaterGoodExtraDmg
+        # Effect.aura_selector_covers` : c'est le MEME `GetBaseBuffTargetSelector`, les separer
+        # ouvrirait une divergence entre l'axe DEGAT et l'axe COUPS du meme passif.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        adjacent = bool(_bq.is_adjacent(tuple(op), tuple(ap), elev_by_pos, neigh_by_pos))
+        tau_ring = (hexgeo.distance(tuple(op), tuple(ap)) <= 2
+                    and c.get("att_faction") == self._TAU_FACTION)          # UnitsFromFaction(2, Tau)
         return bool(adjacent or tau_ring)
 
     def _covered_by_source_aura(self, c: Mapping) -> bool:
@@ -2615,6 +2625,62 @@ class LegendaryCommanderExtraHitsEffect(BaseEffect):
             if _bq.is_adjacent(tuple(p), tuple(tpos), elev_by_pos, neigh_by_pos):
                 return True
         return False
+
+    def targets_to_revert_on_exit(self, state, owner_id: int) -> tuple:
+        """`LegendaryCommander_ExtraHitsEffect$$RevertInternal` = `ExecuteBehaviour(
+        ClearPersistentData(<AbilityOrEffect>, EffectSource(Get(effect)),
+        EntityId(Target@<DSLSelectors+0x60>)))` -- la part DATA, lue par le driver
+        `runner/operations/refresh_effects.revert_effects_for_exited_targets`.
+        #419-r1-tr9-r4-r1-r2-r1b.
+
+        Rend les cles `(source, (1395, uid))` des cibles MARQUEES que le selecteur ne couvre PLUS.
+        L'ensemble des marquees est un sur-ensemble suffisant de `targetsToRemove` : sur une cible
+        sortie mais NON marquee, `ClearPersistentData` est un no-op (cf. la docstring du driver).
+
+        ⚠ LE CTX PASSE PAR `build_hits_board`, LE FOYER, et pas par une seconde construction.
+        `aura_selector_covers` ne lit QUE des donnees d'ETAT (`owner_*`, `pos_by_id`, `team_by_id`,
+        `used_active_by_id`, le board) : aucune n'a besoin d'une attaque en cours. L'`att_id` passe
+        au foyer est donc le PORTEUR lui-meme -- il n'entre dans aucun des noeuds evalues ici, et
+        le prendre ailleurs n'aurait fait qu'inventer un acteur.
+
+        Import DIFFERE et PORTEUR (classe MESUREE) : `runner.damage_model` importe ce module-ci
+        (`from ..entities.effects.loki.hits import ...`), donc hisser cet import fermerait le cycle."""
+        from ....runner.damage_model import build_hits_board          # differe PORTEUR (cf. supra)
+        from ....runner.components import PersistentDataComponent, PositionComponent
+        src = self.source if self.source is not None else int(owner_id)
+        ent = state.get_entity(int(src))
+        comp = ent.get_component(PersistentDataComponent) if ent is not None else None
+        if comp is None:
+            return ()
+        marquees = [k[1] for k in comp.data
+                    if isinstance(k, tuple) and len(k) == 2
+                    and k[0] == LEGENDARY_COMMANDER_EXTRA_HITS]
+        if not marquees:
+            return ()                              # aucun sac a balayer -> cout nul hors regime
+        oe = state.get_entity(int(owner_id))
+        opc = oe.get_component(PositionComponent) if oe is not None else None
+        if opc is None:
+            return ()                              # porteur hors plateau -> rien de mesurable
+        out = []
+        for uid in marquees:
+            te = state.get_entity(int(uid))
+            tpc = te.get_component(PositionComponent) if te is not None else None
+            if tpc is None:
+                # La cible n'a plus de tuile (morte / retiree) : le natif l'a fait sortir de
+                # `Targets` au meme titre, donc la marque part.
+                out.append((int(src), legendary_commander_marked_key(int(uid))))
+                continue
+            board, _auras, _tgt_eff = build_hits_board(
+                state, int(owner_id), int(uid), (opc.col, opc.row), (tpc.col, tpc.row),
+                is_melee=None)
+            # `owner_team` vient du MEME `team_by_id` que le reste du selecteur -- une seconde
+            # lecture de l'`OwnerComponent` ici serait un fork silencieux.
+            ctx = {**board, "owner_id": int(owner_id),
+                   "owner_pos": (opc.col, opc.row),
+                   "owner_team": (board.get("team_by_id") or {}).get(int(owner_id))}
+            if not self.aura_selector_covers(ctx):
+                out.append((int(src), legendary_commander_marked_key(int(uid))))
+        return tuple(out)
 
     def is_valid_attack(self, ctx: "Mapping | None" = None) -> bool:
         """`LegendaryCommander_ExtraHitsEffect$$IsValidAttack(<selecteur>)` -- les QUATRE noeuds, dans

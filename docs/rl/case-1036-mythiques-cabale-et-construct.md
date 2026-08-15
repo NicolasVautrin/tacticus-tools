@@ -7,7 +7,7 @@
 | ability : pose de l'owner-effect à l'init | **PORTÉE** (`ABILITY_INIT_OWNER_EFFECTS`) | **PORTÉE** (idem) |
 | effet : bonus %-dégât sous sélecteur | **PORTÉ + gates CONFRONTÉS LIVE** (`#1036-r2`) | **PORTÉ + gates CONFRONTÉS LIVE** (`#1036-r1`) |
 | … sa MAGNITUDE face au natif | **NON CONFRONTÉE** — `#1036-r8`, `BLOCAGE: capteur` | idem |
-| … la patte SELF (le porteur bénéficiaire) | **NON PORTÉE** — `#1036-r7` | idem |
+| … la patte SELF (le porteur bénéficiaire) | **DEAD par STRUCTURE** — `#1036-r7` §5 | **NON PORTABLE**, `BLOCAGE: etage` — `#1036-r7` §5 |
 | face DÉCISION | playbook natif existe, **NON portée** (`#1036-r3`) | **RIEN À PORTER** — aucun playbook dans le build |
 
 Les deux effets sont entrés dans `EFFECT_CLASSES` (`loki/extra_damage_aura.py`, canal AURA
@@ -207,6 +207,31 @@ python rl_duel.py build --seed 777 --board MC1_67 `
   à la MoW **quand elle attaque elle-même**. Le canal port serait `create_effect_damage_bonus_for_
   attack`, dont l'`att_ctx` ne porte NI `att_rarity` NI `att_effect_names` (~9 sites de
   construction, cf. `#1025-r1`) : en poser un seul créerait un fork silencieux. `#1036-r7`.
+
+  **RE-MESURÉ le 2026-08-15 — la phrase ci-dessus est exacte, et ce n'est PAS le blocage.**
+  Trois corrections, dont deux inversent un verdict :
+
+  1. **`1494 CabalOfSorcerers` est DEAD PAR STRUCTURE, côté NATIF** — pas « de surcroît inerte ».
+     `IsMachine(Owner)` tient sur les deux porteurs ⇒ **seule** la branche `F` s'applique ; `F`
+     exige `AdjacentFriends(<élément courant>)` non vide, et pour la patte SELF cet élément *est* la
+     MoW, qui n'occupe **aucune** tuile (`AdjacentTilesSelector$$Select` énumère les tuiles de
+     l'origine). Aucun outillage ne peut lever ça. Rendu **exécutable** contre le calculateur réel
+     (`damage_model._cabal_valid_adjacent_to`), jamais contre une ré-écriture.
+  2. **La RARETÉ n'est plus un blocage, et c'est MESURÉ LIVE** (`probe_1036r7_patte_self_mow.py`,
+     `necroReanimator` + `--equip-mythic GuardianConstruct:4`, `MC1_67`/777) :
+     `_unit_rarity(state, <MoW>) = Rarity.Mythic`, `combatSnapshot` rend `rarity = 5,
+     entityType = 6`, et le `StatsComponent` de la Machine porte bien `ctx.rarity`. Le 3ᵉ étage du
+     sélecteur serait **ouvert**. La branche SOURCE (`& 4` — `EntityExtensions$$HasOneOfEffects`
+     appelle `EffectsQuery$$IsOwnerOfOneOfEffects`, lu) n'est pas non plus un blocage de capteur :
+     elle se dérive d'`EffectsState` (`e.source`).
+  3. **Le vrai blocage est un ÉTAGE** : les **quatre** actives des **deux** porteurs sont hors
+     `ABILITY_CLASSES` — `ReanimationBeam`, `NanoscarabRepairProtocols`, `AetherStride`,
+     `InfernalCannon`. Le port ne peut donc **ni poser l'effet source ni faire attaquer la MoW** :
+     porter la patte SELF écrirait du code qu'aucun montage ne peut atteindre. `BLOCAGE: etage`.
+
+  Cliquet : `tests/engine/test_1036r7_patte_self_mythiques_mow_offline.py` **rougit le jour où une
+  de ces actives entre au registre** — c'est-à-dire le jour où ce résidu se rouvre, et personne ne
+  s'en souviendrait. Contre-épreuve : 2 mutations, 2 rouges.
 - **La face DÉCISION de `CabalOfSorcerers`** (`#1036-r3`) : `CabalOfSorcerersPlaybook`
   (`TriggeredAbilityNonOwnerPlaybook<CabalOfSorcerersAbility>`) surcharge
   `$$CalculateMovementUtilityInSteps`. Son corps a été lu (il rend une utilité pour une tuile
@@ -282,6 +307,9 @@ d'accord — un vert vide.
 
 - **`#1036-r3`** — face DÉCISION de `CabalOfSorcerers` (`CabalOfSorcerersPlaybook`). `BLOCAGE:
   aucun` depuis cette tranche (rareté ET nature d'entité disponibles côté `Scene`).
-- **`#1036-r7`** — la patte SELF des deux effets (cf. §5).
+- **`#1036-r7`** — la patte SELF des deux effets (cf. §5). **RE-MESURÉ 2026-08-15** : `1494` est
+  **DEAD par structure** ; `1548` reste ouvert mais son blocage est un **ÉTAGE** (les 4 actives des
+  2 porteurs sont hors registre), pas le contexte — et la **rareté**, longtemps accusée, est
+  mesurée disponible. `BLOCAGE: etage`.
 - **`#1036-r8`** — le niveau d'une ability MYTHIQUE de MoW n'est publié par aucun canal live ;
   aucune magnitude d'aura de MoW n'est donc confrontable. `BLOCAGE: capteur`.

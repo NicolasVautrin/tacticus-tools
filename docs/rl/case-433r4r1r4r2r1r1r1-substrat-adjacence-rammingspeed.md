@@ -160,6 +160,60 @@ la suspension est alors PÉRIMÉE, et c'est elle le vice.
   (et elle rendait juste), mais elle **ne nommait pas** les foyers — donc la prose qui, elle, les
   nommait, a survécu à leur réparation. Le correctif est dans le probe : l'étape 5 **imprime
   désormais les foyers qui rougiraient**, dérivés à chaque passe.
+
+  **FERMÉ le 2026-08-15, et le tableau ci-dessus était PÉRIMÉ À SON TOUR** — les trois foyers sont
+  câblés, le registre suspendu est **VIDE** (les quatre natifs armés par #983 et #943-r7), et
+  l'étape 5 rend `0 suspendu / 0 périmé`. Mais le gisement était **rouvert par un angle mort du
+  CRITÈRE**, pas par du code neuf : `_est_compare_geo` n'acceptait que `== 1` / `!= 1` / `<= 1`,
+  l'appel de distance devant être l'opérande **gauche**. Il était donc aveugle à la **négation**
+  (`> 1`, `>= 2`, `< 2` — la forme de garde `if d > 1: return None`) et à la distance passée par une
+  **variable locale**. Mesure : **5 → 13** géométries nues (8 sites invisibles), plus un mirror
+  *déclaré* qui bascule à l'étape 2.
+
+  | site rendu visible | verdict |
+  |---|---|
+  | `extra_damage_aura::BeaconOfRage…` (`AdjacentFriends`) | **CÂBLÉ** |
+  | `extra_damage_aura::DefenderOfTheGreaterGood….aura_selector_covers` | **CÂBLÉ** |
+  | `hits::…aura_selector_covers` (jumeau COUPS) | **CÂBLÉ, même commit** |
+  | `components::structural_analyser_friends` | **CÂBLÉ** |
+  | `psyker::calculate_attack_utility_in_steps` | **CÂBLÉ** (le cliquet l'a exigé) |
+  | `destroy_the_witch`, `movement_query::get_connected_path_to`, `genestealer` | `GEOMETRIQUE` par lecture |
+
+  Les trois `aura_selector_covers` / `structural_analyser_friends` portent le **même**
+  `DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` (partagé ×4) : ils sont câblés
+  **ensemble**, sinon l'axe DÉGÂT et l'axe COUPS du même passif divergeraient. Dans les trois, le
+  tier `SurroundingFriends(2)` **reste** une distance nue — `IterateSurroundingTiles` balaie un cube
+  sans liste ni porte, le câbler serait une **régression**.
+
+  ⚠ **Un critère qui ne couvre qu'une des six écritures d'un prédicat rend un ZÉRO qui ne prouve
+  rien** — c'est la même faute de forme que ci-dessus, transposée de la PROSE au CRITÈRE. Résidu
+  ouvert : `#433-r4-r1-r4-r2-r1-r1-r1-r1-r1` (la sélection d'arme, cf. §6bis).
+
+### 6bis. `#433-r4-r1-r4-r2-r1-r1-r1-r1-r1` — la sélection d'arme décide la mêlée par une couronne hex
+
+Chaîne **lue** le 2026-08-15 : `PsykerPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext`
+appelle le slot **175** d'`IBattleQuery` = `BattleQuery$$GetAttackWeaponForDefaultNormalAttack`
+(3 args), dont le corps entier est
+
+```c
+if (<slot 21 d'IAttackQuery>(attacker, attackerTiles, ignoreTrait: 1))
+     { FindMeleeWeapon  ?? FindRangedWeapon }
+else { FindRangedWeapon ?? FindMeleeWeapon }
+```
+
+et le slot 21 est `AttackQuery$$ShouldApplyRangedInMelee` → `DamageCalculations$$ShouldApplyRangedInMelee`,
+qui **énumère la liste `+0x10`** du composant de connectivité de chaque tuile de l'attaquant et retient
+un voisin **ennemi** vivant / targetable / non-steppable passant
+`DamageCalculations$$CanMeleeAttackOverElevationDifference`.
+
+⚠ **Le NOM de la méthode est trompeur** : le prédicat est « un ennemi **valide** est **adjacent** »,
+d'où la branche MÊLÉE quand il rend vrai. C'est pourquoi `ShouldApplyRangedInMelee` est entré dans
+`SUBSTRATS_LUS[LISTE_STOCKEE]` — cette table se remplit par **lecture**, jamais par famille de noms.
+
+Le site `psyker` est câblé ; **deux écarts restent**, et ils dépassent ce site : la **portée** (le
+natif regarde un ennemi adjacent à l'ATTAQUANT, le port « la CIBLE est adjacente ») et le repli
+`adj = dist <= 1` de `damage_model.select_weapon_pierce`, qui mord dès qu'un appelant ne passe pas
+`is_adjacent` — donc pour **toute** la famille.
 * **`#381-r1`** (déjà ouvert) — le test de CHEMIN (slot `0x14`) reste SUBSUMÉ côté port :
   `ramming_speed_tile_to_move_to` n'émet que des tuiles de `MovableTilesInRange`, qui est le
   `visited` d'un BFS **qui traverse**, là où le natif fait un pathfinding. Écart d'ACCEPTATION sur
