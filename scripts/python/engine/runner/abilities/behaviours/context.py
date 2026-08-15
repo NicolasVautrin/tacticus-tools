@@ -1262,15 +1262,33 @@ def machine_id(state, entity_id) -> int | None:
     `null` sur une tuile exactement comme le port. Le trou reel est BEAUCOUP plus etroit -- il ne
     concerne QUE les entites `MachinePlatform`. (Corrige et re-mesure #287-r14-r2, 2026-08-14.)
 
-    ⚠ La branche PLATEFORME reste NON PORTEE, et c'est un residu NOMME. Ce que la mesure live dit
-    (runner `orksRukkatrukk` sur `MC1_67`, `dumpEntityComponents` sur les ids 60..99) :
-      * une MoW porte **DEUX** entites `MachinePlatform` (75 et 76), qui ne portent QU'UN
-        `MachinePlatformComponent` -- ni `PositionComponent`, ni `TileComponent` ;
-      * `decisionView.mows[]` n'en publie **QU'UNE** (`id: 76`, l'ancre), avec `pos: null` ;
-        la seconde n'apparait dans AUCUN canal.
-    Le lien `plateforme -> machine` de l'ancre EST donc lisible (`mows[].id` -> `machineId`), mais
-    porter la moitie du mapping fabriquerait une resolution qui reussit sur une plateforme et
-    echoue sur l'autre, en silence. `None` reste la degradation FIDELE a ce que le port sait."""
+    ⚠ La branche PLATEFORME reste NON PORTEE, et la RAISON A CHANGE -- re-mesuree le 2026-08-15
+    (#287-r14-r2). La raison qui vivait ici (« le substrat n'est publie qu'a moitie, donc porter le
+    mapping ferait reussir la resolution sur une plateforme et echouer sur l'autre, en silence »)
+    est **PERIMEE** : `decisionView.mows[].platformIds` est arme, et son producteur
+    (`frida/hooks/game/match-state.ts::readMachinePlatformLink`) ne retient que les plateformes
+    dont `MachineId.HasValue` est VRAI -- exactement la condition que teste
+    `IdunBattle.Entities.TileExtensions$$GetMachinePlatformContent` avant de rendre `null`. Une
+    plateforme absente du canal est donc une plateforme sur laquelle le natif rend `null` lui
+    aussi : le mapping publie est COMPLET pour tout ce qui est LIABLE. (Une MoW porte bien DEUX
+    entites de type 7 et le canal n'en publie qu'UNE ; c'est un FAIT NATIF, pas une amputation.)
+
+    ⚠ **CE QUI INTERDIT LE PORT EST LA REACHABILITE, et elle est desormais MESUREE.** Aucun
+    vecteur ne remet un id de PLATEFORME a cette fonction :
+      * `TargetIsMachine` (bit 44) -- la seule voie qui appelle `machine_id()` SANS essayer
+        `unit_id()` d'abord : **0 ability** au registre ;
+      * `TargetIsActor` (bit 46) -- `unit_id() ?? machine_id()` : **1 ability**, `1160
+        HeavyRailRifle`, et le canal de ciblage natif lui remet la **MACHINE**, jamais sa
+        plateforme. MESURE (runner `--p-mow tauBroadside --a-mow orksRukkatrukk`, `MC1_67`,
+        seed 777) : `abilityTargets(caster=80, ability=1160).fromHere = [77, 79]`, ou `79` est
+        l'entite `Machine` ; l'intersection avec les plateformes publiees `{75, 76}` est VIDE, et
+        le port rend `machine_id(79) = 79` -- ACCORD.
+    Porter la branche ajouterait donc du code qu'aucun vecteur n'exerce, et le premier test a
+    l'exercer devrait FABRIQUER une cible que le natif ne produit jamais (doctrine « pas de
+    porteur = speculatif »). Le verdict est garde par
+    `tests/engine/test_287r14r2_reachability_plateforme_offline.py`, qui ROUGIT le jour ou une
+    ability entre au registre avec `TargetIsMachine` ou ou `1160` change de masque -- le port
+    devient alors exigible, AVEC son vecteur de confrontation."""
     if entity_id is None:
         return None
     try:

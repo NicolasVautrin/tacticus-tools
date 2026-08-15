@@ -582,6 +582,13 @@ class Scene:
             # strictement anterieur. Le cablage est pose ICI pour que la voie live se ferme au
             # prochain reinject sans retoucher au port.
             tiles_moved_by_id=predictor.get("tiles_moved_by_id") or {},
+            # #487-r2 : `ActorStatisticsComponent + 0x80` du MEME capteur `actorStats`. ⚠ Ici le
+            # defaut est `None` et **surtout pas `or {}`** : ce champ est le SEUL du bloc dont le
+            # tri-etat est porte par la TABLE ENTIERE et non par l'absence d'une cle. Un `{}` servi
+            # pour une non-mesure affirmerait « personne n'a pris de degat ce tour » et ferait
+            # REFUSER `1088` (utilite `0 < MIN_UTILITY = 1`) -- degradation RESTRICTIVE, l'inverse
+            # exact de celle que les tables voisines produisent quand elles sont vides.
+            received_damage_profiles_by_id=predictor.get("received_damage_profiles_by_id"),
             # #378 : lien enfant -> summoner du capteur `combatSnapshot.parentId`. Table vide = le
             # hook ne publie PAS encore le champ -> `Scene.parent(uid)` rend `None` pour tout le
             # monde et le noeud `If(AmountIsGreaterThanZero(Parent(src)), Parent(src), src)`
@@ -1636,6 +1643,10 @@ def build_predictor(rpc, rid):
     # deplacement l'incremente, `ActorStatisticsComponent$$ResetThisTurn` le remet a zero en FIN de
     # tour) -> re-capture par pas dans `refresh_shields`.
     tiles_moved_by_id = _tiles_moved_from_actor_stats(_ast)
+    # #487-r2 : `ActorStatisticsComponent + 0x80` du MEME capteur, MEME appel -- cout NUL. Substrat
+    # de l'utilite d'`IdunBattle.AI.Playbook.Loki.HellfyreMissileRackPlaybook$$EvaluateNonComparable`
+    # (`HasTakenDamageOfDamageProfileThisTurn`). `None` = non mesure, cf. la docstring du helper.
+    received_damage_profiles_by_id = _received_damage_profiles_from_actor_stats(_ast)
     # BOARD STATIQUE (#183) : mirror offline des Tile objects natifs. Le natif ne passe PAS de "board" a la
     # prediction -- l'attackerTile (tuile candidate, `local_588` de CalculateAttackerModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction) PORTE lui-meme son terrain (tileDefId -> IdunBattle.Entities.TileExtensions$$IsTrench = IsTileWithId) et son graphe
@@ -1654,6 +1665,7 @@ def build_predictor(rpc, rid):
             "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
             "trigstate_by_id": trigstate_by_id,          # #1042-r1, cf. son seed ci-dessus
             "tiles_moved_by_id": tiles_moved_by_id,
+            "received_damage_profiles_by_id": received_damage_profiles_by_id,   # #487-r2
             # #46 : TurnsStarted (stat 12) — gate slot-4 « pas au 1er tour ». DYNAMIQUE ->
             # re-capturé par-pas via `refresh_shields` (le cold seul serait figé au pas 0).
             "turns_started_by_id": {
@@ -1782,6 +1794,45 @@ def _tiles_moved_from_actor_stats(ast) -> dict:
     return {u["entityId"]: int(u["tilesMovedThisTurn"])
             for u in ((ast or {}).get("units") or [])
             if u.get("entityId") is not None and u.get("tilesMovedThisTurn") is not None}
+
+
+def _received_damage_profiles_from_actor_stats(ast) -> dict | None:
+    """{uid: set(DamageProfileType)} depuis le capteur `actorStats` (#487-r2) -- les CLES du
+    `Dictionary<DamageProfileType, int>` `ActorStatisticsComponent + 0x80`, ecrit par
+    `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterReceivedDamage` et lu par
+    `IdunBattle.Entities.UnitExtensions$$HasTakenDamageOfDamageProfileThisTurn` (PRESENCE de cle,
+    JAMAIS un compte -- d'ou le `set` des cles et non le dict complet).
+
+    C'est le pendant LIVE de ce que `Scene.from_state` lit de l'ECS. La face DECISION n'avait AUCUN
+    canal pour ce substrat, donc `HellfyreMissileRackPlaybook` s'abstenait en LIVE : le natif
+    proposait `1088` (bucket `util = 3`) la ou le port ne rendait aucun candidat -- degradation
+    RESTRICTIVE, mesuree par `probe_487r2_hellfyre_decision_live.py`. Le capteur, lui, existe depuis
+    #10008 (`frida/hooks/game/receive-damage-types.ts` -> `actorStats.units[].
+    receiveDamageTypeThisTurn`), et le canal est deja tire par `build_predictor` pour
+    `totalAttacksMade` : ce cablage ne coute AUCUN RPC de plus.
+
+    ⚠ TRI-ETAT A DEUX NIVEAUX, et les deux comptent.
+      * `None` (retour) = le CAPTEUR n'a rien rendu (RPC absent/en echec, ou bundle d'AVANT #10008
+        ou aucune ligne ne porte le champ). `Scene.received_damage_profiles_by_id` reste alors
+        `None` et `has_taken_damage_of_profile_this_turn` rend `None` = non mesure -- exactement le
+        comportement d'avant ce cablage.
+      * une unite dont le champ est ABSENT ou `null` n'entre PAS dans la table (accesseur `None`),
+        alors qu'un `profiles` VIDE est une mesure PLEINE (`set()` : cette unite n'a rien pris).
+    Servir `{}` pour une non-mesure se lirait « personne n'a pris de degat ce tour » -- une
+    AFFIRMATION, qui ferait REFUSER l'ability (utilite `0 < MIN_UTILITY = 1`)."""
+    lignes = (ast or {}).get("units") or []
+    out: dict = {}
+    for u in lignes:
+        eid = u.get("entityId")
+        champ = u.get("receiveDamageTypeThisTurn")
+        if eid is None or not isinstance(champ, dict):
+            continue
+        profils = champ.get("profiles")
+        if not isinstance(profils, dict):
+            continue
+        out[eid] = {int(p) for p in profils}
+    # AUCUNE ligne mesuree -> NON MESURE, jamais une table vide (cf. le tri-etat ci-dessus).
+    return out or None
 
 
 def _defense_stats_from_snapshot(units) -> dict:

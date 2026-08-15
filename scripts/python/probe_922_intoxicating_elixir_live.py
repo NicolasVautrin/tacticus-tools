@@ -518,11 +518,15 @@ def stage_degat(h, a, n: int, cfg: dict):
 
 
 def frappe(h, rec):
-    live = h.rpc("applyAction", {"runnerId": h.rid, "action": {
+    live = h.rpc("applyAction", {"runnerId": h.rid, "captureEvents": True, "action": {
         "kind": "ability", "casterId": rec["caster"], "targetId": rec["target"],
         "abilityType": int(rec["ability_type"])}}, 60)
     a0 = (live.get("actions") or [{}])[0]
     hits = []
+    # #922-r1 volet (a) -- DECOMPOSITION PAR ETAGE. Le montant seul ne separe PAS « le natif a
+    # crit et le port non » de « les deux ont crit, la crit-DAMAGE differe ». On garde les tags
+    # BRUTS de chaque coup, dont le natif publie le detail (`IsCrit`, `IsBlocked`, profil...).
+    rec["live_tags"] = []
     for e in (a0.get("events") or []):
         td = e.get("tags")
         if not td:
@@ -531,6 +535,7 @@ def frappe(h, rec):
         if ("Amount" in td and td.get("Attacker_Id") == rec["caster"]
                 and td.get("Target_Id") == rec["target"]):
             hits.append(int(td["Amount"]))
+            rec["live_tags"].append(td)
     if not a0.get("ok") or not hits:
         return None, "attaque live refusee/vide (%s)" % str(live)[:200]
     if not any(u.get("id") == rec["target"] for u in h.alive()):
@@ -555,10 +560,12 @@ def rejeu(h, rec, mutate=None):
     exactement l'etat du port AVANT le correctif #922 des trois vecteurs. Ne peut mordre que si un
     ecouteur d'`On(6)` change la crit damage EN COURS DE SALVE (bras `--thrilled`)."""
     from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.runner import components as C
     from engine.runner.operations import damage as D
     saved = EFFECT_CLASSES.get(EFFECT_NAME)
     orig = D.AttackDamageOperation._crit_board
     orig_params = D.AttackDamageOperation._crit_params
+    orig_count = C.debuffed_units_in_range_count
     try:
         if mutate == "CRITDMG_AVANT":
             memo = {}
@@ -574,6 +581,39 @@ def rejeu(h, rec, mutate=None):
             D.AttackDamageOperation._crit_params = staticmethod(_fige)
         if mutate == "NOCHANNEL":
             EFFECT_CLASSES.pop(EFFECT_NAME, None)
+        if mutate == "COMPTEUR_APRES":
+            # #922-r1 volet (a) -- CONTRE-EPREUVE DE LOCALISATION, par SUBSTITUTION D'ENTREE.
+            # On ne touche NI la formule NI le pipeline de degat : on donne au port le compteur
+            # que le natif lui donne, c'est-a-dire celui d'APRES `On(PreAttackHit = 6)`.
+            #
+            # POURQUOI c'est la bonne entree, et c'est LU dans
+            # `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : l'ordre y est
+            #   slot 0xad (profil) -> `AttackHit..ctor` -> **slot 0xa `RollCritical`**
+            #   -> `AbilityEntities..ctor` -> EnqueueOperation(**6**) -> EnqueueOperation(**7**)
+            #   -> `IsAttackMaxOutDamage` -> **slot 0xb (crit-DEGAT)** -> slot 4 -> sub-op 0x42.
+            # La crit-CHANCE est donc tiree AVANT l'event (le coup 0 n'a pas le bonus pose par
+            # `On(6)` -- ce que le port porte deja, `crit_chance` / `crit_chance_after`), mais la
+            # crit-DEGAT est calculee APRES : elle voit le bonus **des le coup 0**. Le port, lui,
+            # fige `crit_damage` sur la valeur d'AVANT l'event, pour TOUS les coups.
+            # `1` n'est PAS un scalaire fitte : c'est `compteur_apres_rejeu`, MESURE par
+            # `etages_par_coup` sur l'etat que le port lui-meme produit apres la salve (le porteur
+            # y porte bien `ThrillSeekers`, donc `SurroundingUnits` le compte, `includeCenter`).
+            #
+            # ⚠ IL Y A **DEUX** PORTES, et n'en substituer qu'une ne mord PAS (mesure : le seul
+            # callable de magnitude laisse `[6534, 4621, 5010]` inchange).
+            #   (1) ACTIVITE  -- `UnitEffectStateView["debuffed_units_in_range"]` alimente la
+            #       `CreateActiveCondition` ; a `0` l'instance est EXCLUE d'`active_effects`, donc
+            #       `_crit_params` ne la voit meme pas et la magnitude n'est jamais evaluee ;
+            #   (2) MAGNITUDE -- le callable `debuffed_units_in_range_of` d'`att_ctx`.
+            # On substitue les DEUX au meme compteur.
+            n_apres = 1
+
+            def _apres(state, att_id, tgt_id, _o=orig, _n=n_apres):
+                d = dict(_o(state, att_id, tgt_id))
+                d["debuffed_units_in_range_of"] = lambda _oid, _v=_n: _v
+                return d
+            D.AttackDamageOperation._crit_board = staticmethod(_apres)
+            C.debuffed_units_in_range_count = lambda _st, _uid, _v=n_apres: _v
         if mutate in ("PASSIF", "SANSSANTE"):
             cle = "tertiary_ability_state_of" if mutate == "PASSIF" else "unit_health_of"
 
@@ -588,6 +628,39 @@ def rejeu(h, rec, mutate=None):
             EFFECT_CLASSES[EFFECT_NAME] = saved
         D.AttackDamageOperation._crit_board = orig
         D.AttackDamageOperation._crit_params = orig_params
+        C.debuffed_units_in_range_count = orig_count
+
+
+def etages_par_coup(h, rec) -> dict:
+    """#922-r1 volet (a) -- LES ETAGES DU PORT, coup par coup, pour l'ecart qui reste une fois le
+    SEED ferme et la REACTIVATION refutee.
+
+    `ChargeRegimeHarness.replay_offline` ne rend que `per_hit` : comparer deux LISTES DE MONTANTS
+    ne separe pas « le natif a crit et le port non » de « les deux ont crit, la crit-DAMAGE
+    differe ». On refait donc ICI le meme rejeu (meme etat, meme RNG -- c'est `offline_state` qui
+    seede les deux) et on garde le dict COMPLET que publie l'operation de degat : bornes brutes,
+    bornes nettoyees, `crits`, `rolls`, armure, percage. Aucun etat n'est partage avec le rejeu
+    nominal : `offline_state` reconstruit depuis la capture a chaque appel."""
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+    st = h.offline_state(rec)
+    runner = Runner(st).install_default_handlers(20)
+    runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
+    last = dict(runner.damage_handler.last or {})
+    last.pop("state", None)
+    # LE DISCRIMINANT du troisieme etage : le compteur de `SurroundingUnits` est GEOMETRIQUE et
+    # se re-evalue a chaque coup (`active_condition_ported = True`), donc il ne peut monter en
+    # cours de salve QUE si le debuff qui qualifie une unite est POSE en cours de salve. On lit
+    # donc l'etat du PORTEUR **apres** le rejeu, au meme grain que `_debuffs_of` cote live.
+    from engine.runner.components import debuffed_units_in_range_count
+    oid = int(rec.get("porteur", rec["caster"]))
+    noms = []
+    for e in ((getattr(st.effects, "by_unit", None) or {}).get(oid) or []):
+        if not getattr(e, "consumed", False):
+            noms.append(getattr(e, "name", None) or int(getattr(e, "effect_type", -1)))
+    last["porteur_effets_apres_rejeu"] = sorted(str(x) for x in noms)
+    last["compteur_apres_rejeu"] = debuffed_units_in_range_count(st, oid)
+    return last
 
 
 def etages(h, rec) -> dict:
@@ -674,6 +747,37 @@ def run_degat(a, rpc, Board, Harness, n: int, cfg: dict) -> int:
                           if _n else "AUCUNE, le residu porte sur le SEED"))
                 print("        Ecart par coup = %s"
                       % ([l - o for l, o in zip(live, off[:k])],))
+                # --- DECOMPOSITION PAR ETAGE (volet (a)) ------------------------------------
+                # Le montant seul ne dit pas OU l'ecart naît. On imprime les DEUX cotes au meme
+                # grain : les tags natifs par coup, et les etages du port.
+                print("        [ETAGE] tags NATIFS par coup :")
+                for i, td in enumerate(rec.get("live_tags") or []):
+                    print("            coup %d : %s" % (i, json.dumps(
+                        {k2: v2 for k2, v2 in sorted(td.items())
+                         if k2 not in ("Attacker_Id", "Target_Id")}, default=str)))
+                try:
+                    ep = etages_par_coup(h, rec)
+                except Exception as exc:                       # pragma: no cover - diagnostic
+                    print("        [ETAGE] rejeu du port KO : %r" % (exc,))
+                else:
+                    print("        [ETAGE] etages du PORT = %s"
+                          % json.dumps({k2: v2 for k2, v2 in sorted(ep.items())
+                                        if k2 != "additional_hits"}, default=str)[:1400])
+                print("        [ETAGE] etages scalaires = %s"
+                      % json.dumps(et, default=str, sort_keys=True))
+                apres = rejeu(h, rec, mutate="COMPTEUR_APRES")
+                print("        COMPTEUR_APRES %s  (le port avec le compteur d'APRES On(6))"
+                      % (apres[:k][:6],))
+                if apres[:k] == live:
+                    print("        VERDICT (a) : ETAGE LOCALISE -- le port rend le NATIF au bit "
+                          "pres des que la crit-DEGAT lit l'etat d'APRES `On(6)`. La seule cause "
+                          "restante est le MOMENT de lecture, pas la formule.")
+                elif apres[:k] == off[:k]:
+                    print("        VERDICT (a) : la substitution NE MORD PAS -- l'ecart n'est PAS "
+                          "dans le compteur.")
+                else:
+                    print("        VERDICT (a) : la substitution MORD mais ne ferme pas -- ecart "
+                          "residuel = %s" % ([l - o for l, o in zip(live, apres[:k])],))
                 return rc
             if not accord:
                 print("        !! LIVE != OFFLINE : ecart par coup = %s"
