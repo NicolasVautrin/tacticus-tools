@@ -54,18 +54,26 @@ from symbols_layout import current_build  # noqa: E402
 
 DATA = REPO / "frida" / "hooks" / "data"
 
-# fichier -> (cle dans enums.tsv, nom de la const TS exportee)
+# fichier -> (cle dans enums.tsv, nom de la const TS exportee, table INDEXEE PAR BIT ?)
 TABLES = {
-    "ability-names.ts":            ("IdunBattle.Entities.Enum.ActiveAbilityType",    "ACTIVE_ABILITY_NAMES"),
-    "effect-type-names.ts":        ("IdunBattle.Entities.Enum.EffectType",           "EFFECT_TYPE_NAMES"),
-    "event-trigger-type-names.ts": ("IdunBattle.DSL.EventTriggerType",               "EVENT_TRIGGER_TYPE_NAMES"),
-    "triggered-ability-names.ts":  ("IdunBattle.Entities.Enum.TriggeredAbilityType", "TRIGGERED_ABILITY_NAMES"),
+    "ability-names.ts":            ("IdunBattle.Entities.Enum.ActiveAbilityType",    "ACTIVE_ABILITY_NAMES", False),
+    "effect-type-names.ts":        ("IdunBattle.Entities.Enum.EffectType",           "EFFECT_TYPE_NAMES", False),
+    "event-trigger-type-names.ts": ("IdunBattle.DSL.EventTriggerType",               "EVENT_TRIGGER_TYPE_NAMES", False),
+    "triggered-ability-names.ts":  ("IdunBattle.Entities.Enum.TriggeredAbilityType", "TRIGGERED_ABILITY_NAMES", False),
     # #283 : entree en 2026-07-30. Cette table vivait INLINE dans
     # `frida/hooks/features/ai-utility-trace.ts`, donc hors de la garde #252 -- et elle etait
     # figee sur `gqfc5mff6c` (82 entrees, 37 fausses). Elle n'est PAS decorative : elle pilote
     # `prePopulateKnownConfigs`, qui appelle `UtilitiesDatabase$$GetUtilityConfig(type, coll)`
     # AVEC ces ordinaux et etiquette le resultat avec le nom associe.
-    "utility-type-names.ts":       ("IdunBattle.Configuration.UtilityType",          "UTILITY_TYPE_NAMES"),
+    "utility-type-names.ts":       ("IdunBattle.Configuration.UtilityType",          "UTILITY_TYPE_NAMES", False),
+    # #330-r4 : entree en 2026-08-15. Elle etait le SEUL artefact genere du depot SANS
+    # generateur -- son en-tete declarait `data/dumps/kqkbjqfb6c/dump.cs`, source SUPPRIMEE, deux
+    # builds en arriere. L'ancien refus (<< la projection enum -> bits est lossy, ca demanderait
+    # une regle propre >>) etait juste sur le fond et perime sur la forme : la regle propre
+    # EXISTAIT DEJA -- `probe_252` la joue pour VERIFIER cette table depuis #252, et c'est celle
+    # de `_par_bit` ci-dessous. Un artefact qu'un cliquet sait verifier, un generateur sait
+    # l'ecrire ; les separer, c'etait garder un orphelin dont seule l'ESTAMPILLE mentait.
+    "targeting-rule-names.ts":     ("IdunBattle.Core.Services.TargetingRule",        "TARGETING_RULE_BITS", True),
 }
 
 ENTREE = re.compile(r'^\s*(-?\d+)\s*:\s*"([^"]*)"', re.M)
@@ -78,6 +86,7 @@ ROLE = {
     "event-trigger-type-names.ts": "id -> nom d'EventTriggerType (le declencheur d'un trigger DSL).",
     "triggered-ability-names.ts": "id -> nom de TriggeredAbilityType (l'ability passive/declenchee).",
     "utility-type-names.ts": "id -> nom d'UtilityType (la cle d'une UtilityConfig d'IA).",
+    "targeting-rule-names.ts": "index de BIT -> nom de TargetingRule (composites a plusieurs bits exclus).",
 }
 
 
@@ -98,6 +107,18 @@ def enum_du_jeu(build: str, cle: str) -> dict[int, set[str]]:
     raise SystemExit("cle absente de enums.tsv : %s" % cle)
 
 
+def _par_bit(jeu: dict[int, set[str]]) -> dict[int, set[str]]:
+    """{valeur: noms} -> {index de BIT: noms}, composites EXCLUS.
+
+    Regle REPRISE MOT POUR MOT de `probe_252_hook_name_tables` (`if par_bit:`), et c'est le
+    point : le cliquet et le generateur doivent projeter A L'IDENTIQUE, sinon le second ecrit ce
+    que le premier refusera. `v & (v - 1) == 0` = une seule puissance de deux ; un composite
+    (`TargetIsEnemy | TargetIsAlive`) n'a pas d'index de bit et n'entre donc pas dans la table.
+    C'est une projection LOSSY, ASSUMEE : la table sert a NOMMER un bit d'un masque decompose.
+    """
+    return {v.bit_length() - 1: n for v, n in jeu.items() if v > 0 and (v & (v - 1)) == 0}
+
+
 def decoupe(texte: str, const: str) -> tuple[str, str]:
     """-> (corps de la table, QUEUE a preserver verbatim).
 
@@ -114,12 +135,15 @@ def decoupe(texte: str, const: str) -> tuple[str, str]:
     return texte[ouvre:ferme], texte[ferme + len("\n};"):]
 
 
-def rends(fichier: str, cle: str, const: str, build: str, ecrire: bool) -> tuple[int, int, int]:
+def rends(fichier: str, cle: str, const: str, build: str, ecrire: bool,
+          par_bit: bool = False) -> tuple[int, int, int]:
     f = DATA / fichier
     brut = f.read_text(encoding="utf-8") if f.is_file() else ""
     corps, queue = decoupe(brut, const) if brut else ("", "")
     ancien = {int(m.group(1)): m.group(2) for m in ENTREE.finditer(corps)}
     jeu = enum_du_jeu(build, cle)
+    if par_bit:
+        jeu = _par_bit(jeu)
 
     # Regle 2 : garder le nom existant s'il est TOUJOURS valide pour cette valeur.
     choisi: dict[int, str] = {}
@@ -139,9 +163,18 @@ def rends(fichier: str, cle: str, const: str, build: str, ecrire: bool) -> tuple
         "// ou retire au MILIEU decale tout ce qui suit, et une table figee ment alors SILENCIEUSEMENT",
         "// sur tous les ids au-dela du decalage (les precedents restent justes -- d'ou l'invisibilite).",
         "// Garde : python scripts/python/probe_252_hook_name_tables.py",
-        "// %d entrees (%d..%d)." % (len(choisi), min(choisi), max(choisi)),
+        "// %d %s (%d..%d)." % (len(choisi), "bits simples" if par_bit else "entrees",
+                                min(choisi), max(choisi)),
         "export const %s: Record<number, string> = {" % const,
     ]
+    if par_bit:
+        # La projection est LOSSY et la table doit le DIRE : un lecteur qui y cherche un
+        # composite (`TargetIsEnemy | TargetIsAlive`) ne le trouvera pas, et sans cette ligne
+        # il conclurait que le membre n'existe pas dans le jeu.
+        lignes.insert(3, "// Table indexee par INDEX DE BIT, pas par valeur : l'enum natif est un"
+                         " [Flags] 64 bits ;")
+        lignes.insert(4, "// les membres COMPOSITES (plusieurs bits allumes) n'ont pas d'index et"
+                         " sont donc ABSENTS.")
     lignes += ['    %d: "%s",' % (v, choisi[v]) for v in sorted(choisi)]
     lignes.append("};")
     texte = "\n".join(lignes) + queue
@@ -176,8 +209,8 @@ def main() -> int:
     print("mode   : %s" % ("ECRITURE" if args.ecrire else "SIMULATION (rien n'est ecrit)"))
     print("")
     tot = [0, 0, 0]
-    for fichier, (cle, const) in sorted(TABLES.items()):
-        s, a, r = rends(fichier, cle, const, build, args.ecrire)
+    for fichier, (cle, const, par_bit) in sorted(TABLES.items()):
+        s, a, r = rends(fichier, cle, const, build, args.ecrire, par_bit)
         tot[0] += s; tot[1] += a; tot[2] += r
         print("")
     print("---")

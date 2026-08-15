@@ -1,7 +1,13 @@
-// Auto-generated from data/dumps/kqkbjqfb6c/dump.cs -> TargetingRule [Flags] enum.
-// bit index -> flag name (single-bit flags only ; composites skipped).
-// Regenerate when GameAssembly.dll is updated (build kqkbjqfb6c).
-// 58 entries (bits 0..57).
+// Auto-genere : python scripts/python/regen_hook_name_tables.py
+// Source : data/symbols/t6dpr4k06g/frida/enums.tsv -- IdunBattle.Core.Services.TargetingRule
+// index de BIT -> nom de TargetingRule (composites a plusieurs bits exclus).
+// Table indexee par INDEX DE BIT, pas par valeur : l'enum natif est un [Flags] 64 bits ;
+// les membres COMPOSITES (plusieurs bits allumes) n'ont pas d'index et sont donc ABSENTS.
+// REGENERER A CHAQUE CHANGEMENT DE BUILD. Ces valeurs sont IMPLICITES : un membre insere
+// ou retire au MILIEU decale tout ce qui suit, et une table figee ment alors SILENCIEUSEMENT
+// sur tous les ids au-dela du decalage (les precedents restent justes -- d'ou l'invisibilite).
+// Garde : python scripts/python/probe_252_hook_name_tables.py
+// 58 bits simples (0..57).
 export const TARGETING_RULE_BITS: Record<number, string> = {
     0: "ValidRequest",
     1: "TargetMatchesDynamicRule",

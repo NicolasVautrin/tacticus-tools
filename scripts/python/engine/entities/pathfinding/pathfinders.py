@@ -175,7 +175,7 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
     `ignore_terrain_pathfinder`) -> ils retombent ici sur la base marche, comme le port l'a
     toujours fait, et sont hors perimetre de ce foyer."""
     # forme MODULE : get_movable_positions est SUBSTITUE (probe_381r1, probe_403_c2_26 et
-    # deux tests _live.py). Hisse en rom ... import, ce nom serait lie AU CHARGEMENT et
+    # deux tests _live.py). Hisse en `from ... import`, ce nom serait lie AU CHARGEMENT et
     # les quatre mesures cesseraient de mordre, EN SILENCE (#485-r1-r1).
     t = int(pathfinder_type)
     base = base_type_of(t)
