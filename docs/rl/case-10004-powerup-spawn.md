@@ -142,10 +142,55 @@ Precisions qui evitent trois faux pas :
   (`loki/sworn_protector.py` + branche dediee de `SortTilesByUtility`). `GetKillBehaviour`, lui,
   a **zero** occurrence — c'est la seule piece vraiment neuve.
 
-## 6. Etat
+## 6. Verdict — PORTE et CONFRONTE 4/4
 
-RE **complete** des onze (deux corps + base + config), **inventaire de portage mesure**. Le port
-lui-meme n'est PAS fait : residu **#10004**, `BLOCAGE: aucun`.
+Les **neuf** mecaniques vivantes sont portees (`loki/power_up_spawn.py`, inscrites au registre) ;
+`PowerUp_HeroSpawn` (1434) et `PowerUp_SummonSpawn` (1532) ne le sont PAS — elles ne spawnent rien.
+
+| bras | natif | port |
+|---|---|---|
+| `HeroSpawn_Uthar` nominal | spawne `votanUthar`, TUE `orksNob` | idem |
+| `SummonSpawn_ultraSmnInceptor` nominal | spawne `ultraSmnInceptor`, TUE `orksNob` | idem |
+| les deux, hors-tuile | inertes, power-up vivant | idem |
+
+Le kill d'`orksNob` n'est pas un effet de bord : `GetSpawnTile` prefere au rang 1 les tuiles
+d'ennemis NORMAUX, et `GetKillBehaviour` libere la tuile choisie. Les deux volets se confirment
+d'un seul bras.
+
+## 7. TROIS fautes que seul le LIVE a montrees
+
+1. **`Enemies` a l'ordre des arguments INVERSE** entre natif (`of`, `entities`) et port (`inner`,
+   `reference`). Ecrit a l'endroit du natif, le port retenait TOUT LE MONDE comme ennemi et
+   **tuait son propre ramasseur** (`ultraCalgar`). Aucune exception — c'est le classique « ne
+   jamais recopier le voisin de forme ».
+2. **`Tiles` rend des COORDONNEES** par defaut quand le reste de la cascade travaille en **IDS**
+   (`KeyError` sur `board.coord`). `as_ids=True`.
+3. **`ctx.state` est None dans un trigger** : le canal de trait est `ctx.has_trait`.
+
+Et **DEUX fautes de MESURE dans le probe lui-meme**, qui accusaient un port juste :
+
+4. `observeBattle` marque le power-up (HP 0) `dead` des le snapshot **INITIAL**, alors que le port
+   le voit vivant jusqu'au crush — un comparateur en **delta** rendait « tue par le port, pas par
+   le natif ». On compare l'etat **FINAL**, power-up exclu (sa mort EST le vecteur).
+5. `decisionView` et `observeBattle` **ne numerotent pas les memes entites pareil** (`81` vs `82`) :
+   l'exclusion se fait par **visual-id**, jamais par id.
+
+⚠ Piege de canal deja paye en #1083-r1 et re-paye ici : `decisionView` rend **ZERO unite** apres le
+crush (le stage passe a 2) alors qu'`observeBattle` en rend quatre. Le lire ferait conclure « rien
+n'a spawne » sur un spawn REUSSI.
+
+## 8. Ce qui n'est PAS couvert
+
+- **`IsSpawnTile` / `IsTerritoryTile`** ne sont pas portes (aucun noeud ; `isTerritory` =
+  `TileComponent+0x2e` ne vit que dans le contexte IA). Ce sont des filtres **restrictifs** : le
+  port retient un SUR-ENSEMBLE. Le regime confronte y est insensible — natif et port choisissent la
+  meme tuile — mais c'est une **mesure de ce regime**, pas une preuve generale.
+- **`KillUnitBehaviourOptions.ForClearTile()`** n'est pas transmis (`Kill` ne lit aucune option).
+  L'ecart est **inerte dans le regime confronte** (meme kill des deux cotes) ; non mesure ailleurs.
+- **`Player(1)`** collapse sur le proprietaire du power-up.
+- **Sept des neuf variantes** ne sont pas confrontees UNE PAR UNE : elles partagent le corps des
+  deux confrontees et ne different que par leur constante de gameconfig, ce que l'etage 2 de la
+  garde offline fige. Les confronter reste ouvert.
 
 Le gate `IsInTeam(Actor, 1)` est evaluable cote port (la team est portee, contrairement au
 `PlayerType` de #1083-r4), les neuf porteurs `powup*` sont du meme profil npc HP0 que ceux deja

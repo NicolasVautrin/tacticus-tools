@@ -5090,7 +5090,16 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/runner/operations/triggers/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/effects/factory.py
   BLOCAGE: aucun
 
-- **#10004 — PORTER les NEUF `PowerUp_*Spawn*` vivants : RE FAITE, il reste le portage.** `[opus]`
+- **#10004 — LIVRE (2026-08-15) : les NEUF `PowerUp_*Spawn*` vivants sont PORTES et confrontes live 4/4.** `[opus]`
+  `loki/power_up_spawn.py`, `test_10004_powerup_spawn_offline.py` (6 etages),
+  `probe_10004_powerup_spawn_live.py`. Bras : `HeroSpawn_Uthar` et `SummonSpawn_ultraSmnInceptor`,
+  nominal (spawn + kill de l'occupant) ET hors-tuile (inertes), tous ACCORD.
+  RESTE OUVERT : les **sept** variantes non confrontees une par une (meme corps, seule la constante
+  de gameconfig differe -- l'etage 2 de la garde fige l'appariement) ; `IsSpawnTile` et
+  `IsTerritoryTile` non portes (filtres RESTRICTIFS, donc le port retient un SUR-ENSEMBLE : le
+  regime confronte y est insensible, ce qui est une mesure de CE regime et pas une preuve
+  generale) ; et `KillUnitBehaviourOptions.ForClearTile()` non transmis (`Kill` ne lit aucune
+  option), inerte dans le regime confronte, non mesure ailleurs.
   Point d'entree : `docs/rl/case-10004-powerup-spawn.md` (RE complete contre `t6dpr4k06g`).
   **Il n'y a PAS onze mecaniques** : deux `CreateBehaviour` (`PowerUp_HeroSpawnAbility`,
   `PowerUp_SummonSpawnAbility`) sur la base commune `APowerup_SpawnAbility`, et neuf variantes qui
