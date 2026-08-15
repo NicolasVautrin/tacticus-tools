@@ -23,6 +23,7 @@ from .abilities.handler import AbilityHandler
 from .operations.damage import DamageHandler
 from .operations.movement import MovementHandler
 from .operations.triggers.dispatch.pending import process_pending_triggered_abilities
+from .operations.triggers.dispatch.damage_events import process_damage_events   # #443-r2-b2
 #: FORME B (import de MODULE), et pas `from ...phase import phase_end_triggers` : le differe
 #: est mesure GRATUIT une fois les barils vides, mais hisse en forme A il rendrait INERTE le
 #: `monkeypatch.setattr(phase_mod, "phase_end_triggers", ...)` de
@@ -106,6 +107,16 @@ class Runner:
         # position exacte est ICI, entre les post-handlers et `phase_end_triggers`.
         # RE + residus (2e drain natif du bloc de fin de tour, `VerifyTurnEnd`) :
         # `operations/triggers/dispatch/pending.py`.
+        # #443-r2-b2 : DRAIN DE LA FILE DES DAMAGE-EVENTS, **AVANT** celui des triggered-abilities
+        # differees. Le rang est LU verbatim dans
+        # `IdunBattle.Messages.InputMessageProcessor$$RunPhase` :
+        #     action() ; VerifyDeaths() ; **ProcessDamageEvents()** ; <slot 0x1e> ;
+        #     ProcessPendingTriggeredAbilities() ; <slot 0x14> ; ...
+        # Les inverser ferait voir aux consommateurs d'`On(0x11)` un etat que le natif leur cache
+        # (une ability differee jouee avant la purge). Le SECOND couple `ProcessDamageEvents` /
+        # `ProcessPendingTriggeredAbilities` du bloc de fin de tour n'est pas porte -- MEME residu,
+        # deja nomme, que le second drain des differees.
+        process_damage_events(self.state)
         process_pending_triggered_abilities(self.state)
         # #287-r1-r1 : ARBITRAGE DE `UnitFlag.NoActionAvailable`. Toujours dans la branche
         # `isInternalPhase == false` de `IdunBattle.Messages.InputMessageProcessor$$RunPhase`, et

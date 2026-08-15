@@ -244,6 +244,64 @@ class RemoveMachine(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class ReAddMachine(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ReAddMachine(unit, resetFlags)` ->
+    `IdunBattle.Entities.Behaviours.ReAddMachineBehaviour$$Execute` -- MIRROR du decompile, le
+    SYMETRIQUE exact de `RemoveMachine` ci-dessus (#1078-r2) :
+
+        unit = <this+0x50>.<slot 9 = SelectSingle>(entities)
+        if (unit == null) return default(OperationResult)      // resultat VIDE, aucun appel
+        if (<this+0x58> != null) {
+            b = <this+0x58>.<slot 0 = ShouldTrigger>(entities)
+            processor.<slot 10 = ReAddMachine>(unit, b)
+        }
+        return default(OperationResult)
+
+    ⚠ **`resetFlags` EST UN PREDICAT (`IAbilityTrigger`), PAS UN BOOLEEN**, et les DEUX call-sites
+    du build le prouvent :
+      * `...HunterOfSoulsAbility$$CreateBehaviour` passe `<DSLTriggers+0x70>` = le `YesTrigger`
+        CONSTANT (toujours VRAI) ;
+      * `...HunterOfSouls_KilledAbility$$CreateBehaviour` passe
+        `NOT HasFlag(Owner@DSLSelectors+0x30, 0x3 = TurnFinished)`.
+    Le figer en `bool` a la construction aurait rendu le second call-site FAUX en silence. Le
+    booleen n'apparait qu'a la frontiere de l'Operation, apres `ShouldTrigger`.
+
+    ⚠ **UN SEUL SUJET** : le natif appelle `SelectSingle` (slot 9), pas `Select` -- contraste avec
+    `RemoveUnit`/`RemoveMachine`, qui iterent. Une machine, pas une liste.
+
+    DOCTRINE #149 : cette feuille est la FRONTIERE -- au-dessus le selecteur et le predicat
+    (declaratifs), en dessous l'Operation imperative (`runner/operations/re_add_machine.py`, qui
+    porte les gates, le rattachement et le `RemoveTurnFlags`).
+
+    Emet 'ReAddMachine' seulement si l'Operation a MUTE (un gate qui refuse n'est pas journalise,
+    meme convention que `RemoveUnit`). PUR (stop=False)."""
+    __slots__ = ("unit_sel", "reset_flags_trigger")
+
+    def __init__(self, unit_sel: TargetsSelector, reset_flags_trigger=None):
+        self.unit_sel = unit_sel
+        self.reset_flags_trigger = reset_flags_trigger
+
+    def execute(self, entities, ectx):
+        from ...operations.re_add_machine import ReAddMachineOperation
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        u = resolve_unit(self.unit_sel, entities)              # `SelectSingle` natif (slot 9)
+        uid = u.get("id") if isinstance(u, dict) else None
+        if uid is None:
+            return OperationResult.ok()                        # `unit == null` -> resultat VIDE
+        if self.reset_flags_trigger is None:
+            # `if (<this+0x58> != null)` -- selecteur de predicat NUL : le natif n'appelle PAS
+            # l'operation du tout. Aucun call-site du build n'est dans ce cas, mais le gate est LU.
+            return OperationResult.ok()
+        reset = bool(self.reset_flags_trigger.evaluate(entities))
+        res = ReAddMachineOperation.execute(state, int(uid), reset_flags=reset)
+        if res is not None:
+            ectx.emit("ReAddMachine", machine=int(uid), reset_flags=reset,
+                      flags_cleared=res["flags_cleared"])
+        return OperationResult.ok()
+
+
 class RemoveUnitFromItsTiles(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnitFromItsTiles(unit, removeTileFromUnit)` ->
     `IdunBattle.Entities.Behaviours.RemoveUnitFromItsTilesBehaviour$$Execute`. La signature typee vit

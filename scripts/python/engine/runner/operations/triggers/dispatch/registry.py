@@ -184,6 +184,13 @@ from ..loki.doctrina_imperatives import (DoctrinaImperativesSetStartAbility,   #
 from ..loki.calibanite_greatsword import (                                     # #521-r4 / #521-r7
     CalibaniteGreatswordNormalAttackAdditionalDamageAbility,                   # (1189 -> 1316)
     CALIBANITE_GREATSWORD_ACTIVE)
+from ..loki.daemonic_ordnance import (                                    # #521-r4 / #521-r10
+    DaemonicOrdnanceAddCritChanceAbility,                                 # (1148 -> 1244)
+    DaemonicOrdnanceRemoveCritChanceAbility,
+    DAEMONIC_ORDNANCE_ACTIVE)
+from ..loki.hunter_of_souls import (HunterOfSoulsAbility,                 # #1078-r2
+                                    HunterOfSoulsKilledAbility,           # (passif -> 1497)
+                                    ABILITY_ID as HUNTER_OF_SOULS_ABILITY)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.daemonic_patrons import (DaemonicPatronsFinaleSuccessAbility,   # #911-r1 (1203 -> 1473)
                                      DaemonicPatronsFinaleFailAbility,
@@ -307,7 +314,8 @@ from ..loki.wyrdmakers_helm import WyrdmakersHelmAbility               # #1037 (
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
 from ..loki.orbs_of_decay import OrbsOfDecayAbility                    # #1003 (relique 1465, DG)
-from ..loki.lakrimae import LakrimaeAddContaminationAbility            # #1003 (relique 1541, DG)
+from ..loki.lakrimae import (LakrimaeAddContaminationAbility,         # #1003 (relique 1541, DG)
+                             LakrimaeSummonPoxwalkerAbility)          # #462-...-r4-r1
 from ..loki.chalice_of_baal import (ChaliceOfBaalAbility,             # #1005 (relique 1550,
                                     ChaliceOfBaalResetAbility)        #  bloodSanguinary)
 from ..loki.vitarus import VitarusAbility                              # #1005 (relique 1470,
@@ -1527,6 +1535,24 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `ACTIVE_ABILITY_BLOCKER_EFFECTS`) : les deux ecritures vont dans le meme commit, sans quoi
     # l'une des deux est INERTE. Cf. `triggers/loki/rapid_fire.py`.
     RAPID_FIRE_KEY: [RapidFireAbility],
+    # HunterOfSouls (passif du SUMMON `thousSmnDaemonPrince` << Z'Kar >>, `TriggeredAbilityType`
+    # 0x5d9 = 1497). DEUX classes natives pour UNE cle (patron `Lakrimae` / `DaemonfleshPlate`), et
+    # l'id UNIQUE est MESURE : `TriggeredAbilityType` du build ne porte que `1497=HunterOfSouls`,
+    # aucun `HunterOfSouls_Killed` (le gameconfig concorde : `HunterOfSouls` existe, l'autre non).
+    #   * `HunterOfSoulsAbility` -- `On(0x16 = TurnStart_Actions, alive 1) & <DSLTriggers+0x28>`.
+    #     ⚠ `<+0x28>` EST NOMME (#1078-r2) : `IsTurnOf(Owner@DSLSelectors+0x30)` -- `DSLTriggers$$
+    #     IsTurnOf` alloue EXACTEMENT la meme classe avec la meme signature, et le balayage litteral
+    #     de cette classe ne rend que trois sites. -> `If(NOT HasEffect(Owner, 1495),
+    #     AddEffect(1495)) + PerformAIAttack(Owner, 1, null) + AddFlag(Owner, 22 PreventResurrect)
+    #     + RemoveUnit(Owner) + ReAddMachine(Parent(Owner), YesTrigger)` ;
+    #   * `HunterOfSouls_KilledAbility` -- `On(0x36 = UnitDefeated, alive 0) & get_OwnerIsTarget`
+    #     -> `AddFlag(Owner, 22) + ReAddMachine(Parent(Owner), NOT HasFlag(Owner, 3 TurnFinished))`.
+    # ⚠ Le 2e argument de `ReAddMachine` est un PREDICAT, pas un booleen -- et il DIFFERE entre les
+    # deux classes : c'est ce qui a impose de porter la feuille avec un `IAbilityTrigger`.
+    # L'etage neuf de la tranche est `ReAddMachine` (feuille `abilities/behaviours/lifecycle.py` +
+    # Operation `runner/operations/re_add_machine.py`) ; `AddFlag` et `RemoveUnit` existaient deja.
+    # Cf. loki/hunter_of_souls.py. #1078-r2.
+    HUNTER_OF_SOULS_ABILITY: [HunterOfSoulsAbility, HunterOfSoulsKilledAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
@@ -1613,12 +1639,15 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 # COMMENTAIRE (nom + ordinal), pour que le lecteur voie ce qui est porte et ce qui ne l'est pas :
 #   1032 Catalyst              -> 1062 GuildBossRunAway                            (non porte)
 #   1070 BreathOfSilence       -> 1128 BreathOfSilence_SetStart                    (non porte)
-#   1118 DoctrinaImperatives   -> 1201 DoctrinaImperatives_SetStart                (non porte)
-#   1148 DaemonicOrdnance      -> 1244 DaemonicOrdnance_Crit                       (non porte)
+#   1118 DoctrinaImperatives   -> 1201 DoctrinaImperatives_SetStart                <- PORTE (#521-r4)
+#   1148 DaemonicOrdnance      -> 1244 DaemonicOrdnance_Crit                       <- PORTE (#521-r4)
 #   1189 CalibaniteGreatsword  -> 1316 CalibaniteGreatsword_NormalAttackAdditionalDamage <- PORTE (#521-r4)
 #   1195 TalonsOfTheEmperor    -> 1330 TalonsOfTheEmperor_UsedAbilities            <- PORTE (#521-r1)
-# Les trois non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
+# Les DEUX non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
 # faire ici tant que leur classe n'existe pas (une entree vide serait un mensonge de couverture).
+# `1062` n'a qu'un porteur npc (greffe a verifier) ; `1070 BreathOfSilence` n'est meme pas dans
+# `ABILITY_CLASSES`, donc `1128` n'a aucune active portee en amont (re-mesure 2026-08-15 : les
+# QUATRE autres actives du dict -- 1032, 1118, 1148, 1189 -- y sont, elle seule manque).
 PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 0x4ab (1195 TalonsOfTheEmperor, `custoAtlacoya` HERO) -> 0x532 (1330 TalonsOfTheEmperor_Used
     # Abilities) : a la FERMETURE de toute active d'un allie `Hero` non-`MachineOfWar` qui COMPTE
@@ -1650,6 +1679,27 @@ PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # le porte, et c'est cette lecture partielle qui avait fait conclure a l'absence d'emetteur.
     # Cf. loki/calibanite_greatsword.py. #521-r4.
     CALIBANITE_GREATSWORD_ACTIVE: [CalibaniteGreatswordNormalAttackAdditionalDamageAbility],
+    # 0x47c (1148 DaemonicOrdnance, `blackForgefiend` -- Forgefiend, MACHINE OF WAR du pool) ->
+    # 0x4dc (1244 DaemonicOrdnance_Crit). DEUX classes natives pour UNE cle (patron `Lakrimae` /
+    # `DaemonfleshPlate`), et elles vivent dans **`Active.Loki`** -- pas `Triggered.Loki`, ce qui
+    # avait fait conclure a une classe INTROUVABLE :
+    #   * `DaemonicOrdnance_AddCritChance` -- `On(0x21 = AbilityInit) & <YesTrigger> &
+    #     get_OwnerIsActor` (trigger PARTAGE `<DSLTriggers+0x30>`, corps ICF-dedupliqué resolu par
+    #     le slot de vtable `0x2d8`) -> `AddStaticStatModifierEffectToOwner(1316
+    #     DaemonicOrdnance_ExtraCritChance, 9 = CRIT_CHANCE, <DSLFormulas+0x18> = Direct(0))`.
+    #     MAGNITUDE ZERO : c'est un MARQUEUR, qui ARME l'etage [4] de l'active 1148 (lequel fait
+    #     l'`AddOrUpdate` a `(nbUsages + 1) x extraCritChance`). ⚠ INERTE sur le regime courant,
+    #     comme `DoctrinaImperatives_SetStart` : `On(AbilityInit)` n'est emis qu'au SPAWN ;
+    #   * `DaemonicOrdnance_RemoveCritChance` -- `On(0xe = UnitPostAbility, alive 1) &
+    #     get_OwnerIsCaster` -> `If(CriticalHitsThisTurn(Owner) >= Direct(GetHits2() = nrOfHits_2),
+    #     RemoveEffect(Owner, 1316))`. CELUI-LA MORD : l'effet 1316 arrive par `load_state` sur les
+    #     unites du roster. C'est lui qui EMPECHE le crit-chance de croitre indefiniment.
+    # ⚠ Les deux volets partent ENSEMBLE : poser le marqueur sans jamais le retirer serait pire que
+    # l'absence. L'etage qui bloquait (`DSLFormulas$$CriticalHitsThisTurn` et son substrat
+    # `ActorStatisticsComponent+0x54`) est porte par la MEME tranche (#521-r10).
+    # Cf. loki/daemonic_ordnance.py. #521-r4.
+    DAEMONIC_ORDNANCE_ACTIVE: [DaemonicOrdnanceAddCritChanceAbility,
+                               DaemonicOrdnanceRemoveCritChanceAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
@@ -1711,12 +1761,17 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #   * `Lakrimae_AddContamination_Ability` -- `On(0x26 = NormalAttack) & get_OwnerIsActor &
     #     IsMeleeAttack & IsNormalAttack` -> `AddEffect(1244 Contaminated, source = Owner@+0x30,
     #     targets = TargetTiles@+0x78)`   <- PORTEE ;
-    #   * `Lakrimae_SummonPoxwalker_Ability` -- `On(0x35 = PostUnitKill)` + 8 conjoints ->
-    #     `Spawn(deathPoxwalker)` : NON portee, residu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1` (etages
-    #     `ContagionsOfNurgleRange(.., 1, ..)` / `IsUnitWithVisualId` / `FreeTilesOrAdjacentFreeTiles`
-    #     non portes). L'inscrire vide serait un mensonge de couverture.
+    #   * `Lakrimae_SummonPoxwalker_Ability` -- `On(0x35 = PostUnitKill, ignoreOverkill = 1)` + NEUF
+    #     conjoints -> `Spawn(deathPoxwalker)`   <- PORTEE (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1).
+    #     ⚠ DEUX corrections de la fiche, toutes deux RELUES au decompile : le 4e conjoint est
+    #     `<DSLTriggers+0x28>` = **`IsTurnOf(Owner)`** et non `get_OwnerIsActor` (donc pas de
+    #     Poxwalker sur un kill d'overwatch pendant le tour adverse), et le `Filter` porte sur
+    #     `AllAliveUnits@DSLSelectors+0x20` et non `AllUnits` (les Poxwalkers morts ne comptent pas
+    #     dans le cap `nrOfUnits`). Le SEUL etage qui manquait etait `FreeTilesOrAdjacentFreeTiles`,
+    #     ecrit dans la meme tranche comme FACTORY composee (`entities/selectors/tiles.py`) --
+    #     `IsObjectOrSteppable` et `ContagionsOfNurgleRange` etaient PORTES depuis longtemps.
     # Cf. loki/lakrimae.py.
-    "Lakrimae": [LakrimaeAddContaminationAbility],
+    "Lakrimae": [LakrimaeAddContaminationAbility, LakrimaeSummonPoxwalkerAbility],
     # ChaliceOfBaal (relique `R_Health_ChaliceOfBaal`, `TriggeredAbilityType` 0x60e = 1550 ;
     # porteur `bloodSanguinary` << Nicodemus >>, HERO du pool). DEUX classes natives pour UNE cle
     # -- et c'est LU, pas suppose : `IdunBattle.Core.Services.AbilitiesDatabase.u003Cu003Ec$$

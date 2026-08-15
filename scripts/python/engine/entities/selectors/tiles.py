@@ -624,6 +624,47 @@ class CanAddUnit(TargetsSelector):
         return [t for t in kept if not reserved(board.coord(t), parent_id)]
 
 
+def free_tiles_or_adjacent_free_tiles(tiles: TargetsSelector,
+                                      allow_steppable: bool = True) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$FreeTilesOrAdjacentFreeTiles(tiles[, isSteppable])` --
+    MIRROR de la FACTORY : ce n'est PAS une classe de selecteur, le natif COMPOSE trois noeuds deja
+    portes. Les DEUX surcharges ont le MEME corps, a l'origine du trigger pres :
+
+        surcharge 2-args :  isSteppable = <ctx+0x88 = DSLTriggers>+0x48
+        surcharge 3-args :  isSteppable = celui de l'appelant
+        les deux :          return CanAddUnit(tiles, isSteppable)
+                                   .Otherwise( CanAddUnit(AdjacentTiles(tiles), isSteppable) )
+
+    L'ecrire comme une COMPOSITION (et non une classe de plus) est ce qui garantit qu'il n'existe
+    pas une seconde definition de << tuile libre >> dans le depot -- meme raison que
+    `triggers.is_object_or_steppable` et `triggers.has_adjacent_enemies`.
+
+    ⚠ **LE REPLI EST UN `Otherwise`, PAS UNE UNION** : si la ou les tuiles VISEES sont libres, les
+    adjacentes ne sont PAS ajoutees. Lire une union ici doublerait le pool d'un `PickRandomly` en
+    aval, donc changerait le tirage -- un ecart SILENCIEUX sur le flux PRNG.
+
+    `allow_steppable=True` (defaut) EST `<DSLTriggers+0x48>`, ce que passe la surcharge 2-args : le
+    trigger `+0x48` est l'`op_LogicalNot` du constant VRAI, donc `ShouldTrigger` FAUX, donc
+    `allowSteppable = !faux = TRUE` (releve a l'OCTET, cf. la docstring de `CanAddUnit`, qui cite
+    deja `Lakrimae_SummonPoxwalker_Ability` parmi les consommateurs de cette surcharge).
+
+    Call-sites natifs de la surcharge 2-args (releves dans la docstring de `CanAddUnit`) :
+    `ArmourOfShriekingSouls$$Resurrect`, `PossessionAbility$$CreateBehaviour`,
+    `RelicOfLostCadiaAbility_SummonUnit$$CreateBehaviour`, `EnvThinVeil_SummonAbility` et
+    `Lakrimae_SummonPoxwalker_Ability$$CreateTrigger`/`$$CreateBehaviour` (#462-r4b-...-r4-r1).
+    Les trois appelants de la surcharge 3-args passent, eux, `<DSLTriggers+0x40>` -> `False`."""
+    # DIFFERE **PORTEUR**, et la classe est MESUREE (doctrine « un import differe est un outil a
+    # CYCLE ») : charger `engine.entities.selectors.geometry` SEUL dans un process FRAIS fait
+    # atterrir `engine.entities.selectors.tiles` dans `sys.modules` (via `.units` /
+    # `services.spawn_tile_shape`). Hisser `Otherwise` en tete fermerait donc le cycle
+    # `tiles -> geometry -> ... -> tiles`. Forme B (module puis attribut) : un binding de module
+    # n'est jamais gele, donc un `monkeypatch` sur `Otherwise` mord toujours.
+    from . import geometry as _geometry
+    return _geometry.Otherwise(
+        CanAddUnit(tiles, allow_steppable=allow_steppable),
+        CanAddUnit(AdjacentTiles(tiles), allow_steppable=allow_steppable))
+
+
 class UnobscuredTiles(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)`
     -> `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$Select` : de `toTiles`, garde celles

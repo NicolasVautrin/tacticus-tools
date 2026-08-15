@@ -1143,6 +1143,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # lazy : cycle damage<->triggers. Forme MODULE : l'attribut est relu a l'appel, donc une
         # substitution posee sur `dispatch.attack` mord quelle que soit la forme finale.
         from .triggers.dispatch import attack as attack_dispatch
+        # DIFFERE **PORTEUR**, MEME cycle et MEME forme MODULE que la ligne ci-dessus : le paquet
+        # `triggers.dispatch` importe `runner.operations.damage` (cascade `core` -> `attack`).
+        from .triggers.dispatch import damage_events
         if applied > 0:
             # #1025-r2 : `source_ability` = le canal `AbilityEntities+0x60` (`CurrentAbility`). Le
             # natif ne construit qu'UN `AbilityEntities` pour ses trois publications, donc ce vecteur
@@ -1152,6 +1155,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # `attackRangeType: Ranged` portee au CONTACT. Cf. `damage_taken_triggers`.
             attack_dispatch.damage_taken_triggers(state, attacker_id, target_id, profile=profile,
                                                   source_ability=source_ability)
+            # #443-r2-b2 -- ENFILEMENT DU DAMAGE-EVENT, **juste apres** `On(0xf)` et **dans le
+            # meme bloc garde**, exactement ou `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+            # appelle `IMatchState` slot 8 = `AddDamageEvent(source, caster, target)`. Le gate le
+            # plus interne du natif est son parametre `skipDamageEventTrigger`, qui couvre les DEUX
+            # gestes ENSEMBLE -- d'ou leur adjacence ici, et non un second `if`.
+            # ⚠ `skipDamageEventTrigger` n'est PAS modelise : c'est un argument d'APPELANT, et le
+            # port n'a pas de site qui le pose (tous les vecteurs de degat traversent ce chokepoint
+            # avec le regime par defaut). RESIDU NOMME -- le jour ou un appelant natif le pose a
+            # `true`, ce chokepoint devra le threader, sans quoi le port emettrait un `On(0x11)`
+            # que le natif supprime.
+            damage_events.add_damage_event(state, source_ability, attacker_id, target_id)
         # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
         # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x39` -> `0xf` -> `0x10`).
         # (`0x3a` ecrit ici jusqu'a #963 etait une COQUILLE : `0x3a` = `PhaseEnd`, pas
@@ -1206,7 +1220,20 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # `units_attacked_this_turn` (+0x40) ; lecteurs portes :
             # `MartialInspiration_ExtraDamageEffect` via `TotalTurnsWithAttacksMadeFormula`, et
             # `FirstAmongTraitors_ExtraDmgEffect` via `TotalAttacksMadeFormula` (#926).
-            register_attack_made(state, attacker_id, target_id)
+            #
+            # #521-r10 -- le 4e argument natif (`totalCrits`) est desormais threade : il alimente
+            # `ActorStatisticsComponent+0x54`, que lit `CriticalHitsThisTurnFormula`. `hits_result
+            # ["crits"]` est la liste des jets de crit du GROUPE (un booleen par coup, produite par
+            # `damage_hits._run_hits`), donc `sum(...)` = le nombre de coups critiques de ce groupe.
+            # ⚠ SOUS-COMPTAGE ASSUME sur les vecteurs qui ne threadent PAS `hits_result` (coups
+            # ADDITIONNELS de `additional_hits.py`, knockback) : ils passent `0`. Le natif, lui,
+            # somme les crits de toute l'`OngoingAttack` au `FinishAttackOperation`. Rendre un
+            # 0 la ou le natif compte est FIDELE AU SENS (jamais un crit invente) et c'est le meme
+            # ecart de rang que celui deja documente pour `+0x24` dans `register_attack_made` --
+            # il porte sur les deux champs ensemble.
+            register_attack_made(state, attacker_id, target_id,
+                                 total_crits=sum(1 for c in ((hits_result or {}).get("crits") or ())
+                                                 if c))
         AttackDamageOperation._register_received_damage(
             state, target_id, profile, total, shield_dmg, armor_dmg)
         AttackDamageOperation._record_last_hit_damage_taken(
