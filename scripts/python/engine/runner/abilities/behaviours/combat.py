@@ -668,20 +668,53 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         LOI PORTEE (H = coups APPLIQUES, k = index 1-based du coup qui met la cible a 0 PV) :
 
             cible SURVIVANTE                -> 0            (aucune entree, pas meme le `+ extraHits`)
-            tuee au coup k                  -> max(0, H - k - 1) + extraHits
+            tuee au coup k                  -> max(0, H - k) + extraHits
             deja morte a l'entree           -> H + extraHits          (modelise, non confronte)
+
+        ⚠⚠ **LE `- 1` A DISPARU (#489-r1, 2026-08-15), ET CE N'EST PAS UN FIT : C'EST LE COMPTE
+        DES ENTREES QUE LE PORT POUSSE DEJA AILLEURS.** La loi ci-dessus n'est plus DERIVEE d'une
+        table de mesures -- elle est le CARDINAL, par construction, de ce que
+        `operations/left_over_damage.py::record_left_over_damages` (mirror LU des trois call-sites
+        d'`ApplyDamageOperation$$AddLeftoverHit`, live-valide par #209/#221) pousse avec un FLAG
+        VRAI. Ce re-jeu-la fait, coup par coup :
+
+            si (deja Overkilled) ou (hp <= 0 a l'entree) : entree, flag = VRAI      # sites (A)/(B)
+            sinon si le coup TUE                        : entree, flag = FAUX      # site (C)
+
+        et `GetLeftOverHits` ne compte QUE les entrees flag-vrai (`LeftOverDamage+0x78`, relu
+        verbatim ci-dessus). Le nombre de coups dont l'entree porte un flag VRAI est donc
+        exactement le nombre de coups joues APRES le coup fatal, c'est-a-dire **`H - k`** -- jamais
+        `H - k - 1`. Les deux ports du MEME fait divergeaient d'une unite ; ils coincident
+        desormais, et `tests/engine/test_489r1_leftover_hits_offline.py` FIGE cette identite en
+        confrontant ce compte au re-jeu, sur un balayage exhaustif de (H, k).
+
+        CE QUE LE `- 1` COUTAIT, mesure par mesure (les deux etaient DEJA au dossier) :
+          * `#505` / `1129 BloodyFury` (extraHits **null**, donc extra = 0, H = 4, report lu DANS le
+            live sur un 2e maillon SURVIVANT) : PV 3000 k=1 -> live **3** ; 10000 k=2 -> **2** ;
+            15000 k=3 -> **1** ; 21000 k=4 -> **0**. `max(0,H-k)` = 4/4 ; `max(0,H-k-1)` = 1/4.
+          * `#489` / `1048 FragstormGrenadeLauncher` : « cible tuee a l'avant-dernier coup SANS
+            overkill » -> natif **1** coup reporte, port **0**.
+          Et les 4 regimes de `probe_125` (1006, extra = 1) restent satisfaits : `max(0,H-k)+1`
+          les couvre pour H = 5/5/{3..5}/6, dont le regime `H == k` qui pin le terme `+ extraHits`
+          (0 + 1 = 1 >= 1, le 2e maillon EST frappe). Aucune des six mesures ne separe donc plus
+          la lecture de la mesure.
+
+        ⚠ La forme `(H-k) - (1 si overkill) + extraHits`, proposee par la fiche #489-r1, est
+        REFUTEE et ne doit pas etre reintroduite : sur `1129`, dont le coup fatal ECRASE la cible
+        (+167 %, donc `IsOverkill` VRAI), elle rend `3 - 1 = 2` la ou le live rend **3**. Elle
+        n'etait ajustee que sur les regimes ou l'overkill et le coup fatal coincidaient.
 
         MESURE LIVE (`probe_125_leftover_hits.py --mode sweep`, seed 4242, board MC1_67, chaine
         MultiThreatEliminator ; le report est FORCE maillon par maillon et le tuple est confronte au
         per-coup LIVE du maillon dont la cible SURVIT — seul maillon ou le per-coup live n'est ni
         clampe par les PV ni tronque) :
 
-            PV 1re cible | k | report LIVE mesure | max(0,H-k-1)+1
-            ------------ | - | ------------------ | ---------------
-            2500         | 2 | 4                  | 4
-            3000         | 2 | 4                  | 4
-            4000         | 3 | {1,2,3} (LightCover ecrase) | 3
-            10000        | 6 | >= 1 (le 2e maillon EST frappe) | 1
+            PV 1re cible | k | report LIVE mesure | max(0,H-k)+1 (H)
+            ------------ | - | ------------------ | ----------------
+            2500         | 2 | 4                  | 4  (H = 5)
+            3000         | 2 | 4                  | 4  (H = 5)
+            4000         | 3 | {1,2,3} (LightCover ecrase) | 1..3 (H = 3..5)
+            10000        | 6 | >= 1 (le 2e maillon EST frappe) | 1  (H = 6)
 
         Les regimes 2500 et 3000 ont le MEME k et un index d'overkill DIFFERENT (3 vs 4, lisible au nb
         d'events : `ApplyDamageOperation$$Execute` retourne des l'entree sur
@@ -690,44 +723,31 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         regime 10000 (k = H, AUCUN coup gaspille) rend >= 1 : c'est lui qui pin le terme `+ extraHits`
         (`extraHit` = 1 en gameconfig pour 1006).
 
-        ⚠ ECART LECTURE/MESURE, documente : les TROIS call-sites d'`ApplyDamageOperation$$AddLeftoverHit`
-        lus au decompile — (a) `HasFlag(target, Overkilled)` -> entree flag LITTERAL 1 puis `return` ;
-        (b) `Damage.GetTotal(requested) > 0 && HealthComponent.IsDead(apres)` -> flag = `IsDead` AVANT ;
-        (c) reste d'overkill (`requested - applied`), meme flag — predisent `H - k` entrees flag-vrai
-        (un coup sur cadavre = `IsDead` avant = vrai, et `HealthComponent$$IsDead` est bien
-        `CurrentValue < 1 && CurrentMaximumValue > 0`, sans differe). La mesure en donne **une de
-        moins**. Exactement UN coup-sur-cadavre ne laisse donc pas d'entree comptee ; la mesure ne dit
-        pas LEQUEL (le 1er coup sur le cadavre et le coup d'OVERKILL coincident sur les 4 regimes) —
-        residu nomme, pas un scalaire fitte : la loi est entiere et confrontee sur 4 regimes dont deux
-        qui separent k de l'index d'overkill.
+        LES TROIS CALL-SITES d'`ApplyDamageOperation$$AddLeftoverHit`, relus au build courant --
+        (a) `HasFlag(target, UnitFlag.Overkilled = 8)` -> entree flag LITTERAL 1 puis `return` ;
+        (b) cible DEJA morte a l'entree -> entree, flag = cet `IsDead` d'AVANT ; (c) le coup qui TUE
+        -> entree du reste d'overkill (`requested - applied`), flag = l'`IsDead` d'AVANT, donc FAUX.
+        `HealthComponent$$IsDead` est `CurrentValue < 1 && CurrentMaximumValue > 0`, sans differe.
+        => **`H - k` entrees flag-vrai**, et c'est bien ce que rend la loi ci-dessus.
 
-        AVANT ce port, le branche « tuee » rendait `1 + extraHits` en dur (mesure #116 lue sur un SEUL
-        regime, PV 8000 -> k=5, H=6, ou `1` se trouve etre `max(0,H-k-1)+1 - 1`... et surtout ou le
-        malus `LightCover` du maillon suivant ecrase 1 et 2 sur la MEME valeur appliquee) : d'ou le
-        bit-exact trompeur de #116 et la divergence de #122 des que k <= 3.
+        AVANT ce port, la branche « tuee » rendait `1 + extraHits` en dur (mesure #116 lue sur un SEUL
+        regime, PV 8000 -> k=5, H=6, ou le malus `LightCover` du maillon suivant ecrase 1 et 2 sur la
+        MEME valeur appliquee) : d'ou le bit-exact trompeur de #116 et la divergence de #122 des que
+        k <= 3.
 
-        ⚠⚠ RESIDU OUVERT, MESURE ET NON FERME (#505) : CETTE LOI N'EST PAS UNIFORME, ET LE DECOMPILE
-        DIT POURQUOI. Sur `1129 BloodyFury` (`extraHits` **null**, donc `extra = 0`), la mesure LIVE
-        DIRECTE -- un seul ennemi fragile, les autres immortels, donc le 2e maillon SURVIT et son
-        nombre d'events EST son nombre de coups (`probe_505_bloody_fury.py --only report --attackers
-        0,1,3 --attacks 3 --main-hp 3000,10000,15000,21000`) -- donne, a H = 4 :
+        ⚠ POURQUOI LA MESURE A LONGTEMPS SEMBLE DIRE « UNE DE MOINS », et pourquoi ce n'en etait pas
+        une : le seul regime ou `probe_125` sait LIRE le report est celui du maillon SUIVANT, dont le
+        nombre d'events depend AUSSI des modificateurs de coups de SA cible (`LightCover`, `Parry`,
+        `Camouflage` -- le tableau ci-dessus le note explicitement pour PV 4000). H n'y etait donc
+        pas OBSERVE mais SUPPOSE, et `max(0,H-k-1)+1` s'y ajuste avec un H majore de 1. Le regime qui
+        tranche est celui de `#505`, ou `extra = 0` et ou H est CONNU (4 coups d'attaque forces) :
+        la ils divergent, et c'est `max(0,H-k)` qui passe 4/4.
+        ⚠ Et `probe_489_fragstorm_grenade_launcher.py` VERDICT-4 ne pouvait rien voir : il compare
+        `off_chain[1]["hits"]` a la formule qui l'a produit -- une TAUTOLOGIE, pas une confrontation.
+        Le verdict qui mord est celui qui lit le report DANS LE LIVE, sur un maillon SURVIVANT.
 
-            PV cible | k | report LIVE | cette loi `max(0,H-k-1)+0` | `max(0,H-k)`
-            -------- | - | ----------- | -------------------------- | ------------
-            3000     | 1 | 3           | 2  X                       | 3  OK
-            10000    | 2 | 2           | 1  X                       | 2  OK
-            15000    | 3 | 1           | 0  X                       | 1  OK
-            21000    | 4 | 0           | 0  OK                      | 0  OK
-
-        et `max(0,H-k)` fait AUSSI passer `tests/engine/runner/test_chain_leftover_hits_live.py`
-        (1006, seeds 4242 ET 777) -- parce que pour 1006 `extra = 1` et que
-        `max(0,H-k-1)+1 == max(0,H-k)` des que `H-k >= 1`. La SEULE mesure qui separe les deux est
-        le regime `H == k` de `probe_125_leftover_hits.py --mode sweep --hp-target 10000`, ou le
-        LIVE frappe un 2e maillon (report >= 1) alors que `max(0,H-k)` rendrait 0. AUCUNE des deux
-        formes ne couvre donc les SIX points mesures.
-
-        LA CAUSE, LUE : le predicat qui decide si un coup laisse une entree FLAG-VRAIE est
-        `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, et c'est un SEUIL, pas un index --
+        ⚠ CE QUI RESTE OUVERT (residu `#505-r1`) : l'INDEX du premier coup « deja overkill ».
+        `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` est un SEUIL, pas un index --
 
             if (!allowOverkill) return false
             if (minimumHealth.HasValue && minimumHealth.Value > 0) return false
@@ -738,19 +758,14 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             }
             return false
 
-        -> le coup FATAL pose lui-meme `UnitFlag.Overkilled` quand son EXCEDENT depasse
-        `overkillDmgPctOfHealth` (ou qu'il est CRITIQUE) ; sinon c'est le coup SUIVANT qui le pose.
-        L'indice du premier coup « deja overkill » vaut donc `k` ou `k+1` SELON LA MAGNITUDE, et
-        c'est exactement l'unite d'ecart entre les deux formes ci-dessus (1129 ecrase sa cible a
-        +167 % -> `k` ; 1006 la depasse de +24 % -> `k+1`). Fermer ce residu demande de porter
-        `IsOverkill` (constante `overkillDmgPctOfHealth` des battle-rules, `deniedDamage` cumule,
-        `CanBeOverkilled`, `HasFlag(0x13)`, `minimumHealth`) -- hors perimetre #505, qui ne pouvait
-        pas changer une feuille PARTAGEE par 1006/1048/1129 sur une loi qu'aucune forme simple ne
-        satisfait. CE QUI EST ACQUIS : la forme actuelle SOUS-ESTIME le report d'exactement 1 quand
-        le coup fatal ecrase la cible (BloodyFury), et est JUSTE quand il l'effleure.
-        ⚠ Et `probe_489_fragstorm_grenade_launcher.py` VERDICT-4 ne l'aurait jamais vu : il compare
-        `off_chain[1]["hits"]` a la formule qui l'a produit -- une TAUTOLOGIE, pas une confrontation.
-        Le verdict qui mord est celui qui lit le report DANS LE LIVE, sur un maillon SURVIVANT."""
+        -- donc le coup FATAL pose lui-meme `UnitFlag.Overkilled` quand son excedent depasse
+        `overkillDmgPctOfHealth` (ou qu'il est CRITIQUE), sinon c'est le coup SUIVANT. Cet index
+        **ne change PAS ce compte-ci** (sites (a) et (b) poussent tous deux un flag VRAI, cf.
+        `record_left_over_damages`), mais il decide du MONTANT reporte par `HazeOfCorruption` et de
+        l'emission des events. `IsOverkill` EST porte (`damage_hits.overkill_flag_posted_by_hit`,
+        #462-r4e-o-r1) et son index est desormais EXPOSE (`overkill_at_hit` dans le retour
+        d'`execute_ability_attack`, #489-r1) : ce qui manque n'est plus l'etage, c'est un montage
+        qui SEPARE les deux paliers."""
         per_hit = list(atk.get("per_hit_health") or [])
         if not per_hit:
             return 0
@@ -760,7 +775,11 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         for i, h in enumerate(per_hit):   # (b) l'attaque tue-t-elle, et A QUEL coup
             hp -= int(h)
             if hp <= 0:
-                return max(0, len(per_hit) - (i + 1) - 1) + int(extra)
+                # `H - k` : les coups joues APRES le coup fatal sont exactement ceux dont l'entree
+                # `LeftOverDamage` porte un flag VRAI (cf. `record_left_over_damages`). Le coup
+                # fatal lui-meme (site (c)) pousse une entree flag FAUX -> il ne compte pas, mais
+                # il rend `list.Count > 0`, ce qui ARME le terme `+ extraHits`.
+                return max(0, len(per_hit) - (i + 1)) + int(extra)
         return 0                          # cible SURVIVANTE -> AUCUNE entree -> pas de `+ extraHits`
 
     def execute(self, entities, ectx):
@@ -774,15 +793,44 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         extra = int(self.extra_hits.evaluate(entities) if hasattr(self.extra_hits, "evaluate")
                     else self.extra_hits)
         tu = resolve_unit(self.target_sel, entities)
-        bmin, bmax, pierce, _cfg_hits = ability_attack_params(
+        # #1030-r4 -- `BaseEffect$$PiercingBonusForAttack` DOIT etre threade ici, et le critere est
+        # la FAMILLE, pas la feuille. Ce noeud construit un `AttackDamageBehaviour` (famille ATTACK,
+        # `native_factory="attack"` pour ses trois porteurs 1006/1048/1129), donc son coup traverse
+        # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` -> `$$CalculateBaseDamage
+        # WithAllModifiers`, dont l'`attackModifiers` est RENSEIGNE (slot 13 `CalculateAttacker
+        # ModifiersForPrediction`) et dont le champ `+0x20` entre dans la somme de percage de
+        # `$$GetBaseDamageWithFixedPiercedArmor` : `Min(100, Max(0, GetStat(0x1a) +
+        # GetStat(0x15|0x16) + additionalPiercing + defenderPiercing + GetPiercingRatio(profil)))`.
+        # Le jumeau `AttackWithAttackDamage` le threade depuis case-117 ; ce noeud-ci ne le faisait
+        # pas -- ecart d'ETAGE, silencieux (le percage sort simplement trop bas).
+        # ⚠ Le bonus depend de la CIBLE (les gates `HasTrait(target, ...)` de
+        # `GravitonRifle_ExtraPierce` / `RelicBoltPistol_ExtraPierce`), et un maillon CHANGE de
+        # cible -> il est RE-CALCULE dans la boucle, pas ici. Le `pierce` rendu par
+        # `ability_attack_params` ci-dessous n'est donc plus consomme (seules les BORNES le sont,
+        # et elles ne dependent pas du percage).
+        from ..base import ability_pierce_effect_bonus
+        bmin, bmax, _pierce_sans_bonus, _cfg_hits = ability_attack_params(
             state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
             min_key=self.min_key, max_key=self.max_key)
+        _cctx = None
+        _ce = state.get_entity(caster)
+        _csc = _ce.get_component(StatsComponent) if _ce is not None else None
+        if _csc is not None:
+            _cctx = _csc.ctx
         guard = self.MAX_ITERATIONS
         chain: list = []
         while hits > 0 and guard > 0 and tu is not None and tu.get("id") is not None:
             tgt = tu.get("id")
+            # #1030-r4 : le percage est RE-CALCULE par maillon -- les gates de
+            # `BaseEffect$$PiercingBonusForAttack` lisent la CIBLE, et un maillon change de cible.
+            # `profile_pierce(ctx, ...)` est le MEME foyer que celui d'`ability_attack_params`
+            # (il l'appelle) : sans bonus actif, `_pierce == _pierce_sans_bonus` a l'identique.
+            _pierce = profile_pierce(
+                _cctx, self.profile, ranged=not self.is_melee,
+                effect_bonus=ability_pierce_effect_bonus(state, caster, tgt, self.ability_type,
+                                                         is_ranged=not self.is_melee))
             atk = AttackDamageOperation.execute_ability_attack(
-                state, caster, tgt, bmin, bmax, pierce, hits,
+                state, caster, tgt, bmin, bmax, _pierce, hits,
                 damage_profile=self.profile, is_melee=self.is_melee,
                 # #512-r2 volet 2 : `abilityType = this+0x10` -- le natif le passe au behaviour
                 # construit a la volee ; sans lui les gates qui lisent l'`AbilityOrEffect` du coup

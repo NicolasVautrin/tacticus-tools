@@ -871,6 +871,21 @@ class _AbilityAttack:
                 # ou un bouclier s'interpose.
                 "per_hit_health": r["per_hit_health"], "hp_before": _hp_before_chain,
                 "hp_after": int(thc.hp or 0),
+                # #489-r1 -- L'ETAT D'OVERKILL DE LA SERIE, DESORMAIS PUBLIE. La fiche du residu
+                # declarait « le retour d'`execute_ability_attack` n'expose AUCUN flag d'overkill »
+                # et en faisait un BLOQUANT ; la mesure du 2026-08-15 dit que l'ETAGE existait deja
+                # (`damage_hits.overkill_flag_posted_by_hit`, mirror de `IdunBattle.Core.Services.
+                # DamagePrediction$$IsOverkill`, porte par #462-r4e-o-r1) et que seul le CABLAGE
+                # manquait -- ces trois cles sont dans `r` depuis, jamais remontees.
+                #   `overkilled`      = verdict de serie (`UnitFlag.Overkilled` pose par un coup) ;
+                #                       `None` = non calculable (PV non captes), JAMAIS un `False`
+                #                       devine -- l'appelant retombe alors sur `_did_overkill`.
+                #   `overkill_at_hit` = index 0-based, DANS CETTE SERIE, du coup qui l'a pose. C'est
+                #                       le `k` ou `k+1` selon la magnitude dont parle la docstring
+                #                       de `ChainLeftOverHitsAttackDamage._left_over_hits`.
+                #   `hits_executed`   = coups EXECUTES (!= `len(per_hit)`, que le SITE (A) tronque).
+                "overkilled": r.get("overkilled"), "overkill_at_hit": r.get("overkill_at_hit"),
+                "hits_executed": r.get("hits_executed"),
                 # #419-r3 : l'etat de l'`OngoingAttack` EN SORTIE (`+0x30`, `+0x40`, `+0x48`), tel
                 # qu'une feuille `DSLBehaviors$$AttackDamage` NUE composee APRES celle-ci dans le
                 # MEME `Attack(...)` le lirait par `GetCurrentAttackOrDefault(isOutsideAttack: 0)`.
