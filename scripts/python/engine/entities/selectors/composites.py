@@ -95,7 +95,17 @@ def random_adjacent_free_tile(origin: TargetsSelector, amount: AAmountFormula) -
     ⚠ `CanAddUnit` est appele ici par sa surcharge a **UN** argument (`tiles`), pas par celle a deux
     (`tiles, isSteppable`) ni celle a trois (`tiles, parent, isSteppable`) -- LU au call-site
     (`DSLSelectors$$RandomAdjacentFreeTile` appelle `CanAddUnit(this, pvVar1)`). Le port laisse donc
-    `allow_steppable` a son defaut ; passer `True` autoriserait la pose sur un `Steppable` occupe.
+    `allow_steppable` a son defaut.
+
+    ⚠ **ET CE DEFAUT EST `True` DEPUIS #462-...-r5-r3 -- la phrase qui vivait ici (<< passer `True`
+    autoriserait la pose sur un `Steppable` occupe >>) etait une DEDUCTION, et elle etait FAUSSE.**
+    La surcharge a UN argument code son trigger EN DUR a `<DSLTriggers+0x48>` (relu :
+    `mov rbx,[rax+0x88]` puis `mov rbx,[rbx+0x48]` dans `DSLSelectors$$CanAddUnit` @ la surcharge a
+    123 xrefs), et `+0x48` est `op_LogicalNot(<trigger nu>)` -> `ShouldTrigger` FAUX ->
+    `allowSteppable` **VRAI**. C'est le MEME appariement slot/valeur que
+    `tests/engine/runner/test_955r2_free_tiles_steppable_offline.py` grave deja pour
+    `FreeTilesOrAdjacentFreeTiles` ; ce site-ci en heritait la conclusion INVERSE parce que personne
+    n'avait relu le corps de la surcharge a un argument.
 
     Unique appelant PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility$$
     ExecuteBehaviour` (branche `else` du `If` : `RandomAdjacentFreeTile(Target@+0x60,

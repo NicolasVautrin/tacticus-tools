@@ -342,8 +342,9 @@ class PullUnitOneTileOperation(Operation):
         upos = puller.get_component(PositionComponent)
         if ppos is None or upos is None:
             return {"moved": False, "reason": "no position"}
-        # --- gate `alive` : ABSENT du natif, CONSERVE et nomme (#498-r2, cf. la docstring de
-        # `DisplaceUnitOperation`) ---
+        # --- gate `alive` : MEME correction qu'au push (#550-r4) -- son artefact natif est le 2e
+        # gate d'`IdunBattle.Operations.SetUnitPositionOperation$$Execute` (`HasFlag(unit, 6)`),
+        # joue ici TROP TOT. Ecarts (a) rang et (b) fenetre : cf. le bloc du push. ---
         uc = pulled.get_component(UnitComponent)
         if uc is not None and not uc.alive:
             return {"moved": False, "reason": "dead"}
@@ -405,9 +406,15 @@ class PullUnitOneTileOperation(Operation):
         # (`IdunBattle.Operations.SetUnitPositionOperation$$Execute`), qui n'emet AUCUN event ; le
         # vecteur du pull est `DisplaceUnitOperation$$EventAndAbilitiesAndEffects`, porte plus bas
         # par `displace_triggers`. Cf. le docstring de `MoveUnitOperation` (#448-r1-r1-r2-r1).
+        # `set_unit_position_gates=True` (#550-r4) : ce call-site EST un stand-in de
+        # `IdunBattle.Operations.SetUnitPositionOperation$$Execute`, dont les deux gates propres
+        # (`feet.Count != position.Count`, `HasFlag(unit, 6 = Dead)`) sont re-testes AU MOMENT DE
+        # L'ECRITURE. Le gate `alive` de tete ci-dessus a ete lu AVANT le knockback de denivele, qui
+        # peut avoir TUE la cible entre-temps -- c'est cette fenetre que S2 ferme.
         MoveUnitOperation(self.pulled_id, dest, record_tiles=False,
                           emit_after_move=False,
-                          enforce_native_gates=False).execute(state, bus)
+                          enforce_native_gates=False,
+                          set_unit_position_gates=True).execute(state, bus)
         n = _add_tiles_moved(state, self.puller_id, self.pulled_id, prev_tiles, dest,
                              self.record_tiles)
         from .triggers.dispatch.move_death import displace_triggers
@@ -510,16 +517,22 @@ class SwitchPositionOperation(Operation):
             # `ResetPreviousTile`), jamais par `MoveUnit` -> aucun vecteur after-move natif ici.
             MoveUnitOperation(self.target_id, tile_caster, set_moved=False,
                               record_tiles=False, emit_after_move=False,
-                              enforce_native_gates=False).execute(state, bus)
+                              enforce_native_gates=False,
+                              set_unit_position_gates=True).execute(state, bus)
             res["target_to"] = tile_caster
             n = _add_tiles_moved(state, self.caster_id, self.target_id, [tile_target], tile_caster,
                                  self.record_tiles)
             if n:
                 moved_tiles[self.target_id] = n
         if not dead_caster:
+            # `set_unit_position_gates=True` (#550-r4) : `dead_caster` a ete lu AVANT la moitie
+            # « cible » ci-dessus, dont le vecteur `On(UnitDisplaced)` peut avoir TUE le caster.
+            # Le natif re-teste `HasFlag(caster, 6)` dans `SetUnitPositionOperation$$Execute`, donc
+            # il REFUSE de bouger le cadavre la ou le port le bougeait encore.
             MoveUnitOperation(self.caster_id, tile_target, set_moved=False,
                               record_tiles=False, emit_after_move=False,
-                              enforce_native_gates=False).execute(state, bus)
+                              enforce_native_gates=False,
+                              set_unit_position_gates=True).execute(state, bus)
             res["caster_to"] = tile_target
             n = _add_tiles_moved(state, self.caster_id, self.caster_id, [tile_caster], tile_target,
                                  self.record_tiles)
@@ -614,7 +627,17 @@ class DisplaceUnitOperation(Operation):
         upos = pusher.get_component(PositionComponent)
         if ppos is None or upos is None:
             return {"moved": False, "reason": "no position"}
-        # --- gate `alive` : ABSENT du natif, CONSERVE et nomme (#498-r2, cf. docstring de classe) ---
+        # --- gate `alive` : SON ARTEFACT NATIF EXISTE, il est seulement AU MAUVAIS RANG (#550-r4) ---
+        # La mention « ABSENT du natif » qui vivait ici (#498-r2) est FAUSSE : le predicat est
+        # `if (UnitExtensions.HasFlag(unit, 6 = Dead)) { log; return; }`, le 2e gate d'
+        # `IdunBattle.Operations.SetUnitPositionOperation$$Execute` -- c'est-a-dire du slot `0x7e`
+        # par lequel `DisplaceUnitOperation$$Execute` ECRIT la position. Deux ecarts subsistent, et
+        # ils sont nommes plutot que corriges au jugé :
+        #   (a) le RANG -- le natif ne saute QUE l'ecriture de position, puis joue quand meme
+        #       `AddTilesMoved` et `EventAndAbilitiesAndEffects` ; ce `return` sec, lui, abandonne
+        #       toute l'operation (residu `#550-r4-r1`) ;
+        #   (b) la FENETRE entre ce test et l'ecriture, que le natif re-teste et pas le port --
+        #       fermee par `set_unit_position_gates=True` sur le `MoveUnitOperation` ci-dessous.
         uc = pushed.get_component(UnitComponent)
         if uc is not None and not uc.alive:
             return {"moved": False, "reason": "dead"}
@@ -745,7 +768,8 @@ class DisplaceUnitOperation(Operation):
         # par `SetUnitPosition`, pas par `MoveUnit`, donc AUCUN vecteur after-move natif.
         MoveUnitOperation(self.pushed_id, dest, record_tiles=False,
                           emit_after_move=False,
-                          enforce_native_gates=False).execute(state, bus)
+                          enforce_native_gates=False,
+                          set_unit_position_gates=True).execute(state, bus)   # cf. #550-r4
         # `AddTilesMoved(caster=pusher, target=pushed, previousTiles, tileToDisplace=dest, options)`,
         # au RANG NATIF (entre `MoveUnit` et `EventAndAbilitiesAndEffects`). NO-OP pour tout push :
         # `self.record_tiles` vaut False parce qu'aucune feuille DSL de push ne pose `+0x1c` (cf. le
@@ -854,8 +878,9 @@ class DirectDisplaceOperation(Operation):
         tpos = target.get_component(PositionComponent)
         if tpos is None:
             return {"moved": False, "reason": "no position"}
-        # --- gate `alive` : ABSENT du natif, CONSERVE et nomme (#498-r2, cf. docstring de
-        # `DisplaceUnitOperation`) ---
+        # --- gate `alive` : MEME correction qu'au push (#550-r4) -- son artefact natif est le 2e
+        # gate d'`IdunBattle.Operations.SetUnitPositionOperation$$Execute` (`HasFlag(unit, 6)`),
+        # joue ici TROP TOT. Ecarts (a) rang et (b) fenetre : cf. le bloc du push. ---
         uc = target.get_component(UnitComponent)
         if uc is not None and not uc.alive:
             return {"moved": False, "reason": "dead"}
@@ -915,9 +940,13 @@ class DirectDisplaceOperation(Operation):
                 res["knockback"] = kbs
             return res
         prev_tiles = [cur]                                # `GetTiles(target)` LU AVANT l'ecriture
+        # `set_unit_position_gates=True` (#550-r4) : le natif ECRIT ici par le slot `0x7e`, dont les
+        # deux gates propres sont re-testes -- et le knockback de denivele juste au-dessus a pu tuer
+        # la cible depuis le gate `alive` de tete.
         MoveUnitOperation(self.target_id, dest, set_moved=False, record_tiles=False,
                           emit_after_move=False,
-                          enforce_native_gates=False).execute(state, bus)
+                          enforce_native_gates=False,
+                          set_unit_position_gates=True).execute(state, bus)
         n = _add_tiles_moved(state, self.caster_id, self.target_id, prev_tiles, dest,
                              self.record_tiles)
         from .triggers.dispatch.move_death import displace_triggers

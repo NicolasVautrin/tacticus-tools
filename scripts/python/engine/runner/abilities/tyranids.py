@@ -1029,7 +1029,13 @@ def it_itches_tree(tile_id, vector_dir):
     # `TriggerSpawnedUnitBehaviours` avec `ActiveTarget@0x68` lie au summon fraichement pose.
     on_appearance = op_add(RemoveReservation(Owner(), Tiles(ActiveTarget(), as_ids=True)),
                            PerformAIAttack(ActiveTarget()))     # defauts = les champs natifs, cf. supra
-    spawn = Spawn(CanAddUnit(target_tiles, allow_steppable=True), IT_ITCHES_ID,
+    # `parent_sel=Owner()` = le 2e argument de la surcharge a TROIS arguments
+    # (`DSLSelectors$$CanAddUnit(tiles, parent, isSteppable)`), LU au call-site :
+    # `CanAddUnit(<dsl+0x90>, targetTiles, *(<dsl+0x90> + 0x30) /* Owner */, *(<dsl+0x88> + 0x48))`.
+    # C'est le SEUL call-site natif de cette surcharge dans tout le binaire, et il rend le
+    # `Reserve(Owner, targetTiles)` juste au-dessus LOAD-BEARING : sans reservation prealable,
+    # `IsTileReservedForOtherUnit(t, Owner)` rend VRAI et le spawn ne pose RIEN (#550-r4).
+    spawn = Spawn(CanAddUnit(target_tiles, allow_steppable=True, parent_sel=Owner()), IT_ITCHES_ID,
                   on_appearance=on_appearance)
     group = Group(op_and(op_and(op_and(Reserve(Owner(), target_tiles),
                                        Kill(Caster(), DeadUnits(targets))),

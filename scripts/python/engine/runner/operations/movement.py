@@ -574,6 +574,56 @@ def _is_position_reserved_for_drafting(state: State, position: list) -> bool:
     return False
 
 
+def _set_position_feet_count_mismatch(state: State, mover_id: int, position: list) -> bool:
+    """S1 -- le PREMIER gate propre d'`IdunBattle.Operations.SetUnitPositionOperation$$Execute`
+    (#550-r4). Il rend VRAI = REFUS. LU verbatim en tete du corps :
+
+        feet = UnitExtensions.GetUnitFeet(unit, state);
+        if (feet == null || position == null)         throw;
+        if (feet.Count != position.Count)             { log; return; }
+
+    ⚠ **CE N'EST PAS G4.** `MoveUnitOperation$$TilesMatchUnitFeetCount` porte un bras
+    `tilesToMoveTo.Count == 0 -> true` qui laisse passer le LIFT-OFF ; celui-ci ne l'a PAS, donc une
+    `UnitPosition` VIDE y est refusee des que l'unite a au moins un pied. Les deux natifs sont des
+    Operations DISTINCTES (slots `MoveUnit` et `SetUnitPosition` de l'`IOperationProcessor`,
+    respectivement 4 et 3 arguments) : le port utilise la premiere comme STAND-IN de la seconde a
+    quatre call-sites, qui doivent donc jouer CE gate-ci et pas les sept autres.
+
+    ⚠ **MEME COLLAPSE ASSUME que `_tiles_match_unit_feet_count`, et pour la meme raison** : le port
+    ne materialise qu'une main tile de destination, donc `position` vaut toujours 0 ou 1 element,
+    alors que le natif recevrait une empreinte de meme cardinalite que `feet`. Refuser un multi-hex
+    ici serait une regression INVENTEE -- le gate est donc porte au rang natif et rendu INERTE sur le
+    multi-hex, explicitement."""
+    feet = get_unit_feet(state, int(mover_id))
+    if len(feet) == len(position):
+        return False                                      # `feet.Count == position.Count`
+    if len(position) == 1:
+        return False                                      # COLLAPSE mono-hex assume (cf. docstring)
+    return True
+
+
+def _set_position_unit_is_dead(state: State, mover_id: int) -> bool:
+    """S2 -- le SECOND gate propre d'`IdunBattle.Operations.SetUnitPositionOperation$$Execute`
+    (#550-r4). Il rend VRAI = REFUS. LU verbatim, juste apres S1 :
+
+        if (UnitExtensions.HasFlag(unit, 6)) { log; return; }
+
+    `6` est `IdunBattle.Entities.Enum.UnitFlag.Dead`, LU dans `data/symbols/<build>/frida/enums.tsv`
+    (`0=Moved, 1=ArrivedAtFinalTile, 2=ActiveAbilityUsed, 3=TurnFinished, 4=NoActionAvailable,
+    5=Automatic, 6=Dead, 8=Overkilled, 9=Fled, ...`) -- pas deduit du nom de la fonction. C'est le
+    MEME flag que teste `IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` en tete
+    (`deadCaster` / `deadTarget`), qui est donc gate DEUX FOIS cote natif.
+
+    Offline le flag natif n'est pas trace ; le predicat equivalent est
+    `IdunBattle.Entities.UnitExtensions$$IsDead`, deja mirrore -- exactement le collapse que
+    `SwitchPositionOperation` ecrit deja pour ses deux `HasFlag(u, 6)`."""
+    e = state.get_entity(int(mover_id))
+    if e is None:
+        return False
+    uc = e.get_component(UnitComponent)
+    return uc is not None and not uc.alive
+
+
 def _movement_start_position(state: State, mover_id: int) -> list:
     """E1 -- le `movementStartPosition` d'`IdunBattle.Operations.MoveUnitOperation$$Execute`, LU :
 
@@ -1004,12 +1054,33 @@ class MoveUnitOperation(Operation):
          et ecrit (« MoveUnitOperation pose la position sans check d'occupation -> l'echange direct
          rend l'etat NET identique ») : il DEPEND de l'absence du gate. `emit_after_move` y vaut
          `True` ⇒ un gate branche dessus CASSERAIT `TheQuickening`, en silence.
-    """
+
+    LES DEUX GATES PROPRES DE `SetUnitPositionOperation$$Execute` (#550-r4)
+    ----------------------------------------------------------------------
+    `enforce_native_gates=False` dit « ce call-site ne mirroite PAS `MoveUnitOperation` », ce qui est
+    la bonne raison d'eteindre les SEPT gates ci-dessus -- mais ca ne dit RIEN de ce que l'autre
+    natif, lui, exige. `IdunBattle.Operations.SetUnitPositionOperation$$Execute` ouvre sur DEUX gates
+    a lui (cf. `_set_position_feet_count_mismatch` / `_set_position_unit_is_dead`), qu'aucun stand-in
+    ne jouait. `set_unit_position_gates=True` les arme, et il faut un TROISIEME parametre parce que
+    les deux familles ne coincident pas : `TheQuickening` porte `enforce_native_gates=False` sans
+    mirroiter `SetUnitPositionOperation` (il mirroite bien `MoveUnitOperation`, avec un COLLAPSE), et
+    `FleeOperation` ne mirroite AUCUN des deux -- son deplacement est une approximation port-level,
+    le natif n'appelle ni le slot `MoveUnit` ni le slot `SetUnitPosition`. Les armer la
+    inventerait un refus.
+
+    ⚠ **CE N'EST PAS REDONDANT AVEC LE GATE `alive` DE TETE des Operations de `displace.py`**, et
+    c'est le RANG qui fait la difference. Ces gates-la sont lus une fois, EN TETE ; le natif, lui,
+    re-teste `HasFlag(unit, 6)` au moment de l'ECRITURE de la position. Entre les deux, le port joue
+    des choses qui TUENT : le knockback de denivele (`ApplyKnockbackTo`, pull et Direct), le crush du
+    steppable, et -- pour `SwitchPosition` -- le vecteur `On(UnitDisplaced)` de la PREMIERE moitie,
+    qui peut tuer le caster avant la SECONDE. Dans cette fenetre, le port deplacait un cadavre que le
+    natif refuse de bouger."""
     __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
                  "last_movement_steps", "pathfinder_type_override", "is_interim_step",
                  "arrive_at_final_tile", "emit_after_move", "last_after_move",
                  "last_crushed", "last_path", "last_abandoned", "enforce_native_gates",
-                 "ignore_unit_movement_blockers", "allow_null_target_position")
+                 "ignore_unit_movement_blockers", "allow_null_target_position",
+                 "set_unit_position_gates")
 
     def __init__(self, unit_id: int, to: "tuple[int, int] | None", set_moved: bool = True,
                  record_tiles: bool = True, skip_pre_move_triggers: bool = False,
@@ -1017,7 +1088,8 @@ class MoveUnitOperation(Operation):
                  is_interim_step: bool = False, arrive_at_final_tile: bool = True,
                  emit_after_move: bool = True, enforce_native_gates: bool = True,
                  ignore_unit_movement_blockers: bool = False,
-                 allow_null_target_position: bool = False):
+                 allow_null_target_position: bool = False,
+                 set_unit_position_gates: bool = False):
         self.unit_id = unit_id
         # `to is None` = la `UnitPosition` VIDE du natif (`position.Count == 0`), c'est-a-dire le
         # LIFT-OFF : l'unite QUITTE le plateau sans destination. Gardee par `allow_null_target_position`
@@ -1035,6 +1107,11 @@ class MoveUnitOperation(Operation):
         # Cf. le bloc « LES GATES D'ABANDON » du docstring de classe. `True` = cette instance
         # mirroite `MoveUnitOperation$$Execute` et joue donc ses DEUX gates d'abandon.
         self.enforce_native_gates = bool(enforce_native_gates)
+        # Cf. le bloc « LES DEUX GATES PROPRES DE `SetUnitPositionOperation$$Execute` » (#550-r4).
+        # `True` = cette instance est un STAND-IN de ce natif-la (push / pull / switch / Direct), et
+        # joue donc SES deux gates. ORTHOGONAL a `enforce_native_gates` : les deux familles de
+        # call-sites ne coincident pas.
+        self.set_unit_position_gates = bool(set_unit_position_gates)
         self.pathfinder_type_override = (None if pathfinder_type_override is None
                                          else int(pathfinder_type_override))
         self.is_interim_step = bool(is_interim_step)
@@ -1119,6 +1196,18 @@ class MoveUnitOperation(Operation):
                 return
             if _is_position_reserved_for_drafting(state, position):
                 self.last_abandoned = "position-reserved-drafting"                   # G7 (inerte)
+                return
+        # ── LES DEUX GATES PROPRES DE `SetUnitPositionOperation$$Execute` (#550-r4) ───────────────
+        # Rang natif : ils sont les DEUX PREMIERS tests de ce corps-la, avant `GetUnitPosition` et
+        # avant toute reecriture de pied. Armes UNIQUEMENT par les call-sites qui mirroitent CE
+        # natif (cf. le bloc de docstring) -- jamais par `enforce_native_gates`, qui code une AUTRE
+        # question.
+        if self.set_unit_position_gates:
+            if _set_position_feet_count_mismatch(state, self.unit_id, position):
+                self.last_abandoned = "set-position-feet-count-mismatch"             # S1
+                return
+            if _set_position_unit_is_dead(state, self.unit_id):
+                self.last_abandoned = "set-position-unit-dead"                       # S2
                 return
         # `On(PreUnitMove = 0x1f = 31)` — EMIS EN TETE, avant TOUTE mutation. Place native lue au
         # decompile d'`IdunBattle.Operations.MoveUnitOperation$$Execute` : le corps

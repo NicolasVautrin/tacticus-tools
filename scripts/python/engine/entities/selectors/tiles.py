@@ -506,23 +506,92 @@ class CanAddUnit(TargetsSelector):
         allowSteppable = !(<+0x28>.ShouldTrigger(entities, 0x20))
         garde t ssi TileExtensions.CanAddUnitFromAbility(t, state, parent, allowSteppable)
 
-    `False` (defaut) = branche `allowSteppable == 0`, comportement HISTORIQUE inchange -- c'est celle
-    du call-site `HaywireMineAbility`, MESUREE (au tour ou la mine occupe deja `PreviousTile`, le
-    natif ne repose RIEN : `Count(tiles) == 0` -> `TriggerAbilityDelayed`).
-    `True` = branche `allowSteppable == 1` : une tuile dont l'occupant porte `Steppable` est LIBRE.
-    Unique porteur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour`
-    passe `isSteppable = <DSLTriggers+0x48>`, que `IdunBattleLogic.Entities.DSLTriggers$$.ctor` pose
-    comme `op_LogicalNot(<le trigger SANS operande de +0x40/+0x70>)` -- ce meme slot `+0x70` est deja
-    nomme `YesTrigger` par le port (`entities/effects/loki/martial_superiority.py`,
-    `.../counter_attack.py`, identifie par sa taille 16 et son absence de champ). Donc
-    `ShouldTrigger` y est TOUJOURS FAUX, donc `allowSteppable` TOUJOURS VRAI a ce call-site.
+    ⚠ **LE DEFAUT EST `True`, ET C'EST LE DEFAUT DU NATIF** (#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3). Le
+    defaut etait `False` jusqu'au 2026-08-15 -- c'est-a-dire l'INVERSE de ce que passent 123 des 147
+    call-sites natifs, releve a l'OCTET et non deduit :
 
-    RESIDU NOMME : `IsTileReservedForOtherUnit(t, parent)` et `IsTilePendingDrafting(t, state, 0)`
-    n'ont pas d'equivalent porte (ni reservation, ni drafting) -- c'est aussi pourquoi l'argument
-    `parent` du noeud natif n'a pas de contrepartie ici : le port n'a rien a en faire."""
-    def __init__(self, source: TargetsSelector, allow_steppable: bool = False):
+      * `DSLSelectors$$CanAddUnit(tiles)` -- **123 xrefs**, la surcharge que tout site du port ecrit
+        quand il n'annote rien -- code son trigger EN DUR : `mov rbx,[rax+0x88]` (l'instance
+        `DSLTriggers`, LUE dans `IdunBattleLogic.Entities.DSLFactory$$.ctor` : `this+0x88 =
+        new DSLTriggers(this)`), puis `mov rbx,[rbx+0x48]`. Et `IdunBattleLogic.Entities.DSLTriggers$$.ctor`
+        pose `+0x48 = op_LogicalNot(<trigger sans champ>)`, la MEME classe que `+0x40` et `+0x70` --
+        ce dernier deja nomme `YesTrigger` par le port
+        (`entities/effects/loki/martial_superiority.py`, `.../counter_attack.py`). Donc
+        `ShouldTrigger` FAUX, donc `allowSteppable = !faux = **TRUE**` ;
+      * `DSLSelectors$$CanAddUnit(tiles, parent, isSteppable)` -- 1 seul call-site de code,
+        `...ItItchesAbility$$ExecuteBehaviour`, qui passe le MEME `<DSLTriggers+0x48>` -> **TRUE** ;
+      * `DSLSelectors$$CanAddUnit(tiles, isSteppable)` -- 15 call-sites de code, dont **11 passent
+        `<DSLTriggers+0x40>`** (`mov r8,[r8+0x40]`, releve un par un) -> `ShouldTrigger` VRAI ->
+        `allowSteppable = **FALSE**`. Les 4 restants sont les appels internes de
+        `DSLSelectors$$FreeTilesOrAdjacentFreeTiles` : sa surcharge SANS trigger code `+0x48`
+        (-> TRUE, c'est ce que consomment `ArmourOfShriekingSouls$$Resurrect`,
+        `PossessionAbility$$CreateBehaviour`, `RelicOfLostCadiaAbility_SummonUnit$$CreateBehaviour`,
+        `EnvThinVeil_SummonAbility` et `Lakrimae_SummonPoxwalker_Ability`), sa surcharge AVEC trigger
+        le PROPAGE, et ses trois appelants (`Ambush_SummonAbility$$GetSummonBehaviour`,
+        `CosmicHorror_OnKillAbility$$CreateBehaviour`,
+        `HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour`) passent tous `+0x40`
+        -> FALSE.
+
+    ⇒ **14 call-sites natifs sur 147 valent FALSE** ; TOUS les autres valent TRUE. Le defaut du port
+    doit donc etre `True`, et `allow_steppable=False` s'ECRIT explicitement, en citant son call-site.
+    Sites portes qui le posent : `triggers/loki/haywire_mine.py` (x2,
+    `...HaywireMineAbility$$CreateBehaviour`) et `abilities/orks.py::squig_mine_pool_tree`
+    (`...SquigMineAbility$$ExecuteBehaviour`).
+
+    ⚠ **LA MESURE LIVE DE HAYWIRE N'EST PAS CONTREDITE, ELLE EST EXPLIQUEE** : au tour ou la mine
+    occupe deja `PreviousTile`, le natif ne repose RIEN (`Count(tiles) == 0` ->
+    `TriggerAbilityDelayed`). C'est exactement ce que PREDIT `+0x40` a ce call-site -- la mesure et
+    le relevé d'octets se recoupent, et c'est ce recoupement qui etablit le SENS du trigger
+    (`<+0x40>.ShouldTrigger` = VRAI, donc `<+0x48> = Not(<+0x40>)` = FAUX).
+
+    ⚠ **LES JUMEAUX IMPERATIFS DU PORT ETAIENT DEJA A `allowSteppable = 1`**, et c'est une seconde
+    lecture concordante : `engine/services/spawn_tile_shape.py` cite
+    `TileExtensions.CanAddUnit(tile, state, true, false, false)` et `engine/battle_query.py` cite
+    « arg3=1 ». Le noeud DSL etait le SEUL des trois a coder la branche inverse.
+
+    `parent_sel` = LE SECOND GATE, et il n'a PAS de valeur « neutre » (#550-r4). `CanAddUnitFromAbility`
+    appelle `IsTileReservedForOtherUnit(t, parent)` juste apres `IsFreeTile`, et
+    `CanAddUnitTileSelector$$Select` resout `parent` par le SELECTEUR `<this+0x20>`
+    (`SelectUnit(entities, 3)`). Les TROIS surcharges natives de `IdunBattleLogic.Entities.DSLSelectors$$
+    CanAddUnit` construisent le meme `CanAddUnitTileSelector(state, tiles, parent, isSteppable)`, et
+    ce qu'elles mettent en `parent` est LU, pas suppose :
+
+        CanAddUnit(tiles)                    parent = <le selecteur que rend DSLSelectors$$None()>
+        CanAddUnit(tiles, isSteppable)       parent = idem
+        CanAddUnit(tiles, parent, isSteppable)  parent = celui de l'appelant
+
+    Les deux premieres allouent `new EntitySelector(state, entityId: null)` -- **le corps est
+    IDENTIQUE, instruction pour instruction, a celui de `IdunBattleLogic.Entities.DSLSelectors$$None`**
+    (meme `Il2CppClass*`, meme ctor, memes arguments `(state, 0, 0)`), et le type est NOMME par la
+    surcharge voisine `DSLSelectors$$Entity(entityId)`, dont le ctor est `IdunBattle.Entities.Selectors.
+    EntitySelector$$.ctor(this, state, entityId)`. Or `IdunBattle.Entities.Selectors.EntitySelector$$
+    GetEntity` rend `null` quand ses trois champs (`+0x18` entite, `+0x20` id, `+0x28` selecteur d'id)
+    sont nuls. ⇒ **`parent` est NUL a ces call-sites**, et `IsTileReservedForOtherUnit(t, null)` prend
+    sa branche `allowedUnit == null` = `content.<+0x34>.HasValue` : « la tuile est reservee par
+    QUICONQUE » -> refus. Polarite SAINE.
+
+    ⇒ `parent_sel=None` (defaut) N'EST PAS « pas de gate » : c'est le `None()` natif, donc le gate
+    « refuse toute tuile RESERVEE ». Un `parent_sel` non nul bascule sur l'autre branche
+    (`!(HasValue && Value == parent.Id)`), qui refuse toute tuile **NON** reservee pour ce parent --
+    c'est ce qui rend le `Reserve(Owner, targetTiles)` d'`ItItches` LOAD-BEARING. Unique call-site
+    natif de la surcharge a trois arguments : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ItItchesAbility$$ExecuteBehaviour`, qui y passe `<DSLSelectors+0x30>` = `Owner`.
+
+    SUBSTRAT : `ctx.tile_reserved_for_other_unit` (foyer unique `runner/operations/tile_reservation.py`).
+    **Absent = NON MESURE**, et le gate ne joue alors pas du tout : le rabattre sur une table VIDE
+    ferait rendre un ensemble VIDE a tout call-site `parent` non nul (contexte de prediction, arbre
+    monte hors runner). Meme tri-etat nomme que `ctx.sort_tiles_by_utility`.
+
+    RESIDU NOMME : `IsTilePendingDrafting(t, state, 0)`, le TROISIEME gate, n'a pas d'equivalent porte
+    (le `DraftingComponent` des joueurs n'est publie par aucune seed BC) -- direction PERMISSIVE, meme
+    residu que le gate G7 de `IdunBattle.Operations.MoveUnitOperation$$Execute`."""
+    def __init__(self, source: TargetsSelector, allow_steppable: bool = True,
+                 parent_sel: TargetsSelector = None):
         self.source = source
         self.allow_steppable = bool(allow_steppable)      # `!<+0x28>.ShouldTrigger` (cf. docstring)
+        # `<CanAddUnitTileSelector+0x20>` : `None` ENCODE le selecteur que rend `DSLSelectors$$None()`
+        # (un `EntitySelector` vide, donc `parent` NUL), PAS l'absence de gate. Cf. la docstring.
+        self.parent_sel = parent_sel
 
     def select(self, ctx):
         board = getattr(ctx, "board", None)
@@ -543,7 +612,97 @@ class CanAddUnit(TargetsSelector):
                 t = board.id_at(f[0], f[1])
                 if t is not None:
                     occ.add(t)
-        return [t for t in self.source.evaluate(ctx) if t not in occ and board.walkable(t)]
+        kept = [t for t in self.source.evaluate(ctx) if t not in occ and board.walkable(t)]
+        # `if (IsTileReservedForOtherUnit(tile, parent)) return false;` -- le 2e gate de
+        # `IdunBattle.Entities.TileExtensions$$CanAddUnitFromAbility`. `parent` est resolu UNE FOIS
+        # par cast, comme le natif (`Select` le calcule avant sa boucle sur les tuiles).
+        reserved = getattr(ctx, "tile_reserved_for_other_unit", None)
+        if reserved is None:
+            return kept                                   # substrat NON MESURE, cf. docstring
+        parent = resolve_unit(self.parent_sel, ctx) if self.parent_sel is not None else None
+        parent_id = (parent or {}).get("id") if parent else None
+        return [t for t in kept if not reserved(board.coord(t), parent_id)]
+
+
+class UnobscuredTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)`
+    -> `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$Select` : de `toTiles`, garde celles
+    qui ne sont PAS obscurcies depuis `fromAnyTiles`. Domaine TUILE des deux cotes.
+
+    LA FACTORY, LUE (elle ne fait qu'allouer) :
+
+        state         = <factory>+0x10
+        movementQuery = <factory>+0x68
+        return new UnobscuredTilesSelector(state, movementQuery, fromAnyTiles, toTiles)
+
+    et le ctor -- dont les NOMS de parametres inversent l'intuition, d'ou ce bloc :
+
+        UnobscuredTilesSelector$$.ctor(this, state, movementQuery, fromTile, targetTiles)
+            +0x28 = movementQuery
+            +0x20 = fromTile        <- le 1er argument de la FACTORY (`fromAnyTiles`)
+            +0x18 = targetTiles     <- le 2e   argument de la FACTORY (`toTiles`)
+
+    `Select`, VERBATIM :
+
+        tiles  = <+0x18>.Select(entities)            // les CANDIDATES
+        caster = <+0x20>.<slot 10>(entities)         // les tuiles SOURCE (une LISTE)
+        if (caster == null)      throw
+        if (caster.Count == 0)   return <liste VIDE>          // <- lu, pas deduit
+        foreach (t in tiles) if (!IsObscured(caster, t)) result.Add(t)
+        return result
+
+    ⚠ **LE BRAS `caster.Count == 0` REND UNE LISTE VIDE, PAS `tiles`** : sans tuile source, TOUT est
+    retire. C'est l'inverse de ce qu'une lecture pressee ferait (« pas de source, rien a occulter »).
+
+    `IsObscured(fromTiles, targetTile)` -- `UnobscuredTilesSelector$$IsObscured`, VERBATIM :
+
+        foreach (f in fromTiles)
+            if (<IMovementQuery slot 16 = GetTilesObscuringTerrain>(f, targetTile,
+                                          obscuringType: 6 = All, blockingElevationDifference: 2)
+                .Count == 0)   return false;      // UNE ligne degagee suffit
+        return true;                              // liste source VIDE -> obscurci
+
+    Le slot **16** est LU dans `data/symbols/<build>/metadata/interface_slots.tsv`
+    (`IMovementQuery 16 GetTilesObscuringTerrain`), et les deux litteraux sont qualifies :
+    `6` = `idun.meta.ObscuringType.All` (`Elevation(2) | Wall(4)`), `2` =
+    `blockingElevationDifference`. Le calcul lui-meme vit dans le foyer UNIQUE
+    `engine.services.movement_query.get_tiles_obscuring_terrain` -- ce noeud n'en est que
+    l'adaptateur DSL, comme `TileBehindTargetFromSourceDirection` l'est de `battle_query`.
+
+    SUBSTRAT : `ctx.tiles_obscuring_terrain(from_pos, to_pos) -> collection`. Fourni par
+    `entities_from_state` (face RUNNER) et par le site qui batit son `DslContext` a la main (face
+    DECISION de `abilities/loki/mv71.py`). **Absent = NON MESURE** -> aucun retrait, `to_tiles` rendu
+    tel quel : c'est la convention deja ecrite au call-site porte (`board is None -> False`, « aucun
+    retrait invente faute de canal »), et elle est PERMISSIVE, donc nommee.
+
+    CONSOMMATEURS NATIFS (`list_xrefs` sur la factory) : `MV71SniperDroneSquadAttackAbility$$PickTile`
+    (le seul PORTE -- `sel = UnobscuredTiles(Tiles(Target@0x60), sel)`, sens CIBLE -> candidate),
+    `LivingLightningAbility$$GetPossibleTargets` et `$$GetEnemiesInRange` (non portes)."""
+    def __init__(self, from_any_tiles: TargetsSelector, to_tiles: TargetsSelector):
+        self.from_any_tiles = from_any_tiles          # `<+0x20>`, 1er argument de la factory
+        self.to_tiles = to_tiles                      # `<+0x18>`, 2e argument de la factory
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        cands = list(self.to_tiles.evaluate(ctx) or [])
+        froms = _tile_positions(self.from_any_tiles, ctx, board)
+        if not froms:
+            return []                                 # `if (caster.Count == 0) return <vide>`
+        obscuring = getattr(ctx, "tiles_obscuring_terrain", None)
+        if obscuring is None:
+            return cands                              # substrat NON MESURE, cf. docstring
+        out = []
+        for t in cands:
+            p = board.coord(t) if isinstance(t, int) else t
+            if p is None:
+                continue
+            # `IsObscured` : obscurci ssi TOUTES les sources sont bloquees. Une seule ligne degagee
+            # (set de bloqueurs VIDE) suffit a garder la candidate.
+            if any(not obscuring(f, (int(p[0]), int(p[1]))) for f in froms):
+                out.append(t)
+        return out
 
 
 class TileBehindTargetFromSourceDirection(TargetsSelector):
@@ -884,7 +1043,8 @@ class UnobscuredTiles(TargetsSelector):
     et la liste source VIDE rend `true` = OBSCURCI => la tuile est RETIREE. Les deux litteraux
     `6, 2` sont `ObscuringType.All` et `blockingElevationDifference` --
     `services.targeting_query.OBSCURING_TYPE_ALL` / `BLOCKING_ELEVATION_DIFFERENCE`, le meme couple
-    que la DECISION deja portee (`runner/abilities/loki/mv71.py::_is_obscured_from_tiles`).
+    que le maillon `UnobscuredTiles` du repli de `MV71SniperDroneSquadAttackAbility$$PickTile`
+    (`runner/abilities/loki/mv71.py::_unobscured_tiles`, qui monte le noeud ci-dessous).
 
     Ce noeud manquait (residu `#287-r11-r2-r1-r3`), et le motif de ce manque etait
     « aucun SECOND consommateur porte ne peut le justifier » : les trois call-sites natifs sont

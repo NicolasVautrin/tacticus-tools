@@ -270,9 +270,16 @@ def test_random_adjacent_free_tile_compose_et_n_alloue_rien_de_neuf():
         "DEFAUTS de `PickRandomly` -- les reposer dupliquerait une valeur au lieu de la lire")
     assert sel.ignore_forced_targets is False
     assert isinstance(sel.source, CanAddUnit)
-    assert sel.source.allow_steppable is False, (
-        "le call-site natif emprunte la surcharge a UN argument de `CanAddUnit` : autoriser les "
-        "`Steppable` poserait des mines sur des tuiles occupees")
+    assert sel.source.allow_steppable is True, (
+        "#462-...-r5-r3 : la surcharge a UN argument de `DSLSelectors$$CanAddUnit` -- celle "
+        "qu'appelle `DSLSelectors$$RandomAdjacentFreeTile` -- code son trigger EN DUR a "
+        "`<DSLTriggers+0x48>` = `op_LogicalNot(<trigger nu>)`, donc `ShouldTrigger` FAUX, donc "
+        "`allowSteppable` VRAI apres l'inversion de `CanAddUnitTileSelector$$Select`. "
+        "L'assertion inverse qui vivait ici (`is False`) etait une DEDUCTION -- << autoriser les "
+        "Steppable poserait des mines sur des tuiles occupees >> -- que le corps natif contredit ; "
+        "elle est ce que le residu appelait << la branche == 0 implementee partout >>. Le meme "
+        "appariement slot/valeur est deja grave par "
+        "`tests/engine/runner/test_955r2_free_tiles_steppable_offline.py`")
 
 
 def test_has_adjacent_enemies_compose_ses_quatre_etages_et_lit_le_seuil_1():

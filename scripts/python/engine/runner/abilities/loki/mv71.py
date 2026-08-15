@@ -68,8 +68,10 @@ COLLAPSES documentés (doctrine FinalJustice, tri d'utilité impératif) :
     `entities/selectors/tiles.py::FilterTilesIfCanAttackTargetTileFrom`) : la tuile du drone le plus
     faible est REFUSÉE si un ennemi du caster lui est adjacent ET qu'elle n'est pas adjacente à la
     tuile de la cible → `PickTile` rend null → cast NO-OP. Son maillon `UnobscuredTiles` est porté
-    depuis `#287-r11-r2-r1` (`_is_obscured_from_tiles`, mirror d'`UnobscuredTilesSelector$$
-    IsObscured`) — DÉCISION portée, nœud DSL non matérialisé (résidu nommé dans la case-doc).
+    depuis `#287-r11-r2-r1` et il est un **NŒUD DSL** depuis `#287-r11-r2-r1-r3`
+    (`entities/selectors/tiles.py::UnobscuredTiles`, mirror d'`UnobscuredTilesSelector$$Select` ET
+    de son `$$IsObscured`) — la DÉCISION n'est plus collapsée, elle émerge de l'arbre (doctrine
+    #149), comme pour son voisin de chaîne `FilterTilesIfCanAttackTargetTileFrom` depuis #433-r4-r1.
 """
 from __future__ import annotations
 
@@ -87,8 +89,9 @@ from ...components import (StatsComponent, OwnerComponent, PositionComponent, Un
                            HealthComponent, UnitFlagsComponent, get_unit_feet)
 from ....entities.unit_flag import UnitFlag   # `IngoreRangedInMelee` (#287-r11-r2-r1-r2)
 from ....dsl.base import DslContext
-from ....entities.selectors.accessors import FixedTileIds, Target
+from ....entities.selectors.accessors import FixedTileIds, FixedTiles, Target
 from ....entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom
+from ....entities.selectors.tiles import UnobscuredTiles      # #287-r11-r2-r1-r3
 from ...operations.damage import AttackDamageOperation
 from ...operations.effects import AddEffectOperation
 from ...operations.spawn import _spawn_config_grot, _occupied_tiles
@@ -299,15 +302,15 @@ def _filter_tiles_if_can_attack_target_tile_from(dctx, tile_id: int):
 
         sel = SurroundingTiles(Tiles(Target@0x60), includeCenter: 0, radius: <portee du drone>)
               op_BitwiseAnd Tiles(First(AlreadySpawnedSummonsSortedForRemoval, 1, 0))
-        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- `_is_obscured_from_tiles`
+        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- `_unobscured_tiles`
         sel = FilterTilesIfCanAttackTargetTileFrom(Caster@0x48, Target@0x60, sel)   # <- ICI
         return sel.SelectTile(entities)
 
     Les deux premiers etages sont deja collapses imperativement par l'appelant (l'anneau = la garde
     `1 <= dist(drone, cible) <= portee`, l'intersection = « la tuile DU drone le plus faible ») ;
-    le troisieme l'est aussi depuis `#287-r11-r2-r1` (`_is_obscured_from_tiles`) ;
-    ce dernier etage-la, lui, reste un noeud DSL -- la structure emerge de l'arbre (doctrine #149),
-    le collapse ne fournit que le vehicule `FixedTileIds`. Rend l'id de tuile survivant, ou None
+    le troisieme, lui, EST un noeud DSL depuis `#287-r11-r2-r1-r3` (`_unobscured_tiles`, qui monte
+    `UnobscuredTiles`) ; ce dernier etage-la l'est aussi -- la structure emerge de l'arbre
+    (doctrine #149), le collapse ne fournit que le vehicule `FixedTileIds`. Rend l'id survivant, ou None
     (le natif rend alors `null`, donc un cast NO-OP : ni eviction, ni spawn, ni Markerlight)."""
     kept = FilterTilesIfCanAttackTargetTileFrom(
         Caster(), Target(), FixedTileIds([int(tile_id)])).select(dctx)
@@ -503,37 +506,40 @@ def _is_target_in_attack_range_for_summon(board, tile_id, target_tiles, unit_max
     return True
 
 
-def _is_obscured_from_tiles(board, from_tiles, tile_pos) -> bool:
-    """`IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$IsObscured(caster, targetTile)` --
-    VERBATIM :
+def _tiles_obscuring_terrain_for(board):
+    """L'accesseur `ctx.tiles_obscuring_terrain` pour un `DslContext` bati A LA MAIN (face DECISION).
 
-        foreach (c in caster)                               // `caster` = la liste `fromAnyTiles`
-            if (<IMovementQuery slot 16>(c, targetTile, 6, 2).Count == 0)  return false;
-        return true;
+    Cote RUNNER, `entities_from_state` le fournit lui-meme. Ici la scene n'a pas de `State`, mais la
+    geometrie ne depend QUE du board -- et les deux litteraux (`obscuringType = 6 = All`,
+    `blockingElevationDifference = 2`) sont ceux du call-site natif, importes de leur foyer."""
+    return lambda a, b: get_tiles_obscuring_terrain(board, a, b, OBSCURING_TYPE_ALL,
+                                                    BLOCKING_ELEVATION_DIFFERENCE)
 
-    « OBSCURCI » = obscurci depuis TOUTES les tuiles source (une seule ligne de vue degagee suffit a
-    garder la tuile). Liste source VIDE -> la boucle ne tourne pas -> `true` : le natif RETIRE, et
-    le mirror le fait aussi.
 
-    C'est le maillon `UnobscuredTiles` du REPLI de
-    `MV71SniperDroneSquadAttackAbility$$PickTile` : `sel = UnobscuredTiles(Tiles(Target@0x60), sel)`
-    -- `DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)` pose `+0x20 = fromAnyTiles` (les
-    tuiles de la CIBLE) et `+0x18 = toTiles` (la candidate), et `Select` garde de `+0x18` ce qui
-    n'est pas obscurci depuis `+0x20`. Le sens de la ligne est donc CIBLE -> candidate.
+def _unobscured_tiles(dctx, from_tiles, tile_id: int) -> bool:
+    """LE MAILLON `UnobscuredTiles` DU REPLI DE `MV71SniperDroneSquadAttackAbility$$PickTile`, monte
+    en NOEUD DSL depuis #287-r11-r2-r1-r3 :
 
-    COLLAPSE ASSUME, et c'est celui que l'appelant applique deja aux deux etages voisins du repli :
-    le noeud DSL n'est pas materialise ici, seule sa DECISION l'est (residu nomme dans la
-    case-doc). `board is None` -> `False`, convention permissive du module (aucun retrait invente
-    faute de canal)."""
-    if board is None:
-        return False
-    if not from_tiles:
-        return True                                   # boucle vide -> `return true` (obscurci)
-    for f in from_tiles:
-        if not get_tiles_obscuring_terrain(board, f, tile_pos, OBSCURING_TYPE_ALL,
-                                           BLOCKING_ELEVATION_DIFFERENCE):
-            return False                              # une ligne degagee suffit
-    return True
+        sel = SurroundingTiles(...) op_BitwiseAnd Tiles(First(AlreadySpawnedSummons..., 1, 0))
+        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # <- ICI
+        sel = FilterTilesIfCanAttackTargetTileFrom(Caster@0x48, Target@0x60, sel)
+
+    L'artefact natif est un `IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles`, donc un ARBRE
+    (doctrine #149) -- exactement comme son VOISIN de chaine `FilterTilesIfCanAttackTargetTileFrom`,
+    noeud depuis #433-r4-r1. Le collapse imperatif qui vivait ici (`_is_obscured_from_tiles`, une
+    boucle sur `get_tiles_obscuring_terrain`) est remplace par
+    `entities/selectors/tiles.py::UnobscuredTiles`, qui porte la formule ENTIERE -- y compris le bras
+    `caster.Count == 0 -> liste VIDE` que le collapse rendait par `True` (obscurci), c'est-a-dire le
+    MEME observable mais par un chemin different.
+
+    Le vehicule est `FixedTileIds`, comme pour le maillon voisin : le collapse ne fournit que
+    l'ENTREE (la candidate deja choisie imperativement), la DECISION emerge du noeud.
+
+    Rend VRAI si la tuile est OBSCURCIE (donc a retirer) -- meme polarite que le predicat qu'il
+    remplace, pour que les deux call-sites restent lisibles."""
+    kept = UnobscuredTiles(FixedTiles([(int(p[0]), int(p[1])) for p in (from_tiles or ())]),
+                           FixedTileIds([int(tile_id)])).select(dctx)
+    return not kept
 
 
 def _occupants_by_tile(state: "State", board) -> dict:
@@ -646,10 +652,12 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     tid = board.id_at(wp.col, wp.row)
     if tid is None:
         return None
-    # `sel = UnobscuredTiles(Tiles(Target@0x60), sel)` -- LIGNE DE VUE du repli (#287-r11-r2-r1).
-    # Ce maillon-la n'est PAS `IsTargetInAttackRangeForSummon` (le repli ne le rappelle pas) : c'est
-    # le selecteur `UnobscuredTilesSelector`, meme geometrie mais sens CIBLE -> candidate.
-    if _is_obscured_from_tiles(board, target_tiles, (wp.col, wp.row)):
+    # `sel = UnobscuredTiles(Tiles(Target@0x60), sel)` -- LIGNE DE VUE du repli, NOEUD DSL depuis
+    # #287-r11-r2-r1-r3. Ce maillon-la n'est PAS `IsTargetInAttackRangeForSummon` (le repli ne le
+    # rappelle pas) : c'est le selecteur `UnobscuredTilesSelector`, meme geometrie mais sens
+    # CIBLE -> candidate. Le `dctx` est celui que le maillon SUIVANT construit deja.
+    if _unobscured_tiles(entities_from_state(state, caster_id, target_id),
+                         target_tiles, int(tid)):
         return None
     return _filter_can_attack_target_tile_from(state, caster_id, target_id, int(tid))
 
@@ -851,16 +859,21 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
     tid = board.id_at(wpos[0], wpos[1])
     if tid is None:
         return None
-    # MEME maillon `UnobscuredTiles` que la face runner (#287-r11-r2-r1).
-    if _is_obscured_from_tiles(board, [tpos], tuple(wpos)):
-        return None
     # MEME dernier maillon que la face runner (`_filter_tiles_if_can_attack_target_tile_from`), la
     # SEULE difference etant l'hydratation : les unites viennent de `_pos_of` (donc le caster est
     # VIRTUELLEMENT sur `parent_pos`, #153), pas de l'ECS. Aucun fork de predicat.
+    # ⚠ Le `dctx` est desormais construit AVANT le maillon `UnobscuredTiles` -- qui est un NOEUD DSL
+    # depuis #287-r11-r2-r1-r3 et le consomme, comme le maillon suivant. `tiles_obscuring_terrain`
+    # est pose ICI parce que ce contexte-la est bati a la main (face DECISION) : `entities_from_state`
+    # le fournit tout seul cote runner.
     units = [{"id": u, "team": scene.team(u), "alive": True, "hp": int(scene.hp(u) or 0),
               "pos": {"col": int(p[0]), "row": int(p[1])}} for u, p in _pos_of.items()]
     by_id = {d["id"]: d for d in units}
-    dctx = DslContext(units=units, caster=by_id.get(att_id), target=by_id.get(tgt_id), board=board)
+    dctx = DslContext(units=units, caster=by_id.get(att_id), target=by_id.get(tgt_id), board=board,
+                      tiles_obscuring_terrain=_tiles_obscuring_terrain_for(board))
+    # MEME maillon `UnobscuredTiles` que la face runner (#287-r11-r2-r1, noeud depuis -r3).
+    if _unobscured_tiles(dctx, [tpos], int(tid)):
+        return None
     if _filter_tiles_if_can_attack_target_tile_from(dctx, int(tid)) is None:
         return None
     return tuple(wpos)

@@ -364,9 +364,16 @@ def haywire_mine_tiles(owner_sel=None):
     # `amount` dans une formule constante avant de deleguer). A `amount == 1` il rend l'element de
     # TETE, ce que le noeud porte (index 0) rend aussi -- les deux lectures coincident ICI, et
     # seulement ici.
-    adjacentes = First(SortTilesByUtility(Randomize(CanAddUnit(AdjacentTiles(owner))),
+    # `allow_steppable=False` EXPLICITE (#462-...-r5-r3) : les DEUX `CanAddUnit` de
+    # `...HaywireMineAbility$$CreateBehaviour` prennent la surcharge a DEUX arguments et lui passent
+    # `<DSLTriggers+0x40>` -- releve a l'octet aux deux call-sites (`mov r8,[r8+0x40]`), la ou 123
+    # des 147 call-sites du binaire passent `<+0x48>` = `op_LogicalNot(<+0x40>)`. `ShouldTrigger` y
+    # est donc VRAI, et `allowSteppable = !vrai = FALSE`. C'est ce que la mesure live de cette
+    # ability montrait deja : au tour ou la mine occupe `PreviousTile`, le natif ne repose RIEN.
+    adjacentes = First(SortTilesByUtility(Randomize(CanAddUnit(AdjacentTiles(owner),
+                                                               allow_steppable=False)),
                                           utility_type=SUMMON_UTILITY_TYPE, parent_sel=owner))
-    return Cache(SelectIf(garde, CanAddUnit(prev), adjacentes))
+    return Cache(SelectIf(garde, CanAddUnit(prev, allow_steppable=False), adjacentes))
 
 
 class _HaywireMinePlaceBase(TriggeredAbility):

@@ -141,15 +141,19 @@ def collapse_avant():
 
     Substitution d'ATTRIBUT DE MODULE (forme B) : `_pick_tile` lit ces deux noms comme globales de
     `mv71`, donc le patch MORD (cf. `probe_485r1r1_formes_dimport`)."""
+    # #287-r11-r2-r1-r3 : `_is_obscured_from_tiles` (collapse imperatif) est devenu
+    # `_unobscured_tiles`, qui monte le NOEUD DSL `UnobscuredTiles`. Le nom substitue suit, sans quoi
+    # ce contre-modele n'aurait plus AUCUNE morsure -- et un desarmement qui ne desarme rien rend un
+    # VERT qui ne prouve rien (le vice exact que `probe_485r1r1_formes_dimport` garde).
     old_range = MV._is_target_in_attack_range_for_summon
-    old_obsc = MV._is_obscured_from_tiles
+    old_obsc = MV._unobscured_tiles
     MV._is_target_in_attack_range_for_summon = lambda *a, **k: True
-    MV._is_obscured_from_tiles = lambda *a, **k: False
+    MV._unobscured_tiles = lambda *a, **k: False
     try:
         yield
     finally:
         MV._is_target_in_attack_range_for_summon = old_range
-        MV._is_obscured_from_tiles = old_obsc
+        MV._unobscured_tiles = old_obsc
 
 
 def _geometrie(board, alive, cible_pos, rayon: int):
