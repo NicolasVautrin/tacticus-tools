@@ -62,6 +62,27 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict (#486-r15).
+#: Le REGISTRE d'abilities est le declencheur PRINCIPAL -- une entree neuve y suffit a rouvrir la
+#: reachability. `handler.py` porte la table, mais les masques vivent dans les modules d'ability :
+#: le perimetre est donc pris LARGE (tout `runner/abilities/**`), ce qui est le regime sain.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/engine/runner/abilities/handler.py",
+                "scripts/python/engine/runner/abilities/*.py",
+                "scripts/python/engine/runner/abilities/targeting_rule.py",
+                "scripts/python/engine/runner/abilities/behaviours/context.py",
+                "scripts/python/engine/runner/snapshot.py",
+                "scripts/python/engine/runner/components.py",
+                "frida/hooks/game/match-state.ts",
+                "frida/hooks/features/ai-step/projection.ts"),
+    "build": True,
+    "toujours": False,
+    "raison": "Il garde le verdict 'la branche MachinePlatform d'`UnitExtensions$$GetMachine` "
+              "n'est atteinte par AUCUN vecteur' : 0 ability `TargetIsMachine`, une seule "
+              "`TargetIsActor` (1160), et le natif lui remet la MACHINE. Un changement de build "
+              "peut renumeroter les bits du masque, d'ou `build: True`.",
+}
+
 from engine.runner.abilities.handler import ABILITY_CLASSES            # noqa: E402
 from engine.runner.abilities.targeting_rule import TargetingRule as TR  # noqa: E402
 from engine.runner.abilities.behaviours import context as CTX           # noqa: E402

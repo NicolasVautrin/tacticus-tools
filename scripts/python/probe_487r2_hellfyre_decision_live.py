@@ -188,6 +188,29 @@ def _canal(nc, ennemis: list) -> dict:
             "armees": sorted(u for u, v in par_unite.items() if v)}
 
 
+def _canal_brut(sid, rid: int, ennemis: list) -> dict:
+    """LE CAPTEUR LUI-MEME, lu SANS passer par le port -- ce qui NOMME le maillon defaillant.
+
+    Trois maillons separent le composant natif du playbook : le CAPTEUR
+    (`frida/hooks/game/receive-damage-types.ts` -> `actorStats.units[].receiveDamageTypeThisTurn`),
+    le SEEDER (`snapshot._seed_received_damage_types` -> `UnitComponent.received_damage_this_turn`)
+    et la SCENE (`Scene.received_damage_profiles_by_id`). Un `util = None` cote playbook les
+    confond tous les trois. On lit donc le canal BRUT : s'il porte la donnee, le capteur est hors
+    de cause et l'accusation porte sur l'aval."""
+    r = _rpc(sid, "actorStats", {"runnerId": rid}, 90)
+    if not isinstance(r, dict) or not r.get("ok"):
+        return {"ok": False, "error": (r or {}).get("error") if isinstance(r, dict) else str(r)}
+    par_unite = {}
+    for u in (r.get("units") or []):
+        uid = u.get("unitId", u.get("entityId"))
+        if uid is None or int(uid) not in [int(e) for e in ennemis]:
+            continue
+        par_unite[int(uid)] = u.get("receiveDamageTypeThisTurn")
+    return {"ok": True, "layout": r.get("receiveDamageLayout"),
+            "enum": r.get("receiveDamageEnum"), "par_unite": par_unite,
+            "champs_d_une_ligne": sorted((r.get("units") or [{}])[0].keys())[:24]}
+
+
 def _mesurer(sid, rid, caster_id, ennemis, libelle, attendu_arme: bool) -> dict:
     from engine.playbook import noncomparable as PB
     nat_bucket = _oracle_bucket(sid, rid, caster_id)
@@ -276,6 +299,14 @@ def main() -> int:
         # --- BRAS 2 : ARME -----------------------------------------------------------------
         m1 = _mesurer(sid, rid, toth["id"], ennemis, "ARME (Doombolt joue, Psychic pose)", True)
         _pp(m1)
+        brut = _canal_brut(sid, rid, ennemis)
+        print("      CAPTEUR brut actorStats -> ok=%s par_unite=%s"
+              % (brut.get("ok"), json.dumps(brut.get("par_unite"), default=str, sort_keys=True)))
+        print("              layout=%s enum=%s"
+              % (json.dumps(brut.get("layout"), default=str),
+                 json.dumps(brut.get("enum"), default=str)))
+        print("              champs d'une ligne = %s"
+              % json.dumps(brut.get("champs_d_une_ligne"), default=str))
 
         # --- VERDICTS ----------------------------------------------------------------------
         print("[487-r2] VERDICTS")
