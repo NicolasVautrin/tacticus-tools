@@ -58,9 +58,11 @@ def _adjacency_channels(ctx):
     divergeait, et la cabler RESORBE l'ecart au lieu d'en creer un.
 
     Board absent -> `(None, None)`, et `battle_query.is_adjacent` retombe sur son repli geometrique
-    NOMME : le comportement d'avant, jamais un voisinage vide."""
-    b = (ctx or {}).get("board")
-    return _board.elevations_by_pos(b), _board.adjacent_neigh_by_pos(b)
+    NOMME : le comportement d'avant, jamais un voisinage vide.
+
+    La DERIVATION elle-meme vit au foyer `pathfinding.board.adjacency_channels` depuis #943-r7 : ce
+    wrapper ne garde que la lecture de la cle de ctx et la RE ci-dessus."""
+    return _board.adjacency_channels((ctx or {}).get("board"))
 
 
 class RitesOfBattleExtraDmgEffect(BaseEffect):

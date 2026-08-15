@@ -248,7 +248,15 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
                    # #204 : entrees des descripteurs `OwnerIsTarget` / a degat
                    # `FirstHitInCurrentAttackDamageRange` portes hors de l'attaquant.
                    "tgt_id": target_id, "t_pos": t_pos, "damage_profile": damage_profile,
-                   "attack_hit_damage": attack_hit_damage})
+                   "attack_hit_damage": attack_hit_damage,
+                   # #943-r7 -- le BOARD, d'ou les descripteurs derivent les DEUX canaux du substrat
+                   # d'adjacence NATIF (`AdjacentFriends(owner, 1)` -> `AdjacentTiles` -> la liste
+                   # STOCKEE). MEME cle et MEME semantique que le ctx du canal DEGAT
+                   # (`damage_model._apply_ally_attack_damage_auras`) et que les DEUX ctx de la face
+                   # PREDICTION (`playbook/prediction/normal_attack.py`) -- pas de fork.
+                   # Consommateurs : `ExplosiveMaladies_Extra(Ranged|Melee)AttackEffect`,
+                   # `InfernalPacts_AdditionalHitsEffect`. `None` -> repli geometrique NOMME.
+                   "board": state.board})
     return groups
 
 

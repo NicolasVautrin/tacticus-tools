@@ -266,7 +266,13 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
         return base
     aura = aura_fixed_armor_bonus_for_defense(
         carriers, {"def_id": target_id, "def_pos": (tpc.col, tpc.row),
-                   "def_team": toc.team, "def_traits": def_traits})
+                   "def_team": toc.team, "def_traits": def_traits,
+                   # #943-r7 -- le BOARD, d'ou `ProtectorImperativeEffect` derive les deux canaux du
+                   # substrat d'adjacence NATIF (`AdjacentFriends(Owner)` -> `AdjacentTiles` -> la
+                   # liste STOCKEE). MEME cle et MEME semantique que partout ailleurs. Ce canal n'a
+                   # qu'UNE face (la PREDICTION IA est PRE-armure, cf. la docstring ci-dessus), donc
+                   # aucune jumelle ne peut diverger.
+                   "board": state.board})
     return base + int(aura)
 
 
@@ -1856,6 +1862,14 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
              "pos_by_id": pos_by_id, "team_by_id": team_by_id,
+             # #943-r7 -- le BOARD, d'ou se derivent les DEUX canaux du substrat d'adjacence NATIF
+             # (`elevations_by_pos` / `adjacent_neigh_by_pos`). MEME cle et MEME semantique que le
+             # ctx du canal DEGAT (`_apply_ally_attack_damage_auras`, qui la porte deja) et que la
+             # face PREDICTION de CE board (`playbook/prediction/normal_attack.py`) -- pas de fork.
+             # Consommateurs : `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`,
+             # `GetStuckInTrait.as_attacker_bonus_hits`, `LegendaryCommander_ExtraHitsEffect
+             # .aura_selector_covers`. `None` (aucun board charge) -> repli geometrique NOMME.
+             "board": state.board,
              # #372 — substrat du canal AURA de COUPS (`aura_hits_bonus_for_attack`), consommateur
              # `DefenderOfTheGreaterGood_ExtraHits` (1183 / 1307) :
              #  * `att_faction` = `UnitsFromFaction(SurroundingFriends(owner, 2), 9 = Tau)` du

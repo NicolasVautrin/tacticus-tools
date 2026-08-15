@@ -27,8 +27,33 @@ from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....services.effect_bonus import EffectBonus, for_addition
 from ...stats import StatType
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
+# `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.
+from ...pathfinding import board as _board
+from .... import battle_query as _bq
 
 _ABILITY = "DoctrinaImperatives"
+
+
+def _adjacency_channels(ctx):
+    """Les DEUX canaux de l'adjacence NATIVE derives du `board` porte par le ctx d'aura, en TRI-ETAT
+    (#943-r7). AUCUN seeding neuf n'a ete requis pour le canal DEGAT (`aura_attack_damage_bonus_
+    from_allies` publie deja `ctx["board"]` sur ses DEUX faces) ; le canal ARMURE
+    (`aura_fixed_armor_bonus_for_defense`) l'a recu dans le meme commit, cote COMBAT, qui est sa
+    seule face (la prediction IA est PRE-armure).
+
+    `IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateTargetSelector` =
+    self + `AdjacentFriends(Owner@DSLSelectors+0x30, unique, 3)` filtre `UnitsWithTrait(5)`, et
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(unit, unique, selType)` =
+    `Friends(unit, Units(AdjacentTiles(unit), unique, selType) - unit, selType)` -- l'ENUMERATION
+    part donc du PORTEUR, sur la liste STOCKEE du `ConnectivityComponent`, puis la porte
+    `|dElev| < 2` de `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$
+    MoveNext`. Une couronne hex nue SUR-ATTEINT cette liste, et elle est SYMETRIQUE, ce que le champ
+    brut `neighbours` n'est pas.
+
+    Board absent -> `(None, None)` -> repli geometrique NOMME du foyer : le comportement d'avant."""
+    return _board.adjacency_channels((ctx or {}).get("board"))
 
 
 def _active_level_mult(stats_ctx):
@@ -90,8 +115,10 @@ class ProtectorImperativeEffect(BaseEffect):
         op, dp = c.get("owner_pos"), c.get("def_pos")
         if not op or not dp:
             return None
-        import hexgeo
-        if hexgeo.distance(op, dp) != 1:                  # AdjacentFriends(range 1) — adjacence hex ring-1
+        # `AdjacentFriends(Owner)` -> `AdjacentTiles(Owner)` -> la liste STOCKEE (#943-r7). La SOURCE
+        # de l'enumeration est le PORTEUR : `is_adjacent(owner, def)`, pas l'inverse.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        if not _bq.is_adjacent(op, dp, elev_by_pos, neigh_by_pos):
             return None
         lvl = int(c.get("owner_level") or 0)
         mult = int(c.get("owner_mult") or 100)
@@ -176,8 +203,9 @@ class ConquerorImperativeEffect(BaseEffect):
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return None
-        import hexgeo
-        if hexgeo.distance(op, ap) != 1:                  # AdjacentFriends(range 1) = hex-adjacent ring-1
+        # `AdjacentFriends(Owner)` -> la liste STOCKEE (#943-r7), enumeree depuis le PORTEUR.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        if not _bq.is_adjacent(op, ap, elev_by_pos, neigh_by_pos):
             return None
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
