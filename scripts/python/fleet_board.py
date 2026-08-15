@@ -125,6 +125,7 @@ def scan(path: Path) -> dict:
     # `stop_reason` du DERNIER enregistrement porteur d'un message, quel qu'il soit -- pas seulement
     # des lignes a `usage`, sans quoi un `tool_result` final passerait inapercu.
     dernier_role = dernier_stop = None
+    dernier_a_tool_use = False
     for ln in path.open(encoding="utf-8", errors="replace"):
         if '"usage"' not in ln and '"tool_use"' not in ln and '"user"' not in ln:
             continue
@@ -135,6 +136,13 @@ def scan(path: Path) -> dict:
         msg = rec.get("message") or {}
         if isinstance(msg, dict) and msg.get("role"):
             dernier_role, dernier_stop = msg.get("role"), msg.get("stop_reason")
+            # Composition de la DERNIERE entree : c'est elle qui tranche, pas `stop_reason`.
+            # Un agent qui a rendu finit sur un message `assistant` SANS `tool_use` ; un agent
+            # qui travaille finit soit sur un `tool_use` (il appelle), soit sur un `tool_result`
+            # (il vient de recevoir). Cf. `rendu` plus bas.
+            _c = msg.get("content")
+            dernier_a_tool_use = isinstance(_c, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_use" for b in _c)
         # Le BRIEF n'est PAS dans le meta.json (qui ne porte que agentType / description /
         # worktree* / toolUseId / spawnDepth) : c'est le PREMIER message `user` du transcript.
         # Les suivants sont les relances par SendMessage -- on ne garde que le premier.
@@ -163,8 +171,20 @@ def scan(path: Path) -> dict:
         last, last_ts = sz, t or last_ts
     return dict(first=first, last=last, first_ts=first_ts, last_ts=last_ts,
                 says=says, tools=tools, brief=brief,
-                # RENDU = le dialogue s'arrete sur une reponse FINALE de l'agent. Cf. `est_vif`.
-                rendu=(dernier_role == "assistant" and dernier_stop == "end_turn"))
+                # RENDU = le dialogue s'arrete sur une reponse FINALE de l'agent : dernier
+                # message `assistant`, et AUCUN `tool_use` dedans (rien n'est en attente).
+                #
+                # ⚠ NE PAS revenir a `stop_reason == "end_turn"` : ce champ est ABSENT sur des
+                # agents pourtant finis. Mesure du 2026-08-15 sur 4 temoins de verite-terrain --
+                #   TERMINE  a9eb14ee : assistant, blocs=['text'],       stop=end_turn
+                #   TERMINE  a8050980 : assistant, blocs=['text'],       stop=None    <-- MANQUE
+                #   EN COURS ae5942a3 : assistant, blocs=['tool_use'],   stop=None
+                #   EN COURS af6e0d53 : user,      blocs=['tool_result'], stop=None
+                # -- l'agent REPRIS puis rendu porte `stop=None`, echappait donc au critere et
+                # retombait sur le timer, ou il comptait << vif >> pendant 15 min. C'est la cause
+                # exacte des annonces fausses (<< 5 en vol >> pour 4, puis pour 3).
+                # La COMPOSITION DES BLOCS separe les quatre sans exception, et sans delai.
+                rendu=(dernier_role == "assistant" and not dernier_a_tool_use))
 
 
 # Un agent qui TRAVAILLE ecrit dans son transcript a chaque aller-retour d'outil. Au-dela de ce
