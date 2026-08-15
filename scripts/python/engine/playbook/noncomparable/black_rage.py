@@ -4,6 +4,14 @@ from __future__ import annotations
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, _PlanTargetPlaybook
+# FORME B (liaison de MODULE), et differes CLASSES GRATUITS depuis le degraissage du baril
+# `engine.playbook` (#485-r1-r4) : charger l'un ou l'autre dans un process FRAIS ne fait plus
+# atterrir ce module dans `sys.modules`, donc il n'y a plus de cycle a fermer -> HISSE.
+# `make_normal_attack_predictions` est SUBSTITUE par un patcheur
+# (`test_974_custodes_emperors_children_decision_offline.py`) : une liaison `from X import f` au
+# niveau module le GELERAIT et rendrait le patch inerte.
+from engine.playbook.prediction import normal_attack as _pred_na
+from engine.playbook import probable_damage_event as _pde
 
 
 class BlackRagePlaybook(_PlanTargetPlaybook):
@@ -100,14 +108,12 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         if ctx.scene is None or target is None:
             return None
-        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
-        from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
         best = None
         for cpos in self._charge_tiles(target, ctx):
-            ev = make_normal_attack_predictions(ctx.scene, ctx.uid, target, cpos)
+            ev = _pred_na.make_normal_attack_predictions(ctx.scene, ctx.uid, target, cpos)
             if ev is None:
                 continue
-            u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
+            u = _pde.calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
             if best is None or u > best:
                 best = u
         if ctx.debug and best is not None:

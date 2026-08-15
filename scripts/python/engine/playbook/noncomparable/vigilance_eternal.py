@@ -4,6 +4,10 @@ from __future__ import annotations
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, _PlanTargetPlaybook, _turns_started_gate
+# FORME B, differes CLASSES GRATUITS depuis le degraissage du baril `engine.playbook`
+# (#485-r1-r4). `generate_multi_hit_attack_prediction` est SUBSTITUE par cinq patcheurs.
+from engine.playbook.prediction import abilities as _pred_ab
+from engine.playbook import probable_damage_event as _pde
 
 _ABILITY_NAME = "VigilanceEternal"
 
@@ -45,9 +49,8 @@ class VigilanceEternalPlaybook(_PlanTargetPlaybook):
         """`GetDamageFormula(position)` + `GetDamageProfile` + `GetHits` -> le `DamagePredictionResult`
         que `CalculateUtilityFromDamageEvent` score. Foyer UNIQUE, partage par `damage_predictions`
         (trace de construction) et `evaluate_non_comparable` (utilite) -- pas de derive possible."""
-        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
-        return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
-                                                    _ABILITY_NAME, attack_pos=tile)
+        return _pred_ab.generate_multi_hit_attack_prediction(
+            ctx.scene, ctx.uid, target, self.ABILITY_ID, _ABILITY_NAME, attack_pos=tile)
 
     def damage_predictions(self, tile, target, ctx: NCContext) -> list:
         """UN SEUL `ProbableDamageEvent` par cible : `VigilanceEternalPlaybook$$EvaluateNonComparable`
@@ -61,13 +64,11 @@ class VigilanceEternalPlaybook(_PlanTargetPlaybook):
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         if tile is None or ctx.scene is None or target is None:
             return None
-        from engine.playbook.probable_damage_event import (ProbableDamageEvent,
-                                                           calculate_utility_from_damage_event)
         dp = self._ability_prediction(tile, target, ctx)
         if dp is None:
             return None
-        ev = ProbableDamageEvent(target=target, prediction=dp)
-        u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
+        ev = _pde.ProbableDamageEvent(target=target, prediction=dp)
+        u = _pde.calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
         if ctx.debug:
             import sys
             print(f"    [dbg VigilanceEternal u{ctx.uid}] tgt={target} tile={tile} u={u:.1f}",

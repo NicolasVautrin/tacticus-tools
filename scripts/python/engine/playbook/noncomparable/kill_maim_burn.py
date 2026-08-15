@@ -4,6 +4,12 @@ from __future__ import annotations
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, _PlanTargetPlaybook, _will_normal_attack_kill
+# FORME B, differes CLASSES GRATUITS depuis le degraissage du baril `engine.playbook`
+# (#485-r1-r4). `generate_multi_hit_attack_prediction` et `make_normal_attack_predictions` sont
+# tous deux SUBSTITUES par des patcheurs : une liaison `from X import f` les GELERAIT.
+from engine.playbook.prediction import abilities as _pred_ab
+from engine.playbook.prediction import normal_attack as _pred_na
+from engine.playbook import probable_damage_event as _pde
 
 _ABILITY_NAME = "KillMaimBurn"
 
@@ -86,9 +92,8 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
         """`GetDamage(state, isPrediction: TRUE)` + `GetDamageProfile` + `GetHitsFormula` -> le
         `DamagePredictionResult` que `CalculateUtilityFromDamageEvent` score. Foyer UNIQUE, partage
         par `damage_predictions` (trace de construction) et `evaluate_non_comparable` (utilite)."""
-        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
-        return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
-                                                    _ABILITY_NAME, attack_pos=tile)
+        return _pred_ab.generate_multi_hit_attack_prediction(
+            ctx.scene, ctx.uid, target, self.ABILITY_ID, _ABILITY_NAME, attack_pos=tile)
 
     def damage_predictions(self, tile, target, ctx: NCContext) -> list:
         """DEUX events par cible, ou UN SEUL quand le gate mord -- l'ordre est celui du corps natif.
@@ -107,9 +112,8 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
             ordre."""
         if tile is None or ctx.scene is None or target is None:
             return []
-        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         seq = []
-        na = make_normal_attack_predictions(ctx.scene, ctx.uid, target, tile)
+        na = _pred_na.make_normal_attack_predictions(ctx.scene, ctx.uid, target, tile)
         if na is not None:
             seq.append(("WillNormalAttackKill", na.prediction))
             if na.prediction.will_be_kill():
@@ -124,13 +128,11 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
             return None
         if _will_normal_attack_kill(ctx, target, tile):
             return None      # `continue` natif : l'attaque normale sure-kill deja cette cible
-        from engine.playbook.probable_damage_event import (ProbableDamageEvent,
-                                                           calculate_utility_from_damage_event)
         dp = self._ability_prediction(tile, target, ctx)
         if dp is None:
             return None
-        ev = ProbableDamageEvent(target=target, prediction=dp)
-        u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
+        ev = _pde.ProbableDamageEvent(target=target, prediction=dp)
+        u = _pde.calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
         if ctx.debug:
             import sys
             print(f"    [dbg KillMaimBurn u{ctx.uid}] tgt={target} tile={tile} u={u:.1f}",

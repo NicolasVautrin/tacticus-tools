@@ -21,6 +21,15 @@ from engine.ai import cast_positions as CP        # FORME B (liaison de MODULE) 
                                                   # seul ne fait pas atterrir `_base` dans
                                                   # `sys.modules`), donc hisse.
 from engine.battle_query import count_adjacent, neigh_map
+from engine.playbook import base as _pb_base       # FORME B (liaison de MODULE) : le foyer
+#                                                  # `will_normal_attack_kill` est SUBSTITUE par
+#                                                  # `test_969_effect_buff_decision_faces_offline`
+#                                                  # et `test_974_custodes_..._decision_offline` --
+#                                                  # une liaison `from X import f` le GELERAIT.
+#                                                  # Differe CLASSE GRATUIT depuis le degraissage
+#                                                  # du baril `engine.playbook` (#485-r1-r4) :
+#                                                  # `import engine.playbook.base` seul ne fait
+#                                                  # plus atterrir `_base` dans `sys.modules`.
 from engine.services import battle_query as SBQ   # FORME B (liaison de MODULE) : le foyer
 #                                                 # `has_minimum_remaining_turns` (#287-r11-r1-r1)
 #                                                 # reste substituable par un patcheur.
@@ -240,8 +249,7 @@ def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None
 
     FOYER : `engine.playbook.base.will_normal_attack_kill` -- le meme corps natif sert la route
     Comparable (les 15 playbooks de `normal_attack_kill_gate`), donc un seul port."""
-    from engine.playbook.base import will_normal_attack_kill
-    return will_normal_attack_kill(ctx, target_id, position)
+    return _pb_base.will_normal_attack_kill(ctx, target_id, position)
 
 
 def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tuple | None) -> int:

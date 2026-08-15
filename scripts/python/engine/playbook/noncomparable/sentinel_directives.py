@@ -131,6 +131,12 @@ from engine.entities.ability_variable_type import AbilityVariableType
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, _PlanTargetPlaybook
+# FORME B, differes CLASSES GRATUITS depuis le degraissage du baril `engine.playbook`
+# (#485-r1-r4). `generate_multi_hit_attack_prediction` est SUBSTITUE par cinq patcheurs.
+from engine.entities.abilities import ability_configuration as _abcfg
+from engine.entities.abilities import active_ability as _actab
+from engine.playbook.prediction import abilities as _pred_ab
+from engine.playbook import probable_damage_event as _pde
 
 _ABILITY_NAME = "SentinelDirectives"
 
@@ -161,22 +167,20 @@ class SentinelDirectivesPlaybook(_PlanTargetPlaybook):
         if ctx.scene is None or tile is None or target is None:
             return None
         import gameconfig as GC
-        from engine.entities.abilities.ability_configuration import AbilityConfiguration
-        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
-        from engine.entities.abilities.active_ability import active_ability_for
         ctx0 = ctx.scene.ctx(ctx.uid)
-        cfg = AbilityConfiguration.from_gameconfig(_ABILITY_NAME, GC.ability(_ABILITY_NAME))
+        cfg = _abcfg.AbilityConfiguration.from_gameconfig(_ABILITY_NAME, GC.ability(_ABILITY_NAME))
         if ctx0 is None or cfg is None:
             return None
-        ab = active_ability_for(_ABILITY_NAME, self.ABILITY_ID, ctx0, cfg,
-                                ability_state=ctx.scene.ability_state(ctx.uid, self.ABILITY_ID))
+        ab = _actab.active_ability_for(_ABILITY_NAME, self.ABILITY_ID, ctx0, cfg,
+                                       ability_state=ctx.scene.ability_state(ctx.uid,
+                                                                             self.ABILITY_ID))
         minv = cfg.get_variable_for_level(_VAR_MIN_DMG, ab.level, 0, ab.multiplier)
         consts = cfg.constants or {}
         hits = max(1, int(consts.get(_CONST_HITS) or 1))
-        return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
-                                                    _ABILITY_NAME, attack_pos=tile,
-                                                    base_override=minv, hits_override=hits,
-                                                    profile_override=consts.get(_CONST_PROFILE))
+        return _pred_ab.generate_multi_hit_attack_prediction(
+            ctx.scene, ctx.uid, target, self.ABILITY_ID, _ABILITY_NAME, attack_pos=tile,
+            base_override=minv, hits_override=hits,
+            profile_override=consts.get(_CONST_PROFILE))
 
     def damage_predictions(self, tile, target, ctx: NCContext) -> list:
         """UN SEUL event par cible : le corps natif ne traverse aucun autre
@@ -190,8 +194,6 @@ class SentinelDirectivesPlaybook(_PlanTargetPlaybook):
         dp = self._ability_prediction(tile, target, ctx)
         if dp is None:
             return None
-        from engine.playbook.probable_damage_event import (ProbableDamageEvent,
-                                                           calculate_utility_from_damage_event)
-        ev = ProbableDamageEvent(target=target, prediction=dp)
-        u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
+        ev = _pde.ProbableDamageEvent(target=target, prediction=dp)
+        u = _pde.calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(target))
         return self._BASE_UTILITY + u

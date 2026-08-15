@@ -9,6 +9,12 @@ from __future__ import annotations
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, NonComparablePlaybook, _unit_cfg
+# FORME B, differes CLASSES GRATUITS depuis le degraissage du baril `engine.playbook`
+# (#485-r1-r4). `generate_multi_hit_attack_prediction` est SUBSTITUE par cinq patcheurs.
+from engine.entities.abilities import ability_configuration as _abcfg
+from engine.entities.abilities import triggered_ability as _trig
+from engine.playbook.prediction import abilities as _pred_ab
+from engine.playbook import probable_damage_event as _pde
 
 #: Nom gameconfig de l'ability ACTIVE. C'est AUSSI la config que lit le triggered `1260` (mesure
 #: `probe_985_config_du_triggered.py` : les deux constantes qu'il lit ne coexistent que la).
@@ -156,16 +162,14 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
         boucle sur les cibles. `None` si l'une manque : le natif sortirait par `FUN_1801f51f0`
         (`lVar11 == 0`), le port rend `None` plutot que de fabriquer un zero."""
         import gameconfig as GC
-        from engine.entities.abilities.ability_configuration import AbilityConfiguration
-        from engine.entities.abilities.triggered_ability import triggered_prediction_damage
 
-        cfg = AbilityConfiguration.from_gameconfig(_ABILITY_NAME, GC.ability(_ABILITY_NAME))
+        cfg = _abcfg.AbilityConfiguration.from_gameconfig(_ABILITY_NAME, GC.ability(_ABILITY_NAME))
         if cfg is None:
             return None
         st = ctx.scene.ability_state(ctx.uid, self.ABILITY_ID) if ctx.scene else None
         lvl = (st or {}).get("level")
         mult = (st or {}).get("multiplier", 100)
-        dmg = triggered_prediction_damage(_ABILITY_NAME, lvl, mult, _CALL_SITE)
+        dmg = _trig.triggered_prediction_damage(_ABILITY_NAME, lvl, mult, _CALL_SITE)
         if dmg is None:
             return None
         hits = cfg.get_variable_for_level(_CONST_NR_OF_HITS, lvl or 1, fallback_to_default=0)
@@ -195,9 +199,6 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
         if not tgt_ids:
             return []
 
-        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
-        from engine.playbook.probable_damage_event import (ProbableDamageEvent,
-                                                           calculate_utility_from_damage_event)
         by_id = {u.get("id"): u for u in (ctx.units or [])}
         best, best_u = None, None
         for tid in tgt_ids:
@@ -206,13 +207,13 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
                 # `ShouldPreferMachine` = tirage a 50 % : le port prend la branche DETERMINISTE.
                 u = 1.0
             else:
-                dp = generate_multi_hit_attack_prediction(
+                dp = _pred_ab.generate_multi_hit_attack_prediction(
                     ctx.scene, ctx.uid, tid, self.ABILITY_ID, _ABILITY_NAME,
                     base_override=dmg, hits_override=hits, profile_override=profile)
                 if dp is None:
                     continue
-                ev = ProbableDamageEvent(target=tid, prediction=dp)
-                u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(tid))
+                ev = _pde.ProbableDamageEvent(target=tid, prediction=dp)
+                u = _pde.calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(tid))
             if u < self.MIN_UTILITY:          # gate `Bucket.AddAction` (util >= MIN_UTILITY)
                 continue
             if best_u is None or u > best_u:  # AddAction : remplace sur STRICTEMENT superieur

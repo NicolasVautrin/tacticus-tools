@@ -914,14 +914,33 @@ def basilisk_num_shells(state: "State", caster_id: int) -> tuple:
     surrounding hexes and the remaining 2 hit the hexes surrounding those. For each round that has ended,
     1 more of the shells hits the target hex, starting with the shells hitting the outer hexes. »
 
-    Rend `(guaranteed, maybe, miss, total)`."""
-    consts = (GC.ability(BASILISK_ID) or {}).get("constants") or {}
-    total = int(consts.get("nrOfProjectiles") or 0)
-    second = int(consts.get("nrOfProjectiles_2") or 0)
+    Rend `(guaranteed, maybe, miss, total)`.
+
+    ⚠ FOYER PARTAGE (#1026-r1) : le CALCUL vit dans `basilisk_num_shells_from_turns` ci-dessous,
+    parce que la face DECISION (`playbook/basilisk_barrage.py`) evalue les MEMES trois formules
+    natives sur une `Scene` -- qui n'a pas de `State`, mais publie `turns_started(uid)`. Cette
+    fonction-ci ne garde que la LECTURE de la stat depuis l'ECS. Forker le calcul est le vice que
+    #197 et #950-r2 ont paye."""
     ce = state.get_entity(caster_id)
     csc = ce.get_component(StatsComponent) if ce is not None else None
     cctx = csc.ctx if csc is not None else None
     turns = int((cctx.stat(StatType.TURNS_STARTED) if cctx is not None else 0) or 0)
+    return basilisk_num_shells_from_turns(turns)
+
+
+def basilisk_num_shells_from_turns(turns_started: int) -> tuple:
+    """Les TROIS formules de `BasiliskBarrageAbility$$GetNumShells{Guaranteed,Miss,Maybe}`, a partir
+    du SEUL `StatAmount(Caster@0x160, 0xc = TurnsStarted)` qu'elles lisent.
+
+    Foyer UNIQUE des deux faces (cf. `basilisk_num_shells` pour le decompile terme a terme) :
+    la face COMBAT lit la stat sur le `StatsComponent` de l'ECS, la face DECISION sur
+    `Scene.turns_started(uid)`. Le calcul, lui, ne peut exister qu'a un seul endroit.
+
+    Rend `(guaranteed, maybe, miss, total)`."""
+    consts = (GC.ability(BASILISK_ID) or {}).get("constants") or {}
+    total = int(consts.get("nrOfProjectiles") or 0)
+    second = int(consts.get("nrOfProjectiles_2") or 0)
+    turns = int(turns_started or 0)
     guaranteed = min(max(0, turns - 1), total)
     miss = max(0, (total - second) - guaranteed)
     maybe = max(0, total - (guaranteed + miss))
@@ -962,8 +981,20 @@ def basilisk_tiles_at_distance(state: "State", pos: tuple, distance: int) -> lis
 
     GROUND TRUTH : board `C3_01` a 14 tuiles `walkable=false` / `isWall=false`, et le
     LIVE fait tomber un obus sur l'une d'elles (tuile 41, ring-1 de la cible) -- un filtre `walkable`
-    l'excluait du pool et DESYNCHRONISAIT tout le tirage."""
-    board = state.board
+    l'excluait du pool et DESYNCHRONISAIT tout le tirage.
+
+    ⚠ FOYER PARTAGE (#1026-r1) : le corps vit dans `basilisk_tiles_at_distance_on_board`, parce que
+    la face DECISION evalue le MEME `TilesAtDistance` sur `Scene.board`. Mesure : ce noeud ne lit du
+    `State` QUE `state.board` -- rien d'autre. Le partage est donc un simple changement de porte
+    d'entree, pas une reimplementation."""
+    return basilisk_tiles_at_distance_on_board(state.board, pos, distance)
+
+
+def basilisk_tiles_at_distance_on_board(board, pos: tuple, distance: int) -> list:
+    """`TilesAtDistance(source, d)` sur un BOARD -- foyer UNIQUE des deux faces.
+
+    Cf. `basilisk_tiles_at_distance` pour le decompile, l'ordre cube natif et les deux pieges
+    (`isWall` et non `walkable` ; l'ordre est load-bearing pour le tirage de la face COMBAT)."""
     if board is None or pos is None:
         return []
     def _exists(p):
