@@ -22,6 +22,11 @@ from dataclasses import dataclass
 
 from ...services.effect_bonus import EffectBonus
 from ..effect_type import EffectType
+# FEUILLE PURE (n'importe rien de `engine.*`), et c'est ce qui rend cet import possible AU NIVEAU
+# MODULE : l'enum vivait dans `runner/operations/remove_effects.py`, dont la cascade traverse ce
+# fichier meme (177 modules charges) -- l'importer de la aurait ferme un cycle. Deplace par #1088,
+# voie (1) de la doctrine (supprimer l'arete), pas voie (3) (differer).
+from ..kill_unit_step import KillUnitStep
 from ..traits.unit_trait import UnitTrait, has_trait
 
 # Sentinelle de durée d'un sous-effet : MÊME nombre de tours que le parent (mirror natif
@@ -521,17 +526,27 @@ class BaseEffect:
     stat_mod_reverted = False
     # ETAPE de la sequence de mort a laquelle cet effet est retire du porteur qui vient de mourir --
     # le predicat que `IdunBattle.Operations.RemoveEffectsOperation$$Execute` lit sur l'objet-effet
-    # (slot 4 de l'interface `IEffect`) et compare a `options.step`. Domaine :
-    # `IdunBattle.Operations.KillUnitStep` = {0=PreUnitRemove, 1=AfterUnitRemove, 2=AfterDeathTrigger}
-    # (dump d'enums, build `rnca9r7q6c`), les trois valeurs que passe
+    # (slot 4 de l'interface `IEffect`, NOMME `get_RemoveOnDeathStep` dans
+    # `data/symbols/<build>/metadata/interface_slots.tsv`) et compare par EGALITE a `options.step`.
+    # Domaine : `IdunBattle.Operations.KillUnitStep`, les trois valeurs que passe
     # `IdunBattle.Operations.KillUnitOperation$$Execute` a ses trois appels de `$$RemoveEffects`.
-    # ⚠ HYPOTHESE NOMMEE (#389-r2) : le defaut `PreUnitRemove` n'est PAS lisible offline -- le getteur
-    # par defaut de `IdunBattle.Entities.Effects.BaseEffect` est un corps constant DEDUPLIQUE par
-    # IL2CPP, absent des deux tables de symboles, et `IEffect` ne declare aucune methode dans le dump.
-    # Sans consequence sur l'observable de sortie (les TROIS steps tournent dans la meme operation de
-    # mort) ; une surcharge se pose ici, en attribut de classe, sans toucher au foyer.
+    #
+    # ⚠ LE DEFAUT ETAIT UNE HYPOTHESE NOMMEE (#389-r2, `PreUnitRemove`), ET ELLE ETAIT FAUSSE.
+    # `probe_1088_remove_on_death_step.py` LIT desormais ce getteur constant -- DECLARATION dans le
+    # `global-metadata.dat`, VALEUR aux OCTETS dans le bloc `methodPointers` -- sur les 465 classes
+    # de la fermeture transitive de `BaseEffect`, avec **0 indeterminee** :
+    #   * la base rend `b8 01 00 00 00 c3` = **1** (`AfterUnitRemove`), 66 controles d'alignement ;
+    #   * QUATRE classes surchargent (entree versionnee `metadata/remove_on_death_step.tsv`).
+    # Ce n'etait donc pas un cas particulier : les 461 classes qui heritent etaient toutes decrites
+    # au mauvais step.
+    #
+    # ⚠ ET L'ECART N'ETAIT PAS INERTE, contrairement a ce que la fiche d'origine affirmait :
+    # `KillUnitOperation$$Execute` place `On(UnitDeath)` puis `On(UnitDefeated)` ENTRE le step 1 et
+    # le step 2, donc un effet a `AfterDeathTrigger` est encore porte quand ces events partent. Le
+    # port, qui retirait tout au step 0, rendait structurellement impossible un trigger qui LIT un
+    # effet du mourant -- cause racine de la face SUCCESS inerte de #911-r1.
     # (Attribut de classe SIMPLE, sans annotation : sinon field dataclass, ecrase par l'`__init__`.)
-    remove_on_kill_step = 0
+    remove_on_kill_step = KillUnitStep.AfterUnitRemove
     # ENTITE BONDEE de CETTE instance d'effet -- mirror du champ `+0x10` du composant de bond que
     # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` ecrit sur l'entite-effet
     # (`BondEffect(id)` blueprint, puis `<composant>.BondedEntityId = param_3`), et que relit

@@ -124,7 +124,7 @@ from . import active_ability as _active_ability
 from .left_over_damage import record_left_over_damages
 from .minimal_health import record_attacked
 from .refresh_effects import refresh_stat_modifier_effects
-from .remove_effects import KillUnitStep
+from ...entities.kill_unit_step import KillUnitStep
 from .remove_effects import remove_effects_operation
 from ...dsl.event_trigger_type import EventTriggerType
 from engine.entities.effects.loki.supa_cybork_body import CTX_COUNT_OF as _CTX_ADJACENT_ENEMIES_OF   # #1042-r5
