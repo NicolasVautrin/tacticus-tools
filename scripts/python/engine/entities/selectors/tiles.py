@@ -506,16 +506,48 @@ class CanAddUnit(TargetsSelector):
         allowSteppable = !(<+0x28>.ShouldTrigger(entities, 0x20))
         garde t ssi TileExtensions.CanAddUnitFromAbility(t, state, parent, allowSteppable)
 
-    `False` (defaut) = branche `allowSteppable == 0`, comportement HISTORIQUE inchange -- c'est celle
-    du call-site `HaywireMineAbility`, MESUREE (au tour ou la mine occupe deja `PreviousTile`, le
-    natif ne repose RIEN : `Count(tiles) == 0` -> `TriggerAbilityDelayed`).
-    `True` = branche `allowSteppable == 1` : une tuile dont l'occupant porte `Steppable` est LIBRE.
-    Unique porteur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour`
-    passe `isSteppable = <DSLTriggers+0x48>`, que `IdunBattleLogic.Entities.DSLTriggers$$.ctor` pose
-    comme `op_LogicalNot(<le trigger SANS operande de +0x40/+0x70>)` -- ce meme slot `+0x70` est deja
-    nomme `YesTrigger` par le port (`entities/effects/loki/martial_superiority.py`,
-    `.../counter_attack.py`, identifie par sa taille 16 et son absence de champ). Donc
-    `ShouldTrigger` y est TOUJOURS FAUX, donc `allowSteppable` TOUJOURS VRAI a ce call-site.
+    ⚠ **LE DEFAUT EST `True`, ET C'EST LE DEFAUT DU NATIF** (#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3). Le
+    defaut etait `False` jusqu'au 2026-08-15 -- c'est-a-dire l'INVERSE de ce que passent 123 des 147
+    call-sites natifs, releve a l'OCTET et non deduit :
+
+      * `DSLSelectors$$CanAddUnit(tiles)` -- **123 xrefs**, la surcharge que tout site du port ecrit
+        quand il n'annote rien -- code son trigger EN DUR : `mov rbx,[rax+0x88]` (l'instance
+        `DSLTriggers`, LUE dans `IdunBattleLogic.Entities.DSLFactory$$.ctor` : `this+0x88 =
+        new DSLTriggers(this)`), puis `mov rbx,[rbx+0x48]`. Et `IdunBattleLogic.Entities.DSLTriggers$$.ctor`
+        pose `+0x48 = op_LogicalNot(<trigger sans champ>)`, la MEME classe que `+0x40` et `+0x70` --
+        ce dernier deja nomme `YesTrigger` par le port
+        (`entities/effects/loki/martial_superiority.py`, `.../counter_attack.py`). Donc
+        `ShouldTrigger` FAUX, donc `allowSteppable = !faux = **TRUE**` ;
+      * `DSLSelectors$$CanAddUnit(tiles, parent, isSteppable)` -- 1 seul call-site de code,
+        `...ItItchesAbility$$ExecuteBehaviour`, qui passe le MEME `<DSLTriggers+0x48>` -> **TRUE** ;
+      * `DSLSelectors$$CanAddUnit(tiles, isSteppable)` -- 15 call-sites de code, dont **11 passent
+        `<DSLTriggers+0x40>`** (`mov r8,[r8+0x40]`, releve un par un) -> `ShouldTrigger` VRAI ->
+        `allowSteppable = **FALSE**`. Les 4 restants sont les appels internes de
+        `DSLSelectors$$FreeTilesOrAdjacentFreeTiles` : sa surcharge SANS trigger code `+0x48`
+        (-> TRUE, c'est ce que consomment `ArmourOfShriekingSouls$$Resurrect`,
+        `PossessionAbility$$CreateBehaviour`, `RelicOfLostCadiaAbility_SummonUnit$$CreateBehaviour`,
+        `EnvThinVeil_SummonAbility` et `Lakrimae_SummonPoxwalker_Ability`), sa surcharge AVEC trigger
+        le PROPAGE, et ses trois appelants (`Ambush_SummonAbility$$GetSummonBehaviour`,
+        `CosmicHorror_OnKillAbility$$CreateBehaviour`,
+        `HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour`) passent tous `+0x40`
+        -> FALSE.
+
+    ⇒ **14 call-sites natifs sur 147 valent FALSE** ; TOUS les autres valent TRUE. Le defaut du port
+    doit donc etre `True`, et `allow_steppable=False` s'ECRIT explicitement, en citant son call-site.
+    Sites portes qui le posent : `triggers/loki/haywire_mine.py` (x2,
+    `...HaywireMineAbility$$CreateBehaviour`) et `abilities/orks.py::squig_mine_pool_tree`
+    (`...SquigMineAbility$$ExecuteBehaviour`).
+
+    ⚠ **LA MESURE LIVE DE HAYWIRE N'EST PAS CONTREDITE, ELLE EST EXPLIQUEE** : au tour ou la mine
+    occupe deja `PreviousTile`, le natif ne repose RIEN (`Count(tiles) == 0` ->
+    `TriggerAbilityDelayed`). C'est exactement ce que PREDIT `+0x40` a ce call-site -- la mesure et
+    le relevé d'octets se recoupent, et c'est ce recoupement qui etablit le SENS du trigger
+    (`<+0x40>.ShouldTrigger` = VRAI, donc `<+0x48> = Not(<+0x40>)` = FAUX).
+
+    ⚠ **LES JUMEAUX IMPERATIFS DU PORT ETAIENT DEJA A `allowSteppable = 1`**, et c'est une seconde
+    lecture concordante : `engine/services/spawn_tile_shape.py` cite
+    `TileExtensions.CanAddUnit(tile, state, true, false, false)` et `engine/battle_query.py` cite
+    « arg3=1 ». Le noeud DSL etait le SEUL des trois a coder la branche inverse.
 
     `parent_sel` = LE SECOND GATE, et il n'a PAS de valeur « neutre » (#550-r4). `CanAddUnitFromAbility`
     appelle `IsTileReservedForOtherUnit(t, parent)` juste apres `IsFreeTile`, et
@@ -553,7 +585,7 @@ class CanAddUnit(TargetsSelector):
     RESIDU NOMME : `IsTilePendingDrafting(t, state, 0)`, le TROISIEME gate, n'a pas d'equivalent porte
     (le `DraftingComponent` des joueurs n'est publie par aucune seed BC) -- direction PERMISSIVE, meme
     residu que le gate G7 de `IdunBattle.Operations.MoveUnitOperation$$Execute`."""
-    def __init__(self, source: TargetsSelector, allow_steppable: bool = False,
+    def __init__(self, source: TargetsSelector, allow_steppable: bool = True,
                  parent_sel: TargetsSelector = None):
         self.source = source
         self.allow_steppable = bool(allow_steppable)      # `!<+0x28>.ShouldTrigger` (cf. docstring)

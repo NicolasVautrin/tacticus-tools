@@ -1008,8 +1008,13 @@ def squig_mine_pool_tree(target_tile_id: int, rng_range: int):
     -> les tuiles a `range` hex de la tuile ciblee (centre EXCLU), LIBRES et walkable (`CanAddUnit`),
     qui ne portent PAS deja une mine. C'est le pool que `PickRandomly` echantillonne."""
     tgt = FixedTileIds([target_tile_id])
+    # `allow_steppable=False` EXPLICITE (#462-...-r5-r3) : ce call-site prend la surcharge a DEUX
+    # arguments de `DSLSelectors$$CanAddUnit` et lui passe `<DSLTriggers+0x40>` -- releve a l'octet
+    # (`mov r8,[r8+0x40]` juste avant le call), donc `ShouldTrigger` VRAI et `allowSteppable` FAUX.
+    # C'est l'un des 14 call-sites natifs sur 147 a valoir FALSE ; le defaut du noeud est `True`.
     return EntitiesWithoutEffects(
-        CanAddUnit(SurroundingTiles(tgt, Const(int(rng_range)), include_center=False)),
+        CanAddUnit(SurroundingTiles(tgt, Const(int(rng_range)), include_center=False),
+                   allow_steppable=False),
         [SQUIG_MINE_TILE])
 
 
