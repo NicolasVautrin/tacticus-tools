@@ -325,9 +325,25 @@ def mesurer(state_name: str) -> dict:
         ChangeUnitOwnerOperation.execute(st_snap2, ids["cible"], ids["caster"])
         photo_hors = _photo(st_snap2, ids["cible"], ids)
 
+        # ---- ENVELOPPE DE TIRAGE ---------------------------------------------------------------
+        # Le cast qui aboutit laisse un ECART DE MONTANT avec le natif. Un ecart de montant sur UN
+        # tirage ne dit RIEN tant qu'on n'a pas la dispersion : on rejoue donc le MEME cast avec N
+        # graines de MT et on regarde si la valeur NATIVE tombe dans l'enveloppe du port. Ce n'est
+        # pas un fit -- c'est la seule facon de savoir si l'ecart est un TIRAGE ou une FORMULE.
+        enveloppe = []
+        for graine in range(40):
+            stg = copy.deepcopy(st0)
+            from engine.runner.prng import IntBasedMersenneTwister
+            stg.rng = IntBasedMersenneTwister(1000 + graine)
+            r = _apply_active_ability(stg, ids["caster"], ids["cible"], P590.ABILITY)
+            aiv = (((r or {}).get("diag") or {}).get("ai") or [{}])[0]
+            acted = (aiv.get("acted") or [{}])[0]
+            res = acted.get("result") or {}
+            enveloppe.append(int(res.get("total") or 0))
+
         return {"ids": ids, "pref": pref, "hors": hors, "cast": ret,
                 "trace_hors": tr_hors.lignes, "trace_cast": tr_cast.lignes,
-                "photo_cast": snap, "photo_hors": photo_hors,
+                "photo_cast": snap, "photo_hors": photo_hors, "enveloppe": enveloppe,
                 "dispose": lambda: P590.rpc(sid, "disposeRunner", {"runnerId": rid}, 20)}
     except Exception:
         P590.rpc(sid, "disposeRunner", {"runnerId": rid}, 20)
@@ -393,6 +409,14 @@ def main() -> int:
         print("  retour _apply_active_ability : %s" % json.dumps(m["cast"], default=str)[:600])
         for l in m["trace_cast"]:
             print("    %s" % json.dumps(l, default=str)[:280])
+        print()
+        env = sorted(x for x in (m.get("enveloppe") or []) if x)
+        if env:
+            print("--- ENVELOPPE DE TIRAGE du cast PORTE (40 graines de MT) ---")
+            print("  min=%d  max=%d  moyenne=%d  n_non_nuls=%d/40"
+                  % (env[0], env[-1], sum(env) // len(env), len(env)))
+            print("  NATIF mesure par probe_590 : 7006 -- dans l'enveloppe : %s"
+                  % (env[0] <= 7006 <= env[-1]))
         print()
         print("--- PHOTO DE L'ETAT a l'entree du corps ---")
         for nom in ("caster", "cible", "proie", "allie"):

@@ -313,7 +313,14 @@ class _Cfg:
 
 
 class _FCtx:
-    def __init__(self, subject, atk_initial, atk_current, config, level=50):
+    """⚠ **`config` VAUT `None` PAR DEFAUT, ET C'EST LE POINT (#590-r8).** La version d'avant le
+    posait TOUJOURS, donc elle validait la formule sous un contexte que la PRODUCTION ne
+    reproduit pas : `entities_from_state` ne branche PAS `ctx.config`, donc les deux `ConfigVar`
+    du noeud rendaient 0 en bataille -- l'override posait ATTACK = 0, le moteur d'utilite ne
+    trouvait plus rien et l'attaque commandee n'aboutissait JAMAIS. Le test etait vert.
+    Le champ est conserve pour l'etage qui montre ce regime, jamais pour valider le port."""
+
+    def __init__(self, subject, atk_initial, atk_current, config=None, level=50):
         self.subject = subject
         self.units = [subject]
         self.ability_level = level
@@ -342,17 +349,20 @@ def test_le_degat_est_min_maxDmg_et_pct_de_l_ATTACK_INITIALE():
     d'un ordre de grandeur d'ecart.
 
     ⚠ Et `statPart = INITIAL` : l'ATTACK COURANTE est deliberement differente ici. Lire CURRENT
-    ferait dependre l'amount de l'override qu'il alimente."""
+    ferait dependre l'amount de l'override qu'il alimente.
+
+    ⚠ **LE CONTEXTE N'A PAS DE `config`** (#590-r8) : c'est le regime REEL d'un cast, et le noeud
+    doit y rendre la BONNE valeur -- ses deux variables sont resolues par l'appelant."""
     from engine.runner.abilities.loki.attempted_possession import attempted_possession_damage
     g = _gameconfig_vars()
     pct, maxd = int(g["dmgPct"]), int(g["maxDmg"])
     atk_init = 500
-    ctx = _FCtx({"id": 10}, atk_initial=atk_init, atk_current=99999, config=_Cfg(g))
+    ctx = _FCtx({"id": 10}, atk_initial=atk_init, atk_current=99999)   # config=None : le REEL
     attendu = min(maxd, pct * atk_init // 100)
-    obtenu = int(attempted_possession_damage().evaluate(ctx))
+    obtenu = int(attempted_possession_damage(maxd, pct).evaluate(ctx))
     assert obtenu == attendu, (
         "min(maxDmg=%d, dmgPct=%d%% x ATK_INITIAL=%d) attendu %d, obtenu %d -- une INTERVERSION "
-        "des deux ConfigVar rendrait min(%d, ...) = %d"
+        "des deux variables rendrait min(%d, ...) = %d"
         % (maxd, pct, atk_init, attendu, obtenu, pct, min(pct, maxd * atk_init // 100)))
     assert obtenu != min(pct, maxd * atk_init // 100), \
         "le montage doit DISTINGUER les deux ordres d'arguments (sinon la garde est vide)"
@@ -363,10 +373,43 @@ def test_le_cap_maxDmg_MORD_sur_une_ATTACK_enorme():
     infligerait `dmgPct% x ATK` sans plafond. i2 : << to a maximum of 4001 Damage per hit >>."""
     from engine.runner.abilities.loki.attempted_possession import attempted_possession_damage
     g = _gameconfig_vars()
-    maxd = int(g["maxDmg"])
-    ctx = _FCtx({"id": 10}, atk_initial=10 ** 6, atk_current=0, config=_Cfg(g))
-    assert int(attempted_possession_damage().evaluate(ctx)) == maxd, \
+    maxd, pct = int(g["maxDmg"]), int(g["dmgPct"])
+    ctx = _FCtx({"id": 10}, atk_initial=10 ** 6, atk_current=0)
+    assert int(attempted_possession_damage(maxd, pct).evaluate(ctx)) == maxd, \
         "le cap `maxDmg` doit MORDRE (sinon le `Min` a saute)"
+
+
+def test_590r8_le_noeud_de_degat_ne_depend_PLUS_de_ctx_config():
+    """#590-r8 -- LE CRAN QUI MANQUAIT, et qui aurait attrape le bug seul.
+
+    Le noeud livre doit rendre la MEME valeur avec et sans `ctx.config`. Avant, il lisait deux
+    `ConfigVar`, donc il rendait `0` des que `config` etait `None` -- exactement le regime de
+    `entities_from_state`, c'est-a-dire de TOUT cast reel. Le test d'alors posait un `config`
+    factice et restait vert.
+
+    La CONTRE-EPREUVE est dans le test : on evalue aussi un noeud bati sur `ConfigVar` (l'ecriture
+    d'AVANT) et on exige qu'il rende `0` sans config -- sinon cette garde ne garderait rien."""
+    from engine.entities.formulas import ConfigVar, Min, PercentageOf, StatAmount
+    from engine.entities.ability_variable_type import AbilityVariableType
+    from engine.entities.selectors.accessors import Subject
+    from engine.runner.abilities.loki.attempted_possession import attempted_possession_damage
+    g = _gameconfig_vars()
+    maxd, pct = int(g["maxDmg"]), int(g["dmgPct"])
+    atk = 500
+    sans = _FCtx({"id": 10}, atk_initial=atk, atk_current=atk)              # config = None
+    avec = _FCtx({"id": 10}, atk_initial=atk, atk_current=atk, config=_Cfg(g))
+    livre = attempted_possession_damage(maxd, pct)
+    assert int(livre.evaluate(sans)) == int(livre.evaluate(avec)) == min(maxd, pct * atk // 100)
+
+    # CONTRE-EPREUVE : l'ecriture d'AVANT, sur le MEME contexte sans config.
+    base = StatAmount(Subject(), int(StatType.ATTACK), int(StatPart.INITIAL))
+    avant = Min(ConfigVar(AbilityVariableType.maxDmg.name),
+                PercentageOf(ConfigVar(AbilityVariableType.dmgPct.name), base))
+    assert int(avant.evaluate(sans)) == 0, (
+        "la contre-epreuve doit mesurer 0 -- si `ConfigVar` resout desormais sans `ctx.config`, "
+        "cette garde ne garde plus rien et il faut la RE-ECRIRE, pas la supprimer")
+    assert int(avant.evaluate(avec)) == min(maxd, pct * atk // 100), \
+        "le montage doit distinguer les deux regimes de `ConfigVar` (sinon la contre-epreuve est vide)"
 
 
 # ---------------------------------------------------------------------------------------------
