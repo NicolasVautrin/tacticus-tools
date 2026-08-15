@@ -2616,12 +2616,39 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     `LegacyOfCombat` : porter le compteur rend le noeud REUTILISABLE, c'est l'argument qui a
     tranche le rayon de souffle.
 
-    ⚠ **`+0x28`/`+0x2c` restent NON PORTES, et la raison est une RE inachevee, pas un choix** : le
-    `rangeType` est un ARGUMENT de `RegisterAttackOperation$$Execute`, propage tel quel depuis
-    l'enqueue du slot `IOperationProcessor` **74** (`RegisterAttack`, arite 4) -- dont le call-site
-    n'a pas ete localise. Ecrire un `rangeType` devine y mettrait une valeur FAUSSE dans deux
-    compteurs, ce qui est pire que leur absence. Residu a ouvrir avant tout consommateur de ces
-    deux variantes.
+    ⚠ **`+0x28`/`+0x2c` restent NON PORTES -- MAIS LE BLOCAGE ANNONCE ETAIT FAUX (#508-r2,
+    re-mesure 2026-08-15).** La RE disait « le call-site du slot `IOperationProcessor` **74**
+    (`RegisterAttack`, arite 4) n'a pas ete localise, donc le `rangeType` serait devine ». Il est
+    localise, et il est ENTIEREMENT lu :
+
+        IdunBattle.Operations.FinishAttackOperation$$Execute
+            currentAttack = <l'OngoingAttack courante>
+            defender      = IdunBattle.Entities.UnitExtensions$$GetUnit(target, state)
+            rt = BattleQuery.<slot 4 = GetAttackRangeType>(          # arite 4, interface_slots.tsv
+                     ability        = AttackOptions+0x10,
+                     caster         = attacker,
+                     casterPosition = EntityExtensions$$GetUnitPosition(attacker),
+                     target         = target)
+            if (defender != null)
+                processor.<slot 0x4a = RegisterAttack>(attacker, defender,
+                                                       Nullable<AttackRangeType>(rt),
+                                                       totalCrits = currentAttack+0x28)
+
+    Le `Nullable` y est **TOUJOURS renseigne** (il est construit avec `rt`, jamais laisse vide) :
+    les deux variantes sont donc alimentees a chaque attaque cote natif. Et l'ETAGE qui manquait au
+    port est desormais LA : `services/battle_query.get_attack_range_type` (foyer, frere des slots 2
+    et 3) + `triggers/base._attack_range_type` (domaine runner), poses par #951-r1 -- qui consomme
+    la MEME fonction native pour l'`inMelee` du vecteur de mort.
+
+    **CE QUI RESTE, ET C'EST LA SEULE RAISON DE NE PAS PORTER** : aucun consommateur ne l'exige.
+    Les TROIS consommateurs natifs de `IdunBattleLogic.Entities.DSLFormulas$$TimesAttackMadeThisTurn`
+    passent un `Nullable` VIDE -- `IconOfObstinacy_AddArmourBuffAbility` (#919), `LegacyOfCombat`
+    (#928), et `LeadingTheChargeAbility$$ExecuteBehaviour`, dont les DEUX appels passent
+    litteralement `(void *)0x0` (relu 2026-08-15). Un canal sans lecteur n'est pas validable
+    (patron #419). Ce qu'il faudra trancher le jour venu : le natif appelle `RegisterAttack` depuis
+    `FinishAttackOperation` (une fois par CIBLE, a la cloture) alors que le port appelle cette
+    fonction-ci depuis `_apply_damage_pipeline` -- les deux rangs devront etre reconcilies, pas
+    seulement le `rangeType` threade.
 
     SEUL appelant natif : `IdunBattle.Operations.RegisterAttackOperation$$Execute` -- le MEME que
     `...$$RegisterAttackReceived`, dont le port place deja le mirror (`record_attacked`) dans le
@@ -2700,10 +2727,13 @@ def unit_attacks_made_this_turn(state, unit_id: int) -> int:
         return sum
 
     Le port n'expose ICI que la branche `else` -- le `Nullable` VIDE -- parce que c'est celle des
-    DEUX call-sites de `LeadingTheChargeAbility$$ExecuteBehaviour`, et parce que les deux compteurs
-    par `rangeType` ne sont pas alimentes (cf. `register_attack_made`). Un appelant qui aurait
-    besoin d'une variante doit d'abord fermer cette RE : rendre un total la ou le natif rend un
-    sous-compte serait un ecart SILENCIEUX et PERMISSIF.
+    DEUX call-sites de `LeadingTheChargeAbility$$ExecuteBehaviour` (relus 2026-08-15 : les deux
+    passent litteralement `(void *)0x0`), et parce que les deux compteurs par `rangeType` ne sont
+    pas alimentes (cf. `register_attack_made`). Un appelant qui aurait besoin d'une variante doit
+    d'abord les alimenter : rendre un total la ou le natif rend un sous-compte serait un ecart
+    SILENCIEUX et PERMISSIF. Ce n'est plus une RE a faire -- l'etage `GetAttackRangeType` est porte
+    (#951-r1) et le call-site est localise (#508-r2) : c'est un CABLAGE, dont le rang reste a
+    arbitrer.
 
     Le selecteur `this+0x10` est resolu par l'appelant (ici : le caster) -- comme
     `unit_turns_with_attacks_made`, ce mirror prend l'unite deja resolue. Composant absent = 0,

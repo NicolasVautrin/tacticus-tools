@@ -159,8 +159,9 @@ c'est le `return` sur `IsDead` qui ANNULE la fuite, pas le passif.
 
 Le canal `TriggerEvent.triggering_ability` est seedé par l'**unique appelant porté** de
 `FleeOperation.execute` (`BattleFatigueAbility.execute_behaviour`), qui est précisément l'ability
-que `TriggeringAbilityIs(0x401)` compare. C'est la différence avec le vecteur MORT, où le même
-champ reste vide (résidu #955-r1).
+que `TriggeringAbilityIs(0x401)` compare. Sur le vecteur MORT, ce champ-là (`CurrentAbility@+0x60`)
+reste vide — mais ce n'est PAS le canal que `TriggeringAbilityIs` lit : c'est `+0x98`, et il y est
+renseigné (`state.trigger_ability_type`). Cf. #955-r1 au §7.
 
 Second ajout : la feuille `Spawn` gagne `stat_key_suffix`, mirror de l'`ordinal` de
 `WithStatsFromConfig{,2}`. Sans lui, les deux summons de `Possession` auraient pris **les mêmes
@@ -232,7 +233,9 @@ ne doit rien recevoir.
 
 ### Ce qui n'est PAS couvert
 
-* Le gate `NOT TriggeringAbilityIs(ItsGonnaBlow)` — écrit, structurellement inerte (#955-r1).
+* Le gate `NOT TriggeringAbilityIs(ItsGonnaBlow)` — **branché sur le bon canal depuis #955-r1**
+  (`+0x98`, pas `+0x60`) et gardé par un test à deux bras ; il reste inerte EN JEU faute de poseur
+  porté d'`ItsGonnaBlow` (blocage `porteur`, pas `seeding`).
 * La face **PRÉDICTION** des deux auras. Elle est **structurellement satisfaite** et c'était déjà
   écrit avant cette tranche : `playbook/prediction/normal_attack.py` calcule
   `attack_base = attack_current − aura_real + aura_cand`, et son commentaire #57a nomme
@@ -250,9 +253,29 @@ ne doit rien recevoir.
 
 ## 7. Résidus
 
-* **#955-r1** — le gate `NOT TriggeringAbilityIs(ItsGonnaBlow)` est ÉCRIT mais ne peut pas mordre :
-  `TriggerEvent.triggering_ability` est inconditionnellement vide sur le vecteur MORT. Dégradation
-  **PERMISSIVE**.
+* **#955-r1 — FERMÉ (2026-08-15). La prémisse était FAUSSE : le canal n'était pas ABSENT, il était
+  MAL CHOISI.** La fiche disait « le vecteur MORT ne seede aucune ability déclenchante » et classait
+  le blocage en `seeding`. Or `IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs` prend le
+  slot `DSLSelectors+0x90` → `AbilityTypeSelector.TriggeringAbilitySelector$$Select`, qui lit
+  `AbilityEntities+0x98` — et `+0x98` **est** renseigné sur ce vecteur : c'est le `killTrigger`
+  recopié depuis `KillUnitOptions+0x04` par `IdunBattle.Operations.KillUnitOperation$$Execute`, que
+  le port pose sur `state.trigger_ability_type` le temps du drain depuis #301. Le champ VIDE est
+  `CurrentAbility@+0x60` (le `memset(.., 0x128)`), et c'est LUI que `possession.py` lisait
+  (`ev.triggering_ability`).
+
+  Le gate lit désormais `state.trigger_ability_type`, exactement comme
+  `haze_of_corruption._triggering_ability` le fait déjà sur le même vecteur. Garde :
+  `test_955_summary_execution_possession_offline.py::test_955r1_le_gate_ItsGonnaBlow_lit_le_canal_0x98_et_MORD`
+  (deux bras : `+0x98` refuse, `+0x60` seul ne change rien).
+
+  **Ce qui reste n'est plus un `seeding` mais un `porteur`** : `ItsGonnaBlow` (passif de la caisse
+  de munitions npc) n'a aucun poseur porté, donc `+0x98` ne vaudra jamais `1080` aujourd'hui. Fait
+  déjà écrit à l'identique dans `barbed_ovipositor.py` et `head_claimer.py`, qui portent le MÊME
+  conjoint — pas de résidu de plus pour le redire une quatrième fois.
+
+  **Bonus de la même tranche** : le second résidu de `possession.py`, le marqueur
+  `IsDefeatedByMeleeAttack` (`UnitComponent+0x178`), est lui aussi porté (#951-r1) — l'approximation
+  positionnelle n'est plus qu'un repli sur `None`.
 * ~~**#955-r2**~~ — **FERMÉ EN REFUS : le port était juste sur les quatre.** Détail : **§7bis**.
 * ~~**#955-r3**~~ — **FERMÉ.** L'`ApplyInternal` est désormais joué **par cible**, à chaque réveil
   du driver d'aura. Et sa prémisse d'inatteignabilité était fausse : détail **§7ter**.
