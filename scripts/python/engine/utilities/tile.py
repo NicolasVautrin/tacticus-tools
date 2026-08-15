@@ -40,9 +40,13 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   ability_friend_counts : {ability_id:int -> count}        (KustomForceField 1102 / Defender 1155 / Savior 1120)
                                                            [ACTIF #175-r — `_ability_friend_counts`,
                                                             via `apply_tile_attributes`]
-  movetowards_hexdist : {ability_id:int -> hexdist}        (BioMinefield 1315 / MasterOfTheTutelaries 1096)
-                                                           ⚠ le NOM MENT : ce n'est PAS une distance
-                                                            hex (cf. `MoveTowardsUnitUtility`)
+  movetowards_pathdist : {identifiant:int -> Count}        (BioMinefield 1315 / MasterOfTheTutelaries 1096)
+                                                           [ACTIF #175-r1 — `_movetowards_pathdist_by_pos`,
+                                                            via `apply_tile_attributes`. Count = NOEUDS du
+                                                            `GetPath(PathfinderType.IgnoreTerrain, …)`,
+                                                            extrémités INCLUSES. L'ancien nom
+                                                            `movetowards_hexdist` MENTAIT — ce n'a jamais
+                                                            été une distance hex.]
   neighbor_effect_names : {adjacent|surrounding1|ranged2 -> [effect_name]}   (UnitEffects 10/11/12)
 
 `ctx` (PAR UNITÉ/DÉCISION, constant sur toutes les tuiles d'une décision) — clés consommées :
@@ -75,7 +79,12 @@ Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14 et docs/rl/case
   `ActiveAbilityType.DoctrinaImperatives`, dérivé de `ctx.friend_units[].active`, cf. case-477r31).
 - PORTÉES FIDÈLE mais DORMANTES (gate sur metadata non encore plombée → 0) : les autres `*Utility`.
   ⚠ #175 : leur ctx de TRAIT est désormais peuplé — ce qui reste manquant est la metadata PAR TUILE
-  (`occupant_is_powerup`, `door`, `movetowards_hexdist`, …), qu'AUCUN RPC ne remonte à ce jour.
+  (`occupant_is_powerup`, `door`), qu'AUCUN RPC ne remonte à ce jour.
+  ⚠ #175-r1 : `movetowards_pathdist` FIGURAIT dans cette liste, et à tort — comme
+  `attract_mechanicals_neighbor` avant elle. Elle n'a jamais demandé de RPC neuf : la distance est
+  celle d'`ignore_terrain_pathfinder` (déjà portée et confrontée) et l'identification de la cible ne
+  lit que `unit_parent_id`, `unit_active_abilities` et l'`EffectComponent` (type + `SourceUnitId`),
+  que `decisionView.units[].effects` publie DÉJÀ. Les deux feuilles 62/63 sont ACTIVES depuis.
   ⚠ #477-r31 : `attract_mechanicals_neighbor` FIGURAIT dans cette liste, et à tort — elle n'a jamais
   demandé de RPC neuf, seulement `ctx.friend_units[].active` (posé par #477-r29). « Aucun RPC ne le
   remonte » se re-dérive, ne se recopie pas : ici la phrase a survécu à sa cause pendant une tranche
@@ -789,25 +798,46 @@ class MoveTowardsUnitUtility(BaseUtility):
     Et `get_OnlyUnitsWithAny()` ne rend pas 0 quand il refuse : l'iterateur **ne yielde RIEN**
     (numeriquement equivalent a 0 dans la somme composite).
 
-    ETAT DU PORT : **aucun producteur de `meta["movetowards_hexdist"]` n'existe** dans le depot ->
-    les deux feuilles rendent 0.0 partout. Ce qui MANQUE n'est PAS un etage natif : la distance de
-    chemin est DEJA portee et confrontee (`engine.entities.pathfinding.ignore_terrain_pathfinder.
-    get_path_node_counts`, exactement ce meme `GetPath(IgnoreTerrain, ...)`, 180/180 contre
-    `pathDistToEnemies`), et l'identification de la cible ne demande que des canaux deja publies
-    (`unit_parent_id`, `active`, `friend_units`). Le seul substrat a ne plus JETER est
-    `EffectComponent.SourceUnitId`, que `_unit_record` laisse tomber en ne gardant que `ef.name`.
-    Le renommage `movetowards_hexdist` -> `movetowards_pathdist` se fera AVEC le producteur (le
-    faire seul serait du churn sur une cle qui n'a aucun ecrivain). Residu ouvert -- cf.
-    `docs/rl/case-175r-ventilation-du-blocage-capteur.md`."""
+    ETAT DU PORT : **PRODUIT depuis #175-r1** -- `apply_tile_attributes` pose
+    `meta["movetowards_pathdist"]` (cle RENOMMEE : l'ancienne `movetowards_hexdist` mentait, et le
+    renommage se fait AVEC le producteur, comme annonce). Le producteur est
+    `_movetowards_pathdist_by_pos` ; la distance vient de
+    `engine.entities.pathfinding.ignore_terrain_pathfinder.get_path_node_counts_by_pos`, jumeau en
+    domaine POSITION du moteur `Board` deja confronte (180/180 contre `pathDistToEnemies`).
+
+    LES TROIS VIRTUELS QUI PARAMETRENT LE CORPS, et leur valeur PAR SOUS-CLASSE. Ils sont LUS dans
+    les DECLARATIONS Il2CppDumper (`sources_win`), corroborees par les tailles d'instance de
+    `data/symbols/<build>/frida/classes.tsv` -- `MoveTowardsUnitUtility` = 112 (0x70), donc le
+    `+0x70` ecrit par CHAQUE `.ctor` est un champ **DE LA SOUS-CLASSE**, pas un champ partage :
+
+      | classe | taille | `+0x70` | `+0x78` |
+      |---|--:|---|---|
+      | `BioMinefield_MoveTowardsTargetUtility` | 120 | `EffectSourceMustBeParent = true` | -- |
+      | `MasterOfTheTutelaries_MoveTowardsTargetUtility` | 128 | `Friends = true` | `OnlyUnitsWithAny = [Chaos, Daemon]` |
+
+    Ce qu'une sous-classe n'override PAS retombe sur le backing field de la base, JAMAIS ecrit :
+    `Friends = false` et `OnlyUnitsWithAny = null` pour BioMinefield, `EffectSourceMustBeParent =
+    false` pour MasterOfTheTutelaries. Lire `+0x70` comme un champ unique ferait croire les deux
+    drapeaux vrais des deux cotes."""
     _CAT: str = ""
     _ABILITY_ID: int = -1
     _TRAIT_GATE: "set | None" = None
+    #: Quel des TROIS `Nullable` de l'`AbilityOrEffect` rendu par `UnitIdentifierAbilityOrEffect()`
+    #: est renseigne (`IdunBattle.Core.AbilityOrEffect` : `_activeAbility@+0x00`,
+    #: `_triggeredAbility@+0x08`, `_effect@+0x10`). LU dans le `.ctor` : le `mov edx, <imm>` qui
+    #: precede l'appel a la surcharge d'`op_Implicit`, et c'est la SURCHARGE qui nomme la famille
+    #: (`set_ActiveAbility` vs `set_Effect`), jamais l'ordinal.
+    _IDENTIFIER_KIND: str = "active"
+    #: `get_Friends()` -- la CIBLE est-elle cherchee parmi les AMIS (sinon les ennemis) ?
+    _FRIENDS: bool = False
+    #: `get_EffectSourceMustBeParent()` -- branche EFFET seulement.
+    _EFFECT_SOURCE_MUST_BE_PARENT: bool = False
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if self._TRAIT_GATE is not None:
             if not (set((ctx or {}).get("unit_traits") or ()) & self._TRAIT_GATE):
                 return 0.0
-        dd = (meta or {}).get("movetowards_hexdist") or {}
+        dd = (meta or {}).get("movetowards_pathdist") or {}
         d = dd.get(self._ABILITY_ID)
         if d is None:
             d = dd.get(str(self._ABILITY_ID))
@@ -824,11 +854,20 @@ class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
     `UnitIdentifierAbilityOrEffect` est pose par `set_Effect` (donc la famille est bien
     `EffectType`, ce que le nom de classe ne prouvait pas), et **`EffectSourceMustBeParent = true**`
     (champ `+0x70` de CETTE classe) -> la cible est le porteur de 1315 dont
-    `EffectComponent.SourceUnitId` est le PARENT du mover, PREMIER match. `GetParent == null` -> 0."""
+    `EffectComponent.SourceUnitId` est le PARENT du mover, PREMIER match. `GetParent == null` -> 0.
+
+    ⚠ La branche EFFET part de `IBattleQuery.<slot 192 = GetActiveEffects>(1315, null)` (slot LU
+    dans `data/symbols/<build>/metadata/interface_slots.tsv`), donc des effets **ACTIFS** -- et elle
+    n'exclut PAS `case.Unit` de ses candidats, contrairement a la branche ABILITY. Le re-test
+    `GetOwnedEffect(u, State, 1315)`, lui, ne filtre PAS sur l'activite (relu : il itere
+    l'`EffectsOwnedComponent` et compare `EffectComponent.EffectType@+0x58`, rien d'autre)."""
     UTILITY_TYPE = int(UtilityType.BioMinefield_MoveTowardsTarget)  # 62
     _CAT = "BioMinefield_MoveTowardsTarget"
     _ABILITY_ID = int(EffectType.BioMinefield_Target)  # 1315 (effet marqueur de cible ; #158, absent d'ActiveAbilityType)
     _TRAIT_GATE = None
+    _IDENTIFIER_KIND = "effect"          # `set_Effect(0x523 = 1315)`, LU au `.ctor`
+    _FRIENDS = False                     # non override -> backing field de la base, jamais ecrit
+    _EFFECT_SOURCE_MUST_BE_PARENT = True  # `+0x70` de CETTE classe (taille 120 vs base 112)
 
 
 class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
@@ -846,8 +885,11 @@ class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
     _ABILITY_ID = int(ActiveAbilityType.MasterOfTheTutelaries)  # 1096 (#158 : nom classe matche Active, PAS EffectType.KustomForceField/Triggered.SoulHunger)
     # #270-r1-r1 : le champ s'appelle `_TRAIT_GATE` et la docstring dit « Gate trait » -- ce sont
     # des `UnitTrait` (2026 = Chaos, 1019 = Daemon), pas des ids d'ability.
-    _TRAIT_GATE = {UnitTrait.Chaos,      # 2026
-                   UnitTrait.Daemon}     # 1019
+    _TRAIT_GATE = {UnitTrait.Chaos,      # 2026 = 0x7ea, LU dans le `.ctor` (List<UnitTrait> @+0x78)
+                   UnitTrait.Daemon}     # 1019 = 0x3fb, idem
+    _IDENTIFIER_KIND = "active"          # `set_ActiveAbility(0x448 = 1096)`, LU au `.ctor`
+    _FRIENDS = True                      # `+0x70` de CETTE classe (taille 128 vs base 112)
+    _EFFECT_SOURCE_MUST_BE_PARENT = False  # non override -> backing field de la base, jamais ecrit
 
 
 class TriggeredAbilitiesUtility(BaseUtility):
@@ -1515,14 +1557,65 @@ def _unit_record(e, uid: int, pc, fx) -> dict:
     hc = e.get_component(HealthComponent)
     vis = uc.visual_id if uc is not None else None
     cx = sc.ctx if sc is not None else None
+    _fx = (fx.by_unit.get(int(uid), []) if fx else [])
     return {"pos": (pc.col, pc.row), "vis": vis, "id": uid,
             "triggered": tuple(entity_triggered_ability_ids(cx, vis)),
             "active": tuple(entity_active_ability_ids(cx, vis)),
             "traits": entity_trait_names(cx, vis),
             "hp": (hc.hp if hc is not None else None),
             "hp_max": (hc.hp_max if hc is not None else None),
-            "effects": tuple(ef.name for ef in ((fx.by_unit.get(int(uid), []) if fx else []))
-                             if not ef.consumed and ef.name)}
+            # #443-r1 / #433-r4-r3-r2 : `IdunBattle.Entities.UnitExtensions$$GetParent(u, state,
+            # root: false)` -- le lien enfant -> SUMMONER (`ChildComponent.ParentId`) du VOISIN, et
+            # non plus du seul sujet. `ECogSupportPlaybook` (1487, face OWNER) teste
+            # `GetParent(<voisin>, State, root: false) == case.unit` : sans le parent de CHAQUE
+            # voisin il compterait tous les amis adjacents au lieu des seuls summons du porteur.
+            # `None` = pas de parent OU pas mesure, comme `unit_parent_id` du sujet.
+            "parent": _parent_id_of(e),
+            "effects": tuple(ef.name for ef in _fx if not ef.consumed and ef.name),
+            # #175-r1 -- le substrat que `_unit_record` JETAIT : `EffectComponent.EffectType@+0x58`
+            # et `SourceUnitId@+0x10`. `MoveTowardsUnitUtility.<EvaluateMovementInSteps>d__15` les
+            # lit tous les deux (`GetActiveEffects(type)` puis, sur le porteur retenu,
+            # `GetOwnedEffect(u, State, type)` -> `SourceUnitId == GetParent(case.Unit).Id`), et le
+            # champ `effects` ci-dessus, qui ne garde que le NOM, ne peut porter ni l'un ni l'autre.
+            # MEME forme dans les TROIS jumeaux de `leaf_ctx`, cf. `_owned_effect_records`.
+            "owned_effects": _owned_effect_records(_fx)}
+
+
+def _parent_id_of(e) -> "int | None":
+    """`IdunBattle.Entities.UnitExtensions$$GetParent(u, state, root: false)` reduit a l'ID --
+    `ChildComponent.ParentId`, que le port materialise sur `UnitComponent.parent_id` (cf.
+    `engine/runner/components.py::parent_of`, meme substrat).
+
+    ⚠ Le natif fait `state.GetEntity(ParentId)` : un summoner RETIRE de l'etat y rend `null`. Ce
+    port rend l'ID BRUT, et l'ecart est INERTE pour son unique consommateur -- le predicat
+    `GetParent(<voisin>) == case.unit` : `case.unit` est le sujet du sweep, donc present dans
+    l'etat par construction, et une egalite d'ID implique alors que la resolution aurait reussi.
+
+    TRI-ETAT : `None` = pas de parent OU pas mesure, comme `unit_parent_id` du sujet et comme
+    `Scene.parent`."""
+    from ..runner.components import UnitComponent
+    uc = e.get_component(UnitComponent)
+    return getattr(uc, "parent_id", None) if uc is not None else None
+
+
+def _owned_effect_records(effs) -> tuple:
+    """`({"type": int|None, "source": int|None, "active": bool}, ...)` -- l'`EffectsOwnedComponent`
+    d'une unite, reduit aux TROIS champs de l'`EffectComponent` que les feuilles lisent.
+
+    FOYER UNIQUE des trois jumeaux de `leaf_ctx` : deux constructions separees finiraient par
+    diverger de forme, et une feuille lisant une cle absente d'un seul des trois rendrait 0 sans
+    erreur (c'est exactement ce que `_unit_record` documente pour lui-meme).
+
+    Les effets CONSOMMES sont ecartes, comme pour le champ `effects` : ils ne sont plus dans
+    l'`EffectsOwnedComponent` natif."""
+    out = []
+    for ef in (effs or ()):
+        if getattr(ef, "consumed", False):
+            continue
+        out.append({"type": getattr(ef, "effect_type", None),
+                    "source": getattr(ef, "source", None),
+                    "active": bool(getattr(ef, "active", True))})
+    return tuple(out)
 
 
 def _board_maps(state) -> tuple:
@@ -1725,6 +1818,12 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             # MEME forme que le champ `effects` d'un voisin (`_unit_record`) : noms non consommes.
             "self_effects": tuple(ef.name for ef in ((fx.by_unit.get(int(unit_id), []) if fx else []))
                                   if not ef.consumed and ef.name),
+            # #175-r1 -- pendant de `self_effects` sur l'axe (type, source). La branche EFFET de
+            # `MoveTowardsUnitUtility.<d__15>` (`GetActiveEffects` -> `FirstOrDefault(allUnits)`)
+            # n'exclut PAS `case.Unit` : le mover est un porteur candidat comme les autres, la ou
+            # la branche ABILITY, elle, l'ecarte explicitement (`u.Id != case.Unit.Id`).
+            "self_owned_effects": _owned_effect_records(
+                fx.by_unit.get(int(unit_id), []) if fx else []),
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
             "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
             "walkable_by_pos": walkable_by_pos}
@@ -1809,6 +1908,9 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
     def _effect_names(uid):
         return tuple(e.name for e in fx_by_unit.get(int(uid), []) if not e.consumed and e.name)
 
+    def _owned(uid):
+        return _owned_effect_records(fx_by_unit.get(int(uid), []))
+
     friends, enemies, fpos = [], [], []
     for u in units:
         uid = u.get("id")
@@ -1828,7 +1930,11 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
                # et `Scene.hpmax` lisent le MEME `HealthComponent` (`Scene.from_state`), et rendent
                # deja `None` sur un id hors tables -- le tri-etat est donc porte par le foyer.
                "hp": scene.hp(uid), "hp_max": scene.hpmax(uid),
-               "effects": _effect_names(uid)}
+               # #433-r4-r3-r2 / #175-r1 -- cf. `_unit_record`, meme role et meme forme dans les
+               # TROIS jumeaux. `Scene.parent` collapse « pas de parent » et « pas mesure ».
+               "parent": scene.parent(uid),
+               "effects": _effect_names(uid),
+               "owned_effects": _owned(uid)}
         if my_team is not None and u.get("team") == my_team:
             friends.append(rec)
             fpos.append(rec["pos"])
@@ -1865,6 +1971,8 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             "self_hp": scene.hp(unit_id), "self_hp_max": scene.hpmax(unit_id),
             # EFFETS du MOVER (#922) -- cf. `runner_tile_leaf_ctx`, meme role et meme forme.
             "self_effects": tuple(_effect_names(unit_id)),
+            # #175-r1 -- cf. `runner_tile_leaf_ctx`.
+            "self_owned_effects": _owned(unit_id),
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
             "elev_by_pos": (getattr(scene, "elev_by_pos", None) or elev_by_pos),
             "neigh_by_pos": neigh_by_pos, "walkable_by_pos": walkable_by_pos,
@@ -1947,8 +2055,22 @@ def _adjacent_units(ctx, uid):
                "traits": entity_trait_names(_uctx, u.get("visualId")),
                "hp": u.get("hp"),
                "hp_max": (_hpmax.get(u.get("id")) if isinstance(_hpmax, dict) else None),
+               # #433-r4-r3-r2 / #175-r1 -- cf. `_unit_record`, meme role et meme forme dans les
+               # TROIS jumeaux.
+               "parent": (scene.parent(u.get("id")) if scene is not None else None),
                "effects": tuple(e.get("name") if isinstance(e, dict) else e
-                                for e in (u.get("effects") or ()))}
+                                for e in (u.get("effects") or ())),
+               # Canal `decisionView.units[].effects` : le hook publie DEJA `effectType`, `source`
+               # (`EffectComponent.SourceUnitId@+0x10`) et `active` par effet
+               # (`frida/hooks/game/effects.ts::EffectInfo`) -- la reserve « `decisionView` publie-t-il
+               # un `source` ? non verifie » de `case-175r` §3 est LEVEE, il le publie.
+               # ⚠ Canal ACTIF-ONLY par defaut (`readEffectsByUnit` droppe les inactifs sauf
+               # `includeInactive`) : le champ `active` y vaut donc `True` sur toutes les entrees
+               # que la face DECISION voit. C'est la MEME borne que le champ `effects` ci-dessus.
+               "owned_effects": tuple(
+                   {"type": e.get("effectType"), "source": e.get("source"),
+                    "active": bool(e.get("active", True))}
+                   for e in (u.get("effects") or ()) if isinstance(e, dict))}
         if u.get("ctrl"):
             if u.get("id") != uid:
                 friends.append(rec)
@@ -2061,6 +2183,12 @@ def tile_leaf_ctx(ctx) -> dict:
             # commun a toute la face DECISION (le champ `effects` des voisins a la meme borne).
             "self_effects": tuple(e.get("name") if isinstance(e, dict) else e
                                   for e in (me.get("effects") or ())),
+            # #175-r1 -- cf. `runner_tile_leaf_ctx`. MEME canal (et MEME borne actif-only) que le
+            # champ `owned_effects` des voisins, cf. `_adjacent_units`.
+            "self_owned_effects": tuple(
+                {"type": e.get("effectType"), "source": e.get("source"),
+                 "active": bool(e.get("active", True))}
+                for e in (me.get("effects") or ()) if isinstance(e, dict)),
             "enemies": getattr(ctx, "enemies", None) or [],
             "elev_by_pos": getattr(ctx, "elev_by_pos", None),
             "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),
@@ -2175,6 +2303,17 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
         meta["attract_mechanicals_neighbor"] = _attract_mechanicals_neighbor(pos, lc)
         # feuilles KustomForceField(21) / DefenderOfTheGreaterGood(22) / SaviorProtocols(23) (#175-r)
         meta["ability_friend_counts"] = _ability_friend_counts(pos, lc)
+    # feuilles BioMinefield_MoveTowardsTarget(62) / MasterOfTheTutelaries_MoveTowardsTarget(63)
+    # (#175-r1) -- `GetMinDistanceToTarget` mesure depuis `case.MovementPosition.MainTile`, donc
+    # depuis la TUILE CANDIDATE : la valeur DEPEND de `pos`, la carte n'en depend pas.
+    if lc.get("uid") is not None:                                 # `case.Unit != null`
+        dd = {}
+        for ident, carte in _movetowards_pathdist_by_pos(lc).items():
+            d = carte.get((pos[0], pos[1]))
+            if d is not None:            # `GetPath` -> null == cible injoignable -> `min` reste null
+                dd[ident] = d
+        if dd:
+            meta["movetowards_pathdist"] = dd
     return meta
 
 
@@ -2250,6 +2389,184 @@ def _ability_friend_counts(pos, lc: dict) -> dict:
             n += 1
         if n:
             out[ab] = n
+    return out
+
+
+#: Les DEUX feuilles `MoveTowardsUnitUtility` du composite. Le producteur ci-dessous lit LEURS
+#: attributs (`_IDENTIFIER_KIND`, `_ABILITY_ID`, `_FRIENDS`, `_EFFECT_SOURCE_MUST_BE_PARENT`,
+#: `_TRAIT_GATE`) : chacun mirrore UN virtuel de la sous-classe, donc le corps PARTAGE reste ecrit
+#: une seule fois -- exactement comme le natif, ou `<EvaluateMovementInSteps>d__15` est unique.
+_MOVETOWARDS_LEAVES = (BioMinefield_MoveTowardsTargetUtility(),
+                       MasterOfTheTutelaries_MoveTowardsTargetUtility())
+
+#: Cle de MEMO posee sur le `leaf_ctx`. Elle porte `(signature, carte)` : la signature est
+#: l'ensemble des cibles RESOLUES, donc un `leaf_ctx` reutilise apres deplacement d'une unite
+#: recalcule au lieu de servir une carte perimee.
+_MOVETOWARDS_MEMO = "_movetowards_pathdist_memo"
+
+
+def _movetowards_candidate_units(lc: dict) -> list:
+    """`IBattleQuery.<slot 137 = GetAllAliveUnits>(null)` du point de vue du `leaf_ctx` --
+    `[(enregistrement, is_friend)]`.
+
+    Les deux listes du ctx sont SELF-EXCLUES quand il y a un sujet ; le natif, lui, balaie TOUTES
+    les unites vivantes. Le sujet est donc RE-INJECTE, et ca n'est pas cosmetique : la branche
+    EFFET de `<EvaluateMovementInSteps>d__15` n'ecarte PAS `case.Unit` (c'est la branche ABILITY
+    qui porte le `u.Id != case.Unit.Id`), donc le mover est un porteur candidat comme un autre.
+
+    ⚠ L'ORDRE n'est PAS celui de `GetAllAliveUnits`, et il MORD : la branche ABILITY retient le
+    DERNIER match (aucun `break`) et la branche EFFET le PREMIER. Residu assume et NOMME -- il ne
+    se voit qu'a partir de DEUX porteurs simultanes du meme identifiant."""
+    out = [(u, True) for u in (lc.get("friend_units") or ())]
+    out += [(u, False) for u in (lc.get("enemy_units") or ())]
+    uid = lc.get("uid")
+    if uid is not None:
+        out.append(({"id": uid, "pos": lc.get("self_pos"),
+                     "active": lc.get("unit_active_abilities") or (),
+                     "owned_effects": lc.get("self_owned_effects") or ()}, True))
+    return out
+
+
+def _movetowards_target_pos(lc: dict, leaf) -> "tuple | None":
+    """La CIBLE de `IdunBattle.AI.Utilities.MoveTowardsUnitUtility.u003CEvaluateMovementInStepsu003Ed__15$$MoveNext`,
+    reduite a sa POSITION (le natif en prend `EntityExtensions$$GetMainTile`). `None` = le natif
+    ne yielde rien, ou yielde `0` -- les deux valent 0 dans la somme du composite.
+
+    Le corps natif, remis en C# depuis le decompile :
+
+        if (case == null || case.Unit == null) yield return 0;
+        traits = this.OnlyUnitsWithAny;                       // vslot, `List<UnitTrait>` ou null
+        if (traits != null && !HasAnyTrait(this, case.Unit, traits)) yield break;   // RIEN
+        all   = query.<slot 137 = GetAllAliveUnits>(null);
+        ident = this.UnitIdentifierAbilityOrEffect();         // AbilityOrEffect
+        list  = new List<IEntity>();
+        if (ident.Effect.HasValue)
+            foreach (comp in query.<slot 192 = GetActiveEffects>(ident.Effect.Value, null)
+                                  .Select(e => e.GetComponent<EffectComponent>())) {
+                u = all.FirstOrDefault(x => x.Id == comp.OwnerId);      // `<>c__DisplayClass15_0.b__1`
+                if (u != null) list.Add(u); }
+        else
+            foreach (u in all) {
+                if (u.Id != case.Unit.Id && ident.ActiveAbility.HasValue
+                        && UnitExtensions.HasActiveAbility(u, ident.ActiveAbility.Value)) list.Add(u);
+                else if (ident.TriggeredAbility.HasValue
+                        && UnitExtensions.HasTriggeredAbility(u, ident.TriggeredAbility.Value)) list.Add(u); }
+        IEntity target = null;
+        if (ident.Effect.HasValue && this.EffectSourceMustBeParent) {
+            parent = UnitExtensions.GetParent(case.Unit, State, root: false);
+            int? pid = parent?.Id;
+            if (!pid.HasValue) yield return 0;
+            foreach (u in list) {
+                eff = EntityExtensions.GetOwnedEffect(u, State, ident.Effect.Value);
+                if (eff == null) continue;
+                c = eff.GetComponent<EffectComponent>();
+                if (c == null) continue;
+                if (c.SourceUnitId == pid.Value) { target = u; break; } }        // PREMIER
+        } else {
+            foreach (u in list)
+                if (this.Friends ? IsFriend(u, case.Unit, State) : IsEnemy(u, case.Unit, State))
+                    target = u; }                                                // DERNIER
+        if (target != null) { ... }
+
+    ⚠ La branche `TriggeredAbility` est atteignable ET son `else if` n'est PAS imbrique sous le
+    `u.Id != case.Unit.Id` -- relu deux fois, le saut sur egalite d'id tombe DANS le test declenche.
+    Aucune des deux sous-classes ne pose cet identifiant (`AbilityOrEffect` n'en porte qu'UN a la
+    fois : ses trois setters LEVENT si un autre est deja renseigne), donc la branche est morte
+    ici ; elle est ecrite pour qu'une 3e sous-classe ne la re-deduise pas."""
+    uid = lc.get("uid")
+    if uid is None:
+        return None                                       # `case.Unit == null` -> yield 0
+    if leaf._TRAIT_GATE is not None:                      # `OnlyUnitsWithAny` -> yield break
+        if not (set(lc.get("unit_traits") or ()) & leaf._TRAIT_GATE):
+            return None
+    ident = leaf._ABILITY_ID
+    cands = []
+    if leaf._IDENTIFIER_KIND == "effect":
+        for u, fr in _movetowards_candidate_units(lc):
+            # `GetActiveEffects(type)` : le porteur est retenu par un effet ACTIF de ce type.
+            if any(e.get("type") == ident and e.get("active")
+                   for e in (u.get("owned_effects") or ())):
+                cands.append((u, fr))
+    else:
+        for u, fr in _movetowards_candidate_units(lc):
+            if u.get("id") is None or int(u["id"]) == int(uid):     # `u.Id != case.Unit.Id`
+                continue
+            if ident in set(u.get("active") or ()):                 # `HasActiveAbility`
+                cands.append((u, fr))
+    target = None
+    if leaf._IDENTIFIER_KIND == "effect" and leaf._EFFECT_SOURCE_MUST_BE_PARENT:
+        pid = lc.get("unit_parent_id")
+        if pid is None:                                   # `GetParent(case.Unit) == null` -> 0
+            return None
+        for u, _fr in cands:
+            # `GetOwnedEffect(u, State, type)` -- le PREMIER effet possede de ce type, SANS filtre
+            # d'activite (relu : il ne compare que `EffectComponent.EffectType@+0x58`).
+            own = next((e for e in (u.get("owned_effects") or ()) if e.get("type") == ident), None)
+            if own is None:
+                continue
+            if own.get("source") is not None and int(own["source"]) == int(pid):
+                target = u
+                break                                     # PREMIER match
+    else:
+        for u, fr in cands:
+            # `IsFriend` / `IsEnemy` -- la partition amis/ennemis du ctx, comme partout ailleurs
+            # dans ce module (elle ne distingue pas le camp NEUTRE, ecart deja nomme).
+            if bool(fr) == bool(leaf._FRIENDS):
+                target = u                                # DERNIER match, aucun `break`
+    if target is None:
+        return None
+    p = target.get("pos")
+    return (p[0], p[1]) if p else None
+
+
+def _movetowards_pathdist_by_pos(lc: dict) -> dict:
+    """`{identifiant -> {(col,row) -> Count}}` -- `GetMinDistanceToTarget` pour TOUTES les tuiles
+    candidates en une passe, par feuille.
+
+        // IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$GetMinDistanceToTarget
+        int? min = null;
+        foreach (tile in EntityExtensions.IterateTiles(target, State)) {
+            p = <this+0x28 : IPathfinders>.<slot 4 = GetPath, 5 params>(
+                    1 /* PathfinderType.IgnoreTerrain */, unit, unitTile, tile, null);
+            if (p != null && (!min.HasValue || p.<+0x18> < min.Value)) min = p.<+0x18>; }
+        return min;
+
+    Quatre points LUS, et chacun changerait le chiffre :
+      1. le service est `IPathfinders` (slot 4 = la surcharge `GetPath` a 5 parametres, table
+         `data/symbols/<build>/metadata/interface_slots.tsv`), pas `MovementQuery` ;
+      2. le litteral `1` est `PathfinderType.IgnoreTerrain` -- aucun test d'occupant, l'occupance
+         n'entre que par le COUT (`WeightCost = 10 + IsFilled`) ;
+      3. `+0x18` est `List<T>._size`, extremites INCLUSES : `Count == aretes + 1` ;
+      4. la boucle `IterateTiles` DEGENERE a une iteration -- l'appelant passe
+         `EntityExtensions$$GetMainTile(target, State)`, donc une `TileEntity`, et la branche
+         « l'entite EST une tuile » de `<IterateTiles>d__17` fait `yield entity; break`. Ce n'est
+         PAS un min sur une empreinte multi-tuiles.
+
+    `unitTile` est `case.MovementPosition.MainTile` (`UtilityMovementCase.MovementPosition@+0x18`,
+    champ LU dans la declaration Il2CppDumper) : la TUILE CANDIDATE, pas l'origine du mover. La
+    carte se calcule donc une fois par CIBLE, depuis la cible, et se lit par tuile."""
+    sig = tuple((leaf._ABILITY_ID, _movetowards_target_pos(lc, leaf))
+                for leaf in _MOVETOWARDS_LEAVES)
+    memo = lc.get(_MOVETOWARDS_MEMO)
+    if memo is not None and memo[0] == sig:
+        return memo[1]
+    from ..entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts_by_pos
+    out: dict = {}
+    if any(tp is not None for _ident, tp in sig):
+        # `TileContentComponent.IsFilled(to)` du `WeightCost` -- un COUT, jamais un gate.
+        occ = [u["pos"] for u in (list(lc.get("friend_units") or ())
+                                  + list(lc.get("enemy_units") or ())) if u.get("pos")]
+        sp = lc.get("self_pos")
+        if sp:
+            occ.append((sp[0], sp[1]))
+        neigh = _bq.neigh_map(lc)
+        for ident, tp in sig:
+            if tp is None:
+                continue
+            out[ident] = get_path_node_counts_by_pos(
+                tp, neigh_by_pos=neigh, walkable_by_pos=lc.get("walkable_by_pos"),
+                elev_by_pos=lc.get("elev_by_pos"), occupied_positions=occ)
+    lc[_MOVETOWARDS_MEMO] = (sig, out)
     return out
 
 
