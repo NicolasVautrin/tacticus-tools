@@ -54,6 +54,19 @@ def _module_de(path: pathlib.Path) -> str:
     return str(path.with_suffix("")).replace(os.sep, ".").replace("/", ".")
 
 
+def _deballer(node):
+    """Retire les enveloppes `int(...)` / `EffectType(...)` pour rendre le noeud PORTEUR.
+
+    ⚠ SANS CE DEBALLAGE, TOUTE LA SUR-APPROXIMATION EST MORTE, ET SILENCIEUSEMENT : les call-sites
+    ecrivent `AddStaticStatModifierEffect(..., int(effect_type), ...)`, donc l'argument est un
+    `ast.Call`, jamais le `ast.Name`/`ast.Attribute` que les branches ci-dessous testent. Le probe
+    rendait alors << NON RESOLU >> sur des call-sites qu'il savait pourtant fermer -- un faux
+    negatif de RECENSEUR, la forme d'erreur exacte que ce probe existe pour eviter."""
+    while isinstance(node, ast.Call) and node.args:
+        node = node.args[0]
+    return node
+
+
 def _valeurs_de_lattribut(arbre, mod, nom, effect_type_enum):
     """SUR-APPROXIMATION d'un `self.<NOM>` : toutes les affectations `<NOM> = <...>` du fichier.
 
@@ -182,6 +195,39 @@ def main() -> int:
     args = ap.parse_args()
 
     from engine.entities.effect_type import EffectType
+    res = mesurer(args.racine)
+    print("=== #576-r2 -- RAYON DU GATE DE POSE ===")
+    print("classes surchargeant is_active  : %d" % len(res["surchargent"]))
+    print("effect_type poses par la feuille: %d (resolus)" % len(res["poses"]))
+    print("call-sites NON RESOLUS          : %d" % len(res["non_resolus"]))
+    for rel, ln, why in res["non_resolus"]:
+        print("   NON RESOLU %s:%s -- %s" % (rel, ln, why))
+    print("call-sites SUR-APPROXIMES       : %d" % len(res["sur_approx"]))
+    for rel, ln, origine, vals in res["sur_approx"]:
+        print("   SUR-APPROX %s:%s -- %s -> %s" % (rel, ln, origine, vals))
+
+    print("\n--- INTERSECTION (le gate peut MORDRE ici, et NULLE PART ailleurs) : %d ---"
+          % len(res["mordus"]))
+    for o in res["mordus"]:
+        sites = ", ".join("%s:%s" % (f, l) for f, l in res["poses"][o])
+        print("   %-5d %-40s %s" % (o, res["par_ordinal"][o], sites))
+    if not res["mordus"]:
+        print("   (aucune)")
+
+    print("\n--- les %d autres effect_type poses n'ont PAS de condition portee -> gate PASSANT ---"
+          % (len(res["poses"]) - len(res["mordus"])))
+    return 0
+
+
+def mesurer(racine="engine"):
+    """LE CORPS DE MESURE, expose pour que le CLIQUET le RE-DERIVE au lieu de figer un compte.
+
+    C'est la meme exigence que le driver de refresh ecrit deja pour sa propre liste : un compte ou
+    une liste de classes ecrits en dur se PERIMENT a chaque port qui entre une classe surchargeant
+    `is_active`, et sont la cause mecanique d'un conflit de rebase entre PR paralleles. Le test
+    `test_576r2_pose_gate_offline.py` appelle donc CETTE fonction et asserte un INVARIANT sur ce
+    qu'elle rend, jamais un nombre."""
+    from engine.entities.effect_type import EffectType
     from engine.entities.effects.base import BaseEffect
     from engine.entities.effects.factory import EFFECT_CLASSES
 
@@ -196,7 +242,7 @@ def main() -> int:
     poses = {}                       # ordinal -> [(fichier, ligne)]
     non_resolus = []
     sur_approx = []                  # call-sites fermes par SUR-APPROXIMATION (dits, pas tus)
-    for p in sorted(pathlib.Path(args.racine).rglob("*.py")):
+    for p in sorted(pathlib.Path(racine).rglob("*.py")):
         rel = str(p).replace(os.sep, "/")
         if rel.endswith(FOYER.split("engine/", 1)[-1]) and "behaviours/effects.py" in rel:
             continue
@@ -226,26 +272,27 @@ def main() -> int:
                 # sous-classes) et parametre de factory (valeurs passees par les appelants).
                 sur = set()
                 origine = None
-                if (isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Name)
-                        and arg.value.id == "self"):
-                    sur = _valeurs_de_lattribut(arbre, mod, arg.attr, EffectType)
-                    origine = "self.%s" % arg.attr
-                elif isinstance(arg, ast.Name):
+                noyau = _deballer(arg)          # `int(X)` / `EffectType(X)` -> X
+                if (isinstance(noyau, ast.Attribute) and isinstance(noyau.value, ast.Name)
+                        and noyau.value.id == "self"):
+                    sur = _valeurs_de_lattribut(arbre, mod, noyau.attr, EffectType)
+                    origine = "self.%s" % noyau.attr
+                elif isinstance(noyau, ast.Name):
                     fn = None
                     for f in ast.walk(arbre):
                         if (isinstance(f, ast.FunctionDef)
-                                and any(x.arg == arg.id for x in f.args.args)
+                                and any(x.arg == noyau.id for x in f.args.args)
                                 and f.lineno <= a.lineno <= (f.end_lineno or a.lineno)):
                             fn = f
                     if fn is not None:
-                        pos = [x.arg for x in fn.args.args].index(arg.id)
-                        sur, manques = _valeurs_du_parametre(args.racine, fn.name, pos, EffectType)
+                        pos = [x.arg for x in fn.args.args].index(noyau.id)
+                        sur, manques = _valeurs_du_parametre(racine, fn.name, pos, EffectType)
                         origine = "parametre %s de %s()%s" % (
-                            arg.id, fn.name, (" [%d appel(s) non lus]" % manques) if manques else "")
+                            noyau.id, fn.name, (" [%d appel(s) non lus]" % manques) if manques else "")
                         if not sur:
                             sur = _valeurs_par_tuples_de_classe(mod, EffectType)
                             origine = ("parametre %s de %s() -- via les TUPLES de classe du module"
-                                       % (arg.id, fn.name))
+                                       % (noyau.id, fn.name))
                 if sur:
                     for v in sorted(sur):
                         poses.setdefault(int(v), []).append((rel, a.lineno))
@@ -255,29 +302,9 @@ def main() -> int:
                 continue
             poses.setdefault(int(val), []).append((rel, a.lineno))
 
-    print("=== #576-r2 -- RAYON DU GATE DE POSE ===")
-    print("classes surchargeant is_active  : %d" % len(surchargent))
-    print("effect_type poses par la feuille: %d (resolus)" % len(poses))
-    print("call-sites NON RESOLUS          : %d" % len(non_resolus))
-    for rel, ln, why in non_resolus:
-        print("   NON RESOLU %s:%s -- %s" % (rel, ln, why))
-    print("call-sites SUR-APPROXIMES       : %d" % len(sur_approx))
-    for rel, ln, origine, vals in sur_approx:
-        print("   SUR-APPROX %s:%s -- %s -> %s" % (rel, ln, origine, vals))
-
-    mordus = sorted(set(poses) & set(par_ordinal))
-    print("\n--- INTERSECTION (le gate peut MORDRE ici, et NULLE PART ailleurs) : %d ---"
-          % len(mordus))
-    for o in mordus:
-        nom = par_ordinal[o]
-        sites = ", ".join("%s:%s" % (f, l) for f, l in poses[o])
-        print("   %-5d %-40s %s" % (o, nom, sites))
-    if not mordus:
-        print("   (aucune)")
-
-    print("\n--- les %d autres effect_type poses n'ont PAS de condition portee -> gate PASSANT ---"
-          % (len(poses) - len(mordus)))
-    return 0
+    return {"surchargent": surchargent, "par_ordinal": par_ordinal, "poses": poses,
+            "non_resolus": non_resolus, "sur_approx": sur_approx,
+            "mordus": sorted(set(poses) & set(par_ordinal))}
 
 
 if __name__ == "__main__":
