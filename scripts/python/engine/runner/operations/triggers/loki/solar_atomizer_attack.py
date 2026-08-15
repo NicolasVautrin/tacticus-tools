@@ -78,7 +78,8 @@ from .....entities.effect_target_type import EffectTargetType
 from .....entities.effect_type import EffectType
 from .....entities.effects.magnitude import ability_var
 from .....entities.formulas import RandomAmount
-from .....entities.selectors.accessors import Owner
+# (`Owner` n'est plus importe : le seul site qui le citait passait un `source_ref` inexistant --
+#  cf. le bloc ⚠ de `solar_atomizer_attack_tree`. L'attaquant vient du contexte `entities`.)
 from .....entities.selectors.geometry import Cache, EntitiesWithAnyEffect
 from .....entities.selectors.tiles import AllTiles
 from .....entities.selectors.units import Enemies, Units
@@ -126,9 +127,16 @@ def solar_atomizer_attack_tree(state: "State", level: Optional[int], multiplier_
     # `Units(cache, 1, 3)` PUIS `Enemies(Caster@+0x48, .., 3)` -- ECRIT, pas collapse (ecart 2).
     targets = Enemies(Units(cache, selection_type=_SELECTION), selection_type=_SELECTION)
     amount = RandomAmount(Const(int(mn)), Const(int(mx)), rng=state.rng)
+    # ⚠ **`source_ref=Owner()` ETAIT PASSE ICI, ET CE MOT-CLE N'EXISTE PAS** (#894-r7). Le noeud
+    # `AttackWithAttackDamage` (`abilities/behaviours/combat.py`) ne prend PAS de selecteur
+    # d'attaquant : le caster natif (`Owner@DSLSelectors+0x30` pour cet arbre) vient du CONTEXTE
+    # `entities`, exactement comme chez son jumeau `lions_wrath_attack.py`, qui ne le passe pas non
+    # plus. L'appel levait donc `TypeError` -- invisible tant que le gate `GetAbilityState` du rail
+    # avalait le declenchement (`notCarrying`), c'est-a-dire depuis la livraison de cet arbre.
+    # C'est la forme meme du no-op silencieux que ce module dit eviter : un code jamais EXECUTE ne
+    # peut pas etre juste, et rien ne le disait.
     atk = AttackWithAttackDamage(targets, SA_ACTIVE_ID, profile, is_melee=None, hits=hits,
                                  amount=amount,
-                                 source_ref=Owner(),       # `Owner@DSLSelectors+0x30`
                                  multi=True,               # le selecteur resout N unites
                                  native_factory="attack",  # `AttackWithAttackDamage` (ecart 1)
                                  ability_type=SA_ATTACK)
