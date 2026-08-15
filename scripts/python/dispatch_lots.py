@@ -26,6 +26,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# FOYER UNIQUE de la lecture du backlog comme donnee structuree. Import de TETE (pas differe) :
+# `backlog_entries` ne tire que la stdlib, donc il n'y a pas de cycle a ouvrir -- et la doctrine
+# reserve le differe aux cycles, jamais a l'idiome.
+import backlog_entries as B
+
 REPO = Path(__file__).resolve().parents[2]
 INDEX = REPO / "docs" / "rl" / "index-foyers.md"
 
@@ -222,14 +227,19 @@ def ancres_des_agents_en_vol():
 
 
 BK = REPO / "docs" / "rl" / "backlog.md"
-RE_OUVERT = re.compile(r"^\|\s*(#[0-9][^\s|]*)\s*\|")
-RE_A_FOYER = re.compile(r"\*{0,2}FOYER:\*{0,2}")
-RE_FOYER_VAL = re.compile(r"\*{0,2}FOYER:\*{0,2}\s*(.+?)(?:\s*-*\s*\*{0,2}BLOCAGE|\s*$)", re.S)
 # ⚠ L'alternance se trie du PLUS LONG au PLUS COURT, sinon `ts` mange `tsv` -- faute deja
 # commise. Et la liste doit couvrir CE QUI EXISTE : omettre `.ps1` classe `scripts/ratchets.ps1`
 # en << illisible >>, et omettre le glob classe `selectors/*.py` de meme. Deux faux positifs
 # MESURES le 2026-08-15 : ce sont des defauts de la MESURE, pas du backlog.
 RE_CHEMIN = re.compile(r"[\w/.*-]+\.(?:tsv|json|ps1|py|ts|md|sh|yml)\b|/\*\*|\*\*/")
+
+
+def _cle(ident: str) -> str:
+    """Identifiant canonique : ce qui precede le premier espace, deshabille de ses ornements.
+
+    Une fiche ecrit parfois son identifiant en gras (`**#369**`) ou suivi d'une glose.
+    """
+    return ident.split(" ")[0].strip().strip("*`").strip()
 
 
 def residus_hors_portee():
@@ -241,23 +251,47 @@ def residus_hors_portee():
     trouve >> se lirait comme << rien a faire >>.
 
     `aucun` n'est PAS compte : c'est une reponse VALABLE (residu documentaire ou d'outillage).
+
+    ⚠ **LA SELECTION DES LIGNES PASSE PAR `backlog_entries`, ET C'EST UNE REPARATION.** Cette
+    fonction re-implementait ses propres regex (`^\\|\\s*(#[0-9][^\\s|]*)\\s*\\|` pour la ligne,
+    `FOYER:` pour le champ), ce que la docstring de `backlog_entries` proscrit explicitement --
+    << on ne segmente JAMAIS par colonne >>, le tableau n'etant pas parsable ainsi. Deux angles
+    morts MESURES le 2026-08-15, tous deux dans le sens qui SE TAIT :
+
+      * **l'identifiant devait commencer par un CHIFFRE** : `#BL-1020r`, `#BF-chance`, `#o10-c`,
+        `#haze-ord`, `**#369**` -- **5 lignes ouvertes sur 415** -- n'etaient jamais visitees.
+        Un residu sans foyer y serait reste invisible pour toujours ;
+      * **les zones BARREES etaient lues comme du champ vivant** : une fiche LIVREE dont la 1re
+        cellule n'est pas barree garde son `~~**FOYER:** <chemin>~~`, et l'ancienne lecture y
+        voyait un foyer valide -- donc un << rien a signaler >> sur une fiche qui, elle, demande
+        a etre FERMEE. `backlog_entries._decouper_champs` ignore ces zones, c'est le sens de son
+        cran (cf. `backlog.md` l. 54).
+
+    Effet MESURE de la reparation sur `docs/rl/backlog.md` au 2026-08-15 : **0 -> 2**, un
+    nouveau par angle mort, et AUCUN des deux n'est un foyer a ecrire --
+    `#o10-c` (identifiant a initiale non-chiffre) porte un `?` LEGITIME, la fiche disant
+    elle-meme que le declencheur n'est pas etabli ; `#120bis-spawn` (zone barree) est une fiche
+    LIVREE a FERMER. Un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas -- et le
+    resultat de cette visite-la est justement que les deux demandent autre chose qu'un foyer.
+    ⚠ `#BL-1020r` reste NON rapporte, et c'est une limite CONNUE de `RE_CHEMIN` : sa prose
+    d'apres-livraison cite des chemins, donc le champ << nomme un chemin >> meme si ce champ
+    n'est pas un foyer. Le critere repond a << ce texte nomme-t-il un fichier ? >>, jamais a
+    << ce texte est-il un foyer ? >>.
     """
     if not BK.exists():
         return []
     out = []
-    for ligne in BK.read_text(encoding="utf-8").splitlines():
-        m = RE_OUVERT.match(ligne)
-        if not m:
+    for e in B.lire(BK):
+        if not e.ouverte:
             continue
-        if not RE_A_FOYER.search(ligne):
-            out.append((m.group(1), "(champ ABSENT)"))
+        if e.foyer_texte is None:
+            out.append((_cle(e.ident), "(champ ABSENT)"))
             continue
-        mv = RE_FOYER_VAL.search(ligne)
-        val = (mv.group(1).strip() if mv else "").strip("`*").strip()
+        val = e.foyer_texte.strip().strip("`*").strip()
         if val.lower().startswith(("aucun", "aucune", "n/a")):
             continue
         if not RE_CHEMIN.search(val):
-            out.append((m.group(1), val or "(VIDE)"))
+            out.append((_cle(e.ident), val or "(VIDE)"))
     return out
 
 
