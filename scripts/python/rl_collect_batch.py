@@ -1051,6 +1051,18 @@ def _load_seed_bc(path=None) -> dict:
                 f"BC.Abilities: {present} (sidecar {catalog_inject.pins_path(p)})")
         print(f"[seed-bc] configs d'ability RETENUES (absence deliberee, #380), non comblees: "
               f"{withheld}", file=sys.stderr)
+    # #448-r3-r1-r1-r1 -- TROISIEME sidecar, meme fichier, meme raison. Un seed BC custom peut
+    # avoir ete GREFFE par un AUTRE processus ; le registre de greffes est un fait de PROCESSUS,
+    # donc ici il est vide et `snapshot._refuse_if_grafted` reste muet -- alors que c'est
+    # exactement le regime ou le port serait AMPUTE (les classes greffees non montees, et toute
+    # assertion NEGATIVE passant a vide, en vert). On RE-DECLARE ce que le fichier porte : le
+    # processus qui charge devient aussi informe que celui qui a greffe, sans avoir a le savoir.
+    if path:
+        n_greffes = catalog_inject.redeclare_grafts_from(p)
+        if n_greffes:
+            print(f"[seed-bc] {n_greffes} greffe(s) ESTAMPEE(S) dans ce seed BC re-declaree(s) "
+                  f"pour ce processus (#448-r3-r1-r1-r1) : "
+                  f"{catalog_inject.read_grafts(p)}", file=sys.stderr)
     refreshed, added = catalog_inject.refresh_ability_configs(bc, skip=pins, withhold=withheld)
     if refreshed or added:
         print(f"[seed-bc] configs d'ability re-synthetisees depuis le gameconfig courant: "

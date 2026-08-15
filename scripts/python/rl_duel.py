@@ -1313,6 +1313,15 @@ def cmd_build(sid: int, a) -> int:
                     if u.get("ctrl")), None)
     _save_state({"runnerId": rid, "bc": bc, "seed": a.seed, "myTeam": my_team,
                  "playerUnits": player_units})
+    # #448-r3-r1-r1-r1 : PUBLIER les greffes de ce build sous le label du runner. C'est ce qui rend
+    # le refus de `snapshot._refuse_if_grafted` visible depuis un AUTRE PROCESSUS -- le patron
+    # mesure etant « ce build ecrit un seed BC greffe, un probe le recoit par `--seed-bc` et charge
+    # l'etat sans canal ». Le registre de `catalog_inject` etant un fait de PROCESSUS, il est vide
+    # chez le consommateur ; le RUNNER, lui, est partage. Rien de monte -> rien d'ecrit.
+    publie = catalog_inject.publish_runner_grafts(f"build#{rid}")
+    if publie is not None:
+        print(f"[build] greffes publiees pour build#{rid} "
+              f"({len(catalog_inject.declared_grafts())}) -> {publie}", file=sys.stderr)
     # #287-r13-r1 : le refus est desormais DUR (rc 3), comme celui des placements -- et il l'est
     # sur une MESURE, pas sur un principe (`probe_287r13r1_rayon_refus_roster.py`) :
     #
@@ -2317,6 +2326,10 @@ def cmd_status(sid: int, a) -> int:
 def cmd_dispose(sid: int, a) -> int:
     st = _load_state()
     _rpc(sid, "disposeRunner", [{"runnerId": st["runnerId"]}], timeout=15)
+    # #448-r3-r1-r1-r1 : le registre de greffes MEURT avec son runner. L'id est recycle par un
+    # build ulterieur, et un registre survivant ferait refuser un etat qui n'a aucune greffe --
+    # meme raison que `snapshot.clear_ability_states_cache` au teardown.
+    catalog_inject.clear_runner_grafts(f"build#{st['runnerId']}")
     print(f"[dispose] runner {st['runnerId']} libéré")
     return 0
 
