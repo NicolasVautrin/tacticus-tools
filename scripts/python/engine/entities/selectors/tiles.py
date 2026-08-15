@@ -1043,7 +1043,8 @@ class UnobscuredTiles(TargetsSelector):
     et la liste source VIDE rend `true` = OBSCURCI => la tuile est RETIREE. Les deux litteraux
     `6, 2` sont `ObscuringType.All` et `blockingElevationDifference` --
     `services.targeting_query.OBSCURING_TYPE_ALL` / `BLOCKING_ELEVATION_DIFFERENCE`, le meme couple
-    que la DECISION deja portee (`runner/abilities/loki/mv71.py::_is_obscured_from_tiles`).
+    que le maillon `UnobscuredTiles` du repli de `MV71SniperDroneSquadAttackAbility$$PickTile`
+    (`runner/abilities/loki/mv71.py::_unobscured_tiles`, qui monte le noeud ci-dessous).
 
     Ce noeud manquait (residu `#287-r11-r2-r1-r3`), et le motif de ce manque etait
     « aucun SECOND consommateur porte ne peut le justifier » : les trois call-sites natifs sont

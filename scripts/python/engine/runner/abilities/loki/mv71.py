@@ -68,8 +68,10 @@ COLLAPSES documentés (doctrine FinalJustice, tri d'utilité impératif) :
     `entities/selectors/tiles.py::FilterTilesIfCanAttackTargetTileFrom`) : la tuile du drone le plus
     faible est REFUSÉE si un ennemi du caster lui est adjacent ET qu'elle n'est pas adjacente à la
     tuile de la cible → `PickTile` rend null → cast NO-OP. Son maillon `UnobscuredTiles` est porté
-    depuis `#287-r11-r2-r1` (`_is_obscured_from_tiles`, mirror d'`UnobscuredTilesSelector$$
-    IsObscured`) — DÉCISION portée, nœud DSL non matérialisé (résidu nommé dans la case-doc).
+    depuis `#287-r11-r2-r1` et il est un **NŒUD DSL** depuis `#287-r11-r2-r1-r3`
+    (`entities/selectors/tiles.py::UnobscuredTiles`, mirror d'`UnobscuredTilesSelector$$Select` ET
+    de son `$$IsObscured`) — la DÉCISION n'est plus collapsée, elle émerge de l'arbre (doctrine
+    #149), comme pour son voisin de chaîne `FilterTilesIfCanAttackTargetTileFrom` depuis #433-r4-r1.
 """
 from __future__ import annotations
 
@@ -300,15 +302,15 @@ def _filter_tiles_if_can_attack_target_tile_from(dctx, tile_id: int):
 
         sel = SurroundingTiles(Tiles(Target@0x60), includeCenter: 0, radius: <portee du drone>)
               op_BitwiseAnd Tiles(First(AlreadySpawnedSummonsSortedForRemoval, 1, 0))
-        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- `_is_obscured_from_tiles`
+        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- `_unobscured_tiles`
         sel = FilterTilesIfCanAttackTargetTileFrom(Caster@0x48, Target@0x60, sel)   # <- ICI
         return sel.SelectTile(entities)
 
     Les deux premiers etages sont deja collapses imperativement par l'appelant (l'anneau = la garde
     `1 <= dist(drone, cible) <= portee`, l'intersection = « la tuile DU drone le plus faible ») ;
-    le troisieme l'est aussi depuis `#287-r11-r2-r1` (`_is_obscured_from_tiles`) ;
-    ce dernier etage-la, lui, reste un noeud DSL -- la structure emerge de l'arbre (doctrine #149),
-    le collapse ne fournit que le vehicule `FixedTileIds`. Rend l'id de tuile survivant, ou None
+    le troisieme, lui, EST un noeud DSL depuis `#287-r11-r2-r1-r3` (`_unobscured_tiles`, qui monte
+    `UnobscuredTiles`) ; ce dernier etage-la l'est aussi -- la structure emerge de l'arbre
+    (doctrine #149), le collapse ne fournit que le vehicule `FixedTileIds`. Rend l'id survivant, ou None
     (le natif rend alors `null`, donc un cast NO-OP : ni eviction, ni spawn, ni Markerlight)."""
     kept = FilterTilesIfCanAttackTargetTileFrom(
         Caster(), Target(), FixedTileIds([int(tile_id)])).select(dctx)

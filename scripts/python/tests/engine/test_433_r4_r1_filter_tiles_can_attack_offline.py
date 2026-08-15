@@ -236,7 +236,8 @@ class _StubBoard:
     est exactement la condition d'entree dans la branche de REPLI native.
 
     ⚠ PLAT ET SANS MUR, DELIBEREMENT (#287-r11-r2-r1) : le repli traverse desormais AUSSI le maillon
-    `UnobscuredTiles` (`mv71._is_obscured_from_tiles`), qui lit `elevation` / `is_wall` / `by_coord`.
+    `UnobscuredTiles` (le noeud DSL, monte par `mv71._unobscured_tiles` depuis #287-r11-r2-r1-r3),
+    qui lit `elevation` / `is_wall` / `by_coord`.
     Les rendre CONSTANTS rend cet etage-la INERTE, et ce fichier continue donc de mesurer le seul
     maillon qui l'interesse -- `FilterTilesIfCanAttackTargetTileFrom`. La ligne de vue a sa propre
     garde (`test_287r11r2r1_los_summon_offline.py`)."""
