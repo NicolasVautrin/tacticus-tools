@@ -285,6 +285,7 @@ Usage:
     python probe_468_collision_numeros.py [-v]
     python probe_468_collision_numeros.py --report
     python probe_468_collision_numeros.py --self-test
+    python probe_468_collision_numeros.py --gate origin/master   # n'accuse QUE cette branche
     python probe_468_collision_numeros.py --attester "<ident>|<fichier>=<raison>"
     python probe_468_collision_numeros.py --suggere            # une RACINE libre, RESERVEE
     python probe_468_collision_numeros.py --suggere 420        # un RESIDU libre sous #420
@@ -387,12 +388,36 @@ ID = r"[0-9]+[a-z]*(?:-?(?:r|tr|t)[0-9]+[a-z]?)*(?:-[a-z])?|[a-z]+[0-9]+[a-z0-9]
 #: `case-302-2-*`, ou `2` EST un suffixe. Cote sur : on n'absorbe pas (residu #468-r1).
 SUFFIXE_TOKEN = re.compile(r"^(?:r|tr|t)\d+[a-z]?\d*$|^[a-z]\d*$|^bis$")
 
+#: EN POSITION DE DEFINITION, L'IDENTIFIANT SE LIT PAR SA POSITION, PAS PAR UNE GRAMMAIRE
+#: (#468-r1). C'est le principe meme de ce cliquet (<< le critere porte sur la POSITION >>),
+#: applique jusqu'au bout : dans une premiere cellule de tableau, ce n'est pas une grammaire qui
+#: dit ou l'identifiant FINIT -- c'est le `|` fermant ; en tete de puce, c'est la ponctuation.
+#:
+#: ⚠ LE DEFAUT QUE CA CORRIGE N'EST PAS UN REPLIEMENT, C'EST UNE DISPARITION -- et c'est en quoi
+#: l'enonce de #468-r1 (<< effet cote SUR : peut faire voir une cohabitation, jamais la
+#: manquer >>) etait FAUX de ce cote. `ID` s'arrete au premier segment qu'il ne sait pas lire
+#: (`-c1`, `-b-r1`, `-src`, `-1`), et comme les deux motifs exigent un `|` (resp. une fin de
+#: token) JUSTE APRES, la ligne ENTIERE cessait de correspondre. MESURE le 2026-08-15 :
+#: **72 lignes de tableau** de `backlog.md` n'etaient vues comme AUCUNE definition -- 7 % du
+#: registre -- dont les familles `#462-r4b-...-b/-c-r<k>` (31), `#462-r4e-o-r<k>` (9),
+#: `#366-r1-<mot>` (13), `#433-r4-r2-r1-r1-a/c-r<k>` (3), `#443-r2-b<k>` (2), et les
+#: identifiants non numeriques `#o10-a/-c`, `#PAI-c/-k`, `#BL-*`, `#haze-ord`, `#254-bc*`.
+#: L'etape 1 leur etait donc structurellement AVEUGLE : deux dossiers sous `#462-r4e-o-r2-r1`
+#: n'auraient rien fait rougir.
+#:
+#: CE QUE CA NE RESOUT PAS, et c'est le NOYAU de #468-r1 : `normaliser` retire les tirets, donc
+#: `#222-1` et un futur `#2221` restent indistinguables. Cette ambiguite-la est REELLE, elle est
+#: dans la CONVENTION D'ECRITURE et pas dans le detecteur -- et `--suggere` la subit deja a
+#: l'identique (`RE_TOKEN_LARGE` lit `222-1` puis normalise en `2221`). Le correctif ci-dessus
+#: ALIGNE le detecteur sur l'attribueur ; il ne cree pas cette confusion, il cesse de la cacher.
+ID_POSITION = r"[0-9a-zA-Z](?:[0-9a-zA-Z-]*[0-9a-zA-Z])?"
+
 #: (a) PREMIERE cellule d'une ligne de tableau. Le `~~` de part et d'autre = entree BARREE.
-RE_LIGNE_TABLEAU = re.compile(r"^\|\s*(~~)?\s*[`*]*\s*#(" + ID + r")\s*[`*]*\s*(~~)?\s*\|")
+RE_LIGNE_TABLEAU = re.compile(r"^\|\s*(~~)?\s*[`*]*\s*#(" + ID_POSITION + r")\s*[`*]*\s*(~~)?\s*\|")
 #: (b) TETE d'une puce de premier niveau (`- `, `* `), gras et backticks tolerés.
 #:     ⚠ ANCREE en debut de ligne SANS espace de tete : une puce INDENTEE est une continuation
 #:     ou une sous-puce, jamais l'ouverture d'un dossier.
-RE_TETE_DE_PUCE = re.compile(r"^[-*]\s+(?:~~)?\s*(?:\*\*)?\s*(?:~~)?\s*[`]?#(" + ID + r")[`]?")
+RE_TETE_DE_PUCE = re.compile(r"^[-*]\s+(?:~~)?\s*(?:\*\*)?\s*(?:~~)?\s*[`]?#(" + ID_POSITION + r")[`]?")
 #: Toute occurrence, pour la ventilation de l'etape 0b.
 RE_OCCURRENCE = re.compile(r"#(" + ID + r")\b")
 
@@ -478,6 +503,104 @@ def _fichiers_case_docs() -> list:
 
 
 # ------------------------------------------------------------------------------------------
+# La QUATRIEME position de definition DE FAIT : la puce de la section << Residus >> d'une
+# case-doc (#468-r7). MESUREE, puis RENDUE EN INVENTAIRE -- pas en critere bloquant.
+# ------------------------------------------------------------------------------------------
+#
+# CE QUI EST VRAI, ET QUI JUSTIFIAIT LE RESIDU : c'est bien une position de definition. 435 des
+# 869 case-docs portent une section << Residus >> (520 sections), qui ouvrent **588** puces de
+# tete `#<n>` -- **508** identifiants distincts, dont **143** qu'AUCUNE ligne de `backlog.md` ne
+# definit et **118** qui n'ont meme pas de case-doc a leur nom. `case-467` ouvre `#472-r1/-r2/-r3`
+# exactement la, et ces trois-la sont les << orphelins >> de la section 8 de la case-doc.
+#
+# CE QUI EST FAUX, ET QUE SEULE LA MESURE POUVAIT DIRE : le remede que le residu proposait --
+# << un critere de SECTION, pas de puce >> -- NE SEPARE PAS. Applique tel quel, il rend **33**
+# identifiants portes par une puce OUVERTE dans DEUX case-docs ou plus (41 avant le correctif de
+# #468-r1 ci-dessus, qui a deja dissous huit ECRASEMENTS de cles). Une section << Residus >>
+# RECAPITULE l'etat de sa famille : citer le residu du voisin y est la NORME.
+#
+# LE DISCRIMINANT QUI MARCHE, ET SA LIMITE. Une case-doc POSSEDE un identifiant quand sa propre
+# cle en est un PREFIXE ; entre plusieurs pretendants, le plus LONG l'emporte (le dossier le plus
+# specifique) ; et quand PERSONNE ne le possede, toutes ses puces definissent -- sans quoi le cas
+# MOTIVANT (`case-467` ouvrant `#472-r1`, ou `467` n'est pas prefixe de `472r1`) serait perdu.
+# Effet mesure : 501 puces ouvertes -> 465 definitions + 36 citations, et les doubles tombent de
+# **33** a **6 fichiers-differents + 3 meme-fichier**.
+#
+# CES NEUF-LA ONT ETE LUS, UN PAR UN : **9 sur 9 sont LEGITIMES**. Six sont des RE-CITATIONS dans
+# un dossier frere, et elles le DISENT (`<< reste OUVERT, cf. case-521r1 >>`, `<< inchange >>`,
+# `<< (existant, non ouvert ici) >>`) ; trois sont le meme residu repris deux fois DANS UN MEME
+# fichier, la seconde puce portant une mise a jour d'etat (`<< #419-r1-tr14-r5 -- FERME >>` face
+# a `<< (releve d'ouverture) >>`).
+#
+# D'OU LE VERDICT, ET IL EST CELUI DE LA SECTION 3 : **0 collision sur 456 identifiants ouverts**,
+# pour un taux de faux positifs mesure a **9/9**. Un critere qui crie au loup a chaque fois se
+# fait desarmer dans la semaine -- c'est exactement le motif qui a fait REFUSER la forme
+# << deux case-docs pour un meme `<n>` >>. Rendu en INVENTAIRE (`--report`), jamais bloquant.
+# CE QUI LE RENDRAIT BLOQUANT : deux puces definissantes du meme identifiant dans DEUX case-docs
+# dont AUCUNE ne le possede -- la seule forme ou << re-citation d'un dossier frere >> ne peut pas
+# etre l'explication. Elle est a **0** aujourd'hui, sur une population de 10 : trop petite pour
+# qu'on puisse en mesurer le taux de faux positifs, donc pas encore un critere.
+
+#: Un titre markdown de niveau 2 a 6. Le niveau sert a FERMER la section : une section se termine
+#: au titre suivant de niveau egal ou superieur, jamais a une sous-section.
+RE_TITRE_MD = re.compile(r"^(#{2,6})\s+(.*)$")
+
+#: Un titre qui ANNONCE des residus. Les deux graphies du depot (`## Residus`, `## 10. Resid...`,
+#: `### Residus ouverts`), accentuees ou non.
+RE_TITRE_RESIDUS = re.compile(r"r[eé]sidus?", re.IGNORECASE)
+
+
+def sections_de_residus(lignes) -> list:
+    """[(debut, fin)] -- les plages (indices 0-based, fin exclue) des sections << Residus >>."""
+    plages, ouvert, niveau = [], None, 0
+    for i, ligne in enumerate(lignes):
+        m = RE_TITRE_MD.match(ligne)
+        if not m:
+            continue
+        if ouvert is not None and len(m.group(1)) <= niveau:
+            plages.append((ouvert, i))
+            ouvert = None
+        if ouvert is None and RE_TITRE_RESIDUS.search(m.group(2)):
+            ouvert, niveau = i + 1, len(m.group(1))
+    if ouvert is not None:
+        plages.append((ouvert, len(lignes)))
+    return plages
+
+
+def puces_des_case_docs() -> tuple:
+    """([Definition], [Definition]) -- (definitions, citations) des puces de section Residus.
+
+    La repartition suit le discriminant du commentaire de bloc ci-dessus : proprietaire au plus
+    long prefixe, et a defaut de proprietaire, toutes les puces definissent."""
+    brut = {}
+    for nom in _fichiers_case_docs():
+        chemin = DOCS_RL / nom
+        try:
+            lignes = chemin.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        ident_doc, _slug = couper_nom(Path(nom).stem)
+        cle_doc = normaliser(ident_doc)
+        for debut, fin in sections_de_residus(lignes):
+            for i in range(debut, fin):
+                m = RE_TETE_DE_PUCE.match(lignes[i])
+                if not m:
+                    continue
+                avant = lignes[i][: lignes[i].index("#" + m.group(1))]
+                d = Definition(m.group(1), "puce-case-doc", "%s:%d" % (nom, i + 1),
+                               "~~" in avant, lignes[i])
+                brut.setdefault(d.cle, []).append((d, cle_doc))
+    definitions, citations = [], []
+    for cle, lot in brut.items():
+        proprios = [len(cd) for _d, cd in lot if cd and cle.startswith(cd)]
+        maxi = max(proprios) if proprios else None
+        for d, cd in lot:
+            possede = maxi is not None and cd and cle.startswith(cd) and len(cd) == maxi
+            (definitions if (maxi is None or possede) else citations).append(d)
+    return definitions, citations
+
+
+# ------------------------------------------------------------------------------------------
 # Le LEDGER : ce que le cliquet a FIGE comme ligne de base
 # ------------------------------------------------------------------------------------------
 #
@@ -541,6 +664,20 @@ CAS = [
     ("tete de puce, sans backtick ni tiret cadratin",
      ["- **#45d, residus** (`playbook/prediction.md` section 9bis -- tranche CLOSE"],
      [("45d", True)]),
+    # --- POSITIFS de #468-r1 : les formes que `ID` rendait INVISIBLES (pas repliees) ---
+    ("tableau, segment LETTRE suivi d'un residu (`-c-r3-r1-r5`)",
+     ["| #462-r4b-r1-r1-r1-r1-c-r3-r1-r5 | **La POSE de la mine** | `[opus]` | `case-462` |"],
+     [("462r4br1r1r1r1cr3r1r5", True)]),
+    ("tableau, suffixe en MOT (`-camo-seed`)",
+     ["| ~~#366-r1-camo-seed~~ | ~~**Un effet CONDITION-GATED absent**~~ | **LIVRE** | x |"],
+     [("366r1camoseed", False)]),
+    ("tableau, identifiant NON NUMERIQUE a suffixe (`#PAI-c`, `#BL-1029r-r1`)",
+     ["| #PAI-c | **Consommateurs de `PerformAIAction` restants** | `[opus]` | y |",
+      "| #BL-1029r-r1 | **Le 10e coup du cast de Drachnyen** | `[opus]` | z |"],
+     [("paic", True), ("bl1029rr1", True)]),
+    ("tableau, suffixe purement NUMERIQUE (`#222-1`) -- lu ENTIER, plus jamais ignore",
+     ["| ~~#222-1~~ | ~~`ArmoriumCherub` (1014) : masque de ciblage~~ | **CLOS** | w |"],
+     [("2221", False)]),
 
     # --- NEGATIFS : des MENTIONS, et c'est l'echantillon qui compte ---
     ("colonne Point d'entree : un renvoi, pas une definition",
@@ -692,6 +829,39 @@ def _artefacts_de_code() -> tuple:
     return probes, tests
 
 
+def code_seule_position(probes, tests, ailleurs) -> dict:
+    """{cle: [fichiers]} -- les identifiants dont un ARTEFACT DE CODE est la SEULE position.
+
+    C'EST LA POPULATION QUE #468-r3 DESIGNE, et le residu la donnait pour << probablement vide >>.
+    MESURE (2026-08-15) : elle ne l'est PAS. Sur **928** identifiants portes par au moins un
+    `probe_<n>_*.py` / `test_<n>_*.py`, **177** n'ont AUCUNE autre position -- ni ligne de
+    `backlog.md`, ni `case-<n>-*.md`, ni puce de section << Residus >> -- et **40** d'entre eux
+    portent **deux fichiers ou plus**. C'est exactement la forme decrite : une collision qui ne se
+    manifesterait QUE par deux artefacts de code passerait, et il y a 40 endroits ou elle pourrait
+    se cacher.
+
+    MAIS ELLE RESTE INDECIDABLE, et cinq cas traces par une SECONDE SOURCE le montrent. Les plus
+    ambigus par les slugs -- `#1066` (`macro-plasma-decision` + `rites-of-morkai-decision`),
+    `#982-r5` (`swap-decisionview` + `can-heal-full-health`), `#494-r1` (`db4-decompose` +
+    `ordre-cibles`), `#365` (`versioned-imports-gitignored` + `selector-montage`), `#421`
+    (`rail-covers-registry` + `effect-active-gate`) -- ont ete confrontes a `git log --grep` :
+    TROIS se resolvent en UNE SEULE tranche multi-facettes (`#1066` = << les trois dernieres faces
+    DECISION d'actives de kit >>), et DEUX sont indecidables, leur dossier etant clos sans
+    case-doc. Zero collision ETABLIE.
+
+    D'OU LE MEME VERDICT QUE LES SECTIONS 3.1 ET 3.2 : aucun critere textuel ne separe une tranche
+    multi-facettes d'une collision -- les deux portent le meme numero et des slugs sans rapport.
+    INVENTAIRE, jamais bloquant. Ce qui change par rapport a avant : le rapport ne montrait que le
+    compte BRUT (<< N ids a >= 2 probes >>), qui melange les 751 identifiants ayant un dossier
+    ailleurs avec les 40 qui n'en ont pas. Seuls ces 40 sont le gisement.
+    """
+    tous = {}
+    for source in (probes, tests):
+        for cle, fichiers in source.items():
+            tous.setdefault(cle, []).extend(fichiers)
+    return {cle: sorted(f) for cle, f in tous.items() if cle not in ailleurs}
+
+
 # ------------------------------------------------------------------------------------------
 # `--suggere` -- DONNER un numero libre (residu #468-r4)
 # ------------------------------------------------------------------------------------------
@@ -774,12 +944,23 @@ def _identifiants_des_commits() -> dict:
     message de commit est PRIS, meme si aucun fichier ne le porte plus (case-doc renommee,
     tranche abandonnee). MESURE : 13 racines pures < 500 ne vivent QUE la.
 
+    LES COMMITS DE MERGE EN FONT PARTIE, et les EXCLURE amputait la source la plus complete
+    (#468-r13). `--no-merges` etait ici un defaut jamais examine -- aucune ligne ne le motivait --
+    et il jetait la SEULE trace que le squash-merge laisse dans l'arbre. Mesure du 2026-08-15 :
+    698 commits de merge, dont **647 portent un `#`** en sujet (`merge(#1039) : ...`,
+    `merge PR #1023 (#1027) -- ...`) ; ils apportent **96 identifiants INEDITS** que les six
+    autres sources ne voient pas, et **1 numero rendu change** -- `--suggere 432` proposait
+    `#432-r1`, alors que ce residu a ete LIVRE par la PR #479 et que `git grep -E '#432-?r1'`
+    sur `docs/rl` + `scripts/python` rend **0** : le sujet du merge est son unique trace.
+    COUT : NUL -- c'est le meme `git log`, avec un filtre en moins (1,09 s -> 0,99 s, dans le
+    bruit). Aucun bruit de nom de branche non plus : `RE_TOKEN_LARGE` exige un `#`, et les
+    51 merges sans `#` sont exactement les `Merge remote-tracking branch 'origin/...'`.
+
     Toute panne de `git` leve `Indisponible` -- jamais un ensemble VIDE, qui ferait suggerer un
     numero deja pris. C'est la meme frontiere que `host_inputs.py` : `null` n'est pas `0`.
     """
     out = {}
-    for m in re.finditer(RE_TOKEN_LARGE, _git(["log", "--format=%s%n%b", "--no-merges"],
-                                              "`git log`")):
+    for m in re.finditer(RE_TOKEN_LARGE, _git(["log", "--format=%s%n%b"], "`git log`")):
         out.setdefault(normaliser(m.group(0)[1:]), set()).add("git log")
     return out
 
@@ -798,6 +979,17 @@ def _identifiants_des_refs_hors_head() -> dict:
     `--not HEAD` est ce qui rend la provenance gratuite ET la mesure bon marche : sur 363 refs,
     ce qui reste hors de la lignee courante est une poignee de commits. Un `--all` nu couterait
     autant mais melangerait les deux origines, et on ne pourrait plus DIRE ce qui est en vol.
+
+    ICI `--no-merges` RESTE, et c'est une TROISIEME extension MESUREE PUIS REFUSEE (#468-r13),
+    par le meme protocole que les deux de `#468-r10`. Le retirer coute **+1,0 s** (1,94 -> 2,97 s)
+    et apporte **0 identifiant inedit** -- non pas parce que les merges hors `HEAD` seraient
+    vides, mais parce que la correction ci-dessus (`_identifiants_des_commits` lit desormais les
+    merges) les couvre deja. Mesure PRISE HORS DU REGIME DEGENERE : un worktree FRAIS ne prouve
+    rien ici, puisque tout est dans sa lignee ; le balayage a donc ete rejoue en simulant un
+    worktree EN RETARD de 5, 20, 40 et 80 commits (`--not HEAD~n`), et l'apport reste **0 a
+    chaque palier**. Ce qui reste hors de portee est nomme : un merge vivant SEULEMENT sur une
+    branche non fusionnee -- et les 51 merges sans `#` du depot sont tous des
+    `Merge remote-tracking branch 'origin/...'`, qui ne portent aucun numero par construction.
     """
     out = {}
     txt = _git(["log", "--all", "--not", "HEAD", "--format=%s%n%b", "--no-merges"],
@@ -1477,6 +1669,123 @@ def lister(dossier) -> int:
     return 0
 
 
+# ------------------------------------------------------------------------------------------
+#  `--gate <ref>` -- NOMMER LA DEFINITION QUE CETTE PR INTRODUIT (#468-r2)
+# ------------------------------------------------------------------------------------------
+#
+# CE QUE CA CHANGE, ET CE QUE CA NE CHANGE PAS. Les etapes 1 et 2 lisent l'ARBRE : elles disent
+# << #920-r3 a deux definitions >> sans dire LAQUELLE des deux vient d'arriver. Le lecteur est
+# alors l'auteur de la PR, qui doit lui-meme retrouver sa ligne parmi les 1075 du backlog, et
+# decider si c'est LUI qui doit renumeroter ou l'autre. `--gate` repond a cette question-la :
+# il croise le meme constat avec le diff depuis le MERGE-BASE, et n'accuse QUE ce que la branche
+# a ecrit. GAIN DE PRECISION, PAS DE DETECTION -- aucune collision de plus n'est trouvee, et
+# c'est voulu : le balayage complet reste le mode par defaut.
+#
+# LE DIFF PART DU MERGE-BASE, PAS DE `ref`, et la difference n'est pas cosmetique (meme
+# raisonnement que `probe_462_live_tests_status._live_in_diff`) : `git diff origin/master`
+# compare `origin/master` a mon arbre, donc il ramene EN SENS INVERSE tout ce que les autres
+# agents ont pousse depuis mon point de branchement -- sur ce depot, quatre PR mergees en deux
+# heures. La gate accuserait alors des lignes que la branche n'a jamais ecrites, ce qui est le
+# plus sur moyen de la faire desarmer.
+#
+# L'ARBRE DE TRAVAIL EST INCLUS (pas de second terme `HEAD`) : un agent qui vient d'ecrire sa
+# ligne et n'a pas encore commite doit voir sa propre collision. Une gate qui ne mord qu'apres le
+# commit arrive apres le moment ou renommer est gratuit.
+#
+# L'APPARIEMENT SE FAIT PAR LE TEXTE DE LA LIGNE, PAS PAR SON NUMERO. Un numero de ligne de diff
+# ne designe rien de stable : toute insertion au-dessus le decale, et `backlog.md` est le fichier
+# le plus partage du depot (36 des 40 dernieres PR). Le texte, lui, identifie la ligne meme si
+# elle a bouge.
+
+def _definitions_introduites(ref: str) -> tuple:
+    """(base, {textes de lignes AJOUTEES au backlog}, {noms de case-docs AJOUTEES}).
+
+    LEVE `Indisponible` si la ref est inconnue ou le diff injouable -- une gate qui ne sait pas
+    ce que la branche a ecrit ne rend PAS un vert. Meme frontiere que partout ailleurs ici."""
+    try:
+        base = _git(["merge-base", ref, "HEAD"], "`git merge-base %s HEAD`" % ref).strip()
+    except Indisponible as exc:
+        raise Indisponible("gate impossible (%s) -- une gate qui ne sait pas ce que la branche a "
+                           "ecrit ne rend PAS un vert" % exc) from exc
+    if not base:
+        raise Indisponible("aucun merge-base entre `%s` et HEAD -- la gate ne peut pas savoir ce "
+                           "que cette branche a introduit" % ref)
+    diff = _git(["diff", "--unified=0", base, "--", "docs/rl/backlog.md"],
+                "`git diff %s -- backlog.md`" % base[:8])
+    ajoutees = set()
+    for ligne in diff.splitlines():
+        if ligne.startswith("+") and not ligne.startswith("+++"):
+            texte = ligne[1:].strip()
+            if texte:
+                ajoutees.add(texte)
+    statut = _git(["diff", "--name-status", base, "--", "docs/rl"],
+                  "`git diff --name-status %s`" % base[:8])
+    neuves = set()
+    for ligne in statut.splitlines():
+        champs = ligne.split("\t")
+        if len(champs) >= 2 and champs[0].startswith("A"):
+            nom = Path(champs[-1]).name
+            if nom.startswith("case-") and nom.endswith(".md"):
+                neuves.add(nom)
+    return base, ajoutees, neuves
+
+
+def gate(ref: str) -> int:
+    """N'accuse QUE les definitions que cette branche a introduites (#468-r2)."""
+    base, ajoutees, neuves = _definitions_introduites(ref)
+    lignes = _lignes_backlog()
+    if not any(l.strip() for l in lignes):
+        print("   FAIL backlog.md absent ou vide alors que docs/rl existe")
+        print("[468] VERDICT GATE: FAIL (1)")
+        return 1
+    defs_b = definitions_du_backlog(lignes)
+    defs_c = definitions_des_case_docs(_fichiers_case_docs())
+    att = lire_ledger()
+    print("[468] GATE depuis le merge-base %s (avec %s)" % (base[:8], ref))
+    print("   introduit par cette branche : %d ligne(s) ajoutee(s) a backlog.md, %d case-doc(s) "
+          "neuve(s)" % (len(ajoutees), len(neuves)))
+    if not ajoutees and not neuves:
+        # DIT, jamais tu : un vert sur un diff vide est correct, mais il doit se lire comme
+        # << rien a juger >> et non comme << rien a signaler >>.
+        print("   cette branche n'introduit AUCUNE definition -- rien a juger ici. Le balayage "
+              "complet (argv sans mode) reste le mode qui garde l'arbre.")
+    ko = 0
+    for cle, ds in etape1_double_ouverture(defs_b):
+        if att.get("%s|%s" % (cle, PORTEE_BACKLOG), "").startswith(COLLISION_OUVERTE):
+            continue
+        miennes = [d for d in ds if d.texte.strip() in ajoutees]
+        if not miennes:
+            continue
+        ko += 1
+        print("   FAIL cette branche OUVRE #%s, qui l'est deja :" % ds[0].ident)
+        for d in ds:
+            print("        %-14s %-18s %s" % ("INTRODUITE ICI" if d in miennes else "DEJA LA",
+                                              d.ou, d.texte.strip()[:100]))
+        print("        -> renumerote TA ligne : "
+              "`python probe_468_collision_numeros.py --suggere %s`"
+              % (cle if RACINE_PURE.match(cle) else ""))
+    for cle, dbl, cases in etape2_cohabitations(defs_b, defs_c):
+        for c in cases:
+            if att.get("%s|%s" % (cle, c.ou)):
+                continue
+            de_la_branche = []
+            if dbl.texte.strip() in ajoutees:
+                de_la_branche.append("la ligne %s" % dbl.ou)
+            if c.ou in neuves:
+                de_la_branche.append("la case-doc %s" % c.ou)
+            if not de_la_branche:
+                continue
+            ko += 1
+            print("   FAIL #%s : cette branche introduit %s, qui cohabite avec %s"
+                  % (dbl.ident, " et ".join(de_la_branche),
+                     c.ou if "la case-doc" not in " ".join(de_la_branche) else dbl.ou))
+            print("        backlog : %s" % dbl.texte.strip()[:110])
+            print("        Si c'est une tranche de la MEME tache : --attester \"%s|%s=<raison>\""
+                  % (cle, c.ou))
+    print("[468] VERDICT GATE: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
+    return 0 if ko == 0 else 1
+
+
 def rapport() -> None:
     defs_b = definitions_du_backlog(_lignes_backlog())
     defs_c = definitions_des_case_docs(_fichiers_case_docs())
@@ -1497,9 +1806,47 @@ def rapport() -> None:
     print("  FORME REFUTEE -- %d ids a >= 2 probe_<n>_*, %d ids a >= 2 test_<n>_* "
           "(couple _live/_offline)" % (sum(1 for v in probes.values() if len(v) > 1),
                                        sum(1 for v in tests.values() if len(v) > 1)))
+    defs_p, _cites = puces_des_case_docs()
+    ailleurs = ({d.cle for d in defs_b} | set(par_cle) | {d.cle for d in defs_p})
+    seuls = code_seule_position(probes, tests, ailleurs)
+    seuls_multi = {k: v for k, v in seuls.items() if len(v) > 1}
+    print("     dont le CODE est la SEULE position (#468-r3) : %d identifiant(s), %d a >= 2 "
+          "fichiers -- le GISEMENT, que le residu donnait pour vide : %s"
+          % (len(seuls), len(seuls_multi),
+             ", ".join("#" + k for k in sorted(seuls_multi)[:10]) or "(aucun)"))
+    rapport_puces(defs_b, par_cle)
     total, nb, fich = ventiler_occurrences()
     print("  SEPARATION -- %d occurrences `#<n>` dans docs/rl (%d fichiers), %d definitions "
           "(%.1f %%) : le reste est MENTION" % (total, fich, nb, 100.0 * nb / max(total, 1)))
+
+
+def rapport_puces(defs_b, cases_par_cle) -> None:
+    """La QUATRIEME position de definition, EN INVENTAIRE (#468-r7).
+
+    Elle n'est pas bloquante, et la raison est mesuree, pas prudente : voir le commentaire de
+    bloc de `puces_des_case_docs`. Ce qui suit est ce qu'un humain doit pouvoir LIRE -- une
+    collision qui ne se manifesterait que la se verrait ici, meme si aucun `rc` ne la crie."""
+    defs_p, cites = puces_des_case_docs()
+    ouvertes = [d for d in defs_p if d.ouverte]
+    par_cle = {}
+    for d in ouvertes:
+        par_cle.setdefault(d.cle, []).append(d)
+    ouverts_b = {d.cle for d in defs_b if d.ouverte}
+    tous_b = {d.cle for d in defs_b}
+    sans_ailleurs = sorted(k for k in par_cle if k not in tous_b and k not in cases_par_cle)
+    doubles = {k: v for k, v in par_cle.items() if len({d.ou.split(":")[0] for d in v}) > 1}
+    #: LA FORME QUI RENDRAIT LE CRITERE BLOQUANT : deux dossiers, aucun proprietaire. Elle est
+    #: comptee A CHAQUE RUN pour qu'on sache le jour ou elle cesse d'etre a zero.
+    orphelines = {k: v for k, v in doubles.items() if k in sans_ailleurs}
+    print("  4e POSITION (non bloquante) -- %d puce(s) de section << Residus >> : %d definition(s) "
+          "(%d ouverte(s)) + %d citation(s) ecartee(s) par le proprietaire"
+          % (len(defs_p) + len(cites), len(defs_p), len(ouvertes), len(cites)))
+    print("     %d identifiant(s) ouvert(s) ici ; %d aussi ouverts au backlog ; %d SANS aucune "
+          "autre position" % (len(par_cle), len(set(par_cle) & ouverts_b), len(sans_ailleurs)))
+    print("     %d identifiant(s) a >= 2 puces definissantes dans DES FICHIERS DIFFERENTS "
+          "(mesure : re-citations legitimes)" % len(doubles))
+    print("     dont %d SANS proprietaire -- la seule forme qui serait BLOQUANTE : %s"
+          % (len(orphelines), ", ".join("#" + k for k in sorted(orphelines)) or "(aucune)"))
 
 
 # ================================ l'ECHANTILLON ADVERSARIAL de sujets de commit (#486-r18)
@@ -1609,6 +1956,9 @@ def main(argv) -> int:
                     help="etiquette la reservation (ce que la tranche va traiter)")
     ap.add_argument("--reservations", action="store_true",
                     help="liste les numeros ALLOUES et pas encore ecrits, avec qui les a pris")
+    ap.add_argument("--gate", metavar="REF",
+                    help="n'accuse QUE les definitions introduites depuis le merge-base avec REF "
+                         "(ex. origin/master) -- gain de precision, pas de detection (#468-r2)")
     ap.add_argument("--racine", metavar="CHEMIN",
                     help="vise un AUTRE arbre (contre-epreuve bout-en-bout sur depot jetable)")
     ap.add_argument("--geler-sujets", action="store_true", dest="geler_sujets",
@@ -1635,6 +1985,9 @@ def main(argv) -> int:
         ecrire_ledger(att)
         print("[468] atteste : %s -> %s" % (cle.strip(), raison.strip()))
         return 0
+
+    if args.gate:
+        return gate(args.gate)
 
     if args.reservations:
         return lister(_dossier_reservations())

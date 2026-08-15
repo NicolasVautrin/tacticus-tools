@@ -244,6 +244,118 @@ def test_un_echantillon_ABSENT_LEVE_au_lieu_de_valider_tout(tmp_path, monkeypatc
         p468.lire_sujets_geles()
 
 
+#: Ce qui RESSEMBLE a une definition en 1re cellule, defini INDEPENDAMMENT du probe : un `|`,
+#: un `#`, un token alphanumerique, la fermeture de cellule. Deliberement plus large que
+#: `ID_POSITION` (il tolere un `-` final) -- c'est ce qui rend l'invariant ci-dessous
+#: DISCRIMINANT : tout retrecissement de la grammaire du probe le fait rougir, tout
+#: elargissement le laisse vert.
+_OUVRE_UNE_CELLULE = re.compile(
+    r"^\|\s*(~~)?\s*[`*]*\s*#([0-9a-zA-Z][0-9a-zA-Z-]*)\s*[`*]*\s*(~~)?\s*\|")
+
+
+def test_aucune_ligne_de_tableau_du_backlog_REEL_n_echappe_au_detecteur():
+    """#468-r1 -- L'INVARIANT, PAS UN SEUIL : zero ligne invisible.
+
+    LE DEFAUT N'ETAIT PAS UN REPLIEMENT, C'ETAIT UNE DISPARITION. L'ancienne grammaire `ID`
+    s'arretait au premier segment qu'elle ne savait pas lire (`-c1`, `-b-r1`, `-src`, `-1`), et
+    comme `RE_LIGNE_TABLEAU` exige un `|` JUSTE APRES l'identifiant, la ligne ENTIERE cessait de
+    correspondre. MESURE le 2026-08-15 sur `backlog.md` : **72 lignes de tableau** ne produisaient
+    AUCUNE definition -- familles `#462-r4b-...-b/-c-r<k>` (31), `#462-r4e-o-r<k>` (9),
+    `#366-r1-<mot>` (13), `#433-r4-r2-r1-r1-a/c-r<k>` (3), `#443-r2-b<k>` (2), plus les
+    identifiants non numeriques `#o10-a/-c`, `#PAI-c/-k`, `#BL-*`, `#haze-ord`, `#254-bc*`.
+    L'etape 1 leur etait STRUCTURELLEMENT aveugle.
+
+    ⚠ AUCUNE ALLOWLIST, et c'est le point. Le critere est DERIVE de la forme d'une ligne, pas
+    d'une liste de familles connues : une convention d'ecriture inventee demain entre dans le
+    balayage sans que personne y pense -- c'est precisement ce que la liste des 72 aurait rate,
+    puisque personne ne l'avait ecrite."""
+    lignes = _lignes_backlog_reel()
+    vues = {d.ou for d in p468.definitions_du_backlog(lignes)}
+    candidates, invisibles = 0, []
+    for n, ligne in enumerate(lignes, 1):
+        m = _OUVRE_UNE_CELLULE.match(ligne)
+        if not m:
+            continue
+        candidates += 1
+        if "backlog.md:%d" % n not in vues:
+            invisibles.append((n, m.group(2)))
+    assert candidates > 500, (
+        "seulement %d ligne(s) de tableau candidates dans le backlog reel -- le balayage est "
+        "devenu aveugle, un `0 invisible` ne prouverait plus rien" % candidates)
+    assert not invisibles, (
+        "%d ligne(s) de tableau du backlog n'est/ne sont AUCUNE definition pour le detecteur -- "
+        "l'etape 1 leur est aveugle : %s" % (len(invisibles), invisibles[:12]))
+
+
+def test_bout_en_bout_une_DOUBLE_OUVERTURE_a_segment_alphanumerique_ROUGIT():
+    """La generalisation de l'invariant ci-dessus au CABLAGE, pas seulement au detecteur.
+
+    Voir une ligne ne suffit pas : ce qui compte est que l'etape 1 rougisse sur DEUX lignes
+    ouvertes portant un identifiant de cette famille. Avant #468-r1, ces deux lignes-la ne
+    produisaient aucune definition, donc aucun double, donc un VERT."""
+    for ident in ("462-r4e-o-r2-r1", "366-r1-camo-seed", "PAI-c", "443-r2-b1", "222-1"):
+        #: BRAS TEMOIN -- UNE seule ligne : le depot doit rester VERT, sinon le bras rouge
+        #: n'accuserait pas la double ouverture mais la simple presence de l'identifiant.
+        seul = _depot_jetable(BASE_SAINE + [_ligne(ident, "un sujet")], [])
+        try:
+            rc, txt = _jouer(seul)
+            assert rc == 0, "#%s : une definition SEULE ne doit rien faire rougir :\n%s" % (
+                ident, txt)
+        finally:
+            shutil.rmtree(seul, ignore_errors=True)
+
+        r = _depot_jetable(BASE_SAINE + [_ligne(ident, "un sujet"),
+                                         _ligne(ident, "un AUTRE sujet, meme numero")], [])
+        try:
+            rc, txt = _jouer(r)
+            assert rc != 0, "#%s : la double ouverture n'a pas MORDU :\n%s" % (ident, txt)
+            assert "etape 1 : 1 identifiant" in txt and "FAIL #%s" % ident in txt, txt
+        finally:
+            shutil.rmtree(r, ignore_errors=True)
+
+
+def _arbre_de_puces(fichiers):
+    """Un `docs/rl` jetable ne portant que des case-docs, pour la 4e position (#468-r7)."""
+    racine = _depot_jetable(BASE_SAINE, [])
+    for nom, corps in fichiers.items():
+        (racine / "docs" / "rl" / nom).write_text(corps, encoding="utf-8")
+    return racine
+
+
+def test_la_4e_POSITION_separe_une_DEFINITION_de_puce_d_une_RE_CITATION():
+    """#468-r7 -- le critere de SECTION seul NE SEPARE PAS, et c'est une mesure.
+
+    Sur le depot reel il rend **33** identifiants portes par une puce ouverte dans deux
+    case-docs ou plus ; les neuf qui survivent au discriminant PROPRIETAIRE ont ete lus un par
+    un et sont **9/9 legitimes**. Ce test fige les trois regles du discriminant, dont la
+    troisieme -- << sans proprietaire, toutes les puces definissent >> -- sans laquelle le cas
+    MOTIVANT du residu (`case-467` ouvrant `#472-r1`) serait perdu."""
+    corps = ("# titre\n\n## 1. Le defaut\n\n"
+             "- **#500-r9** une puce HORS section Residus : jamais une definition.\n\n"
+             "%s")
+    racine = _arbre_de_puces({
+        "case-500-un-sujet.md": corps % "## Residus\n\n- **#500-r1** le residu du sujet.\n",
+        "case-600-un-autre.md": corps % "## Residus\n\n- **#500-r1** -- inchange, cf. case-500.\n",
+        "case-700-orphelin.md": corps % "## Residus\n\n- **#800-r1** ouvert ICI, nulle part ailleurs.\n",
+    })
+    precedent = p468.REPO
+    try:
+        p468.viser(racine)
+        defs, cites = p468.puces_des_case_docs()
+        ou_def = {d.cle: sorted(x.ou for x in defs if x.cle == d.cle) for d in defs}
+        ou_cite = {d.cle: sorted(x.ou for x in cites if x.cle == d.cle) for d in cites}
+        # (1) hors section Residus : rien, dans aucun des deux seaux.
+        assert "500r9" not in ou_def and "500r9" not in ou_cite, (ou_def, ou_cite)
+        # (2) le PROPRIETAIRE par prefixe definit, le voisin ne fait que citer.
+        assert ou_def.get("500r1") == ["case-500-un-sujet.md:9"], ou_def
+        assert ou_cite.get("500r1") == ["case-600-un-autre.md:9"], ou_cite
+        # (3) SANS proprietaire, la puce definit -- c'est le cas MOTIVANT du residu.
+        assert ou_def.get("800r1") == ["case-700-orphelin.md:9"], ou_def
+    finally:
+        p468.viser(precedent)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
 def test_les_case_docs_reelles_se_coupent_en_identifiant_et_slug():
     noms = sorted(p.name for p in (REPO / "docs" / "rl").glob("case-*.md"))
     assert len(noms) > 300
@@ -486,8 +598,13 @@ def test_le_ledger_du_depot_est_lisible_et_chaque_entree_porte_une_raison():
 #  `--suggere` (#468-r4) -- le critere s'INVERSE : ici l'UNION, mentions comprises
 # ==========================================================================================
 
-def _depot_git(lignes_backlog, case_docs=(), messages=()):
-    """Depot jetable AVEC historique -- `--suggere` refuse de mesurer sans lui."""
+def _depot_git(lignes_backlog, case_docs=(), messages=(), merge=None):
+    """Depot jetable AVEC historique -- `--suggere` refuse de mesurer sans lui.
+
+    `merge` : sujet d'un commit de MERGE a fabriquer par-dessus (#468-r13). Les deux commits
+    ordinaires qu'il reunit portent des sujets SANS numero, et le contenu n'en porte pas non
+    plus : le sujet du merge est alors la SEULE trace du numero dans tout le depot -- exactement
+    la situation de `#432-r1`, livre par la PR #479 et introuvable de `git grep`."""
     racine = _depot_jetable(lignes_backlog, case_docs)
     (racine / "scripts" / "python").mkdir(parents=True, exist_ok=True)
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
@@ -504,6 +621,24 @@ def _depot_git(lignes_backlog, case_docs=(), messages=()):
             encoding="utf-8")
         git("add", "-A")
         git("commit", "-q", "-m", m)
+    if merge:
+        # Le nom de la branche par defaut n'est PAS suppose (`master` / `main` selon la config
+        # de la machine) : on le LIT. Une supposition ferait echouer le montage, donc rougir le
+        # test pour la mauvaise cause.
+        tete = subprocess.run(["git", "-C", str(racine), "rev-parse", "--abbrev-ref", "HEAD"],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", env=env).stdout.strip() or "master"
+        git("checkout", "-q", "-b", "cote-jetable")
+        (racine / "docs" / "rl" / "note-laterale.md").write_text("aucun numero\n",
+                                                                encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "branche laterale, aucun numero")
+        git("checkout", "-q", tete)
+        (racine / "docs" / "rl" / "note-principale.md").write_text("aucun numero\n",
+                                                                   encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "avance de la principale, aucun numero")
+        git("merge", "-q", "--no-ff", "-m", merge, "cote-jetable")
     return racine
 
 
@@ -513,6 +648,69 @@ def _suggere(racine, *args):
                          capture_output=True, text=True, encoding="utf-8", errors="replace",
                          cwd=str(PYDIR))
     return out.returncode, out.stdout + out.stderr
+
+
+def _gate(racine, ref):
+    out = subprocess.run([sys.executable, str(PROBE), "--racine", str(racine), "--gate", ref],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         cwd=str(PYDIR))
+    return out.returncode, out.stdout + out.stderr
+
+
+def test_la_GATE_accuse_ce_que_LA_BRANCHE_introduit_et_RIEN_d_autre():
+    """#468-r2 -- deux bras OPPOSES, et c'est le second qui prouve que la gate FILTRE.
+
+    Une gate qui se contenterait de rejouer l'etape 1 rougirait dans LES DEUX cas. Le second bras
+    -- collision DEJA PRESENTE dans le merge-base, rien d'ajoute -- doit passer VERT alors que le
+    balayage complet du MEME arbre est ROUGE : c'est la seule mesure qui etablit que le diff est
+    reellement lu. Sans lui, ce test serait vert sur une gate qui n'a jamais ouvert `git diff`.
+
+    Le premier bras laisse la ligne fautive NON COMMITEE, a dessein : `--gate` inclut l'arbre de
+    travail, sinon elle ne mordrait qu'apres le commit -- apres le moment ou renommer est gratuit.
+    """
+    #: BRAS 1 -- la branche INTRODUIT la seconde definition (non commitee).
+    r = _depot_git(BASE_SAINE)
+    try:
+        backlog = r / "docs" / "rl" / "backlog.md"
+        backlog.write_text(backlog.read_text(encoding="utf-8")
+                           + _ligne("900-r1", "un AUTRE sujet, meme numero") + "\n",
+                           encoding="utf-8")
+        rc, txt = _gate(r, "HEAD")
+        assert rc != 0, "la gate n'a pas MORDU sur une definition introduite :\n%s" % txt
+        assert "INTRODUITE ICI" in txt and "DEJA LA" in txt, txt
+        assert "un AUTRE sujet, meme numero" in txt, (
+            "la gate nomme l'identifiant mais pas la LIGNE introduite -- c'est tout l'objet du "
+            "mode :\n%s" % txt)
+    finally:
+        shutil.rmtree(r, ignore_errors=True)
+
+    #: BRAS 2 -- la MEME collision, mais deja dans le merge-base : la gate se tait, le balayage
+    #: complet rougit.
+    r2 = _depot_git(BASE_SAINE + [_ligne("900-r1", "un AUTRE sujet, meme numero")])
+    try:
+        rc_plein, txt_plein = _jouer(r2)
+        assert rc_plein != 0, ("le balayage complet doit rougir, sinon le bras 2 ne prouve "
+                               "rien :\n%s" % txt_plein)
+        rc, txt = _gate(r2, "HEAD")
+        assert rc == 0, ("la gate accuse une collision que la branche n'a PAS introduite -- elle "
+                         "ne lit pas le diff :\n%s" % txt)
+        assert "n'introduit AUCUNE definition" in txt, txt
+    finally:
+        shutil.rmtree(r2, ignore_errors=True)
+
+
+def test_la_GATE_sur_une_ref_INCONNUE_rend_99_et_jamais_un_vert():
+    """Une gate qui ne sait pas ce que la branche a ecrit ne rend PAS un vert -- meme frontiere
+    que `--suggere` sur un corpus ampute. C'est le mode de panne le plus probable en CI (ref
+    non fetchee), et celui ou un `PASS` serait le plus couteux."""
+    r = _depot_git(BASE_SAINE)
+    try:
+        rc, txt = _gate(r, "refs/heads/cette-ref-n-existe-pas")
+        assert rc == 99, "attendu 99 (INDISPONIBLE), obtenu %d :\n%s" % (rc, txt)
+        assert "VERDICT GATE" not in txt, "un verdict a ete rendu sans mesure :\n%s" % txt
+        assert "gate impossible" in txt, txt
+    finally:
+        shutil.rmtree(r, ignore_errors=True)
 
 
 def test_aucun_sous_process_de_ce_fichier_ne_vise_le_depot_REEL():
@@ -678,6 +876,71 @@ def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_MESSAGE_DE_COMMIT():
         assert rc == 0, txt
         assert _numero_propose(txt) != PREMIER_AU_DESSUS, \
             "un numero vivant SEULEMENT dans l'historique a ete propose :\n%s" % txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_SUJET_DE_MERGE():
+    """#468-r13 -- `--no-merges` jetait la SEULE trace que le squash-merge laisse dans l'arbre.
+
+    MESURE sur le depot reel (2026-08-15) : 698 commits de merge, **647 portent un `#`**
+    (`merge(#1039) : ...`, `merge PR #1023 (#1027) -- ...`) ; ils apportent **96 identifiants
+    inedits** et **1 numero rendu change** -- `--suggere 432` proposait `#432-r1`, LIVRE par la
+    PR #479, et `git grep -E '#432-?r1' -- docs/rl scripts/python` rend **0**.
+
+    DEUX BRAS, et c'est le premier qui rend le second probant : sans le merge, le numero DOIT
+    etre propose. Un test a un seul bras ne distinguerait pas << la source marche >> de << ce
+    numero etait de toute facon hors d'atteinte >>."""
+    #: BRAS TEMOIN -- le meme depot, sans le merge : le numero est LIBRE et doit sortir.
+    temoin = _depot_git(BASE_SUGGERE)
+    try:
+        rc, txt = _suggere(temoin)
+        assert rc == 0, txt
+        assert _numero_propose(txt) == PREMIER_AU_DESSUS, (
+            "le bras TEMOIN ne propose pas %s : le bras suivant ne prouverait rien\n%s"
+            % (PREMIER_AU_DESSUS, txt))
+    finally:
+        shutil.rmtree(temoin, ignore_errors=True)
+
+    #: BRAS MESURE -- le numero n'existe QUE dans le sujet du commit de merge.
+    racine = _depot_git(BASE_SUGGERE,
+                        merge="merge(#%s) : une tranche livree, dont le sujet de merge est "
+                              "l'unique trace" % PREMIER_AU_DESSUS)
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0, txt
+        assert _numero_propose(txt) != PREMIER_AU_DESSUS, (
+            "un numero vivant SEULEMENT dans un sujet de COMMIT DE MERGE a ete propose -- "
+            "`--no-merges` est revenu quelque part dans le corpus :\n%s" % txt)
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_le_mode_RESIDU_ecarte_lui_aussi_un_numero_venu_d_un_SUJET_DE_MERGE():
+    """La generalisation de #468-r13 a l'autre mode -- c'est la ou la mesure a MORDU.
+
+    Sur le depot reel, le seul numero rendu que la correction change est un RESIDU (`#432-r1`),
+    pas une racine : depuis la bande (#468-r8) une racine neuve part de `PLANCHER_RACINE`, donc
+    le corpus n'y commande plus. Garder la seule racine laisserait le mode RESIDU -- celui que la
+    mesure accuse -- sans cliquet."""
+    #: BRAS TEMOIN : `#10900-r1` est deja pris par `BASE_SUGGERE`, donc `r2` est le prochain.
+    temoin = _depot_git(BASE_SUGGERE)
+    try:
+        rc, txt = _suggere(temoin, "10900")
+        assert rc == 0, txt
+        assert "LIBRE : #10900-r2" in txt, (
+            "le bras TEMOIN ne propose pas r2 : le bras suivant ne prouverait rien\n%s" % txt)
+    finally:
+        shutil.rmtree(temoin, ignore_errors=True)
+
+    racine = _depot_git(BASE_SUGGERE,
+                        merge="merge PR #4242 (#10900-r2) -- residu livre, trace unique")
+    try:
+        rc, txt = _suggere(racine, "10900")
+        assert rc == 0, txt
+        assert "LIBRE : #10900-r2" not in txt, (
+            "un RESIDU vivant seulement dans un sujet de merge a ete propose :\n%s" % txt)
+        assert "LIBRE : #10900-r3" in txt, txt
     finally:
         shutil.rmtree(racine, ignore_errors=True)
 
