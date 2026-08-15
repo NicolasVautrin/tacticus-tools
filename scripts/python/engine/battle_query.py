@@ -735,10 +735,41 @@ def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = No
     candidates différentes = les 2 voisins communs) : bloque SSI les DEUX candidates passent le
     seuil pour la MÊME réf (`bVar1 & bVar2`). Mids offline = voisins communs hexgeo (bit-exact
     cube-line pour dist 2 : trajet droit -> 1 mid ; diagonal -> midpoint sur l'arête -> ±eps
-    départage les 2 candidates). LIMITES v1 (flaggées) : murs (bit 4) non modélisés (aucun
-    `wall_by_pos` offline ; aucun board d'agreement n'a de mur en zone jouable) ; nudge eps natif
-    (FloatCube @DAT_1832593f8+0xb8) supposé départager les 2 candidates du cas diagonal (si les
-    lignes A/B tombaient sur la MÊME candidate, le natif bloquerait sur elle seule)."""
+    départage les 2 candidates).
+
+    ⚠ **CE CORPS EST UN FORK, ET SES DEUX ECARTS SONT DESORMAIS CHIFFRES** (#433-r4-r1-r1-r2). Le
+    port a un SECOND mirror du meme natif, COMPLET :
+    `engine/services/line_of_sight.py::get_tiles_obscuring_terrain` (+ le substrat `PositionBoard`,
+    construit precisement depuis `elev_by_pos` / `is_wall_by_pos`). Il trace les DEUX lignes de
+    `MovementUtil$$DrawLineBetweenCoordinates` (nudge `(1e-6, 2e-6, -3e-6)`, LU au
+    `MovementUtil$$.cctor`), applique `DetermineBlockingTiles` aux index `1` et `Count - 2` -- et a
+    EUX SEULS, quelle que soit la longueur -- puis `DetermineBlockingWalls` sur TOUTE la ligne.
+    Confrontation exhaustive des deux (`probe_433r4r1r1r2_los_fork.py`, 8 plateaux 7x7,
+    17 536 paires) :
+
+      * **dist 1 et dist 2 : 0 desaccord sur 5 056 paires** -- les « voisins communs » de ce corps
+        SONT exactement les deux candidates des lignes nudgees. Ce corps est bit-exact la ou il
+        repond ;
+      * **dist >= 3 : 4 624 desaccords sur 12 480 paires**, tous du meme cote -- ce corps rend
+        `False` la ou le natif obscurcit. Degradation PERMISSIVE : il accorde des cibles que le
+        natif refuse, sur les cinq call-sites qui ne bornent pas la distance au site
+        (`playbook/boltstorm.py`, `playbook/light_im_up.py`, `noncomparable/_base.py`,
+        `noncomparable/doombolt.py`, `noncomparable/summon_attack_range.py`) ;
+      * **volet MURS absent** : le bit 4 est dans le masque a TOUS les call-sites lus. Mesure sur
+        plateau PLAT a 25 % de murs : le volet seul bloque **1 098 paires sur 2 192**. Le canal
+        EXISTE pourtant (`boardGraph.isWall` -> `ctx.is_wall_by_pos`, mesure live board MC1_67 :
+        **63 tuiles sur 63** le portent).
+
+    ⚠ **CE QUI EMPECHE DE BRANCHER CE CORPS SUR LE FOYER COMPLET N'EST NI UN CAPTEUR NI UN ETAGE :
+    c'est un CONFLIT DE CONTRAT sur l'inconnu.** Quand exactement UNE des deux candidates de
+    fat-line a une elevation NON CAPTEE, ce corps la RETIRE (on retombe sur la regle mono-candidate
+    -> BLOQUE) tandis que le foyer la traite comme `StateExtensions$$GetTileAt -> null` (`blk =
+    false` -> l'ET echoue -> NE BLOQUE PAS). Le natif ne tranche pas : il n'a AUCUN etat
+    « elevation inconnue » (`TileExtensions$$GetElevationDifference` deref et leve). Les deux
+    contrats sont donc des conventions de PORT, et celle de ce corps est GARDEE par
+    `tests/engine/test_433r4r1r4r1_unobscured_canal_offline.py` (etages 1 et 3). Le regime est
+    INATTEIGNABLE LIVE (mesure ci-dessus : aucune tuile sans `elevation`), donc les deux contrats
+    sont indiscernables en bataille -- mais brancher sans trancher rendrait `master` ROUGE."""
     fk, tk = (frm[0], frm[1]), (to[0], to[1])
     if hexgeo.distance(fk, tk) != 2 or not elev_by_pos:
         return False
