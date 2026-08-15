@@ -40,6 +40,38 @@ from engine.entities.effects_state import EffectsState                     # noq
 from engine.runner.operations.remove_effects import (                      # noqa: E402
     remove_effects_operation)
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Volontairement LARGE : trop etroit est un faux vert (le fichier ne se rejoue pas sous
+#: `--since` quand ce qu'il garde a bouge), trop large ne coute qu'un rejeu.
+DECLENCHEUR = {
+    "chemins": (
+        # LES DEUX SITES DU DEFAUT -- le foyer, et le `getattr` de secours qu'aucune surcharge
+        # de classe ne corrige. Les separer serait exactement l'angle mort que ce fichier existe
+        # pour fermer.
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/runner/operations/remove_effects.py",
+        # Le mirror d'enum : un renumerotage de `KillUnitStep` change le sens de TOUTES les
+        # valeurs figees ici.
+        "scripts/python/engine/entities/kill_unit_step.py",
+        # Les deux classes qui SURCHARGENT et ont un mirror Python.
+        "scripts/python/engine/entities/effects/loki/status.py",
+        "scripts/python/engine/entities/effects/loki/possession.py",
+        # Le deriveur et son socle : l'etage 3 confronte le port a CE qu'ils produisent.
+        "scripts/python/probe_1088_remove_on_death_step.py",
+        "scripts/python/probe_175r2_can_be_immune_to.py",
+        # L'ENTREE VERSIONNEE : elle change au changement de JEU, sans qu'aucun fichier de code
+        # ne bouge. Sans elle, l'etage 3 se rejouerait sur une table perimee sans jamais etre
+        # re-declenche.
+        "data/symbols/*/metadata/remove_on_death_step.tsv",
+    ),
+    # L'etage 3 lit une entree DERIVEE du binaire du build courant.
+    "build": True,
+    "toujours": False,
+    "raison": ("les deux sites du defaut (`base.py`, `remove_effects.py`), le mirror d'enum, les "
+               "deux classes qui surchargent, le deriveur et son socle, et l'entree versionnee "
+               "que l'etage 3 confronte au port"),
+}
+
 
 # ------------------------------------------------------------------ etage 1 : LA VALEUR
 
