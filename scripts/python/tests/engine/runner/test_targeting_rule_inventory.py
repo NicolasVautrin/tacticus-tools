@@ -412,6 +412,9 @@ def test_contre_epreuve_une_composition_de_masque_n_est_PAS_un_code_de_refus(tmp
     ecartes = {n for n, _f, _fn in P.rules_dropped_by_value_position()}
     assert ecartes == {"AllowUntargetableTarget", "AllowSteppableUnit"}, (
         "les ecartes ne sont pas NOMMES a l'identique de ce qui a ete filtre : %s" % sorted(ecartes))
+    # ... et le CLIQUET des ecartes mord sur eux : ils ne sont pas dans `ECARTES_DECLARES`.
+    with pytest.raises(AssertionError, match="ecarte"):
+        test_les_ecartes_de_la_position_de_valeur_sont_NOMMES()
 
 
 def test_contre_epreuve_position_de_valeur_conserve_les_formes_reelles(tmp_path, monkeypatch):
@@ -444,6 +447,10 @@ def test_contre_epreuve_position_de_valeur_conserve_les_formes_reelles(tmp_path,
     assert not P.rules_dropped_by_value_position(), (
         "une forme de valeur rendue est comptee comme ECARTEE : %s"
         % sorted(P.rules_dropped_by_value_position()))
+    # Et le GARDE-VACANCE du cliquet mord : plus aucun ecarte -> le resserrement n'est plus
+    # exerce par du code reel, donc le test des ecartes doit REFUSER de passer pour vert.
+    with pytest.raises(AssertionError, match="AUCUN site n'est ecarte"):
+        test_les_ecartes_de_la_position_de_valeur_sont_NOMMES()
 
 
 def test_contre_epreuve_returns_de_closure_comptes_une_seule_fois(tmp_path, monkeypatch):

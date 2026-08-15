@@ -146,7 +146,12 @@ def _returns_du_port():
     Descente explicite plutot qu'`ast.walk` imbrique : `ast.walk(<fonction externe>)` traverse
     AUSSI les closures, donc chaque `return` de closure y apparaitrait DEUX fois, une fois sous
     le nom de la fonction externe. Le port en a (les fabriques de regles dynamiques), et le nom
-    de la fonction porteuse est ce qui identifie un ecarte."""
+    de la fonction porteuse est ce qui identifie un ecarte.
+
+    ⚠ La descente ne doit RIEN perdre par rapport a `ast.walk` -- une couverture amputee
+    rendrait des regles << non portees >> sans le dire. CONTROLE mesure le 2026-08-15 : les deux
+    voies visitent exactement les MEMES 2021 noeuds `Return` a valeur non nulle (difference
+    symetrique VIDE sur `(fichier, ligne, colonne)`). Seule l'ATTRIBUTION differe."""
     def descendre(node, porteuse, acc):
         for enfant in ast.iter_child_nodes(node):
             if isinstance(enfant, (ast.FunctionDef, ast.AsyncFunctionDef)):
