@@ -314,6 +314,31 @@ def test_les_trois_sites_portes_qui_posent_FALSE_le_font_toujours():
         "`<DSLTriggers+0x40>` aux DEUX call-sites")
 
 
+def _attributs(node) -> list:
+    """Les noms d'attributs d'un objet, TOUTES formes de stockage confondues.
+
+    ⚠ **`__slots__` ET `__dict__` COEXISTENT, et un objet peut n'avoir NI l'un NI l'autre.** La
+    version d'avant faisait `getattr(node, "__slots__", None) or vars(node)` : elle levait
+    `TypeError: vars() argument must have __dict__ attribute` des qu'un arbre contenait un objet
+    sans `__dict__` et sans `__slots__` PROPRE -- ce qui est arrive au REBASE, sur du code merge
+    entre-temps. Elle aurait aussi RATE les attributs `__dict__` d'une classe a `__slots__`
+    partiel, donc rendu le test VACANT en silence.
+
+    On balaie la MRO (chaque classe peut declarer ses propres `__slots__`) et on ajoute `__dict__`
+    quand il existe. Un objet sans aucun des deux rend `[]` -- c'est une FEUILLE, pas une erreur."""
+    noms = []
+    for cls in type(node).__mro__:
+        s = cls.__dict__.get("__slots__")
+        if isinstance(s, str):
+            noms.append(s)
+        elif s:
+            noms.extend(s)
+    d = getattr(node, "__dict__", None)
+    if isinstance(d, dict):
+        noms.extend(d.keys())
+    return noms
+
+
 def _tous_les_can_add_unit(node, vus=None) -> list:
     """Parcours GENERIQUE d'un arbre DSL : tout attribut qui est un noeud, ou un conteneur de
     noeuds, est visite. Ecrit ainsi pour qu'un changement de FORME de l'arbre ne rende pas le test
@@ -323,12 +348,12 @@ def _tous_les_can_add_unit(node, vus=None) -> list:
         return []
     vus.add(id(node))
     out = [node] if isinstance(node, CanAddUnit) else []
-    enfants = []
     if isinstance(node, (list, tuple, set, frozenset)):
         enfants = list(node)
+    elif isinstance(node, dict):
+        enfants = list(node.values())
     else:
-        for nom in getattr(node, "__slots__", None) or vars(node).keys():
-            enfants.append(getattr(node, nom, None))
+        enfants = [getattr(node, nom, None) for nom in _attributs(node)]
     for e in enfants:
         out += _tous_les_can_add_unit(e, vus)
     return out
