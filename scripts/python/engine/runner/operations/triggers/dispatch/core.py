@@ -230,9 +230,15 @@ def _owner_gate_applies(entry) -> bool:
     INTROUVABLE et porteur MORT. Les deux sont levees. Consequences directes :
       * la TUILE n'a plus a etre RECONNUE (`_owner_is_tile_entity`, #462-r4b-r1-r1-r1-r1-c-r1,
         n'avait plus de lecteur -- il conditionnait un gate qui n'existe plus sur cette face) ;
-      * l'attribut `fire_on_death` d'un `EffectTrigger` (4 classes : PhoenixGem x3, RitesOfMorkai)
-        est INERTE -- il compensait exactement ce surplus. Il reste porte sur `TriggeredAbility`,
-        ou il mirrore `ITriggeredAbility.get_AllowForDeadOwner` (cf. ci-dessus).
+      * l'attribut `fire_on_death` d'un `EffectTrigger` est INERTE -- il compensait exactement ce
+        surplus. Il reste porte sur `TriggeredAbility`, ou il mirrore
+        `ITriggeredAbility.get_AllowForDeadOwner` (cf. ci-dessus).
+        ⚠ La fiche du residu enumerait **4** classes nommees ; re-DERIVE le 2026-08-15 par
+        `probe_10015_allow_for_dead_owner.py --inertie`, l'ensemble en compte **6**, et deux des
+        quatre noms cites n'y sont plus seuls (`ArmourOfShriekingSoulsResurrectOnRemoved` et
+        `FinalVengeanceUnitEffectTrigger` s'y sont ajoutees). Ne pas recopier une liste : la DERIVER
+        (`getattr(cls, "fire_on_death", False)` sur `EFFECT_TRIGGERS`), sans quoi l'ensemble derive
+        sous la citation, en silence -- ce qui vient de se produire.
 
     ⚠ **L'INERTIE EST STRUCTURELLE, PAS UNE OBSERVATION (#462-r4b-r1-r1-r1-r1-c-r3-r3).** Ce
     predicat est le SEUL lecteur de `fire_on_death` du depot (`engine/**` n'en a pas d'autre), et il
