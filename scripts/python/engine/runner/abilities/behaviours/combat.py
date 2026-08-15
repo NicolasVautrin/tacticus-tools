@@ -207,7 +207,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
                  "force_crit", "is_first_hit", "amount_spread_pct", "attack_state0",
-                 "is_outside_attack", "skip_hits_modifiers")
+                 "is_outside_attack", "skip_hits_modifiers", "crit_allowed_hits")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
@@ -217,7 +217,16 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  tile_domain: bool = False, force_crit: bool = False,
                  is_first_hit: bool = True, amount_spread_pct: int = 0,
                  attack_state0: Optional[dict] = None, is_outside_attack: bool = True,
-                 skip_hits_modifiers: bool = False):
+                 skip_hits_modifiers: bool = False, crit_allowed_hits=None):
+        # #889-r2 : le champ **+0x08** du `Nullable<AttackDamageBehaviourOptions>` -- une
+        # `List<int>` de numeros de coup 1-based apres lesquels `isCriticalDamageAllowed` reste
+        # VRAI. Son LECTEUR est `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`
+        # (`hitGroup.isCriticalDamageAllowed = options[+0x40] != null && options[+0x40].Any(
+        # hitIndex => hitIndex == i + 1)`), pas `$$ExecuteHit`. Mode BORNES uniquement (le mode
+        # `amount` route par `execute_normal_like`, qui n'a pas ce canal). Defaut `None` = les
+        # douze call-sites a struct zeroee : `Any(null)` faux, le crit s'eteint au premier coup
+        # non-critique. Cf. `AttackDamageOperation.execute_ability_attack`.
+        self.crit_allowed_hits = crit_allowed_hits
         # #419-r1-tr5-r7 : l'OCTET **+3** du `Nullable<AttackDamageBehaviourOptions>` -- le nombre
         # de coups passe est DEJA FINAL, `AttackDamageOperation$$GetAttackHits` rend la base sans
         # traverser le slot 0xb6 (`AttackHitsWithModifiersFormula`). Mode BORNES uniquement (le mode
@@ -441,7 +450,9 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     crit_allowed0=bool(_as0.get("crit_allowed", True)),
                     failed_block0=_as0.get("failed_block"),
                     # #419-r1-tr5-r7 : octet +3 des options natives (coups DEJA finaux).
-                    skip_hits_modifiers=self.skip_hits_modifiers)
+                    skip_hits_modifiers=self.skip_hits_modifiers,
+                    # #889-r2 : champ +0x08 des memes options (cf. `__init__`).
+                    crit_allowed_hits=self.crit_allowed_hits)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()
