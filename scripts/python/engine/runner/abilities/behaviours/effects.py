@@ -767,7 +767,53 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
     resolue contre la SOURCE lirait le mauvais `AbilityState`.
 
     ⚠ `abilityState` (`+0x88`) est lui aussi un **litteral nul** sur cette voie -- le port ne le
-    modelise pas, et il n'y a donc rien a y propager."""
+    modelise pas, et il n'y a donc rien a y propager.
+
+    LA POSE MATERIALISE ; SEUL LE REFRESH APPLIQUE (#576-r2). La feuille appelait
+    `apply_change_stat` INCONDITIONNELLEMENT apres `AddEffectOperation`. Le natif ne le fait pas, et
+    la chaine est LUE de bout en bout sur `t6dpr4k06g` :
+
+      * `IdunBattle.Operations.AddEffectOperation$$Execute` materialise l'entite-effet, ecrit
+        `EffectComponent.Type @+0x58` / `Level @+0x68`, puis appelle
+        `...$$AddNewEffect`, dont le premier geste est le slot **46** (`RefreshEffects`) de
+        `IdunBattle.Core.Services.IOperationProcessor` -- table versionnee
+        `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv` ;
+      * `Core.Services.OperationProcessor$$RefreshEffects` appelle DIRECTEMENT
+        `IdunBattle.Operations.RefreshEffectsOperation$$Execute` : **aucune file d'attente**, le
+        refresh est SYNCHRONE dans la chaine de pose ;
+      * `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect`, lu VERBATIM :
+
+            active = ShouldBeActive(trigger, type, effect, comp, owner, activePlayer, effectEntity)
+            if (!active)  DeactivateEffect(this, comp, effect, effectEntity, owner)
+            else       {  comp->+0x5c = 1
+                          if (effect.<slot 0xc>(trigger))                 // ShouldRefreshForTrigger
+                              UpdateEffectTargets(GetDesiredEffectTargets(...), ...) }
+
+        et `...$$ApplyEffectsForTargets` (le SEUL appelant du slot `IEffect+0xe` =
+        `ApplyModification`, #576-r1) n'est atteint QUE par cette branche `else` ;
+      * `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive`, branche `refreshType == 0`
+        (`Automatically`) -- celle de la pose :
+
+            if (comp->+0x5e)                        return false
+            if (!effect.<slot 0xc>(refreshTrigger)) return comp->+0x5c      // le flag COURANT
+            return effect.<slot 0xb>(entities)                              // CreateActiveCondition
+
+    Un composant NEUF porte `+0x5c == 0` : quand la `CreateActiveCondition` rend faux a la pose,
+    l'effet est materialise, `DeactivateEffect` le laisse a `IsActive == 0`, et **sa modification
+    n'est JAMAIS appliquee** -- pas << appliquee puis retiree au refresh suivant >>.
+
+    D'ou le gate ci-dessous, mirror de cette branche. `_placed_effect_is_active` est le bon
+    predicat SANS le discriminant `_active_condition_is_ported` du driver, et la raison est
+    dissymetrique : `BaseEffect.is_active` rend `True` par DEFAUT, or ici le defaut `True`
+    **coincide** avec le comportement historique (on applique). Le driver, lui, ECRIT le flag --
+    y ecrire ce meme defaut ECRASERAIT une mesure (regression #366-r1b). Une valeur par defaut
+    qu'on ne fait que LIRE est inoffensive ; ecrite, elle ne l'est pas.
+
+    ⚠ `stat_mod_source` et `reverted_stats` restent poses meme quand le gate ferme, et ce n'est pas
+    un oubli : le natif ECRIT bien le `StatModifierComponent` de l'entite-effet (la MATERIALISATION
+    a lieu), seule l'APPLICATION est gatee. C'est aussi ce qui laisse au driver
+    `runner/operations/refresh_effects.py::refresh_stat_modifier_effects` de quoi APPLIQUER cette
+    instance si sa condition devient vraie plus tard -- le natif la re-evalue a chaque refresh."""
     __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name",
                  "duration_rounds", "duration_turns")
 
@@ -800,9 +846,15 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
             key = f"eff:{self.effect_type}:{uid}:{id(eff)}"
             eff.stat_mod_source = key
             eff.reverted_stats = (lambda st=self.stat_type: [st])
-            apply_change_stat(state, uid, self.stat_type, key, amt)
+            # #576-r2 -- LE GATE DE LA POSE. `AddEffectOperation` -> `AddNewEffect` -> slot 46
+            # `RefreshEffects` (SYNCHRONE) -> `RefreshEffectsOperation$$RefreshEffect` : la
+            # `ValueModification` n'est appliquee que par la branche `ShouldBeActive == true`
+            # (`ApplyEffectsForTargets`, seul appelant du slot `IEffect+0xe`). Cf. la docstring.
+            active = _placed_effect_is_active(state, uid, eff)
+            if active:
+                apply_change_stat(state, uid, self.stat_type, key, amt)
             ectx.emit("AddStaticStatModifierEffect", unit=uid, effect_type=self.effect_type,
-                      stat=self.stat_type, amount=amt)
+                      stat=self.stat_type, amount=amt, active=active)
         return OperationResult.ok()
 
 
