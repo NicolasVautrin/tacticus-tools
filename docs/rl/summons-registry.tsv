@@ -1,7 +1,7 @@
 unite	faction	alliance	rarete	type	item	id	face_combat	face_decision
 adeptSmnBattleSister	Sisterhood	Imperial	None	trait	Summon		1	
 adeptSmnBattleSister	Sisterhood	Imperial	None	trait	ActOfFaith		1	
-adeptSmnGeminaeSuperia	Sisterhood	Imperial	None	passif	Lifewards		0	
+adeptSmnGeminaeSuperia	Sisterhood	Imperial	None	passif	Lifewards		1	
 adeptSmnGeminaeSuperia	Sisterhood	Imperial	None	trait	Summon		1	
 adeptSmnGeminaeSuperia	Sisterhood	Imperial	None	trait	Flying		1	
 admecSmnElectropriest	AdeptusMechanicus	Imperial	None	passif	VoltagheistField		1	

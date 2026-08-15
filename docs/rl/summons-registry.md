@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **56** ; kits avec du travail : **9**
+- Unites `summons` : **65** ; kits sans manque : **57** ; kits avec du travail : **8**
 - Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
-- Passifs distincts : **47** — portes **38**, non portes **9**
+- Passifs distincts : **47** — portes **39**, non portes **8**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -51,7 +51,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
-| passif | Lifewards | 1 | adeptSmnGeminaeSuperia |
 | passif | NoHidingFromTheWatchers | 1 | darkaSmnWatcher |
 | passif | PileIn | 1 | orksGrot |
 | passif | RapidFire | 1 | ultraSmnHeavyIntercessor |
@@ -175,12 +174,12 @@ sont des **faces** absentes d'items presents.
 | orksOrkBoys | 0 | Stikkbomb(1051)[CD] | - | - | - |
 | orksSmnSquig | 0 | - | - | - | - |
 
-### Sisterhood — 2 unites, 1 avec du travail
+### Sisterhood — 2 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| adeptSmnGeminaeSuperia | 1 | - | Lifewards | - | - |
 | adeptSmnBattleSister | 0 | - | - | - | - |
+| adeptSmnGeminaeSuperia | 0 | - | - | - | - |
 
 ### Tau — 4 unites, 0 avec du travail
 

@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3942 assignations ecartees dans 701 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14295 symboles distincts) de la PROSE (12180 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3942 assignations ecartees dans 705 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14338 symboles distincts) de la PROSE (12245 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,12 +65,12 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **175** (83 %)
-- **ZONE-GRISE** (direct-read hors registre, a trancher) : **10**
+- **PORTES** (>=1 canal structurel) : **176** (83 %)
+- **ZONE-GRISE** (direct-read hors registre, a trancher) : **9**
 - **GAPS** (mention seule + absent) : **26** = 10 mention + 16 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **0 gaps** et **0 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=98, **O**=33, **E**=98, **G**=11, **X**=0, **B**=10
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=99, **O**=33, **E**=99, **G**=12, **X**=0, **B**=10
 
 ## Tableaux par valeur
 
@@ -115,7 +115,7 @@ _aucun._
 | TheEmperorsShield | N=1 | - | GAP-ABSENT | - | - |
 | Volatile | N=1 | - | GAP-ABSENT | - | - |
 
-### ZONE-GRISE non confrontable (10)
+### ZONE-GRISE non confrontable (9)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -123,14 +123,13 @@ _aucun._
 | Explosive | N=1 | - | ZONE-GRISE | **R** | effects, playbook, runner |
 | HeavyBoltPistol | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner, services |
 | ItsGonnaBlow | N=1 | - | ZONE-GRISE | **R** | runner |
-| Lifewards | S?=1 | - | ZONE-GRISE | **R** | runner |
 | NoHidingFromTheWatchers | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook |
 | RapidFire | S?=1 N=3 | - | ZONE-GRISE | **R** | playbook |
 | Shrapnel | S?=1 N=2 | - | ZONE-GRISE | **R** | playbook |
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (175)
+### PORTES (176)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -281,6 +280,7 @@ _aucun._
 | HarlequinsPanoply | S?=1 N=1 | - | PORTE | **B**=litteral exact sous engine/runner/ | runner |
 | HaywireMineSteppable | S?=1 N=1 | - | PORTE | **T**=HaywireMineSteppableAbility | runner |
 | HunterOfSouls | S?=1 | - | PORTE | **E**=HunterOfSouls_ExtraDamage | effects |
+| Lifewards | S?=1 | - | PORTE | **T**=LifewardsAbility **E**=Lifewards_BondEffect,Lifewards_Protecting **G**=Lifewards_BondEffect,Lifewards_Protecting | effects, runner |
 | LivingLightning | L!=1 N=5 | - | PORTE | **T**=LivingLightningAttackAbility,LivingLightningMoveEffectAbility | runner |
 | MischiefMakers | S?=1 N=1 | - | PORTE | **T**=MischiefMakersAbility **E**=MischiefMakers | effects, runner |
 | OmnissiahsBlessing | S?=1 N=1 | - | PORTE | **T**=OmnissiahsBlessingAbility | runner |
