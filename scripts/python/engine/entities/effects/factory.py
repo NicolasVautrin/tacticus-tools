@@ -91,6 +91,8 @@ from .loki.monster_slayer_of_caliban import (              # #1009 (relique dark
     MonsterSlayerOfCalibanExtraBlockEffect, MonsterSlayerOfCalibanExtraDmgEffect
 )
 from .loki.masters_of_manoeuvre import MastersOfManoeuvreEffect   # mythique MoW darkaStormSpeeder, 1508
+from .loki.lifewards import (LifewardsBondEffect,                 # #963-r3 -- les DEUX marqueurs du
+                             LifewardsProtectingEffect)           #  passif du summon Geminae (1049)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
@@ -2190,15 +2192,46 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
     # = `ForPercentDecrease(get_OwnerIsTarget & IsRangedAttack(), ConfigVar(0x46))` -- appel
     # EXPLICITE a `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`.
-    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee. La raison ECRITE
-    # ici -- << son gate COMMUN porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT
-    # du port >> -- est PERIMEE (re-mesuree #1081, 2026-08-14) : `#999-r3` a livre ce canal, et
-    # `att_rarity` est threade sur les deux facades (cf. les entrees 1442 / 1446 plus haut, qui
-    # disent toutes deux << le verrou est TOMBE >>). Ce qui reste est donc le PORT du couple
-    # trigger/behaviour lui-meme, sans blocage d'etage. L'effet, lui, n'a AUCUN gate de rarete.
+    # ⚠ **LA POSE EST PORTEE DEPUIS #999-r1** (`runner/operations/triggers/loki/
+    # masters_of_manoeuvre.py`, DEUX classes = les deux disjoints d'`On()`, inscrites a
+    # `RELIC_ABILITY_TRIGGERS["MastersOfManoeuvre"]`). La raison qui vivait ici -- << son gate COMMUN
+    # porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT du port >> -- etait PERIMEE
+    # (`#999-r3` / `#1039` ont livre le canal ; cf. les entrees 1442 / 1446 plus haut, qui disent
+    # toutes deux << le verrou est TOMBE >>), et le seul noeud qui manquait encore,
+    # `DSLFormulas$$TilesMovedThisTurn`, est desormais dans `entities/formulas.py`.
+    # L'effet, lui, n'a AUCUN gate de rarete : toute la rarete vit dans le trigger de l'ability.
     # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
     # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
     "MastersOfManoeuvre": MastersOfManoeuvreEffect,
+    # ------------------------------------------------------------------------------------------
+    # #963-r3 -- LES DEUX EFFETS DE `Lifewards`, passif du summon `adeptSmnGeminaeSuperia` (second
+    # maillon du kit de `adeptCelestine`). L'ability est portee dans
+    # `runner/operations/triggers/loki/lifewards.py`.
+    #
+    # ⚠ **AUCUN DES DEUX N'A DE FACE DE DEGAT**, et c'est une MESURE : leurs blocs `methodPointers`
+    # du PE, lus slot a slot, declarent exactement
+    #     LifewardsBondEffect       -> [ .ctor , CreateActiveCondition ]
+    #     LifewardsProtectingEffect -> [ .ctor , <2 corps GENERIQUES dedupliques> ,
+    #                                    CreateRemoveEffectTrigger ]
+    # Ce sont des MARQUEURS : toute la mecanique de `Lifewards` est le `TransferDamage` de son
+    # behaviour. Les inscrire ici porte leur CYCLE DE VIE (activation, retrait) -- qui est
+    # precisement ce que le trigger de l'ability LIT (2e conjoint `IsAlive(Owner) | HasEffect(Owner,
+    # 1240)`), donc ni l'un ni l'autre n'est un mensonge de couverture.
+    #
+    # 1060 `Lifewards_BondEffect` -- base `ABondEffect` (`frida/classes.tsv`).
+    #   `$$CreateActiveCondition` = `IsAdjacent(Owner@<DSLSelectors+0x30>, Parent(Owner@+0x30),
+    #                                           UnitSelectionType.OnlyAliveAndTargetable = 3)`
+    #   -> arbre dans `loki/lifewards_condition.py` (module SEPARE : cycle d'import mesure),
+    #      substrat = la cle PARESSEUSE `lifewards_bond_adjacent_to_parent` de
+    #      `runner/components.py::UnitEffectStateView`.
+    #   ⚠ Le `3` est un `selectionType`, PAS un rayon, et il DIFFERE du `0` du trigger de l'ability.
+    "Lifewards_BondEffect": LifewardsBondEffect,
+    # 1240 `Lifewards_Protecting` -- base `BaseEffect`.
+    #   `$$CreateRemoveEffectTrigger` = `On(0x9 = Attack, ownerNeedsToBeAlive: 0)`, corps ENTIER, un
+    #   seul noeud SANS conjoint -> `EFFECT_TRIGGERS[1240]` (`LifewardsProtectingRemove`).
+    #   AUCUNE `CreateActiveCondition` (absente du bloc) -> le marqueur est toujours ACTIF tant qu'il
+    #   est present, et `active_condition_ported` reste FAUX : lecture, pas oubli.
+    "Lifewards_Protecting": LifewardsProtectingEffect,
     # 1448 HyperCorrosiveAcid_ExtraDamagePct -- effet de l'ability MYTHIQUE `HyperCorrosiveAcid`
     # (`TriggeredAbilityType` 0x5af = 1455) des MoW `tyranBiovore` / `tyranNpcMowBiovore`, POSE sur
     # l'ENNEMI blesse par une Spore Mine (`targets = Target@<DSLSelectors+0x60>`, cf.

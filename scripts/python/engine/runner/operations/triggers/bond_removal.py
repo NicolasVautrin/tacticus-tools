@@ -253,6 +253,24 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     # en niveau de l'effet 1218, mesuree live sur CET effect_type par #556.
     int(EffectType.Neuroparasite): BondRemovalGates(
         "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect", True, None, False),
+    # #963-r3 -- pose par `LifewardsAbility$$CreateBehaviour` (`AddBondEffect(0x424, ...,
+    # bondedEntity = Parent(Owner@<DSLSelectors+0x30>))`, donc le bonde est CELESTINE, la mere du
+    # summon). Classe native ETABLIE par `frida/classes.tsv` : `LifewardsBondEffect` a pour base
+    # `IdunBattle.Entities.Effects.ABondEffect`, et son `$$CreateActiveCondition` est le SEUL corps
+    # propre qu'elle porte.
+    # MESURE `--step declared` du 2026-08-15 sur le build `t6dpr4k06g` (rejouable) :
+    #     LifewardsBondEffect | get_Range = OWN=none | get_Adjacent = OWN=false
+    #                         | get_RemoveOnBondedEntityDeath = OWN=true
+    #     TRIGGERS DE RETRAIT CONSTRUITS : LifewardsBondEffect -> a
+    # ⚠ **CETTE LIGNE EST LA CONTRE-EPREUVE DE << lire le bloc `methodPointers` suffit >>** : ce bloc
+    # ne porte que DEUX entrees pour cette classe (`.ctor`, `CreateActiveCondition`), ce qui
+    # donnerait a croire qu'aucun des trois gates n'est declare. Un virtuel a corps TRIVIAL est
+    # ICF-deduplique -- absent du bloc des CORPS, present dans la METADATA que lit
+    # `class_get_methods`. Conclure du bloc seul aurait pose `(False, None, False)`, donc AUCUN
+    # retrait : le bond aurait survecu a la mort de Celestine, en silence.
+    # OBSERVABLE : Celestine meurt -> le bond 1060 tombe de la Geminae.
+    int(EffectType.Lifewards_BondEffect): BondRemovalGates(
+        "IdunBattle.Entities.Effects.Loki.LifewardsBondEffect", True, None, False),
     # Pose par `TunnelingHorrorAbility$$ExecuteBehaviour` (#366-r1) sur la TUILE visee,
     # `bondedEntity` = le caster -- qui QUITTE le plateau dans le meme cast
     # (`RemoveUnitFromItsTiles(Caster, true)`, donc `On(0x25 = UnitRemoved)` sur le bonde).
