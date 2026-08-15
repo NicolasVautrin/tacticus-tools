@@ -441,12 +441,26 @@ def test_les_deux_sites_REPARES_ont_quitte_le_gisement_par_le_HAUT(arbres_reels)
 def test_les_natifs_SUSPENDUS_le_sont_pour_une_raison_qui_se_MESURE(arbres_reels):
     """Le registre suspendu n'est pas une echappatoire : sa justification se re-mesure.
 
-    `AdjacentTiles` / `AdjacentUnits` sont LUS comme substrat stocke
-    (`DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(origin)) - origin`,
-    `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`), mais les armer ferait rougir des
-    mirrors DECISION hors du perimetre qui les a lus. Ce test verifie que la suspension est
-    JUSTIFIEE aujourd'hui -- c'est-a-dire que l'armer rougirait vraiment."""
-    assert G.NATIFS_LISTE_STOCKEE_SUSPENDUS, "registre vide : ce test ne garde plus rien"
+    Un natif LU comme substrat stocke peut y vivre TANT QUE l'armer ferait rougir un vice ENCORE
+    OUVERT ; des que ce n'est plus vrai, la suspension EST le vice, et l'etape 5 le dit.
+
+    ⚠ LE REGISTRE EST VIDE DEPUIS #943-r7 (2026-08-15), ET << VIDE >> N'EST PAS << VACANT >>. Le
+    `assert NATIFS_LISTE_STOCKEE_SUSPENDUS` qui vivait ici exigeait qu'il reste au moins une
+    suspension -- c'est-a-dire qu'il exigeait un VICE, exactement l'inverse de ce que l'etape 5
+    prescrit. Les quatre natifs qui y ont vecu en sont sortis PAR LE HAUT, chacun a la demande de
+    l'etape 5 une fois son dernier foyer cable. Ce que ce test garde desormais :
+      * la boucle de justification, INCHANGEE, pour tout natif qui y entrerait a nouveau ;
+      * et, a sa place, le cran qui empeche << vide >> de vouloir dire << oublie >> : les quatre
+        natifs sortis doivent etre ARMES. Un natif LU qui ne serait NI arme NI suspendu serait en
+        SILENCE TOTAL -- le mode de defaillance que #983 a paye sur `AdjacentEnemies`.
+    La capacite du mecanisme a MORDRE reste gardee par
+    `test_etape5_ROUGIT_sur_une_suspension_perimee`, qui suspend un nom synthetique."""
+    for nat in ("AdjacentTiles", "AdjacentUnits", "AdjacentFriends", "AdjacentEnemies"):
+        assert nat in G.NATIFS_LISTE_STOCKEE, (
+            "%s a quitte le registre SUSPENDU sans entrer a la liste ARMEE : il serait en SILENCE "
+            "TOTAL, ni vu de l'etape 2/4 ni re-mesure par l'etape 5" % nat)
+        assert nat not in G.NATIFS_LISTE_STOCKEE_SUSPENDUS, (
+            "%s est a la fois ARME et SUSPENDU : l'etape 5 mesurerait un delta toujours vide" % nat)
     base = G.NATIFS_LISTE_STOCKEE
     for nat in sorted(G.NATIFS_LISTE_STOCKEE_SUSPENDUS):
         try:
