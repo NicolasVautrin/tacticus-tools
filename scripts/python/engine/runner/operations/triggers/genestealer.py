@@ -408,7 +408,11 @@ class AmbushSummonAbility(TriggeredAbility):
     """`Ambush_SummonAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour). A la MORT d'un porteur
     Ambush : `On(UnitDefeated=54) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` -> pose 1 decoy genesSmnDecoy sur
     la tuile du mort (sinon adjacente libre), ForSteppable (feuille Spawn = G1). ENREGISTRE aussi `turn_defeated`
-    (base du delai de resurrection). `fire_on_death` : l'owner EST l'unite morte (alive=False)."""
+    (base du delai de resurrection).
+
+    `fire_on_death` : l'owner EST l'unite morte (alive=False). CONFRONTE au build (#10015) --
+    `Ambush_SummonAbility` SURCHARGE `get_AllowForDeadOwner` (`ITriggeredAbility` slot 8) et son corps
+    rend VRAI (`b0 01 c3`). Accord port/natif."""
     event_id = int(EventTriggerType.UnitDefeated)         # 54 (0x36) -- litteral re-derive en #301
     fire_on_death = True
 
@@ -430,6 +434,18 @@ class AmbushSummonAbility(TriggeredAbility):
         uc = e.get_component(UnitComponent) if e is not None else None
         oc = e.get_component(OwnerComponent) if e is not None else None
         # TurnDefeated = compteur de tours du joueur du porteur A LA MORT (base du delai `Difference == 1`).
+        #
+        # ⚠ **COMPENSATION NOMMEE, et l'ECRIVAIN natif est desormais IDENTIFIE** (le residu
+        # `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1` disait le contraire) : c'est
+        # `IdunBattle.Operations.RemoveUnitOperation$$Execute+0x4f6`, SEUL ecrivain semantique de
+        # `UnitComponent+0x17c` dans tout le binaire (balayage a l'encodage, cf.
+        # `runner/components.py`), et il est desormais PORTE dans `operations/remove_unit.py`.
+        # `Ambush_SummonAbility$$GetSummonBehaviour` n'ecrit toujours RIEN de tel -- cette ligne-ci
+        # reste donc un ECART. Elle est GARDEE parce que `KillUnitOperation$$Execute` n'appelle
+        # jamais `IOperationProcessor` slot 6 = `RemoveUnit` (ses appels sont 77/80/85/99/130/143) :
+        # cote port, une unite TUEE n'atteint pas `RemoveUnitOperation`, donc sans cette pose
+        # `EnvAmbushResurrect` ne ressusciterait JAMAIS personne. Ce qui reste a etablir est la
+        # chaine native qui retire du plateau une unite tuee.
         if uc is not None:
             uc.turn_defeated = state.turn_counts.get(int(oc.player), 0) if (oc is not None and oc.player is not None) else 0
         tile = _free_tile_or_adjacent(state, _pos_of(state, u))     # FreeTilesOrAdjacentFreeTiles(Tiles(target))
@@ -447,7 +463,25 @@ class EnvAmbushResurrectAbility(TriggeredAbility):
 
     `fire_on_death` : l'owner (porteur Ambush) est en general MORT quand il ressuscite. Le behaviour est GLOBAL
     (enumere TOUS les eligibles) -> IDEMPOTENT via le flag 0xe : la 1re instance a fire ressuscite tout le
-    monde (pose 0xe sur chacun), les instances suivantes trouvent `_eligible_for_resurrect` vide (matches False)."""
+    monde (pose 0xe sur chacun), les instances suivantes trouvent `_eligible_for_resurrect` vide (matches False).
+
+    ⚠ **ET C'EST UN DESACCORD MESURE AVEC LE BUILD -- #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1
+    RE-ENONCE.** La fiche du residu affirmait << elle est ATOMIQUE, donc dispensee du gate `IsAlive`
+    de `CanGetAbilityTrigger` >>. **FAUX** : `EnvAmbushResurrectAbility` ne declare PAS
+    `get_AllowForDeadOwner` (sa table de methodes ne porte que `CreateTrigger`, `CreateBehaviour`,
+    `GetValidDecoys`, `GetUnitsEligibleForResurrect`, `GetIsAlliedWithCurrentPlayerUnitTrigger`,
+    `GetIsCurrentPlayerUnitTrigger`, `.ctor`), donc elle HERITE celui de `BaseTriggeredAbility`, dont
+    le corps rend **FAUX** (`32 c0 c3`). Si son owner natif etait une UNITE, un porteur mort serait
+    donc gate DEHORS -- l'inverse exact de ce que la fiche disait.
+
+    L'attribut est GARDE malgre ce desaccord, et la raison est nommee : `Env*Ability` est une famille
+    de **25** classes d'environnement, et le port les attache a la seule voie qu'il connaisse (le
+    trait `Ambush`). Si l'owner natif n'est PAS une unite -- ce que `EnvAmbushResurrectAbility$$
+    CreateTrigger` laisse ouvert, son arbre ne portant AUCUN predicat d'owner --, alors
+    `IsUnit(owner)` est faux et les DEUX gates de `CanGetAbilityTrigger` sont sautes : le natif fire,
+    et `fire_on_death = True` est la bonne compensation. Le retirer sur la seule foi d'une valeur
+    heritee alignerait le code sur une premisse NON ETABLIE (l'identite de l'owner), exactement le
+    vice que #1045-r2 documente. Ce qui reste a trancher est donc l'OWNER, pas l'atomicite."""
     event_id = int(EventTriggerType.TurnStart_Actions)    # 22 (0x16)
     fire_on_death = True
 
