@@ -47,14 +47,23 @@ pouvait pas le savoir depuis lui.** `frida/methods.tsv` est indexe par ADRESSE e
 corps identiques, donc une methode surchargee y DISPARAIT si son corps est partage. Le comptage qui
 tranche est celui du bloc `methodPointers` du PE, ou **chaque proprietaire a SA propre entree** :
 
-    18326e540  ->  InescapableDeathEffect$$.ctor
-    18326e548  ->  InescapableDeathEffect$$GetHitReductionEffectType
-    18326e550  ->  InescapableDeathEffect$$GetOverwatchExtraDamage        <- corps PARTAGE (cf. §5)
-    18326e558  ->  InescapableDeathEffect$$GetAdditionalExtraDamageTrigger
+    slot 0  ->  InescapableDeathEffect$$.ctor
+    slot 1  ->  InescapableDeathEffect$$GetHitReductionEffectType
+    slot 2  ->  InescapableDeathEffect$$GetOverwatchExtraDamage           <- corps PARTAGE (cf. §5)
+    slot 3  ->  InescapableDeathEffect$$GetAdditionalExtraDamageTrigger
 
 Quatre entrees contigues, quatre methodes. **Aucune n'adresse `LegitDeathReasons`** => cette classe
 n'override PAS `LegitDeathReasons` et prend celle de la base (§4). C'est l'inverse exact de sa
 soeur `EarlyWarningOverride_ReactivateOverwatchEffect`, qui elle l'override.
+
+⚠ **CE TABLEAU PORTAIT QUATRE VA ABSOLUES, ET LES QUATRE ETAIENT PERIMEES (#924-r1, 2026-08-15).**
+Elles avaient ete lues sur `rnca9r7q6c` ; re-mesurees sur `t6dpr4k06g`, le bloc est ailleurs et le
+corps aussi -- churn de **100 %**, exactement ce que le CLAUDE.md annonce pour les adresses (les
+NOMS, eux, sont stables a 97,5 %). La STRUCTURE, elle, est confirmee a l'identique : quatre entrees
+contigues, `GetOverwatchExtraDamage` en 3e position, aucune sur `LegitDeathReasons`.
+D'ou l'ecriture par SLOT ci-dessus : elle survit au changement de build, et se re-verifie en un
+`list_xrefs` sur `<Classe>$$.ctor` (l'unique xref DATA donne la tete du bloc) suivi d'un
+`read_bytes` de 4 pointeurs.
 
 Les corps :
 
@@ -103,16 +112,42 @@ De meme, aucun `LegitDeathReasons` propre (§2), aucun filtre d'`Immune`, aucun 
 
 ## 5. Le corps PARTAGE, et le residu qu'il ouvre (#924-r1)
 
-`GetOverwatchExtraDamage` @`18104dd20` porte **DEUX** entrees `methodPointers` :
+Le corps de `GetOverwatchExtraDamage` est **PARTAGE par EXACTEMENT DEUX proprietaires** (ICF) : le
+code est identique parce que toute la variabilite passe par `this` (`config@0x60`). Les deux, et
+eux seuls :
 
-    18326d848  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$GetOverwatchExtraDamage
-    18326e550  ->  InescapableDeathEffect$$GetOverwatchExtraDamage
+    <bloc de EarlyWarningOverride_ReactivateOverwatchEffect>, slot 2  ->  ce corps
+    <bloc de InescapableDeathEffect>,                          slot 2  ->  ce corps
 
-Un seul corps, deux proprietaires (ICF) : le code est identique parce que toute la variabilite passe
-par `this` (`config@0x60`). **`EarlyWarningOverride` (1145) override donc AUSSI `GetOverwatchExtraDamage`**,
-et sa variable `extraDmg` existe et est non nulle dans le gameconfig -- sa face DEGAT est VIVANTE et
-n'est PAS portee. Ce n'est pas dans le perimetre de #924 (son montage est distinct : `tauCrisis`) :
-residu **#924-r1**.
+**`EarlyWarningOverride` (1145) override donc AUSSI `GetOverwatchExtraDamage`**, et sa variable
+`extraDmg` existe et est non nulle dans le gameconfig -- sa face DEGAT est VIVANTE et n'est PAS
+portee : residu **#924-r1**.
+
+⚠ **RE-MESURE COMPLETE DU 2026-08-15 SUR `t6dpr4k06g` (#924-r1) -- LA PREMISSE TIENT, LES TROIS VA
+QUI L'ETAYAIENT ETAIENT FAUSSES.** La fiche du backlog citait un bloc `18326d838..d850` pour 1145 ;
+decode sur le build courant, ce bloc porte des corps `18103d*` **sans aucun rapport**. Le vrai bloc
+de 1145 a ete retrouve par `list_xrefs` sur ses trois methodes nommees, puis borne par lecture des
+pointeurs voisins :
+
+    slot 0  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$.ctor
+    slot 1  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$GetHitReductionEffectType
+    slot 2  ->  <le corps PARTAGE de GetOverwatchExtraDamage>
+    slot 3  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$LegitDeathReasons
+    (slot suivant : EarlyWarningOverride_VisualEffect$$.ctor -- la classe a CHANGE, donc le bloc
+     fait EXACTEMENT quatre entrees)
+
+QUATRE entrees, dont le corps partage en 3e position : **la premisse de #924-r1 est CONFIRMEE**.
+Et la BASE `AReactivateOverwatchEffect` ne porte PAS ce corps dans son propre bloc -- 1145
+l'OVERRIDE, elle ne l'herite pas.
+
+⚠ **LES DEUX SOEURS SONT DES MIROIRS CROISES, et c'est ce que le comptage etablit** :
+
+    InescapableDeathEffect   : override GetAdditionalExtraDamageTrigger, PAS LegitDeathReasons
+    EarlyWarningOverride_... : override LegitDeathReasons, PAS GetAdditionalExtraDamageTrigger
+
+Consequence pour qui portera 1145 : son 3e conjoint de declencheur (`<vtable +0x768>`) est celui de
+la BASE, pas l'`IsOverwatchAttack()` d'`InescapableDeath`. Recopier le §3 tel quel serait le piege
+du voisin de forme -- et le voisin est litteralement la classe soeur.
 
 ⚠ La docstring de `reactivate_overwatch.py` affirmait « 1145 n'override PAS `GetOverwatchExtraDamage` ».
 C'etait une lecture du seul dump FRIDA, ou l'entree de 1145 est absente pour cause d'ICF -- corrigee
