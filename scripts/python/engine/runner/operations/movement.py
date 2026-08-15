@@ -1153,9 +1153,24 @@ class MoveUnitOperation(Operation):
             foreach (var tile in position) TileExtensions.RemoveReserveForUnit(tile, unit);
 
         Le gate d'identite est DANS `RemoveReserveForUnit` (une unite ne libere que SA propre
-        reservation) -- cf. `operations/tile_reservation.py`. Quatre call-sites natifs, tous portes :
-        les trois abandons (`TilesAreEmpty` faux, override invalide/mort, `path` vide) et le chemin
-        nominal."""
+        reservation) -- cf. `operations/tile_reservation.py`.
+
+        ⚠ **TROIS instructions d'appel dans le binaire, CINQ chemins logiques** -- et le compte
+        « quatre call-sites » porte ici jusqu'a #448-r1-r2-r1 en OUBLIAIT un, celui de la RELANCE,
+        que le port jouait pourtant deja. Les xrefs de
+        `IdunBattle.Operations.MoveUnitOperation$$RemoveReservation` rendent exactement trois
+        `UNCONDITIONAL_CALL`, toutes dans `IdunBattle.Operations.MoveUnitOperation$$Execute` :
+
+          1. le LABEL D'ABANDON PARTAGE, ou convergent TROIS tests distincts du decompile --
+             `TilesAreEmpty` faux, `!ovr.HasValue || IsDead(unit)`, et `path == null ||
+             path.Count == 0` (ce dernier apres son log) ;
+          2. la RELANCE : juste avant `options+0x12 = 1` et l'appel recursif d'`Execute` sur la
+             destination deviee ;
+          3. le chemin NOMINAL, apres `SetMovedFlag` / `Add(ArrivedAtFinalTile)` / le bloc
+             `Nullable<AbilityOrEffect>` et AVANT le calcul de `movementSteps`.
+
+        Le port a bien ses cinq sites (les quatre abandons + le nominal) : c'etait l'ENONCE qui
+        etait faux, pas le code."""
         for t in position:
             tile_reservation.remove_reserve_for_unit(state, t, self.unit_id)
 
