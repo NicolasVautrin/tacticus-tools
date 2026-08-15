@@ -1056,11 +1056,23 @@ class BaseEffect:
         devine."""
         return None
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True, attacker_ctx=None) -> int | None:
         """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0)).
         `is_normal_attack` : certaines pénétrations sont gated attaque normale (i2 PowerTrip
         « NORMAL attacks ignore X Armour » — GROUND TRUTH step-13 : DakkaDakkaDakka (spéciale) du même
-        porteur ne bénéficie PAS des 499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine)."""
+        porteur ne bénéficie PAS des 499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine).
+
+        ⚠ **Le slot natif est `vtable +0x718` (slot 94), PAS un slot d'interface `IEffect`** (#1008-r2).
+        Il est invoqué par les DEUX faces — `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`
+        (slot `0x16`) et `...$$DamageMalusForDefense` (slot `0x1a`) — qui rangent la formule évaluée dans
+        `DamageBonus+0x38`, accumulé en `DamageModifiers+0x28`, puis SOMMÉ entre les deux faces par
+        `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`. Ce canal est
+        donc appelé par `_attacker_effect_bonuses` ET par `build_defender_modifiers_from_effects`.
+
+        `attacker_ctx` = `{id, is_normal_attack, faction, ...}` de l'ATTAQUANT, threadé par le site
+        DÉFENSEUR (les deux façades le posent déjà). Il porte la gate que le natif place, lui, dans le
+        TRIGGER de l'`EffectBonus` du même effet — cf. l'écart d'un étage nommé au site d'appel. Les
+        implémentations ATTAQUANTES préexistantes l'ignorent : signature élargie, comportement inchangé."""
         return None
 
     def additional_hit_groups(self, ctx: Mapping | None = None) -> "list[dict] | None":

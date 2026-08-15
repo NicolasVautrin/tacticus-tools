@@ -246,6 +246,35 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
         pb = e.create_piercing_bonus_for_attack(damage_profile, is_melee, attacker_ctx)
         if pb is not None:
             maluses.append(pb)
+        # #1008-r2 : axe ARMURE porte par la CIBLE. `IdunBattle.Entities.Effects.BaseEffect$$
+        # DamageMalusForDefense` (le corps du slot 0x1a) n'evalue pas QUE les formules de son
+        # `EffectBonus` : elle appelle AUSSI `this.IgnoreArmor()` -- un appel virtuel de CLASSE,
+        # `vtable +0x718` (slot 94), qui rend un `IAmountFormula` = `IdunBattleLogic.Entities.
+        # DSLFormulas$$ConfigVar(AbilityVariableType.armorIgnored = 0x40, GetAbilityState(this))` --
+        # et range le resultat dans `DamageBonus+0x38`. `IdunBattle.Core.Services.DamageCalculations
+        # $$CalculateDefenderModifiersForPrediction` accumule ce champ dans `DamageModifiers+0x28`,
+        # que `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` SOMME
+        # avec celui de l'attaquant pour former l'argument `ignoreArmor` de
+        # `$$GetBaseDamageWithFixedPiercedArmor` (`armor_eff = Max(Armor - ignoreArmor, 0)`).
+        # `BaseEffect$$DamageBonusForAttack` (slot 0x16) appelle le MEME +0x718 vers le MEME
+        # `DamageBonus+0x38` : les deux faces sont symetriques, et ce site est le pendant exact de
+        # `_attacker_effect_bonuses`. Porteurs defenseurs : `Helspear_IgnoreArmorEffect` (1583) et
+        # `StrikeFromTheShadowsEffect` (1549, pas encore porte -> #1008-r4).
+        # ECART D'UN ETAGE, ASSUME : le natif n'appelle `IgnoreArmor()` que SOUS le trigger de
+        # l'`EffectBonus` du meme effet (pour Helspear : `get_OwnerIsTarget & IsUnit(Caster)`).
+        # Imbriquer cet appel sous `mb is not None` serait plus fidele MAIS rendrait l'effet MUET :
+        # le port modelise l'`EffectBonus` condition-seule par `None` (ces classes ne surchargent
+        # pas `create_effect_damage_malus_for_defense`). On garde donc l'appel INDEPENDANT -- comme
+        # le fait deja la face attaquant -- et la gate est portee DANS `get_armor_penetration` par
+        # l'effet lui-meme (`HelspearIgnoreArmorEffect.applies_to_incoming_attack`).
+        # `is_normal_attack` est lu depuis `attacker_ctx`, ou les DEUX appelants le posent deja
+        # (`playbook/prediction/_shared.py`, `runner/damage_model.defender_modifiers`) : aucun
+        # threading de signature. Absent -> `True`, le defaut de la signature ; aucun porteur
+        # defenseur actuel ne lit ce parametre (leurs gates sont `IsUnit` / `IsRangedAttack`).
+        pen = e.get_armor_penetration((attacker_ctx or {}).get("is_normal_attack", True),
+                                      attacker_ctx=attacker_ctx)
+        if pen is not None:
+            maluses.append(for_armor_penetration(False, pen))
     acc = build_defender_modifiers(maluses)
     # Moitié DEFENSE (1re du natif) : chaque modification du DefenseComponent → entrée %-list `1±v/100`
     # via `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` (negate=1). GROUND TRUTH #194/#197 (C2_19,

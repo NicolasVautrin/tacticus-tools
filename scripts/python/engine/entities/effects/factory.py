@@ -1361,9 +1361,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EST dediee (`IdunBattle.Entities.Effects.Loki.Helspear_IgnoreArmorEffect`, 1152 octets), et son
     # `CreateEffectDamageMalusForDefense` est un `EffectBonus` CONDITION-SEULE a valeur nulle -- la
     # magnitude vit dans le slot `IgnoreArmor` (corps FONDU avec `WayOfTheShortBladeEffect$$IgnoreArmor`).
-    # ⚠ Cette magnitude n'atteint PAS le calcul : le canal `get_armor_penetration` du port est
-    # ATTAQUANT-side alors que le porteur est le DEFENSEUR. Residu `#1008-r2`, BLOCAGE `etage` --
-    # detail et point d'ancrage dans `entities/effects/loki/helspear.py`.
+    # ⚠ La ligne qui vivait ici (<< cette magnitude n'atteint PAS le calcul, canal ATTAQUANT-side >>)
+    # etait FAUSSE et `#1008-r2` est RESOLU : le canal `get_armor_penetration` est appele par les DEUX
+    # boucles, parce que le natif invoque le MEME slot `vtable +0x718` depuis
+    # `BaseEffect$$DamageBonusForAttack` (0x16) ET `BaseEffect$$DamageMalusForDefense` (0x1a), et SOMME
+    # les deux `DamageModifiers+0x28` dans `DamagePrediction$$CalculateBaseDamageWithAllModifiers`.
+    # L'`EffectBonus` condition-seule n'est pas un no-op : c'est le PORTEUR DE LA GATE.
+    # Detail : `docs/rl/case-1008r2-ignorearmor-canal-defenseur.md`.
     "Helspear_IgnoreArmor": HelspearIgnoreArmorEffect,
     # DespoiledGround_ExtraDamagePct (0x5c6=1478) : le buff +15 % degat (BC `DespoiledGroundExtraDmgPct`)
     # pose sur l'unite CHAOS qui demarre son tour sur une tuile DespoiledGround, actif contre les cibles

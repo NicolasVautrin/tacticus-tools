@@ -2031,7 +2031,11 @@ class PowerTripIgnoreArmorEffect(BaseEffect):
     `armorReduction` (full-health) = axe SÉPARÉ (debuff stateful de la stat FixedArmor cible, hors
     prédiction — la prédiction lit l'armure courante) → non porté ici (cf. PowerTrip_OnAttackAbility)."""
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True, attacker_ctx=None) -> int | None:
+        # `attacker_ctx` IGNORÉ ici : cet effet est ATTAQUANT (`PowerTrip_IgnoreArmorEffect$$
+        # CreateEffectDamageBonusForAttack`, trigger `IsNormalAttack & get_OwnerIsCaster &
+        # !get_OwnerIsTarget`), donc son porteur EST l'attaquant. Signature élargie par #1008-r2
+        # pour le site DÉFENSEUR, comportement inchangé.
         # Gate ATTAQUE NORMALE (i2 : « Normal attacks ignore X Armour ») — GROUND TRUTH step-13 :
         # DakkaDakkaDakka (spéciale, même porteur u90) per-coup natif 404/728 vs 78 = armure PLEINE
         # (2208), la pénétration 499 ne s'applique qu'au normal (per-coup 416/1598).
@@ -2050,8 +2054,12 @@ class KanOpenerEffect(BaseEffect):
     ⚠ KillaKan n'a PAS KanOpener (kit = PowerTrip) ; clé 0x40 → nom var gameconfig non résolu pour les
     unités qui l'ont → pénétration None tant qu'inconnue (à mapper quand on porte une unité KanOpener)."""
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True, attacker_ctx=None) -> int | None:
         # TODO: mapper la clé 0x40 → var gameconfig (per-niveau) puis return ability_var(..., self.level).
+        # ⚠ #1008-r5 : le TRIGGER de `KanOpenerEffect$$CreateEffectDamageBonusForAttack` n'est PAS LU —
+        # la gate `is_normal_attack` ci-dessus est celle de PowerTrip, recopiée par analogie. À
+        # confronter avant de renseigner la clé, sinon la magnitude entrera sous la mauvaise condition.
+        # `attacker_ctx` ignoré (effet ATTAQUANT ; signature élargie par #1008-r2).
         return None
 
 
