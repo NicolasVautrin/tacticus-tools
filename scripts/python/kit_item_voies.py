@@ -415,6 +415,20 @@ ECARTES: dict[tuple[str, str], str] = {
     ("engine.services.movement_query", "SPECIAL_MOVEMENT_PATHFINDER_TYPES"):
         "FAIT NATIF : les huit `PathfinderType` que rend la branche MOUVEMENT SPECIAL. Ses "
         "VALEURS sont d'un autre enum encore, et ses clefs sont celles du voisin ci-dessus.",
+    ("engine.services.static_battle_rules", "PARTIAL_ATTACK_TRIGGERED_ABILITY_TYPES"):
+        "FAIT NATIF : le `HashSet` statique `+0x80` que lit "
+        "`StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility`. Transcription verbatim d'un "
+        "predicat natif (LU par les octets du PE, son `.cctor` faisant 0xd120 octets), aucun "
+        "montage -- meme statut que son voisin `TILE_STATUS_EFFECT_TYPES` du meme module. "
+        "Mesure : 0 bascule.",
+    ("engine.services.static_battle_rules", "PARTIAL_ATTACK_EFFECT_TYPES"):
+        "FAIT NATIF : le `HashSet` statique `+0x38` que lit "
+        "`StaticBattleRules.Effect$$IsPartialAttack`. Pendant exact du precedent sur l'AUTRE enum. "
+        "⚠ SA SEULE BASCULE EST FAUSSE, et le module l'annonce lui-meme (<< les deux sets sont "
+        "dans deux enums differents, et l'ordinal ne les distingue pas >>) : sous la clef "
+        "`EffectType` qu'il DECLARE, `1077` nomme `HazeOfCorruption_DamageTransfer` ; un balayage "
+        "qui resoudrait son ordinal dans les trois enums ferait basculer `Volatile`, un "
+        "`TriggeredAbilityType` a ordinal egal que rien ne monte.",
     ("engine.services.static_battle_rules", "TILE_STATUS_EFFECT_TYPES"):
         "FAIT NATIF : les effets de STATUT DE TUILE. Aucun n'est monte par un item de kit -- ils "
         "sont poses par le terrain.",

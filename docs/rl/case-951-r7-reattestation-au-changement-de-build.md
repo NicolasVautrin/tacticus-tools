@@ -127,7 +127,18 @@ l'apparence — le discriminant est *« est-ce CE conteneur qui établit le mont
 ⚠ Le message du test mettait en garde : *« un power-up paraît n'être pas un item de kit »*. **Vérifié,
 ils le sont** — une unité `powup<X>` par passif (kind `npc`), voie d'attribution `passiveAbilities`.
 
-Effet : MUETS **4 → 0**, VOIES 20 → 22, ÉCARTÉS 27 → 29, items PORTE **inchangé (428)**.
+⚠ **Le REBASE en a fait apparaître DEUX de plus, et c'est la raison d'être du re-jeu après rebase.**
+Les 8 commits d'amont ont apporté `static_battle_rules.PARTIAL_ATTACK_TRIGGERED_ABILITY_TYPES` et
+`…PARTIAL_ATTACK_EFFECT_TYPES` (#1113) : deux **FAITS NATIFS** — les `HashSet` statiques `+0x80` et
+`+0x38` que lisent `StaticBattleRules.TriggeredAbility$$IsPartialAttackAbility` et
+`StaticBattleRules.Effect$$IsPartialAttack` — donc **écartés**, comme leur voisin
+`TILE_STATUS_EFFECT_TYPES` du même module. Le second a **1 bascule, FAUSSE** : sous la clé
+`EffectType` qu'il déclare, `1077` nomme `HazeOfCorruption_DamageTransfer`, mais un balayage à trois
+enums ferait basculer `Volatile` — et c'est le module lui-même qui met en garde (« les deux sets
+sont dans deux enums différents, et l'ordinal ne les distingue pas »).
+
+Effet : MUETS **4 → 0** (puis **2 → 0** après rebase), VOIES 20 → 22, ÉCARTÉS 27 → **31**, items
+PORTE **inchangé (428)**.
 
 ## Résidus ouverts
 
