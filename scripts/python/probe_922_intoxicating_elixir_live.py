@@ -518,11 +518,15 @@ def stage_degat(h, a, n: int, cfg: dict):
 
 
 def frappe(h, rec):
-    live = h.rpc("applyAction", {"runnerId": h.rid, "action": {
+    live = h.rpc("applyAction", {"runnerId": h.rid, "captureEvents": True, "action": {
         "kind": "ability", "casterId": rec["caster"], "targetId": rec["target"],
         "abilityType": int(rec["ability_type"])}}, 60)
     a0 = (live.get("actions") or [{}])[0]
     hits = []
+    # #922-r1 volet (a) -- DECOMPOSITION PAR ETAGE. Le montant seul ne separe PAS « le natif a
+    # crit et le port non » de « les deux ont crit, la crit-DAMAGE differe ». On garde les tags
+    # BRUTS de chaque coup, dont le natif publie le detail (`IsCrit`, `IsBlocked`, profil...).
+    rec["live_tags"] = []
     for e in (a0.get("events") or []):
         td = e.get("tags")
         if not td:
@@ -531,6 +535,7 @@ def frappe(h, rec):
         if ("Amount" in td and td.get("Attacker_Id") == rec["caster"]
                 and td.get("Target_Id") == rec["target"]):
             hits.append(int(td["Amount"]))
+            rec["live_tags"].append(td)
     if not a0.get("ok") or not hits:
         return None, "attaque live refusee/vide (%s)" % str(live)[:200]
     if not any(u.get("id") == rec["target"] for u in h.alive()):
@@ -588,6 +593,26 @@ def rejeu(h, rec, mutate=None):
             EFFECT_CLASSES[EFFECT_NAME] = saved
         D.AttackDamageOperation._crit_board = orig
         D.AttackDamageOperation._crit_params = orig_params
+
+
+def etages_par_coup(h, rec) -> dict:
+    """#922-r1 volet (a) -- LES ETAGES DU PORT, coup par coup, pour l'ecart qui reste une fois le
+    SEED ferme et la REACTIVATION refutee.
+
+    `ChargeRegimeHarness.replay_offline` ne rend que `per_hit` : comparer deux LISTES DE MONTANTS
+    ne separe pas « le natif a crit et le port non » de « les deux ont crit, la crit-DAMAGE
+    differe ». On refait donc ICI le meme rejeu (meme etat, meme RNG -- c'est `offline_state` qui
+    seede les deux) et on garde le dict COMPLET que publie l'operation de degat : bornes brutes,
+    bornes nettoyees, `crits`, `rolls`, armure, percage. Aucun etat n'est partage avec le rejeu
+    nominal : `offline_state` reconstruit depuis la capture a chaque appel."""
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+    st = h.offline_state(rec)
+    runner = Runner(st).install_default_handlers(20)
+    runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
+    last = dict(runner.damage_handler.last or {})
+    last.pop("state", None)
+    return last
 
 
 def etages(h, rec) -> dict:
@@ -674,6 +699,24 @@ def run_degat(a, rpc, Board, Harness, n: int, cfg: dict) -> int:
                           if _n else "AUCUNE, le residu porte sur le SEED"))
                 print("        Ecart par coup = %s"
                       % ([l - o for l, o in zip(live, off[:k])],))
+                # --- DECOMPOSITION PAR ETAGE (volet (a)) ------------------------------------
+                # Le montant seul ne dit pas OU l'ecart naît. On imprime les DEUX cotes au meme
+                # grain : les tags natifs par coup, et les etages du port.
+                print("        [ETAGE] tags NATIFS par coup :")
+                for i, td in enumerate(rec.get("live_tags") or []):
+                    print("            coup %d : %s" % (i, json.dumps(
+                        {k2: v2 for k2, v2 in sorted(td.items())
+                         if k2 not in ("Attacker_Id", "Target_Id")}, default=str)))
+                try:
+                    ep = etages_par_coup(h, rec)
+                except Exception as exc:                       # pragma: no cover - diagnostic
+                    print("        [ETAGE] rejeu du port KO : %r" % (exc,))
+                else:
+                    print("        [ETAGE] etages du PORT = %s"
+                          % json.dumps({k2: v2 for k2, v2 in sorted(ep.items())
+                                        if k2 != "additional_hits"}, default=str)[:1400])
+                print("        [ETAGE] etages scalaires = %s"
+                      % json.dumps(et, default=str, sort_keys=True))
                 return rc
             if not accord:
                 print("        !! LIVE != OFFLINE : ecart par coup = %s"
