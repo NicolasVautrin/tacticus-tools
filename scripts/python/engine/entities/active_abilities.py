@@ -96,6 +96,61 @@ PASSIVE_REMOVES_ACTIVE_ABILITY: dict[str, int] = {
     "GalvanicField": int(ActiveAbilityType.Repair),     # 0x1c = 28
 }
 
+# --- L'AUTRE MOITIE DE LA SUBSTITUTION : le passif AJOUTE la specialisation ------------------------
+#
+# `IdunBattleLogic.Entities.DSLBehaviors$$AddActiveAbility` n'a, lui aussi, que TROIS appelants de
+# code dans le build (xrefs entrantes, exhaustives -- re-mesurees sur `t6dpr4k06g` par #952-r2), et
+# ce sont EXACTEMENT les trois `CreateBehaviour` ci-dessus : chacun fait `Remove` PUIS `Add`, la
+# substitution etant un couple, jamais un retrait seul.
+#
+#   `...TwistedScienceAbility$$CreateBehaviour`
+#       RemoveActiveAbility(Owner@+0x30, 0x12) & AddActiveAbility(Owner@+0x30, **0x48f**, abilityState)
+#   `...HealingBalmsAbility$$CreateBehaviour`
+#       AddFlag(Owner@+0x30, 0x17) + RemoveActiveAbility(Owner@+0x30, 0x12)
+#                                  + AddActiveAbility(Owner@+0x30, **0x4bc**, abilityState)
+#   `...GalvanicFieldAbility$$CreateBehaviour`
+#       AddFlag(Owner@+0x30, 0x18) & RemoveActiveAbility(Owner@+0x30, 0x1c)
+#                                  & AddActiveAbility(Owner@+0x30, **0x45f**, abilityState)
+#
+# ⚠ **CE REGISTRE EXISTE PARCE QU'UNE CONVENTION DE NOMMAGE RATE DEUX CAS SUR TROIS**, et c'est
+# MESURE, pas redoute. La face DECISION derive l'ability accordee du NOM du passif
+# (`ai/state_bridge.py::_granted_abilities` : `Heal_<Passif>` resolu dans l'enum). Sur les trois
+# artefacts natifs :
+#     TwistedScience  0x48f = `Heal_TwistedScience`   -> `Heal_TwistedScience`  TROUVE  (1167)
+#     HealingBalms    0x4bc = `HealingBalms_Heal`     -> `Heal_HealingBalms`    None
+#     GalvanicField   0x45f = `Repair_GalvanicField`  -> `Heal_GalvanicField`   None
+# La convention ne marche que pour celui dont l'enum est, par accident, nomme dans ce sens-la. C'est
+# le CLAUDE.md mot pour mot : la VOIE ne dit pas l'enum -- seul le NOM ecrit au site, ici le
+# LITTERAL du decompile, tranche. Effet mesure du trou : le repli kit d'`admecManipulus` rendait
+# `[1117]` la ou le natif rend `[1117, 1119]` (mesure live #952, runner 367 board MC1_67).
+#
+# ⚠ AUCUNE des trois entrees n'est un mensonge de couverture : les trois ids ont une classe dans
+# `runner/abilities/handler.py::ABILITY_CLASSES` (`Repair_GalvanicFieldAbility`,
+# `HealingBalms_HealAbility`, `TwistedScience_HealAbility`), donc le runner sait EXECUTER ce que
+# cette table fait apparaitre.
+#
+# ⚠ Meme cle que son jumeau ci-dessus -- le nom du PASSIF, pas celui de l'ability posee : c'est le
+# passif qui porte le `CreateBehaviour` ou vit le litteral.
+PASSIVE_ADDS_ACTIVE_ABILITY: dict[str, int] = {
+    "TwistedScience": int(ActiveAbilityType.Heal_TwistedScience),      # 0x48f = 1167
+    "HealingBalms": int(ActiveAbilityType.HealingBalms_Heal),          # 0x4bc = 1212
+    "GalvanicField": int(ActiveAbilityType.Repair_GalvanicField),      # 0x45f = 1119
+}
+
+
+def passive_granted_active_ability_ids(passive_names) -> list[int]:
+    """Ids `ActiveAbilityType` que les PASSIFS d'une unite ajoutent a son `ActiveAbilityComponent`
+    -- l'`AddActiveAbility` de leur `CreateBehaviour`, la moitie AJOUT de la substitution dont
+    `derived_active_ability_ids` porte deja la moitie RETRAIT.
+
+    `passive_names` : les passifs de l'ENTITE (`UnitContext.passive_abilities`), ou le kit en repli
+    -- MEME substrat et MEME tri-etat que le retrait. `None` = canal MUET -> AUCUN ajout ; c'est une
+    BORNE nommee, pas une mesure.
+
+    Ordre STABLE (celui du registre), pour que deux appels rendent la meme liste."""
+    have = list(passive_names or ())
+    return [aid for name, aid in PASSIVE_ADDS_ACTIVE_ABILITY.items() if name in have]
+
 
 def trait_derived_active_ability(trait_name: str) -> "int | None":
     """`...StaticBattleRules.Trait$$GetActiveAbility(trait)` -- l'id `ActiveAbilityType` que ce trait
@@ -162,6 +217,7 @@ def entity_active_ability_ids(unit_ctx, visual_id: "str | None" = None) -> list[
 
     ⚠ NON CACHE : le champ est MUTABLE (deux entites de meme `visualId` n'ont pas le meme kit des
     qu'une greffe est en jeu)."""
+    passives = None
     if unit_ctx is not None:
         got = getattr(unit_ctx, "active_abilities", None)
         if got is not None:
@@ -173,4 +229,25 @@ def entity_active_ability_ids(unit_ctx, visual_id: "str | None" = None) -> list[
             return out
         if visual_id is None:
             visual_id = getattr(unit_ctx, "visual_id", None)
-    return kit_active_ability_ids(visual_id)
+        passives = getattr(unit_ctx, "passive_abilities", None)
+    # REPLI -- le canal n'est pas mesure, donc on reconstruit ce que la fabrique laisse derriere
+    # elle, et pas seulement le kit statique. `AddActiveAbility` (#952-r2) en fait partie : sans lui
+    # `admecManipulus` rendait `[1117]` la ou le natif rend `[1117, 1119]`.
+    #
+    # SUBSTRAT DES PASSIFS -- MEME tri-etat que le champ ci-dessus, et pour la MEME raison (#264 /
+    # #931-r2) : la mesure d'entite (`UnitContext.passive_abilities`) prime, le kit gameconfig n'est
+    # qu'un repli. Une greffe `catalog_inject.write_grafted_seed_bc(..., replace=True)` REMPLACE la
+    # liste, donc lire le kit sur une unite greffee donnerait la mauvaise substitution.
+    #
+    # ⚠ BORNE NOMMEE, pas un oubli : ce repli ne porte toujours PAS les abilities DERIVEES D'UN
+    # TRAIT (`derived_active_ability_ids`, ex. `18 Heal` du trait `Healer`). Elles ont leur propre
+    # canal sur la face DECISION (`ai/state_bridge.py::_abilities_of`, 4e source) ; les ajouter ici
+    # serait un elargissement que rien n'a mesure.
+    if passives is None and visual_id:
+        import gameconfig as GC
+        passives = (GC.unit(visual_id) or {}).get("passiveAbilities") or ()
+    ids = list(kit_active_ability_ids(visual_id))
+    for aid in passive_granted_active_ability_ids(passives):
+        if aid not in ids:
+            ids.append(aid)
+    return ids

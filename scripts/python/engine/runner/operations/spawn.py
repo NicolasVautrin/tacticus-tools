@@ -833,14 +833,30 @@ def _maybe_seed_ignore_battle_fatigue(state: State, unit_id: int, team, mult: in
 
 
 def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int,
-                              ability_level: Optional[int] = None) -> bool:
+                              ability_level: Optional[int] = None,
+                              bonded: Optional[int] = None,
+                              source: Optional[int] = None) -> bool:
     """Matérialise UN owner-effect (par nom) sur l'unité dans `EffectsState`, PERMANENT (rem=None), comme les
     unités initiales seedées depuis capture — pour que `attacker_modifiers`/`defender_modifiers` (qui lisent
     `state.effects`) le voient. Idempotent (gate `has_effect`). Renvoie True si ajouté.
 
     `ability_level` = niveau de l'ability SOURCE de l'owner-effect (indexe ses variables per-niveau ; ex.
     HypersensoryAbilities.hpPct[level] = 30..50). Threadé par `_seed_ability_owner_effects` depuis
-    `ctx.passive_ability_level` ; None = fallback stack level dans l'effet."""
+    `ctx.passive_ability_level` ; None = fallback stack level dans l'effet.
+
+    `bonded` = l'ENTITE BONDEE (`BaseEffect.bonded`), c.-a-d. le 5e argument natif `bondedEntity`
+    d'`IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect`, deja RESOLU en id par l'appelant --
+    exactement comme `AddEffectOperation.execute` le recoit sur le chemin de COMBAT. C'est ce champ
+    (`+0x34` de l'objet que fabrique
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder`) qui fait basculer le natif
+    du builder ORDINAIRE au builder de BOND ; `None` / `0` = builder ordinaire, effet pose SANS lien,
+    ce qui est la degradation NATIVE et non un refus de poser. #963-r5.
+
+    `source` = `EffectComponent.SourceUnit @+0x10`, le 3e argument natif (`source`). Il valait
+    implicitement `None` pour tous les owner-effects seedes -- ce qui est exact pour le canal
+    ORDINAIRE, ou le natif passe `Owner` en source ET en cible et ou les consommateurs port
+    retombent sur `target`. Un BOND, lui, distingue les TROIS (source / target / bonded), d'ou le
+    parametre. `None` = comportement historique, strictement inchange."""
     if state.effects is None:
         state.effects = EffectsState.seed({})
     if state.effects.has_effect(unit_id, name=name):
@@ -851,10 +867,18 @@ def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int,
     # consommateurs qui font `int(effect_type)`, ex. filtre chainage G2).
     etype = EffectType.__members__.get(name)
     eff = EffectFactory.create({"name": name, "effectType": (int(etype) if etype is not None else None),
-                                "remaining": 0},               # rem 0 -> permanent
+                                "remaining": 0,                # rem 0 -> permanent
+                                "source": source},
                                ability_variables_multiplier=int(mult or 100),
                                ability_level=ability_level)
     eff.target = unit_id
+    # `DefaultBondEffectBuilder(id, abilityState, bondedEntityId)` -- le champ `+0x10` du composant de
+    # bond de l'entite-effet, que relit `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`.
+    # Ecrit ICI, a la creation de l'entite-effet, exactement comme le fait le vecteur de COMBAT
+    # (`AddEffectOperation.execute`) : le builder EST ce qui construit l'entite. `None` => builder
+    # ordinaire, champ absent -- et le lien reste `None`, jamais un `0` qui se lirait « entite 0 ».
+    if bonded is not None:
+        eff.bonded = int(bonded)
     state.effects.add_effect(unit_id, eff)
     return True
 
@@ -902,7 +926,10 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
       * `StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` (dict `ActiveAbility` +0x50,
         `ABILITY_OWNER_EFFECTS`) — chemin DIRECT, ex. GravitonRifle -> GravitonRifle_ExtraPierce (#113)."""
     import gameconfig as GC
-    from ...entities.effects.factory import get_owner_flags_added_on_ability_init
+    from ...entities.effects.factory import (BOND_PARENT_OF_OWNER,
+                                             get_owner_bond_effects_added_on_ability_init,
+                                             get_owner_flags_added_on_ability_init)
+    from ..components import parent_of
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
     # QUATRIEME source de la MEME boucle native (#1005) : l'ability TERTIAIRE, c.-a-d. l'item
@@ -938,11 +965,37 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
             return (int(getattr(_ctx, "tertiary_ability_variables_multiplier", 100) or 100),
                     getattr(_ctx, "tertiary_ability_level", None))
         return (mult, ability_level)
-    return [name for ab in abilities
-            for name in (get_owner_effects_added_on_ability_init(ab)
-                         + get_effect_to_be_added_to_owner_for_ability(ab))
+    added = [name for ab in abilities
+             for name in (get_owner_effects_added_on_ability_init(ab)
+                          + get_effect_to_be_added_to_owner_for_ability(ab))
+             if _materialize_owner_effect(state, unit_id, name, _couple(ab)[0],
+                                          ability_level=_couple(ab)[1])]
+    # CINQUIEME source de la MEME boucle native (#963-r5) : les owner-effects de type BOND, poses
+    # par `DSLBehaviors$$AddBondEffect(effectType, abilityState, source, targets, bondedEntity, ...)`
+    # sous le meme trigger d'INIT. Ils vivent dans un registre SEPARE parce qu'ils portent une
+    # donnee de plus -- le selecteur du 5e argument --, que `_materialize_owner_effect` ne savait
+    # pas ecrire : c'etait l'etage NOMME de #963-r5.
+    #
+    # Le selecteur est RESOLU ICI, par le foyer deja porte du noeud correspondant : `parent_of` est
+    # le mirror d'`IdunBattle.Entities.UnitExtensions$$GetParent(u, state, root = false)`, celui-la
+    # meme qu'appelle `IdunBattle.Entities.Selectors.ParentSelector$$Select`. Un selecteur INCONNU
+    # du registre ne fait pas deviner : `bonded` reste `None`, donc builder ORDINAIRE.
+    #
+    # ⚠ ORDRE : `UnitComponent(parent_id=...)` est pose par `spawn_unit` AVANT cet appel, donc le
+    # parent est deja lisible au moment ou l'on seede. Sur le chemin CAPTURE, l'instance est deja
+    # la (avec son `bondedEntityId` publie par `readBondLink`) et le gate `has_effect` rend un no-op
+    # exact -- ce seed ne peut donc pas ecraser une mesure.
+    for ab in abilities:
+        for name, selector in get_owner_bond_effects_added_on_ability_init(ab):
+            bonded = None
+            if selector == BOND_PARENT_OF_OWNER:
+                p = parent_of(state, int(unit_id))
+                bonded = p.id if p is not None else None
             if _materialize_owner_effect(state, unit_id, name, _couple(ab)[0],
-                                         ability_level=_couple(ab)[1])]
+                                         ability_level=_couple(ab)[1],
+                                         bonded=bonded, source=int(unit_id)):
+                added.append(name)
+    return added
 
 
 def _add_owner_flag_on_ability_init(state: State, unit_id: int, flag: int) -> bool:

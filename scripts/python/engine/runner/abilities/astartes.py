@@ -125,8 +125,13 @@ def strike_from_the_shadows_tree(state: "State"):
                                    STRIKE_FROM_THE_SHADOWS_PROFILE, is_melee=False,
                                    ability_type=int(ActiveAbilityType.StrikeFromTheShadows)),
             # eff -- sur la CIBLE (`targets = Target@+0x60`), source = le CASTER (`+0x48`).
+            # `scale_from_source` = le 2e argument natif `abilityState =
+            # get_AbilityStateReference(this)` (#1008-r4) : l'entite-effet BAKE l'etat d'ability du
+            # POSEUR, et c'est lui que relit `BaseEffect$$GetAbilityState` quand le `ConfigVar
+            # (armorIgnored)` du slot `IgnoreArmor` s'indexe. Sans lui, l'instance n'a ni niveau ni
+            # multiplicateur et la penetration retombe sur le PREMIER palier, non scale.
             AddEffect(int(EffectType.StrikeFromTheShadows), EffectType.StrikeFromTheShadows.name,
-                      Target(), source_ref=Caster(),
+                      Target(), source_ref=Caster(), scale_from_source=True,
                       duration_turns=turns_until_end_of_current_players_next_turn(state)),
         ),
         # reset -- sur l'OWNER (`+0x30`), pas sur la cible : c'est Cyrus qui repart.
@@ -153,31 +158,43 @@ class StrikeFromTheShadowsAbility(ActiveAbility):
     quatre flags que retire `ResetMovementBehavior$$Execute` (cf. `_RESET_MOVEMENT_FLAGS`). Cyrus
     peut re-bouger et attaquer normalement, pas re-caster.
 
-    L'EFFET 0x60d EST NUMERIQUEMENT INERTE, ET C'EST UNE LECTURE, PAS UN RENONCEMENT.
-    `IdunBattle.Entities.Effects.Loki.StrikeFromTheShadowsEffect` n'a que DEUX methodes
-    (`frida/methods.tsv` : `.ctor` et `CreateEffectDamageMalusForDefense`), et la seconde construit
-    son `Nullable<EffectBonus>` **INLINE**, sans passer par aucune fabrique `EffectBonus$$For*` :
+    L'EFFET 0x60d PORTE UNE PENETRATION D'ARMURE, ET L'ENONCE QUI DISAIT L'INVERSE ETAIT FAUX
+    (#1008-r4). Ce paragraphe affirmait << l'effet 0x60d est NUMERIQUEMENT INERTE >> et que
+    `IdunBattle.Entities.Effects.Loki.StrikeFromTheShadowsEffect` << n'a que DEUX methodes
+    (`frida/methods.tsv` : `.ctor` et `CreateEffectDamageMalusForDefense`) >>. La SECONDE moitie est
+    le piege que le CLAUDE.md documente en toutes lettres -- `methods.tsv` est indexe par ADRESSE et
+    IL2CPP DEDUPLIQUE (ICF) les corps partages, donc son silence ne prouve RIEN. Le bloc
+    `methodPointers` du PE, borne par `list_xrefs` sur les deux corps nommes puis par lecture des
+    pointeurs voisins (l'entree qui suit bascule sur `StructuralAnalyserAdjacentEffect$$.ctor`), en
+    porte CINQ : `.ctor`, `CreateActiveCondition` (corps ICF
+    `WisdomOfTheAncients_DamageReductionEffect$$CreateActiveCondition` = `<DSLTriggers+0x70>`
+    YesTrigger), `CreateTargetSelector` (corps ICF `WhisperingWebEffect$$CreateTargetSelector` =
+    `<DSLSelectors+0x30>` Owner), `CreateEffectDamageMalusForDefense`, et surtout **`IgnoreArmor`**
+    (corps ICF `WayOfTheShortBladeEffect$$IgnoreArmor` =
+    `ConfigVar(AbilityVariableType.armorIgnored = 0x40, GetAbilityState(this), config@this+0x60)`).
+
+    LA PREMIERE moitie, elle, etait une lecture EXACTE : `CreateEffectDamageMalusForDefense`
+    construit bien son `Nullable<EffectBonus>` **INLINE**, sans aucune fabrique `EffectBonus$$For*` :
 
         trigger = DSLTriggers$$IsRangedAttack & DSLTriggers$$get_OwnerIsTarget
         buf[0x00] = trigger ;  buf[0x08 .. 0x4f] = 0 ;  return Nullable(buf)
 
-    Or la struct `EffectBonus` fait 0x50 octets (`frida/classes.tsv` : 96 boxes - 0x10 de header) et
-    ses SIX slots de magnitude sont cartographies par les fabriques elles-memes -- `+0x08` pct
-    (`ForPercentIncrease`/`ForPercentDecrease`), `+0x10` addition (`ForAddition`), `+0x18`
-    soustraction (`ForSubtraction`), `+0x20` minimum (`ForAdditionWithMinimum`), `+0x28` override
-    (`ForOverride`), `+0x30` drapeau reset (`ForReset`) --, plus le `Nullable<AbilityOrEffect>` en
-    `+0x34..0x4f`. TOUS a zero ici. Le contraste est direct et se lit a cote : le jumeau
-    `IdunBattle.Entities.Effects.Loki.FireAndReposition_ReduceDmgEffect$$CreateEffectDamageMalusForDefense`
-    appelle bien `EffectBonus$$ForSubtraction(trigger, ConfigVar(0x12 = dmgReduction), ...)`, et sa
-    config PORTE un `dmgReduction`. Celle de `StrikeFromTheShadows` n'en porte aucun (gameconfig :
-    `nrOfHits`, `range`, `minDmg`, `maxDmg`, point). Deux sources concordantes.
+    et les SIX slots de magnitude de la struct `EffectBonus` (0x50 octets) valent tous zero. C'est la
+    CONCLUSION qui ne suivait pas. `IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense` --
+    le corps du slot 0x1a -- n'evalue pas que les formules de l'`EffectBonus` : il appelle AUSSI
+    `this.<vtable +0x718>()` (= `IgnoreArmor()`) et range le resultat dans `DamageBonus+0x38`, que
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` accumule
+    dans `DamageModifiers+0x28`. Un `EffectBonus` a magnitude nulle est donc exactement ce que ce
+    canal attend : le natif SEPARE la CONDITION (l'`EffectBonus`) et la MAGNITUDE (`IgnoreArmor()`),
+    et le slot les recombine. Meme mecanisme que `Helspear_IgnoreArmor` (1583), lu par #1008-r2.
 
-    ⇒ le port n'inscrit AUCUNE classe d'effet : `EffectFactory` rend le `BaseEffect` par defaut, dont
-    `create_effect_damage_malus_for_defense` renvoie `None` -- soit exactement la contribution nulle
-    du natif. Ce que l'effet fait reellement, c'est EXISTER sur la cible (il apparait dans
-    `decisionView.units[].effects`, donc il est lisible par un `HasEffect`), et c'est ce que la pose
-    mirror. Verifie live : la sequence de degats d'une attaque a distance sur une cible marquee est
-    inchangee (cf. `test_511_strike_from_the_shadows_live.py`).
+    ⇒ le port INSCRIT desormais `EFFECT_CLASSES["StrikeFromTheShadows"] =
+    StrikeFromTheShadowsEffect` (`entities/effects/loki/strike_from_the_shadows.py`), et le call-site
+    `AddEffect` ci-dessus arme `scale_from_source` (le 2e argument natif `abilityState`) pour que le
+    `ConfigVar` s'indexe sur l'etat d'ability du POSEUR. Gameconfig :
+    `armorIgnored = [6, 7, 8, 10, 11, 12]`, DANS `variablesAffectedByRarityBonus`.
+    ⚠ Ne PAS recopier la gate de `Helspear` : les deux conditions DIFFERENT terme a terme
+    (`IsRangedAttack() & get_OwnerIsTarget` ici, `get_OwnerIsTarget & IsUnit(Caster)` la-bas).
 
     TARGETING (#241, forme STATIC-COPY) : le ctor n'appelle AUCUN `TargetingOptions$$.ctor` -- il
     recopie les 0x40 octets du PRESET statique `<TargetingOptions statics>+0x140`, dont

@@ -208,6 +208,7 @@ from .loki.relic_bolt_pistol import (
     RelicBoltPistolExtraCritDamageEffect, RelicBoltPistolExtraPierceEffect
 )
 from .loki.helspear import HelspearIgnoreArmorEffect          # #1008 (relique 1583, blackHaarken)
+from .loki.strike_from_the_shadows import StrikeFromTheShadowsEffect   # #1008-r4 (1549, astarCyrus)
 from .loki.rites_of_morkai import RitesOfMorkaiExtraDamageEffect
 from .loki.serene_unifier import SereneUnifierStormOfFireEffect
 from .loki.shock_assault import ShockAssaultBuffEffect
@@ -1394,10 +1395,24 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EST dediee (`IdunBattle.Entities.Effects.Loki.Helspear_IgnoreArmorEffect`, 1152 octets), et son
     # `CreateEffectDamageMalusForDefense` est un `EffectBonus` CONDITION-SEULE a valeur nulle -- la
     # magnitude vit dans le slot `IgnoreArmor` (corps FONDU avec `WayOfTheShortBladeEffect$$IgnoreArmor`).
-    # ⚠ Cette magnitude n'atteint PAS le calcul : le canal `get_armor_penetration` du port est
-    # ATTAQUANT-side alors que le porteur est le DEFENSEUR. Residu `#1008-r2`, BLOCAGE `etage` --
-    # detail et point d'ancrage dans `entities/effects/loki/helspear.py`.
+    # ⚠ L'AVERTISSEMENT QUI VIVAIT ICI EST PERIME, et le laisser ferait renoncer a un port juste :
+    # il disait << cette magnitude n'atteint PAS le calcul, le canal `get_armor_penetration` du port
+    # est ATTAQUANT-side >>. #1008-r2 l'a CABLE cote DEFENSEUR --
+    # `entities/effects/__init__.py::build_defender_modifiers_from_effects` lit
+    # `e.get_armor_penetration(...)` DANS le bloc gate par le trigger du malus, exactement ou
+    # `IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense` evalue `IgnoreArmor()`.
+    # Detail et point d'ancrage : `entities/effects/loki/helspear.py`.
     "Helspear_IgnoreArmor": HelspearIgnoreArmorEffect,
+    # StrikeFromTheShadows (0x60d=1549, #1008-r4) : le SECOND effet du canal `IgnoreArmor` DEFENSEUR,
+    # pose par l'active 1225 d'`astarCyrus` sur sa cible. Meme forme que son voisin ci-dessus --
+    # `CreateEffectDamageMalusForDefense` = `EffectBonus` CONDITION-SEULE a magnitude nulle, la
+    # penetration vivant dans le slot virtuel `IgnoreArmor` (corps ICF partage avec
+    # `WayOfTheShortBladeEffect$$IgnoreArmor`) -- mais avec une gate DIFFERENTE, LUE et pas recopiee :
+    # `IsRangedAttack() & get_OwnerIsTarget` (1549) contre `get_OwnerIsTarget & IsUnit(Caster)` (1583).
+    # ⚠ L'enonce qui empechait ce port (<< la classe n'a que DEUX methodes, l'effet est NUMERIQUEMENT
+    # INERTE >>, `runner/abilities/astartes.py`) venait de `frida/methods.tsv`, indexe par ADRESSE
+    # donc DEDUPLIQUE : le bloc `methodPointers` du PE en porte CINQ, dont `IgnoreArmor`.
+    "StrikeFromTheShadows": StrikeFromTheShadowsEffect,
     # DespoiledGround_ExtraDamagePct (0x5c6=1478) : le buff +15 % degat (BC `DespoiledGroundExtraDmgPct`)
     # pose sur l'unite CHAOS qui demarre son tour sur une tuile DespoiledGround, actif contre les cibles
     # Xenos (1006) ou Imperial (26). Nom capte = effect-type-names.ts.
@@ -3403,12 +3418,19 @@ ABILITY_INIT_OWNER_FLAGS: dict[str, list[int]] = {
     # que `EcogSupport` ci-dessus (`attack_query.entity_can_be_repaired`, 4e disjunct) : l'entree
     # n'est donc pas inerte, elle reutilise un canal deja mordant.
     #
-    # ⚠ CE QUI EST LU, ET CE QUI NE L'EST PAS. Le `CreateBehaviour` de `GalvanicField_InitAbility`
-    # a TROIS feuilles -- `AddFlag(Owner, 0x18 CanRepairFullHealthUnits)`,
-    # `RemoveActiveAbility(Owner, 0x1c Repair)`, `AddActiveAbility(Owner, 0x45f
-    # Repair_GalvanicField, abilityState)` -- lecture de #952. Cette entree ne porte QUE LA
-    # PREMIERE : `ABILITY_INIT_OWNER_FLAGS` est un canal de FLAGS, les deux echanges d'ability n'ont
-    # aucun canal d'init cote port (residu #952-r2, volet restant).
+    # ⚠ CE QUI EST LU, ET OU VIT CHAQUE FEUILLE. L'artefact est
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GalvanicFieldAbility$$CreateBehaviour`
+    # (il n'existe AUCUNE classe `GalvanicField_InitAbility` dans le build -- meme forme de piege
+    # que #922-r1) et il a TROIS feuilles, relues verbatim sur `t6dpr4k06g` :
+    #     AddFlag(Owner@<DSLSelectors+0x30>, 0x18 = CanRepairFullHealthUnits)
+    #   & RemoveActiveAbility(Owner@+0x30, 0x1c = 28 Repair)
+    #   & AddActiveAbility(Owner@+0x30, 0x45f = 1119 Repair_GalvanicField, abilityState)
+    # Cette entree ne porte QUE LA PREMIERE -- `ABILITY_INIT_OWNER_FLAGS` est un canal de FLAGS.
+    # ⚠ LES DEUX AUTRES ONT LEUR CANAL, et la phrase qui disait le contraire ici est PERIMEE : le
+    # RETRAIT vit dans `entities/active_abilities.py::PASSIVE_REMOVES_ACTIVE_ABILITY` (#1015-r1) et
+    # l'AJOUT dans son jumeau `PASSIVE_ADDS_ACTIVE_ABILITY` (#952-r2). Les deux registres portent les
+    # MEMES trois passifs, parce que `DSLBehaviors$$RemoveActiveAbility` et `$$AddActiveAbility`
+    # n'ont chacun que TROIS appelants de code dans le build, et que ce sont les memes.
     #
     # CONFIRMATION LIVE des trois feuilles sur le build `t6dpr4k06g`
     # (`probe_a899_952r2_galvanic_field.py`, board MC1_67, seed 777, runner 57), TEMOIN INCLUS :
@@ -3432,6 +3454,77 @@ def get_owner_flags_added_on_ability_init(ability_name: str) -> list[int]:
     """`UnitFlag`s poses par `<Ability>_InitAbility.CreateBehaviour` a l'INIT (DSL `AddFlag(owner)`).
     Ability sans flag-a-l'init porte -> []."""
     return ABILITY_INIT_OWNER_FLAGS.get(ability_name, [])
+
+
+# `<Ability>.CreateBehaviour` -> `DSLBehaviors$$AddBondEffect(effectType, abilityState, source,
+# targets, **bondedEntity**, options)` a l'INIT de l'ability. #963-r5.
+#
+# LE TROISIEME CANAL D'INIT, apres les owner-effects ORDINAIRES (`ABILITY_INIT_OWNER_EFFECTS`) et
+# les FLAGS (`ABILITY_INIT_OWNER_FLAGS`) : meme boucle native consommatrice
+# (`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute`), meme moment, meme lecteur
+# port (`runner/operations/spawn.py::_seed_ability_owner_effects`). Ce qui le distingue est le
+# CINQUIEME argument natif -- l'entite BONDEE --, que le seed ne savait pas ecrire : c'etait
+# l'etage NOMME de #963-r5, et il est leve.
+#
+# CE QUE LE NATIF FAIT DE CET ARGUMENT, LU VERBATIM dans
+# `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder` (les DEUX surcharges disent
+# la meme chose, l'une par `if (id == 0) method = <ordinaire>`, l'autre par
+# `if (id != 0) method = <bond>`) :
+#
+#     object+0x34 = (int)bondedEntityId
+#     method = (bondedEntityId != 0) ? <builder de BOND> : <builder ORDINAIRE>
+#     return new EffectBuilder(object, method)
+#
+# ⇒ **un `bondedEntity` qui ne se resout pas ne fait PAS echouer la pose** : le natif bascule
+# simplement sur le builder ordinaire et l'effet est pose SANS lien. Le port fait pareil
+# (`bonded = None`), et c'est la seule degradation fidele -- refuser de poser serait RESTRICTIF.
+#
+# LE SELECTEUR EST UN MOT, PAS UN CALLABLE : ce registre est une feuille de donnees, lue par le
+# seed impératif. Chaque valeur nomme le selecteur natif du 5e argument, LU au decompile ; le seed
+# le resout par le foyer deja porte de ce selecteur (`runner/components.py::parent_of`, mirror
+# d'`IdunBattle.Entities.UnitExtensions$$GetParent(u, state, root = false)`, que
+# `IdunBattle.Entities.Selectors.ParentSelector$$Select` appelle).
+BOND_PARENT_OF_OWNER = "Parent(Owner)"
+#: Les selecteurs de `bondedEntity` que le seed sait resoudre. Un mot inconnu = pose SANS lien,
+#: jamais une pose devinee.
+BOND_SELECTORS_RESOLVABLE = (BOND_PARENT_OF_OWNER,)
+
+ABILITY_INIT_OWNER_BOND_EFFECTS: dict[str, list[tuple[str, str]]] = {
+    # `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateBehaviour`
+    # (decompile `t6dpr4k06g`, lu VERBATIM) :
+    #
+    #     If( NOT HasEffect(Owner@<DSLSelectors+0x30>, 0x424 = 1060, onlyActive: 0, effectTarget: 6),
+    #         AddBondEffect( 0x424,
+    #                        get_AbilityStateReference(this),
+    #                        source       = Owner@<DSLSelectors+0x30>,
+    #                        targets      = Owner@<DSLSelectors+0x30>,
+    #                        bondedEntity = Parent(Owner@<DSLSelectors+0x30>, root: 0),
+    #                        options      = <ZEROEES> ) )
+    #
+    # sous le trigger d'INIT partage `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & YesTrigger &
+    # get_OwnerIsActor` (corps ICF, resolu slot a slot par #963-r3). `Parent(., root: 0)` = le
+    # parent DIRECT, donc le SUMMONER -- pour la Geminae, Celestine.
+    #
+    # PORTEUR : `adeptSmnGeminaeSuperia`, dont le gameconfig porte litteralement
+    # `passiveAbilities = ["Lifewards"]` -- l'ability est donc DANS la liste que
+    # `_seed_ability_owner_effects` balaie, sans rien ajouter au recensement.
+    #
+    # ⚠ POURQUOI CETTE ENTREE N'ETAIT PAS ECRIVABLE AVANT, et pourquoi elle l'est maintenant. #963-r5
+    # l'avait refusee, a raison, avec DEUX consequences chiffrees -- (1) l'instance sans lien
+    # satisfait le gate `NOT HasEffect(Owner, 0x424)` et **bloque la pose correcte** au premier coup ;
+    # (2) `BOND_REMOVAL_GATES[1060]` (gate (a), `RemoveOnBondedEntityDeath = true`) lit
+    # `BaseEffect.bonded`, donc le retrait ne mordrait jamais. Les DEUX ont la MEME cause : l'absence
+    # de `bonded`. Ecrire le lien les supprime toutes les deux -- ce n'est pas contourner le refus,
+    # c'est retirer ce sur quoi il portait.
+    "Lifewards": [(EffectType.Lifewards_BondEffect.name, BOND_PARENT_OF_OWNER)],
+}
+
+
+def get_owner_bond_effects_added_on_ability_init(ability_name: str) -> list[tuple[str, str]]:
+    """Owner-effects de type BOND poses par `<Ability>.CreateBehaviour` a l'INIT (DSL
+    `AddBondEffect(owner)`), avec le selecteur natif de leur `bondedEntity`.
+    Ability sans bond-a-l'init porte -> []."""
+    return ABILITY_INIT_OWNER_BOND_EFFECTS.get(ability_name, [])
 
 
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility`
