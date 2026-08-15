@@ -421,23 +421,41 @@ def test_une_cible_non_ciblable_fait_rendre_faux():
 # 7. LE REPLI -- `UnobscuredTilesSelector$$IsObscured`
 # ================================================================================================
 
+def _obscurci(board, from_tiles, tile_pos) -> bool:
+    """Le maillon `UnobscuredTiles`, appele PAR SON NOEUD DSL (#287-r11-r2-r1-r3).
+
+    Il etait un collapse imperatif (`mv71._is_obscured_from_tiles`) jusqu'au 2026-08-15 ; son
+    artefact natif est un `IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles`, donc un ARBRE
+    (doctrine #149). Ce helper monte le `DslContext` minimal que le noeud exige -- c'est-a-dire le
+    board ET l'accesseur `tiles_obscuring_terrain`, que la face DECISION pose elle aussi a la main.
+    Les assertions qui suivent sont INCHANGEES : c'est la MEME formule, evaluee par l'arbre."""
+    from engine.dsl.base import DslContext                                 # noqa: PLC0415
+    from engine.runner.abilities.loki import mv71                          # noqa: PLC0415
+    ctx = DslContext(units=[], board=board,
+                     tiles_obscuring_terrain=mv71._tiles_obscuring_terrain_for(board))
+    tid = board.id_at(int(tile_pos[0]), int(tile_pos[1]))
+    return mv71._unobscured_tiles(ctx, from_tiles, int(tid))
+
+
 def test_IsObscured_liste_source_vide_rend_OBSCURCI():
     """`foreach (c in caster) { if (...Count == 0) return false; } return true;` -- sur une liste
     VIDE la boucle ne tourne pas et le natif rend `true`. Le collapse d'un `return true` en
-    `return false` aurait garde une tuile que le natif RETIRE."""
-    from engine.runner.abilities.loki.mv71 import _is_obscured_from_tiles  # noqa: PLC0415
-    assert _is_obscured_from_tiles(_board(1), [], (3, 0)) is True
+    `return false` aurait garde une tuile que le natif RETIRE.
+
+    ⚠ Le NOEUD atteint le meme verdict par un chemin DIFFERENT, et c'est LU : `Select` ne va meme
+    pas jusqu'a `IsObscured`, il sort sur `if (caster.Count == 0) return <liste VIDE>`. Les deux
+    lectures coincident sur cette entree-la, et c'est ce que ce test grave."""
+    assert _obscurci(_board(1), [], (3, 0)) is True
 
 
 def test_IsObscured_une_seule_ligne_degagee_suffit():
     """`return false` des la PREMIERE source degagee : c'est un OU, pas un ET (contraste avec la
     boucle de `IsTargetInAttackRangeForSummon`, qui refuse des qu'UNE tuile de la cible est
     masquee)."""
-    from engine.runner.abilities.loki.mv71 import _is_obscured_from_tiles  # noqa: PLC0415
     haut = _board(3)
-    assert _is_obscured_from_tiles(haut, [(0, 0)], (3, 0)) is True
+    assert _obscurci(haut, [(0, 0)], (3, 0)) is True
     # (2,0) voit (3,0) sans traverser le rocher -> une source degagee suffit
-    assert _is_obscured_from_tiles(haut, [(0, 0), (2, 0)], (3, 0)) is False
+    assert _obscurci(haut, [(0, 0), (2, 0)], (3, 0)) is False
 
 
 def test_le_repli_de_pick_tile_traverse_le_maillon_UnobscuredTiles():
@@ -477,7 +495,10 @@ def test_desarme_le_port_redevient_PERMISSIF(monkeypatch):
     seraient verts sur un port qui ne consulte plus rien."""
     from engine.runner.abilities.loki import mv71                          # noqa: PLC0415
     monkeypatch.setattr(mv71, "_is_target_in_attack_range_for_summon", lambda *a, **k: True)
-    monkeypatch.setattr(mv71, "_is_obscured_from_tiles", lambda *a, **k: False)
+    # #287-r11-r2-r1-r3 : le collapse `_is_obscured_from_tiles` est devenu `_unobscured_tiles`, qui
+    # monte le NOEUD DSL. Le patch vise le nouveau nom -- viser l'ancien laisserait ce mutant sans
+    # morsure, donc un desarmement qui ne desarme rien (le vice exact de #485-r1-r1).
+    monkeypatch.setattr(mv71, "_unobscured_tiles", lambda *a, **k: False)
     assert _regle(BASE, 3) == 0, "le desarmement ne mord pas : la mesure ne prouve rien"
     assert _regle(AVEC_ENNEMI, 1) == 0
 
