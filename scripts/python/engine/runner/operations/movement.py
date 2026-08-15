@@ -31,8 +31,22 @@ from ...entities.pathfinding import pathfinders as _pf
 from ...entities.pathfinding.fly_pathfinder import is_like_flying
 from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos, get_path_by_pos
 from ...entities.traits.unit_trait import UnitTrait, has_trait
-from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
-                                            get_pathfinder_type_for_unit, unit_has_effect_fn)
+from ...services.movement_query import get_connected_path_to, get_num_tiles_moved
+# ⚠ FORME MODULE (B) POUR CES DEUX-LA, ET C'EST LOAD-BEARING -- pas un gout de style.
+# `get_pathfinder_type_for_unit` est le SEUL point de dispatch entre la marche, le vol et les huit
+# types DECORES ; c'est donc l'unique endroit qu'une contre-epreuve puisse neutraliser pour
+# demontrer que le dispatch SERT (« le port d'AVANT rendait autre chose »). En liaison DIRECTE
+# (`from ... import get_pathfinder_type_for_unit`), un `setattr` sur le module
+# `engine.services.movement_query` NE MORD PAS : le nom est fige ici a l'import, et la contre-epreuve
+# compare alors le port A LUI-MEME -- elle rend un ensemble VIDE, quel que soit le board, quels que
+# soient les porteurs. C'est la cause EXACTE du rouge de `master` (`88471bcd`) sur
+# `test_448_r1_r1_r1_r1_flying_tiles_moved_live::test_le_walkpathfinder_diverge_sur_letat_live` :
+# montage SAIN (3 porteurs, dispatch mesure `Fly` et `TeleportStrikeFly x2`), patch INERTE.
+# C'est le gisement « HISSER EN FORME A fait passer de MORD a NE MORD PAS » du CLAUDE.md, pris
+# dans l'autre sens : on RE-DESCEND en forme B, ce qui ne peut que RE-ARMER un patch, jamais en
+# desarmer un. Cout en cascade : NUL (`from pkg import mod` charge les memes modules).
+from ...services import movement_query as _mq
+from ...services.movement_query import unit_has_effect_fn
 from .aura_stat_mods import refresh_aura_stat_modifiers
 from .damage import AttackDamageOperation
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
@@ -152,7 +166,7 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
     me0 = state.get_entity(int(mover_id))
     sc0 = me0.get_component(StatsComponent) if me0 is not None else None
     traits0 = getattr(sc0.ctx, "traits", None) if sc0 is not None else None
-    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits0 or [])
+    ptype = _mq.get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits0 or [])
     # TOUT sauf `Walk` passe par le foyer CHEMIN : le vol (3), les huit types DECORES (6..13,
     # dont 6/8/10/12 qui ont pourtant une base MARCHE -- c'est `ATeleportPathfinder$$FindPath`
     # qui les detourne, pas leur base), et le `Beeline` (2), qu'aucun call-site ne produit ici.
@@ -279,7 +293,7 @@ def _calculate_path(state: State, mover_id: int, from_pos, to_pos,
     e = state.get_entity(int(mover_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits or [])
+    ptype = _mq.get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits or [])
     if pathfinder_type_override is not None:
         ptype = int(pathfinder_type_override)    # `options.<+0x8>` ECRASE, y compris un forcage Fly
     if ptype != int(_pf.PathfinderType.Walk):
