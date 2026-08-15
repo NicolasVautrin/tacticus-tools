@@ -25,6 +25,13 @@ from ..unit_selection_type import UnitSelectionType, selection_ok_from_ctx
 # Import de niveau MODULE (forme A) et non differe : `selectors/units.py` n'importe PAS `geometry`
 # -- mesure, pas presomption (cf. l'etape 0 de `probe_1078r1_units_with_id_mono.py`).
 from .units import has_unit_id
+# `PickFirstN` / `PickLastN` ONT DEMENAGE dans le module FEUILLE `._pick` (#1032-r2) : ils
+# partagent avec `selectors/units.py::First` le foyer
+# `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates`, et le seul emplacement d'ou
+# les DEUX tranches peuvent l'atteindre sans fermer de cycle est un module qui n'importe qu'elles.
+# Le DEPLACEMENT est le premier remede de la doctrine d'import, pas un differe. Re-exportes ici
+# parce que ~15 call-sites ecrivent deja `from ...selectors.geometry import PickFirstN`.
+from ._pick import PickFirstN, PickLastN          # noqa: F401  (re-export, cf. ci-dessus)
 from ...services.spawn_tile_shape import get_area
 
 
@@ -531,68 +538,6 @@ class EntitiesWithAnyEffect(TargetsSelector):
         return out
 
 
-class PickFirstN(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$First(source, amountNode)` -> `IdunBattle.Entities.Selectors.PickFirstNSelector` (`IdunBattle.DSL.APickSelector`, taille 0x30 =
-    ctx/source/amount-node/flag) : les `amount` PREMIERS elements de la source, ordre PRESERVE.
-
-    ⚠ A NE PAS CONFONDRE avec `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` (taille 0x28, champ
-    +0x20 = un INT d'index) qui rend `[source[index]]` : c'est une classe DISTINCTE, construite par une
-    AUTRE factory. `DSLFactory.First` construit bien `PickFirstN`. Le noeud `First` de ce module (index 0
-    par defaut) coincide avec `PickFirstN(1)` pour tous ses call-sites historiques (index non passe).
-
-    `amount` = noeud VALEUR (`Direct(nrOfSummons)`) ou int. <=0 -> liste vide."""
-    def __init__(self, source: TargetsSelector, amount):
-        self.source, self.amount = source, amount
-
-    def select(self, ctx):
-        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
-        n = int(n or 0)
-        if n <= 0:
-            return []
-        return list(self.source.evaluate(ctx))[:n]
-
-
-class PickLastN(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLSelectors$$Last(entities, amount, ignoreForcedTargets)` ->
-    `IdunBattle.Entities.Selectors.PickLastNSelector$$Select` (`IdunBattle.DSL.APickSelector`,
-    taille 0x30) : les `amount` DERNIERS elements de la source, ordre PRESERVE (#940).
-
-    LU, terme a terme -- c'est le PENDANT EXACT de `PickFirstN` ci-dessus, et le decompile le dit
-    par sa seule ligne qui differe, l'indice de depart de la copie :
-
-        candidates = <source>.Select(entities).ToList()
-        n          = <amount>.Calculate(entities)
-        picked     = candidates
-        if (n < candidates.Count) :
-            picked = new List<IEntity>()
-            if (!<this+0x28 ignoreForcedTargets>) AddForcedTargetsAndUpdateCandidates(...)
-            for (i = picked.Count + candidates.Count - n ; i < candidates.Count ; i++)
-                picked.Add(candidates.ElementAt(i))
-        return picked
-
-    ⚠ `n >= Count` rend la source ENTIERE, et `n <= 0` rend donc... la source entiere AUSSI si
-    elle est vide, mais une liste VIDE des qu'elle ne l'est pas (`0 < Count` -> boucle de
-    `Count - 0` a `Count`, zero iteration). Le port reproduit les deux, sans clamp maison.
-
-    RESIDU NOMME (le MEME que `PickFirstN`, qui ne le porte pas davantage) :
-    `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates` -- les cibles FORCEES
-    (`ForcedAttackTarget`) sont pre-inserees dans `picked` et retirees des candidats avant la
-    copie. Le port ne modelise pas le forcage de cible ; `ignore_forced_targets` est donc porte
-    comme un champ TRANSCRIT (le litteral du call-site) mais sans effet, exactement comme pour
-    `PickFirstN`. Le seul call-site porte passe `0` (`KissOfDeathAbility$$ExecuteBehaviour`)."""
-    def __init__(self, source: TargetsSelector, amount, ignore_forced_targets: bool = False):
-        self.source, self.amount = source, amount
-        self.ignore_forced_targets = bool(ignore_forced_targets)
-
-    def select(self, ctx):
-        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
-        n = int(n or 0)
-        cands = list(self.source.evaluate(ctx))
-        if n >= len(cands):                       # `n < candidates.Count` FAUX -> la source telle quelle
-            return cands
-        return cands[len(cands) - n:] if n > 0 else []
-
-
 class AtIndex(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$AtIndex(entities, index)` ->
     `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` : l'element a `index` de la source
@@ -602,12 +547,17 @@ class AtIndex(TargetsSelector):
     `IdunBattle.Entities.Selectors.WalkableTilesSelector$$.ctor` : corps DEDUPLIQUE (meme signature
     `(state, source, int)`), pas l'identite de la classe -- on cite donc la FACTORY.
 
-    ⚠ MEME SELECTEUR NATIF que `selectors.units.First`, atteint par une AUTRE factory
-    (`DSLFactory$$First(source[, index])`). Les deux coexistent volontairement cote port : chacune
-    nomme la factory que SON call-site ecrit. Et c'est le voisin homonyme qu'il faut se garder de
-    confondre : `DSLSelectors$$First(source, amount, ignoreForcedTargets)` -- une factory DISTINCTE
-    -- boxe son `amount` en `DirectAmount` et construit un `PickFirstNSelector` (les `amount`
-    PREMIERS elements) ; c'est `PickFirstN` ci-dessus, pas ce noeud.
+    ⚠ **CE NOEUD EST LE SEUL PORT DE `PickAtIndexSelector`** (#1032-r2). La docstring d'avant
+    affirmait que `selectors.units.First` mirrorait le MEME selecteur « atteint par une AUTRE
+    factory `DSLFactory$$First(source[, index])` » : cette factory N'EXISTE PAS dans le build
+    (`IdunBattleLogic.Entities.DSLFactory$$` n'y porte que 5 methodes, aucun selecteur), et le
+    `First` natif -- `IdunBattleLogic.Entities.DSLSelectors$$First(entities, amount,
+    ignoreForcedTargets)`, 2 surcharges -- construit un `PickFirstNSelector`, pas celui-ci.
+    `units.First` est donc devenu ce qu'il mirrore vraiment : une sous-classe de `PickFirstN`.
+    Le voisin a ne pas confondre reste `PickFirstN` (les `amount` PREMIERS elements), qui vit
+    desormais dans `._pick` et est re-exporte en tete de ce module.
+    ORDRE DE GRANDEUR (census PE, build `t6dpr4k06g`) : `AtIndex` = **6** call-sites dans tout le
+    binaire, `First` = **145**.
 
     CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$
     ExecuteBehaviour`, qui deroule sa vague sur les 3 tuiles de la ligne par `AtIndex(tiles, i)`

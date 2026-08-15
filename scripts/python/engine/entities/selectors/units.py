@@ -14,6 +14,9 @@ from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive
                          _effect_field, resolve_unit, _tile_enum_rank, _occupants_by_tile,
                          _origin_tiles, _main_tile)
 from ._shared import _entity_pos, _tile_positions
+# Foyer UNIQUE d'`IdunBattle.DSL.APickSelector` (module FEUILLE) : `First` ci-dessous EST
+# `PickFirstN`, meme selecteur natif, meme implementation -- cf. `_pick.py` (#1032-r2).
+from ._pick import PickFirstN
 # `AllAliveUnits` = le champ PARTAGE `<DSLSelectors>+0x20`, source LUE de `TilesWithEnemies` (et de
 # tous les `Enemies`/`Friends` natifs). Import EN TETE, forme B interdite ici (c'est une CLASSE de
 # noeud, pas une fonction patchable) : l'arete `units -> tiles` est NEUVE et ACYCLIQUE -- `tiles.py`
@@ -773,16 +776,39 @@ class TilesWithEnemies(TargetsSelector):
         return Tiles(enemies, as_ids=self.as_ids).evaluate(ctx)
 
 
-class First(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$First(source[, index])` → `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` :
-    l'élément à `index` (défaut 0) de la liste source (ordre TEL QUEL), `[]` si hors borne. Retour list
-    de 0/1 élément (PAS un élément nu). S'appuie sur un tri préalable si l'appelant en pose un."""
-    def __init__(self, source: TargetsSelector, index: int = 0):
-        self.source, self.index = source, index
+class First(PickFirstN):
+    """`IdunBattleLogic.Entities.DSLSelectors$$First(entities, amount, ignoreForcedTargets)` ->
+    `IdunBattle.Entities.Selectors.PickFirstNSelector$$Select` : les `amount` PREMIERS elements de
+    la source, ordre PRESERVE. Implementation UNIQUE dans `._pick` -- lire sa docstring.
 
-    def select(self, ctx):
-        lst = self.source.evaluate(ctx)
-        return [lst[self.index]] if 0 <= self.index < len(lst) else []
+    ⚠ **CE NOEUD PRENAIT UN INDICE, ET AUCUNE SURCHARGE NATIVE NE LE FAIT** (`#1032-r2`). Il citait
+    `DSLFactory$$First(source[, index])` -> `PickAtIndexSelector`, deux affirmations FAUSSES sur le
+    build courant :
+      * `IdunBattleLogic.Entities.DSLFactory$$` ne porte que **5** methodes (`Init`,
+        `SetAllowRandom`, `SetDisallowRandom`, `Triggered`, `.ctor`) -- aucun selecteur ;
+      * les DEUX surcharges de `IdunBattleLogic.Entities.DSLSelectors$$First` allouent un
+        `PickFirstNSelector`, pas un `PickAtIndexSelector` ; leur 3e parametre est un **NOMBRE**
+        (la 2e surcharge le BOXE dans un fournisseur constant avant de deleguer a la 1re).
+    Le selecteur a INDICE existe bel et bien -- c'est `PickAtIndexSelector`, construit par
+    `IdunBattleLogic.Entities.DSLSelectors$$AtIndex`, deja porte sous ce nom dans
+    `selectors/geometry.py::AtIndex`. Il y avait donc DEUX ports du meme selecteur, dont un sous un
+    nom qui en designait un autre.
+
+    LA DETTE ETAIT INERTE SUR L'AXE VALEUR, ET ELLE NE L'ETAIT PAS SUR L'AXE COMPORTEMENT :
+    re-derive au 2026-08-15, **25 call-sites sur 25** demandaient l'element 0 (24 sans argument, 1
+    explicite `index=0`), et `AtIndex(x, 0)` rend exactement ce que rend `First(x, 1)` -- MEME
+    resultat, tant qu'on ne modelise pas les cibles FORCEES. Or `PickFirstNSelector$$Select` les
+    modelise, sur **144 de ses 145 call-sites** (`ignoreForcedTargets = 0`). Ces 25 sites en
+    heritent maintenant.
+
+    `amount` = noeud VALEUR ou int. Le defaut **1** n'est pas un litteral natif invente : c'est
+    l'`amount` que transcrivent les call-sites portes (`First(sel, 1, 0)` chez BookOfFate,
+    InstrumentsOfVengeance, MindControl...), et c'est le litteral de **104 des 145** call-sites du
+    binaire. Un site qui prend un autre nombre l'ECRIT."""
+    __slots__ = ()
+
+    def __init__(self, source: TargetsSelector, amount=1, ignore_forced_targets: bool = False):
+        super().__init__(source, amount, ignore_forced_targets)
 
 
 class Unique(TargetsSelector):

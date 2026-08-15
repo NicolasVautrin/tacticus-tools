@@ -24,6 +24,10 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/effects/magnitude.py",
         "scripts/python/engine/entities/selectors/valid_targets.py",
         "scripts/python/engine/entities/selectors/__init__.py",
+        # Ce fichier importe `units.First`, qui EST `PickFirstN` depuis #1032-r2 : son
+        # implementation vit dans le module FEUILLE `._pick`, donc le declencheur doit le nommer.
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/_pick.py",
         "scripts/python/engine/entities/formulas.py",
         "scripts/python/engine/entities/effect_type.py",
         "scripts/python/engine/entities/triggered_ability_type.py",
