@@ -195,10 +195,20 @@ def test_storm_of_flensing_blades_refuse_toute_tuile_de_deplacement():
     assert pb.should_execute(ctx, (3, 5), 2, 1010, 999.0) is False  # l'utilite n'entre PAS au gate
 
 
-def test_hades_autocannons_exige_un_allie_SUMMON():
-    """`foreach (u in units(owner(caster))) if (HasTrait(u, UnitTrait.Summon)) return true;`."""
+def test_hades_autocannons_exige_un_ENNEMI_SUMMON():
+    """`foreach (u in battleQuery.<slot 0x8e = GetAllEnemiesOf>(owner(caster)))
+        if (HasTrait(u, UnitTrait.Summon)) return true;`
+
+    ⚠ **CE CRAN ASSERTIONNAIT L'INVERSE, ET IL AVAIT TORT** (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`).
+    Il gardait un port qui lisait les ALLIES du caster, en s'appuyant sur une transcription du
+    decompile qui ecrivait << slot 0x8e >> sans le RESOUDRE. Le slot est nomme dans
+    `data/symbols/<build>/metadata/interface_slots.tsv` : `IBattleQuery 142 GetAllEnemiesOf 1`,
+    `GetAllFriendsOf` etant le slot VOISIN (141). Les deux corps de `IdunBattle.Core.Services.
+    BattleQuery` ne different QUE par le sens de la comparaison d'owner (`!=` contre `==`), donc
+    l'erreur etait invisible a la lecture du seul pseudo-C. C'est un cran qui FIGEAIT un bug : il
+    est ici retourne, avec sa contre-epreuve."""
     pb = HadesAutocannonsPlaybook()
-    assert pb.REQUIRED_ALLY_TRAIT is UnitTrait.Summon and int(UnitTrait.Summon) == 2
+    assert pb.REQUIRED_ENEMY_TRAIT is UnitTrait.Summon and int(UnitTrait.Summon) == 2
 
     class _S(_Scene):
         def __init__(self, units, traits):
@@ -207,16 +217,26 @@ def test_hades_autocannons_exige_un_allie_SUMMON():
             self.traits = traits
 
     units = [{"id": 1, "alive": True, "team": 1},      # le caster
-             {"id": 2, "alive": True, "team": 1},      # un allie
-             {"id": 3, "alive": True, "team": 2}]      # un ennemi PORTEUR (ne doit pas compter)
-    sc = _S(units, {1: frozenset(), 2: frozenset(), 3: frozenset({"Summon"})})
+             {"id": 2, "alive": True, "team": 1},      # un ALLIE
+             {"id": 3, "alive": True, "team": 2}]      # un ENNEMI
+    sc = _S(units, {1: frozenset(), 2: frozenset(), 3: frozenset()})
     import engine.playbook.should_execute_gates as SEG
     orig = SEG._entity_traits
     try:
         SEG._entity_traits = lambda scene, uid: scene.traits.get(uid, frozenset())
+        # personne ne porte `Summon` -> refus
         assert pb.should_execute(_Ctx(sc, 1), None, 9, 1147, 5.0) is False
+        # un ALLIE porteur ne suffit PAS : `GetAllEnemiesOf` ne l'enumere pas
         sc.traits[2] = frozenset({"Summon"})
+        assert pb.should_execute(_Ctx(sc, 1), None, 9, 1147, 5.0) is False
+        # un ENNEMI porteur valide le gate
+        sc.traits[3] = frozenset({"Summon"})
         assert pb.should_execute(_Ctx(sc, 1), None, 9, 1147, 5.0) is True
+        # le CASTER porteur ne se valide PAS lui-meme (`GetAllEnemiesOf` exclut son propre owner)
+        sc.traits[2] = frozenset()
+        sc.traits[3] = frozenset()
+        sc.traits[1] = frozenset({"Summon"})
+        assert pb.should_execute(_Ctx(sc, 1), None, 9, 1147, 5.0) is False
     finally:
         SEG._entity_traits = orig
 

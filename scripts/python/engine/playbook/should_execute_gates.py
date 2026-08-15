@@ -31,7 +31,7 @@ Les dix restants, corps LUS verbatim, `ability_id` LU dans le `.ctor` de la clas
 | `Loki.ReapingScythePlaybook`         | `0x447` = 1095 | `utility > 0` **+ TurnsStarted** | **oui** |
 | `Loki.StormOfFlensingBladesPlaybook` | `0x3f2` = 1010 | `casterTile == MainTile(caster)` | **oui** |
 | `Loki.HadesAutocannonsPlaybook`      | `0x47b` = 1147 | un ENNEMI porte `Summon`      | **oui** |
-| `Loki.TacticalPrecisionPlaybook`     | `0x482` = 1154 | `WillBeCharging` \|\| `Count > 1` | **oui** (#976) |
+| `Loki.TacticalPrecisionPlaybook`     | `0x482` = 1154 | `WillBeCharging` OU `Count > 1` | **oui** (#976) |
 | `Loki.ArmoriumCherubPlaybook`        | `0x3f6` = 1014 | `GetValidTargets < 2` -> `!CanKillTarget` | porte dans `loki_custom.py` |
 | `BloodChalicePlaybook`               | `0x497` = 1175 | somme de deficits de PV       | **DEAD CODE**, cf. `bespoke.py` |
 
