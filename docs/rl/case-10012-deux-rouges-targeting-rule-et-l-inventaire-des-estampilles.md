@@ -98,17 +98,51 @@ citent un build périmé, l'écrasante majorité en **prose historique légitime
 un fait exact). Le tri utile n'est pas « où un hash est écrit » mais **« quel artefact est DÉRIVÉ d'un
 build et déclare lequel »**. Trois familles neuves en sortent, plus un angle mort du recenseur.
 
-### `#330-r3` — le recenseur est aveugle au build COURANT
+### `#330-r3` — DEUX recenseurs Python sont aveugles au build COURANT
 
 `probe_330_prose_va_and_build_stamps.BUILD_RE` = `(?<![a-z0-9])([a-z0-9]{8}6c)(?![a-z0-9])` : le
 suffixe `6c` est **en dur**, et `t6dpr4k06g` finit par `6g`.
-`BUILD_RE.search(current_build())` rend `None`. Dans le périmètre **propre** du probe (`docs` +
-`.claude`, `.md/.txt/.tsv`), **17 fichiers / 60 occurrences** du build courant sont déjà écrites et
-toutes invisibles — donc à la **prochaine** migration elles ne seront pas comptées périmées, en
-silence. Second volet : `PROSE_EXT`/`DEFAULT_ROOTS` excluent `frida/hooks/**` et `scripts/python/**`,
-donc les deux familles ci-dessous lui sont **structurellement** hors de portée. Le remède n'est pas
-d'ajouter `6g` (ce serait deviner le suffixe suivant) mais de dériver la forme du jeton des noms de
-répertoire réellement observés sous `data/symbols/` et `data/dumps/`.
+`BUILD_RE.search(current_build())` rend `None`.
+
+> ⚠ **La même régularité accidentelle a déjà tué un capteur, et `#10011` l'a mesuré** :
+> `/^[a-z0-9]{8}6c$/` en dur dans `frida/hooks/il2cpp/build-pin.ts` → `build: null`, **11 refus**
+> de `pinnedAddress`, et un `test_le_natif_suit_le_PORT` **VERT sur zéro assertion évaluée**
+> (`case-10011-suffixe-de-hash-et-verdicts-a-vide.md` §1). Ce résidu-ci est le **foyer PYTHON** de
+> la même faute : re-vérifié après le merge de `#10011`, `probe_330.BUILD_RE` vaut toujours
+> `[a-z0-9]{8}6c`. Deux foyers mesurés pour une seule cause — c'est ce qui rend la dérivation de
+> la forme du jeton (plutôt qu'un second suffixe deviné) non négociable.
+
+**Le même littéral de regex vit dans DEUX foyers, et le code le dit** : `probe_431_build_literals.py:78`
+porte la même `BUILD_RE`, commentée « Même forme que `probe_330.BUILD_RE` — les deux comptes doivent
+rester comparables ». Ils se réparent donc ensemble ; les séparer garantirait la divergence.
+
+Chiffrage sur le dépôt entier (fichiers suivis, hors `data/symbols/`) :
+
+| | mesure |
+|---|---|
+| occurrences **vues** par `BUILD_RE` (suffixe `6c`) | **2 903** |
+| occurrences du **build courant**, invisibles | **176**, dans **67 fichiers** |
+| … dans le périmètre propre de `probe_330` (`docs` + `.claude`, `.md/.txt/.tsv`) | **60**, dans **17 fichiers** |
+
+⚠ **Le pire est côté `probe_431`, dont c'est le métier.** Son cliquet rend `rc=1` sur **3
+RESOLUTIONs** — `probe_547_ledger_sans_verdict_non_vert.py:128`, `probe_988_ancres_utilite_playbook.py:47`,
+`tests/engine/test_963r4_areenemies_null_operand_offline.py:149`, toutes marquées `[rnca9r7q6c PERIME]`.
+Mais ses candidats **dérivent** de `BUILD_RE` : une résolution codée en dur sur `t6dpr4k06g` serait
+invisible, donc le cliquet passerait au **VERT en GAGNANT** le gisement qu'il existe pour tenir. Un
+recenseur qui perd sa cible en même temps que le build change est pire qu'absent — il rassure.
+
+Second volet, le PÉRIMÈTRE de `probe_330` : `PROSE_EXT`/`DEFAULT_ROOTS` excluent `frida/hooks/**` et
+`scripts/python/**`, donc les deux familles ci-dessous lui sont **structurellement** hors de portée.
+
+Le remède n'est pas d'ajouter `6g` (ce serait deviner le suffixe suivant) mais de dériver la forme du
+jeton des noms de répertoire réellement observés sous `data/symbols/` et `data/dumps/`.
+
+**Méthode du balayage** — la première passe (motifs de forme + contexte `build|hash|symbols`) a rendu
+**547 fichiers**, illisible : le motif « suffixe `6c` » capte toute prose citant un build. Ce qui a
+rendu la mesure exploitable est d'**exclure les lignes de commentaire et de docstring** et de ne
+garder que l'**exécutable** — 547 → **20 fichiers**, dont exactement **deux** portent une regex de
+forme du hash (les deux ci-dessus). Les 18 autres sont des `len()`/`startswith()` sans rapport
+(longueurs de listes, préfixes de chemins).
 
 ### `#330-r4` — le CONTENU est gardé, l'ESTAMPILLE ne l'est par RIEN (8 fichiers)
 
@@ -140,8 +174,11 @@ voie — l'estampille est le seul signal disponible.
 
 - **Adresses épinglées** (`frida/hooks/features/scorer-damage-trace.ts`, `modifier-observe.ts`) :
   elles DÉCLARENT leur build et `frida/hooks/il2cpp/build-pin.ts` **refuse** en le disant quand il ne
-  correspond pas (#431). Toutes sont désormais périmées — donc ces hooks refusent de s'attacher,
-  bruyamment. C'est le dispositif qui fonctionne, pas un trou.
+  correspond pas (#431). Toutes sont désormais périmées — ces hooks refusent de s'attacher,
+  bruyamment. C'est le dispositif qui fonctionne, pas un trou. ⚠ **À une nuance près, tranchée par
+  `#10011` pendant cette tranche** : la même régularité `6c` y rendait `installedBuild()` nul, donc
+  les 11 refus étaient corrects **pour la mauvaise raison**, et personne ne les lisait. Le foyer TS
+  est réparé ; les deux foyers Python (`#330-r3`) ne le sont pas.
 - **`scripts/declencheurs-empreinte.tsv`** (44 lignes citant `data/symbols/<build>/`, **0** sur le
   build courant) et **`scripts/ratchets-457-footprints.json`** (137 références à
   `data/symbols/rnca9r7q6c/…`) : artefacts **générés**, dont l'en-tête prescrit déjà la
