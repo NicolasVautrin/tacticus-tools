@@ -84,6 +84,9 @@ from typing import List, Optional, Sequence
 from ..state import State
 from ..components import (StatsComponent, enemy_psykers_alive as _enemy_psykers_alive,
                           unit_state_for_effects)
+# #419-r1-tr9-r4-r1-r2-r1b : le sac ou vit la cle que `RevertInternal` purge. Meme module que
+# `StatsComponent` ci-dessus, donc aucune arete d'import neuve.
+from ..components import PersistentDataComponent as _PersistentDataComponent
 from ...entities.effects import (effect_stat_mod_key, effect_stat_modifications,
                                  effect_stat_overrides)
 from ...entities.effects.base import BaseEffect
@@ -104,7 +107,9 @@ __all__ = ["refresh_stat_modifier_effects", "_unit_state", "_enemy_psykers_alive
            "get_refresh_triggers", "should_refresh_for_trigger", "should_refresh",
            "should_be_active", "get_current_effect_targets", "get_targets_to_add",
            "get_targets_to_remove", "add_targets_to_effect", "remove_targets_from_effect",
-           "update_effect_targets"]
+           "update_effect_targets",
+           # #419-r1-tr9-r4-r1-r2-r1b -- le volet `RevertInternal` par SORTIE de cible
+           "revert_effects_for_exited_targets"]
 
 
 # =============================================================================================
@@ -564,6 +569,63 @@ def update_effect_targets(desired_targets: Sequence[int],
     return event_actions
 
 
+def revert_effects_for_exited_targets(state: State) -> list:
+    """Le volet MANQUANT de `RefreshEffectsOperation` : `RevertInternal` sur les cibles qui SORTENT
+    de `EffectComponent.Targets`. #419-r1-tr9-r4-r1-r2-r1b.
+
+    ## Ce que fait le natif
+    `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` recalcule `Targets @+0x48`
+    a chaque refresh ; `$$GetTargetsToRemove` rend la difference, `$$RemoveTargetsFromEffect` la
+    retire, et le `b__2` (`RevertEffectsForTargets`) joue le slot `IEffect+0xf` -- c.-a-d.
+    `<Effect>.RevertInternal` -- POUR CHAQUE cible sortie. Pour `1395` c'est
+    `LegendaryCommander_ExtraHitsEffect$$RevertInternal` = `ExecuteBehaviour(ClearPersistentData(
+    <AbilityOrEffect>, EffectSource(Get(effect)), EntityId(Target@<DSLSelectors+0x60>)))`.
+
+    ## Pourquoi ce port-ci n'a PAS besoin de materialiser `Targets`, et c'est une EQUIVALENCE
+    Le port re-derive le selecteur a chaque lecture (modele #49/#153), donc il n'a pas de
+    `currentTargets` a diffencier. Mais le `RevertInternal` de `1395` est un `ClearPersistentData`
+    PAR CIBLE : sur une cible sortie qui n'avait AUCUNE marque, c'est un NO-OP. L'ensemble des
+    cibles MARQUEES est donc un sur-ensemble suffisant de `targetsToRemove` pour ce qui est
+    OBSERVABLE -- balayer les marques et purger celles qui ne sont plus couvertes rend exactement
+    le meme etat que balayer `Targets`. C'est une equivalence, pas un collapse.
+
+    ⚠ CE QUE CETTE FONCTION REMPLACE, ET POURQUOI L'ANCIEN REGIME SOUS-APPLIQUAIT. La purge etait
+    faite par le TARGET-TRIGGER lui-meme, a la CLOTURE D'ATTAQUE, et elle n'observait donc QUE
+    `ev.target_id` -- la cible du coup courant. Or la couverture de `1395` tombe a CHAQUE
+    changement de tour : son selecteur exige `HasUsedActiveAbilityThisTurn` d'un allie, et
+    `UnitFlagsComponent$$RemoveTurnFlags` (port : `turnflow`, AVANT le refresh `TurnChanged`) le
+    retire. Une cible marquee au tour N, non attaquee au tour N+1, et re-couverte au tour N+2
+    gardait donc sa marque cote port alors que le natif l'avait effacee -- le port REFUSAIT un
+    bonus que le natif RE-DONNE. Ce n'est pas un regime exotique : c'est le regime NORMAL, et c'est
+    exactement ce que la mesure live de `case-419-...` Sec.4 avait etabli (<< le natif rend de
+    nouveau 5 coups >>).
+
+    ## Portee
+    Une instance entre ici si sa classe declare `targets_to_revert_on_exit` -- discriminant par MRO,
+    meme forme que `_active_condition_is_ported` ci-dessous : `BaseEffect` en fournit un defaut qui
+    rend `()`, donc << aucune surcharge >> = << rien a purger >>, jamais un `hasattr` defensif.
+
+    Rend la liste des `(source_id, cle purgee)` -- diagnostic, comme le volet stat."""
+    out: list = []
+    if state.effects is None:
+        return out
+    for uid, effs in list(state.effects.by_unit.items()):
+        for e in (effs or []):
+            if e.consumed or e.expired:
+                continue
+            if type(e).targets_to_revert_on_exit is BaseEffect.targets_to_revert_on_exit:
+                continue                      # aucune surcharge -> ce `RevertInternal` n'est pas porte
+            for key in (e.targets_to_revert_on_exit(state, int(uid)) or ()):
+                src, data_key = key
+                ent = state.get_entity(int(src))
+                comp = ent.get_component(_PersistentDataComponent) if ent is not None else None
+                if comp is None:
+                    continue
+                comp.clear_persistent_data(data_key)
+                out.append((int(src), data_key))
+    return out
+
+
 def _active_condition_is_ported(effect) -> bool:
     """La `CreateActiveCondition` de CETTE classe d'effet est-elle REELLEMENT portee ?
 
@@ -768,4 +830,12 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None,
                 for st in sorted(stats):
                     us.revert_stat(int(st), src)                 # RevertModification (part 6)
                     out.append((int(uid), int(st), None))
+    # #419-r1-tr9-r4-r1-r2-r1b -- LE SECOND VOLET DU MEME `RefreshEffectsOperation`. Le natif ne
+    # scinde pas : `$$Execute` evalue `ShouldBeActive` PUIS appelle `$$UpdateEffectTargets`, dont le
+    # `b__2` joue `RevertInternal` sur chaque cible SORTIE. Le port avait porte le premier volet
+    # (les stats) et laisse le second au TARGET-TRIGGER, qui ne l'observe qu'a la cloture d'attaque.
+    # L'appel est INCONDITIONNEL en `unit_id` (le natif refresh l'ETAT, pas une unite : la
+    # restriction par `unit_id` est un artefact du port cote STATS) et no-op des qu'aucune instance
+    # ne surcharge `targets_to_revert_on_exit`.
+    revert_effects_for_exited_targets(state)
     return out

@@ -1300,6 +1300,22 @@ class BaseEffect:
         st = self.get_stat_modification_stat()
         return [] if st is None else [int(st)]
 
+    def targets_to_revert_on_exit(self, state, owner_id: int) -> "tuple":
+        """Les cles de `PersistentDataComponent` que `<Effect>.RevertInternal` doit PURGER parce que
+        leur cible a quitte `EffectComponent.Targets @+0x48`. #419-r1-tr9-r4-r1-r2-r1b.
+
+        C'est la part DATA du `b__2` (`RevertEffectsForTargets`) de
+        `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` : le driver
+        `runner/operations/refresh_effects.revert_effects_for_exited_targets` la lit et execute la
+        purge. Rend un iterable de `(source_id, data_key)`.
+
+        DEFAUT `()` : la plupart des `RevertInternal` ne touchent AUCUNE liste persistante -- ils
+        reversent une stat (`reverted_stats`) ou un override (`overridden_stats`). Le driver
+        discrimine par MRO (la classe SURCHARGE-t-elle ?), donc ce defaut veut dire << ce
+        `RevertInternal`-la n'est pas porte >>, et non << il n'y a rien a purger >> : les deux se
+        confondraient sous un `hasattr` defensif, que la doctrine proscrit."""
+        return ()
+
     def overridden_stats(self) -> "list":
         """Part DATA d'un `ApplyInternal` qui OVERRIDE des stats du porteur (part 7, `ChangeStat` mode 4)
         aux valeurs **CURRENT du PARENT** du porteur — cas `MV71SniperDroneSquad_InitialDmgEffect
