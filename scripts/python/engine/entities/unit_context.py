@@ -180,6 +180,11 @@ class UnitContext:
     # `snapshot._load_stats_and_effects`/`_load_machine_stats`, DECISION via
     # `playbook.scene._hydrate_static_unit`).
     rarity: "Rarity | None" = None
+    # #969-r4 -- `EntityExtensions$$CurrentOwnerIsEnvironment`, TRI-ETAT. `None` = PAS MESURE
+    # (bundle sans le capteur, ou `invokeBoolOrNull` en echec) ; `False` est une MESURE, et c'est
+    # la reponse pour la quasi-totalite des unites -- confondre les deux rendrait une panne de
+    # capteur indiscernable du cas normal. Seede par le foyer UNIQUE `from_snapshot`.
+    current_owner_is_environment: "bool | None" = None
     damage_type: int = 0            # DamageProfileType index de l'attaque normale
     range: int = 0                  # 0 = mêlée
     faction: str | None = None
@@ -389,6 +394,17 @@ class UnitContext:
             # gameconfig. Foyer UNIQUE `entities.rarity.measured_rarity` (tri-etat + refus d'un
             # ordinal hors mirror) -- cf. le champ `rarity` ci-dessus.
             rarity=measured_rarity(snap_unit),
+            # #969-r4 -- `IdunBattle.Entities.EntityExtensions$$CurrentOwnerIsEnvironment(e, state)`
+            # = `GetCurrentPlayer(e, state).<+0x20>.<+0x20> == PlayerType.Environment (2)`, publie
+            # par `combatSnapshot.units[].currentOwnerIsEnvironment` (capteur #1072, `invokeBool
+            # OrNull`). C'est le PREMIER des deux termes du predicat que
+            # `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluateTarget` applique aux cibles de
+            # TOUT playbook -- et le seul qu'aucun autre canal ne porte (`decisionView.units[].owner`
+            # publie l'`ownerId`, jamais l'`Owner.Type`).
+            # TRI-ETAT STRICT, et il est ici plus glissant qu'ailleurs : ce predicat est FAUX pour
+            # la quasi-totalite des unites, donc un repli sur `False` serait d'accord avec le natif
+            # PARTOUT sauf dans le seul regime qui existe pour le mesurer. `None` = PAS MESURE.
+            current_owner_is_environment=snap_unit.get("currentOwnerIsEnvironment"),
             damage_type=int(cfg.get("damageType", 0) or 0),
             range=int(cfg.get("range", 0) or 0),
             faction=cfg.get("faction"), unit_class=int(cfg.get("class", 0) or 0),
