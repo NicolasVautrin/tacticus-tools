@@ -308,33 +308,55 @@ def _measure_on(sid: int, rid: int) -> dict:
     live_coups_cast = _coups_natifs(act)
 
     # ---- TOUR ENNEMI : le TEMOIN NEGATIF ---------------------------------------------------
+    # ⚠ `tours` -- LE DISCRIMINANT DE #889-r4, et il manquait. Le probe NOMMAIT ses pas
+    # (<< TOUR ENNEMI >>, << TOUR DU LION >>) sans jamais LIRE a qui le natif donne la main :
+    # `decisionView.currentPlayer`. Or le modele de tour est par EQUIPE (`PickNextUnit`), pas par
+    # unite -- si l'equipe du Lion n'a plus d'unite a jouer, le tour bascule DES la fin du cast, et
+    # l'`endturn` du pas [C] termine alors le tour de l'ADVERSAIRE au lieu de l'ouvrir. Les deux
+    # pas seraient decales d'un cran, et le << temoin negatif >> serait en fait le tour du Lion --
+    # ce qui rendrait l'ecart observable SANS qu'aucun des deux moteurs ait tort.
+    # Le nom d'un pas n'est pas une mesure : on lit le joueur actif A CHAQUE pas.
+    tours = {"apres_cast": dec1.get("currentPlayer")}
+    # APPARIEMENT DES PAS (#889-r4). Le natif emet `On(0x15 = TurnStart_DelayedAttacks)` pour le
+    # joueur qui PREND la main (`IdunBattle.Operations.StartTurnOperation$$Execute`). Le port doit
+    # donc jouer `delayed_attack_triggers` avec CE joueur-la, lu APRES la bascule -- pas avec un
+    # joueur devine d'apres le NOM qu'on a donne au pas.
+    # ⚠ Et le RNG se re-seede AVANT la bascule : sinon le port tire ses rolls depuis un etat que le
+    # natif a deja consomme, et les deux montants ne sont plus comparables (c'est ce qui rendait
+    # l'ecart 16919 / 9268 illisible).
+    rng_av_b1 = rng_dump(sid, rid)
+    seed_offline_rng(state, rng_av_b1)
     off_hp_avant_ennemi = hp_off(state)
-    off_ennemi = delayed_attack_triggers(state, joueur_adverse)
-    off_hp_apres_ennemi = hp_off(state)
     rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
     dec2 = decision(sid, rid)
+    tours["apres_endturn_1"] = dec2.get("currentPlayer")
+    # Le port joue la MEME bascule, pour le MEME joueur que celui a qui le natif vient de donner
+    # la main.
+    off_ennemi = delayed_attack_triggers(state, dec2.get("currentPlayer"))
+    off_hp_apres_ennemi = hp_off(state)
     live_hp_apres_ennemi = hp_live(sid, rid)
     rng_avant = rng_dump(sid, rid)
 
-    # ---- TOUR DU LION : la PHASE 2 ---------------------------------------------------------
+    # ---- SECONDE BASCULE -- meme appariement -----------------------------------------------
     rng_off = seed_offline_rng(state, rng_avant)
     off_hp_avant = hp_off(state)
     off_foot_avant = footprint_off(state)
-    off_tir = delayed_attack_triggers(state, mon_joueur)
-    off_hp_apres = hp_off(state)
-    off_foot_apres = footprint_off(state)
-    off_draws = int(getattr(rng_off, "call_count", 0) or 0)
 
     act3 = rpc(sid, "applyAction",
                {"runnerId": rid, "captureEvents": True, "action": {"kind": "endturn"}}, 90) or {}
     dec3 = decision(sid, rid)
+    tours["apres_endturn_2"] = dec3.get("currentPlayer")
+    off_tir = delayed_attack_triggers(state, dec3.get("currentPlayer"))
+    off_hp_apres = hp_off(state)
+    off_foot_apres = footprint_off(state)
+    off_draws = int(getattr(rng_off, "call_count", 0) or 0)
     live_hp_apres = hp_live(sid, rid)
     rng_apres = rng_dump(sid, rid)
 
     return {
         "rid": rid, "caster": caster_id, "target": target_id, "from_here": from_here,
         "feet": feet,
-        "mon_joueur": mon_joueur, "joueur_adverse": joueur_adverse,
+        "mon_joueur": mon_joueur, "joueur_adverse": joueur_adverse, "tours": tours,
         "routed": res.get("routed"), "ported": diag.get("ported"),
         "diag": diag,
         "cast_error": cast_error,
@@ -409,6 +431,17 @@ def main() -> int:
         print("        natif : %s" % _dhp(*m["live_hp_cast"]))
         print("        coups natifs : %s" % m["live_coups_cast"])
         print("        diag port    : %s" % json.dumps(m["diag"], default=str)[:900])
+        # LE DISCRIMINANT : a qui le NATIF donne-t-il la main a chaque pas ? Un pas NOMME
+        # << tour ennemi >> qui rend `currentPlayer == mon_joueur` invalide le temoin negatif.
+        print("[889] JOUEURS -- mon_joueur=%s joueur_adverse=%s" % (m["mon_joueur"],
+                                                                   m["joueur_adverse"]))
+        print("        currentPlayer natif par pas : %s" % m["tours"])
+        _t = m["tours"]
+        if _t.get("apres_cast") == m["mon_joueur"] and _t.get("apres_endturn_1") != m["mon_joueur"]:
+            print("        -> les pas sont ALIGNES : [C] est bien le tour ADVERSE")
+        else:
+            print("        -> ATTENTION, PAS DECALES : le pas nomme << tour ennemi >> n'est PAS "
+                  "le tour adverse. Le temoin negatif ne vaut rien tel quel (#889-r4).")
         print("[889] [C] TOUR ENNEMI (temoin NEGATIF : rien ne doit partir)")
         print("        port  : %s | dhp=%s" % (m["off_ennemi"], _dhp(*m["off_hp_ennemi"])))
         print("        natif : dhp=%s" % (_dhp(*m["live_hp_ennemi"]),))
