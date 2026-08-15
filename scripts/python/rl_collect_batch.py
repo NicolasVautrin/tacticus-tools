@@ -1080,6 +1080,14 @@ def _load_seed_bc(path=None) -> dict:
     stale = catalog_inject.stale_unit_report(bc)
     if stale:
         print(f"[seed-bc] {stale}", file=sys.stderr)
+    # #254-bc-r1 -- l'AUTRE axe du meme silence. `stale_unit_report` parle des entrees PRESENTES qui
+    # ont derive ; celui-ci parle de ce que la capture n'a PAS DU TOUT. Il se TAIT tant que l'ecart
+    # est exactement celui qui est epingle (donc zero bruit en regime nominal) : il ne parle que
+    # quand le gameconfig a ajoute une unite depuis, ou qu'une epinglee est entree au catalogue.
+    # Mesure du gisement : l'ecart est passe de 17 a 21 unites `lineup` sans que rien ne le dise.
+    gap = catalog_inject.catalog_gap_report(bc)
+    if gap:
+        print(f"[seed-bc] {gap}", file=sys.stderr)
     return bc
 
 

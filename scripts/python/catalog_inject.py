@@ -3,9 +3,14 @@
 
 PROBLEME (cases #92 / #54). Le seed BC sur disque (`data/seed-bc.json`) est la capture d'UNE
 bataille reelle : son `Units[]` ne contient que les 175 unites que le compte du joueur possedait
-ce jour-la. 17 heros/MoW du gameconfig n'y sont PAS (les 4 Votann, thousDaemonPrince,
+ce jour-la. Des heros/MoW du gameconfig n'y sont PAS (les Votann, thousDaemonPrince,
 necroReanimator, darkaStormSpeeder, ...) -> `rl_duel build --p-units <id>` les refuse (hors pool)
 et leurs abilities sont INCONFRONTABLES.
+
+⚠ LE COMPTE SE RE-DERIVE, IL NE SE CITE PAS : cette ligne annoncait « 17 » et en portait **21** a
+la re-mesure du 2026-08-15 (#254-bc-r1). L'ecart se creuse a chaque MAJ du jeu, sans un mot ;
+`catalog_gap` / `catalog_gap_report` et l'epingle `MISSING_LINEUP_ENTRIES` sont ce qui le DIT
+desormais (`python catalog_inject.py --missing`).
 
 POURQUOI `Units[]` EST LE CATALOGUE (RE, decompile = verite) :
   `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(this, string unitId)` resout un unitId en
@@ -1269,6 +1274,74 @@ def missing_from_seed_bc(seed_bc: dict) -> list:
     """Ids `units.lineup` du gameconfig absents du catalogue capture (= porteurs bloques)."""
     have = {u["Id"].split(":")[0] for u in seed_bc.get("Units") or []}
     return sorted(k for k in G._index()["lineup"] if k not in have)
+
+
+# ══ L'AXE AJOUT du catalogue capture (#254-bc-r1) ═════════════════════════════════════════════════
+#
+# CE QUE `STALE_UNIT_ENTRIES` NE COUVRE PAS. L'epingle voisine garde la derive des entrees
+# PRESENTES dans la capture (une unite dont le gameconfig a change le kit). Une unite que le
+# gameconfig a AJOUTEE depuis la capture n'y est pas du tout : elle releve de
+# `missing_from_seed_bc`, qui ENUMERE sans comparer -- donc rien ne disait si l'ecart se CREUSAIT.
+#
+# ET IL S'EST CREUSE, EN SILENCE : la fiche du residu relevait **17** manquantes ; re-mesure le
+# 2026-08-15 sur `t6dpr4k06g`, il y en a **21**. Le module lui-meme annonce encore « 17 » dans sa
+# docstring d'en-tete. Personne n'a rien vu passer -- c'est exactement le regime que ce garde ferme.
+#
+# TROIS CATEGORIES, TROIS REGIMES DIFFERENTS -- et les confondre serait le vice du garde en SEUIL :
+#
+#   `lineup`  (127)  -> 21 absents. EPINGLES NOMINALEMENT ci-dessous, gardes dans les DEUX sens.
+#                       Chacun est un porteur qui ne s'amene qu'en INJECTANT (case-92 Sec.6).
+#   `summons` (65)   -> **0** absent. C'est un INVARIANT, pas un compte : il est ce qui rend la
+#                       voie summon confrontable SANS injection (on spawne le summoner). Le jour ou
+#                       le jeu en ajoute un, cette propriete tombe -- et il faut le savoir.
+#   `npc`     (491)  -> 487 absents, et c'est NORMAL : la capture ne porte que les 4 npc de CETTE
+#                       bataille, les autres s'injectent a la demande. Rapporte, jamais garde.
+#
+# CE GARDE N'EST PAS UN RATTRAPAGE. Comme #254-bc, il MESURE et il DIT ; injecter les 21 au seed
+# partage changerait le pool spawnable de tous les tests live.
+MISSING_LINEUP_ENTRIES = frozenset({
+    "adeptCelestine", "astarCyrus", "astarLysander", "bloodTerminator", "darkaSternguard",
+    "darkaStormSpeeder", "eldarLhykhis", "emperExultant", "emperFlawlessBlade", "emperLucius",
+    "necroChronomancer", "necroReanimator", "spaceWolfPriest", "tauFarsight", "thousDaemonPrince",
+    "thousSekhetar", "votanBeserk", "votanChampion", "votanIronmaster", "votanMemnyr", "votanUthar",
+})
+
+
+def catalog_gap(seed_bc: dict) -> dict:
+    """`{kind: {"total": n, "missing": [...]}}` -- ce que le gameconfig VIVANT porte et que la
+    capture n'a pas, ventile par categorie d'unite. Pendant de `stale_unit_entries` sur l'axe AJOUT.
+    """
+    have = {u["Id"].split(":")[0] for u in seed_bc.get("Units") or []}
+    idx = G._index()
+    out = {}
+    for kind in ("lineup", "npc", "summons"):
+        table = idx.get(kind) or {}
+        out[kind] = {"total": len(table),
+                     "missing": sorted(k for k in table if k not in have)}
+    return out
+
+
+def catalog_gap_report(seed_bc: dict) -> str | None:
+    """Une ligne ASCII decrivant l'ecart d'AJOUT, ou `None` s'il est exactement celui qui est
+    epingle. Les entrees hors `MISSING_LINEUP_ENTRIES` sont marquees, dans les DEUX sens.
+    """
+    gap = catalog_gap(seed_bc)
+    lineup = set(gap["lineup"]["missing"])
+    neuves = sorted(lineup - MISSING_LINEUP_ENTRIES)
+    injectees = sorted(MISSING_LINEUP_ENTRIES - lineup)
+    smn = gap["summons"]["missing"]
+    if not neuves and not injectees and not smn:
+        return None
+    parts = []
+    if neuves:
+        parts.append("lineup NEUVES hors epingle (%d) : %s" % (len(neuves), ",".join(neuves)))
+    if injectees:
+        parts.append("lineup epinglees mais PRESENTES (%d) : %s"
+                     % (len(injectees), ",".join(injectees)))
+    if smn:
+        parts.append("SUMMONS absents du catalogue (%d) : %s -- la voie summon n'est plus "
+                     "confrontable sans injection pour eux" % (len(smn), ",".join(smn)))
+    return ("ecart d'AJOUT catalogue<-gameconfig (#254-bc-r1) : " + " | ".join(parts))
 
 
 # --------------------------------------------------------- 3e catalogue : la RELIQUE (#237)
@@ -2648,6 +2721,18 @@ def main(argv: list[str]) -> int:
             tag = "MoW" if "MachineOfWar" in (gc.get("traits") or []) else "   "
             print(f"  {tag} {uid:24s} {gc.get('FactionId','?'):18s} "
                   f"act={gc.get('activeAbilities')} pas={gc.get('passiveAbilities')}")
+        # #254-bc-r1 : ENUMERER ne dit pas si l'ecart se CREUSE. On rend donc les trois categories
+        # et on confronte `lineup` a l'epingle -- c'est ce qui manquait quand l'ecart est passe de
+        # 17 a 21 sans un mot.
+        gap = catalog_gap(seed)
+        for kind in ("lineup", "npc", "summons"):
+            g = gap[kind]
+            print(f"[gap] {kind:8s} gameconfig={g['total']:4d}  absents du catalogue="
+                  f"{len(g['missing']):4d}")
+        rapport = catalog_gap_report(seed)
+        print("[gap] " + (rapport if rapport else
+                          "ecart d'AJOUT conforme a l'epingle (%d lineup, 0 summon)"
+                          % len(MISSING_LINEUP_ENTRIES)))
         return 0
 
     if a.show:
