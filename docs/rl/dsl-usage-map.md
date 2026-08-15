@@ -3,7 +3,7 @@
 > **FICHIER GENERE** par `python scripts/python/dsl_xref_map.py report`.
 > En cas de conflit au rebase : **REGENERER, ne pas fusionner** -- aucun cote
 > d'un diff genere n'est "juste".
-> Build : `rnca9r7q6c`. Source : xrefs `ghidra-mcp` sur `GameAssembly.dll`.
+> Build : `t6dpr4k06g`. Source : xrefs `ghidra-mcp` sur `GameAssembly.dll`.
 
 ## Ce que repond cette carte
 
@@ -26,7 +26,7 @@ Sont retenus comme **primitives** :
     angle mort : aucune fabrique ne porte `&`, alors que c'est LE combinateur
     de sequence des arbres de behaviour.
 
-## Comptes re-derives (build `rnca9r7q6c`)
+## Comptes re-derives (build `t6dpr4k06g`)
 
 | grandeur | valeur |
 |---|---|
@@ -64,8 +64,9 @@ aussi faux qu'un zero silencieux.
 | `gqfc5mff6c` | 2844 | 0 |
 | `kqkbjqfb6c` | 2849 | non mesure |
 | `rnca9r7q6c` | 2830 | 0 |
+| `t6dpr4k06g` | 2830 | 0 |
 
-Sur `rnca9r7q6c`, l'axe UTILITY est donc **PARTIELLEMENT MESURABLE** :
+Sur `t6dpr4k06g`, l'axe UTILITY est donc **PARTIELLEMENT MESURABLE** :
 
   * `dont corps pleinement partages` : 97 symboles nommes
   * `BucketSystem` : 14 symboles nommes
