@@ -43,6 +43,41 @@ from engine.runner.components import UnitComponent, register_defeated_unit
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.services.battle_query import get_attack_range_type, is_ranged_attack
 
+#: #486-r15 -- perimetre = exactement les foyers que ce fichier lit. Aucun runner ; le gameconfig du
+#: build est lu (l'`attackRangeType` des abilities temoins est DERIVE, jamais code en dur) ->
+#: `build: True`.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        # l'ETAGE porte par cette tranche, et ses deux freres avec qui la coherence est gardee
+        "scripts/python/engine/services/battle_query.py",
+        "scripts/python/engine/battle_query.py",
+        # le CABLAGE : la file de morts, les deux ecritures de l'octet, et le lecteur du marqueur
+        "scripts/python/engine/runner/operations/damage.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/operations/revive.py",
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
+        "scripts/python/engine/runner/operations/triggers/loki/possession.py",
+        "scripts/python/engine/runner/abilities/behaviours/summon.py",
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        # les enums CITES au site
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        "scripts/python/gameconfig.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Offline : fige le SWITCH du slot 4 d'IBattleQuery (ses quatre branches, dont la "
+              "TROISIEME valeur que ses freres n'ont pas), sa coherence avec le slot 3, et le "
+              "cablage de l'`inMelee` -- de l'enqueue (`MatchState$$AddDeath`, 5e argument) aux "
+              "DEUX ecritures du meme octet (`UnitComponent+0x178` sur la victime, "
+              "`RegisterDefeatedUnit` sur le tueur). La confrontation LIVE du couple est celle de "
+              "#951-r3 (`decisionView.units[].defeatedByMelee`), deja en place.",
+}
+
 
 # --------------------------------------------------------------------------------------------
 # Etage 1 -- le mirror du slot 4, et ce qui le distingue de ses DEUX freres
