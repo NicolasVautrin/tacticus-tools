@@ -149,12 +149,16 @@ class AttemptedPossessionPlaybook(_PlanTargetPlaybook):
         BORNE SUPERIEURE sur les etages portes (cf. le foyer, residu `#975-r1`) : les etages
         manquants ne peuvent que RETIRER des cibles."""
         tid = target if not isinstance(target, dict) else target.get("id")
-        row = next((u for u in (ctx.obs_units or [])
+        # `getattr` et non l'attribut : un contexte de test degrade (ou un appelant offline qui ne
+        # construit pas la ligne `observeBattle`) ne doit pas faire CRASHER une face DECISION --
+        # il doit rendre << pas d'increment >>, ce qui est la borne INFERIEURE assumee.
+        obs = getattr(ctx, "obs_units", None) or []
+        row = next((u for u in obs
                     if u.get("squadId") == tid and not u.get("isDead")), None)
         if row is None or row.get("teamId") is None or row.get("col") is None:
             return False                     # cible hors canal -> aucun increment (borne INF)
         team = int(row["teamId"])
-        foes = [(u["col"], u["row"]) for u in (ctx.obs_units or [])
+        foes = [(u["col"], u["row"]) for u in obs
                 if not u.get("isDead") and u.get("teamId") is not None
                 and int(u["teamId"]) != team and u.get("col") is not None]
         return has_eligible_normal_attack_target(ctx, tid, (row["col"], row["row"]), foes)

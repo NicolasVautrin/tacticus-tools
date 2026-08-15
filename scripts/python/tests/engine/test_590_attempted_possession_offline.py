@@ -528,16 +528,31 @@ def test_le_custom_utility_rend_None_quand_aucune_cible_preferee(monkeypatch):
 # ETAGE 9 -- LA FACE DECISION
 # ---------------------------------------------------------------------------------------------
 def test_le_playbook_1101_est_au_registre_avec_son_plancher():
-    """`MIN_UTILITY = 1` (le `.cctor`) et l'utilite BASE `1` : le port ne REFUSE jamais un cast que
-    le natif accepterait. Rendre `None` faute de mesure aurait rendu l'ability INCASTABLE par
-    l'IA -- un no-op de plus, exactement ce que cette tranche ferme."""
+    """`MIN_UTILITY = 1` (le `.cctor`) et l'utilite PLANCHER `1` : le port ne REFUSE jamais un cast
+    que le natif accepterait. Rendre `None` faute de mesure aurait rendu l'ability INCASTABLE par
+    l'IA -- un no-op de plus, exactement ce que cette tranche ferme.
+
+    ⚠ CE QUE `#590-r7` A CHANGE ICI, ET POURQUOI CE N'EST PAS UN TEST << ADAPTE POUR PASSER >>.
+    Ce test passait un `ctx = None`, ce que le port tolerait tant que les deux `op_Increment`
+    natifs n'etaient PAS portes : `evaluate_non_comparable` rendait alors le plancher sans rien
+    lire. Depuis `#590-r7` les deux increments SONT portes, donc la fonction LIT le contexte -- un
+    `None` n'est plus un contexte degrade, c'est un appel qui n'existe pas chez le natif.
+    Le FAIT que ce test garde est inchange et reste asserte ci-dessous : **le plancher atteint
+    `MIN_UTILITY`**, donc `Bucket$$AddAction` retient la candidate. Ce qui change est seulement
+    l'argument par lequel on l'exerce -- un contexte VIDE (aucun substrat mesure), qui est
+    precisement le regime ou les deux increments s'abstiennent."""
+    from engine.playbook.noncomparable._base import NCContext
     from engine.playbook.noncomparable import PLAYBOOKS
     from engine.playbook.noncomparable.attempted_possession import AttemptedPossessionPlaybook
     pb = AttemptedPossessionPlaybook()
+    vide = NCContext(uid=7, origin=(0, 0), reach_nc=[], epos=[], fpos=[], plan={},
+                     hp_cur_by_id={})
     assert pb.ABILITY_ID == ABILITY
     assert pb.MIN_UTILITY == 1.0, "...AttemptedPossessionPlaybook$$.cctor = Fix64(1)"
-    assert pb.evaluate_non_comparable((0, 0), 42, None) >= pb.MIN_UTILITY, \
-        "l'utilite BASE doit atteindre le plancher, sinon Bucket.AddAction ne retient rien"
-    assert pb.evaluate_non_comparable((0, 0), None, None) is None
+    assert pb.evaluate_non_comparable((0, 0), 42, vide) >= pb.MIN_UTILITY, \
+        "l'utilite PLANCHER doit atteindre le plancher, sinon Bucket.AddAction ne retient rien"
+    assert pb.evaluate_non_comparable((0, 0), 42, vide) == pb.BASE_UTILITY, \
+        "substrat entierement non mesure -> AUCUN increment : les deux termes sont des bornes INF"
+    assert pb.evaluate_non_comparable((0, 0), None, vide) is None
     assert ABILITY in PLAYBOOKS and isinstance(PLAYBOOKS[ABILITY], AttemptedPossessionPlaybook), \
         "playbook non inscrit => l'IA ne propose jamais 1101 par cette voie"
