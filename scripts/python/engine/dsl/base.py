@@ -439,11 +439,22 @@ class DslContext:
     # None = contexte sans `State` -> le noeud rend l'ordre SOURCE inchange, ZERO calcul
     # (degradation nommee par le noeud). Fourni par `entities_from_state`.
     sort_tiles_by_utility: object | None = None
-    # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`,
-    # champ +0x110 = le `DamageAppliedResult` du coup courant) -> `Nullable<bool>` valant
-    # `DamageAppliedResult.get_IsFirstHit` = `hitIndex == 0`. Lu par le SEUL predicat
+    # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`) ->
+    # `Nullable<bool>` = `hitIndex == 0`. Lu par le SEUL predicat
     # `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` (`HasValue ? Value : false`).
     # Defaut None = coup hors serie / index inconnu -> le predicat rend False (mirror du `!HasValue`).
+    # ⚠ CITATION D'OFFSET CORRIGEE (#927-r5) : ce getter lit **`AbilityEntities+0x108`** (le champ
+    # `hitIndex`, un `Nullable<int>`), PAS `+0x110` -- `+0x110` est `hitGroupIndex`, que lit
+    # `get_IsFirstHitGroup`. Le meme couple avait deja ete re-mesure par #963 et corrige dans
+    # `entities/triggers.py::IsFirstHitInSeries` ; cette ligne-ci portait encore l'ancienne valeur.
+    # Et ce n'est pas « le `DamageAppliedResult` du coup courant » : c'est un entier nullable.
+    # ⚠ **UN SEUL VECTEUR DU PORT POSE CE CHAMP** (#927-r5, recensement AST des 14 appels passant
+    # `is_first_hit=` : treize visent une OPERATION de degat ou un `TriggerEvent`, un seul un
+    # `DslContext`) -- `runner/operations/triggers/loki/on_toxic_damage.py`, qui est aussi le seul
+    # consommateur porte d'`IsFirstHitInSeries`. Les deux bouts se rejoignent donc, et le predicat
+    # n'est PAS inerte. Corollaire pour la cle du noeud `Cache` (qui porte ce slot) : elle ne
+    # discrimine par lui que sur ce chemin-la -- et l'arbre d'`on_toxic_damage` ne contient aucun
+    # `Cache`, donc aucune memoisation n'en depend aujourd'hui.
     is_first_hit: bool | None = None
     # `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit, triggeredAbilityType)` =
     # `unit.GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)` -- le SEUL etage du

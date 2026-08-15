@@ -313,6 +313,8 @@ def fury_target(state: State, owner_id: int, hits: int, rng=None):
     second = fury_damage_prediction_formula(fury_second_target_selector(ActiveTarget()),
                                             min_max_damage(state, owner_id, rng), hits)
     ranked = SortByFormula(fury_possible_targets(), Sum(first, second), ascending=False)
+    # `...FuryOfTheAncientsAbility$$GetTarget` finit par `mov r8b, 1 ; jmp <DSLSelectors$$Cache>`
+    # -- un TAIL CALL, donc `matchAbilityEntities = 1` (mode DICT), qui est le defaut du noeud.
     return Cache(PickFirstN(ranked, Const(1)))
 
 

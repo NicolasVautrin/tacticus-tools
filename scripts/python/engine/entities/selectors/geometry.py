@@ -1105,14 +1105,37 @@ class FilterContinuous(TargetsSelector):
     d'ennemis s'interrompt au premier trou), la ou `Filter` balaie tout.
 
     Meme binding sujet que `Filter` (l'element courant est lie au slot sujet du contexte avant evaluation).
-    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`."""
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`.
+
+    ⚠ **LE BINDING EST `ActiveTarget`, ET IL NE L'ETAIT QU'A MOITIE** (#927-r5). Lu terme a terme
+    sur `IdunBattle.Entities.Selectors.FromTriggerSelector$$Select` (le corps NATIF des DEUX
+    factories, `Filter` et `FilterContinuous`, separees par le seul flag `+0x28`) :
+
+        var sub = new AbilityEntities(entities, activeTarget: null);   // `.ctor` copie-avec-cible
+        foreach (var item in <this+0x18>.Select(entities)) {
+            sub.<+0x20 ActiveTarget> = item;                           // le SEUL champ rebinde
+            if (!<this+0x20>.ShouldTrigger(sub)) { if (this+0x28) return acc; else continue; }
+            acc.Add(item);
+        }
+
+    `sub` est la locale que ghidra eclate en `local_148` (la struct) et `local_128` (= `local_148
+    + 0x20`, donc `ActiveTarget`). Le port ecrivait `replace(ctx, subject=item)` SEUL, la ou
+    `Filter` (`selectors/units.py`) ecrit bien les deux : `Subject` et `ActiveTarget` sont DEUX
+    noeuds portes pour UN SEUL selecteur natif (`DSLFactory+0x180`, cf. leurs docstrings), donc
+    n'en poser qu'un laisse l'autre sur la valeur du contexte PARENT. Consequences, les deux
+    silencieuses : un `ActiveTarget()` evalue sous ce noeud lisait la mauvaise entite, et la cle
+    du `Cache` (qui porte les DEUX slots) ne bougeait qu'a moitie. Aucun des deux call-sites
+    portes n'etait ATTEINT -- leurs predicats lisent `Subject()` -- mais la divergence etait
+    reelle et n'attendait qu'un arbre qui lise l'autre nom."""
     def __init__(self, source: TargetsSelector, predicate: TargetsSelector):
         self.source, self.predicate = source, predicate
 
     def select(self, ctx):
         out = []
         for item in self.source.evaluate(ctx):
-            if not self.predicate.evaluate(replace(ctx, subject=item)):
+            # `sub.<+0x20 ActiveTarget> = item` -- MEME binding que `Filter`, les deux noeuds
+            # portes du slot natif `DSLFactory+0x180`.
+            if not self.predicate.evaluate(replace(ctx, subject=item, active_target=item)):
                 break                          # court-circuit (flag `Continuous`)
             out.append(item)
         return out
@@ -1281,23 +1304,72 @@ class Cache(TargetsSelector):
     rend donc la 1re valeur memoisee QUEL QUE SOIT le contexte suivant ; le mode DICT re-calcule
     des que l'`AbilityEntities` recu differe.
 
-    CENSUS PE DE TOUS LES CALL-SITES (build `t6dpr4k06g`, 2026-08-15) : **119 call-sites**, dont
-    **112 en mode DICT** et **7 en mode SLOT**. Les sept, nommes :
+    CENSUS PE DE TOUS LES CALL-SITES (build `t6dpr4k06g`, re-mesure #927-r4) : **121
+    call-sites**, dont **114 en mode DICT** et **7 en mode SLOT**. Les sept, nommes :
     `...ResurrectionOrbAbility$$GetResurrectBehaviour`, `...StormcallerAbility$$ExecuteBehaviour`,
     `...HeavyRailRifle_AttackAbility$$CreateBehaviour`, `...LightImUpAbility$$CreateBehaviour`
     (le 2e de ses deux appels), `...DakkaDakkaDakkaAbility$$ExecuteBehaviour`,
     `...DakkaDakkaDakkaAbility$$GetLeftoverHitsPerTargetFormula`,
     `...DarkTalonStrikeAbility$$ExecuteBehaviour`.
-    D'ou le defaut `True` : ce n'est pas un litteral invente, c'est celui de 112 sites sur 119, et
+    D'ou le defaut `True` : ce n'est pas un litteral invente, c'est celui de 114 sites sur 121, et
     tout call-site de la minorite l'ECRIT (`match_ability_entities=False`).
 
+    ⚠ **LE PREMIER CENSUS DISAIT 119, ET L'ECART EST UN TROU DE FORME, PAS DE COMPTAGE** : il ne
+    cherchait que l'opcode `call`, et un appel en position de QUEUE est compile en TAIL CALL.
+    `...FuryOfTheAncientsAbility$$GetTarget` et `...SorcerousFacadeAbility$$GetTarget` finissent
+    tous deux par `mov r8b, 1 ; jmp <DSLSelectors$$Cache>`. Le premier est precisement le
+    call-site que #927 declare avoir ajoute -- son propre census ne le voyait pas. Contre-controle
+    independant : Ghidra rend 125 xrefs = **121** `UNCONDITIONAL_CALL` + 4 `DATA`.
+
+    ⚠ **LE DEFAUT EST UNE COMMODITE DE PORTAGE, ET LE NATIF N'EN A AUCUN** : les 121 call-sites
+    poussent chacun un litteral CONSTANT (zero indetermine a la mesure). #927-r4 proposait de
+    rendre le parametre OBLIGATOIRE ; la mesure a fait renoncer -- les **44** call-sites Python
+    concordent **44/44** avec leur call-site natif, donc c'eut ete un durcissement, pas un
+    correctif, et un parametre obligatoire force a ECRIRE, pas a LIRE (`Cache(x, True)` pose de
+    memoire est la meme faute). Ce qui est pose a la place CONFRONTE : chaque site cite son
+    symbole natif, et `tests/engine/test_927r4_cache_litteral_offline.py` verifie le litteral
+    contre `data/symbols/<build>/metadata/dsl_cache_call_sites.tsv` -- y compris les deux sites
+    qui ecrivent deja, et un `Cache` porte SANS call-site natif, que l'obligatoire ne verrait pas.
+
     ⚠ CE QUE LA CLE COUVRE, ET CE QU'ELLE NE COUVRE PAS. Le natif keye sur la STRUCTURE
-    `AbilityEntities` entiere (33 champs, egalite de `ValueType` : references pour les entites,
-    valeurs pour les scalaires). Le `DslContext` du port n'en modelise qu'un SOUS-ENSEMBLE, et
-    `_ability_entities_key` ci-dessous ne prend QUE ces champs-la -- surtout pas le contexte entier,
-    qui porte aussi `units`, `board` et une trentaine d'accesseurs que la structure native ignore :
-    les inclure ferait RATER le cache a chaque reconstruction de contexte, et c'est exactement la
-    memoisation load-bearing de GetEmRuntz qu'on casserait."""
+    `AbilityEntities` ENTIERE (egalite de `ValueType`, aucun `Equals` propre : references pour les
+    entites, valeurs pour les scalaires). Le `DslContext` du port n'en modelise qu'un
+    SOUS-ENSEMBLE, et `_ability_entities_key` ci-dessous ne prend QUE ces champs-la -- surtout pas
+    le contexte entier (71 champs), qui porte `units`, `board` et une soixantaine d'accesseurs que
+    la structure native ignore : les inclure ferait RATER le cache a chaque reconstruction de
+    contexte, et c'est exactement la memoisation load-bearing de GetEmRuntz qu'on casserait.
+
+    ⚠ **LE COMPTE EXACT, RE-MESURE SUR LE BUILD COURANT (#927-r5) -- l'enonce « 9 des 33 » etait
+    FAUX DES DEUX COTES.** La structure porte **32** champs, pas 33 : c'est le nombre de parametres
+    du `.ctor` NOMME (`frida/methods.tsv`), et il inclut `blockedHits` mais PAS `armorDamage`.
+    Aucune des deux versions d'`AbilityEntities` du dump Il2CppDumper ne decrit ce layout (l'une a
+    `armorDamage` sans `blockedHits`, l'autre les deux) -- elles sont d'AUTRES builds. Trois
+    controles concordent : taille `classes.tsv` 312 boxee = **0x128** nue = ce que copie
+    `CacheSelector$$Select` ; `get_IsFirstHit` lit `+0x108` (`hitIndex`) et `get_IsFirstHitGroup`
+    `+0x110` (`hitGroupIndex`) ; `isFirstDamagingHit` est le **29e** parametre nomme (#963).
+
+    Et la cle ne couvre pas 9 champs mais **6** :
+      * `actor` `caster` `target` `owner` `effect` `active_target` -> 6 champs natifs, exactement ;
+      * `caster_pos` est la PROPRIETE `get_CasterPosition`, DERIVEE de `casterTiles@+0x48` puis
+        `casterTile@+0x40` -- deux entites distinctes de meme position se confondent ;
+      * `is_first_hit` est la PROPRIETE `get_IsFirstHit`, derivee de `hitIndex@+0x108`, et un SEUL
+        vecteur du port la pose (`triggers/loki/on_toxic_damage.py`, sur les 14 appels passant
+        `is_first_hit=`) -> elle ne discrimine que sur ce chemin, ou aucun `Cache` ne vit ;
+      * `subject` n'est PAS un champ : `Subject` et `ActiveTarget` sont deux noeuds portes pour LE
+        MEME selecteur natif `DSLFactory+0x180`, donc deux slots pour un seul champ.
+
+    Les **26** champs non couverts ne sont pas que ceux du DEGAT (`damageReason`, `damageProfile`,
+    `usedDamageProfiles`, `appliedDamageProfiles`, `initialDamage`, `healthDamage`, `totalDamage`,
+    `individualHitDamage`, `wasCrit`, `wasBlock`, `blockedHits`, `wasOverkilled`, `hitIndex`,
+    `hitGroupIndex`, `isFirstDamagingHit`, `hasUsedAttackDamage`, `movementSteps`) : **neuf** sont
+    hors degat -- `previousActiveTarget`, `targetTile`, `targetTiles`, `casterTile`, `casterTiles`,
+    `activePlayer`, et les trois `abilityOrEffect` (`current`/`parent`/`trigger`). Le `DslContext`
+    n'en porte AUCUN, donc le blocage `seeding` vaut pour les 26, pas seulement pour le degat.
+
+    SENS DE LA FAUTE : la cle SOUS-DISTINGUE. Le port sert un HIT la ou le natif RE-CALCULE ; il ne
+    peut pas faire l'inverse. Non atteint a ce jour -- les `Cache` portes vivent au-dessus de la
+    boucle de coups, et les sept call-sites natifs ou le contexte varie VRAIMENT entre deux
+    consommateurs sont precisement ceux que le natif met en mode SLOT."""
     def __init__(self, source, match_ability_entities: bool = True):
         self.source = source
         self.match_ability_entities = bool(match_ability_entities)   # `+0x20`

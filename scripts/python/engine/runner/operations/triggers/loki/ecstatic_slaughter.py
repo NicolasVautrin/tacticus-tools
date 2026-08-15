@@ -208,6 +208,8 @@ def ecstatic_slaughter_target_selector(state: State, owner_id: int, profile: Opt
     ordered = SortUnitsByDamageUtility(Randomize(ring), Caster(),
                                        _MinMaxDamage(state, owner_id, profile),
                                        selection_type=SEL_ALIVE_TARGETABLE)
+    # `...EcstaticSlaughterAbility$$CreateBehaviour` pousse `matchAbilityEntities = 1` (mode
+    # DICT), qui est le defaut du noeud.
     return Cache(First(ordered))
 
 

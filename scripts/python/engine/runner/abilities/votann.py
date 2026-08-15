@@ -791,6 +791,8 @@ def mass_driver_attack_tree():
     consts = (GC.ability(MASS_DRIVER_ACCELERATOR_ID) or {}).get("constants") or {}
     profile = consts.get("damageProfile")            # GetDamageProfile()  = GetEnumConstant(0x2b)
     profile2 = consts.get("damageProfile_2")         # GetDamageProfile2() = GetEnumConstant(0x3f)
+    # `MassDriverAcceleratorAbility$$ExecuteBehaviour` pousse `matchAbilityEntities = 1` (mode
+    # DICT), qui est le defaut du noeud.
     cache = Cache(mass_driver_adjacent_attack_targets_selector())
     atk1 = AttackWithAttackDamage(Target(), MASS_DRIVER_ACCELERATOR_ID, profile, is_melee=True,
                                   ability_type=int(ActiveAbilityType.MassDriverAccelerator))

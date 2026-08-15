@@ -71,9 +71,22 @@ désormais `mord = None` = verdict **indisponible**, et le test le refuse.
 * `MischiefMakers` (1469), second porteur de `HealBlockingEffect`, n'est pas inscrit au registre
   d'effets : un porteur de 1469 reste soignable côté port (dégradation **permissive**, identique à
   l'état antérieur, bornée à cet id).
-* `Cache(matchAbilityEntities = 1)` : le natif prend la branche DICT de `CacheSelector$$Select` ; le
-  nœud porté n'implémente que la branche slot unique. Sans effet ici (arbre rebâti par
-  déclenchement, `GetTarget` évalué une fois).
+* ~~`Cache(matchAbilityEntities = 1)` : le nœud porté n'implémente que la branche slot unique.~~
+  **PORTÉ** (#927-r3), puis **CONFRONTÉ SITE PAR SITE** (#927-r4) : les **44** call-sites Python du
+  nœud `Cache` sont appariés un à un au littéral que pousse *leur* call-site natif — **44/44
+  concordants, 0 divergent** — et un cliquet les re-confronte à la table versionnée
+  `data/symbols/<build>/metadata/dsl_cache_call_sites.tsv`.
+  ⚠ **Ce call-site-ci était le trou du census de #927-r3** : `...FuryOfTheAncientsAbility$$GetTarget`
+  finit par `mov r8b, 1 ; jmp <DSLSelectors$$Cache>` — un **TAIL CALL**, que le scan (qui ne
+  cherchait que l'opcode `call`) ne voyait pas. Le census annonçait donc **119** call-sites
+  ; il y en a **121** (114 DICT / 7 SLOT). Contre-contrôle Ghidra : 125 xrefs = 121
+  `UNCONDITIONAL_CALL` + 4 `DATA`. Ironie utile : c'est précisément le call-site que #927 déclare
+  avoir ajouté qui manquait à sa propre mesure.
+* La **clé** du mode DICT ne couvre que **6** des **32** champs d'`AbilityEntities` (#927-r5 —
+  l'énoncé disait 9 sur 33 : le compte des champs venait d'un dump Il2CppDumper d'un *autre* build,
+  et trois des neuf slots ne sont pas des champs mais deux propriétés dérivées plus un doublon).
+  La faute **sous-distingue** — HIT là où le natif re-calcule, jamais l'inverse — et n'est pas
+  atteinte : les `Cache` portés vivent au-dessus de la boucle de coups.
 * `attackerPosition = Tiles(Caster)` et `ability = <DSLSelectors+0x88>` ne sont pas matérialisés :
   le foyer de prédiction porté lit la position courante et dérive les gates du profil — mêmes
   valeurs par un autre chemin.
