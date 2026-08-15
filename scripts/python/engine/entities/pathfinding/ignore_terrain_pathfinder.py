@@ -128,3 +128,70 @@ def get_path_node_counts(board: Board, target_id: int, occupants: dict) -> dict:
                 best[n] = cand
                 heapq.heappush(heap, (cand[0], cand[1], n))
     return {tid: nodes for tid, (_cost, nodes) in best.items()}
+
+
+def get_path_node_counts_by_pos(target, neigh_by_pos=None, walkable_by_pos=None,
+                                elev_by_pos=None, occupied_positions=()) -> dict:
+    """`{(col,row) -> Count}` de `IPathfinders.GetPath(PathfinderType.IgnoreTerrain, unit, <pos>,
+    target, null)` -- le JUMEAU EN DOMAINE POSITION de `get_path_node_counts` ci-dessus, exactement
+    comme `walk_pathfinder.get_path_node_counts_by_pos` est le jumeau du moteur `Board` de la marche.
+
+    Il existe parce que les TROIS constructeurs de `leaf_ctx` (`tile.py`) ne publient pas un
+    `Board` : ils publient les cartes par-position (`neigh_by_pos` = `board.neighbours_native`,
+    `walkable_by_pos`, `elev_by_pos`). Le consommateur est
+    `IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$GetMinDistanceToTarget`, qui appelle ce
+    pathfinder avec le litteral `1` (`PathfinderType.IgnoreTerrain`) et lit `route+0x18`
+    (`List._size`) -- un compte de NOEUDS, extremites INCLUSES.
+
+    ⚠ **LE VOISINAGE PUBLIE EST `neighbours_native`, PAS `connectivity`** -- et ici c'est un
+    NO-OP PROUVE, pas une approximation : `board.base_add_neighbours` documente l'identite
+    `neighbours == connectivity INTERSECTE {aretes de |dElev| < 2}`, et `is_valid_path_node`
+    ci-dessus exige `|dElev| <= 1` -- il refuse donc exactement les aretes que le champ omet.
+    C'est le MEME argument que celui ecrit dans `get_path_node_counts` pour son propre repli.
+
+    Parcours INVERSE (il part de `target`), comme le jumeau `Board` et pour la meme raison : une
+    passe rend la distance de TOUTES les tuiles candidates vers la meme destination. L'argument de
+    symetrie est celui de `get_path_node_counts` (predicat symetrique, ecart de cout constant a
+    tuile de depart fixee).
+
+    `occupied_positions` = `TileContentComponent.IsFilled(to)` du `WeightCost` (`10 + IsFilled`) --
+    un COUT, jamais un gate de passage : ce pathfinder n'a AUCUN test d'occupant.
+    `neigh_by_pos` absent -> repli sur le voisinage `hexgeo` restreint aux positions connues (meme
+    degradation que `walk_pathfinder.get_path_node_counts_by_pos`)."""
+    import hexgeo
+    tk = (target[0], target[1])
+    occ = {(p[0], p[1]) for p in (occupied_positions or ())}
+    domain = None
+    if neigh_by_pos is None:
+        domain = set(walkable_by_pos or ()) | set(elev_by_pos or ())
+
+    def _neighbours(p):
+        if neigh_by_pos is not None:
+            return [(q[0], q[1]) for q in (neigh_by_pos.get(p) or ())]
+        ns = hexgeo.neighbors(p[0], p[1])
+        return [q for q in ns if not domain or q in domain]
+
+    def _elev(p):
+        return None if elev_by_pos is None else elev_by_pos.get(p)
+
+    best: dict = {tk: (0, 1)}                      # pos -> (cout cumule, nb de noeuds)
+    heap = [(0, 1, tk)]
+    while heap:
+        cost, nodes, cur = heapq.heappop(heap)
+        if (cost, nodes) > best.get(cur, (cost, nodes)):
+            continue                               # entree perimee de la file
+        ce = _elev(cur)
+        for n in _neighbours(cur):
+            # `IgnoreTerrainPathfinder$$IsValidPathNode(from, to)` : `IsWalkable(to)` ET
+            # `|elev(to) - elev(from)| <= 1`. AUCUN test d'occupant (la signature native n'a meme
+            # pas de parametre `unit`).
+            if walkable_by_pos is not None and not walkable_by_pos.get(n, False):
+                continue
+            ne = _elev(n)
+            if ce is not None and ne is not None and abs(ne - ce) > 1:
+                continue
+            cand = (cost + WEIGHT_BASE + (1 if n in occ else 0), nodes + 1)
+            if n not in best or cand < best[n]:
+                best[n] = cand
+                heapq.heappush(heap, (cand[0], cand[1], n))
+    return {p: nodes for p, (_cost, nodes) in best.items()}

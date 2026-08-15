@@ -247,6 +247,17 @@ callable `unit_health_of` retiré → branche non doublée), `CRITDMG_AVANT` (l'
   `AmuletOfTheVoidwyrm` et `NetherRealmCasket` (mêmes conditions géométriques, même absence
   d'entrée `ABILITY_INIT_OWNER_EFFECTS` puisque la relique n'est pas au kit) ;
 * la face **DÉCISION** est portée et son arbre est partagé avec la face COMBAT (donc confronté par
-  ricochet), mais **l'utilité de mouvement elle-même n'est pas confrontée live** : le seul canal
-  qui la publierait est le walk L3, interdit en session partagée. Résidu `#922-r2` ;
+  ricochet). Résidu `#922-r2`, **re-mesuré le 2026-08-15 — son `BLOCAGE: capteur` est RÉFUTÉ.**
+  Le walk L3 est bien le seul canal qui publierait l'utilité PAR-TUILE ; mais **l'ANCRE est
+  observable sans aucun capteur** : ancrée sur `Tiles(Owner)` (l'ancre de la face COMBAT) elle
+  serait CONSTANTE sur toutes les tuiles candidates d'une décision, ancrée sur
+  `DSLSelectors.Get(<tuile candidate>)` elle VARIE — et cette variation change le CLASSEMENT.
+  Livré : `tests/engine/test_922r2_intoxicating_elixir_ancre_offline.py` (6 assertions — l'ANCRE
+  avec témoin non dégénéré, le classement INTERVERTI et sa contre-épreuve « mêmes unités NON
+  debuffées ⇒ ex aequo à 0 », poids et PLAFOND lus au gameconfig, disque CUBE centre INCLUS sans
+  porte d'élévation, SELF, absence de filtre d'équipe). L'autre moitié du résidu — « la clé
+  `self_effects` des TROIS `leaf_ctx`, dont AUCUN test ne vérifie la forme » — est gardée par
+  `tests/engine/test_175r1_movetowards_pathdist_offline.py` étage 4.
+  Reste ouvert : l'**ARGMAX natif**, qui ne demande aucun capteur non plus (les quatre porteurs
+  sont HERO `lineup`, montage de relique ÉCRIT depuis #237) ;
 * `$$GetLocalizationDataInternal` : affichage seul, aucun observable de combat — non porté.

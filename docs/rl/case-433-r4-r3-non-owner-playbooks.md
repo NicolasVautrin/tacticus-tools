@@ -153,10 +153,28 @@ tout début du tour suivant (recette E4 de `probe_291_summon_activation.py`).
 * ~~**`#433-r4-r3-r1` — 19 faces MOVE `*NonOwnerPlaybook` restent non portées.**~~ **FERMÉ pour les
   10 du corps partagé — §8.** Le compte cité ici (25 / 22 / 19) était un compte **par NOM** et il
   est FAUX : rectifié au §8.
-* **`#433-r4-r3-r2` — les faces OWNER de 1000 et 1487 ne sont pas portées non plus** :
-  `PsychicFortressPlaybook$$GetAdjacentFriendUtility` et
-  `ECogSupportPlaybook$$CalculateMovementUtilityInStepsInternal`. Elles ne pèsent que le sweep du
-  PORTEUR lui-même, donc hors du montage de ce cas — mais elles sont vivantes.
+* ~~**`#433-r4-r3-r2` — les faces OWNER de 1000 et 1487 ne sont pas portées non plus.**~~
+  **PORTÉES (2026-08-15) ; les DEUX blocages étaient faux, chacun pour une raison différente.**
+  * `PsychicFortress` portait `etage` — « `GetAdjacentFriendUtility` n'a AUCUN appelant de code
+    (2 xrefs DATA), c'est un DÉLÉGUÉ dont le consommateur reste à nommer ». La parenté que ghidra
+    affiche (`AdjacentToOwnerNonOwnerPlaybook<…>`) est un **MISLABEL de thunk gshared** : la
+    DÉCLARATION donne `AdjacentUnitPreferenceTriggeredAbilityPlaybook<PsychicFortressAbility>`, les
+    deux xrefs DATA sont les **slots de VTABLE 13/14**, et le consommateur est le corps PARTAGÉ de
+    la base — porté depuis #57i. Même piège que `RedRampage`, `Deathwing`, `IconOfObstinacy`.
+    Corps = LOOKUP PLAT sur `PSYCHICFORTRESS_AdjacentFriend` (= 5). Son `GetAdjacentEnemyUtility`
+    est déclaré surchargé mais son corps est **dédupliqué par ICF avec 112 autres**, dont ceux de
+    `GuardianOrganism` et `FabricatorClawArray` (branche ENNEMIS mesurée nulle en live) ⇒ `0`.
+  * `ECogSupport` portait `seeding` — le `leaf_ctx` ne publiait le parent QUE DU SUJET. La clé
+    `parent` par VOISIN est posée par les TROIS jumeaux depuis #175-r1.
+  ⚠ **Piège de clé, figé par le cliquet** : `PSYCHICFORTRESS_AdjacentFriend` (owner, section
+  `TriggeredAbilities`, 5) et `PSYCHICFORTRESS_AdjacentFriendl**y**` (non-owner, section
+  `TriggeredAbilitiesNonOwner`, 20) ne diffèrent que d'une LETTRE ; idem
+  `EcogSupport_EcogSummonsInRange` (30) / `EcogSupport_EcogAdjacentToParent` (10). Une dérivation
+  par préfixe les confondrait, et le poids passerait de 5 à 20.
+  ⚠ Le corps OWNER d'`ECogSupport` **ne teste PAS `HasTrait(Summon)`**, contrairement à sa face
+  non-owner : `GetAdjacentFriends` apporte déjà le filtre de camp et `GetParent == caster` suffit.
+  Garde : `tests/engine/test_433r4r3r2_faces_owner_1000_1487_offline.py` (8 assertions).
+  NON COUVERT : l'argmax natif (les deux porteurs sont HERO `lineup`, aucun montage exotique).
 * **`#433-r4-r3-r3` — `scene_tile_leaf_ctx` ne produit pas `unit_parent_id`.** Le terme
   `EcogSupport` (et le bonus PARENT de `SaviorProtocolsPlaybook`, même dégradation nommée là-bas)
   rend donc 0 sur la face PRÉDICTION. Le canal existe des deux côtés depuis #378 (`Scene.parent`) :

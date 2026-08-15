@@ -103,6 +103,21 @@ class Scene:
     #                                                    # (la glace LordOfTempests s'ACCUMULE en bataille) ->
     #                                                    # fourni FRAIS par décision (tileMeta, cf. context.py) ;
     #                                                    # None = inconnu (bonus position-dépendants inertes)
+    # #425-r1 — LE MÊME `tileMeta`, SANS le filtre d'activité : la liste POSSÉDÉE entière
+    # (`EffectsOwnedComponent.ActiveEffectIds`, dont le nom trompe). Les DEUX tables existent parce
+    # que leurs CONSOMMATEURS natifs ne se ressemblent pas :
+    #   * `tile_effects_by_pos` (ACTIF-ONLY) alimente les bonus de dégât à magnitude POSITIONNELLE
+    #     (nœud `HasTileStatusEffect` / `EntitiesWithAnyEffect`, cf. `avalanche_of_muscle.py` et
+    #     `entities/effects/base.py`) — statu quo, non confronté sur cet axe, donc INCHANGÉ ;
+    #   * `tile_effects_owned_by_pos` alimente la FEUILLE `TileEffects(10)` du composite `Tile(7)`
+    #     (`SceneTileState`), dont le natif
+    #     (`IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`)
+    #     n'a AUCUN gate sur `IsActive` ni `Removed` — LU, et sur DEUX corps (l'autre étant
+    #     `DespoiledGroundUtility.<...>d__5`).
+    # Séparer les deux tables est ce qui rend le rayon de souffle NUL : un seul lecteur change.
+    # `None` = canal non fourni -> `SceneTileState` retombe sur la table actif-only (comportement
+    # d'avant, jamais une invention).
+    tile_effects_owned_by_pos: dict | None = None
     board: object | None = None                        # Board (voisins natifs, adjacence hex) — cf.
     #                                                    # engine.entities.pathfinding.board ; None → evenq
     # `MachineOfWarPosition` du joueur COURANT (1=Top, 2=Bottom) — la valeur que compare le predicat
@@ -496,7 +511,8 @@ class Scene:
     def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None,
                             board: object | None = None,
                             tile_effects_by_pos: dict | None = None,
-                            machine_of_war_position: int | None = None) -> "Scene":
+                            machine_of_war_position: int | None = None,
+                            tile_effects_owned_by_pos: dict | None = None) -> "Scene":
         """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet).
         `tile_effects_by_pos` = effets de tuile FRAIS du pas (tileMeta ; dynamique — la glace
         LordOfTempests s'accumule) ; None -> bonus position-dépendants inertes.
@@ -537,6 +553,8 @@ class Scene:
             machine_ids=sctx.get("machine_ids"),
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             tile_effects_by_pos=tile_effects_by_pos,
+            # #425-r1 -- la liste POSSEDEE, pour la seule feuille `TileEffects(10)`. Cf. le champ.
+            tile_effects_owned_by_pos=tile_effects_owned_by_pos,
             machine_of_war_position=machine_of_war_position,
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},

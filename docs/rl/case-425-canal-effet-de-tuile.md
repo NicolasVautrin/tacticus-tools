@@ -98,6 +98,27 @@ côtés). Corrigé, et figé par un test.
   entre les deux appels est **VIDE** — le gisement est nul sur ce régime, donc non mordant *ici*.
   Fermer = un montage portant un effet de tuile dont l'`ActiveCondition` est fausse tout en restant
   dans la liste possédée (candidat : la zone NON MARCHABLE de `1148 DaemonicOrdnance`, #368).
+
+  ⚠ **RE-MESURÉ le 2026-08-15 — le `BLOCAGE: porteur` était faux, et le volet PRÉDICTION est
+  livré.** `blackForgefiend`, seul porteur non-npc de `1148`, est dans les **8 MoW spawnables** de
+  `rl_duel build --list-pool` : ni injection catalogue ni greffe. Montage JOUÉ
+  (`probe_425r1_daemonic_ordnance_inactif.py`, `MC1_67`/777, `--p-mow blackForgefiend` puis
+  `act ability --caster <mow> --ability 1148 --to 3,4`) : l'ability part et pose `Fire` sur trois
+  tuiles ; `tileMeta` défaut et `includeInactive` publient les MÊMES 8 tuiles à effet et les MÊMES
+  noms ; **0** effet à `active == False`. Ce qui reste ouvert n'est donc pas un PORTEUR mais un
+  ÉTAT — un effet de tuile dont l'`ActiveCondition` est fausse pendant qu'il reste possédé.
+  ⚠ **Découverte de capteur** : le canal `tileMeta` DÉFAUT ne publie **pas** le champ `active`
+  (12 effets sans la clé sur ce montage). `_tile_effect_names(only_active=True)` ne filtre donc
+  RIEN sur ce canal ; le drapeau n'existe que sous `includeInactive`. L'absence est une absence de
+  MESURE, jamais un `False` — et le port la traitait déjà ainsi.
+  ⚠ **Volet PRÉDICTION livré** : `SceneTileState` lisait `Scene.tile_effects_by_pos` (ACTIF-ONLY)
+  là où le natif n'a aucun gate. Le rayon de souffle, qui n'était « pas mesuré », l'est : ce champ
+  a DEUX lecteurs de natures différentes — les bonus de dégât à magnitude POSITIONNELLE
+  (`playbook/avalanche_of_muscle.py`, `entities/effects/base.py` via `att_ctx`, natif
+  `HasTileStatusEffect`) et la feuille `TileEffects(10)`. La `Scene` porte désormais les DEUX
+  tables (`tile_effects_owned_by_pos` NEUVE pour la seule feuille), donc **un seul lecteur change**
+  et le rayon est nul par construction. Repli sur l'actif-only si la table possédée manque.
+  Garde : `tests/engine/test_425r1_canal_possede_prediction_offline.py`.
 * ~~**`#425-r2` — `readEffectsByTile` jette `removed` inconditionnellement**~~ — **FERMÉ
   (2026-08-05, `#425-r3`)**. Le natif retire **toujours** : `RemoveEffectOperation$$Execute` fait
   `List.Remove` sur `EffectsOwnedComponent.ActiveEffectIds` de l'entité `OwnerId` **avant** de

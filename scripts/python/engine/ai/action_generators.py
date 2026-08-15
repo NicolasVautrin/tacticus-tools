@@ -48,6 +48,10 @@ from engine import battle_query as bq          # is_adjacent (élévation-gaté)
 from engine.entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
+# #271-r7 : la feuille 4 FACE REPAIR, 3e membre du composite `Repair(47)`. Import en FORME B
+# (module, pas symbole) serait ici sans objet -- ce foyer-la n'est patche par aucun probe, et
+# `engine.playbook` est deja charge par la ligne au-dessus (cascade IDENTIQUE, ecart 0).
+from engine.utilities.tile import triggered_abilities_non_owner_repair_utility
 from engine.playbook.base import NO_ACTION   # sentinelle `BaseUtility` -> Nullable VIDE (#27-4g)
 from engine.playbook.common import (HEAL_PLAYBOOK, HEAL_PLAYBOOKS, TWISTED_SCIENCE_HEAL_PLAYBOOK,
                                     normal_attack_playbook)
@@ -706,6 +710,15 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
                                                   hp_cur, hp_max, group_limit=_glim)
                     fill_hp = rp.fill_hp
                 pred = repair_utility(fill_hp, hp_max, is_boss=False)
+                # Feuille TriggeredAbilitiesNonOwner(4) FACE REPAIR (#271-r7) — le TROISIÈME membre
+                # du composite `Repair(47)`, dont le port ne sommait que `RepairedAmount(48)`.
+                # Son unique corps concret (`VoltagheistFieldPlaybook`) RE-ÉMET `RepairedAmount`
+                # quand la CIBLE porte le passif : le terme DOUBLE, et il compense exactement le
+                # `×0.5` que `calculate_repair_modifier_for_prediction` vient d'appliquer à la
+                # magnitude quelques lignes plus haut. La feuille 2 (face repair du dispatcher
+                # OWNER) reste non portée — écart nommé.
+                pred += triggered_abilities_non_owner_repair_utility(ctx, ctx.uid, tg,
+                                                                    fill_hp, hp_max)
                 if ctx.debug:
                     print(f"    [dbg repair u{ctx.uid}->{tg}] vis={ob.get('visualId')} "
                           f"hp={hp_cur}/{hp_max} repairAmt={repair_amt} "

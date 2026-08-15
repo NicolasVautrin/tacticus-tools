@@ -78,6 +78,39 @@ porte une ABILITY ou un EFFET, et retient la première AMIE ou ENNEMIE selon un 
 
 ⇒ Blocage réel : **`etage`**, pas `capteur`. Résidu **`#175-r1`**.
 
+### 3bis. `#175-r1` — PORTÉ (2026-08-15), et le blocage `etage` n'existait pas
+
+Rien ne manquait au niveau ÉTAGE : `IPathfinders.GetPath(IgnoreTerrain, …)` était déjà porté et
+confronté. Ce qui manquait était un ÉCRIVAIN — la clé `movetowards_hexdist` n'en avait **aucun**.
+
+Livré : `ignore_terrain_pathfinder.get_path_node_counts_by_pos` (jumeau en domaine POSITION du
+moteur `Board`), `_movetowards_target_pos` / `_movetowards_pathdist_by_pos`, la pose de
+`meta["movetowards_pathdist"]` dans `apply_tile_attributes` (clé RENOMMÉE avec son producteur), et
+le substrat que `_unit_record` jetait : `owned_effects` = `{type, source, active}` **plus**
+`parent`, posés dans les TROIS jumeaux de `leaf_ctx`.
+
+Deux points de RE **en plus des six** ci-dessus, lus à l'écriture sur `t6dpr4k06g` :
+
+* la branche EFFET part de `IBattleQuery.<slot 192 = GetActiveEffects>(type, null)` puis
+  `FirstOrDefault(allUnits, u.Id == comp.OwnerId)` — et elle **n'exclut PAS `case.Unit`**, alors
+  que la branche ABILITY porte explicitement `u.Id != case.Unit.Id` ;
+* les deux drapeaux `+0x70` sont des champs **DE SOUS-CLASSE**, et seule la taille d'instance
+  l'établit (`frida/classes.tsv` : base 112, BioMinefield 120, MasterOfTheTutelaries 128). Le lire
+  comme un champ unique ferait croire les deux drapeaux vrais des deux côtés. La DÉCLARATION
+  Il2CppDumper confirme : BioMinefield n'override que `EffectSourceMustBeParent`, MoT que `Friends`
+  et `OnlyUnitsWithAny`.
+
+⚠ **La réserve du re-expert est LEVÉE** : `decisionView.units[].effects` publie bien `source`,
+ainsi qu'`effectType` et `active` (`frida/hooks/game/effects.ts::EffectInfo`, servi tel quel par
+`rpc-decision`). BioMinefield n'est donc PAS dégradé sur la face DÉCISION.
+
+MESURE — écart CHEMIN vs HEX par board (`probe_175r1_movetowards_pathdist.py`) :
+`MC1_67` 3/63, `C1_74` 9/61, `C3_59` 12/59, `C4_09` 5/66, `C6_09` 2/57 ; tuiles walkable
+INJOIGNABLES depuis la cible (donc terme 0) : 4 sur `C4_09`, 2 sur `C1_74` et `C3_59`, 0 ailleurs.
+Une amplitude ne s'estime pas depuis un board : elle varie d'un facteur 6 entre `C6_09` et `C3_59`.
+
+NON COUVERT : l'ARGMAX natif des deux feuilles.
+
 ## 4. Ce qui reste vraiment `capteur`
 
 * **`door`** (`SummonDislikeDoorOpening(29)`, `HeroLikeDoorOpening(30)`) : `roomTileType` (0/1/2)

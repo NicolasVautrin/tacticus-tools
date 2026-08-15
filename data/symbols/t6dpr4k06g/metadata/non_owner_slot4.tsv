@@ -1,0 +1,36 @@
+# `<slot 4>` (`get_ShouldIncludingEnemiesWhenCalculate`) de chaque concret de la famille
+# `TriggeredAbilityNonOwnerPlaybook<T>` -- build t6dpr4k06g.
+# DECLARE = la classe a une entree de ce nom dans son `Il2CppTypeDefinition` (metadata).
+# VALEUR  = le corps lu dans le bloc `methodPointers` (`b0 01 c3` / `32 c0 c3`), ou la
+#           valeur HERITEE de la base quand la classe ne declare rien.
+# Entree VERSIONNEE : c'est ce qui rend le cliquet jouable sans le jeu installe.
+# Regenerer : python scripts/python/probe_477r37_slot4_et_faces_restantes.py --regenerer
+#classe	parent	face	declare	valeur	corps
+AmuletOfTheVoidwyrmNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+BookOfFateNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+CabalOfSorcerersPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+ECogSupportPlaybookNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+FirstAmongTraitorsNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+HaywireMineNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	1	1	b0 01 c3
+IconOfObstinacyNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+KardiocoreGalvanusNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+KustomForceFieldReworkedNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+MastersOfManoeuvreNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+MawClawsOfThyraxNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+MyWillBeDoneOverlordNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+NetherRealmCasketNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+NoHidingFromTheWatchersNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	ATTACK	1	1	b0 01 c3
+NornCrownNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+PrimarchOfTheFirstLegionNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+PropheticSentinelNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+PsychicFortressNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+PurgeResponseNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+RedemptionOfTheRisenNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+RelicOfLostCadiaNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+SabreOfSacrificeNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	
+ShieldOfFaithNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	ATTACK	0	0	
+TimesplinterMantleNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+VoltagheistFieldPlaybook	TriggeredAbilityNonOwnerPlaybook`1	REPAIR	0	0	
+WatchedOverNonOwnerPlaybook	AdjacentToOwnerNonOwnerPlaybook`1	MOVE	0	0	
+WayOfTheShortBladeNonOwnerPlaybook	TriggeredAbilityNonOwnerPlaybook`1	ATTACK	0	0	
+WisdomOfTheAncientsPlaybook	TriggeredAbilityNonOwnerPlaybook`1	MOVE	0	0	

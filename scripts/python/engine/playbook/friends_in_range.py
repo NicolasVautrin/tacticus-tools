@@ -303,3 +303,84 @@ class FirstAmongTraitorsPlaybook:
             if bq.is_surrounding(tile, p, rng, include_center_tile=True):
                 n += 1                                            # `value += w` par unite retenue
         return float(w * n)
+
+
+class ECogSupportPlaybook:
+    """`ECogSupportPlaybook` -- la face **OWNER** de `EcogSupport` (0x5cf = 1487, passif de
+    `votanIronmaster` << Vynn >>), dont seule la face NON-OWNER etait portee (`non_owner.py`).
+    #433-r4-r3-r2.
+
+    Parente LUE dans la DECLARATION Il2CppDumper : `TriggeredAbilityPlaybook<ECogSupportAbility>`
+    -- donc PAS la famille `AdjacentUnitPreference` : la classe a son PROPRE
+    `CalculateMovementUtilityInStepsInternal` (slot 10), d'ou sa place dans CE module.
+
+    `IdunBattle.AI.Playbook.Loki.ECogSupportPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM : `<>4__this @+0x20`, `case @+0x28`,
+    `getUtilityVal @+0x30`) :
+
+        int value = 0;
+        tile  = UtilityMovementCase.get_MovementTile(case);
+        units = IBattleQuery.<slot 0x83 = 131 GetAdjacentFriends>(tile, case.Unit@0x10);
+        foreach (childUnit in units)
+            if (UnitExtensions.GetParent(childUnit, State, root: false) == case.Unit)
+                value += getUtilityVal("EcogSupport_EcogSummonsInRange");
+        yield return Fix64.op_Implicit(value);
+
+    ⚠ **C'EST LE PENDANT EXACT DE LA FACE NON-OWNER, PRIS A L'ENVERS, ET LES DEUX NE SE REDUISENT
+    PAS L'UNE A L'AUTRE.** La non-owner (`EcogSupport_EcogAdjacentToParent` = 10) dit « ce E-Cog
+    aime rester colle a Vynn » et rend un BOOLEEN ; celle-ci (`EcogSupport_EcogSummonsInRange` = 30)
+    dit « Vynn aime se placer au milieu de ses E-Cogs » et **SOMME** : N summons adjacents valent
+    N x 30.
+
+    ⚠ Et le corps OWNER **ne teste PAS `HasTrait(Summon)`**, la ou la face NON-OWNER le fait :
+    `GetParent(childUnit) == case.Unit` suffit, et `GetAdjacentFriends` apporte deja le filtre de
+    camp. Recopier le gate de l'autre face ajouterait une condition que le natif n'a pas.
+
+    ⚠ `GetAdjacentFriends` (slot 131, arite 2, LU dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`) n'EXCLUT PAS `case.Unit` -- toutes les
+    surcharges deleguent a `BattleQuery$$CountOrGetUnitsOnTiles`, qui ne fait que
+    `if (friendsOf != null && !IsFriend(u, friendsOf)) continue`. Ici c'est INERTE : le predicat
+    `GetParent(u) == case.Unit` est faux pour `u == case.Unit` (une unite n'est pas son propre
+    parent). Le `friend_units` self-exclu du `tile_leaf_ctx` est donc EXACT sur ce corps -- mais
+    pour cette raison-la, pas parce que la query exclurait quoi que ce soit.
+
+    SUBSTRAT. Le predicat exige le PARENT de CHAQUE VOISIN, la ou le `tile_leaf_ctx` ne publiait
+    que celui du SUJET (`unit_parent_id`). La cle `parent` est posee par les TROIS jumeaux depuis
+    #175-r1 / #433-r4-r3-r2 (`engine/utilities/tile.py`), sur le meme canal que `Scene.parent`
+    (`combatSnapshot.units[].parentId` en live, `UnitComponent.parent_id` offline, #378).
+    ⚠ TRI-ETAT : `parent = None` veut dire « pas de parent OU pas mesure ». Le port se tait alors,
+    ce qui est le comportement natif quand `GetParent` rend `null` -- mais un canal MUET rendrait
+    le terme identiquement nul sans le dire. C'est la borne de ce port.
+
+    ADJACENCE = `IterateAdjacentTiles` -> porte d'elevation `|Delta| < 2` (`battle_query.is_adjacent`),
+    jamais `hexgeo.distance == 1`.
+
+    Poids BC : `Utilities.Default.TriggeredAbilities["EcogSupport_EcogSummonsInRange"]` = **30**
+    (literal `0x335e288` de `metadata/string_literals.tsv` ; a NE PAS confondre avec `0x335e140` =
+    `"EcogSupport_EcogAdjacentToParent"`, la cle de l'AUTRE face, dans l'AUTRE section).
+
+    Porteur : `votanIronmaster`, HERO `lineup`."""
+
+    ABILITY_ID = TriggeredAbilityType.EcogSupport             # 0x5cf = 1487
+    WEIGHT_KEY = "EcogSupport_EcogSummonsInRange"
+
+    def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
+        w = wt.sub("TriggeredAbilities", self.WEIGHT_KEY)
+        if not w:
+            return 0.0
+        ctx = ctx or {}
+        uid = ctx.get("uid")
+        if uid is None:
+            return 0.0                       # pas de `case.Unit` -> aucun parent a comparer
+        elev = ctx.get("elev_by_pos")
+        neigh = bq.neigh_map(ctx)
+        n = 0
+        for u in (ctx.get("friend_units") or ()):
+            p = u.get("pos")
+            if not p or not bq.is_adjacent(tile, p, elev, neigh):
+                continue
+            par = u.get("parent")            # `GetParent(childUnit, State, root: false)`
+            if par is not None and int(par) == int(uid):
+                n += 1                       # `value += getUtilityVal(...)` par summon retenu
+        return float(w * n)
+

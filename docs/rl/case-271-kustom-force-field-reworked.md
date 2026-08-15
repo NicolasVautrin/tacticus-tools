@@ -335,9 +335,30 @@ positif** ≤ 25 sur un état où la proposition native est un mouvement PUR. Vo
 > `Damage(35)` est dominé par `DamageDealt` ~[0,100] et `KillUnit` ~[0,100]. Ce qui est mesuré est
 > « le terme MORD et DÉPLACE l'utilité de 10 », pas « le natif suit ».
 
-Ce §7.5 fixe ce qui a été LU, pour qu'une reprise n'ait plus à le refaire. **Aucun code n'est
-livré** : les deux faces exigent un dispatcher neuf, un registre par face et un câblage dans
-`utilities/damage.py` / `utilities/repair.py`, et un port non confronté serait spéculatif.
+> **LA FACE REPAIR EST LIVRÉE (2026-08-15, `#271-r7`) — et son `BLOCAGE: etage` n'existait pas.**
+> Il disait « le `<slot 6>` d'`IUtility` n'est pas dans
+> `data/symbols/<build>/metadata/interface_slots.tsv` (l'interface n'y figure pas), le canal n'est
+> pas établi ». C'est le **TSV** qui manquait, pas le slot : un slot d'interface se LIT dans le
+> `global-metadata.dat`, comme les huit autres interfaces de cette table.
+> MESURE (`probe_271r7_iutility_slots.py`, même machinerie `il2cpp_metadata.locate_types` que
+> `probe_477r25`, donc table désignée par le TYPE et sans ambiguïté d'interface) :
+> `IUtility` slot 6 = **`EvaluateRepair(UtilityAttackCase) -> Fix64`** ; les slots 0..8 concordent
+> avec la déclaration Il2CppDumper, le 9 (`CalculateMovementModifier`) est un AJOUT de ce build.
+>
+> Livré : `engine/playbook/non_owner_repair.py` (3ᵉ registre),
+> `TriggeredAbilitiesNonOwnerUtility.evaluate_repair_in_steps` (jumeau EXACT de la face ATTACK —
+> même `<IterateAbilities>d__4`, même pré-gate, seul le slot appelé change), et le câblage dans
+> `ActionGenerator._repair_candidates`.
+> ⚠ **Le terme est un DOUBLEMENT, pas un poids** : le corps ne fait AUCUN `getUtilityVal`, il
+> RE-ÉMET `RepairedAmount(48)`, déjà membre du composite `Repair(47)`. Et ça se lit avec l'autre
+> face du même passif — `VoltagheistField_RepairReductionEffect$$CreateEffectRepairBonus` divise la
+> magnitude prédite par 2 : le doublement de l'UTILITÉ compense exactement le halving de la
+> MAGNITUDE. Porter l'un sans l'autre biaise le choix de cible.
+> **NON COUVERT** : la confrontation LIVE (montage = GREFFE de `VoltagheistField` sur une unité
+> MECHANICAL du pool — les 3 porteurs sont 1 summon + 2 npc, et le corps ne lit du porteur que son
+> IDENTITÉ) ; et la **feuille 2** du composite `Repair(47)` reste non portée (3 membres, 2 sommés).
+
+Ce §7.5 fixe ce qui a été LU, pour qu'une reprise n'ait plus à le refaire.
 
 **Les deux dispatchers sont JUMEAUX, et diffèrent de la face MOVE sur deux points.**
 
