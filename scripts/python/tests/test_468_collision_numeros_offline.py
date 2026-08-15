@@ -650,6 +650,69 @@ def _suggere(racine, *args):
     return out.returncode, out.stdout + out.stderr
 
 
+def _gate(racine, ref):
+    out = subprocess.run([sys.executable, str(PROBE), "--racine", str(racine), "--gate", ref],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         cwd=str(PYDIR))
+    return out.returncode, out.stdout + out.stderr
+
+
+def test_la_GATE_accuse_ce_que_LA_BRANCHE_introduit_et_RIEN_d_autre():
+    """#468-r2 -- deux bras OPPOSES, et c'est le second qui prouve que la gate FILTRE.
+
+    Une gate qui se contenterait de rejouer l'etape 1 rougirait dans LES DEUX cas. Le second bras
+    -- collision DEJA PRESENTE dans le merge-base, rien d'ajoute -- doit passer VERT alors que le
+    balayage complet du MEME arbre est ROUGE : c'est la seule mesure qui etablit que le diff est
+    reellement lu. Sans lui, ce test serait vert sur une gate qui n'a jamais ouvert `git diff`.
+
+    Le premier bras laisse la ligne fautive NON COMMITEE, a dessein : `--gate` inclut l'arbre de
+    travail, sinon elle ne mordrait qu'apres le commit -- apres le moment ou renommer est gratuit.
+    """
+    #: BRAS 1 -- la branche INTRODUIT la seconde definition (non commitee).
+    r = _depot_git(BASE_SAINE)
+    try:
+        backlog = r / "docs" / "rl" / "backlog.md"
+        backlog.write_text(backlog.read_text(encoding="utf-8")
+                           + _ligne("900-r1", "un AUTRE sujet, meme numero") + "\n",
+                           encoding="utf-8")
+        rc, txt = _gate(r, "HEAD")
+        assert rc != 0, "la gate n'a pas MORDU sur une definition introduite :\n%s" % txt
+        assert "INTRODUITE ICI" in txt and "DEJA LA" in txt, txt
+        assert "un AUTRE sujet, meme numero" in txt, (
+            "la gate nomme l'identifiant mais pas la LIGNE introduite -- c'est tout l'objet du "
+            "mode :\n%s" % txt)
+    finally:
+        shutil.rmtree(r, ignore_errors=True)
+
+    #: BRAS 2 -- la MEME collision, mais deja dans le merge-base : la gate se tait, le balayage
+    #: complet rougit.
+    r2 = _depot_git(BASE_SAINE + [_ligne("900-r1", "un AUTRE sujet, meme numero")])
+    try:
+        rc_plein, txt_plein = _jouer(r2)
+        assert rc_plein != 0, ("le balayage complet doit rougir, sinon le bras 2 ne prouve "
+                               "rien :\n%s" % txt_plein)
+        rc, txt = _gate(r2, "HEAD")
+        assert rc == 0, ("la gate accuse une collision que la branche n'a PAS introduite -- elle "
+                         "ne lit pas le diff :\n%s" % txt)
+        assert "n'introduit AUCUNE definition" in txt, txt
+    finally:
+        shutil.rmtree(r2, ignore_errors=True)
+
+
+def test_la_GATE_sur_une_ref_INCONNUE_rend_99_et_jamais_un_vert():
+    """Une gate qui ne sait pas ce que la branche a ecrit ne rend PAS un vert -- meme frontiere
+    que `--suggere` sur un corpus ampute. C'est le mode de panne le plus probable en CI (ref
+    non fetchee), et celui ou un `PASS` serait le plus couteux."""
+    r = _depot_git(BASE_SAINE)
+    try:
+        rc, txt = _gate(r, "refs/heads/cette-ref-n-existe-pas")
+        assert rc == 99, "attendu 99 (INDISPONIBLE), obtenu %d :\n%s" % (rc, txt)
+        assert "VERDICT GATE" not in txt, "un verdict a ete rendu sans mesure :\n%s" % txt
+        assert "gate impossible" in txt, txt
+    finally:
+        shutil.rmtree(r, ignore_errors=True)
+
+
 def test_aucun_sous_process_de_ce_fichier_ne_vise_le_depot_REEL():
     """L'AUTRE BOUT du garde `le_registre_du_depot_REEL_ne_bouge_pas` (#935).
 
