@@ -222,6 +222,91 @@ def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None,
     return is_adjacent(a, b, elev_by_pos, neigh_by_pos)
 
 
+def get_nearest_enemy(ctx, position: tuple | None = None):
+    """`IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy(caster, position)` -> `(id, pos)` ou
+    `None` -- FOYER UNIQUE (#971-r1).
+
+    Corps natif, TERME A TERME (`caster:IdunBattle.Core.IEntity,
+    position:System.Nullable<IdunBattle.Core.UnitPosition>` -> `IdunBattle.Core.IEntity`, signature
+    LUE dans `data/symbols/<build>/frida/methods.tsv`) :
+
+        tilesA = position.HasValue ? position.Value
+                                   : EntityExtensions.GetUnitPosition(caster, this.state)
+        best = null ; bestDist = int.MaxValue ; bestAdj = false
+        foreach u in GetAllAliveUnits(null):
+            if (!UnitExtensions.IsEnemy(caster, u, this.state))  continue
+            if (UnitExtensions.IsIrrelevantObject(u))            continue
+            d   = GetDistance(tilesA, u)
+            adj = AreEntitiesAdjacent(tilesA, u)
+            if (d < bestDist || (adj && !bestAdj)) { best = u ; bestDist = d ; bestAdj = adj }
+        return best
+
+    LES DEUX SURCHARGES SONT TRANCHEES PAR LES XREFS SORTANTES, pas par le nom du parametre :
+    `IdunBattle.Core.Services.BattleQuery$$GetDistance` a QUATRE surcharges et
+    `$$AreEntitiesAdjacent` TROIS ; le corps de `GetNearestEnemy` appelle celles de signature
+    `(tilesA:IList<IEntity>, tileB:IEntity)` et `(tiles:IList<IEntity>, unit:IEntity)`. La seconde
+    fait `MovementUtil$$AreTilesAdjacent(tiles, EntityExtensions.GetTiles(unit))` -- donc
+    `are_entities_adjacent` (court-circuit d'identite + porte `|dElev| < 2`) et **jamais**
+    `is_adjacent`, qui mirrore `TileQuery$$IterateAdjacentTiles`, une primitive DIFFERENTE.
+    La premiere delegue a `IdunBattle.Core.Services.MovementQuery$$GetDistance`, dont ce module
+    porte deja le mirror (`get_distance` ci-dessus) : ce foyer l'APPELLE au lieu de refaire un
+    `hexgeo.distance`, ce que ne faisait AUCUNE des trois copies.
+
+    L'ANCRE EST LE PARAMETRE, et c'est la seule chose qui distinguait les trois appelants :
+    `position` fournie -> les distances partent de CETTE tuile (`Nullable` PLEIN, ex. la tuile de
+    SPAWN d'un summon) ; `position=None` -> `GetUnitPosition(caster)`, c.-a-d. `ctx.origin`
+    (`Nullable` VIDE). Aucune des deux n'est un cas particulier du natif : c'est le `HasValue`.
+
+    `bestDist` demarre a `int.MaxValue` (`DISTANCE_UNREACHABLE`) et non a « pas de best » : le
+    natif garde un candidat par `d < bestDist`, jamais par « c'est le premier ». Le tie-break
+    `(adj && !bestAdj)` peut donc faire AUGMENTER `bestDist` -- un candidat ADJACENT evince un
+    candidat plus proche non adjacent. Le port le transcrit tel quel plutot que de le collapser en
+    `min` : l'adjacence native est la liste STOCKEE, rien ne garantit qu'un voisin soit a
+    distance 1.
+
+    SUBSTRAT. `ctx.enemies` (`{id, pos}`) EST la source, parce qu'elle seule porte l'identifiant
+    que le natif rend ; `ctx.epos` en est la projection (`epos = [(e.pos.col, e.pos.row) for e in
+    enemies]`, `ai/context.py`), donc MEME ensemble et MEME ordre -- le repli sur `epos` ne sert
+    qu'aux contextes qui ne peuplent pas `enemies` (quelques probes), et rend alors `id = None`.
+
+    ECARTS NOMMES, communs aux trois mirrors d'origine et INCHANGES par la convergence :
+      * `IsIrrelevantObject` n'est pas porte -- ni `enemies` ni `epos` ne publient le trait
+        `Object` ; ecart PERMISSIF (un decor pourrait etre elu « plus proche ennemi ») ;
+      * le natif compare des EMPREINTES (`GetUnitPosition(caster)` x `GetTiles(u)`) la ou le port
+        compare des tuiles principales (#419-r1-tr10-r2) ;
+      * l'ordre d'enumeration natif (`GetAllAliveUnits`, un `IOrderedSet`) est approxime par celui
+        de `ctx.enemies` -- il ne departage que les ex aequo STRICTS (tie residuel)."""
+    frm = position if position is not None else getattr(ctx, "origin", None)
+    if frm is None:
+        return None                      # pas d'ancre -> le port ne devine pas `GetUnitPosition`
+    frm = (frm[0], frm[1])
+    elev = getattr(ctx, "elev_by_pos", None)
+    neigh = neigh_map(ctx)
+    best = None
+    best_dist = DISTANCE_UNREACHABLE     # `int.MaxValue`
+    best_adj = False
+    for eid, q in _enemy_id_pos(ctx):
+        d = get_distance([frm], [q])                     # `GetDistance(tilesA, u)`
+        adj = are_entities_adjacent(frm, q, elev, neigh)  # `AreEntitiesAdjacent(tilesA, u)`
+        if d < best_dist or (adj and not best_adj):
+            best, best_dist, best_adj = (eid, q), d, adj
+    return best
+
+
+def _enemy_id_pos(ctx):
+    """Les ennemis d'un contexte de decision en `(id, (col, row))` -- `ctx.enemies` d'abord (elle
+    seule porte l'id), repli sur `ctx.epos` (id `None`). Cf. `get_nearest_enemy` (SUBSTRAT)."""
+    out = []
+    for e in (getattr(ctx, "enemies", None) or ()):
+        p = (e or {}).get("pos") or {}
+        if p.get("col") is None:
+            continue
+        out.append((e.get("id"), (p["col"], p["row"])))
+    if out:
+        return out
+    return [(None, (p[0], p[1])) for p in (getattr(ctx, "epos", None) or ())]
+
+
 def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None,
                    neigh_by_pos: dict | None = None) -> int:
     """`GetAdjacentEnemies/Friends(tile).Count` — nombre d'unités de `positions` sur une tuile
@@ -650,10 +735,41 @@ def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = No
     candidates différentes = les 2 voisins communs) : bloque SSI les DEUX candidates passent le
     seuil pour la MÊME réf (`bVar1 & bVar2`). Mids offline = voisins communs hexgeo (bit-exact
     cube-line pour dist 2 : trajet droit -> 1 mid ; diagonal -> midpoint sur l'arête -> ±eps
-    départage les 2 candidates). LIMITES v1 (flaggées) : murs (bit 4) non modélisés (aucun
-    `wall_by_pos` offline ; aucun board d'agreement n'a de mur en zone jouable) ; nudge eps natif
-    (FloatCube @DAT_1832593f8+0xb8) supposé départager les 2 candidates du cas diagonal (si les
-    lignes A/B tombaient sur la MÊME candidate, le natif bloquerait sur elle seule)."""
+    départage les 2 candidates).
+
+    ⚠ **CE CORPS EST UN FORK, ET SES DEUX ECARTS SONT DESORMAIS CHIFFRES** (#433-r4-r1-r1-r2). Le
+    port a un SECOND mirror du meme natif, COMPLET :
+    `engine/services/line_of_sight.py::get_tiles_obscuring_terrain` (+ le substrat `PositionBoard`,
+    construit precisement depuis `elev_by_pos` / `is_wall_by_pos`). Il trace les DEUX lignes de
+    `MovementUtil$$DrawLineBetweenCoordinates` (nudge `(1e-6, 2e-6, -3e-6)`, LU au
+    `MovementUtil$$.cctor`), applique `DetermineBlockingTiles` aux index `1` et `Count - 2` -- et a
+    EUX SEULS, quelle que soit la longueur -- puis `DetermineBlockingWalls` sur TOUTE la ligne.
+    Confrontation exhaustive des deux (`probe_433r4r1r1r2_los_fork.py`, 8 plateaux 7x7,
+    17 536 paires) :
+
+      * **dist 1 et dist 2 : 0 desaccord sur 5 056 paires** -- les « voisins communs » de ce corps
+        SONT exactement les deux candidates des lignes nudgees. Ce corps est bit-exact la ou il
+        repond ;
+      * **dist >= 3 : 4 624 desaccords sur 12 480 paires**, tous du meme cote -- ce corps rend
+        `False` la ou le natif obscurcit. Degradation PERMISSIVE : il accorde des cibles que le
+        natif refuse, sur les cinq call-sites qui ne bornent pas la distance au site
+        (`playbook/boltstorm.py`, `playbook/light_im_up.py`, `noncomparable/_base.py`,
+        `noncomparable/doombolt.py`, `noncomparable/summon_attack_range.py`) ;
+      * **volet MURS absent** : le bit 4 est dans le masque a TOUS les call-sites lus. Mesure sur
+        plateau PLAT a 25 % de murs : le volet seul bloque **1 098 paires sur 2 192**. Le canal
+        EXISTE pourtant (`boardGraph.isWall` -> `ctx.is_wall_by_pos`, mesure live board MC1_67 :
+        **63 tuiles sur 63** le portent).
+
+    ⚠ **CE QUI EMPECHE DE BRANCHER CE CORPS SUR LE FOYER COMPLET N'EST NI UN CAPTEUR NI UN ETAGE :
+    c'est un CONFLIT DE CONTRAT sur l'inconnu.** Quand exactement UNE des deux candidates de
+    fat-line a une elevation NON CAPTEE, ce corps la RETIRE (on retombe sur la regle mono-candidate
+    -> BLOQUE) tandis que le foyer la traite comme `StateExtensions$$GetTileAt -> null` (`blk =
+    false` -> l'ET echoue -> NE BLOQUE PAS). Le natif ne tranche pas : il n'a AUCUN etat
+    « elevation inconnue » (`TileExtensions$$GetElevationDifference` deref et leve). Les deux
+    contrats sont donc des conventions de PORT, et celle de ce corps est GARDEE par
+    `tests/engine/test_433r4r1r4r1_unobscured_canal_offline.py` (etages 1 et 3). Le regime est
+    INATTEIGNABLE LIVE (mesure ci-dessus : aucune tuile sans `elevation`), donc les deux contrats
+    sont indiscernables en bataille -- mais brancher sans trancher rendrait `master` ROUGE."""
     fk, tk = (frm[0], frm[1]), (to[0], to[1])
     if hexgeo.distance(fk, tk) != 2 or not elev_by_pos:
         return False
@@ -1552,6 +1668,65 @@ def _active_ability_blockers(unit: dict) -> list[dict]:
     return out
 
 
+def machine_primary_ability_id(unit: dict) -> int | None:
+    """`IdunBattle.Entities.UnitExtensions$$GetMachinePrimaryAbilityType(machine)` -- l'ability
+    PRIMAIRE d'une MACHINE OF WAR, ou `None` si l'unite n'en est pas une (ou si le canal se tait).
+
+    Corps natif, VERBATIM :
+
+        if (machine == null || kind(machine) != EntityKind.Machine(6)) return 0;
+        return GetComponent<ActiveAbilityComponent>(machine).<+0x30>;
+
+    OU EST ECRIT `+0x30`, ET C'EST LA LECTURE QUI FERME LE RESIDU #1020-r9. Un SEUL corps l'ecrit,
+    `IdunBattle.Entities.Factories.MachineFactory$$AddConfiguredAbilities`, et il l'ecrit par
+    l'INDICE :
+
+        foreach (i, abilityType) in config.<+0xa0>:              # la liste des actives de la MoW
+            if (i == 0) { activeAbilities.<+0x30> = abilityType; hierarchy = 1; state = primary }
+            else if (i == 1) { activeAbilities.<+0x34> = abilityType; hierarchy = 2; state = secondary }
+            else { hierarchy = 0; state = primary }
+            UnitFactory.AddActiveAbility(abilityType, state, ..., activeAbilities, ..., hierarchy)
+
+    Donc **`+0x30` EST le PREMIER element de la liste d'actives de la configuration** (et `+0x34` le
+    second). Ce n'est ni un champ a part ni une donnee de capteur : c'est un ORDRE, et le canal le
+    preserve -- `internals.ts::unitAbilityTypes` itere `ActiveAbilityComponent$$GetActives`,
+    c'est-a-dire la `KeyedCollection` que cette meme boucle a remplie.
+
+    ⚠ **LA PREMISSE `BLOCAGE: capteur` DU RESIDU EST DONC FAUSSE** : aucune fenetre de reinject
+    n'est requise. MESURE LIVE (runner MC1_67, `--p-mow adeptExorcist`, `decisionView`) :
+      * `mows[0].abilities` = `[{id:1187 ThriceBlessedConflagration, kind:"active"},
+        {id:1188 DevastatingRefrain, kind:"active"}]` -- MEME ordre que
+        `gameconfig.units.adeptExorcist.activeAbilities`, qui est la source amont de `config.<+0xa0>` ;
+      * `machineId` est present sur la ligne MoW et **absent de TOUTES les 10 lignes d'unite** --
+        c'est le discriminant `EntityKind.Machine`, deja porte (le canal `.mows` est SEPARE de
+        `.units`, cf. `ai/context.py::machine_row`).
+
+    ⚠ **CE QUE LE CANAL NE PUBLIE PAS, et pourquoi on ne s'y fie pas** : `mowAbilityTypes` LIT bien
+    `+0x30`/`+0x34` et sait les etiqueter `kind: "machinePrimary"` / `"machineSecondary"`, mais son
+    `if (t !== 0 && !out.some(e => e.id === t))` les DEDUPLIQUE contre les actives deja emises. Comme
+    la primaire est presque toujours dans `GetActives`, l'etiquette est EFFACEE dans le cas courant
+    -- mesure ci-dessus : 0 ability de `kind` `machinePrimary` sur les 2 de la MoW. On la lit donc
+    quand elle est la (canal explicite, prioritaire), et on retombe sinon sur l'INDICE 0, qui est ce
+    que le natif ecrit.
+
+    ⚠ L'attaque NORMALE est poussee AVANT les actives par `unitAbilityTypes` (`NormalAttackType
+    @0x28`) : le repli sur l'indice 0 ne regarde donc que les entrees de `kind` ACTIF. Une Machine
+    n'en a de toute facon jamais (`MachineFactory$$Build` n'appelle JAMAIS
+    `UnitFactory$$AddNormalAttackAbility` -- ce dernier n'a qu'UN xref de code, `UnitFactory$$Build`),
+    mais s'en remettre a cette absence serait deriver du KIT au lieu de lire la structure."""
+    u = unit or {}
+    if u.get("machineId") is None:
+        return None                    # `kind(unit) != EntityKind.Machine` -> le natif rend 0
+    abilities = u.get("abilities") or ()
+    for a in abilities:
+        if isinstance(a, dict) and a.get("kind") == "machinePrimary" and a.get("id"):
+            return int(a["id"])        # canal EXPLICITE (`+0x30` lu, non deduplique)
+    for a in abilities:
+        if isinstance(a, dict) and a.get("kind") in ("active", "granted") and a.get("id"):
+            return int(a["id"])        # `config.<+0xa0>[0]`, l'ordre de `GetActives`
+    return None                        # canal muet -> NON MESURE, jamais un id invente
+
+
 def can_use_ability(unit: dict, ability: dict) -> bool:
     """`IdunBattle.Core.Services.AttackQuery$$CanUseAbility` — gate d'USABILITE d'une ability (stun/taunt).
 
@@ -1573,24 +1748,39 @@ def can_use_ability(unit: dict, ability: dict) -> bool:
         NormalAttackIsBlocked()          = any(v.includeNormalAttack)
         MachinePrimaryAbilityIsBlocked() = any(v.includeMachinePrimaryAbility)
 
-    Le port rend les DEUX branches qu'il peut discriminer, et il les DERIVE du registre
+    Le port rend **les TROIS branches**, et il les DERIVE du registre
     `ACTIVE_ABILITY_BLOCKER_EFFECTS` au lieu de les coder en dur — un futur membre a
     `includeNormalAttack = 1` fermerait donc l'attaque normale sans qu'on retouche ce corps.
     L'attaque NORMALE n'est PAS bloquee AUJOURD'HUI parce que les TROIS membres lus portent
     `includeNormalAttack = 0` (et non par decret) : vecu 777 s15 (u83 stunne par 1183 attaque
     encore 69->87) + wiki §Stunned, valide live seed 97000.
 
-    ⚠ **BRANCHE NON SEPAREE, ET C'EST NOMME** : `abilityType == comp.<+0x30>` (l'ability PRIMAIRE
-    d'une Machine of War) n'a pas de substrat dans le canal `decisionView` — le port la fond donc
-    dans `ActiveAbilitiesAreBlocked`. Le repli est EXACT tant que tout membre du registre porte
-    `includeMachinePrimaryAbility = True`, ce qui est le cas des trois ; c'est un test offline qui
-    garde cette condition (`test_10018_rapid_fire_offline.py`), pas cette phrase.
+    ⚠ **LA BRANCHE MACHINE EST DESORMAIS SEPAREE (#1020-r9), ET SON DISCRIMINANT EST LU** :
+    `machine_primary_ability_id` (cf. sa docstring) porte `kind == Machine` par la presence de
+    `machineId` -- que le canal `decisionView.mows` publie et qu'AUCUNE ligne de `.units` ne porte --
+    et `ActiveAbilityComponent+0x30` par l'INDICE 0 de la liste d'actives, qui est litteralement ce
+    que `MachineFactory$$AddConfiguredAbilities` y ecrit. La premisse « pas de substrat, BLOCAGE:
+    capteur » du residu etait FAUSSE : les deux termes etaient deja dans le canal.
+
+    ⚠ **CE PORT NE CHANGE AUCUN VERDICT AUJOURD'HUI, et c'est STRUCTUREL, pas une chance** : les
+    trois membres du registre portent `include_machine_primary_ability = True`, donc sur une liste
+    de bloqueurs NON VIDE `any(True...)` vaut `len(...) > 0`, et sur une liste VIDE les deux valent
+    `False`. La separation est un gain de FIDELITE a ecart nul -- elle ne devient observable que le
+    jour ou un membre entre avec `0`, cas ou le repli d'avant rendait le port RESTRICTIF (il fermait
+    la primaire d'une MoW que le natif laisse ouverte). C'est ce que gardait
+    `test_10018_rapid_fire_offline.py` etage 9, dont le message prescrivait exactement ce geste
+    (« il faut alors separer la branche, pas relacher ce test »).
 
     Les effets decisionView sont deja IsActive-filtres (on ignore `remaining`)."""
     blockers = _active_ability_blockers(unit)
     if (ability or {}).get("kind") == "normal":
         # `IsRegularAttack(abilityType)` -> `NormalAttackIsBlocked() = any(v[+8])`.
         return not any(b["include_normal_attack"] for b in blockers)
+    primaire = machine_primary_ability_id(unit)
+    if primaire is not None and (ability or {}).get("id") == primaire:
+        # `kind == Machine && abilityType == comp.<+0x30>`
+        #   -> `MachinePrimaryAbilityIsBlocked() = any(v[+9])`.
+        return not any(b["include_machine_primary_ability"] for b in blockers)
     # `ActiveAbilitiesAreBlocked() = blockers.Count > 0` -- INCONDITIONNEL, aucun booleen consulte.
     return not blockers
 

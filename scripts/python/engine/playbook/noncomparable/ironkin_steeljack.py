@@ -158,16 +158,12 @@ class IronkinSteeljackPlaybook(NonComparablePlaybook):
         RESIDUS NOMMES, les MEMES que les deux mirrors freres : `IsIrrelevantObject` n'est pas
         porte (`ctx.epos` ne publie pas le trait `Object`) ; le natif compare des EMPREINTES
         (`GetTiles(u)`) la ou le port compare des tuiles principales ; l'ordre d'enumeration natif
-        (`GetAllAliveUnits`) est approxime par celui de `ctx.epos` (tie residuel)."""
-        neigh = bq.neigh_map(ctx)
-        best = None                      # (pos, dist, adj)
-        for p in (ctx.epos or []):
-            q = (p[0], p[1])
-            d = hexgeo.distance(frm, q)
-            adj = bq.are_entities_adjacent(frm, q, ctx.elev_by_pos, neigh)
-            if best is None or d < best[1] or (adj and not best[2]):
-                best = (q, d, adj)
-        return None if best is None else best[0]
+        (`GetAllAliveUnits`) est approxime par celui de `ctx.epos` (tie residuel).
+
+        PASSE-PLAT vers le foyer UNIQUE `battle_query.get_nearest_enemy` (#971-r1) -- ce corps
+        etait le TROISIEME mirror du meme natif. Ce playbook ne veut que la TUILE -> `[1]`."""
+        near = bq.get_nearest_enemy(ctx, frm)
+        return None if near is None else near[1]
 
     def _tiles_in_native_order(self, ctx: NCContext, T: tuple, from_here: list, union: list,
                                eligibles: set, neigh) -> list:

@@ -230,6 +230,70 @@ visible. L'inscription est donc **ecrite en commentaire, prete**, et le gate est
 * **`#922-r1`** — volet (b) confirme LIVRE ; restent (a) la decomposition du troisieme etage de
   l'ecart `[462, 1600, 988]` et (c) le balayage du rayon du harnais.
 
+## 4bis. `#1020-r9` — RESOLU le 2026-08-15, et sa premisse `BLOCAGE: capteur` etait FAUSSE
+
+Le residu disait : « le canal `decisionView` ne publie pas l'ability PRIMAIRE d'une Machine of War
+(`ActiveAbilityComponent+0x30`) : rien ne permet de dire, offline, qu'une ability donnee EST la
+primaire de la MoW ». **Les DEUX termes manquants etaient deja dans le canal.**
+
+### Le terme `+0x30` n'est pas une donnee de capteur — c'est un ORDRE
+
+Un SEUL corps l'ecrit, et il l'ecrit par l'INDICE
+(`IdunBattle.Entities.Factories.MachineFactory$$AddConfiguredAbilities`, LU) :
+
+```
+foreach (i, abilityType) in config.<+0xa0>:            # la liste des actives de la MoW
+    if (i == 0)      { activeAbilities.<+0x30> = abilityType; hierarchy = 1; state = primary }
+    else if (i == 1) { activeAbilities.<+0x34> = abilityType; hierarchy = 2; state = secondary }
+    else             {                                        hierarchy = 0; state = primary }
+    UnitFactory.AddActiveAbility(abilityType, state, ..., activeAbilities, ..., hierarchy)
+```
+
+Donc **`+0x30` EST le premier element de la liste d'actives de la configuration** (et `+0x34` le
+second), et `internals.ts::unitAbilityTypes` en preserve l'ordre : il itere
+`ActiveAbilityComponent$$GetActives`, c'est-a-dire la `KeyedCollection` que cette boucle remplit.
+Le lecteur natif du champ est `IdunBattle.Entities.UnitExtensions$$GetMachinePrimaryAbilityType`
+(`kind != Machine(6)` → `0`), dont le port est desormais
+`engine/battle_query.py::machine_primary_ability_id`.
+
+### MESURE LIVE (runner MC1_67, `--p-mow adeptExorcist`, `decisionView`)
+
+| observation | valeur |
+|---|---|
+| `mows[0].abilities` | `[{1187 ThriceBlessedConflagration, kind:"active"}, {1188 DevastatingRefrain, kind:"active"}]` |
+| ordre vs `gameconfig.units.adeptExorcist.activeAbilities` | **IDENTIQUE** (source amont de `config.<+0xa0>`) |
+| `machineId` sur la ligne `.mows` | present (`87`) |
+| `machineId` sur les lignes `.units` | **absent des 10** — c'est le discriminant `EntityKind.Machine` |
+| abilities de `kind` `machinePrimary` | **0** — cf. `#1020-r10` |
+
+Le canal `.mows` est SEPARE de `.units` cote natif comme cote port (`ai/context.py::machine_row`,
+qui documente deja ce routage comme « le DISCRIMINANT »). Aucune fenetre de reinject n'etait donc
+requise : `BLOCAGE` correct = `aucun`.
+
+### L'ecart de verdict est NUL, et c'est STRUCTUREL
+
+`MachinePrimaryAbilityIsBlocked() = any(v.includeMachinePrimaryAbility)` contre
+`ActiveAbilitiesAreBlocked() = blockers.Count > 0` : les trois membres du registre portant `1`,
+`any(True…)` vaut `len(…) > 0` sur une liste non vide et `False` sur une vide. **La separation ne
+peut donc pas regresser** — elle ne devient observable que le jour ou un membre entre avec `0`, cas
+ou le repli rendait le port RESTRICTIF (il fermait la primaire d'une MoW que le natif laisse
+ouverte).
+
+C'est exactement ce que gardait l'etage 9 de `test_10018_rapid_fire_offline.py`, dont le message
+prescrivait le geste : « il faut alors separer la branche, pas relacher ce test ». L'etage est
+RE-ECRIT dans ce sens, avec sa **contre-epreuve** : un membre temoin a
+`include_machine_primary_ability = False` fait DIVERGER les deux bras (primaire de la MoW
+utilisable, secondaire bloquee, unite sans `machineId` inchangee), donc l'etage ne passe plus sur le
+code d'avant. Sans elle il aurait ete vert des deux cotes.
+
+### Reste NOMME : `#1020-r10`
+
+`mowAbilityTypes` LIT bien `+0x30` / `+0x34` et sait les etiqueter `machinePrimary` /
+`machineSecondary`, mais son garde `if (t !== 0 && !out.some(e => e.id === t))` les DEDUPLIQUE
+contre les actives deja emises — la primaire etant dans `GetActives`, l'etiquette est effacee dans
+le cas courant (mesure : **0** sur 2). Le port s'en passe (indice 0), donc ce n'est pas bloquant ;
+le correctif rendrait le discriminant EXPLICITE au lieu de POSITIONNEL. `BLOCAGE: capteur`.
+
 ## 5. Validation adversariale
 
 | volet | contre-epreuve | verdict |

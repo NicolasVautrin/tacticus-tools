@@ -155,10 +155,87 @@ régime.
 
 ---
 
+## 4bis. `#971-r1` — RÉSOLU le 2026-08-15 : un foyer, trois passe-plats
+
+**L'énoncé était à UN module près.** Il nommait `alpha_warrior.py::_nearest_enemy` — ce corps
+n'existait déjà plus : `#967` l'avait déménagé dans
+`engine/playbook/noncomparable/summon_attack_range.py::nearest_enemy`. Les trois mirrors réels
+étaient donc `summon_attack_range`, `master_of_the_tutelaries::_nearest_enemy_tile` et
+`ironkin_steeljack::_nearest_enemy`.
+
+**Les trois étaient FIDÈLES, et concordants.** Même tie-break `d < bestDist || (adj && !bestAdj)`,
+même `are_entities_adjacent` (et non `is_adjacent`). Leur seule divergence — l'ancre — **n'en est
+pas une** : c'est un PARAMÈTRE du natif. Signature LUE dans `frida/methods.tsv` :
+
+```
+IdunBattle.Core.Services.BattleQuery.GetNearestEnemy
+    caster:IdunBattle.Core.IEntity, position:System.Nullable<IdunBattle.Core.UnitPosition>
+    -> IdunBattle.Core.IEntity
+```
+
+et le corps branche sur `position.HasValue` : plein ⇒ la tuile fournie (la tuile de SPAWN, pour les
+deux appelants summon), vide ⇒ `EntityExtensions$$GetUnitPosition(caster)` (`ctx.origin`, pour
+`MasterOfTheTutelaries`). Aucun des deux n'est un cas particulier de l'autre.
+
+**Foyer** : `engine/battle_query.py::get_nearest_enemy(ctx, position=None)`, à côté de
+`are_entities_adjacent` et `adjacent_addable_count`. Deux gains de fidélité au passage, qu'aucune
+des trois copies n'avait :
+
+* `bestDist` part de `int.MaxValue` (`DISTANCE_UNREACHABLE`) — le natif garde un candidat par
+  `d < bestDist`, jamais par « c'est le premier » (les trois écrivaient `best is None or …`) ;
+* la distance passe par le mirror `get_distance` (= `MovementQuery$$GetDistance`) au lieu d'un
+  `hexgeo.distance` direct.
+
+**Les surcharges appelées sont tranchées par les XREFS SORTANTES**, jamais par le nom de paramètre
+que Ghidra affiche : `BattleQuery$$GetDistance` a QUATRE surcharges et `$$AreEntitiesAdjacent`
+TROIS ; le corps de `GetNearestEnemy` appelle `GetDistance(IList<IEntity>, IEntity)` et
+`AreEntitiesAdjacent(IList<IEntity>, IEntity)` — cette dernière faisant
+`MovementUtil$$AreTilesAdjacent(tiles, EntityExtensions$$GetTiles(unit))`, ce qui **confirme** le
+choix d'`are_entities_adjacent` (court-circuit d'identité + porte `|Δelev| < 2`) contre
+`is_adjacent`, qui mirrore `TileQuery$$IterateAdjacentTiles`, une primitive différente.
+
+**Substrat** : `ctx.enemies` (elle seule porte l'identifiant que le natif rend) ; `ctx.epos` en est
+la projection exacte (`ai/context.py` : `epos = [(e.pos.col, e.pos.row) for e in enemies]`, donc
+même ensemble ET même ordre), et sert de repli aux contextes qui ne peuplent pas `enemies`.
+
+Écarts nommés, INCHANGÉS par la convergence : `IsIrrelevantObject` non porté (écart PERMISSIF), le
+natif compare des EMPREINTES là où le port compare des tuiles principales (`#419-r1-tr10-r2`),
+l'ordre d'énumération natif (`GetAllAliveUnits`) approximé par celui de `ctx.enemies`.
+
+**Le cliquet a trouvé DEUX fautes — dans le cliquet.** `test_971r1_nearest_enemy_foyer_offline.py`
+rejoue les trois corps d'avant, recopiés verbatim, contre le foyer. Écrit d'abord sur un tirage
+aléatoire seul, il rougissait à l'étage 0 : **0 morsure** du tie-break `(adj && !bestAdj)` sur
+14 plateaux. Il faut **CRAFTER** — deux ennemis à distance hex 1 de l'ancre, le premier énuméré
+séparé par `|Δelev| >= 2`. Et l'étage 6, qui vérifie qu'aucun fork ne revient, accusait les trois
+passe-plats : leur **docstring** cite `AreEntitiesAdjacent`. Le discriminant est le corps
+exécutable, donc l'AST — pas le texte de la source.
+
+**Contre-épreuve par MUTATION du foyer** (arbre restauré bit-exact, vérifié par sha256) :
+
+| mutation | cliquet |
+|---|---|
+| tie-break collapsé en `min` | **ROUGE** |
+| `bestDist` part de « pas de best » | **ROUGE** |
+| l'ancre ignore le `Nullable` PLEIN | **ROUGE** |
+| `is_adjacent` au lieu d'`are_entities_adjacent` | **ROUGE** — *après correction* |
+
+La dernière passait VERT au premier jeu : les deux primitives ne diffèrent que sur le
+court-circuit d'identité `t1 == t2`, et ce régime ne sort d'aucun tirage (l'ancre est soit la tuile
+du caster, soit une tuile de spawn LIBRE). Il a fallu crafter l'ancre COÏNCIDANT avec un ennemi
+**et** un second candidat de PLAIN-PIED — avec une crête, les deux bras coïncident encore.
+
+Validation : **156 offline** (dont la banque LoS/adjacence, identique à la baseline `master`
+mesurée sur worktree détaché) + **21 live** (`test_971_summon_decision_live.py`,
+`test_ironkin_steeljack_live.py`, `test_433_r4_r2_adjacency_foyer_live.py`,
+`test_master_tutelaries_active_gate_live.py`), rejoués APRÈS rebase sur `origin/master`.
+
+---
+
 ## 5. Fichiers
 
 | fichier | rôle |
 |---|---|
+| `engine/battle_query.py` | **foyer `get_nearest_enemy`** (#971-r1) |
 | `engine/playbook/noncomparable/waaagh.py` | 1058 |
 | `engine/playbook/noncomparable/spore_mine_launcher.py` | 1145 |
 | `engine/playbook/noncomparable/ironkin_steeljack.py` | 1219 |
