@@ -188,6 +188,19 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # Const(1))` de `WyrdmakersHelmAbility$$CreateTrigger` ne matcherait JAMAIS. 0 par defaut.
         "timesHealedThisTurn": (int(getattr(uc, "times_healed_this_turn", 0) or 0)
                                 if uc is not None else 0),
+        # #999-r1 -- `ActorStatisticsComponent @+0xf0`, lu par le noeud formule `TilesMovedThisTurn`
+        # (`IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate`, qui rend ce champ tel
+        # quel). MEME raison d'etre dans `_LIVE_KEYS` que `timesHealedThisTurn` juste au-dessus, et
+        # elle est LUE dans l'ordre du corps natif : `ActorStatisticsComponent$$AddTilesMoved`
+        # (`comp[0xec] += tiles ; comp[0xf0] += tiles`) est appele par `MoveUnitOperation$$Execute`
+        # AVANT qu'`EvaluateAfterMoveTriggers` ne publie `On(4 = UnitAfterMove)`. Fige au seed, le
+        # gate `AmountIsEqualOrGreater(TilesMovedThisTurn(Actor), Get(tilesTraversed))` de
+        # `...MastersOfManoeuvreAbility$$CreateTrigger` lirait la valeur d'AVANT le deplacement --
+        # donc 0 au premier move du tour -- et ne matcherait JAMAIS. 0 par defaut.
+        # ⚠ DISTINCT de `movement_steps` (le `Nullable<int>` du deplacement COURANT, propage par
+        # `EvaluateAfterMoveTriggers`) : ce champ-ci est le CUMUL du tour.
+        "tilesMovedThisTurn": (int(getattr(uc, "tiles_moved_this_turn", 0) or 0)
+                               if uc is not None else 0),
         # RARETE EN BATAILLE (#999-r3) -- `BaseUnitComponent.Rarity` (+0x74), le champ que lisent
         # `IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger` et
         # `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` apres
@@ -222,8 +235,12 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 #: `stats[0xd4] += 1` d'`IdunBattle.Operations.HealUnitOperation$$Execute` PRECEDE l'emission de
 #: `On(0x2c = UnitHealedWithRemoveEffects)` par cette meme operation. Fige au seed, le gate
 #: `AmountIsEqual(TimesHealedThisTurn(Target), Const(1))` lirait 0 et ne matcherait jamais.
+#: `tilesMovedThisTurn` (#999-r1) en est pour la MEME raison, et elle est LUE dans le corps natif :
+#: `ActorStatisticsComponent$$AddTilesMoved` incremente `+0xf0` depuis `MoveUnitOperation$$Execute`
+#: AVANT l'appel a `EvaluateAfterMoveTriggers`, qui publie `On(4 = UnitAfterMove)` -- c'est-a-dire le
+#: vecteur meme qui fait relire ce compteur. Fige au seed, il rendrait 0 au premier move du tour.
 _LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet", "unitsAttackedThisTurn",
-                        "defeatedUnits", "timesHealedThisTurn"})
+                        "defeatedUnits", "timesHealedThisTurn", "tilesMovedThisTurn"})
 
 
 class LiveUnit(dict):

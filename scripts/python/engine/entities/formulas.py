@@ -511,6 +511,47 @@ class TimesHealedThisTurn(AAmountFormula):
         return int((u or {}).get("timesHealedThisTurn", 0) or 0)
 
 
+class TilesMovedThisTurn(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn(unit)` ->
+    `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` : resout le selecteur, prend
+    l'`ActorStatisticsComponent` de l'entite et rend **`*(uint *)(comp + 0xf0)`** -- combien de
+    TUILES cette unite a parcourues depuis le debut de son tour.
+
+    La fabrique est un simple `new <Formula>(unit)` : le corps ENTIER de
+    `DSLFormulas$$TilesMovedThisTurn` alloue la formule et lui passe le selecteur, rien d'autre.
+
+    SUBSTRAT DEJA PORTE, et c'est ce qui fait de ce noeud une ENVELOPPE MINCE : `+0xf0` est le champ
+    qu'ecrit `ActorStatisticsComponent$$AddTilesMoved` (`comp[0xec] += tiles ; comp[0xf0] += tiles`,
+    garde `< 1`) et que remet a zero `ActorStatisticsComponent$$ResetThisTurn`. Cote port, l'ECRIVAIN
+    et le LECTEUR existaient tous deux avant cette classe -- `runner/components.py::
+    unit_tiles_moved_this_turn` (lecteur COMBAT, consomme par `damage_model.attacker_modifiers`) et
+    `playbook/scene.py::tiles_moved_this_turn` (face DECISION). Ce qui manquait etait le noeud DSL,
+    c.-a-d. la voie par laquelle un ARBRE peut lire le compteur.
+
+    LA CLE EST LIVE, et pour la MEME raison mesuree que `timesHealedThisTurn` ci-dessus : l'increment
+    natif PRECEDE l'emission du vecteur qui fait relire ce nombre. `MoveUnitOperation$$Execute`
+    incremente `+0xf0` puis appelle `EvaluateAfterMoveTriggers`, qui publie `On(4 = UnitAfterMove)`.
+    Figee au seed, la valeur serait celle d'AVANT le deplacement -- donc `0` au premier move du tour,
+    et le gate `AmountIsEqualOrGreater(TilesMovedThisTurn(Actor), Get(tilesTraversed))` de
+    `...MastersOfManoeuvreAbility$$CreateTrigger` ne matcherait JAMAIS.
+
+    Unite hors-`State` (dict fige de la face PREDICTION) -> 0, meme regime que `TimesHealedThisTurn`
+    et `LastHitDamageTakenLastTurn`.
+
+    ⚠ NE PAS CONFONDRE avec `MovementSteps()`, le `Nullable<int>` propage par
+    `EvaluateAfterMoveTriggers` : celui-la est le nombre de pas DU DEPLACEMENT COURANT, celui-ci le
+    CUMUL du tour. Un porteur qui bouge deux fois dans le tour les separe.
+
+    Consommateur porte : la branche `<A>` de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MastersOfManoeuvreAbility$$CreateTrigger`."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return int((u or {}).get("tilesMovedThisTurn", 0) or 0)
+
+
 class TimesRepaired(AAmountFormula):
     """`DSLFactory.TimesRepaired` : compteur runtime de réparations du caster (Mechanical — ex.
     DakkaDakkaDakka `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` : +extraHits coups par réparation). NON capté offline →

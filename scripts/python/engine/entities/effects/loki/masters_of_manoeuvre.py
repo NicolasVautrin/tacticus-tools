@@ -73,21 +73,35 @@ CE QUI EST PORTE ICI, ET CE QUI NE L'EST PAS
 PORTE -- la face DEGAT de l'effet (`create_effect_damage_malus_for_defense`), gatee
 `IsRangedAttack`.
 
-NON PORTE -- la POSE (`$$CreateTrigger` + `$$CreateBehaviour`), BLOCAGE de capteur :
-`HasRarity(Actor, Mythic)` est un conjoint du gate COMMUN aux DEUX vecteurs, et
-`IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger` lit
-`UnitExtensions$$GetBaseUnitComponent(entity) + 0x74`. Ce champ n'est publie par AUCUN canal du
-port (`decisionView`, `combatSnapshot`, `unitAbilityStates`) et le gameconfig ne repond pas (il
-porte `BaseRarity = "Common"` pour la MoW). Le rabattre sur << toujours vrai >> serait une
-degradation PERMISSIVE -- exactement le profil qu'on chasse -- donc l'ability n'entre PAS dans
-`RELIC_ABILITY_TRIGGERS`. Meme verrou que `#1025-r1` et que les faces MOVE de `#477-r37-r1`.
-La donnee EXISTE cote montage (`BC.Units[].Rarity`, et `--unit-stat "<vis>:Rarity=5"` l'ecrit
-par unite) : c'est un capteur manquant, pas une limite de montage.
+PORTE AUSSI, DEPUIS #999-r1 -- la POSE (`$$CreateTrigger` + `$$CreateBehaviour`), dans
+`engine/runner/operations/triggers/loki/masters_of_manoeuvre.py` (deux classes, une par disjoint
+d'`On()`), inscrite a `RELIC_ABILITY_TRIGGERS["MastersOfManoeuvre"]`.
 
-CONSEQUENCE, et elle est BORNEE : sur un runner live le natif pose l'effet lui-meme et
-`decisionView.effects` le publie -> le port le CONSOMME et applique la reduction (regime de
-`VexillaMagnifica_DmgReduction`, dont la POSE n'est pas portee non plus). Sur un chemin purement
-OFFLINE, l'effet n'apparait jamais : c'est un MANQUE, jamais un sur-compte.
+⚠ **LE PARAGRAPHE QUI VIVAIT ICI DECLARAIT CETTE FACE NON PORTABLE, ET IL ETAIT PERIME.** Il est
+conserve en substance parce qu'il dit encore ce qu'il FAUT verifier, mais son verdict est INVERSE :
+il affirmait que `HasRarity(Actor, Mythic)` -- conjoint du gate COMMUN aux DEUX vecteurs, lisant
+`UnitExtensions$$GetBaseUnitComponent(entity) + 0x74` -- n'etait << publie par AUCUN canal du
+port >>. C'etait vrai sur le build `rnca9r7q6c` ; ca ne l'est plus :
+  * le capteur existe -- `combatSnapshot.units[].rarity` (#1039), y compris sur `unitsNotAlive[]` ;
+  * il entre dans le port par le foyer `UnitContext.rarity` (#999-r3), via
+    `entities/rarity.py::measured_rarity` (tri-etat STRICT, jamais `0` en repli) ;
+  * le noeud DSL `HasRarity` est porte (`entities/triggers.py`) et lit la cle `rarity` du dict
+    d'unite (`runner/abilities/behaviours/context.py::_unit_dict`), avec repli sur
+    `UnitComponent.rarity` pour les cadavres (#999-r3-r2).
+Il ne restait donc qu'un noeud absent, `DSLFormulas$$TilesMovedThisTurn`, ajoute a
+`entities/formulas.py` par #999-r1 -- une enveloppe mince, son substrat (`ActorStatisticsComponent
++0xf0`) etant deja ecrit et lu par le port.
+
+⚠ **REGIME DEGENERE, a connaitre avant toute validation** : `rl_duel build` pose `targetRarity = 5`,
+donc dans un runner standard TOUTE unite est Mythic et les deux `HasRarity(., Mythic)` sont
+uniformement VRAIS -- un port qui les oublierait serait d'accord avec le natif dans tous les bras
+par defaut. Le bras qui SEPARE se monte par `--unit-stat "<vis>:Rarity=4"` (#1024 : la valeur
+ATTEINT bien `BaseUnitComponent.Rarity`, contre-epreuve live qui ETEINT le gate).
+
+CE QUE LA POSE PORTEE CHANGE : sur un runner live le natif posait deja l'effet et
+`decisionView.effects` le publiait -> le port le CONSOMMAIT (regime de
+`VexillaMagnifica_DmgReduction`). Sur un chemin purement OFFLINE (rollout self-play, etat monte
+sans capture), l'effet n'apparaissait JAMAIS -- c'est ce MANQUE que le port de la pose ferme.
 
 ⚠ FACE DECISION -- `IdunBattle.AI.Playbook.Loki.MastersOfManoeuvreNonOwnerPlaybook`
 (`$$CalculateMovementUtilityInSteps`) existe et n'est PAS portee : elle est l'un des 11 items du

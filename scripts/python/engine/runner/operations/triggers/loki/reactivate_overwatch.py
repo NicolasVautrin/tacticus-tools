@@ -107,10 +107,38 @@ exactement ce que `LegitDeathReasons` teste. Cf. `runner/operations/damage.py`
 
 ## Pieges de RE traverses (a ne pas re-payer)
 
-* Ghidra nomme `EarlyWarningOverride_ReactivateOverwatchEffect$$GetOverwatchExtraDamage` la fonction
-  @RVA f40360 : la table FRIDA (AMONT de Ghidra dans la chaine de symboles) dit que c'est
-  `InescapableDeathEffect.GetOverwatchExtraDamage`. 1145 n'override PAS `GetOverwatchExtraDamage` ;
-  son 2e override est `GetHitReductionEffectType` @f40350, que Ghidra n'a meme pas en fonction.
+* ⚠ **CE POINT PORTAIT UNE CONCLUSION FAUSSE, ET ELLE A SURVECU A SA PROPRE CORRECTION.** Il disait :
+  << la table FRIDA dit que ce corps est `InescapableDeathEffect.GetOverwatchExtraDamage`, donc
+  **1145 n'override PAS `GetOverwatchExtraDamage`** >>. `inescapable_death.py` §5 annonce depuis #924
+  avoir corrige cette phrase << dans le meme commit >> -- elle etait pourtant restee ici, mot pour
+  mot. Re-mesuree et REFUTEE le 2026-08-15 (#924-r1) sur `t6dpr4k06g` : le bloc `methodPointers` de
+  `EarlyWarningOverride_ReactivateOverwatchEffect` porte QUATRE entrees, et la troisieme EST ce
+  corps partage. **1145 l'override.**
+  Ce que le point voulait dire, et qui reste VRAI : la table FRIDA est indexee par ADRESSE et l'ICF
+  fusionne les corps identiques, donc un seul PROPRIETAIRE y est nomme -- Ghidra n'invente rien, il
+  herite de cette table. Ce qu'on n'a PAS le droit d'en conclure, c'est l'absence d'override : il
+  faut compter les slots du bloc `methodPointers`, ou `class_get_methods` (voie METADATA, qui voit
+  aussi les corps triviaux dedupliques -- cf. `LifewardsBondEffect`, #963-r3, ou le bloc a DEUX
+  entrees et la metadata TROIS virtuels declares).
+  Consequence : la face DEGAT de 1145 est **VIVANTE et NON PORTEE** -> residu **#924-r1**, dont la
+  prochaine tranche a desormais son montage ECRIT (ci-dessous) et son RE complet.
+* **MONTAGE de 1145, MESURE et IMMEDIAT** (la fiche #924-r1 l'annoncait << DISTINCT >>, ce qui a fait
+  croire a un cout) : `tauCrisis` porte `EarlyWarningOverride` en **`kind: active`** (id 1077,
+  `abilityStates` = `[{id: 1077, kind: active, level: 50, multiplier: 180}]`) et il est **AU POOL** --
+  ni injection catalogue, ni greffe. Le cast fait tout :
+  `...Active.Loki.EarlyWarningOverrideAbility$$ExecuteBehaviour` pose QUATRE effets sur
+  `Owner@<DSLSelectors+0x30>` -- le CASTER lui-meme -- tous en `TurnsFromRounds(1)` :
+  `0x3f1 = 1009 Overwatch_AutoAttack`, `0x478 = 1144 SuppressCloseCombatWeakness`,
+  `0x479 = **1145**`, `0x47d = 1149 EarlyWarningOverride_Visual` ; puis `Spawn(GetStringConstant(0),
+  First(CanAddUnit(AdjacentTiles(Owner)), GetNumberConstant(0x10)), WithStatsFromConfig(...))`.
+  Autrement dit : `tauCrisis` caste 1077, entre en overwatch AVEC 1145 actif, et son tir d'overwatch
+  passe par le canal `AReactivateOverwatchEffect$$CreateDamageModifier`. C'est le SECOND porteur que
+  #924-r2 demande pour localiser sa magnitude.
+* ⚠ **NE PAS RECOPIER LE 3e CONJOINT D'`InescapableDeath`** : les deux soeurs sont des MIROIRS
+  CROISES (comptage des slots, #924-r1). `InescapableDeathEffect` override
+  `GetAdditionalExtraDamageTrigger` (= `IsOverwatchAttack()`) et PAS `LegitDeathReasons` ; 1145
+  override `LegitDeathReasons` et PAS `GetAdditionalExtraDamageTrigger`. Le `<vtable +0x768>` de
+  1145 est donc celui de la BASE.
 * Les ctors gshared (`IsUnitWIthIdTrigger`, `ModuloAbilityTrigger`) sont mislabeles : c'est la
   STRUCTURE des arguments qui identifie `RangedAttackHits` / `MeleeAttackHits` (meme classe, flag
   ranged 1/0) et `TurnsUntilUnitOwnerTurn`.

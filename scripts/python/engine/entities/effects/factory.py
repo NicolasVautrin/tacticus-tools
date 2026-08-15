@@ -91,6 +91,8 @@ from .loki.monster_slayer_of_caliban import (              # #1009 (relique dark
     MonsterSlayerOfCalibanExtraBlockEffect, MonsterSlayerOfCalibanExtraDmgEffect
 )
 from .loki.masters_of_manoeuvre import MastersOfManoeuvreEffect   # mythique MoW darkaStormSpeeder, 1508
+from .loki.lifewards import (LifewardsBondEffect,                 # #963-r3 -- les DEUX marqueurs du
+                             LifewardsProtectingEffect)           #  passif du summon Geminae (1049)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
@@ -2190,15 +2192,46 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
     # = `ForPercentDecrease(get_OwnerIsTarget & IsRangedAttack(), ConfigVar(0x46))` -- appel
     # EXPLICITE a `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`.
-    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee. La raison ECRITE
-    # ici -- << son gate COMMUN porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT
-    # du port >> -- est PERIMEE (re-mesuree #1081, 2026-08-14) : `#999-r3` a livre ce canal, et
-    # `att_rarity` est threade sur les deux facades (cf. les entrees 1442 / 1446 plus haut, qui
-    # disent toutes deux << le verrou est TOMBE >>). Ce qui reste est donc le PORT du couple
-    # trigger/behaviour lui-meme, sans blocage d'etage. L'effet, lui, n'a AUCUN gate de rarete.
+    # ⚠ **LA POSE EST PORTEE DEPUIS #999-r1** (`runner/operations/triggers/loki/
+    # masters_of_manoeuvre.py`, DEUX classes = les deux disjoints d'`On()`, inscrites a
+    # `RELIC_ABILITY_TRIGGERS["MastersOfManoeuvre"]`). La raison qui vivait ici -- << son gate COMMUN
+    # porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT du port >> -- etait PERIMEE
+    # (`#999-r3` / `#1039` ont livre le canal ; cf. les entrees 1442 / 1446 plus haut, qui disent
+    # toutes deux << le verrou est TOMBE >>), et le seul noeud qui manquait encore,
+    # `DSLFormulas$$TilesMovedThisTurn`, est desormais dans `entities/formulas.py`.
+    # L'effet, lui, n'a AUCUN gate de rarete : toute la rarete vit dans le trigger de l'ability.
     # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
     # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
     "MastersOfManoeuvre": MastersOfManoeuvreEffect,
+    # ------------------------------------------------------------------------------------------
+    # #963-r3 -- LES DEUX EFFETS DE `Lifewards`, passif du summon `adeptSmnGeminaeSuperia` (second
+    # maillon du kit de `adeptCelestine`). L'ability est portee dans
+    # `runner/operations/triggers/loki/lifewards.py`.
+    #
+    # ⚠ **AUCUN DES DEUX N'A DE FACE DE DEGAT**, et c'est une MESURE : leurs blocs `methodPointers`
+    # du PE, lus slot a slot, declarent exactement
+    #     LifewardsBondEffect       -> [ .ctor , CreateActiveCondition ]
+    #     LifewardsProtectingEffect -> [ .ctor , <2 corps GENERIQUES dedupliques> ,
+    #                                    CreateRemoveEffectTrigger ]
+    # Ce sont des MARQUEURS : toute la mecanique de `Lifewards` est le `TransferDamage` de son
+    # behaviour. Les inscrire ici porte leur CYCLE DE VIE (activation, retrait) -- qui est
+    # precisement ce que le trigger de l'ability LIT (2e conjoint `IsAlive(Owner) | HasEffect(Owner,
+    # 1240)`), donc ni l'un ni l'autre n'est un mensonge de couverture.
+    #
+    # 1060 `Lifewards_BondEffect` -- base `ABondEffect` (`frida/classes.tsv`).
+    #   `$$CreateActiveCondition` = `IsAdjacent(Owner@<DSLSelectors+0x30>, Parent(Owner@+0x30),
+    #                                           UnitSelectionType.OnlyAliveAndTargetable = 3)`
+    #   -> arbre dans `loki/lifewards_condition.py` (module SEPARE : cycle d'import mesure),
+    #      substrat = la cle PARESSEUSE `lifewards_bond_adjacent_to_parent` de
+    #      `runner/components.py::UnitEffectStateView`.
+    #   ⚠ Le `3` est un `selectionType`, PAS un rayon, et il DIFFERE du `0` du trigger de l'ability.
+    "Lifewards_BondEffect": LifewardsBondEffect,
+    # 1240 `Lifewards_Protecting` -- base `BaseEffect`.
+    #   `$$CreateRemoveEffectTrigger` = `On(0x9 = Attack, ownerNeedsToBeAlive: 0)`, corps ENTIER, un
+    #   seul noeud SANS conjoint -> `EFFECT_TRIGGERS[1240]` (`LifewardsProtectingRemove`).
+    #   AUCUNE `CreateActiveCondition` (absente du bloc) -> le marqueur est toujours ACTIF tant qu'il
+    #   est present, et `active_condition_ported` reste FAUX : lecture, pas oubli.
+    "Lifewards_Protecting": LifewardsProtectingEffect,
     # 1448 HyperCorrosiveAcid_ExtraDamagePct -- effet de l'ability MYTHIQUE `HyperCorrosiveAcid`
     # (`TriggeredAbilityType` 0x5af = 1455) des MoW `tyranBiovore` / `tyranNpcMowBiovore`, POSE sur
     # l'ENNEMI blesse par une Spore Mine (`targets = Target@<DSLSelectors+0x60>`, cf.
@@ -3197,6 +3230,77 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # port prefere a l'absence (le natif l'a), et 1395, lui, est porte en entier
     # (`entities/effects/loki/hits.py::LegendaryCommanderExtraHitsEffect`).
     "LegendaryCommander": ["LegendaryCommander_ExtraDamage", "LegendaryCommander_ExtraHits"],
+    # ------------------------------------------------------------------------------------------
+    # #922-r1 volet b -- LES TROIS OWNER-EFFECTS DE RELIQUE A CONDITION GEOMETRIQUE.
+    #
+    # ⚠ L'ARTEFACT NOMME PAR LA FICHE N'EXISTE PAS, et c'est le premier resultat de cette tranche.
+    # La fiche exigeait de lire « le `<X>_InitAbility$$CreateBehaviour` de chacune » : il n'y a
+    # AUCUNE classe `IntoxicatingElixir_InitAbility` / `AmuletOfTheVoidwyrm_InitAbility` /
+    # `NetherRealmCasket_InitAbility` dans le build. Ce n'est pas un corps ICF-deduplique (auquel cas
+    # « absent des tables ne prouve rien » s'appliquerait) mais une CLASSE absente : `classes.tsv`
+    # liste les classes independamment de leurs corps, et les 23 `_InitAbility` du build y sont
+    # nommes un par un -- aucun de ces trois. Les vrais artefacts sont ci-dessous, et ils sont de
+    # DEUX formes differentes, pas d'une seule.
+    #
+    # FORME 1 -- `AOwnerEffectTriggeredAbility` (les deux premieres). Base LUE dans `classes.tsv`.
+    # Elles n'overrident QUE `$$GetEffectType`, corps ENTIER `return <ordinal>` ; tout le reste vient
+    # de la base, LUE verbatim :
+    #     `AOwnerEffectTriggeredAbility$$CreateTrigger`   = `OnOwnerSpecificAbilityInit(<this+0x10>)`
+    #     `AOwnerEffectTriggeredAbility$$CreateCondition` = `<DSLTriggers+0x70>` (YesTrigger)
+    #     `AOwnerEffectTriggeredAbility$$CreateBehaviour` =
+    #         `If( CreateCondition(abilityState),
+    #              AddEffect( GetEffectType(),
+    #                         AbilityState(Owner@<DSLSelectors+0x30>, AbilityType(abilityState)),
+    #                         source  = Owner@+0x30,
+    #                         targets = Owner@+0x30,
+    #                         turns   = <Nullable ZEROEE> ) )`
+    # -> owner-effect PERMANENT pose a l'init, exactement le patron `FragLance` / `ToughToKill` /
+    # `Vitarus` ci-dessus. La condition etant le YesTrigger, la pose est INCONDITIONNELLE.
+    #
+    # `...Triggered.Loki.IntoxicatingElixirAbility$$GetEffectType`  = `return 0x5b3;` (= 1459)
+    # `...Triggered.Loki.AmuletOfTheVoidwyrmAbility$$GetEffectType` = `return 0x5b4;` (= 1460)
+    # L'appariement ability -> effet est donc LU, jamais devine.
+    #
+    # ⚠ HOMONYMIE, comme pour `FragLance` : la CLE est un nom de `TriggeredAbilityType`, la VALEUR un
+    # nom d'`EffectType`. `IntoxicatingElixir` designe les DEUX ; ne jamais rapprocher par l'ordinal.
+    #
+    # VOIE D'ARRIVEE : les trois sont des RELIQUES (`unit_map find --ability`, voie `item` sur les
+    # lineup / `relic` sur les npc). Elles n'entrent donc PAS par le kit gameconfig mais par
+    # `BC.Units[].TertiaryAbility` -> `ctx.tertiary_ability`, que `_seed_ability_owner_effects` lit
+    # depuis #1005 -- c'est ce qui rend ces trois entrees ATTEIGNABLES, et c'est la moitie de la
+    # premisse de #922-r1 qui etait deja tombee.
+    "IntoxicatingElixir": ["IntoxicatingElixir"],
+    "AmuletOfTheVoidwyrm": ["AmuletOfTheVoidwyrm_CritDamageReduction"],
+    # FORME 2 -- `NetherRealmCasketAbility` n'est PAS un owner-effect-ability : sa base est
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility` (`classes.tsv`), et elle porte son PROPRE
+    # `CreateBehaviour`, qui pose DEUX effets. Meme patron que `BeastSnagga` / `TerrorsLament`.
+    #     `...Triggered.Loki.NetherRealmCasketAbility$$CreateBehaviour` =
+    #         op_BitwiseAnd(
+    #             AddEffect(0x5af = 1455 NetherRealmCasket_CritDamageReduction,
+    #                       get_AbilityStateReference(this),
+    #                       source = Owner@<DSLSelectors+0x30>, targets = Owner@+0x30,
+    #                       turns = <Nullable ZEROEE>),
+    #             AddEffect(0x5b0 = 1456 NetherRealmCasket_LivingMetalBonus, <idem>) )
+    # -> les deux sont PERMANENTS et poses INCONDITIONNELLEMENT (aucun `If` dans le corps).
+    #
+    # ⚠ SON TRIGGER EST BIEN UN TRIGGER D'INIT, et il a fallu le resoudre SLOT A SLOT : le dump
+    # FRIDA ne liste que `CreateBehaviour` et `GetLocalizationData` pour cette classe. Le bloc
+    # `methodPointers` du PE, lui, en porte TROIS, et le premier est le corps nomme
+    # `...Triggered.Loki.WayOfTheShortBlade_InitAbility$$CreateTrigger` (ICF), dont le corps ENTIER
+    # est `OnOwnerSpecificAbilityInit(this.AbilityType)`. C'est donc bien la meme boucle native
+    # (`InitializeActorAbilitiesOperation$$Execute`) que les deux formes ci-dessus.
+    #
+    # ⚠ 1456 N'A PAS DE CLASSE dans `EFFECT_CLASSES` : son instance sera un `BaseEffect` NU --
+    # VISIBLE et INERTE, exactement le regime assume par `LegendaryCommander_ExtraDamage` juste
+    # au-dessus. Le natif POSE les deux ; n'en seeder qu'un ferait mentir `HasEffect(owner, 1456)`.
+    # Sa face non portee est NOMMEE, pour qu'elle ne se lise pas comme un oubli :
+    #     `...Effects.Loki.NetherRealmCasket_LivingMetalBonusEffect$$CreateEffectRepairBonus` =
+    #         `EffectBonus.ForAddition( get_OwnerIsTarget & TriggeringAbilityIs(<ability>),
+    #                                   ConfigVar(AbilityVariableType.hpToHeal = 0x20,
+    #                                             GetAbilityState(this), <config@+0x60>) )`
+    # -- un bonus de SOIN (`hpToHeal = [980, 1033, 1086, 1139, 1192]` au gameconfig), canal distinct
+    # de celui des trois effets de degat de ce lot.
+    "NetherRealmCasket": ["NetherRealmCasket_CritDamageReduction", "NetherRealmCasket_LivingMetalBonus"],
 }
 
 

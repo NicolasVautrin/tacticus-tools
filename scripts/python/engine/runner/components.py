@@ -3915,7 +3915,7 @@ class UnitEffectStateView(Mapping):
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
                  "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt", "_afm",
-                 "_asu", "_dbr", "_ibm")
+                 "_asu", "_dbr", "_ibm", "_lwb")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -4011,6 +4011,7 @@ class UnitEffectStateView(Mapping):
         # #1015-r1 : verdict de la `CreateActiveCondition` de `1235 InstinctiveBehaviour_
         # BlockMovement`. Gate `_has_pos` SEUL (ancrage `Tiles(Owner)`, aucun filtre d'equipe).
         self._ibm: Optional[bool] = None
+        self._lwb: Optional[bool] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -4102,6 +4103,16 @@ class UnitEffectStateView(Mapping):
                     evaluate_block_movement)
                 self._ibm = bool(evaluate_block_movement(self._state, self._uid))
             return self._ibm
+        # #963-r3 -- `LifewardsBondEffect$$CreateActiveCondition` = `IsAdjacent(Owner@+0x30,
+        # Parent(Owner@+0x30), 3)`. Gate de presence : `_has_pos` SEUL -- la condition s'ancre sur
+        # deux positions, aucun filtre d'equipe. PARESSEUSE : l'arbre monte un `AbilityEntities`
+        # complet, on ne le paie que si une instance de 1060 le lit.
+        if key == "lifewards_bond_adjacent_to_parent" and self._has_pos:
+            if self._lwb is None:
+                from ..entities.effects.loki.lifewards_condition import (
+                    evaluate_lifewards_bond_adjacent)
+                self._lwb = bool(evaluate_lifewards_bond_adjacent(self._state, self._uid))
+            return self._lwb
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -4114,6 +4125,7 @@ class UnitEffectStateView(Mapping):
             yield "adjacent_summons"                     # #920 : gate GEOMETRIQUE seul
             yield "debuffed_units_in_range"          # #922 : idem, gate GEOMETRIQUE seul
             yield "instinctive_behaviour_block_movement"  # #1015-r1 : idem, gate GEOMETRIQUE seul
+            yield "lifewards_bond_adjacent_to_parent"     # #963-r3 : idem, gate GEOMETRIQUE seul
         if self._has_effstate:
             yield "has_effect_light_cover"
             yield "owned_effect_bonded_entity"

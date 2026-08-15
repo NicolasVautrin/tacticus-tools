@@ -269,15 +269,35 @@ class AddEffect(AbilityBehaviour):
     (FleshmetalGuns 1067/1212/1221, TerrifyingCrescendo 1424).
     """
     __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source",
-                 "duration_turns", "source_ref", "source_from_target")
+                 "duration_turns", "source_ref", "source_from_target", "ability_state")
 
     def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1,
                  level=None, scale_from_source: bool = False, duration_turns=None, source_ref=None,
-                 source_from_target: bool = False):
+                 source_from_target: bool = False, ability_state=None):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
         self.level, self.scale_from_source = level, scale_from_source
         self.duration_turns = duration_turns
+        # `ability_state` = le 2e argument NATIF d'`AddEffectBehaviour..ctor` (`abilityState`), passe
+        # EXPLICITEMENT sous la forme d'un couple deja resolu `(ability_level, multiplier_pct)`.
+        #
+        # POURQUOI IL NE SE DEDUIT PAS DE `scale_from_source` (#999-r1). Ce dernier lit
+        # `_source_scaling`, qui rend le couple des **PASSIFS** de la source (`passive_ability_level`,
+        # `ability_variables_multiplier`). C'est exact tant que l'ability qui POSE est un passif ou
+        # une active du porteur. Ca ne l'est PAS quand elle est **TERTIAIRE** (relique, ou mythique de
+        # MoW) : `IdunBattle.Entities.Factories.UnitFactory$$Build` fabrique alors un TROISIEME
+        # `AbilityState` -- `(config+0xc0 TertiaryAbilityLevel, config+0x78)`, soit `level 1..4 /
+        # mult 100` -- que `AddConfiguredAbilities` distribue a la hierarchie 3, et c'est CELUI-LA que
+        # `get_AbilityStateReference(this)` rend. Le couple passif d'un runner normalise vaut
+        # `50 / 180` : `Idun.Shared.Level$$ToZeroBasedIndex(50)` clampe au DERNIER palier, donc un
+        # `ConfigVar` a quatre paliers y lirait toujours le maximum. MEME cause que #1005 / #1009, et
+        # MEME couple que `triggers/base.py::triggered_ability_state`, qui est la voie recommandee
+        # pour le calculer au site d'appel.
+        #
+        # ⚠ Il l'emporte sur `scale_from_source` quand les deux sont donnes -- l'explicite prime sur
+        # le derive. `None` (defaut) = comportement STRICTEMENT inchange pour tous les call-sites
+        # anterieurs, qui n'en passent aucun.
+        self.ability_state = ability_state
         # `source_ref` = le 4e argument NATIF d'`IdunBattleLogic.Entities.DSLFactory$$AddEffect` (le noeud
         # SOURCE, `AddEffectBehaviour..ctor` param_4) : `caster@0x160` / `Owner@0x148` sur la quasi-totalite
         # des call-sites -> defaut None = le caster (comportement historique INCHANGE).
@@ -346,6 +366,11 @@ class AddEffect(AbilityBehaviour):
         scale_src = (entities.caster or {}).get("id") if self.source_from_target else src
         mult, ab_lvl, act_lvl = (_source_scaling(state, scale_src) if self.scale_from_source
                                  else (None, None, None))
+        # `abilityState` EXPLICITE (2e argument natif) -- il PRIME sur le derive ci-dessus. Cf. la
+        # docstring du parametre : c'est la seule ecriture correcte quand l'ability qui pose est
+        # TERTIAIRE, dont l'`AbilityState` (`level 1..4 / mult 100`) n'est celui d'AUCUN passif.
+        if self.ability_state is not None:
+            ab_lvl, mult = self.ability_state
         for elem in _add_effect_targets(self.target_sel.evaluate(entities)):  # natif : itere le selecteur
             tgt = _add_effect_target_id(elem, state)          # unit dict->id | (col,row)->tile id | int->tile id
             if tgt is None:

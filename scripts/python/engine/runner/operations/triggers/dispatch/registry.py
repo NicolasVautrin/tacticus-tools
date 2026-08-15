@@ -293,6 +293,9 @@ from ..loki.aggressive_onslaught import (AggressiveOnslaughtPrepareAbility,   # 
 from ..loki.red_rampage import (RedRampageAttackAbility,              # #963 (passif bloodTerminator,
                                 RedRampageBuffAbility)                #  2 classes natives)
 from ..loki.geminae_superia import GeminaeSuperiaAbility              # #963 (passif adeptCelestine)
+from ..loki.lifewards import (LifewardsAbility,                       # #963-r3 (passif du SUMMON
+                              LifewardsProtectingRemove,              #  adeptSmnGeminaeSuperia, 1049)
+                              PROTECTING_EFFECT as LIFEWARDS_PROTECTING)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.wyrdmakers_helm import WyrdmakersHelmAbility               # #1037 (relique spaceWolfPriest)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
@@ -330,6 +333,10 @@ from ..loki.electrochaff_backups import (                             # #1025 (M
     ElectrochaffBackupsOnRangedDamageAbility)                         #  TERTIAIRE, cf. le registre)
 from ..loki.hyper_corrosive_acid import HyperCorrosiveAcidAbility      # #1035 (MYTHIQUE 1455, MoW
                                                                       #  tyranBiovore, voie TERTIAIRE)
+from ..loki.masters_of_manoeuvre import (MastersOfManoeuvrePlaceOnMove,     # #999-r1 (MYTHIQUE 1508,
+                                         MastersOfManoeuvrePlaceOnTurnEnd)  #  MoW darkaStormSpeeder ;
+                                                                      #  2 classes = la disjonction
+                                                                      #  d'`On()` du CreateTrigger)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1280,6 +1287,33 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/geminae_superia.py (IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetPossibleSpawnTiles / ...$$SummonLimit).
     "GeminaeSuperia": [GeminaeSuperiaAbility],
+    # Lifewards (#963-r3) -- passif du SUMMON `adeptSmnGeminaeSuperia`, SECOND MAILLON du kit de
+    # `adeptCelestine` : c'est lui que le `TriggerAbility(<la Geminae posee>, 0x419)` de
+    # `GeminaeSuperiaAbility$$CreateBehaviour` (juste au-dessus) declenche, et qui rendait
+    # `dispatched: False` faute d'entree au registre.
+    #   `On(0x39 = PreDamageTaken) & <DSLTriggers+0x70 = YesTrigger>
+    #    & ( IsAlive(Owner@<DSLSelectors+0x30>)
+    #        | HasEffect(Owner@+0x30, 0x4d8 = 1240, onlyActive: 0, effectTarget: 6) )
+    #    & AreEqual(Target@<+0x60>, Parent(Owner@+0x30))
+    #    & IsAdjacent(Owner@+0x30, Target@+0x60, UnitSelectionType.Any = 0)`
+    #   -> `If(NOT HasEffect(Owner, 0x424), AddBondEffect(0x424, ..., bondedEntity = Parent(Owner)))
+    #       & If(NOT HasEffect(Owner, 0x4d8) & IsAlive(Owner), AddBondEffect(0x4d8, ...))
+    #       & TransferDamage(<+0x48>, <+0x60>, <+0x30>, <+0x88>, <+0x90>)`
+    # ⚠ LA DISJONCTION DU 2e CONJOINT EST LA MECANIQUE : `IsAlive(Owner) | HasEffect(Owner, 1240)`
+    # laisse une Geminae MORTE absorber encore UN coup, tant qu'elle porte le marqueur -- lequel est
+    # retire au premier `On(0x9 = Attack)` (`EFFECT_TRIGGERS[1240]`). Rabattre sur `IsAlive` seul
+    # serait RESTRICTIF et silencieux.
+    # ⚠ MEME `TransferDamage` que `SaviorProtocols` ci-dessous, aux CINQ selecteurs pres -- ce n'est
+    # pas une recopie de voisin de forme, c'est le meme appel natif argument pour argument. Le degat
+    # est DEPLACE, pas duplique (`TransferDamageOperation$$GetDamage` consomme le pending).
+    # ⚠ DEUX classes natives pour l'id 1049 (patron `Vitarus`), toutes deux sous
+    # `...Abilities.Triggered.` **SANS `.Loki`** : celle-ci, et `LifewardsAddEffectAbility`, dont le
+    # `CreateTrigger` ICF-deduplique EST `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & YesTrigger
+    # & get_OwnerIsActor` -- la branche d'INIT, materialisee par SEEDING partout ailleurs. Elle
+    # N'EST PAS seedee ici, et c'est un ARBITRAGE mesure, pas un oubli : cf. le residu nomme en
+    # tete de `loki/lifewards.py`.
+    # Cf. loki/lifewards.py.
+    "Lifewards": [LifewardsAbility],
     # SaviorProtocols (passif des SIX drones T'au -- 3 npc `tauNpc*Drone*` + 3 SUMMONS
     # `tauSmn*Drone*` --, `TriggeredAbilityType` 0x460 = 1120 ; #1020) :
     #   `On(0x39 = PreDamageTaken, ownerNeedsToBeAlive = 0) & TargetIsValidTrigger()
@@ -1953,6 +1987,36 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # par `UnitContext.rarity` -- c'est le noeud `HasRarity` qui le lit, avec son tri-etat.
     # Cf. loki/shield_of_faith.py.
     "ShieldOfFaith": [ShieldOfFaithAbility],
+    # MastersOfManoeuvre (#999-r1) -- MYTHIQUE de `darkaStormSpeeder` (MoW Dark Angels),
+    # `TriggeredAbilityType` 0x5e4 = 1508. MEME voie TERTIAIRE que ses deux voisines ci-dessus, donc
+    # MEME registre (cf. le paragraphe de `ShieldOfFaith` : un registre `MYTHIC_*` separe inventerait
+    # une distinction que le natif n'a pas, et c'est ce registre-ci qui donne a
+    # `triggered_ability_state` le couple TERTIAIRE).
+    #   `$$CreateTrigger` = op_BitwiseOr(<A>, <B>) sur le prefixe COMMUN
+    #       AreFriends(Actor@<DSLSelectors+0x40>, Owner@<+0x30>, 0, false)
+    #     & HasRarity(Actor@+0x40, idun.meta.Rarity.Mythic = 5)
+    #     & NOT HasEffect(Actor@+0x40, 0x5e6 = 1510, onlyActive: 0, effectTarget: 6)
+    #     <A> = On(4 = UnitAfterMove, 1) & COMMUN
+    #           & AmountIsEqualOrGreater(TilesMovedThisTurn(Actor@+0x40),
+    #                                    Get(GetNumberConstant(tilesTraversed = 0x88)))
+    #     <B> = On(0x28 = UnitFinishedTurn, 1) & COMMUN
+    #           & AmountIsGreaterThanZero(Filter(AdjacentFriends(Actor@+0x40, unique: 1, 3),
+    #                 HasRarity(Subject@+0x68, 5) & HasFaction(Subject@+0x68, 0xa = DarkAngels, 3)))
+    #   `$$CreateBehaviour` = AddEffect(0x5e6, get_AbilityStateReference(this),
+    #                                   source = Owner@+0x30, targets = **Actor@+0x40**,
+    #                                   TurnsFromRounds(GetNumberConstant(nrOfRounds = 0x45)))
+    # La disjonction d'`On()` se ventile en DEUX CLASSES (le registre etant indexe par `event_id`,
+    # patron `HaywireMinePlaceOnMove`/`HaywireMinePlaceOnTurnEnd`) ; elles ne peuvent pas double-poser,
+    # le 3e conjoint du COMMUN etant `NOT HasEffect(Actor, 1510)`.
+    # ⚠ MEME leve de verrou que `ShieldOfFaith` juste au-dessus : la docstring d'
+    # `entities/effects/loki/masters_of_manoeuvre.py` declare cette face bloquee par `HasRarity`
+    # << canal ABSENT du port >> -- enonce ecrit sur `rnca9r7q6c` et PERIME depuis #999-r3/#1039.
+    # ⚠ NE FAIT PAS DOUBLE EMPLOI avec `factory.TERTIARY_ABILITY_POSED_EFFECTS["MastersOfManoeuvre"]`,
+    # qui n'est PAS une pose : `snapshot._rebake_tertiary_posed_effects` RE-BAKE le couple (niveau,
+    # multiplicateur) d'instances DEJA CAPTEES et ne cree aucune entite. Live = le natif pose et le
+    # re-bake corrige ; offline = personne ne posait, c'est ce module qui pose, deja au bon couple.
+    # Cf. loki/masters_of_manoeuvre.py.
+    "MastersOfManoeuvre": [MastersOfManoeuvrePlaceOnMove, MastersOfManoeuvrePlaceOnTurnEnd],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------
@@ -2282,6 +2346,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # mais sur un `OwnerIsCaster` qui designe le BELLATOR -- ici c'est l'INCEPTOR.
     # Cf. loki/shock_assault.py.
     SHOCK_ASSAULT_BUFF: [ShockAssaultBuffRemove],                    # 1000 -> retrait On(0xa)
+    # #963-r3 -- `LifewardsProtectingEffect$$CreateRemoveEffectTrigger` = `On(0x9 = Attack,
+    # ownerNeedsToBeAlive: 0)`. Corps ENTIER : UN seul noeud, AUCUN conjoint -- ni `get_OwnerIsCaster`
+    # ni `get_OwnerIsTarget`. N'IMPORTE QUELLE attaque retire le marqueur de n'importe quel porteur,
+    # et c'est ce qui borne a UN SEUL coup la protection posthume d'une Geminae morte (le 2e conjoint
+    # du trigger de `LifewardsAbility` etant `IsAlive(Owner) | HasEffect(Owner, 1240)`).
+    # ⚠ NE PAS recopier le `get_OwnerIsCaster` de son voisin de forme `ShockAssaultBuffRemove`
+    # ci-dessus : il n'est PAS dans ce corps-la, et l'ajouter rendrait le marqueur quasi-permanent
+    # (une Geminae morte n'attaque plus jamais).
+    LIFEWARDS_PROTECTING: [LifewardsProtectingRemove],               # 1240 -> retrait On(0x9)
     # LegendaryCommander_ExtraHits 1395 (#419-r1-tr9-r4-r1-r2-r1, effet pose SUR `custoTrajann` par
     # son passif) : le TARGET-TRIGGER de l'effet, `LegendaryCommander_ExtraHitsEffect$$
     # CreateTargetTrigger` = `On(0xa = AttackDamageAttack) & IsValidAttack(Effect@0x38)` ->
