@@ -1322,6 +1322,11 @@ def cmd_build(sid: int, a) -> int:
     if publie is not None:
         print(f"[build] greffes publiees pour build#{rid} "
               f"({len(catalog_inject.declared_grafts())}) -> {publie}", file=sys.stderr)
+    # #449-r2-r4-r1 : les sections de BC qu'AUCUN RPC ne publie (`Damage`). `load_state` ne recoit
+    # ni la BC ni le state-file, donc sans ce depot elle retombe sur le defaut derive de la seed
+    # versionnee -- juste tant qu'on part de cette seed, FAUX et muet des qu'un montage passe
+    # `--seed-bc` avec une section `Damage` modifiee. Le runner est le seul terme commun.
+    catalog_inject.publish_runner_bc_sections(f"build#{rid}", bc)
     # #287-r13-r1 : le refus est desormais DUR (rc 3), comme celui des placements -- et il l'est
     # sur une MESURE, pas sur un principe (`probe_287r13r1_rayon_refus_roster.py`) :
     #
@@ -2330,6 +2335,7 @@ def cmd_dispose(sid: int, a) -> int:
     # build ulterieur, et un registre survivant ferait refuser un etat qui n'a aucune greffe --
     # meme raison que `snapshot.clear_ability_states_cache` au teardown.
     catalog_inject.clear_runner_grafts(f"build#{st['runnerId']}")
+    catalog_inject.clear_runner_bc_sections(f"build#{st['runnerId']}")   # #449-r2-r4-r1, meme cycle
     print(f"[dispose] runner {st['runnerId']} libéré")
     return 0
 

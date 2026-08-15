@@ -190,6 +190,55 @@ def clear_runner_grafts(label: str) -> None:
         pass
 
 
+# ------------------------------------- les SECTIONS DE BC publiees par runner (#449-r2-r4-r1)
+#
+# MEME chainon, autre charge. `engine.runner.snapshot.load_state` ne recoit ni la BC ni le
+# state-file : les sections de `BattleConfiguration` qui n'ont AUCUN RPC pour les publier
+# (`Damage`, et de la meme famille `Targeting` #444) lui sont structurellement invisibles. Elle
+# connait en revanche le RUNNER -- donc le montage, qui tient la BC, la depose sous ce label.
+#
+# CE QUE CA CHANGE, mesure : `damage_config` n'etait alimente par AUCUN appelant reel (seuls les
+# deux `probe_449r2r4*` le passaient), si bien que tout runner retombait sur le defaut DERIVE de
+# `data/seed-bc.json`. C'est exact tant qu'on part de cette seed, et FAUX -- silencieusement --
+# des qu'un montage passe `--seed-bc` avec une section `Damage` modifiee.
+_BC_SECTIONS_DIR = ROOT / "logs" / "runners" / "bc-sections"
+
+#: Sections publiees. STRICTEMENT celles qu'un consommateur LIT : publier une section que personne
+#: ne lit fabriquerait du code mort qui aurait l'air d'un canal.
+BC_SECTIONS_PUBLIEES = ("Damage",)
+
+
+def runner_bc_sections_path(label: str) -> Path:
+    return _BC_SECTIONS_DIR / (str(label).replace("#", "-").replace("/", "_") + ".json")
+
+
+def publish_runner_bc_sections(label: str, bc: dict) -> Path | None:
+    """Depose les sections de CETTE BC sous le label du runner. `None` si aucune n'est presente.
+
+    Une section absente de la BC n'est PAS ecrite comme `{}` : le tri-etat du lecteur distingue
+    « pas mesure » (pas de cle -> defaut derive de la seed) de « la BC a parle et elle dit zero »
+    (dict vide). Fabriquer le second a partir du premier est exactement le vice que ce canal
+    ferme."""
+    charge = {s: bc.get(s) for s in BC_SECTIONS_PUBLIEES if isinstance(bc.get(s), dict)}
+    if not charge:
+        return None
+    p = runner_bc_sections_path(label)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(charge), encoding="utf-8")
+    except OSError:
+        return None
+    return p
+
+
+def clear_runner_bc_sections(label: str) -> None:
+    """Meme cycle de vie que le registre de greffes : l'id de runner est RECYCLE."""
+    try:
+        runner_bc_sections_path(label).unlink()
+    except OSError:
+        pass
+
+
 # --------------------------------------------------------------------------- enums per-build
 
 def _build_hash() -> str:

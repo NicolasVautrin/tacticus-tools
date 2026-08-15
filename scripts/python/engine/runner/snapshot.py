@@ -390,6 +390,16 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     _vic = victory_conditions_from_bc(victory_config)
     if _vic is not None:
         state.victory_conditions = _vic
+    # #449-r2-r4-r1 -- CANAL AMBIANT. `damage_config` n'etait alimente par AUCUN appelant reel
+    # (mesure : seuls les deux `probe_449r2r4*` le passent), donc tous les runners retombaient sur
+    # le defaut DERIVE de `data/seed-bc.json`. Exact tant qu'ils partent de cette seed, FAUX des
+    # qu'un montage passe `--seed-bc` avec une section `Damage` modifiee -- et muet, puisque le
+    # port lirait alors la variance d'une AUTRE BC que celle qui court. Le chainon manquant etait
+    # que `load_state` ne recoit ni la BC ni le state-file ; elle connait en revanche le RUNNER,
+    # et c'est par la que la section voyage (meme patron que le registre de greffes, #448-r3-r1-r1-r1).
+    # L'argument EXPLICITE prime toujours : ce canal ne se substitue qu'au `None`.
+    if damage_config is None:
+        damage_config = _section_bc_du_runner(runner_label(decision, observe, snapshot), "Damage")
     _dmgcfg = DamageConfiguration.from_bc(damage_config)
     if _dmgcfg is not None:
         # #449-r2-r4-r4 : toute la section, pas seulement les deux champs de la variance. La liste
@@ -1701,6 +1711,42 @@ class GraftedStateWithoutChannel(RuntimeError):
 #: `collect_triggered_abilities` ne derive rien du gameconfig non plus -- pas de degradation
 #: permissive a fermer, le seed serait un no-op.
 _MUTE_BY_ACCIDENT = ("no-transport", "no-runner-label", "unavailable:")
+
+
+def _fichier_runner(label: Optional[str], dossier: str) -> Optional["object"]:
+    """Chemin d'un sidecar PAR RUNNER, ou `None` si le label est absent.
+
+    `engine/` LIT ces fichiers, il n'en ecrit aucun : ils sont publies par le montage
+    (`rl_duel build`). C'est la seule voie par laquelle un fait connu du BUILD atteint
+    `load_state`, qui ne recoit ni la BC ni le state-file."""
+    if not label:
+        return None
+    from pathlib import Path
+    racine = Path(__file__).resolve().parents[4]     # scripts/python/engine/runner/ -> checkout
+    return (racine / "logs" / "runners" / dossier
+            / (str(label).replace("#", "-").replace("/", "_") + ".json"))
+
+
+def _section_bc_du_runner(label: Optional[str], section: str):
+    """La section de `BattleConfiguration` publiee pour ce runner, ou `None` (#449-r2-r4-r1).
+
+    TRI-ETAT STRICT, et c'est tout l'interet : `None` = « pas mesure » -> l'appelant retombe sur
+    le defaut derive de la seed versionnee, comme avant. Un dict VIDE resterait un dict -- la BC a
+    parle et elle dit zero, ce que `DamageConfiguration.from_bc` distingue deja explicitement.
+    On ne fabrique donc jamais de section, et une lecture impossible se comporte exactement comme
+    l'absence de canal."""
+    p = _fichier_runner(label, "bc-sections")
+    if p is None:
+        return None
+    import json
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    val = data.get(section)
+    return val if isinstance(val, dict) else None
 
 
 def _grafts_du_runner(label: Optional[str]) -> list:
