@@ -920,7 +920,8 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
                                     is_wall_by_pos=None, caster_team=None,
                                     team_by_pos=None, walkable_by_pos=None,
                                     is_in_fog_by_pos=None, caster_pos=None,
-                                    is_turn_of_unit=None, occupant_by_pos=None) -> bool:
+                                    is_turn_of_unit=None, occupant_by_pos=None,
+                                    has_moved=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -1010,15 +1011,32 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     REELLES du caster, et le natif refuse des qu'elles different. `None` = **non mesure**, la
     clause ne refuse alors jamais -- c'est le statu quo, et c'est ce que rendent les appelants de
     production, qui ne publient pas ce fait. Derivable sans capteur neuf :
-    `observeBattle.units[].playerId == observeBattle.currentPlayer` (cf. `CasterSubstrate`)."""
+    `observeBattle.units[].playerId == observeBattle.currentPlayer` (cf. `CasterSubstrate`).
+
+    `has_moved` -- `IdunBattle.Entities.UnitExtensions$$DidMove(caster)` =
+    `UnitFlagsComponent.Has(UnitFlag.Moved)`, l'AUTRE terme de `CasterHasNotMoved` (#447-r1-r1-r3-r1).
+    Il est en TRI-ETAT et il est GARDE PAR LE PREFIXE : la clause n'est evaluee que si
+    `is_turn_of_unit` est vrai, ce que le natif exige aussi. `None` = **non mesure** -> la clause ne
+    refuse jamais.
+    ⚠ SON GISEMENT EST ETROIT, ET C'EST UNE MESURE, PAS UNE EXCUSE : chez l'unique appelant de
+    production (`playbook/noncomparable/early_warning_override.py`) le << caster >> interroge est un
+    ENNEMI du joueur courant, donc `is_turn_of_unit` y vaut `False` et ce terme est INERTE -- sauf
+    sous CONTROLE MENTAL, ou une unite qui nous appartient (`playerId` = nous, donc prefixe VRAI)
+    est jouee par l'adversaire et apparait cote ennemi. Le canal est neanmoins cable parce qu'il ne
+    coute RIEN (`combatSnapshot.units[].unitFlags` est deja capte a chaque pas par
+    `Scene.refresh_shields`) et parce qu'il ferme la chaine pour l'AUTRE consommateur natif,
+    `IdunBattle.Core.Services.AttackQuery$$GetAllTilesInAbilityRange(unit, possiblePositions, true)`,
+    ou la 2e clause MORD."""
     if int(feet_count or 1) > 1:
         return True
     if unit_pos is None or tile is None:
         return False
-    # Le substrat du 4e gate CASTER. `pos` est la tuile COURANTE (cf. `caster_pos`) ; les champs
-    # `has_moved` / `feet_count` / `is_machine` restent `None` -- AUCUN canal cote DECISION ne les
-    # publie, et les poser au juge inventerait une mesure. Point d'ancrage a publier pour le
-    # premier : le `UnitFlagsComponent` (`UnitFlag.Moved`) sur la ligne d'unite.
+    # Le substrat du 4e gate CASTER. `pos` est la tuile COURANTE (cf. `caster_pos`).
+    # `has_moved` est desormais RELAYE par l'appelant (#447-r1-r1-r3-r1) : son point d'ancrage --
+    # le `UnitFlagsComponent` (`UnitFlag.Moved`) sur la ligne d'unite -- etait deja publie par
+    # `combatSnapshot.units[].unitFlags` et consolide dans `Scene.moved_by_id`. Restent `None` :
+    # `feet_count` et `is_machine`, qu'AUCUN canal cote DECISION ne publie -- les poser au juge
+    # inventerait une mesure.
     # `neigh_by_pos = None` : cette fonction ne recoit PAS la liste d'adjacence STOCKEE, et
     # `adjacent_neigh_by_pos(MQ.PositionBoard(...))` rend `None` (mesure) -- le gate CIBLE
     # `GATE_FREE_ADJACENT_IN_CONFIG_RANGE` est deja dans ce meme regime. `battle_query.is_adjacent`
@@ -1027,7 +1045,7 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     cpos = tuple(caster_pos) if caster_pos is not None else tuple(unit_pos)
     caster = acg.CasterSubstrate(
         pos=(int(cpos[0]), int(cpos[1])), has_tile=True, team=caster_team,
-        is_turn_of_unit=is_turn_of_unit,
+        is_turn_of_unit=is_turn_of_unit, has_moved=has_moved,
         # `casterTiles` INTERROGE = la position balayee. Dans le regime du foyer natif elle EGALE
         # `pos`, donc la 2e clause de `CasterHasNotMoved` reste inerte -- comme chez le natif.
         interrogated_pos=(int(unit_pos[0]), int(unit_pos[1])),

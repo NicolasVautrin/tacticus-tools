@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import hexgeo
 import gameconfig as _gc
+from engine import battle_query as bq            # FORME B (liaison de MODULE) : `is_target_tile_obscured`,
+#                                                 l'un des deux etages de `has_eligible_normal_attack_target`.
 
 from ...entities.active_ability_type import ActiveAbilityType
 from engine.ai import cast_positions as CP        # FORME B (liaison de MODULE) : le foyer
@@ -295,6 +298,79 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
     return count_adjacent(tile, ctx.epos or [], ctx.elev_by_pos, neigh_map(ctx))
 
 
+def visual_id_of(ctx: "NCContext", unit_id) -> str | None:
+    """`visualId` d'une unite -- `observeBattle.units[].visualId`, le seul canal de `NCContext` qui
+    le porte pour une unite ARBITRAIRE (y compris ENNEMIE).
+
+    ⚠ LA CLE EST `squadId`, PAS `entityId`. Les deux existent sur la MEME ligne d'`observeBattle` et
+    ne valent PAS la meme chose : `squadId` est l'id d'unite que manipulent `decisionView`,
+    `abilityTargets` et le port (`ctx.uid`), `entityId` est l'entite ECS. Mesure #975 : chercher
+    `entityId` rendait `None` sur les 10 unites du banc, donc le predicat appelant rendait `False`
+    PARTOUT et son playbook etait ENREGISTRE MAIS INERTE."""
+    for u in (ctx.obs_units or []):
+        if u.get("squadId") == unit_id or u.get("id") == unit_id:
+            v = u.get("visualId")
+            if v:
+                return str(v)
+    return None
+
+
+def has_eligible_normal_attack_target(ctx: "NCContext", unit_id, tile: tuple | None,
+                                      foes) -> bool:
+    """`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack(unit, position)`
+    `.Count > 0` -- FOYER UNIQUE du predicat, partage par ses appelants.
+
+    Corps natif, RELU :
+
+        GetEligibleTargetsForNormalAttack(this, unit, position)
+          = <IBattleQuery slot 0x42 = 66 GetValidTargets>(unit, position,
+                                                          UnitExtensions.GetNormalAttackType(unit))
+
+    (slot LU dans `data/symbols/<build>/metadata/interface_slots.tsv`.) La POSITION est un argument :
+    la question est << si `unit` se tenait LA, aurait-elle une cible d'attaque normale ? >>.
+
+    ⚠ **NE PAS CONFONDRE AVEC LES DEUX VOISINS DE FORME**, tous deux relus avant d'ecrire ceci :
+      * `BasePlaybook$$GetAllNormalAttackTargets(unit)` = slot **0x45 = 69**
+        `GetAllValidTargetsFromAllPossibleMovementTiles` -- l'UNION sur les tuiles de MOVE, sans
+        argument de position. C'est un AUTRE ensemble (`playbook/loki_custom.py` le porte, et sa
+        docstring cite `0x44` : le slot exact est `0x45`).
+      * `TheQuickeningPlaybook$$GetNumAttackTargetsInPosition` = slot **0x80 = 128**
+        `GetAdjacentEnemies` -- des ennemis ADJACENTS, pas des cibles LEGALES
+        (`_get_num_attack_targets_in_position` ci-dessus porte celui-la).
+
+    `foes` = les positions des ADVERSAIRES de `unit_id`, derivees PAR L'APPELANT : le camp adverse
+    n'est pas le meme selon qu'on interroge le caster (ses adversaires sont `ctx.epos`) ou une
+    cible ENNEMIE (ses adversaires sont NOS unites). Mettre cette derivation dans le foyer
+    obligerait a y ecrire un << qui est l'ennemi de qui >> que les deux sites connaissent mieux.
+
+    ETAGES PORTES, et EUX SEULS (residu `#975-r1`) : la PORTEE
+    (`distance <= _max_attack_range(visualId)`, foyer partage `engine.ai.state_bridge`) et
+    l'OBSCURCISSEMENT (`bq.is_target_tile_obscured`, mirror de
+    `IdunBattle.Core.Services.TargetingQuery$$IsTargetTileObscured`, exact a distance 2).
+    NON portes : le brouillard de guerre, la walkability de la tuile de la cible, les bits du
+    masque de l'attaque normale. Les trois ne peuvent que RETIRER des cibles -> ce predicat est une
+    **BORNE SUPERIEURE**. Il peut rendre `True` la ou le natif rend `False`, jamais l'inverse."""
+    if tile is None:
+        return False
+    vis = visual_id_of(ctx, unit_id)
+    if not vis:
+        return False                # portee non derivable : le port ne devine pas une portee
+    from engine.ai.state_bridge import _max_attack_range   # DIFFERE PORTEUR : `ai.state_bridge`
+    #   importe `engine.playbook` (le meme cycle que differe `playbook/loki_custom.py`, pour le
+    #   MEME symbole et la MEME raison). Classe VERIFIEE, pas supposee.
+    rng = int(_max_attack_range(vis))
+    for q in (foes or ()):
+        if not q or q[0] is None:
+            continue
+        p = (q[0], q[1])
+        if hexgeo.distance(tile, p) > rng:
+            continue                                            # hors portee d'attaque normale
+        if bq.is_target_tile_obscured(tile, p, ctx.elev_by_pos):
+            continue                                            # `IsTargetTileObscured` -> refus
+        return True                                             # `Count > 0` : court-circuit
+    return False
+
+
 def eligible_target_tiles(ctx: "NCContext", ability_id: int) -> tuple[list, list]:
     """Mirror de `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` pour un domaine
     TUILE -> `(from_here, union)`, deux listes de `(col, row)` DANS L'ORDRE DU NATIF.
@@ -382,7 +458,34 @@ def probability_gate(prob) -> bool:
 
     Bande OUVERTE (`0 < prob < 1`) -> `True`, et c'est DECLARE : le moteur du port est
     deterministe et n'a pas le PRNG autobot a ce point. `False` y serait aussi faux, mais
-    RESTRICTIF -- on garde le sens qui ne retire jamais une action que le natif peut jouer."""
+    RESTRICTIF -- on garde le sens qui ne retire jamais une action que le natif peut jouer.
+
+    ⚠ **ET CE N'EST PAS UN CHOIX PAR DEFAUT : REPRODUIRE LE TIRAGE EST ECARTE PAR MESURE**
+    (`#969-r1` / `#971-r2`). La chaine a ete lue de bout en bout :
+
+      * le tirage est `<IPseudoRNG slot 4>.NextBool(Fix64 p)`, dont le corps terminal
+        `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextBool` (overload `Fix64`) est
+        `IdunBattle.Utils.PRNG.MersenneTwister$$genrand_real2() < p` -- un Mersenne Twister ;
+      * ce PRNG est INJECTE (`IdunBattle.AI.Playbook.BasePlaybook$$Init(..., random, ...)` ecrit
+        `this.<+0x30>`), il vient d'`IdunBattle.AI.PlaybookDatabase$$.ctor(..., random, ...)`, et
+        `IdunBattle.Runner.IdunRunner$$Initialize` en construit **DEUX** :
+          - celle de l'IA adverse recoit le `pseudoRNG` de la BATAILLE
+            (`IdunBattle.Utils.PRNG.MersenneTwister$$.ctor(rngSeed)`) -- deterministe ;
+          - celle du joueur (`humanAiPlaybook`/`humanAiRandom` d'
+            `IdunBattle.Core.Services.AiControl$$Init`) recoit un MT NEUF seede par
+            `System.DateTime$$get_Now().Ticks` -- **non reproductible EN PRINCIPE**.
+      * et le MT de bataille est **PARTAGE** : le meme objet est passe a
+        `IdunBattleLogic.Entities.DSLFactory$$.ctor` (qui l'enveloppe dans
+        `IdunBattle.Utils.PRNG.DisallowablePseudoRNG$$.ctor`), a
+        `IdunBattle.Core.Services.DamageCalculations$$Init`, a
+        `IdunBattle.Core.Services.UtilitiesDatabase$$.ctor` et a `AiControl$$Init`.
+
+    Reproduire le tirage exigerait donc de rejouer **toute** la sequence de consommation du meme
+    flux depuis le debut de la bataille (degats, esquive, blocage, selecteurs DSL, utilities,
+    strategie), dans l'ordre exact -- et une seule consommation non modelisee decale tout le reste
+    SANS ERREUR. C'est la raison pour laquelle le port modelise la porte comme une PROBABILITE
+    (mesurable, cf. `use_probability` ci-dessous et le capteur `shouldEvaluateTrace`) et non comme
+    un tirage."""
     if prob is None:
         return True
     if prob >= 1.0:                    # `if (prob >= Fix64.One) return true;`
@@ -517,6 +620,51 @@ def is_turn_of_unit_by_pos(ctx: "NCContext") -> dict:
         if c is None or r is None:
             continue
         out[(c, r)] = (int(u["playerId"]) == cur)
+    return out
+
+
+def has_moved_by_pos(ctx: "NCContext") -> dict:
+    """`{(col, row): bool}` -- `IdunBattle.Entities.UnitExtensions$$DidMove(unit)` evalue sur
+    l'occupant VIVANT de chaque tuile (`#447-r1-r1-r3-r1`, foyer consommateur
+    `engine.services.ability_caster_gates.invalid_caster_reason` clause 1).
+
+    Corps natif : `GetComponent<UnitFlagsComponent>(unit).Has(UnitFlag.Moved)` apres un
+    `Type == Unit`. C'est le SECOND terme de `CasterHasNotMoved`, dont `is_turn_of_unit_by_pos`
+    (juste au-dessus) porte le PREFIXE.
+
+    SUBSTRAT, SANS CAPTEUR NEUF ET SANS RPC SUPPLEMENTAIRE -- la premisse `BLOCAGE: seeding` de la
+    fiche etait PERIMEE : `ctx.scene.has_moved(uid)` lit `Scene.moved_by_id`, que
+    `engine.playbook.scene` alimente depuis `combatSnapshot.units[].unitFlags` (id du flag pris
+    dans `unitFlagTypes`, LU au runtime, jamais ecrit en dur) et RE-CAPTURE a chaque pas par
+    `refresh_shields` -- un cold fige au pas 0 rendrait << n'a pas bouge >> pour toute la bataille.
+    La voie OFFLINE passe par `Scene.from_state` -> `engine.runner.components.unit_has_moved`.
+
+    ⚠ **LA CLE DE `Scene.moved_by_id` EST LE `squadId`**, pas l'`entityId` : sur la ligne
+    `combatSnapshot.units[]`, `entityId` EST le `squadId` d'`observeBattle` (piege deja nomme par
+    `engine/runner/abilities/attack_query.py`). Un appariement par `observeBattle.entityId` lirait
+    `None` sur TOUTES les unites et conclurait faussement que rien n'est seede.
+
+    TRI-ETAT PRESERVE : `ctx.scene is None` -> dict VIDE ; une unite dont `has_moved` rend `None`
+    (capteur muet) **n'entre pas** dans la table -- surtout pas sous `False`, qui se lirait comme la
+    mesure << elle n'a pas bouge >> et pourrait faire ACCEPTER un caster que le natif refuse. Le
+    consommateur lit alors `None` = non mesure, et la regle ne refuse jamais.
+
+    Meme filtre `isDead` qu'`occupant_team_by_pos`, et pour la meme raison : une depouille ne
+    remplit plus sa tuile (`TileContentComponent$$IsFilled`)."""
+    scene = getattr(ctx, "scene", None)
+    if scene is None:
+        return {}
+    out: dict = {}
+    for u in (ctx.obs_units or []):
+        if u.get("isDead"):
+            continue
+        c, r, sq = u.get("col"), u.get("row"), u.get("squadId")
+        if c is None or r is None or sq is None:
+            continue
+        v = scene.has_moved(sq)
+        if v is None:
+            continue                    # non mesure -> ABSENT de la table, jamais un `False`
+        out[(c, r)] = bool(v)
     return out
 
 
@@ -666,6 +814,31 @@ class NonComparablePlaybook:
     #                                22 playbooks SURCHARGENT le getter : poser alors
     #                                `PRIORITY = native_priority(<ABILITY_ID>)` (table ci-dessus).
 
+    def use_probability(self, ctx: NCContext) -> float | None:
+        """Slot `0x1f8` `GetUseProbability(unit)` — la PROBABILITE d'usage, isolee du gate qui la
+        consomme (`probability_gate`, le foyer des trois branches de
+        `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate`).
+
+        DEFAUT `1.0` : les deux surcharges de base rendent litteralement
+        `FixMath.NET.Fix64$$op_Implicit(1)` (`IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability`,
+        les deux arites) -> `probability_gate(1.0)` = `True`, donc le comportement d'un playbook
+        qui ne surcharge rien est INCHANGE.
+
+        `None` = **PAS MESURE** (le substrat de la formule manque). Jamais `0.0` par defaut :
+        `Fix64.Zero` est la valeur qui fait REFUSER, donc un defaut prononcerait un refus que le
+        natif n'a pas prononce.
+
+        ⚠ **POURQUOI CE FOYER EXISTE ALORS QUE LA BANDE `]0,1[` RESTE PERMISSIVE.** Il ne change
+        aucun verdict par lui-meme -- c'est `probability_gate` qui tranche. Ce qu'il apporte, c'est
+        que `p` devient une **VALEUR**, donc CONFRONTABLE : le capteur `shouldEvaluateTrace`
+        (`frida/hooks/probes/should-evaluate-trace.ts`) publie, par appel de `ShouldEvaluate`, la
+        `prob` EXACTE passee a `NextBool` et le resultat du tirage. Un porteur dont la formule est
+        FAUSSE se voyait jusqu'ici seulement au taux d'agrement, ou l'ecart de tirage la masque ;
+        il se lit desormais directement (`p_porte` vs `p_natif`). C'est la difference entre un
+        ecart ASSUME et un ecart MESURE, et c'est exactement ce que reclamaient `#969-r1` et
+        `#971-r2`."""
+        return 1.0
+
     def should_evaluate(self, ctx: NCContext) -> bool:
         """`IPlaybook` slot 4 `ShouldEvaluate(unit)` — gate AMONT du générateur
         `ActiveAbilityActionGenerator.<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (`FUN_180003bd0(4, …)`),
@@ -679,8 +852,15 @@ class NonComparablePlaybook:
         `GetUseProbability` conditionnelle (BlackRage IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$GetUseProbability = 0.4, ItItches IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$GetUseProbability)
         restent True = écart assumé « porte ALÉATOIRE non modélisée » (moteur déterministe,
         cf. §5 case-44). Un playbook qui OVERRIDE le slot 4 lui-même (vtable ≠ IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate)
-        surcharge cette méthode (ex. corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate `GetStat(unit,12) > 1`)."""
-        return True
+        surcharge cette méthode (ex. corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate `GetStat(unit,12) > 1`).
+
+        ⚠ **NE PAS SURCHARGER CECI POUR UNE PROBABILITE — surcharger `use_probability`.** Le natif
+        separe les deux etages (le slot 4 appelle le slot `0x1f8`) et le port fait pareil depuis
+        `#969-r1`/`#971-r2` : la formule est CONFRONTABLE (`shouldEvaluateTrace` publie la `prob`
+        native), le triage ne l'est pas. Cette methode ne se surcharge que quand la VTABLE du
+        playbook remplace `BasePlaybook$$ShouldEvaluate` lui-meme -- c'est-a-dire quand le natif ne
+        consulte AUCUNE probabilite (cas `AlphaWarriorPlaybook$$ShouldEvaluate` ci-dessus)."""
+        return probability_gate(self.use_probability(ctx))
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Mirror <GenerateActions>d__7 pour CETTE ability : balaie positions/cibles (selector

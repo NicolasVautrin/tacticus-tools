@@ -352,10 +352,22 @@ class CasterSubstrate:
                              ⚠ Ni `decisionView` ni `projectUnitsFull` ne le publient, mais
                              `combatSnapshot.units[].unitFlags` SI (tri-etat : `null` = non mesure,
                              `[]` = mesure sans flag), et il porte aussi `unitFlagTypes` pour ne pas
-                             recopier l'id. `is_tile_in_range_of_any_ability` ne le branche PAS --
-                             c'est un canal de la face RUNNER, que son appelant (`NCContext`) ne
-                             transporte pas -> `None` en pratique par CE chemin. Le probe du cas, lui,
-                             le nourrit, et c'est ce qui a rendu la regle confrontable.
+                             recopier l'id.
+                             ⚠ **CABLE DEPUIS `#447-r1-r1-r3-r1`** ; la phrase qui vivait ici
+                             (<< canal de la face RUNNER, que son appelant `NCContext` ne transporte
+                             pas -> `None` en pratique >>) etait PERIMEE : `NCContext.scene` porte
+                             `Scene.moved_by_id`, alimente par ce meme `unitFlags` et RE-CAPTURE a
+                             chaque pas (`refresh_shields`), donc SANS RPC supplementaire. Le
+                             transport est `noncomparable/_base.py::has_moved_by_pos` ->
+                             `early_warning_override` -> `ability_range.is_tile_in_range_of_any_ability
+                             (has_moved=...)`.
+                             ⚠ Son GISEMENT reste etroit, et c'est une mesure : la clause est gardee
+                             par `is_turn_of_unit`, or chez cet appelant le << caster >> interroge
+                             est un ENNEMI du joueur courant -> prefixe faux -> terme INERTE, sauf
+                             sous CONTROLE MENTAL (une unite dont `playerId` est le notre, jouee par
+                             l'adversaire). Le canal est cable parce qu'il est GRATUIT et qu'il ferme
+                             la chaine pour l'autre consommateur natif,
+                             `AttackQuery$$GetAllTilesInAbilityRange`, ou la 2e clause MORD.
       * `is_turn_of_unit` -- `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit`, le PREFIXE de la
                              regle `CasterHasNotMoved` (cf. l'encadre ci-dessus). Derivable cote
                              DECISION sans capteur neuf : `observeBattle.units[].playerId` est
