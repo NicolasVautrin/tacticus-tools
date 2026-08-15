@@ -242,16 +242,69 @@ def test_etape8_le_suffixe_ratait_structurellement_un_membre():
             "l'enum a bouge sous le registre : re-derivez `probe_10018_effectsdatabase_registry.py`")
 
 
-# --- etage 9 : la condition du repli documente --------------------------------------------------
-def test_etape9_le_repli_de_la_branche_machine_reste_licite():
+# --- etage 9 : la branche MACHINE est SEPAREE, et elle consulte SON booleen ----------------------
+def test_etape9_la_branche_machine_primaire_est_separee():
+    """#1020-r9 -- ce que gardait l'etage 9 d'avant etait le REPLI (`MachinePrimaryAbilityIsBlocked`
+    fondu dans `ActiveAbilitiesAreBlocked`), et son message prescrivait le geste fait ici :
+    « il faut alors separer la branche, pas relacher ce test ». La branche EST separee, donc l'etage
+    garde desormais la SEPARATION -- ce qui est strictement plus fort : l'assertion d'avant
+    (`all(include_machine_primary_ability)`) reste vraie et reste asserte ci-dessous, mais elle ne
+    justifie plus un repli, elle explique seulement pourquoi l'ecart est NUL aujourd'hui."""
     specs = BQ.ACTIVE_ABILITY_BLOCKER_EFFECTS.values()
     assert specs, "registre vide : ce test serait vacant"
     assert all(s["include_machine_primary_ability"] for s in specs), (
-        "`can_use_ability` fond `MachinePrimaryAbilityIsBlocked()` dans `ActiveAbilitiesAreBlocked()` "
-        "-- repli EXACT tant que tout membre porte `includeMachinePrimaryAbility = 1`. Un membre a "
-        "`0` rendrait le port RESTRICTIF sur l'ability primaire d'une Machine of War : il faut "
-        "alors separer la branche, pas relacher ce test")
+        "les trois membres portent `includeMachinePrimaryAbility = 1` : c'est CE fait qui rend "
+        "l'ecart de la separation NUL aujourd'hui. Un membre a `0` le rendrait observable -- et la "
+        "branche separee ci-dessous le prendra alors correctement en compte, sans retouche")
     assert not any(s["include_normal_attack"] for s in specs), (
         "aucun membre ne bloque l'attaque normale ; si l'un le fait un jour, `can_use_ability` le "
         "prend deja en compte (le corps DERIVE du registre) -- c'est cette assertion qui doit "
         "changer, et elle rend le changement visible")
+
+    # --- le DISCRIMINANT : `machineId` (present sur `decisionView.mows`, absent de `.units`) et
+    #     l'INDICE 0 de la liste d'actives (= `ActiveAbilityComponent+0x30`, ecrit par
+    #     `MachineFactory$$AddConfiguredAbilities`). Formes MESUREES live (MC1_67, adeptExorcist).
+    mow = {"machineId": 87, "visualId": "adeptExorcist",
+           "abilities": [{"id": 1187, "kind": "active"}, {"id": 1188, "kind": "active"}]}
+    unite = {"abilities": [{"id": 1187, "kind": "active"}]}          # pas de `machineId`
+    assert BQ.machine_primary_ability_id(mow) == 1187, "l'indice 0 des ACTIVES est la primaire"
+    assert BQ.machine_primary_ability_id(unite) is None, (
+        "sans `machineId`, `kind(unit) != EntityKind.Machine` -> le natif rend 0")
+    assert BQ.machine_primary_ability_id({"machineId": 1, "abilities": []}) is None, (
+        "canal muet -> NON MESURE, jamais un id invente")
+    # le canal EXPLICITE prime sur l'indice quand le dedup de `mowAbilityTypes` ne l'a pas efface
+    assert BQ.machine_primary_ability_id(
+        {"machineId": 1, "abilities": [{"id": 9, "kind": "active"},
+                                       {"id": 7, "kind": "machinePrimary"}]}) == 7
+    # l'attaque NORMALE, poussee en tete par `unitAbilityTypes`, n'est jamais prise pour la primaire
+    assert BQ.machine_primary_ability_id(
+        {"machineId": 1, "abilities": [{"id": 3, "kind": "normal"},
+                                       {"id": 5, "kind": "active"}]}) == 5
+
+    # --- ECART NUL aujourd'hui : la branche separee rend le MEME verdict que le repli, sur les
+    #     trois membres du registre et sur les deux etats (bloqueur present / absent).
+    for et in BQ.ACTIVE_ABILITY_BLOCKER_EFFECTS:
+        bloquee = {**mow, "effects": [{"effectType": et}]}
+        assert BQ.can_use_ability(bloquee, {"kind": "active", "id": 1187}) is False
+        assert BQ.can_use_ability(bloquee, {"kind": "active", "id": 1188}) is False
+    assert BQ.can_use_ability({**mow, "effects": []}, {"kind": "active", "id": 1187}) is True
+
+    # --- CONTRE-EPREUVE : un membre a `include_machine_primary_ability = False` fait DIVERGER les
+    #     deux bras. Sans elle, ce test passerait sur le code d'AVANT (le repli), donc ne prouverait
+    #     pas que la branche est separee. Registre restaure par `finally`.
+    faux = 999_999
+    BQ.ACTIVE_ABILITY_BLOCKER_EFFECTS[faux] = {
+        "name": "TEMOIN_include_machine_primary_ability_a_zero",
+        "include_normal_attack": False, "include_machine_primary_ability": False}
+    try:
+        porteur = {**mow, "effects": [{"effectType": faux}]}
+        assert BQ.can_use_ability(porteur, {"kind": "active", "id": 1187}) is True, (
+            "branche SEPAREE : `MachinePrimaryAbilityIsBlocked() = any(v[+9])` est FAUX -> la "
+            "primaire de la MoW reste utilisable. Le repli d'avant rendait `False` (RESTRICTIF)")
+        assert BQ.can_use_ability(porteur, {"kind": "active", "id": 1188}) is False, (
+            "la SECONDAIRE, elle, passe par `ActiveAbilitiesAreBlocked() = Count > 0` -> bloquee")
+        assert BQ.can_use_ability({"effects": [{"effectType": faux}]},
+                                  {"kind": "active", "id": 1187}) is False, (
+            "une UNITE (pas de `machineId`) n'emprunte jamais la branche machine")
+    finally:
+        BQ.ACTIVE_ABILITY_BLOCKER_EFFECTS.pop(faux, None)

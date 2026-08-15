@@ -1668,6 +1668,65 @@ def _active_ability_blockers(unit: dict) -> list[dict]:
     return out
 
 
+def machine_primary_ability_id(unit: dict) -> int | None:
+    """`IdunBattle.Entities.UnitExtensions$$GetMachinePrimaryAbilityType(machine)` -- l'ability
+    PRIMAIRE d'une MACHINE OF WAR, ou `None` si l'unite n'en est pas une (ou si le canal se tait).
+
+    Corps natif, VERBATIM :
+
+        if (machine == null || kind(machine) != EntityKind.Machine(6)) return 0;
+        return GetComponent<ActiveAbilityComponent>(machine).<+0x30>;
+
+    OU EST ECRIT `+0x30`, ET C'EST LA LECTURE QUI FERME LE RESIDU #1020-r9. Un SEUL corps l'ecrit,
+    `IdunBattle.Entities.Factories.MachineFactory$$AddConfiguredAbilities`, et il l'ecrit par
+    l'INDICE :
+
+        foreach (i, abilityType) in config.<+0xa0>:              # la liste des actives de la MoW
+            if (i == 0) { activeAbilities.<+0x30> = abilityType; hierarchy = 1; state = primary }
+            else if (i == 1) { activeAbilities.<+0x34> = abilityType; hierarchy = 2; state = secondary }
+            else { hierarchy = 0; state = primary }
+            UnitFactory.AddActiveAbility(abilityType, state, ..., activeAbilities, ..., hierarchy)
+
+    Donc **`+0x30` EST le PREMIER element de la liste d'actives de la configuration** (et `+0x34` le
+    second). Ce n'est ni un champ a part ni une donnee de capteur : c'est un ORDRE, et le canal le
+    preserve -- `internals.ts::unitAbilityTypes` itere `ActiveAbilityComponent$$GetActives`,
+    c'est-a-dire la `KeyedCollection` que cette meme boucle a remplie.
+
+    ⚠ **LA PREMISSE `BLOCAGE: capteur` DU RESIDU EST DONC FAUSSE** : aucune fenetre de reinject
+    n'est requise. MESURE LIVE (runner MC1_67, `--p-mow adeptExorcist`, `decisionView`) :
+      * `mows[0].abilities` = `[{id:1187 ThriceBlessedConflagration, kind:"active"},
+        {id:1188 DevastatingRefrain, kind:"active"}]` -- MEME ordre que
+        `gameconfig.units.adeptExorcist.activeAbilities`, qui est la source amont de `config.<+0xa0>` ;
+      * `machineId` est present sur la ligne MoW et **absent de TOUTES les 10 lignes d'unite** --
+        c'est le discriminant `EntityKind.Machine`, deja porte (le canal `.mows` est SEPARE de
+        `.units`, cf. `ai/context.py::machine_row`).
+
+    ⚠ **CE QUE LE CANAL NE PUBLIE PAS, et pourquoi on ne s'y fie pas** : `mowAbilityTypes` LIT bien
+    `+0x30`/`+0x34` et sait les etiqueter `kind: "machinePrimary"` / `"machineSecondary"`, mais son
+    `if (t !== 0 && !out.some(e => e.id === t))` les DEDUPLIQUE contre les actives deja emises. Comme
+    la primaire est presque toujours dans `GetActives`, l'etiquette est EFFACEE dans le cas courant
+    -- mesure ci-dessus : 0 ability de `kind` `machinePrimary` sur les 2 de la MoW. On la lit donc
+    quand elle est la (canal explicite, prioritaire), et on retombe sinon sur l'INDICE 0, qui est ce
+    que le natif ecrit.
+
+    ⚠ L'attaque NORMALE est poussee AVANT les actives par `unitAbilityTypes` (`NormalAttackType
+    @0x28`) : le repli sur l'indice 0 ne regarde donc que les entrees de `kind` ACTIF. Une Machine
+    n'en a de toute facon jamais (`MachineFactory$$Build` n'appelle JAMAIS
+    `UnitFactory$$AddNormalAttackAbility` -- ce dernier n'a qu'UN xref de code, `UnitFactory$$Build`),
+    mais s'en remettre a cette absence serait deriver du KIT au lieu de lire la structure."""
+    u = unit or {}
+    if u.get("machineId") is None:
+        return None                    # `kind(unit) != EntityKind.Machine` -> le natif rend 0
+    abilities = u.get("abilities") or ()
+    for a in abilities:
+        if isinstance(a, dict) and a.get("kind") == "machinePrimary" and a.get("id"):
+            return int(a["id"])        # canal EXPLICITE (`+0x30` lu, non deduplique)
+    for a in abilities:
+        if isinstance(a, dict) and a.get("kind") in ("active", "granted") and a.get("id"):
+            return int(a["id"])        # `config.<+0xa0>[0]`, l'ordre de `GetActives`
+    return None                        # canal muet -> NON MESURE, jamais un id invente
+
+
 def can_use_ability(unit: dict, ability: dict) -> bool:
     """`IdunBattle.Core.Services.AttackQuery$$CanUseAbility` — gate d'USABILITE d'une ability (stun/taunt).
 
@@ -1689,24 +1748,39 @@ def can_use_ability(unit: dict, ability: dict) -> bool:
         NormalAttackIsBlocked()          = any(v.includeNormalAttack)
         MachinePrimaryAbilityIsBlocked() = any(v.includeMachinePrimaryAbility)
 
-    Le port rend les DEUX branches qu'il peut discriminer, et il les DERIVE du registre
+    Le port rend **les TROIS branches**, et il les DERIVE du registre
     `ACTIVE_ABILITY_BLOCKER_EFFECTS` au lieu de les coder en dur — un futur membre a
     `includeNormalAttack = 1` fermerait donc l'attaque normale sans qu'on retouche ce corps.
     L'attaque NORMALE n'est PAS bloquee AUJOURD'HUI parce que les TROIS membres lus portent
     `includeNormalAttack = 0` (et non par decret) : vecu 777 s15 (u83 stunne par 1183 attaque
     encore 69->87) + wiki §Stunned, valide live seed 97000.
 
-    ⚠ **BRANCHE NON SEPAREE, ET C'EST NOMME** : `abilityType == comp.<+0x30>` (l'ability PRIMAIRE
-    d'une Machine of War) n'a pas de substrat dans le canal `decisionView` — le port la fond donc
-    dans `ActiveAbilitiesAreBlocked`. Le repli est EXACT tant que tout membre du registre porte
-    `includeMachinePrimaryAbility = True`, ce qui est le cas des trois ; c'est un test offline qui
-    garde cette condition (`test_10018_rapid_fire_offline.py`), pas cette phrase.
+    ⚠ **LA BRANCHE MACHINE EST DESORMAIS SEPAREE (#1020-r9), ET SON DISCRIMINANT EST LU** :
+    `machine_primary_ability_id` (cf. sa docstring) porte `kind == Machine` par la presence de
+    `machineId` -- que le canal `decisionView.mows` publie et qu'AUCUNE ligne de `.units` ne porte --
+    et `ActiveAbilityComponent+0x30` par l'INDICE 0 de la liste d'actives, qui est litteralement ce
+    que `MachineFactory$$AddConfiguredAbilities` y ecrit. La premisse « pas de substrat, BLOCAGE:
+    capteur » du residu etait FAUSSE : les deux termes etaient deja dans le canal.
+
+    ⚠ **CE PORT NE CHANGE AUCUN VERDICT AUJOURD'HUI, et c'est STRUCTUREL, pas une chance** : les
+    trois membres du registre portent `include_machine_primary_ability = True`, donc sur une liste
+    de bloqueurs NON VIDE `any(True...)` vaut `len(...) > 0`, et sur une liste VIDE les deux valent
+    `False`. La separation est un gain de FIDELITE a ecart nul -- elle ne devient observable que le
+    jour ou un membre entre avec `0`, cas ou le repli d'avant rendait le port RESTRICTIF (il fermait
+    la primaire d'une MoW que le natif laisse ouverte). C'est ce que gardait
+    `test_10018_rapid_fire_offline.py` etage 9, dont le message prescrivait exactement ce geste
+    (« il faut alors separer la branche, pas relacher ce test »).
 
     Les effets decisionView sont deja IsActive-filtres (on ignore `remaining`)."""
     blockers = _active_ability_blockers(unit)
     if (ability or {}).get("kind") == "normal":
         # `IsRegularAttack(abilityType)` -> `NormalAttackIsBlocked() = any(v[+8])`.
         return not any(b["include_normal_attack"] for b in blockers)
+    primaire = machine_primary_ability_id(unit)
+    if primaire is not None and (ability or {}).get("id") == primaire:
+        # `kind == Machine && abilityType == comp.<+0x30>`
+        #   -> `MachinePrimaryAbilityIsBlocked() = any(v[+9])`.
+        return not any(b["include_machine_primary_ability"] for b in blockers)
     # `ActiveAbilitiesAreBlocked() = blockers.Count > 0` -- INCONDITIONNEL, aucun booleen consulte.
     return not blockers
 
