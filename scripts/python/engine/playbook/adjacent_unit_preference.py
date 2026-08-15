@@ -631,6 +631,45 @@ class RedRampagePlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
         return wt.sub("TriggeredAbilities", "RedRampage_LikesAdjacentEnemies")
 
 
+class PsychicFortressPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
+    """`PsychicFortressPlaybook` -- la face **OWNER** du passif `PsychicFortress` (1000,
+    `ultraTigurius`), dont seule la face NON-OWNER etait portee (`non_owner.py`, cle
+    `PSYCHICFORTRESS_AdjacentFriendly` = 20). #433-r4-r3-r2.
+
+    ⚠ **LE MISLABEL QUI TENAIT CE RESIDU FERME.** Le `.ctor` decompile appelle un thunk gshared que
+    ghidra nomme `AdjacentToOwnerNonOwnerPlaybook<...>$$.ctor(this, 1000, ...)`, et
+    `IdunBattle.AI.Playbook.Loki.PsychicFortressPlaybook$$GetAdjacentFriendUtility` n'a **AUCUN
+    appelant de code** (2 xrefs DATA) : la fiche en concluait << c'est un DELEGUE, son consommateur
+    reste a nommer >>, d'ou un `BLOCAGE: etage`. La DECLARATION dit autre chose, et c'est elle qui
+    fait foi -- la parente reelle est
+    `AdjacentUnitPreferenceTriggeredAbilityPlaybook<PsychicFortressAbility>`, et les deux xrefs DATA
+    sont les DEUX SLOTS DE VTABLE (13 = `GetAdjacentFriendUtility`, 14 = `GetAdjacentEnemyUtility`).
+    Le consommateur est donc le corps PARTAGE de la base -- deja porte ici depuis #57i. Meme piege
+    de mislabel que `RedRampage`, `Deathwing` et `IconOfObstinacy`.
+
+    `IdunBattle.AI.Playbook.Loki.PsychicFortressPlaybook$$GetAdjacentFriendUtility` -- **LOOKUP
+    PLAT**, corps ENTIER relu au decompile :
+
+        return getUtilityVal( DAT_183372ba8 );
+
+    Le literal est `0x3372ba8` dans `data/symbols/<build>/metadata/string_literals.tsv` =
+    **`"PSYCHICFORTRESS_AdjacentFriend"`** (poids BC `Utilities.Default.TriggeredAbilities` = **5**).
+    ⚠ Il ne faut PAS le confondre avec `PSYCHICFORTRESS_AdjacentFriendl**y**` (0x3372cf8), la cle de
+    la face NON-OWNER, qui vit dans une AUTRE section (`TriggeredAbilitiesNonOwner` = 20) : les deux
+    noms ne different que d'une lettre, et une derivation par prefixe les confondrait.
+    Le parametre `friend` n'est lu par AUCUNE instruction.
+
+    `GetAdjacentEnemyUtility` (slot 14) EST declaree surchargee, mais son corps est **DEDUPLIQUE
+    par ICF** avec 112 autres du binaire -- dont ceux de `GuardianOrganismPlaybook` et
+    `FabricatorClawArrayPlaybook`, dont la branche ENNEMIS est mesuree NULLE en live (case-36,
+    30/90 exacts). C'est donc `return 0`, et la base le rend deja.
+
+    Porteur : `ultraTigurius`, **HERO du pool** (kind `lineup`) -- confrontable sans montage."""
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        return wt.sub("TriggeredAbilities", "PSYCHICFORTRESS_AdjacentFriend")
+
+
 class DeathwingPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
     """`DeathwingPlaybook` (`IdunBattle.AI.Playbook.Loki.DeathwingPlaybook$$.ctor` : litteral
     `0x4dd` = 1245 `TriggeredAbilityType.Deathwing` -- passif de `darkaTerminator` << Baraqiel >>,
@@ -683,6 +722,7 @@ class DeathwingPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
 from .adjacent_summons import MawClawsOfThyraxPlaybook       # noqa: E402  (#920 : corps propre)
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
+                               ECogSupportPlaybook,          # noqa: E402  (#433-r4-r3-r2)
                                FirstAmongTraitorsPlaybook,   # noqa: E402  (#926)
                                GrimEfficiencyPlaybook,       # noqa: E402  (#959-r1)
                                KardiocoreGalvanusPlaybook)
@@ -718,6 +758,14 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # `TRAIT_TRIGGERED_ABILITY_IDS["CloseCombatWeakness"]`. Sa face ATTAQUE est une CONSTANTE ZERO,
     # d'ou son absence de `psyker.TRIGGERED_ATTACK_PLAYBOOKS` (cf. le module).
     int(TriggeredAbilityType.CloseCombatWeakness): CloseCombatWeaknessPlaybook(),  # 1130 (-40 / ennemi)
+    # #433-r4-r3-r2 -- les DEUX faces OWNER dont seule la face NON-OWNER etait portee. Leur
+    # `BLOCAGE` etait `etage` (`PsychicFortress` : « delegue a un consommateur non nomme ») et
+    # `seeding` (`ECogSupport` : « le ctx ne publie le parent QUE DU SUJET ») ; les deux sont
+    # REFUTES -- le consommateur de `GetAdjacentFriendUtility` est le corps PARTAGE de
+    # `AdjacentUnitPreferenceTriggeredAbilityPlaybook` (la parente ghidra etait un MISLABEL de
+    # thunk gshared), et la cle `parent` est desormais posee par les TROIS jumeaux de `leaf_ctx`.
+    int(TriggeredAbilityType.PsychicFortress): PsychicFortressPlaybook(),        # 1000 (5 / ami adjacent)
+    int(TriggeredAbilityType.EcogSupport): ECogSupportPlaybook(),                # 1487 (30 / E-Cog adjacent)
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
     int(TriggeredAbilityType.RitesOfBattle): RitesOfBattlePlaybook(),
     # 1069 (#958) -- `MedicusMinistorumPlaybook$$.ctor` delegue a `AdjacentToOwnerNonOwnerPlaybook`
