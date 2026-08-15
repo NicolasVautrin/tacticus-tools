@@ -316,6 +316,16 @@ class DslContext:
     # reservation n'existe que dans le `State` runner, et la rabattre sur un dict VIDE ferait rendre
     # un ensemble VIDE a tout `CanAddUnit(..., parent)` non nul (polarite inverse, cf. #550-r4).
     tile_reserved_for_other_unit: object | None = None
+    # TERRAIN OCCULTANT entre deux positions (`IMovementQuery` slot **16**
+    # `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain`) :
+    # `tiles_obscuring_terrain(from_pos, to_pos) -> collection` (son CARDINAL seul est lu -- vide =
+    # ligne DEGAGEE). Unique lecteur : le noeud `UnobscuredTiles`, mirror d'
+    # `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$Select` (#287-r11-r2-r1-r3). Foyer du
+    # calcul : `engine.services.movement_query.get_tiles_obscuring_terrain`, avec les deux litteraux
+    # du call-site (`obscuringType = 6 = All`, `blockingElevationDifference = 2`).
+    # Defaut None = **NON MESURE** -> le noeud ne retire RIEN (degradation PERMISSIVE nommee, la
+    # meme que le collapse imperatif qu'il remplace).
+    tiles_obscuring_terrain: object | None = None
     # `MachineOfWarPosition` (1=Top, 2=Bottom) du joueur COURANT — lu par le predicat
     # `IsPositionMachineForCurrentPlayer` (mirror
     # `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`, qui interroge

@@ -41,6 +41,14 @@ from ...operations.ability_reset import entity_can_have_active_ability_reset
 # 2e gate du noeud `CanAddUnit` (#550-r4). Une liaison de module n'est jamais gelee, donc un
 # `monkeypatch.setattr` sur le foyer MORD.
 from ...operations import tile_reservation as _tres
+# #287-r11-r2-r1-r3 -- foyer UNIQUE de `IdunBattle.Core.Services.MovementQuery$$
+# GetTilesObscuringTerrain` (`IMovementQuery` slot 16), consomme par l'accesseur
+# `ctx.tiles_obscuring_terrain` que lit le noeud `UnobscuredTiles`. Arete classee GRATUITE par la
+# MESURE : charger `engine.services.movement_query` seul dans un process FRAIS ne fait PAS atterrir
+# ce module-ci dans `sys.modules`, et ce module-ci le charge DEJA (via `..._sbq`). Forme B.
+from ....services import movement_query as _mq
+from ....services.targeting_query import BLOCKING_ELEVATION_DIFFERENCE as _BLOCK_ELEV
+from ....services.targeting_query import OBSCURING_TYPE_ALL as _OBSCURING_ALL
 from ....services.trait_damage_limits import group_unit_stat_part
 from ...components import MachineComponent
 # `unit_extensions_is_alive` (`IdunBattle.Entities.UnitExtensions$$IsAlive` : flag `Dead`, pool
@@ -1076,6 +1084,19 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         du foyer."""
         return _tres.is_tile_reserved_for_other_unit(state, tile_pos, allowed_unit_id)
 
+    def _tiles_obscuring_terrain(from_pos, to_pos):
+        """`ctx.tiles_obscuring_terrain` -- `IMovementQuery` slot **16**
+        `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain(from, to, obscuringType,
+        blockingElevationDifference)`, le SEUL appel du corps d'
+        `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$IsObscured`.
+
+        Les deux litteraux sont ceux du call-site natif, importes de leur foyer plutot que reecrits :
+        `obscuringType = 6 = All` et `blockingElevationDifference = 2`. DELEGUE au foyer unique
+        (`services/movement_query.py`), jamais une seconde implementation : c'est le MEME que
+        consomment la cascade de ciblage et `abilities/loki/mv71.py`."""
+        return _mq.get_tiles_obscuring_terrain(state.board, from_pos, to_pos,
+                                               _OBSCURING_ALL, _BLOCK_ELEV)
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, owner=owner,
                       board=state.board,
                       # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
@@ -1099,6 +1120,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       previous_tiles=_previous_tiles,
                       entity_by_id=_entity_by_id,
                       tile_reserved_for_other_unit=_tile_reserved_for_other_unit,
+                      tiles_obscuring_terrain=_tiles_obscuring_terrain,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_ranged_weapon=_has_ranged_weapon,
                       has_unit_flag=_has_unit_flag,

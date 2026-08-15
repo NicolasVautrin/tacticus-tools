@@ -624,6 +624,87 @@ class CanAddUnit(TargetsSelector):
         return [t for t in kept if not reserved(board.coord(t), parent_id)]
 
 
+class UnobscuredTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)`
+    -> `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$Select` : de `toTiles`, garde celles
+    qui ne sont PAS obscurcies depuis `fromAnyTiles`. Domaine TUILE des deux cotes.
+
+    LA FACTORY, LUE (elle ne fait qu'allouer) :
+
+        state         = <factory>+0x10
+        movementQuery = <factory>+0x68
+        return new UnobscuredTilesSelector(state, movementQuery, fromAnyTiles, toTiles)
+
+    et le ctor -- dont les NOMS de parametres inversent l'intuition, d'ou ce bloc :
+
+        UnobscuredTilesSelector$$.ctor(this, state, movementQuery, fromTile, targetTiles)
+            +0x28 = movementQuery
+            +0x20 = fromTile        <- le 1er argument de la FACTORY (`fromAnyTiles`)
+            +0x18 = targetTiles     <- le 2e   argument de la FACTORY (`toTiles`)
+
+    `Select`, VERBATIM :
+
+        tiles  = <+0x18>.Select(entities)            // les CANDIDATES
+        caster = <+0x20>.<slot 10>(entities)         // les tuiles SOURCE (une LISTE)
+        if (caster == null)      throw
+        if (caster.Count == 0)   return <liste VIDE>          // <- lu, pas deduit
+        foreach (t in tiles) if (!IsObscured(caster, t)) result.Add(t)
+        return result
+
+    ⚠ **LE BRAS `caster.Count == 0` REND UNE LISTE VIDE, PAS `tiles`** : sans tuile source, TOUT est
+    retire. C'est l'inverse de ce qu'une lecture pressee ferait (« pas de source, rien a occulter »).
+
+    `IsObscured(fromTiles, targetTile)` -- `UnobscuredTilesSelector$$IsObscured`, VERBATIM :
+
+        foreach (f in fromTiles)
+            if (<IMovementQuery slot 16 = GetTilesObscuringTerrain>(f, targetTile,
+                                          obscuringType: 6 = All, blockingElevationDifference: 2)
+                .Count == 0)   return false;      // UNE ligne degagee suffit
+        return true;                              // liste source VIDE -> obscurci
+
+    Le slot **16** est LU dans `data/symbols/<build>/metadata/interface_slots.tsv`
+    (`IMovementQuery 16 GetTilesObscuringTerrain`), et les deux litteraux sont qualifies :
+    `6` = `idun.meta.ObscuringType.All` (`Elevation(2) | Wall(4)`), `2` =
+    `blockingElevationDifference`. Le calcul lui-meme vit dans le foyer UNIQUE
+    `engine.services.movement_query.get_tiles_obscuring_terrain` -- ce noeud n'en est que
+    l'adaptateur DSL, comme `TileBehindTargetFromSourceDirection` l'est de `battle_query`.
+
+    SUBSTRAT : `ctx.tiles_obscuring_terrain(from_pos, to_pos) -> collection`. Fourni par
+    `entities_from_state` (face RUNNER) et par le site qui batit son `DslContext` a la main (face
+    DECISION de `abilities/loki/mv71.py`). **Absent = NON MESURE** -> aucun retrait, `to_tiles` rendu
+    tel quel : c'est la convention deja ecrite au call-site porte (`board is None -> False`, « aucun
+    retrait invente faute de canal »), et elle est PERMISSIVE, donc nommee.
+
+    CONSOMMATEURS NATIFS (`list_xrefs` sur la factory) : `MV71SniperDroneSquadAttackAbility$$PickTile`
+    (le seul PORTE -- `sel = UnobscuredTiles(Tiles(Target@0x60), sel)`, sens CIBLE -> candidate),
+    `LivingLightningAbility$$GetPossibleTargets` et `$$GetEnemiesInRange` (non portes)."""
+    def __init__(self, from_any_tiles: TargetsSelector, to_tiles: TargetsSelector):
+        self.from_any_tiles = from_any_tiles          # `<+0x20>`, 1er argument de la factory
+        self.to_tiles = to_tiles                      # `<+0x18>`, 2e argument de la factory
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        cands = list(self.to_tiles.evaluate(ctx) or [])
+        froms = _tile_positions(self.from_any_tiles, ctx, board)
+        if not froms:
+            return []                                 # `if (caster.Count == 0) return <vide>`
+        obscuring = getattr(ctx, "tiles_obscuring_terrain", None)
+        if obscuring is None:
+            return cands                              # substrat NON MESURE, cf. docstring
+        out = []
+        for t in cands:
+            p = board.coord(t) if isinstance(t, int) else t
+            if p is None:
+                continue
+            # `IsObscured` : obscurci ssi TOUTES les sources sont bloquees. Une seule ligne degagee
+            # (set de bloqueurs VIDE) suffit a garder la candidate.
+            if any(not obscuring(f, (int(p[0]), int(p[1]))) for f in froms):
+                out.append(t)
+        return out
+
+
 class TileBehindTargetFromSourceDirection(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$TileBehindTargetFromSourceDirection(target, source)`
     -> `IdunBattle.Entities.Selectors.TileBehindTargetFromSourceDirectionSelector$$Select` : LA tuile
