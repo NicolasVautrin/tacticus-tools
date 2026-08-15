@@ -20,6 +20,16 @@ CE QUE CES GARDES PROTEGENT, et pourquoi elles existent en DEUX exemplaires.
    `probe_8889_methodptr_vtable.py`). Le terme vaut donc 30 des qu'il y a UN decoy adjacent, et
    **pas** 30 x n. La garde `test_term_is_capped_...` echoue si le cap disparait (2 decoys -> 60).
 
+3. L'ORACLE DU COMPTAGE. « Decoy ADJACENT » se lit par `engine.battle_query.is_adjacent`, mirror
+   d'`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` (liste
+   STOCKEE du `ConnectivityComponent`, puis porte INCONDITIONNELLE `|elev(t) - elev(v)| < 2`), et
+   PAS par la couronne hex `hexgeo.distance == 1`. Les deux ne coincident pas : la couronne est un
+   SUR-ENSEMBLE strict, donc elle SUR-COMPTE. Ce fichier a rendu 1 F / 9 P pendant plusieurs jours
+   pour cette seule raison -- l'oracle voyait 2 decoys la ou le natif et le port en voyaient 0, et
+   le desaccord etait impute au PORT. `test_les_deux_adjacences_ne_sont_PAS_interchangeables_sur_
+   ce_board` garde le cran : si les deux lectures coincidaient partout sur le board, ce fichier ne
+   distinguerait plus l'oracle juste du faux, et il le DIT au lieu de rester vert.
+
 MONTAGE -- ON PILOTE LES POSITIONS (2026-08-03). `genesMagus` fabrique elle-meme les decoys que ce
 terme compte (sa face COMBAT pose un `genesSmnDecoy` a la fin de chaque activation), mais ATTENDRE
 que la geometrie de spawn produise une candidate a >= 2 decoys adjacents est un echantillon SUBI :
@@ -84,7 +94,7 @@ def sl_case(request, rpc, build_runner):
     assert cid is not None, "%s absent du runner (roster/pool a re-etalonner)" % CARRIER
     for st in walk_driven(r, rid, cid, wants_212, goals_212, MAX_STEPS):
         me = next((u for u in (st["dv"].get("units") or []) if u.get("id") == st["uid"]), None)
-        return SimpleNamespace(rid=rid, step=st["step"], uid=st["uid"],
+        return SimpleNamespace(rid=rid, step=st["step"], uid=st["uid"], board=board, seed=seed,
                                visual_id=(me or {}).get("visualId"), ctx=st["ctx"],
                                action_tiles=list(st["ctx"].action_tiles or []),
                                decoys=st["decoys"], driven=st["driven"])
@@ -104,8 +114,27 @@ def sl_case(request, rpc, build_runner):
 
 
 def _terms_by_tile(case):
-    """{tuile: (terme du playbook 1275, nombre de DECOYS allies a distance 1)} sur les candidates."""
-    import hexgeo
+    """{tuile: (terme du playbook 1275, nombre de DECOYS allies ADJACENTS)} sur les candidates.
+
+    ⚠ « ADJACENTS » EST L'ADJACENCE NATIVE, ET C'EST LE CORRECTIF DE CETTE GARDE. L'oracle
+    comptait `hexgeo.distance(t, u["pos"]) == 1` -- la COURONNE HEX -- pendant que le port, comme
+    le natif, passe par `engine.battle_query.is_adjacent` (mirror de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` : liste
+    STOCKEE du `ConnectivityComponent`, puis porte INCONDITIONNELLE `|elev(t) - elev(v)| < 2`).
+    La couronne est un SUR-ENSEMBLE strict du voisinage natif, donc l'oracle SUR-COMPTAIT, et
+    l'ecart s'imputait au PORT.
+
+    MESURE QUI TRANCHE (2026-08-15, `MC1_67`/777, pas 23, `genesMagus`) : sur 24 candidates,
+    23 concordaient et `(1,3)` rendait `(terme 0.0, n 2)`. `(1,3)` est a l'ELEVATION 4 et deux de
+    ses six voisins hex, `(1,2)` et `(2,2)`, sont a l'ELEVATION 2 (`data/boards/global/MC1_67.json`)
+    : `|dElev| = 2` les exclut du voisinage natif. Les deux decoys que l'oracle comptait ne sont
+    adjacents NI pour le natif NI pour le port -- le terme 0.0 etait JUSTE. C'est l'oracle qui
+    etait faux, pas le moteur.
+
+    Le comptage vit dans le FOYER `probe_212_spiritual_leader_tile_term.decoys_adjacent`, partage
+    avec le probe : deux comptages ecrits separement redivergeraient, et c'est exactement ce qui
+    s'est produit ici."""
+    from probe_212_spiritual_leader_tile_term import decoys_adjacent
     from engine.utilities.tile import tile_leaf_ctx
     from engine.playbook.adjacent_unit_preference import load_playbook
     pb = load_playbook(ABILITY)
@@ -113,10 +142,55 @@ def _terms_by_tile(case):
     lc = tile_leaf_ctx(case.ctx)
     out = {}
     for t in (case.action_tiles or []):
-        n = sum(1 for u in (lc.get("friend_units") or ())
-                if hexgeo.distance(t, u["pos"]) == 1 and DECOY_TRAIT in (u.get("traits") or ()))
-        out[t] = (pb.calculate_movement_utility_in_steps(t, lc, case.ctx.wt), n)
+        out[t] = (pb.calculate_movement_utility_in_steps(t, lc, case.ctx.wt),
+                  len(decoys_adjacent(lc, t)))
     return out
+
+
+def test_les_deux_adjacences_ne_sont_PAS_interchangeables_sur_ce_board(sl_case):
+    """LE TEMOIN DU CORRECTIF : sur CE board, la couronne hex et le voisinage NATIF DIFFERENT.
+
+    Sans lui, `_terms_by_tile` pourrait revenir a `hexgeo.distance == 1` sans qu'aucune assertion
+    ne bouge -- le fichier serait vert sur les deux oracles, donc il n'en garderait AUCUN. Le
+    compte est RE-DERIVE des cartes du pas (`neigh_by_pos` = `boardGraph.neighbours`, capte par
+    `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(t, 0, 0, 1)` ; `elev_by_pos` =
+    `tileMeta.elevation`), jamais cite.
+
+    L'ecart attendu est STRICTEMENT PERMISSIF -- la couronne SUR-ATTEINT, elle ne rate jamais un
+    voisin natif. Les deux sens sont assertionnes : un ecart RESTRICTIF signifierait que le port
+    a une porte que le natif n'a pas, ce qui est un tout autre defaut."""
+    from engine import battle_query as bq
+    from engine.utilities.tile import tile_leaf_ctx
+    import hexgeo
+    lc = tile_leaf_ctx(sl_case.ctx)
+    elev, neigh = lc.get("elev_by_pos"), bq.neigh_map(lc)
+    permissif = restrictif = paires = 0
+    for t in sorted(neigh or {}):
+        for v in hexgeo.neighbors(t[0], t[1]):
+            if v not in (neigh or {}):
+                continue                         # hors plateau : aucun des deux ne la voit
+            paires += 1
+            nat = bq.is_adjacent(t, v, elev, neigh)
+            if not nat:
+                permissif += 1                   # la couronne la voit, le natif NON
+    for t in sorted(neigh or {}):
+        for v in (neigh or {}).get(t) or ():
+            v = (v[0], v[1])
+            if hexgeo.distance(t, v) != 1 and bq.is_adjacent(t, v, elev, neigh):
+                restrictif += 1                  # le natif la voit, la couronne NON
+    assert not restrictif, (
+        "%d arete(s) que le voisinage NATIF accorde et que la couronne hex refuse : l'ecart n'est "
+        "plus strictement permissif, la lecture d'`IterateAdjacentTiles` est a refaire" % restrictif)
+    assert_sample_confrontable(
+        permissif > 0,
+        mutation="comparaison arete par arete de la couronne hex et du voisinage NATIF sur les "
+                 "%d paires du board %s" % (paires, sl_case.board),
+        doit_casser="au moins une arete que la couronne hex accorde et que le natif REFUSE (marche "
+                    "d'elevation >= 2, ou tuile absente de la liste stockee)",
+        observe="0 ecart sur %d paires : les deux oracles coincident partout ici" % paires,
+        remede="choisir un board qui porte une marche d'elevation >= 2 ou des tuiles `Bridge` "
+               "(mesure #271 : MC1_67 9 ecarts, C4_09 22, C1_25 2) -- sinon cette garde ne "
+               "distingue pas l'oracle CORRIGE de l'oracle FAUX qu'elle remplace")
 
 
 def test_case_still_activates_the_carrier(sl_case):
@@ -192,6 +266,10 @@ def test_term_is_capped_at_one_adjacent_decoy(sl_case):
     assert not bad, (
         "pas %d (%s) : terme != %g x [au moins 1 decoy adjacent] sur %r. Le cap `vtbl+0x228` de "
         "`SpiritualLeaderPlaybook` vaut 1 (corps trivial `mov eax,1 ; ret`, lu au bloc "
-        "methodPointers) : le terme NE SOMME PAS les decoys. (terme, n) par tuile = %r"
+        "methodPointers) : le terme NE SOMME PAS les decoys. ATTENTION -- AVANT d'accuser le port, verifier "
+        "l'ORACLE : `n` est ici le comptage NATIF (`decoys_adjacent`, `is_adjacent`), pas la "
+        "couronne hex -- une tuile a `n >= 1` pour la couronne et `n = 0` pour le natif rend 0.0 A "
+        "BON DROIT, et c'est cette confusion qui a fait rougir ce test (cf. l'en-tete du fichier). "
+        "(terme, n) par tuile = %r"
         % (sl_case.step, sl_case.visual_id, w, sorted(bad),
            {t: (round(v, 4), n) for t, (v, n) in tv.items()}))
