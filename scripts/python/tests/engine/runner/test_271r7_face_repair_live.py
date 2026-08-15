@@ -37,6 +37,31 @@ if str(PYDIR) not in sys.path:
 
 import probe_271r7_face_repair_live as P                                     # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # le corps concret de la face REPAIR, et sa base : c'est ce que le terme mesure
+        "scripts/python/engine/playbook/non_owner_repair.py",
+        "scripts/python/engine/playbook/non_owner.py",
+        # le dispatcher `evaluate_repair_in_steps` et la fonction de feuille exportee
+        "scripts/python/engine/utilities/tile.py",
+        # la feuille RE-EMISE : le test exige l'egalite EXACTE avec elle, donc un changement
+        # de `RepairedAmount(48)` deplace l'attendu ET le mesure -- il doit se rejouer
+        "scripts/python/engine/utilities/repair.py",
+        # le cablage qui somme le terme dans le composite Repair(47)
+        "scripts/python/engine/ai/action_generators.py",
+        # le montage : greffe, build, recherche du pas, lecture hp/hpMax
+        "scripts/python/probe_271r7_face_repair_live.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/tests/engine/_move_tile_sweep_order.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Il confronte le terme REPAIR non-owner a la feuille qu'il RE-EMET : le corps du "
+              "playbook, sa base, le dispatcher, la feuille doublee, le cablage du composite, "
+              "et le harnais de greffe qui fabrique le porteur.",
+}
+
 
 def _jouer(rpc, live_session, montage: str, tmp_path) -> dict:
     """Monte le seed BC greffe, construit le runner, mesure, et DISPOSE toujours."""

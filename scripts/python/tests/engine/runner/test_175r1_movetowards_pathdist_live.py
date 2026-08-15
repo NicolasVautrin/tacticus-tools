@@ -49,6 +49,31 @@ from engine.playbook import scene as _scene                                  # n
 from engine.utilities import tile as T                                       # noqa: E402
 from engine.utilities.utility_type import UtilityType                        # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # l'etage CONFRONTE : le jumeau en domaine POSITION du pathfinder IgnoreTerrain
+        "scripts/python/engine/entities/pathfinding/ignore_terrain_pathfinder.py",
+        # le producteur `_movetowards_pathdist_by_pos`, les deux feuilles, et les leaf_ctx qui
+        # publient `neigh_by_pos` / `walkable_by_pos` / `elev_by_pos`
+        "scripts/python/engine/utilities/tile.py",
+        # le mirror dont le test fige les ordinaux 62/63
+        "scripts/python/engine/utilities/utility_type.py",
+        # le ctx live : c'est lui qui alimente `tile_leaf_ctx`
+        "scripts/python/engine/ai/context.py",
+        "scripts/python/engine/playbook/scene.py",
+        # le montage
+        "scripts/python/probe_175r1_movetowards_pathdist_live.py",
+        "scripts/python/tests/engine/_move_tile_sweep_order.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Il confronte la distance de CHEMIN par position au canal natif "
+              "`pathDistToEnemies` (PathfinderType=IgnoreTerrain) : le pathfinder porte, le "
+              "producteur qui l'appelle, les cartes du leaf_ctx qui le nourrissent, et le "
+              "mirror d'ordinaux que le 4e test fige.",
+}
+
 #: roster Chaos : le porteur de l'ACTIVE 1096 et un mover qui porte le trait `Chaos` (la gate
 #: `OnlyUnitsWithAny = [Chaos, Daemon]` de la feuille 63 est ainsi REELLEMENT franchie).
 PORTEUR = "thousInfernalMaster"
