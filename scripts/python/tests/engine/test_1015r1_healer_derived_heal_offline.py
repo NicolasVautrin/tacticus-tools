@@ -72,7 +72,8 @@ import pytest                                                                 # 
 import gameconfig as GC                                                       # noqa: E402
 from engine.ai.state_bridge import _abilities_of                              # noqa: E402
 from engine.entities.active_abilities import (                                # noqa: E402
-    PASSIVE_REMOVES_ACTIVE_ABILITY, TRAIT_DERIVED_ACTIVE_ABILITIES,
+    PASSIVE_ADDS_ACTIVE_ABILITY, PASSIVE_REMOVES_ACTIVE_ABILITY,
+    TRAIT_DERIVED_ACTIVE_ABILITIES,
     derived_active_ability_ids, trait_derived_active_ability)
 from engine.entities.active_ability_type import ActiveAbilityType             # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait                       # noqa: E402
@@ -93,6 +94,13 @@ def _porteurs(trait: str) -> dict:
         out[seau] = sorted(uid for uid, u in (idx[seau] or {}).items()
                            if trait in (u.get("traits") or []))
     return out
+
+
+def _tous_les_unit_ids() -> list:
+    """Les `unitId` des TROIS seaux, a plat. Derive du gameconfig -- une liste ecrite ici se
+    perimerait au prochain patch de contenu, et le test se tairait sur le porteur qu'elle ignore."""
+    d = GC.all_unit_ids()
+    return sorted(v for seau in ("lineup", "npc", "summons") for v in (d.get(seau) or ()))
 
 
 # ================================================================================================
@@ -341,19 +349,85 @@ def test_build_from_state_publie_l_ability_derivee(vid, traits, attendu):
 
 
 # ================================================================================================
-# 5. LA BORNE QUI RESTE, ECRITE PLUTOT QUE TUE
+# 5. LA BORNE EST LEVEE (#1015-r4) -- L'AUTRE MOITIE DE LA SUBSTITUTION
 # ================================================================================================
+#
+# Ce qui vivait ici etait un test-BORNE (`test_spaceWolfPriest_reste_SANS_soin_offline_...`) : il
+# FIGEAIT le statu quo et disait « si je rougis, ENTERINER ». #1015-r4 l'a fait rougir, et les
+# assertions ci-dessous sont l'enterinement -- memes faits, sens INVERSE.
+#
+# La cause etait un demi-mirror : le port portait le `RemoveActiveAbility` des trois passifs
+# substitutifs (section 2 ci-dessus) et DERIVAIT le `AddActiveAbility` d'une convention de nommage
+# (`Heal_<Passif>`). Or les deux appels sont COMPOSES dans le meme behaviour et
+# `DSLBehaviors$$AddActiveAbility` a EXACTEMENT les memes trois appelants de code que son jumeau.
 
-def test_spaceWolfPriest_reste_SANS_soin_offline_et_c_est_une_BORNE_NOMMEE():
-    """`HealingBalms` retire `18` et pose `1212 HealingBalms_Heal`. Le port applique bien le
-    RETRAIT (ce module), mais `state_bridge._granted_abilities` ne resout que la convention
-    `Heal_<Passive>` -- or le membre s'appelle `HealingBalms_Heal`, pas `Heal_HealingBalms`. Le
-    porteur se retrouve donc SANS aucune ability de soin cote decideur offline.
+def test_le_registre_des_AJOUTS_par_passif_est_le_jumeau_EXACT_des_retraits():
+    """Les valeurs sont les LITTERAUX du 3e argument de `DSLBehaviors$$AddActiveAbility` dans les
+    trois `CreateBehaviour` (`0x48f`, `0x4bc`, `0x45f`), pas une deduction depuis un nom.
 
-    C'est le STATU QUO (avant #1015-r1 il n'avait pas `18` non plus), pas une regression -- mais
-    c'est une borne, et elle est ICI pour qu'on la voie. Residu ouvert. Si ce test se met a
-    rougir, c'est que quelqu'un a etendu `_granted_abilities` : ENTERINER, retirer ce test."""
-    ids = [i for (i, _n) in _abilities_of("spaceWolfPriest")]
-    assert int(ActiveAbilityType.Heal) not in ids
-    assert int(ActiveAbilityType.HealingBalms_Heal) not in ids, (
-        "`1212` est desormais resolue : la borne est levee, enteriner et retirer ce test.")
+    Le test garde AUSSI la BIJECTION des CLES avec `PASSIVE_REMOVES_ACTIVE_ABILITY` : les deux
+    appels natifs sont composes dans un meme behaviour (`op_Addition`/`op_BitwiseAnd`), donc un
+    passif qui RETIRE sans AJOUTER -- ou l'inverse -- serait un demi-mirror, exactement la faute
+    que #1015-r4 repare."""
+    assert PASSIVE_ADDS_ACTIVE_ABILITY == {
+        "TwistedScience": int(ActiveAbilityType.Heal_TwistedScience),    # 0x48f
+        "HealingBalms": int(ActiveAbilityType.HealingBalms_Heal),        # 0x4bc
+        "GalvanicField": int(ActiveAbilityType.Repair_GalvanicField),    # 0x45f
+    }
+    assert set(PASSIVE_ADDS_ACTIVE_ABILITY) == set(PASSIVE_REMOVES_ACTIVE_ABILITY), (
+        "un passif substitutif qui retire sans ajouter (ou l'inverse) est un demi-mirror : les "
+        "deux appels natifs vivent dans le MEME behaviour compose")
+
+
+def test_la_CONVENTION_de_nommage_ne_couvrait_qu_UN_des_trois_et_c_est_MESURE():
+    """LE CONTRE-TEMOIN de la reparation, derive du gameconfig -- pas une affirmation de prose.
+
+    L'ancien foyer resolvait `Heal_<Passif>`. Sur les passifs REELLEMENT portes par une unite, cette
+    forme ne nomme qu'UN membre d'enum ; les deux autres abilities substituees portent des formes
+    que la convention ne peut pas voir. Si un futur build renommait les membres, ce test dirait
+    LEQUEL des trois axes a bouge."""
+    passifs = {p for vid in _tous_les_unit_ids()
+               for p in ((GC.unit(vid) or {}).get("passiveAbilities") or [])}
+    assert passifs, "gameconfig muet : ce test ne mesure plus ce qu'il croit"
+    vus_par_la_convention = {p for p in PASSIVE_ADDS_ACTIVE_ABILITY
+                             if f"Heal_{p}" in ActiveAbilityType.__members__}
+    assert vus_par_la_convention == {"TwistedScience"}, vus_par_la_convention
+    # ... et les deux autres existent bel et bien, sous une AUTRE forme.
+    assert "HealingBalms_Heal" in ActiveAbilityType.__members__
+    assert "Repair_GalvanicField" in ActiveAbilityType.__members__
+    # Aucun passif HORS registre ne doit tomber dans la convention : sinon le registre LU serait
+    # un SOUS-ensemble de l'heuristique qu'il remplace, et la reparation PERDRAIT une ability.
+    convention_hors_registre = {p for p in passifs
+                                if f"Heal_{p}" in ActiveAbilityType.__members__
+                                and p not in PASSIVE_ADDS_ACTIVE_ABILITY}
+    assert convention_hors_registre == set(), convention_hors_registre
+
+
+@pytest.mark.parametrize("passif,aid", sorted(PASSIVE_ADDS_ACTIVE_ABILITY.items()))
+def test_chaque_porteur_d_un_passif_substitutif_recoit_l_ability_SPECIALISEE(passif, aid):
+    """LE CABLAGE EFFECTIF, sur TOUS les porteurs du passif (derives du gameconfig, jamais listes).
+
+    Et le pendant du contre-temoin de la section 2 : le porteur recoit la SPECIALISEE **et** a
+    perdu la GENERIQUE. Un port qui reintroduirait l'ajout sans le retrait (ou qui ferait l'union
+    avec le kit) porterait les deux -- ce que `test_952_hunters_beyond_death_offline` contredit
+    live sur `admecManipulus`."""
+    generique = PASSIVE_REMOVES_ACTIVE_ABILITY[passif]
+    porteurs = [vid for vid in _tous_les_unit_ids()
+                if passif in ((GC.unit(vid) or {}).get("passiveAbilities") or [])]
+    assert porteurs, f"aucun porteur de `{passif}` au gameconfig : ce test est vacant"
+    for vid in porteurs:
+        ids = [i for (i, _n) in _abilities_of(vid)]
+        assert int(aid) in ids, (vid, passif, ids)
+        assert int(generique) not in ids, (vid, passif, ids)
+
+
+def test_le_NOM_de_l_ability_accordee_reste_celui_que_le_DECIDEUR_filtre():
+    """Section 5 de l'en-tete, appliquee aux accordees : `_heal_candidates` selectionne par
+    `"Heal" in ab["name"]` et `_repair_galvanic_candidates` par l'ID `1119`. Un repli `str(aid)`
+    sur le nom rendrait `1212` invisible du generateur de soin -- le trou repare, redepose un
+    etage plus bas."""
+    noms = dict((i, n) for vid in ("spaceWolfPriest", "genesBiophagus", "admecManipulus")
+                for (i, n) in _abilities_of(vid))
+    assert "Heal" in noms[int(ActiveAbilityType.HealingBalms_Heal)]
+    assert "Heal" in noms[int(ActiveAbilityType.Heal_TwistedScience)]
+    assert noms[int(ActiveAbilityType.Repair_GalvanicField)] == "Repair_GalvanicField"

@@ -86,6 +86,56 @@ deux côtés, choix différent (résidu **#334-r3**). Discriminant mesuré : le 
 (régime `attack`), est **bit-exact** avec le natif (`4670` sur l'entité `110`, ventilation confrontée
 par ENTITÉ des deux côtés).
 
+### 3bis. #334-r3 RE-MESURÉ (2026-08-15) — ce n'est PAS un choix de cible, c'est un coup EN TROP
+
+**L'énoncé du résidu était mal posé, et ses deux hypothèses avec lui.** Il décrivait une
+REDISTRIBUTION à total constant (« port : `85 → 79` puis `83 → 110` ; natif : tout sur `79` »). Les
+totaux, eux, **diffèrent** — et l'entité `79` reçoit **exactement le même montant des deux côtés** :
+
+| régime (board `MC1_67`, seed 777, `--advance 4`) | port, par entité | natif, par entité | total port / natif |
+|---|---|---|---|
+| `two` | `79: −18371`, `110: −4986` | `79: −18371` | 23357 / **18371** |
+| `two_blind --blind admecRuststalker` | `79: −18371`, `110: −4548` | `79: −18371` | 22919 / **18371** |
+
+Deux runs indépendants, **géométrie identique** (caster (5,5), acteurs (5,4) et (6,4), ennemis 77/79/110/112).
+`79` retombe sur `−18371` **à l'unité près** des deux côtés et dans les deux runs ; seul le dégât
+porté à `110` bouge, et **uniquement côté port**. Le natif n'inflige **rien** à `110`.
+
+⇒ **Le 2ᵉ acteur ATTAQUE alors que le natif ne le fait pas attaquer.** Le port n'élit pas la
+mauvaise cible : il émet une attaque surnuméraire. C'est aussi pourquoi la ventilation d'origine
+semblait « redistribuée » — `attacks[].total` (10710) n'est **pas** la perte HP appliquée (18371) :
+le vecteur **after-hit** (`On(0x26)`/`On(8)`/`On(9)`, rendu séparément dans `after_hit`) s'y ajoute.
+Lire `attacks[].total` comme un delta HP était l'erreur de lecture d'origine.
+
+**H1 est RÉFUTÉE, au décompilé.** `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`
+décide **et** applique **par acteur, dans la même itération** (`<slot 0x37>` =
+`IdunBattle.Core.Services.AiControl$$ExecuteAbilityActionFor`, appelé dans la boucle du sélecteur
+`+0x50`) : les deux côtés voient donc le **même** état séquentiel. Le mécanisme est partagé — il ne
+peut pas produire l'écart à lui seul.
+
+**Le montage discriminant par la GÉOMÉTRIE est insatisfiable**, et c'est mesuré : `admecDestroyer`
+porte une portée d'arme de **3**, donc il ne peut pas être à la fois adjacent au caster et hors de
+portée de l'ennemi que le caster jouxte (`range_diag` le montre : `79: (True, 0)` depuis sa tuile).
+Le levier de STATS le remplace — `probe_334_defend_the_divine_work.py --scenario two_blind --blind
+<visualId>` pose `Damage = 0` sur un acteur sans toucher aux positions. Il **mord partiellement** :
+sur `admecDestroyer` l'attaque tombe à `total = 0` ; sur `admecRuststalker` elle tombe de `6814` à
+`2211` sans s'annuler — l'override `1242` (`Min(maxDmg, Attack_INITIALE × dmgPct)`) ne se réduit pas
+au `Damage` de la BC seul. À raffiner avant d'en faire un interrupteur.
+
+**Témoin DÉGÉNÉRÉ à ne pas compter pour un succès** : `two_blind --blind admecDestroyer` rend port et
+natif **sur la même cible** (`77`, 8397 / 8452) — mais le montage y donne à `admecRuststalker` un
+domaine **SINGLETON** (`ids : {admecRuststalker: [77]}`), donc le choix est forcé et l'accord ne
+montre rien.
+
+**Ce qui reste OUVERT** : pourquoi le natif ne fait-il pas attaquer le 2ᵉ acteur ici, alors qu'il le
+fait dans le régime où le 1ᵉʳ est neutralisé ? La différence est que le 1ᵉʳ a attaqué avant lui.
+Piste non tranchée, à lire au décompilé : ce qui, dans `AActiveAbility$$Execute` / le
+`skipAtomicCheck` (`behaviour+0x71`) ou le gate `HasFlag(unit, ActiveAbilityUsed)` du
+`ActiveAbilityActionGenerator`, peut rendre le générateur MUET pour le 2ᵉ acteur après la première
+attaque du groupe. Le test `test_two_adjacent_mechanics_both_attack_and_the_caster_still_does_not`
+reste ROUGE, et son ÉNONCÉ est à revoir : il attend « les deux attaquent », or la mesure dit que le
+natif n'en fait attaquer **qu'un**.
+
 ## 4. Validation
 
 * **Oracle direct** — `test_defend_the_divine_work_live.py` verrouille désormais le delta HP **par

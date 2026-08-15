@@ -44,8 +44,9 @@ from engine.runner.components import (StatsComponent, OwnerComponent, PositionCo
 from engine.entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts
 from engine.entities.pathfinding.tile_blocking import make_can_continue
 from engine.entities.pathfinding.pathfinders import movable_positions_for_unit
-from engine.services.movement_query import (synapse_tiles_for, titanhammer_target_tiles_for,
-                                            unit_has_effect_fn)
+from engine.services.movement_query import (get_movable_positions_for, synapse_tiles_for,
+                                            titanhammer_target_tiles_for, unit_has_effect_fn)
+from engine.runner.components import get_feet_count
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import entity_trait_names
@@ -68,6 +69,8 @@ from engine.services import battle_query as SBQ   # FORME B (liaison de MODULE).
 from engine.entities.stats import StatType
 from engine.playbook.noncomparable import is_noncomp
 from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeting_options_for
+from engine.services import ability_range as _AR          # zone de `TargetingQuery$$GetTilesInRange`
+from engine.services import targeting_query as _TQ        # `RemoveAll` de walkability (bit 43)
 from engine.runner.components import EffectsOwnedComponent, is_machine_of_war
 from engine.runner.components import is_machine_of_war
 from engine.weights import load as _load
@@ -93,12 +96,22 @@ def _weights():
 @functools.lru_cache(maxsize=None)
 def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tuple:
     """Abilities ACTIVES accordees au runtime par un `passiveAbilities` de l'unite (absentes de
-    `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive). DERIVEES DU PASSIVE
-    (aucune table hardcodee) : le natif nomme la classe accordee `<Passive>_HealAbility` = membre d'enum
-    `Heal_<Passive>` (ex. passive `TwistedScience` -> `TwistedScience_HealAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$ExecuteBehaviour`
-    = enum `Heal_TwistedScience` 1167). Donc pour chaque passive P on resout l'enum `Heal_<P>` s'il existe.
-    C'est le PASSIVE (donnee jeu) + la convention de nommage NATIVE (enum) qui donnent l'ability — pas un
-    mapping invente. (Couvre les grants HEAL ; d'autres familles de grant = extension a confirmer.)
+    `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive).
+
+    LE LITTERAL, PAS LA CONVENTION (#1015-r4). La source est le registre LU
+    `entities.active_abilities.PASSIVE_ADDS_ACTIVE_ABILITY` -- le troisieme argument de
+    `IdunBattleLogic.Entities.DSLBehaviors$$AddActiveAbility` dans les TROIS `CreateBehaviour` qui
+    l'appellent (xrefs entrantes exhaustives), jumeau exact du retrait deja porte par
+    `PASSIVE_REMOVES_ACTIVE_ABILITY` : Remove et Add sont COMPOSES dans le meme behaviour, ils ne
+    peuvent pas mordre separement.
+
+    ⚠ CE QUE CE FOYER FAISAIT AVANT, et pourquoi c'etait faux : il DERIVAIT l'ability d'une convention
+    de nommage (`Heal_<Passif>`). Mesure sur les 211 passifs distincts du gameconfig -- la convention
+    ne mord que sur **1** d'entre eux (`TwistedScience` -> `Heal_TwistedScience` 1167) ; les deux
+    autres membres portent des formes qu'elle ne voit pas (`HealingBalms_Heal` 1212,
+    `Repair_GalvanicField` 1119). Le registre est donc un SUR-ENSEMBLE STRICT de la convention : il
+    ne retire rien, il ajoute les 7 porteurs qui n'avaient AUCUNE ability de soin/reparation cote
+    decideur offline (`spaceWolfPriest`, et les 6 porteurs de `GalvanicField`).
 
     SUBSTRAT — TRI-ETAT (#931-r2), meme discipline que `services.custom_normal_attack` :
       * `passive_abilities` = un TUPLE (fut-il VIDE) -> c'est la MESURE de l'entite
@@ -118,15 +131,16 @@ def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tupl
     Le tuple est exige (et non une liste) parce que ce foyer est `lru_cache` : une entree non
     hashable leverait, et une entree MUABLE ferait servir un cache pour une valeur qui a change."""
     import enum_maps as EM
-    rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    from ..entities.active_abilities import passive_granted_active_ability_ids
     source = (passive_abilities if passive_abilities is not None
               else ((GC.unit(vid) or {}).get("passiveAbilities") or []))
     out: list = []
-    for p in source:
-        nm = f"Heal_{p}"
-        aid = rev.get(nm)
-        if aid is not None:
-            out.append((int(aid), nm))
+    for aid in passive_granted_active_ability_ids(source):
+        # ⚠ Le NOM vient de `EM.ACTIVE_ABILITY_TYPE` (sens `{id: nom}`) : ces accordees n'ont AUCUNE
+        # entree gameconfig cote `activeAbilities`, donc aucun nom de kit ne les designe. Et il n'est
+        # pas decoratif -- `ActionGenerators._heal_candidates` selectionne les soins par
+        # `"Heal" in ab["name"]`, donc un `str(aid)` de repli rendrait `1212` invisible au decideur.
+        out.append((int(aid), EM.ACTIVE_ABILITY_TYPE.get(int(aid)) or str(aid)))
     return tuple(out)
 
 
@@ -337,11 +351,53 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None,
         has_effect=unit_has_effect_fn(state, uid), can_continue=_cc,
         teleport_target_tiles=titanhammer_target_tiles_for(state, board, my_team),
         synapse_tiles=synapse_tiles_for(state, board, my_team))
-    out = []
-    for t in stop:
-        c, r = board.coord(t)
-        out.append({"col": c, "row": r})
-    return out
+    tiles = [board.coord(t) for t in stop]
+    # ── ETAGE EMPREINTE MULTI-HEX (#1079-r1) ────────────────────────────────────────────────────
+    # Ce qui precede est le mirror de `MovementQuery$$GetMovableTilesFor` -- un flood-fill de MAIN
+    # TILES. Le natif ne s'arrete PAS la : `MovementQuery$$GetMovablePositionsFor` enchaine, LU sur
+    # `t6dpr4k06g` (`get_movable_positions_for` en porte le corps entier) --
+    #
+    #     if (HasTrait(unit, 0x418 Stationary)) return new OrderedSet<UnitPosition>();
+    #     feetCount = UnitExtensions$$GetFeetCount(unit, state);
+    #     movable   = GetMovableTilesFor(...);
+    #     movable.AddRange(EntityExtensions$$IterateTiles(unit, state));   // ses tuiles ACTUELLES
+    #     return GetMovablePositionsFromTiles(movable, feetCount);
+    #
+    # -- et `GetMovablePositionsFromTiles` ECARTE les empreintes qui ne tiennent pas :
+    # `GetPossibleTileListsFromMovableTiles` branche `numFeet == 7` ne retient `t` que si
+    # `CollectionExtensions$$ContainsAll(movable, GetAdjacentTiles(t, 0, 1, 1))` -- une position a
+    # sept pieds n'existe pas si un seul pied ne tient pas -- puis `IsValidUnitFeetList` exige en
+    # plus une ELEVATION HOMOGENE sur toute l'empreinte.
+    #
+    # Sans cet etage, le sweep de position d'un caster multi-hex evaluait des positions que le natif
+    # n'aurait JAMAIS produites. L'ecart est PERMISSIF (il AJOUTE des candidates), donc invisible en
+    # self-play, et il peut deplacer l'argmax : `Bucket$$AddAction` ne remplace que sur amelioration
+    # STRICTE, donc une candidate fantome mieux notee gagne pour de bon.
+    #
+    # ⚠ LE GRAIN. Le natif rend des `UnitPosition` (l'empreinte ENTIERE) ; cote DECISION le port n'en
+    # stocke que la MAIN TILE (residu #459-r1, hors de cette tranche). On rend donc `pos[0]` -- qui
+    # EST la main tile par construction du producteur (branche 7 : centre ajoute EN PREMIER, anneau
+    # ensuite) -- et rien de plus. Ce n'est pas une simplification choisie ici : c'est le grain que
+    # tout ce chemin porte deja.
+    #
+    # ⚠ `feetCount == 1` NE PASSE PAS PAR ICI, et c'est ce qui rend la reparation sans rayon de
+    # souffle : `GetMovablePositionsFromTiles` traite ce cas par `ToUnitPositionList` -- aucun
+    # filtre, aucune combinaison -- donc l'etage serait l'IDENTITE, a une exception pres qui, elle,
+    # serait observable : l'`AddRange(IterateTiles)` ferait entrer l'ORIGINE dans `move_tiles`, ou
+    # elle n'est pas (le natif ne l'y met pas non plus -- c'est `GetCurrentAndMovablePositionsFor`
+    # qui la seede, cf. `action_tiles_for`). On garde donc la liste telle quelle, bit pour bit.
+    if get_feet_count(state, uid) != 1:
+        seen: list = []
+        for pos in get_movable_positions_for(board, state, uid, tiles):
+            main = pos[0] if pos else None
+            # ORIGINE RETIREE : `_move_tiles` mirrore `GetMovableTilesFor`, qui ne la contient pas ;
+            # c'est `action_tiles_for` (= `GetCurrentAndMovablePositionsFor`) qui la remet EN TETE.
+            # La laisser ici la ferait compter deux fois chez les lecteurs de `ctx.move_tiles` qui
+            # prefixent eux-memes l'origine (`_heal_candidates`, `_repair_galvanic_candidates`).
+            if main is not None and main != origin and main not in seen:
+                seen.append(main)
+        tiles = seen
+    return [{"col": c, "row": r} for (c, r) in tiles]
 
 
 def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
@@ -574,7 +630,37 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
         return "tile"
     if _enumerates_both_camps(ability_id, cfg):
         return "any"
+    if _enumerates_aim_tiles(ability_id, vid=None):
+        return "tile_aim"
     return "self"
+
+
+def _enumerates_aim_tiles(ability_id: int, vid) -> bool:
+    """DOMAINE `tile_aim` (#977-r7) : sous le bit `TargetIsTile`,
+    `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` appelle
+    `$$GetTilesInRange` et NON `$$GetUnitsInRange` -- le natif enumere des TUILES A PORTEE.
+
+    ⚠ CE N'EST PAS LE PATRON SUMMON, et les confondre remplacerait une erreur par une autre.
+    Le kind `tile` du port rend le ring-1 des tuiles-caster (ce que fait un spawn) ; ici la zone
+    est celle de `GetTilesInRange`, dont la cascade a CINQ branches (`UseWholeBoard`, portee nulle,
+    `OnlyAdjacent`, `TargetIsAtRange`, rayon) et qui est deja portee EN ENTIER par
+    `engine.services.ability_range.tiles_in_range_zone_contains`. C'est ce qui perime le
+    `BLOCAGE: etage` de la fiche : l'etage existait, le CABLAGE manquait.
+
+    STRICTEMENT ELARGISSANT, comme la branche `any` de #977-r5 : ce predicat n'est consulte
+    qu'APRES toutes les autres branches de `_ability_kind`, donc il ne peut prendre que des
+    abilities qui tombaient sur le `self` residuel -- jamais en detourner une deja routee.
+    ⚠ NE PAS le hisser en tete de `_ability_kind` << par fidelite a l'ordre natif >> : 7 abilities
+    `enemy` et 1 `ally` portent AUSSI `TargetIsTile` (mesure 2026-08-15, 32 porteurs au total), et
+    les basculer detournerait des routes de decision confrontees.
+
+    `None` de `tiles_in_range_reach` = le port ne sait pas decider la portee (masque non lu,
+    `OverrideRangeFunc`, `UseRangeFromConfig` sans `constants.range`) -> on ne fabrique PAS un
+    domaine depuis une non-mesure, on garde `self`. Meme convention que `_enumerates_both_camps`."""
+    opts = targeting_options_for(ability_id)
+    if opts is None or not opts.has(_TR.TargetIsTile):
+        return False
+    return _AR.tiles_in_range_reach(ability_id, vid) is not None
 
 
 def _attack_abilities(vid: str, has_normal: bool = True,
@@ -659,30 +745,67 @@ def _is_machine(entity) -> bool:
     return "Mechanical" in traits
 
 
-def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
-    """`IdunBattle.AI.Playbook.BasePlaybook$$GetAllValidTargetsFromAllPossibleMovementTiles` / `BattleQuery IdunBattle.Core.Services.BattleQuery$$GetAllValidTargetsFromAllPossibleMovementTiles` /
-    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` — enumerateur de ciblage OFFLINE (SLICE 2). Renvoie l'UNION des
-    cibles legales sur toutes les tuiles-caster (origine + move) au format du RPC `abilityTargets` que le seam
-    `AiDecisionContext.ability_targets` consomme :
-      {units:[{unitId, abilities:[{abilityId, targets:[{kind:'unit'|'tile', targetId, tile:{col,row}}]}]}]}
-    kind emis = 'unit' (enemy/ally/machine/self) ou 'tile' (summon). Portee/kind via la classification gameconfig
-    (`_ability_kind`/`_ability_reach`). Reutilise `_move_tiles`/`_occupants`/board/hexgeo (aucun code board neuf)."""
-    me = state.get_entity(uid)
-    if me is None:
-        return {"units": []}
-    oc = me.get_component(OwnerComponent)
-    pc = me.get_component(PositionComponent)
-    uco = me.get_component(UnitComponent)
-    my_team = oc.team if oc is not None else None
-    vid = uco.visual_id if uco is not None else ""
-    origin = (pc.col, pc.row) if pc is not None else None
-    name, cfg = _resolve_ability(ability_id)
-    kind = _ability_kind(ability_id, name, cfg)
-    reach = (_ability_reach(vid, ability_id, cfg)
-             if kind in ("enemy", "ally", "machine", "any") else 1)
-    reach_tiles = [(t["col"], t["row"]) for t in _move_tiles(state, uid, vid, my_team, origin)]
-    if origin is not None:
-        reach_tiles.append(origin)
+def _aim_tiles_in_range(state, ability_id: int, vid: str, caster_tiles: list) -> list:
+    """La zone `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange`, materialisee en TUILES
+    depuis un ensemble de tuiles-caster (#977-r7).
+
+    DEUX ETAGES, dans l'ordre du natif :
+      1. l'APPARTENANCE A LA ZONE -- `engine.services.ability_range.tiles_in_range_zone_contains`,
+         le mirror de la cascade a cinq branches PLUS les deux `AddRange(casterTiles)` que
+         `GetPossibleTargetsForOptions` fait juste apres. Il repond a une DISTANCE, donc on
+         l'interroge par `hexgeo.distance(T, t)` pour chaque tuile-caster `T`. La reponse ne
+         depend que de la distance -> memo local, sinon la cascade serait re-derivee des milliers
+         de fois sur un `UseWholeBoard` ;
+      2. le `RemoveAll` de WALKABILITY -- `engine.services.targeting_query.tile_removed_by_walkability`,
+         qui vit DANS `GetTilesInRange` (donc en AMONT des trois predicats) et lit les DEUX volets
+         d'`IsWalkable(t, checkFog: true)` : le champ `walkable` du boardGraph ET `isInFog`.
+
+    CE QUI N'EST PAS FAIT ICI, et c'est nomme : les trois `RemoveAll` de
+    `GetPossibleTargetsForOptions` (`b__0` camp/portee/regles statiques, `b__1` ligne de vue,
+    `b__2` regle dynamique) ne sont PAS appliques a cette enumeration -- l'ensemble rendu est donc
+    un SUR-ENSEMBLE de la zone native. Degradation PERMISSIVE assumee, du meme ordre que celle que
+    `_ability_kind` documente deja pour la branche `ally`. Elle reste tres au-dessus du statu quo,
+    qui n'emettait QUE le caster.
+
+    `board` absent, ou aucune tuile-caster -> `[]`."""
+    board = state.board
+    if board is None or not caster_tiles:
+        return []
+    opts = targeting_options_for(ability_id)
+    rules = None if opts is None else int(opts.rules)
+    fog = _board_fog_map(board)
+    memo: dict = {}
+
+    def _dans_la_zone(d: int) -> bool:
+        got = memo.get(d)
+        if got is None:
+            got = bool(_AR.tiles_in_range_zone_contains(ability_id, vid, d))
+            memo[d] = got
+        return got
+
+    out: list = []
+    for t in board.by_id.values():
+        pos = (t["col"], t["row"])
+        if not any(_dans_la_zone(hexgeo.distance(T, pos)) for T in caster_tiles):
+            continue
+        if _TQ.tile_removed_by_walkability(rules, t.get("walkable"), fog.get(pos)):
+            continue
+        out.append({"kind": "tile", "targetId": None, "tile": {"col": pos[0], "row": pos[1]}})
+    return out
+
+
+def _targets_from_caster_tiles(state, uid: int, ability_id: int, kind: str, reach: int,
+                               caster_tiles: list, origin, my_team, vid: str = "") -> list:
+    """L'enumeration de cibles POUR UN ENSEMBLE DE TUILES-CASTER DONNE -- le corps commun de
+    `targets` (union sur origine + move) et de `fromHere` (l'origine SEULE).
+
+    POURQUOI UN SEUL CORPS (#419-r1-tr9-r1) : cote natif les deux champs SONT le meme calcul a
+    l'ensemble de positions pres. `IdunBattle.Core.Services.BattleQuery$$GetAllValidTargetsFromAllPossibleMovementTiles`
+    delegue a l'overload ITERATEUR `IdunBattle.Core.Services.AttackQuery$$GetValidTargets(unit,
+    possibleUnitTiles: IOrderedSet<UnitPosition>, abilityType)`, et le capteur `fromHere` appelle
+    l'overload PER-POSITION `AttackQuery$$GetValidTargets(unit, from: UnitPosition, abilityType)`
+    avec `EntityExtensions$$GetTiles(unit)` -- la position COURANTE. Deux surcharges, une seule
+    regle de ciblage. Deux corps ici seraient deux verites."""
     targets: list = []
     board = state.board
     if kind == "self":
@@ -707,7 +830,7 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
             if _is_untargetable(state, eid):             # non-ciblable (deep-strike teleporting-in)
                 continue
             tp = (p.col, p.row)
-            if eid == uid or any(hexgeo.distance(T, tp) <= reach for T in reach_tiles):
+            if eid == uid or any(hexgeo.distance(T, tp) <= reach for T in caster_tiles):
                 targets.append({"kind": "unit", "targetId": eid,
                                 "tile": {"col": tp[0], "row": tp[1]}})
     elif kind == "tile" and board is not None:
@@ -716,7 +839,7 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
                     for u in (e.get_component(UnitComponent),)
                     if p is not None and (u is None or u.alive)}
         seen: set = set()
-        for T in reach_tiles:                                    # spawn adjacent (ring-1) a une tuile-caster
+        for T in caster_tiles:                                   # spawn adjacent (ring-1) a une tuile-caster
             ttile = board.id_at(T[0], T[1])
             if ttile is None:
                 continue
@@ -728,7 +851,58 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
                     continue
                 seen.add((col, row))
                 targets.append({"kind": "tile", "targetId": None, "tile": {"col": col, "row": row}})
-    return {"units": [{"unitId": uid, "abilities": [{"abilityId": int(ability_id), "targets": targets}]}]}
+    elif kind == "tile_aim":
+        # `TargetIsTile` -> `GetTilesInRange`, PAS le ring-1 du patron summon (#977-r7).
+        targets.extend(_aim_tiles_in_range(state, ability_id, vid, caster_tiles))
+    return targets
+
+
+def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
+    """`IdunBattle.AI.Playbook.BasePlaybook$$GetAllValidTargetsFromAllPossibleMovementTiles` / `BattleQuery IdunBattle.Core.Services.BattleQuery$$GetAllValidTargetsFromAllPossibleMovementTiles` /
+    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` — enumerateur de ciblage OFFLINE (SLICE 2). Renvoie l'UNION des
+    cibles legales sur toutes les tuiles-caster (origine + move) au format du RPC `abilityTargets` que le seam
+    `AiDecisionContext.ability_targets` consomme :
+      {units:[{unitId, abilities:[{abilityId, targets:[...], fromHere:[...]}]}]}
+    kind emis = 'unit' (enemy/ally/machine/self) ou 'tile' (summon). Portee/kind via la classification gameconfig
+    (`_ability_kind`/`_ability_reach`). Reutilise `_move_tiles`/`_occupants`/board/hexgeo (aucun code board neuf).
+
+    ⚠ `fromHere` (#419-r1-tr9-r1) — LE SECOND CHAMP DU RPC, ET IL ETAIT ABSENT HORS LIGNE.
+    Le capteur LIVE publie DEUX champs par ability : `targets` = « ce TOUR, deplacement INCLUS »
+    (`BattleQuery$$GetAllValidTargetsFromAllPossibleMovementTiles`), et `fromHere` = « castable SANS
+    bouger » (`AttackQuery$$GetValidTargets(unit, UnitPosition{GetTiles(unit)}, ability)`). Le port
+    offline ne publiait que le premier, donc TOUT lecteur de `fromHere` rendait `[]` hors ligne --
+    une degradation RESTRICTIVE et MUETTE. Elle ne touchait pas que `RapidFire` : elle atteignait
+    tous les playbooks NonComparable dont l'aim se lit a la position courante (`DarkTalonStrike`,
+    `AlphaWarrior`, `DutyEternal`, `AdaptiveStrategy`, `DevastatingRefrain`, `DeathFromAbove`,
+    `ExemplarOfTheKauyon`, `AberrantHypermorph`, ...).
+
+    Ce n'est PAS un canal a seeder : c'est le MEME calcul, ancre sur `[origin]` au lieu de
+    l'union -- cf. `_targets_from_caster_tiles`. Origine absente -> `fromHere` VIDE (le natif ne
+    peut pas construire de `UnitPosition` sans tuile), et surtout pas une recopie de `targets`."""
+    me = state.get_entity(uid)
+    if me is None:
+        return {"units": []}
+    oc = me.get_component(OwnerComponent)
+    pc = me.get_component(PositionComponent)
+    uco = me.get_component(UnitComponent)
+    my_team = oc.team if oc is not None else None
+    vid = uco.visual_id if uco is not None else ""
+    origin = (pc.col, pc.row) if pc is not None else None
+    name, cfg = _resolve_ability(ability_id)
+    kind = _ability_kind(ability_id, name, cfg)
+    reach = (_ability_reach(vid, ability_id, cfg)
+             if kind in ("enemy", "ally", "machine", "any") else 1)
+    reach_tiles = [(t["col"], t["row"]) for t in _move_tiles(state, uid, vid, my_team, origin)]
+    if origin is not None:
+        reach_tiles.append(origin)
+    targets = _targets_from_caster_tiles(state, uid, ability_id, kind, reach,
+                                         reach_tiles, origin, my_team, vid)
+    from_here = ([] if origin is None else
+                 _targets_from_caster_tiles(state, uid, ability_id, kind, reach,
+                                            [origin], origin, my_team, vid))
+    return {"units": [{"unitId": uid, "abilities": [{"abilityId": int(ability_id),
+                                                     "targets": targets,
+                                                     "fromHere": from_here}]}]}
 
 
 def _dv_units(state) -> list:

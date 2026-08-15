@@ -98,10 +98,20 @@ PASSIVE_REMOVES_ACTIVE_ABILITY: dict[str, int] = {
 
 # --- L'AUTRE MOITIE DE LA SUBSTITUTION : le passif AJOUTE la specialisation ------------------------
 #
+# ⚠ REGISTRE TROUVE DEUX FOIS, PAR DEUX CHEMINS INDEPENDANTS (#952-r2 depuis `effects/factory.py`,
+# #1015-r4 depuis `ai/state_bridge.py`), et les deux relectures du decompile rendent la MEME table
+# -- memes cles, memes litteraux. Ce paragraphe porte la reunion de leurs deux mesures.
+#
 # `IdunBattleLogic.Entities.DSLBehaviors$$AddActiveAbility` n'a, lui aussi, que TROIS appelants de
-# code dans le build (xrefs entrantes, exhaustives -- re-mesurees sur `t6dpr4k06g` par #952-r2), et
-# ce sont EXACTEMENT les trois `CreateBehaviour` ci-dessus : chacun fait `Remove` PUIS `Add`, la
-# substitution etant un couple, jamais un retrait seul.
+# code dans le build (xrefs entrantes, exhaustives -- re-mesurees sur `t6dpr4k06g` par #952-r2, puis
+# RE-CONFIRMEES par #1015-r4), et ce sont EXACTEMENT les trois `CreateBehaviour` ci-dessus : chacun
+# fait `Remove` PUIS `Add`, la substitution etant un couple, jamais un retrait seul.
+#
+# ⚠ ET LE COUPLE EST PLUS SERRE QUE << l'un puis l'autre >> : dans chacun des trois corps, Remove et
+# Add sont COMPOSES dans LE MEME behaviour (`IdunBattle.DSL.AbilityBehaviour$$op_Addition` pour
+# `HealingBalms`, `$$op_BitwiseAnd` pour les deux autres). Ils ne peuvent donc pas mordre
+# separement : porter le retrait sans l'ajout n'est pas un port partiel, c'est un DEMI-MIRROR --
+# exactement l'etat dans lequel le depot est reste jusqu'a ce que les deux tranches le trouvent.
 #
 #   `...TwistedScienceAbility$$CreateBehaviour`
 #       RemoveActiveAbility(Owner@+0x30, 0x12) & AddActiveAbility(Owner@+0x30, **0x48f**, abilityState)
@@ -123,6 +133,25 @@ PASSIVE_REMOVES_ACTIVE_ABILITY: dict[str, int] = {
 # le CLAUDE.md mot pour mot : la VOIE ne dit pas l'enum -- seul le NOM ecrit au site, ici le
 # LITTERAL du decompile, tranche. Effet mesure du trou : le repli kit d'`admecManipulus` rendait
 # `[1117]` la ou le natif rend `[1117, 1119]` (mesure live #952, runner 367 board MC1_67).
+#
+# ⚠ **LA PORTEE DE LA CONVENTION EST MESUREE SUR LE GAMECONFIG ENTIER, PAS SUR CES TROIS-LA**
+# (#1015-r4, 2026-08-15) : sur les **211** passifs DISTINCTS que portent les 683 unites du
+# gameconfig, la forme `Heal_<P>` ne nomme un membre d'`ActiveAbilityType` que pour **UN SEUL**
+# d'entre eux (`TwistedScience`). Les deux autres specialisations existent sous des formes que la
+# convention ne peut pas voir -- `HealingBalms_Heal` (`<P>_Heal`) et `Repair_GalvanicField`
+# (`Repair_<P>`). Ce compte est ce qui etablit que le registre LU est un SUR-ENSEMBLE STRICT de
+# l'heuristique qu'il remplace : il ne peut RIEN lui retirer, seulement lui ajouter.
+#
+# ⚠ **ET LE TROU PORTAIT SUR SEPT UNITES, PAS SUR TROIS.** La cle est le nom du PASSIF, donc
+# chaque VARIANTE qui le porte est concernee -- les boss compris :
+#     `TwistedScience` -> 4 (`genesBiophagus`, `genesBossBiophagus`, `genesBossBiophagusLHE`,
+#                            `genesNpcBiophagus`)      -- deja couverts par la convention
+#     `HealingBalms`   -> 1 (`spaceWolfPriest`)                                  -- AUCUN soin
+#     `GalvanicField`  -> 6 (`admecManipulus` + `admecBossManipulus`, `...CE`, `...LEG`,
+#                            `...LHE`, `...Surv`)                          -- AUCUNE reparation
+# Les **7** de droite n'avaient AUCUNE ability de soin/reparation cote decideur OFFLINE : le retrait
+# etait porte, l'ajout non, donc le trait `Healer`/`Mechanic` leur retirait `18`/`28` sans rien
+# rendre en echange. Le port divergeait ainsi de sa PROPRE mesure live, en silence.
 #
 # ⚠ AUCUNE des trois entrees n'est un mensonge de couverture : les trois ids ont une classe dans
 # `runner/abilities/handler.py::ABILITY_CLASSES` (`Repair_GalvanicFieldAbility`,
