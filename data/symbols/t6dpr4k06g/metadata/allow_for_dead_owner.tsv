@@ -1,0 +1,78 @@
+# `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` et `ITriggerable` slot 0 =
+# `get_AllowInAtomicMode` -- les DEUX proprietes que le depot confondait sous le nom
+# `IsAtomic` jusqu'a #10015. `valeur` est le CORPS LU (corps trivial deduplique : la RVA
+# se resout par le token via `Il2CppCodeGenModule.methodPointers`, cf. le probe).
+# `origine` : BASE = declaration `NewSlot` (le defaut de `BaseTriggeredAbility`),
+# OVERRIDE = surcharge. Surcharger ne veut PAS dire vrai : 4 surcharges rendent FALSE.
+# Entree VERSIONNEE : c'est ce qui rend le cliquet jouable sans le jeu installe.
+# Regenerer : python scripts/python/probe_10015_allow_for_dead_owner.py --regenerer
+#type	methode	slot	valeur	va	origine
+IdunBattle.Entities.Abilities.BaseTriggeredAbility	get_AllowForDeadOwner	22	FALSE	0x1802b45a0	BASE
+IdunBattle.Entities.Abilities.BaseTriggeredAbility	get_AllowInAtomicMode	23	FALSE	0x1802b45a0	BASE
+IdunBattle.Entities.Abilities.TriggeredAbility	get_AllowInAtomicMode	23	CORPS 0fb641	0x1803cf620	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.DetonationAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.ExplosiveAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Idun.LandMineAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Idun.SpikyStingAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrain_AttackAbility	get_AllowForDeadOwner	22	FALSE	0x1802b45a0	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.HazeCorruption_BonusHitAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.ItsGonnaBlowAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncher_AttackAbility	get_AllowForDeadOwner	22	FALSE	0x1802b45a0	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationProtocolsAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrike_AttackAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Active.Test.AutoReviveAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.APowerUpAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArmourOfShriekingSoulsAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.AutoCounterAttackAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.AutoSummonOnDamageAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.BigBadaBoomAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.BigBadaBoomReworkedAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.BounceAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.CalibaniteGreatsword_NormalAttackAdditionalDamageAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.DrawFireAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.DrawFireAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.FlamesOfMutationAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_AttackAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_AttackAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.GazeOfMagnus_ApplyEngagementAbility	get_AllowForDeadOwner	22	FALSE	0x1802b45a0	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.GazeOfMagnus_AttackAbility	get_AllowForDeadOwner	22	FALSE	0x1802b45a0	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.HarlequinsPanoplyAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.HarlequinsPanoplyAbility_DiscardHits	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMineSteppableAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.HunterOfSouls_KilledAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.LightImUpAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.MartialSuperiorityAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.MomentShackle_AttackAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.OrbsOfDecayAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.PrimarchOfTheFirstLegionAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.PyreblasterAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.RealityUnboundExtraMaxDamageAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.RelicOfLostCadiaAbility_SummonUnit	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.SavageKillerAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.SaviorProtocolsAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.ShieldOfFaithAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.TargetingProtocols_AttackAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AttackAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheEmperorsShieldAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility	get_AllowForDeadOwner	22	TRUE	0x1802b4590	OVERRIDE
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility	get_AllowInAtomicMode	23	TRUE	0x1802b4590	OVERRIDE

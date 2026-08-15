@@ -305,9 +305,9 @@ def porteurs_fire_on_death() -> list:
     reponse se lit un cran PLUS BAS, et elle est STRUCTURELLE :
     `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` teste
     `IdunBattle.Entities.UnitExtensions$$IsAlive(owner)` A LA LECTURE, sous une exemption
-    `IsAtomic(ability)` :
+    `get_AllowForDeadOwner()` (#10015 -- ce n'est PAS un `IsAtomic`) :
 
-        if (!IsAtomic(ability)) { if (IsUnit(owner) && !IsAlive(owner))  return 0; }
+        if (!ability.get_AllowForDeadOwner()) { if (IsUnit(owner) && !IsAlive(owner)) return 0; }
         if (IsUnit(owner) && IsTriggersDisabled(owner))                 return 0;
 
     Si le cache retirait les morts, CE gate et SON exemption seraient tous deux INATTEIGNABLES --
@@ -374,6 +374,19 @@ REGISTRE_HORS_MORT = {
          "`turn_defeated is not None`, que rien ne seede au chargement. Ce qui reste OUVERT est le "
          "cas ou le SEUL porteur Ambush du plateau est un cadavre-au-chargement -- residu "
          "`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1`"),
+    "SynapticLinchpinAbility":
+        ("SANS CONSEQUENCE -- L'OWNER MORT NE PEUT PAS ETRE L'ACTEUR",
+         "Entre ici avec #937-r1, qui pose `fire_on_death = True` sur la foi d'une valeur LUE : "
+         "`SynapticLinchpinAbility$$get_AllowForDeadOwner` (`ITriggeredAbility` slot 8) rend VRAI, "
+         "corps `b0 01 c3` PARTAGE avec `FinalJusticeAbility`. L'evenement ecoute est "
+         "`On(NormalAttack = 38)`, qui se reproduit a chaque coup : le natif evalue donc bien ce "
+         "trigger pour un cadavre-au-chargement, la ou le port ne l'inscrit meme pas. AUCUNE "
+         "consequence, et le gate qui l'assure est DANS le trigger natif lui-meme : le disjunct "
+         "effectif est `OwnerIsAlive | (OwnerIsActor & TriggeringAbilityIs(FinalJustice))` -- un "
+         "porteur MORT n'y passe que s'il est LUI-MEME l'acteur du coup, ce qui exige l'attaque "
+         "post-mortem du trait `FinalJustice`. Un cadavre-au-chargement n'agit jamais : il n'a "
+         "joue aucun `KillUnitOperation` dans CE run, donc aucune `FinalJusticeAbility` n'a pu "
+         "ecrire `AbilityEntities+0x60 = 1024` pour lui. Le regime divergent est vide."),
 }
 
 
@@ -536,7 +549,7 @@ def step_registre() -> int:
         if s:
             print("  %s" % s)
     print("")
-    print("PORTEURS `fire_on_death` du port (= mirror d'`IsAtomic`), et leur evenement :")
+    print("PORTEURS `fire_on_death` (= mirror de `get_AllowForDeadOwner`), et leur evenement :")
     print("")
     rc = 0
     for rel, nom, evid, evids, face in lst:

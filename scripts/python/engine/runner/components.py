@@ -71,13 +71,42 @@ class UnitComponent(Component):
     ⚠ Le champ natif est `UnitComponent + 0x17c`, un ENTIER — lu par
     `IdunBattle.Entities.Formulas.TurnDefeatedFormula$$Calculate` (sous un gate
     `IdunBattle.Entities.UnitExtensions$$IsDefeated`) et recopié par
-    `IdunBattle.Entities.Components.UnitComponent$$Copy`. Son ÉCRIVAIN natif n'est PAS identifié :
-    `IdunBattle.Operations.KillUnitOperation$$Execute` n'écrit que `+0x178` et `+0x17a`, et
-    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour` —
-    l'endroit où le port l'écrit — ne l'écrit PAS (son arbre est
-    `If(NOT <trigger>, Spawn(owner, PickRandomly(FreeTilesOrAdjacentFreeTiles(Tiles(target))), …))`).
-    La pose côté port est donc une COMPENSATION, pas un mirror (résidu
-    `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`).
+    `IdunBattle.Entities.Components.UnitComponent$$Copy`.
+
+    ⚠ **SON ÉCRIVAIN EST `IdunBattle.Operations.RemoveUnitOperation$$Execute`, et il l'a TOUJOURS
+    été — la phrase « écrivain non identifié » qui vivait ici était FAUSSE** (elle fondait le blocage
+    `etage` de `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`, désormais LEVÉ). Le décompilé de cette
+    Operation écrit, juste après `UnitFlagsComponent$$Add(unit, 0x1a = Removed)` :
+
+        uc->[0x17c] = TurnComponent$$GetAmountOfTurnsStartedByPlayer(GetMatchTurn(state), ownerPlayerId);
+        uc->[0x180] = 1;
+
+    — c'est-à-dire **le compteur de tours démarrés par le joueur PROPRIÉTAIRE, au moment où l'unité
+    QUITTE le plateau**. C'est exactement ce que `runner/operations/remove_unit.py` documente déjà
+    en étape 10 : la donnée était lue, seule la phrase de ce fichier ne l'était pas.
+
+    ⚠ **CE QUI A FAIT ÉCHOUER LES RECHERCHES PRÉCÉDENTES**, et la parade : elles cherchaient dans
+    l'index de code de ghidra-mcp (partiel, puis SUPPRIMÉ — `code_indexed: False` sur `t6dpr4k06g`),
+    et une absence d'index se lisait comme une absence d'écrivain. Le balayage qui tranche ne
+    cherche pas un TEXTE de pseudo-C mais l'ENCODAGE x86-64 : un `disp32` littéral `7c 01 00 00`
+    précédé d'un ModRM `mod=10` (avec ou sans SIB, base `rsp`/`r12` écartée = variable locale), dans
+    **les deux sections de code** (`.text` ET `il2cpp` — `.text` seul rend 0 sur un binaire IL2CPP).
+    Résultat sur `t6dpr4k06g` : **220 accès, dont 66 écritures**, et parmi elles **3 seulement**
+    touchent un `UnitComponent` — `$$.ctor+0x133` (init), `$$Copy+0x582` (recopie) et
+    `RemoveUnitOperation$$Execute+0x4f6` (le seul écrivain sémantique). Aucun hit n'est tu : les
+    opcodes non classés sont imprimés avec leur propriétaire (ce sont des flottants SSE de `View`).
+
+    ⚠ **VALEUR INITIALE = `-1`, une SENTINELLE** : `UnitComponent$$.ctor+0x133` est
+    `c7 87 7c 01 00 00 ff ff ff ff` = `mov dword ptr [rdi+0x17c], 0xffffffff`. Une unité jamais
+    RETIRÉE ne peut donc satisfaire aucun `Difference(CurrentPlayerTurnsStarted, TurnDefeated) == 1`.
+
+    ⚠ **ET POURTANT LA POSE CÔTÉ PORT RESTE UNE COMPENSATION** : `KillUnitOperation$$Execute`
+    n'appelle **jamais** `IOperationProcessor` slot 6 = `RemoveUnit` (ses appels sur cette interface
+    sont les slots 77, 80, 85, 99, 130, 143 — relus un par un), donc **une unité TUÉE ne passe pas
+    par l'écrivain**. Le port pose `turn_defeated` sur `On(UnitDefeated)` dans
+    `triggers/genestealer.py` : c'est ce qui fait vivre la résurrection Ambush offline, et c'est un
+    ÉCART NOMMÉ, pas un mirror. Ce qui reste ouvert est la chaîne native qui retire une unité
+    tuée (résidu `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`, ré-énoncé).
 
     `killed_this_turn` = mirror EXACT du BOOLÉEN `UnitComponent + 0x17a`, et il n'a rien à voir avec
     son voisin `turn_defeated` ci-dessus :

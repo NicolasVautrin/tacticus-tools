@@ -107,14 +107,24 @@ FORME DU PORT
   l'`AbilityEntities` materialise (regime `BarbedOvipositor`), jamais une recopie de predicat ;
 * `CreateBehaviour` -> un ARBRE DSL (`synaptic_linchpin_spawn_tree`) au-dessus de la feuille `Spawn`.
 
+### BRANCHE `owner MORT + FinalJustice` -- TRANCHEE, ELLE VIT (#937-r1)
+La valeur qui manquait est LUE, et elle ne s'appelait pas comme le depot le croyait. Le gate de
+`IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` est
+`if (!ability.get_AllowForDeadOwner()) { if (IsUnit(owner) && !IsAlive(owner)) return 0; }` --
+`ITriggeredAbility` **slot 8**, pas un `IsAtomic` (cf. `dispatch/core.py::_owner_gate_applies`).
+
+`SynapticLinchpinAbility` **SURCHARGE** cette propriete (slot 22 de sa vtable, `flags=0x08c6` : pas
+de `NewSlot`, donc un override), ce qu'aucune des deux tables ne montre -- son corps est trivial et
+DEDUPLIQUE, donc `SynapticLinchpinAbility$$get_AllowForDeadOwner` est absent de `frida/methods.tsv`
+ET de `ghidra/functions.tsv`. La RVA se resout par le TOKEN
+(`Il2CppCodeGenModule.methodPointers`) et le corps se lit : **le MEME que
+`FinalJusticeAbility$$get_AllowForDeadOwner`**, `b0 01 c3` = `mov al,1 ; ret` = **VRAI**.
+
+Le natif laisse donc bien passer un porteur MORT jusqu'a `ShouldTrigger`, ou le disjunct
+`OwnerIsAlive | (OwnerIsActor & TriggeringAbilityIs(FinalJustice))` tranche. `fire_on_death = True`
+est le mirror de ce fait, et la branche cesse d'etre inatteignable cote port.
+
 ### RESIDUS EXPLICITES
-* **branche `owner MORT + FinalJustice` INATTEIGNABLE cote port.** `dispatch/core.py` refuse tout
-  porteur non vivant avant meme d'evaluer `matches` (mirror de
-  `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` :
-  `if (!IsAtomic(ability)) { if (IsUnit(owner) && !IsAlive(owner)) return 0; }`), et l'attribut
-  `fire_on_death` qui leverait ce gate mirrore `IsAtomic` -- valeur NON LUE pour cette ability. Le
-  disjunct est donc PORTE dans `matches` (il MORDRA le jour ou `IsAtomic` sera etabli) mais reste
-  inerte aujourd'hui : `_owner_alive_or_final_justice` rend toujours `True` sur la branche gauche.
 * **`ignoreForcedTargets: 0`** du `First` natif : aucune contrepartie portee (le port n'a pas de
   notion de cible FORCEE cote selecteur). Le noeud `First(source, index=0)` du port est un
   `PickAtIndexSelector` ; il rend le MEME singleton que le `First(source, amount=1)` natif, mais
@@ -237,6 +247,13 @@ class SynapticLinchpinAbility(TriggeredAbility):
     `maxSummons[level]`. Arbre natif des deux faces : en-tete du module."""
     event_id = _ON_NORMAL_ATTACK
     TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.SynapticLinchpin)      # 1192
+    # `SynapticLinchpinAbility$$get_AllowForDeadOwner` (`ITriggeredAbility` slot 8, surcharge au
+    # slot 22 de la vtable) rend **VRAI** -- corps `b0 01 c3`, PARTAGE avec
+    # `FinalJusticeAbility$$get_AllowForDeadOwner` (cf. l'en-tete du module, #937-r1). Sans lui,
+    # `dispatch/core.py` ecartait le porteur MORT AVANT `matches`, et le disjunct
+    # `OwnerIsActor & TriggeringAbilityIs(FinalJustice)` de `_owner_alive_or_final_justice` ne
+    # pouvait jamais mordre.
+    fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if ev.actor_id is None or ev.target_id is None:
@@ -259,10 +276,15 @@ class SynapticLinchpinAbility(TriggeredAbility):
         """`OwnerIsAlive | (OwnerIsActor & TriggeringAbilityIs(FinalJustice))` -- le gate effectif du
         `On(NormalAttack, ownerNeedsToBeAlive: NOT(...))`, cf. l'en-tete du module.
 
-        ⚠ **INERTE AUJOURD'HUI, ET C'EST NOMME** : `dispatch/core.py` ecarte deja tout porteur non
-        vivant (sauf `fire_on_death`, le mirror d'`IsAtomic`, NON LU pour cette ability), donc la
-        branche gauche est toujours vraie quand `matches` est appele. Le disjunct est ecrit parce
-        que le natif l'ecrit ; il MORD des que le porteur peut arriver ici mort."""
+        ⚠ **IL MORD DEPUIS #937-r1** : `fire_on_death = True` (mirror de
+        `get_AllowForDeadOwner`, LU vrai sur cette classe) laisse le porteur MORT franchir le gate
+        de `dispatch/core.py`, donc la branche gauche n'est plus toujours vraie quand `matches` est
+        appele. Le regime discriminant est le seul que le natif autorise : le porteur est mort ET
+        c'est LUI l'acteur ET le coup vient de l'attaque post-mortem du trait `FinalJustice`
+        (`ev.triggering_ability == 1024`, canal `AbilityEntities+0x60` que
+        `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` pose AVANT le behaviour, donc
+        herite par l'attaque qu'il engendre). Un allie Synapse qui frappe pendant que le Prime est
+        mort ne passe PAS (`OwnerIsActor` faux)."""
         e = state.get_entity(self.owner_id)
         uc = None if e is None else e.get_component(UnitComponent)
         if uc is None or bool(uc.alive):                  # `OwnerIsAlive`

@@ -143,9 +143,26 @@ def collect_global_triggers() -> list[TriggeredAbility]:
 
 
 def collect_effect_triggers(state: State) -> list[EffectTrigger]:
-    """Mirror du registre `AbilityAndEffectCache` (volet effet-trigger) : itère les effets ACTIFS portés
-    par chaque unité (via `state.effects`) et, pour chaque effet d'un type enregistré, instancie son
-    effet-trigger (owner = le porteur). No-op si `state.effects` absent."""
+    """Mirror du registre `AbilityAndEffectCache` (volet effet-trigger) : itère TOUS les effets portés
+    par chaque unité (via `state.effects`), ACTIFS OU NON, et, pour chaque effet d'un type enregistré,
+    instancie son effet-trigger (owner = le porteur). Seul `consumed` exclut. No-op si `state.effects`
+    absent.
+
+    ⚠ **« ACTIFS » SERAIT FAUX, ET LA FAUTE SERAIT DEFINITIVE (#1045-r2).** Le rail natif
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities` n'accede
+    JAMAIS a `EffectComponent+0x5c` (le drapeau d'activite) : relu sur `t6dpr4k06g`, il ne lit du
+    composant que `+0x14` (l'unite porteuse, resolue en amont par
+    `...$$EvaluateAbilityOrEffectTrigger`) et `+0x58` (le type d'effet, cle de l'`IEffectsDatabase`),
+    puis enumere l'`ArraySet` rendu par `IEffect` slot 18 = `CreateHandleTriggerAbilities`. Le CODE
+    ci-dessous a donc raison contre toute prose qui dirait « actifs ».
+
+    **Pourquoi ce n'est pas cosmetique** : un lecteur qui « aligne le code sur la doc » poserait un
+    gate `is_active` ici et **gelerait a zero POUR TOUJOURS** tout compteur porte par un effet ne
+    INACTIF -- mesure sur `HeadwoppasKillchoppa_ExtraDmg` (1568), qui nait au niveau 0 (`Direct(0)`)
+    et ne monte que par `IncreaseEffectLevelOnKill` : sa condition
+    `AmountIsGreaterThanZero(EffectLevel)` ne pourrait alors plus jamais devenir vraie. Contre-epreuve
+    executee en #1045 : instance `active=False` -> 1 trigger collecte (dont 1 `IncreaseLevelOnKill`) ;
+    `consumed=True` -> 0."""
     out: list[EffectTrigger] = []
     eff = getattr(state, "effects", None)
     if eff is None:
@@ -167,7 +184,37 @@ def _owner_gate_applies(entry) -> bool:
 
     FACE ABILITY -> `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` : deux
     gates, tous deux SOUS `IdunBattle.Entities.EntityExtensions$$IsUnit(owner)` --
-    `UnitExtensions$$IsAlive` (sauf ability atomique) et `UnitExtensions$$IsTriggersDisabled`.
+    `UnitExtensions$$IsAlive` (sauf `get_AllowForDeadOwner`, cf. ci-dessous) et
+    `UnitExtensions$$IsTriggersDisabled`.
+
+    ⚠ **LA DISPENSE NE S'APPELLE PAS `IsAtomic` -- C'EST `ITriggeredAbility.get_AllowForDeadOwner`,
+    ET LE DEPOT SE TROMPAIT DE PROPRIETE (#10015).** Le pseudo-C rend
+    `FUN_180002590(8, DAT_183389188, ability)`, c'est-a-dire un appel au SLOT 8 d'une interface. Les
+    deux ont ete LUS, pas devines :
+      * `DAT_183389188` = `IdunBattle.Entities.Abilities.ITriggeredAbility` -- le type DECLARE du
+        parametre (`frida/methods.tsv`), et TROIS concordances slot/arite le confirment dans
+        `...$$EvaluateEffectTriggerEffectAbilities` : slot 2 = `ShouldTrigger` (2 args), slot 4 =
+        `ExecuteBy` (3 args), slot 8 = `get_AllowForDeadOwner` (0 arg, booleen) ;
+      * les slots viennent du champ `slot` d'`Il2CppMethodDefinition` (`global-metadata.dat`, meme
+        derivation que `data/symbols/<build>/metadata/interface_slots.tsv`).
+    Il existe bien une propriete d'ATOMICITE, mais c'est une AUTRE : `ITriggerable` slot 0 =
+    `get_AllowInAtomicMode`, lue plus bas dans la MEME fonction sous
+    `IMatchState slot 22 = get_InAtomicMode` et sous le parametre `onlyNonAtomic`. Les deux jeux de
+    declarants sont DISJOINTS (43 vs 24 surchargeurs, un seul type -- `ThrillSeekersAbility`,
+    `DrawFireAbility`, `FloatingDeath_AttackAbility`, `LifewardsAbility` -- en porte les deux).
+    Confondre les deux, c'est lire la mauvaise propriete SANS AUCUNE ERREUR.
+    Ce second gate n'est PAS porte : residu `#10015-r1`.
+
+    ⚠ **ET LA VALEUR SE LIT, MEME QUAND LA TABLE NE LA MONTRE PAS.** `get_AllowForDeadOwner` a un
+    corps TRIVIAL, donc DEDUPLIQUE : `<Classe>$$get_AllowForDeadOwner` n'apparait ni dans
+    `frida/methods.tsv` ni dans `ghidra/functions.tsv` (0 proprietaire sur les 44 declarants). La RVA
+    se resout par le TOKEN via `Il2CppCodeGenModule.methodPointers`, et le corps se LIT :
+    `b0 01 c3` (`mov al,1 ; ret`) = vrai, `32 c0 c3` (`xor al,al ; ret`) = faux. `BaseTriggeredAbility`
+    rend FAUX (le defaut), et **surcharger ne veut PAS dire vrai** : sur les 43 surcharges, 4 rendent
+    FAUX (`DevastatingRefrain_AttackAbility`, `MalleusRocketLauncher_AttackAbility`,
+    `GazeOfMagnus_ApplyEngagementAbility`, `GazeOfMagnus_AttackAbility`). Un a priori
+    « surcharge => vrai » aurait donc ecrit 4 valeurs fausses. Entree versionnee + cliquet :
+    `data/symbols/<build>/metadata/allow_for_dead_owner.tsv`, `probe_10015_allow_for_dead_owner.py`.
 
     FACE EFFET -> **AUCUN gate d'owner**, et ce n'est pas une simplification du port :
     `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetEffectTrigger` et la branche EFFET
@@ -183,9 +230,26 @@ def _owner_gate_applies(entry) -> bool:
     INTROUVABLE et porteur MORT. Les deux sont levees. Consequences directes :
       * la TUILE n'a plus a etre RECONNUE (`_owner_is_tile_entity`, #462-r4b-r1-r1-r1-r1-c-r1,
         n'avait plus de lecteur -- il conditionnait un gate qui n'existe plus sur cette face) ;
-      * l'attribut `fire_on_death` d'un `EffectTrigger` (4 classes : PhoenixGem x3, RitesOfMorkai)
-        devient INERTE -- il compensait exactement ce surplus. Il reste porte sur `TriggeredAbility`,
-        ou il mirrore le `IsAtomic(ability)` natif.
+      * l'attribut `fire_on_death` d'un `EffectTrigger` est INERTE -- il compensait exactement ce
+        surplus. Il reste porte sur `TriggeredAbility`, ou il mirrore
+        `ITriggeredAbility.get_AllowForDeadOwner` (cf. ci-dessus).
+        ⚠ La fiche du residu enumerait **4** classes nommees ; re-DERIVE le 2026-08-15 par
+        `probe_10015_allow_for_dead_owner.py --inertie`, l'ensemble en compte **6**, et deux des
+        quatre noms cites n'y sont plus seuls (`ArmourOfShriekingSoulsResurrectOnRemoved` et
+        `FinalVengeanceUnitEffectTrigger` s'y sont ajoutees). Ne pas recopier une liste : la DERIVER
+        (`getattr(cls, "fire_on_death", False)` sur `EFFECT_TRIGGERS`), sans quoi l'ensemble derive
+        sous la citation, en silence -- ce qui vient de se produire.
+
+    ⚠ **L'INERTIE EST STRUCTURELLE, PAS UNE OBSERVATION (#462-r4b-r1-r1-r1-r1-c-r3-r3).** Ce
+    predicat est le SEUL lecteur de `fire_on_death` du depot (`engine/**` n'en a pas d'autre), et il
+    rend FAUX pour tout `EffectTrigger` -- `TileEffectTrigger` compris, qui en DERIVE. Aucun chemin
+    ne peut donc lire l'attribut sur une de ces 4 classes. Le cliquet qui garde ce fait le prouve par
+    MORSURE, pas par lecture : `probe_10015_allow_for_dead_owner.py --inertie` remplace
+    `fire_on_death` par une property qui LEVE, rejoue un dispatch sur chacune des 4 classes, et exige
+    que rien ne leve ; le meme montage sur un `TriggeredAbility` DOIT lever, sinon le controle
+    ne prouverait rien (un test qui ne mord d'aucun cote est vert par vacuite).
+    Il n'est pas RETIRE : il documente `OwnerIsTarget` (le porteur EST le mourant) et son retrait ne
+    changerait aucun comportement.
 
     `owner_is_global` : les abilities `IdunBattleLogic.Entities.Abilities.Damage.Loki.*` sont
     inscrites SANS owner (`owner_id is None`) -- il n'y a rien a gater."""
@@ -233,19 +297,31 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         if _owner_gate_applies(entry):
             # FACE ABILITY -- `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger`
             # place ses DEUX gates SOUS `EntityExtensions$$IsUnit(owner)` :
-            #     if (!IsAtomic(ability)) { if (IsUnit(owner) && !IsAlive(owner))          return 0; }
-            #     if (IsUnit(owner) && IsTriggersDisabled(owner))                          return 0;
-            # `fire_on_death` mirrore le `IsAtomic(ability)` qui dispense du gate de vivacite
-            # (ex. FinalJustice) ; `IsTriggersDisabled` n'est pas porte (residu anterieur).
+            #     if (!ability.get_AllowForDeadOwner()) {                    // ITriggeredAbility slot 8
+            #         if (IsUnit(owner) && !IsAlive(owner))                              return 0; }
+            #     if (IsUnit(owner) && IsTriggersDisabled(owner))                        return 0;
+            # `fire_on_death` mirrore `get_AllowForDeadOwner` -- la propriete NOMMEE, dont la valeur
+            # se LIT par classe (cf. `_owner_gate_applies`) ; ce n'est PAS `IsAtomic`, qui est une
+            # autre propriete (`ITriggerable.get_AllowInAtomicMode`, gate non porte -- #10015-r1).
+            # `IsTriggersDisabled` n'est pas porte (residu anterieur).
             owner = state.get_entity(entry.owner_id)
             if owner is None:
-                # SURPLUS NOMME, et il reste : `IsUnit(null)` rend FAUX (lu -- `if (entity == 0)
+                # SURPLUS NOMME, et il reste : `IsUnit(null)` rend FAUX (LU -- le corps d'
+                # `IdunBattle.Entities.EntityExtensions$$IsUnit` ouvre sur `if (entity == 0)
                 # return 0`), donc le natif ne gaterait RIEN ici et passerait `owner = null`. Le
-                # port refuse. Sans consequence observable : le regime est INATTEIGNABLE par
-                # construction sur cette face -- `collect_triggered_abilities` n'instancie que
-                # depuis `state.entities` (dont rien n'est jamais retire) et
-                # `collect_global_triggers` pose `owner_is_global`, donc ce `continue` n'est
-                # atteint que par une contre-epreuve. C'est justement ce qui le garde : il rend la
+                # port refuse. Sans consequence observable, et c'est desormais MESURE plutot
+                # qu'affirme (#462-r4b-r1-r1-r1-r1-c-r3-r2, re-mesure sur `t6dpr4k06g`) -- QUATRE
+                # constats, chacun falsifiable :
+                #   (a) AUCUN site d'`engine/**` ne retire d'entree de `state.entities` (0 occurrence
+                #       de `entities.pop` / `del ....entities[` / `entities.clear()` / reaffectation) ;
+                #   (b) `collect_triggered_abilities` n'instancie qu'en iterant `state.entities` ;
+                #   (c) les DEUX classes de `GLOBAL_TRIGGERS` declarent bien `owner_is_global = True`
+                #       -- sans quoi `state.get_entity(None)` tomberait ici et les tuerait en silence ;
+                #   (d) `TileEffectTrigger` DERIVE d'`EffectTrigger`, donc `_owner_gate_applies` rend
+                #       FAUX pour elle et ce bloc ne la voit jamais.
+                # Le blocage de la fiche disait `porteur` : c'est FAUX, rien ne manque comme unite
+                # confrontable -- le regime est inatteignable par la construction du modele d'etat du
+                # port lui-meme. C'est justement ce qui garde ce `continue` : il rend la
                 # DISCRIMINATION DE FACE attribuable (forcer le gate sur une entree d'effet la fait
                 # tomber ici, et nulle part ailleurs).
                 continue

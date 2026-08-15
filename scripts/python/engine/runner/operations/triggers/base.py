@@ -233,8 +233,19 @@ class TriggeredAbility:
     # `TriggeringAbility` @+0x98, ecrit APRES). None = id non renseigne (le port ne threade alors AUCUN
     # id pour cette ability : gate positif faux, gate negatif vrai). Cf. `dispatch/core.py`.
     TRIGGERED_ABILITY_ID: Optional[int] = None
-    fire_on_death: bool = False     # ability « fire-on-death » : owner = l'unité MOURANTE (alive=False) —
-                                    # bypass du gate « owner vivant » (CanGetAbilityTrigger). Ex. FinalJustice.
+    # `fire_on_death` = MIRROR de `IdunBattle.Entities.Abilities.ITriggeredAbility` **slot 8 =
+    # `get_AllowForDeadOwner`**, la propriété que `CanGetAbilityTrigger` interroge pour dispenser
+    # l'ability du gate `UnitExtensions$$IsAlive(owner)`. Ex. `FinalJusticeAbility` (vrai).
+    # ⚠ Ce n'est **PAS** `IsAtomic` — ce nom, écrit dans tout le dépôt jusqu'à #10015, désigne une
+    # AUTRE propriété (`ITriggerable` slot 0 = `get_AllowInAtomicMode`), lue par le MÊME décompilé
+    # quelques instructions plus bas, sous `IMatchState slot 22 = get_InAtomicMode`. Les deux jeux de
+    # surchargeurs sont DISJOINTS à 4 classes près : confondre les deux, c'est lire la mauvaise
+    # propriété sans qu'aucune erreur ne soit levée.
+    # ⚠ La valeur ne se DÉDUIT pas du profil de l'ability : elle se LIT par classe (corps trivial
+    # dédupliqué → RVA par token, cf. `dispatch/core.py::_owner_gate_applies`). L'entrée versionnée
+    # `data/symbols/<build>/metadata/allow_for_dead_owner.tsv` la porte pour les 44 déclarants, et
+    # `probe_10015_allow_for_dead_owner.py` confronte le port au build.
+    fire_on_death: bool = False
     owner_is_global: bool = False   # ability de la famille `Abilities.Damage.Loki` : son `CreateTrigger` ne
                                     # porte AUCUN prédicat d'owner (`get_OwnerIs*`), et le canal se déclenche
                                     # sur le PROFIL du coup, jamais sur une unité. Elle est donc inscrite UNE
@@ -280,8 +291,13 @@ class TileEffectTrigger(EffectTrigger):
     """Effet-trigger porté par une TUILE (`owner_id` = id d'entité-tile ; boardGraph `t.id` = entity id,
     disjoint des ids d'unité → clé `EffectsState.by_unit` valide). Mirror natif : une tuile = entité à
     `EffectsOwnedComponent` portant l'effet + ses triggers (ex.
-    `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal). `owner_is_tile` fait bypasser les
-    gates unit-entity/alive de `evaluate_trigger_operation` (une tuile n'est PAS dans `state.entities`).
+    `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal).
+    ⚠ CE QUI FAIT BYPASSER les gates unit-entity/alive de `evaluate_trigger_operation`, c'est la
+    DERIVATION d'`EffectTrigger` (donc `_owner_gate_applies` faux : la face EFFET n'a AUCUN gate
+    d'owner cote natif), **pas** `owner_is_tile` -- lequel ne sert plus qu'a exempter du cap
+    phase-triggers. La formulation inverse a survecu a #462-r4b-r1-r1-r1-r1-c-r3 et se lisait comme
+    si retirer `owner_is_tile` rearmait un gate : il n'y en a plus. (Une tuile n'est effectivement
+    PAS dans `state.entities`, ce qui rend la distinction invisible tant qu'on ne la teste pas.)
     `event_ids` (au lieu d'un `event_id` unique) : un tile-effect écoute souvent PLUSIEURS events (enter
     `On(4)` + tick `On(0x12)`/`On(0x14)`)."""
     owner_is_tile = True

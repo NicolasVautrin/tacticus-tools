@@ -51,9 +51,20 @@ COLLAPSES ET RESIDUS NOMMES du port :
     excluent les non-`alive`) -- indispensable au spawn qui suit l'eviction MV71. L'ecart avec le
     natif (qui ne touche NI les PV NI le flag `Dead`) est donc assume et INCHANGE par ce foyer ;
     la donnee fidele qui manquait est le flag `Removed`, desormais pose.
-  * etapes 7, 10, 12 : ni `PlayerComponent.units`/`removedUnits`, ni le tour de retrait, ni l'event
-    de match ne sont portes -- aucun consommateur porte ne les lit (cf.
-    `playbook/noncomparable/doctrina_imperatives.py`, qui documente deja la liste `+0x30`).
+  * etapes 7 et 12 : ni `PlayerComponent.units`/`removedUnits` ni l'event de match ne sont portes --
+    aucun consommateur porte ne les lit (cf. `playbook/noncomparable/doctrina_imperatives.py`, qui
+    documente deja la liste `+0x30`).
+  * etape 10 : **PORTEE depuis #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1**. La justification d'avant
+    (<< aucun consommateur porte ne la lit >>) etait FAUSSE : `triggers/genestealer.py::
+    _eligible_for_resurrect` LIT `uc.turn_defeated` pour le gate
+    `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), 1)` d'`EnvAmbushResurrect`.
+    Et ce foyer-ci est le SEUL ecrivain natif du champ : balayage a l'ENCODAGE des deux sections de
+    code (`disp32 == 0x17c`, ModRM `mod=10`) -> 66 ecritures dans tout le binaire, dont **3** sur un
+    `UnitComponent` : `$$.ctor+0x133` (init a `-1`), `$$Copy+0x582` (recopie) et
+    `$$Execute+0x4f6` (ici). Le `+0x180 = 1` qui suit n'a aucun lecteur identifie -> non porte.
+    ⚠ **Le port garde `None` la ou le natif a `-1`**, et c'est voulu : `None` = NON MESURE (tri-etat),
+    donc `_eligible_for_resurrect` refuse explicitement au lieu de comparer contre une sentinelle ;
+    les deux rendent le meme verdict (`cur - (-1) == 1` exige `cur == 0`, jamais atteint).
   * etapes 6, 11, 15 : slots `OperationProcessor` non identifies, non portes (aucune autre Operation
     portee ne les porte non plus).
   * `IdunBattle.Operations.ResurrectUnitOperation$$Execute` retire le flag (`Remove(0x1a)`, avec
@@ -64,7 +75,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import UnitComponent, UnitFlagsComponent
+from ..components import OwnerComponent, UnitComponent, UnitFlagsComponent
 
 
 class RemoveUnitOperation:
@@ -98,6 +109,15 @@ class RemoveUnitOperation:
             return None
         uc.alive = False                                       # 8. retrait des TUILES (collapse)
         fl.add(UnitFlagsComponent.REMOVED)                     # 9. `UnitFlagsComponent.Add(0x1a)`
+        # 10. `uc->[0x17c] = TurnComponent$$GetAmountOfTurnsStartedByPlayer(GetMatchTurn(state),
+        #     ownerPlayerId)` -- le compteur de tours du joueur PROPRIETAIRE au moment du retrait.
+        #     ORDRE natif : APRES la pose du flag `Removed`, AVANT l'`On(0x25)` ci-dessous.
+        #     Le repli `0` est FIDELE, pas defensif : `TurnComponent$$GetAmountOfTurnsStartedByPlayer`
+        #     ouvre sur `if (!dict.ContainsKey(playerId)) return 0`. Un `State` dont `turn_counts`
+        #     est vide rend donc la MEME valeur que le natif sur un joueur inconnu.
+        oc = e.get_component(OwnerComponent)
+        if oc is not None and oc.player is not None:
+            uc.turn_defeated = state.turn_counts.get(int(oc.player), 0)
         # 13. `On(UnitRemoved = 0x25)` -- AVANT la consommation des effets (etape 14).
         from .triggers.dispatch.move_death import unit_removed_triggers
         downstream = unit_removed_triggers(state, int(unit_id))
