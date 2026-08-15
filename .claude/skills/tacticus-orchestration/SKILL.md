@@ -781,6 +781,30 @@ neuf** non classé (`VOIES` ou `ECARTES` avec sa raison). Celui-là n'est PAS li
 alimenté par notre **propre cadence de portage**, comme les masques de ciblage et les littéraux
 d'`AbilityAttackType`. Le vérifier après un lot de portages, pas après une migration.
 
+**Étape 8 — DÉPRIORITISER ghidra-mcp : un projet NEUF se ré-indexe, et ça coûte des HEURES de CPU.**
+
+Le serveur reconstruit son index sémantique ChromaDB (`search_code` / `search_strings`) à la
+première ouverture d'un projet neuf. Mesuré le 2026-08-15, **6 h après le démarrage** :
+`analysis_complete: true` mais **`code_indexed: false`** et `strings_indexed: false`, le process à
+**799 % d'un cœur (36 % d'une machine à 22 cœurs) et 4,7 Go** — la machine à **90 %**, au détriment
+des passes pytest des agents.
+
+```powershell
+(Get-Process -Id <pid>).PriorityClass = 'BelowNormal'   # mesure : machine 90 % -> 68 %
+```
+
+> **Déprioritiser plutôt que tuer**, pour trois raisons : le serveur sert `decompile_function` à
+> tous les agents en vol (le tuer coupe leur travail) ; un redémarrage **relance l'index à zéro**,
+> donc reporte le coût au lieu de l'éliminer ; et `BelowNormal` cède le pas dès qu'un agent demande
+> du CPU tout en continuant sur la capacité libre.
+>
+> ⚠ **Cet index a peu de valeur pour NOTRE usage** : `search_code` est une recherche sémantique, or
+> la consigne permanente aux agents est d'émettre des requêtes **ancrées** (trois pages de regex
+> large couchent le serveur, cf. étape 3). On paie donc des heures de CPU pour un outil qu'on
+> s'interdit. Si l'indexation ne se termine pas, c'est un candidat au retrait, pas une urgence.
+>
+> Vérifier l'état : `list_project_binaries` rend `code_indexed` / `strings_indexed` par binaire.
+
 ```powershell
 $b = '{"method":"renderBudget","args":[{"width":1280,"height":960,"fullScreenMode":3}]}'
 Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/scripts/<SID>/rpc" -Method Post -Body $b -ContentType 'application/json'
