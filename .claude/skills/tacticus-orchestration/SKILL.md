@@ -1245,6 +1245,24 @@ livraison **PAR PULL REQUEST**) :
   re-découper.
 
 
+## ⛔ ET LES LOTS A DISPATCHER SE CHOISISSENT PAR `dispatch_lots.py` — pas a la main
+
+```powershell
+python scripts/python/dispatch_lots.py -n 3     # ancres DERIVEES de la flotte
+```
+
+Il rend N lots `engine/` dont les **surfaces de foyers** sont disjointes des agents en vol
+**et entre elles**, en derivant les ancres tout seul (git des worktrees **UNION** les chemins
+nommes dans les briefs). Le critere n'est pas « residus communs » mais **foyers communs**, et
+la **famille est le mauvais axe** — le foyer traverse les familles.
+
+⚠ **Ne le reecris pas a la main.** Il a vecu trois sessions dans le scratchpad, ou il a fallu
+reparer **les memes quatre bugs** a chaque fois — tous rendant un resultat *faux mais
+vraisemblable*. Le plus vicieux : branche sur git seul, il re-proposait les lots qu'on venait
+de dispatcher (un agent frais n'a rien ecrit, donc `0 fichier`, donc son foyer parait libre) —
+il **fabriquait** le doublon qu'il existe pour empecher. Les quatre pieges, avec leur mesure,
+sont dans son en-tete et dans `adc010a0`.
+
 ## ⛔ LE NOMBRE D'AGENTS EN VOL SE MESURE — il ne se compte JAMAIS de tete
 
 ```powershell
