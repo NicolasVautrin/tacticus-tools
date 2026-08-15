@@ -272,7 +272,9 @@ def _atteints_caches(cibles: list[str]) -> dict | None:
     n'a pas pu etre chargee -- la classification serait alors rendue sur une base partielle, ce
     qui est exactement le faux vert que ce probe repare sur son autre axe.
     """
-    cles = IC.GENERATION_ENGINE.cles(cibles)
+    #: ⚠ `IC.generation(...)` RESOUT `IC.CLOTURE` A L'APPEL -- une constante calculee a l'import
+    #: capturerait l'ancienne cloture et desarmerait les patches des tests de #486-r11.
+    cles = IC.generation(sous_arbre="engine").cles(cibles)
     cache = _cache()
     table: dict = {}
     manquantes: list[str] = []

@@ -76,19 +76,42 @@ def _essayer(mod: str) -> tuple[str, int, str, frozenset | None]:
 #: mutuellement recalculer. Les trois fonctions ci-dessous restent la SURFACE PUBLIQUE de ce
 #: module (deux fichiers de test les appellent) : elles DELEGUENT, elles ne dupliquent pas.
 
+
+def _generation():
+    """La `Generation` de l'arbre `engine/` sous `RACINE` -- RESOLUE A L'APPEL, jamais figee.
+
+    ⚠ CE N'EST PAS UN DETOUR DE STYLE, C'EST CE QUI GARDE DEUX PATCHES VIVANTS. `RACINE` est
+    substituee par `test_486r5_balayages_memoises_offline` (sensibilite du detecteur sur un arbre
+    jetable) et `IC.CLOTURE` par `test_486r11_cle_sous_graphe_offline`. Deleguer a une constante
+    calculee a l'import capturerait l'une et l'autre, et ferait passer les deux patches de MORD a
+    NE MORD PAS -- la forme A du CLAUDE.md. Les deux fichiers l'ont attrapee au rebase, ce que la
+    prose du hissage n'avait pas prevu.
+
+    `_GEN_ENGINE` reste un attribut du MODULE parce que ces memes tests le remettent a `None` par
+    `monkeypatch.setattr` pour repartir d'un arbre neuf.
+    """
+    global _GEN_ENGINE
+    racine = Path(RACINE).resolve()
+    cl = IC.CLOTURE if racine == IC.CLOTURE.racine else IC.Cloture(racine)
+    g = _GEN_ENGINE
+    if g is None or g.cloture is not cl:
+        g = _GEN_ENGINE = IC.generation(cl, "engine")
+    return g
+
+
 def empreinte_engine() -> tuple:
     """Etat de l'arbre `engine/` : `(chemin, mtime_ns, taille)` pour chaque `.py`, trie."""
-    return IC.GENERATION_ENGINE.empreinte_arbre()
+    return _generation().empreinte_arbre()
 
 
 def empreinte_hors_engine() -> dict:
     """`{module: (mtime_ns, taille)}` pour les fichiers HORS `engine/` deja entres dans une fermeture."""
-    return IC.GENERATION_ENGINE.empreinte_hors()
+    return _generation().empreinte_hors()
 
 
 def empreinte_generation() -> tuple:
     """L'etat COMPLET de ce qui gouverne les fermetures -- la cle GROSSIERE de repli."""
-    return IC.GENERATION_ENGINE.empreinte()
+    return _generation().empreinte()
 
 
 #: `{(cle, module): (module, rc, message)}` -- memoise pour la duree du process.
@@ -115,6 +138,11 @@ _VUS: set = set()
 APPEL = "import-en-premier"
 
 _CACHE = None
+#: L'etat de generation de CE module. `None` = a (re)construire au prochain `_generation()`.
+#: Conserves comme ATTRIBUTS DE MODULE : deux fichiers de test les remettent a zero pour
+#: repartir d'un arbre jetable (cf. `_generation`).
+_GEN_ENGINE = None
+_GEN_HORS: dict = {}
 
 
 def _cles(mods) -> dict:
@@ -122,7 +150,7 @@ def _cles(mods) -> dict:
 
     Corps hisse dans `import_closure.Generation.cles` (#486-r17) -- cf. la note ci-dessus.
     """
-    return IC.GENERATION_ENGINE.cles(mods)
+    return _generation().cles(mods)
 
 
 #: L'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU ». Ici la cle n'est PAS le

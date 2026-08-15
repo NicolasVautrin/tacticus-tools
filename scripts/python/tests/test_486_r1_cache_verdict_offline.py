@@ -739,17 +739,41 @@ def test_un_cliquet_qui_resout_contre_le_BUILD_porte_sa_table_dans_son_contexte(
 
 
 @pytest.mark.parametrize("mod", sorted(CACHES))
-def test_les_DEUX_contextes_d_un_cliquet_sont_IDENTIQUES(mod):
+def test_le_mode_ESPION_lit_le_MEME_cache_que_le_mode_NORMAL(mod):
     """Le mode espion doit lire le MEME cache que le mode normal.
 
     S'ils divergeaient, `--verifier-cache` confronterait le recalcul a un fichier qu'il n'a jamais
     servi : il rendrait tout ORPHELIN et ABSENT, un rouge qui n'accuse rien -- ou pire, il
-    resterait vert sur un cache reellement faux."""
+    resterait vert sur un cache reellement faux.
+
+    ⚠ LE CRITERE PORTE SUR LA PROPRIETE, PAS SUR UN COMPTE DE CONSTRUCTIONS. Il exigeait
+    EXACTEMENT DEUX `CacheCliquet(...)` -- la forme des quatre premiers cliquets, qui ECRIVENT
+    l'expression du contexte en toutes lettres aux deux endroits pour qu'on puisse les comparer.
+    C'etait un critere de FORME, et il rougissait sur `probe_485_imports_differes`, dont la
+    fabrique unique prend `relire` en parametre : une expression UNIQUE ne peut pas diverger
+    d'elle-meme, donc cette forme-la est strictement PLUS SURE que celle qu'on exigeait. Le
+    compte ne voyait d'ailleurs pas TROIS constructions divergentes ; la propriete, si.
+
+    Les deux formes acceptees, et rien d'autre :
+      * N constructions dont TOUS les contextes sont identiques (duplication comparee) ;
+      * UNE construction, a condition qu'elle porte `relire` -- sans lui, aucun espion ne
+        pourrait etre construit et `--verifier-cache` servirait le cache au lieu de le
+        confronter.
+    """
     ctxs = _contextes(mod)
-    assert len(ctxs) == 2, (
-        "un cliquet cache construit exactement DEUX caches -- le normal et l'espion de "
-        "`--verifier-cache` ; vu %d" % len(ctxs))
-    assert ctxs[0] == ctxs[1], "les contextes divergent : %s" % ctxs
+    assert ctxs, "%s ne construit aucun `CacheCliquet` : le cablage a disparu" % mod
+    if len(ctxs) == 1:
+        arbre = ast.parse(_source(mod))
+        parametre = any(
+            isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "CacheCliquet"
+            and any(k.arg == "relire" for k in n.keywords) for n in ast.walk(arbre))
+        assert parametre, (
+            "%s ne construit qu'UN cache et ne passe pas `relire` : le mode espion ne peut pas "
+            "exister, donc `--verifier-cache` servirait le cache au lieu de le confronter" % mod)
+        return
+    assert len(set(ctxs)) == 1, (
+        "les %d contextes de %s divergent -- le mode espion lirait un AUTRE fichier que le mode "
+        "normal : %s" % (len(ctxs), mod, ctxs))
 
 
 @pytest.mark.parametrize("mod", sorted(CACHES))

@@ -413,7 +413,27 @@ class Generation:
         return cles
 
 
-#: La generation de l'arbre `engine/` -- PARTAGEE par les cliquets qui clent par sous-graphe.
-#: Une seule instance : deux detecteurs sur le meme arbre videraient la meme `Cloture` chacun de
-#: son cote et se feraient mutuellement recalculer.
-GENERATION_ENGINE = Generation(CLOTURE, "engine")
+#: `{(id(cloture), sous_arbre): Generation}` -- cf. `generation()`.
+_GENERATIONS: dict = {}
+
+
+def generation(cloture: Cloture | None = None, sous_arbre: str = "engine") -> Generation:
+    """LA `Generation` de ce couple (cloture, sous-arbre) -- une seule, memoisee.
+
+    ⚠ RESOLUE A L'APPEL, JAMAIS FIGEE A L'IMPORT, et ce n'est pas du style : `CLOTURE` est
+    SUBSTITUEE par `test_486r11_cle_sous_graphe_offline` (`monkeypatch.setattr(IC, "CLOTURE",
+    IC.Cloture(arbre))`) pour eprouver le detecteur sur un arbre jetable. Une constante de module
+    calculee a l'import (`GENERATION_ENGINE = Generation(CLOTURE, ...)`) capture l'ancienne
+    `Cloture` et fait passer ce patch de MORD a NE MORD PAS -- la forme A du CLAUDE.md. Elle a
+    existe ici quelques heures, et ce sont exactement ces tests qui l'ont attrapee, au rebase.
+
+    La MEMOISATION reste necessaire pour la meme raison qu'avant : deux `Generation` sur la MEME
+    `Cloture` la videraient chacune de son cote et se feraient mutuellement recalculer. Elle est
+    clee sur l'IDENTITE de la cloture, verifiee (`id()` se recycle apres un ramassage).
+    """
+    cl = cloture if cloture is not None else CLOTURE
+    cle = (id(cl), sous_arbre)
+    g = _GENERATIONS.get(cle)
+    if g is None or g.cloture is not cl:
+        g = _GENERATIONS[cle] = Generation(cl, sous_arbre)
+    return g
