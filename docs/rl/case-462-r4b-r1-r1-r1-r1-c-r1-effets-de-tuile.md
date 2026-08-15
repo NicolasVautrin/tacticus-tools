@@ -81,11 +81,16 @@ l'`AbilityEntities` avant `ShouldTrigger`/`Execute` : aucun test non plus.
 `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` :
 
 ```
-if (!IsAtomic(ability)) {
+if (!ability.get_AllowForDeadOwner()) {                    // ITriggeredAbility slot 8
     if (EntityExtensions$$IsUnit(owner) && !UnitExtensions$$IsAlive(owner)) return false;
 }
 if (EntityExtensions$$IsUnit(owner) && UnitExtensions$$IsTriggersDisabled(owner)) return false;
 ```
+
+⚠ **`IsAtomic` était un FAUX NOM (#10015)** — cette fiche l'écrivait, et il désigne en réalité une
+AUTRE propriété (`ITriggerable` slot 0 = `get_AllowInAtomicMode`), lue par la MÊME fonction quelques
+instructions plus bas sous `IMatchState` slot 22 = `get_InAtomicMode`. Le raisonnement de cette
+section ne change pas d'un iota ; le nom, si. Détail : `docs/rl/case-10015-allow-for-dead-owner.md`.
 
 Les deux gates sont **sous** `IsUnit`. Un porteur qui n'est pas une unité — une tuile — les traverse.
 
@@ -247,20 +252,34 @@ if _owner_gate_applies(entry):          # face ABILITY -> CanGetAbilityTrigger
   radius **mesuré à 27 classes** du registre, dont plusieurs portées par le MOVER (donc atteignables
   dès le premier decoy écrasé) — résidu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r1`, gardé par
   `test_les_quatre_evenements_de_mort_restent_non_emis`.
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r2`** — la face ABILITY **garde** le refus d'un porteur
-  **introuvable**, alors que `IsUnit(null)` est faux et que le natif ne gaterait rien. Divergence
-  **assumée** : le régime est inatteignable par construction
-  (`collect_triggered_abilities` n'instancie que depuis `state.entities`, dont rien n'est jamais
-  retiré ; `collect_global_triggers` pose `owner_is_global`), donc les deux lectures sont
-  observationnellement identiques. Ce que ce `continue` achète : il rend la **discrimination de
-  face** attribuable — forcer `_owner_gate_applies` sur une entrée d'effet la fait tomber **là**, et
-  nulle part ailleurs. C'est l'instrument des contre-épreuves C de ce fichier.
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r3`** — `fire_on_death` sur les **4** classes d'`EffectTrigger`
-  (`PhoenixGemReviveAbility`, `PhoenixGemRemoveMarkerOnRevive`, `PhoenixGemRemoveMarkerOnResurrect`,
-  `RitesOfMorkaiReviveTrigger`) est désormais **inerte** : plus aucun gate à dispenser sur cette face.
-  Non retiré — il documente une intention (`OwnerIsTarget` : le porteur EST le mourant) et son
-  retrait ne changerait aucun comportement. Le retirer exigerait de re-jouer les deux familles de
-  revive pour rien.
+* ~~**`#462-r4b-r1-r1-r1-r1-c-r3-r2`**~~ — **TRANCHÉ (2026-08-15) : ON GARDE, et le `BLOCAGE:
+  porteur` de sa fiche était FAUX.** La divergence est confirmée au décompilé : le corps
+  d'`IdunBattle.Entities.EntityExtensions$$IsUnit` ouvre sur `if (entity == 0) return 0`, donc
+  `CanGetAbilityTrigger` saute ses deux gates et rend VRAI avec `owner = null`. Rien ne manque comme
+  unité confrontable ; le régime est inatteignable par la **construction du modèle d'état du port**,
+  et c'est désormais MESURÉ en quatre constats falsifiables : (a) aucun site d'`engine/**` ne retire
+  d'entrée de `state.entities` (0 occurrence de `entities.pop` / `del …entities[` / `entities.clear()`
+  / réaffectation) ; (b) `collect_triggered_abilities` n'instancie qu'en itérant `state.entities` ;
+  (c) les deux classes de `GLOBAL_TRIGGERS` déclarent bien `owner_is_global = True` — sans quoi
+  `state.get_entity(None)` tomberait ici et les tuerait **en silence** ; (d) `TileEffectTrigger`
+  DÉRIVE d'`EffectTrigger`, donc `_owner_gate_applies` rend faux pour elle. Les quatre constats sont
+  écrits **au site**, avec leur critère. Le `continue` reste l'instrument des contre-épreuves C.
+* ~~**`#462-r4b-r1-r1-r1-r1-c-r3-r3`**~~ — **VÉRIFIÉ DES DEUX CÔTÉS (2026-08-15), et l'énumération
+  de cette fiche était PÉRIMÉE.** *Inertie* : structurelle — `_owner_gate_applies` est le **seul**
+  lecteur de `fire_on_death` de tout `engine/**` et rend faux pour tout `EffectTrigger`,
+  `TileEffectTrigger` comprise. *Load-bearing* : le même montage sur un `TriggeredAbility` doit
+  mordre, et mord. Les deux sont prouvés par **MORSURE** (l'attribut est remplacé par une property
+  qui LÈVE, puis un dispatch est rejoué) et non par lecture — `probe_10015_allow_for_dead_owner.py
+  --inertie`, deux bras : sans le second, le premier serait vert par vacuité.
+  ⚠ **Le régime de lecture est étroit** : l'attribut n'est lu que si l'owner est PRÉSENT, porte un
+  `UnitComponent` et n'est PAS vivant — un owner absent tombe sur le `continue` de `-r3-r2` **avant**
+  toute lecture, si bien qu'un montage naïf ne mord pas et se lirait comme une preuve d'inertie.
+  ⚠ **Et la liste de 4 classes ci-dessus est fausse** : re-dérivée, la face EFFET en compte **6** —
+  `ArmourOfShriekingSoulsResurrectOnRemoved` et `FinalVengeanceUnitEffectTrigger` s'y sont ajoutées
+  sans que la citation bouge. Le cliquet **dérive** l'ensemble (`getattr` sur `EFFECT_TRIGGERS`).
+  ⚠ Enfin, sur `TriggeredAbility` l'attribut mirrore `ITriggeredAbility` slot 8 =
+  `get_AllowForDeadOwner`, **pas** un `IsAtomic` (#10015). Attribut non retiré : il documente
+  `OwnerIsTarget`.
 
 ### 7.5 Validation
 

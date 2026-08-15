@@ -187,11 +187,28 @@ ce qui a fait passer leur confrontation de UNE à DEUX sources et révélé deux
 
 ## Résidus
 
-* **`#937-r1`** — la branche `owner MORT + FinalJustice` du gate `On` est **portée mais
-  inatteignable** : `dispatch/core.py` écarte tout porteur non vivant avant `matches` (mirror de
-  `TriggerTriggeredAbilityOperation$$TriggerAbility` : `if (!IsAtomic(ability)) { if (IsUnit(owner)
-  && !IsAlive(owner)) return 0; }`), et l'attribut `fire_on_death` qui lèverait ce gate mirrore
-  `IsAtomic` — valeur **non lue** pour cette ability.
+* ~~**`#937-r1`**~~ — **RÉSOLU (2026-08-15), et la branche VIT.** L'énoncé disait que
+  `fire_on_death` mirrore `IsAtomic`, « valeur **non lue** pour cette ability » : le nom était
+  FAUX et la valeur est LISIBLE. Le gate de `CanGetAbilityTrigger` appelle
+  `IdunBattle.Entities.Abilities.ITriggeredAbility` **slot 8 = `get_AllowForDeadOwner`** (`IsAtomic`
+  désigne une AUTRE propriété, `ITriggerable` slot 0 = `get_AllowInAtomicMode`). Et
+  `SynapticLinchpinAbility` **surcharge** cette propriété — slot 22 de sa vtable, `flags=0x08c6`,
+  pas de `NewSlot` — avec un corps `b0 01 c3` = `mov al,1 ; ret` = **VRAI**, le **même** que
+  `FinalJusticeAbility$$get_AllowForDeadOwner`. Le corps étant trivial donc DÉDUPLIQUÉ, il est
+  absent des deux tables : la RVA se résout par le TOKEN (`Il2CppCodeGenModule.methodPointers`,
+  414/414 couples de contrôle relus justes). **Correctif** : `fire_on_death = True`. **Garde** :
+  `tests/engine/runner/test_937r1_synaptic_linchpin_porteur_mort_offline.py` (8 bras ; contre-épreuve
+  jouée : `False` ⇒ 2 bras indépendants rougissent). Méthode et chiffres :
+  `docs/rl/case-10015-allow-for-dead-owner.md`.
+* **`#937-r2`** — la branche n'est pas **confrontée LIVE**. ⚠ Le montage a une contrainte non
+  évidente : `FinalJusticeAbility.matches` refuse sur `ev.overkill`, et l'overkill natif est
+  `dmg >= 2*PV` — le coup fatal doit donc tomber dans `PV_restants <= dmg < 2*PV_restants`, si bien
+  qu'**user le Prime par attrition fait échouer le montage** (à faible PV restant, tout coup
+  overkille). Recette : `catalog_inject.write_trait_seed_bc(out, ["tyranWingedPrime:FinalJustice"])`
+  puis `rl_duel build --seed-bc <out> --board MC1_67 --a-units tyranWingedPrime,… --p-units <tueur>,…`
+  — mettre le Prime du côté **adverse** rend le coup fatal pilotable par `applyAction` au lieu de
+  dépendre de l'IA. Attendu : un `tyranSmnHormagaunt` apparaît alors que le Prime est mort.
+  Contre-épreuve obligatoire : le même montage **sans** `FinalJustice` ne doit rien spawner.
 * **`ignoreForcedTargets: 0`** du `First` natif : aucune contrepartie portée. Le `First(source,
   index=0)` du port est un `PickAtIndexSelector` ; il rend le **même** singleton que le
   `First(source, amount=1)` natif — écart de **citation**, pas de valeur, tant que `amount == 1`.

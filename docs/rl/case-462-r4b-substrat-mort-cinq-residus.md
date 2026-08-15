@@ -87,9 +87,32 @@ tuile »). Elle est corrigée.
 `Ambush_SummonAbility$$GetSummonBehaviour` — l'endroit où le port l'écrit — ne l'écrit **pas** : son
 arbre est `If(NOT <trigger>, Spawn(owner@0x30, PickRandomly(FreeTilesOrAdjacentFreeTiles(Tiles(
 target))), <stringConst 8>, ForSteppable+AddEffect))`. Et `KillUnitOperation$$Execute` n'écrit que
-`+0x178` et `+0x17a`. L'écrivain natif de `+0x17c` **n'est pas identifié** — ce qui n'est pas une
-preuve d'absence : l'index de code de ghidra-mcp couvre **65 000** fonctions sur les ~121 500 de
-`frida/methods.tsv`. Résidu `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`.
+`+0x178` et `+0x17a`.
+
+⚠ **L'ÉCRIVAIN EST IDENTIFIÉ (2026-08-15) : `IdunBattle.Operations.RemoveUnitOperation$$Execute+0x4f6`.**
+Il écrit `uc->[0x17c] = TurnComponent$$GetAmountOfTurnsStartedByPlayer(GetMatchTurn(state),
+ownerPlayerId)` puis `uc->[0x180] = 1`, juste après `UnitFlagsComponent$$Add(unit, 0x1a = Removed)`.
+`runner/operations/remove_unit.py` le **documentait déjà** en étape 10 : seule sa justification de
+non-portage (« aucun consommateur porté ne la lit ») était fausse — `genestealer.py::_eligible_for_resurrect`
+la lit. Étape 10 désormais **portée**.
+
+**Ce qui avait fait échouer la recherche, et la parade** : elle interrogeait l'index de code de
+ghidra-mcp — partiel, puis **supprimé** (`code_indexed: False` sur `t6dpr4k06g`) — et lisait son
+absence comme une absence d'écrivain. Le balayage qui tranche ne cherche pas un TEXTE de pseudo-C
+mais l'**encodage x86-64** : un `disp32` littéral `7c 01 00 00` précédé d'un ModRM `mod=10` (SIB géré,
+base `rsp`/`r12` écartée = variable locale), dans **les deux sections de code** — `.text` seul rend 0
+sur un binaire IL2CPP, le code AOT vit dans `il2cpp`. Résultat : **220 accès, 66 écritures**, dont **3**
+sur un `UnitComponent` (`$$.ctor+0x133` init, `$$Copy+0x582` recopie, `RemoveUnitOperation$$Execute+0x4f6`).
+Aucun hit n'est tu : les opcodes non classés sortent avec leur propriétaire.
+
+⚠ **Valeur initiale = `-1`** (`c7 87 7c 01 00 00 ff ff ff ff`), une sentinelle : une unité jamais
+RETIRÉE ne peut satisfaire aucun `Difference(CurrentPlayerTurnsStarted, TurnDefeated) == 1`. La
+prémisse **P2** est donc vraie, et pour une raison **positive**.
+
+⚠ **Et la pose côté port reste une COMPENSATION, désormais chiffrée** : `KillUnitOperation$$Execute`
+n'appelle **jamais** `IOperationProcessor` slot 6 = `RemoveUnit` (ses appels sur cette interface sont
+les slots 77, 80, 85, 99, 130, 143) — une unité **tuée** n'atteint pas l'écrivain. Résidu ré-ouvert
+sur ce point : `#10015-r2`. Détail : `docs/rl/case-10015-allow-for-dead-owner.md`.
 
 ---
 
@@ -182,9 +205,16 @@ l'entité à la mort ? ». La réponse se lit **un cran plus bas**, et elle est 
 `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` :
 
 ```
-if (!IsAtomic(ability)) { if (IsUnit(owner) && !IsAlive(owner))  return 0; }
+if (!ability.get_AllowForDeadOwner()) {                          // ITriggeredAbility slot 8
+    if (IsUnit(owner) && !IsAlive(owner))                        return 0; }
 if (IsUnit(owner) && IsTriggersDisabled(owner))                  return 0;
 ```
+
+⚠ **Cette fiche écrivait `IsAtomic(ability)` — FAUX NOM (#10015).** La dispense est
+`ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` ; `IsAtomic` désigne une AUTRE propriété
+(`ITriggerable` slot 0 = `get_AllowInAtomicMode`), lue par la MÊME fonction quelques instructions
+plus bas. Le raisonnement structurel ci-dessous **tient mot pour mot** avec le bon nom — mais le
+recensement qui en découle, lui, a été révisé (cf. `#462-…-r3-r1-r2-r1` §9).
 
 Si le cache retirait les morts, **ce gate ET son exemption seraient tous deux inatteignables** — la
 branche atomique n'existe QUE pour laisser passer un owner MORT. ⇒ le cache **conserve** les entités
@@ -315,15 +345,21 @@ d'armure du défenseur, pas par confort.
 
 ## 9. Résidus ouverts
 
-* **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`** — **l'écrivain natif de `UnitComponent+0x17c`
-  (`TurnDefeated`) n'est pas identifié.** `KillUnitOperation$$Execute` n'écrit que `+0x178`/`+0x17a` ;
-  `Ambush_SummonAbility$$GetSummonBehaviour` — où le port l'écrit — ne l'écrit pas. Absence NON
-  concluante : l'index de code couvre 65 000 fonctions sur ~121 500. Tant qu'il n'est pas trouvé, la
-  pose côté port reste une compensation, et la prémisse **P2** de la loi de ventilation
-  (`#462-…-r3-r1` §2 : « aucun chargement ne seede `turn_defeated` ») en dépend.
+* ~~**`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`**~~ — **RÉSOLU (2026-08-15)** : l'écrivain est
+  `IdunBattle.Operations.RemoveUnitOperation$$Execute+0x4f6`, étape 10 désormais **portée** (cf. §1).
+  La prémisse **P2** est confirmée VRAIE, et positivement : `TurnDefeated` naît à `-1`. Ce qui reste
+  ouvert est la chaîne native qui retire une unité **tuée** — `#10015-r2`.
 * **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r1-r1`** — **la face DÉCISION du substrat `unit_state` n'est
   pas ventilée** (~30 appelants de `Scene.effects` sous `playbook/`).
 * **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1`** — **le seul porteur Ambush du plateau peut être un
-  cadavre-au-chargement**, et le port ne l'inscrit alors à aucun registre : `EnvAmbushResurrect` ne
-  fire pas du tout, là où le natif l'évalue (atomique). Sans conséquence tant que `turn_defeated`
-  reste non seedé — donc **couplé au résidu ci-dessus**.
+  cadavre-au-chargement**, et le port ne l'inscrit alors à aucun registre.
+  ⚠ **RÉ-ÉNONCÉ (2026-08-15) : « là où le natif l'évalue (atomique) » est FAUX.**
+  `EnvAmbushResurrectAbility` ne déclare **pas** `get_AllowForDeadOwner` (sa table de méthodes ne
+  porte que `CreateTrigger`, `CreateBehaviour`, `GetValidDecoys`, `GetUnitsEligibleForResurrect`,
+  `GetIsAlliedWithCurrentPlayerUnitTrigger`, `GetIsCurrentPlayerUnitTrigger`, `.ctor`) : elle
+  **hérite** celle de `BaseTriggeredAbility`, dont le corps rend **FAUX** (`32 c0 c3`). Si son owner
+  natif était une unité, le natif gaterait le cadavre dehors **comme le port** — et c'est le port qui
+  serait trop permissif (il déclare `fire_on_death = True`). La question devient donc **l'identité de
+  l'owner** : `Env*Ability` est une famille de **25** classes d'environnement, `EnvAmbushResurrect`
+  n'apparaît **nulle part** dans le gameconfig (0 occurrence), et son `CreateTrigger` ne porte
+  **aucun** prédicat d'owner. `BLOCAGE: etage`. Détail : `docs/rl/case-10015-allow-for-dead-owner.md` §5.
