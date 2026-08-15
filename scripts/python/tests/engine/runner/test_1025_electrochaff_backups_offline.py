@@ -39,7 +39,9 @@ if str(PYDIR) not in sys.path:
 
 import pytest                                                              # noqa: E402
 
+import gameconfig as GC                                                    # noqa: E402
 import hexgeo                                                              # noqa: E402
+from engine.entities.active_ability_type import ActiveAbilityType          # noqa: E402
 from engine.entities.effect_type import EffectType                         # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType    # noqa: E402
 from engine.runner.abilities.base import convert_rounds_to_turns           # noqa: E402
@@ -145,11 +147,13 @@ def _ev_markerlight(target_id, effect_type=None, source_id=OWNER_ID):
                         triggering_effect=(MARKERLIGHT if effect_type is None else effect_type))
 
 
-def _ev_damage(target_id, source_id=ENEMY_NEAR_ID):
+def _ev_damage(target_id, source_id=ENEMY_NEAR_ID, ability_type=None):
     """Le `TriggerEvent` que publie `dispatch/attack.damage_taken_triggers` : `actor` = la source
-    du degat, `target` = la VICTIME. `ability_type` n'y est PAS threade (cf. `#1025-r2`)."""
+    du degat, `target` = la VICTIME, `ability_type` = le canal `AbilityEntities+0x60`
+    (`CurrentAbility`), threade depuis `#1025-r2`. `None` = degat dont la `DamageSource` ne porte
+    pas d'`AbilityOrEffect` (attaque normale concrete), c.-a-d. la branche `Normal(3)` du slot 3."""
     return TriggerEvent(int(EventTriggerType.DamageTaken), source_id, target_id,
-                        ranged=False, profile=None)
+                        ranged=False, profile=None, ability_type=ability_type)
 
 
 def _has_1446(state, uid):
@@ -366,14 +370,53 @@ def test_branche_degat_ranged_pose_l_effet():
 
 
 def test_branche_degat_refuse_le_corps_a_corps():
-    """`IsRangedAttack()` -- sur ce vecteur le port lit la branche << attaque normale concrete >>
-    du slot 3 (`!AreEntitiesAdjacent`), faute d'`ability_type` threade (`#1025-r2`). Cible
+    """`IsRangedAttack()` sur une attaque NORMALE concrete : elle n'a pas d'entree nommee au
+    gameconfig, donc le slot 3 prend la branche `Normal(3)` = `!AreEntitiesAdjacent`. Cible
     ADJACENTE de son agresseur -> refus. Bras POSITIF juste au-dessus."""
     st = _state()
     ab = ElectrochaffBackupsOnRangedDamageAbility(OWNER_ID)
     # ENEMY_NEAR (4,3) frappe ENEMY_FAR (4,4) : ils sont hex-adjacents.
     assert hexgeo.distance((4, 3), (4, 4)) == 1, "montage : les deux tuiles doivent etre adjacentes"
     assert ab.matches(st, _ev_damage(ENEMY_FAR_ID, source_id=ENEMY_NEAR_ID)) is False
+
+
+def test_branche_degat_accepte_une_ability_Ranged_AU_CONTACT():
+    """#1025-r2 -- LE REGIME QUE LE PORT REFUSAIT, ET IL EST LE SEUL OU LE CANAL CHANGE LE VERDICT.
+
+    `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` (slot 3) rend VRAI **sans lire aucune
+    position** des que `GetAbilityAttackRangeType(ability) == Ranged(2)` -- c'est la branche
+    `case 2: return true;`, INCONDITIONNELLE. Une attaque d'ABILITY declaree `Ranged` portee sur une
+    cible ADJACENTE est donc une attaque a distance pour le natif.
+
+    Le port l'ignorait faute de canal : `damage_taken_triggers` construisait son `TriggerEvent` avec
+    `ability_type = None`, donc `_is_ranged_attack` retombait sur `Normal(3)` = `!AreEntitiesAdjacent`
+    et REFUSAIT. Degradation RESTRICTIVE, fermee par le threading de `source_ability`
+    (`AbilityEntities+0x60`, le MEME `AbilityEntities` que celui d'`On(0x39)` -- une seule
+    construction pour les trois publications d'`ApplyDamageOperation$$Execute`).
+
+    Le montage est le MEME que le bras negatif ci-dessus (les deux tuiles restent ADJACENTES) : seul
+    le canal change. C'est ce qui fait de ce couple une mesure et non deux montages differents."""
+    st = _state()
+    ab = ElectrochaffBackupsOnRangedDamageAbility(OWNER_ID)
+    assert hexgeo.distance((4, 3), (4, 4)) == 1, "montage : les deux tuiles DOIVENT rester adjacentes"
+    # `1161 TwinSmartMissileSystem` : `attackRangeType = 'Ranged'` LU au gameconfig, jamais code ici.
+    ranged_ability = int(ActiveAbilityType.TwinSmartMissileSystem)
+    assert (GC.ability(GC.ability_name(ranged_ability)) or {}).get("attackRangeType") == "Ranged", (
+        "montage PERIME : l'ability temoin n'est plus declaree `Ranged` au gameconfig")
+    ev = _ev_damage(ENEMY_FAR_ID, source_id=ENEMY_NEAR_ID, ability_type=ranged_ability)
+    assert ab.matches(st, ev) is True, (
+        "le port refuse une attaque d'ability `Ranged` au CONTACT, que le natif accepte sans lire "
+        "la position (#1025-r2)")
+    # CONTRE-EPREUVE : une ability declaree `Melee` au MEME endroit reste refusee -- sinon le canal
+    # serait devenu un passe-droit au lieu d'un discriminant. L'ability temoin est DERIVEE du
+    # gameconfig (le premier membre d'enum dont `attackRangeType` vaut `Melee`), jamais nommee en dur.
+    melee_id = next((int(m) for m in ActiveAbilityType
+                     if (GC.ability(m.name) or {}).get("attackRangeType") == "Melee"), None)
+    assert melee_id is not None, (
+        "aucune ability `attackRangeType: Melee` n'a de membre `ActiveAbilityType` -- "
+        "contre-epreuve VIDE, l'assertion positive ne prouverait plus la discrimination")
+    assert ab.matches(st, _ev_damage(ENEMY_FAR_ID, source_id=ENEMY_NEAR_ID,
+                                     ability_type=melee_id)) is False
 
 
 def test_branche_degat_ne_lit_pas_le_declencheur_d_effet():

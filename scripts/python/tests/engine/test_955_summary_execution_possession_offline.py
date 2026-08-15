@@ -284,6 +284,52 @@ def test_l_arbre_de_possession_bifurque_sur_l_ordinal_ET_la_constante():
     assert (ranged.unit_id_constant, ranged.stat_key_suffix) == ("unitId_2", "_2")
 
 
+def test_955r1_le_gate_ItsGonnaBlow_lit_le_canal_0x98_et_MORD():
+    """#955-r1 -- LE CANAL ETAIT LE MAUVAIS, PAS ABSENT.
+
+    `IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs` prend le slot `DSLSelectors+0x90`
+    -> `AbilityTypeSelector.TriggeringAbilitySelector$$Select`, qui lit `AbilityEntities+0x98`.
+    Sur le vecteur MORT, `IdunBattle.Operations.KillUnitOperation$$Execute` y recopie les 0x1c
+    octets de `KillUnitOptions+0x04` (le `killTrigger` de la file) -- le champ n'y est donc PAS
+    vide. C'est `CurrentAbility@+0x60` que son `memset(.., 0x128)` laisse a zero, et c'est LUI que
+    le port lisait (`ev.triggering_ability`) : le gate etait STRUCTURELLEMENT inerte, la premisse
+    << le vecteur MORT ne seede aucune ability declenchante >> etant fausse.
+
+    Cote port, `+0x98` sur ce vecteur EST `state.trigger_ability_type`, pose par
+    `damage.py::_verify_deaths` le temps du drain (#301). Les deux bras :
+      * `trigger_ability_type == 1080` -> le gate REFUSE (c'est la morsure qui n'existait pas) ;
+      * `triggering_ability == 1080` seul -> le gate LAISSE PASSER (le natif ne lit pas ce canal).
+    Le second bras est la contre-epreuve : sans lui, un port qui lirait LES DEUX passerait."""
+    from types import SimpleNamespace
+    from engine.dsl.event_trigger_type import EventTriggerType
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.runner.operations.triggers.loki.possession import PossessionSummonOnKillAbility
+
+    ab = PossessionSummonOnKillAbility(1)
+    vus: list = []
+
+    def _ev(trig_98, trig_60):
+        st = SimpleNamespace(trigger_ability_type=trig_98, entities={},
+                             get_entity=lambda _u: None)
+        ev = TriggerEvent(int(EventTriggerType.PostUnitKill), 1, 2, ranged=False, profile=None,
+                          dying_id=2, triggering_ability=trig_60)
+        vus.append(ab.matches(st, ev))
+
+    igb = int(TriggeredAbilityType.ItsGonnaBlow)
+    _ev(igb, None)          # `+0x98` = ItsGonnaBlow  -> REFUS par le gate, avant tout autre conjoint
+    _ev(None, igb)          # `+0x60` = ItsGonnaBlow  -> le natif ne le lit pas : le gate LAISSE PASSER
+    assert vus[0] is False, (
+        "le gate ne MORD PAS sur `state.trigger_ability_type` : il lit encore un canal que "
+        "`KillUnitOperation` laisse a zero (#955-r1)")
+    # Le second bras s'arrete plus loin (entites absentes -> False) : ce qu'on garde ici est que le
+    # REFUS du premier bras vient du gate lui-meme. On le prouve en supprimant SA cause.
+    _ev(None, None)
+    assert vus[1] == vus[2], (
+        "le canal `+0x60` change le verdict alors que le natif ne le lit pas sur ce vecteur -- "
+        "le port lit LES DEUX, donc le gate refuserait des kills que le natif accepte")
+
+
 def test_les_deux_summons_de_possession_sont_ceux_du_gameconfig():
     """Les deux `GetStringConstant(cfg, 0 | 4)`, et les DEUX jeux de stats qu'ils lisent."""
     import gameconfig as GC
