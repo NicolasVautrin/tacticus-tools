@@ -83,15 +83,29 @@ def lire_slot4_tsv() -> list[dict]:
     return out
 
 
+def noyau(nom: str) -> str:
+    """Le nom de classe DEPOUILLE de ses suffixes de famille -- l'appariement binaire <-> port.
+
+    ⚠ Un appariement par nom PLEIN rend un FAUX MANQUANT : le binaire porte
+    `VoltagheistFieldPlaybook` (sans `NonOwner`) la ou le port a nomme sa classe
+    `VoltagheistFieldNonOwnerPlaybook` pour la ranger dans sa face. Mesure : sans ce depouillement,
+    l'etape 0 annonce `REPAIR ... RESTE 1` alors que le corps EST porte depuis #271-r7. C'est
+    exactement la forme de faux compte que ce probe existe pour ne plus produire."""
+    for suffixe in ("NonOwnerPlaybook", "Playbook"):
+        while nom.endswith(suffixe):
+            nom = nom[: -len(suffixe)]
+    return nom
+
+
 def classes_portees() -> dict[str, set]:
-    """Les noms de classe REELLEMENT au registre, par face. Derive des trois registres, jamais
+    """Les NOYAUX de classe REELLEMENT au registre, par face. Derive des trois registres, jamais
     ecrit : c'est ce qui fait qu'un port livre demain ferme automatiquement une ligne ici."""
     from engine.playbook import non_owner as NO
     from engine.playbook import non_owner_attack as NOA
     from engine.playbook import non_owner_repair as NOR
-    return {"MOVE": {type(pb).__name__ for pb in NO.NON_OWNER_MOVE_PLAYBOOKS.values()},
-            "ATTACK": {type(pb).__name__ for pb in NOA.NON_OWNER_ATTACK_PLAYBOOKS.values()},
-            "REPAIR": {type(pb).__name__ for pb in NOR.NON_OWNER_REPAIR_PLAYBOOKS.values()}}
+    return {"MOVE": {noyau(type(pb).__name__) for pb in NO.NON_OWNER_MOVE_PLAYBOOKS.values()},
+            "ATTACK": {noyau(type(pb).__name__) for pb in NOA.NON_OWNER_ATTACK_PLAYBOOKS.values()},
+            "REPAIR": {noyau(type(pb).__name__) for pb in NOR.NON_OWNER_REPAIR_PLAYBOOKS.values()}}
 
 
 #: Les classes PORTEES mais VOLONTAIREMENT hors registre, avec la raison MESUREE. Une classe qui
@@ -111,25 +125,25 @@ def etape0():
         par_face.setdefault(r["face"], []).append(r["classe"])
     print("ETAPE 0 -- ventilation des %d concrets (source : metadata/non_owner_slot4.tsv, build %s)"
           % (len(tsv), _build_courant()))
+    hors_reg = {noyau(n) for n in PORTEES_HORS_REGISTRE}
     restantes = {}
     for face in ("MOVE", "ATTACK", "REPAIR"):
-        toutes = set(par_face.get(face, ()))
-        vues = portees[face] | (set(PORTEES_HORS_REGISTRE) & toutes)
-        manque = sorted(toutes - vues)
+        toutes = {noyau(c) for c in par_face.get(face, ())}
+        plein = {noyau(c): c for c in par_face.get(face, ())}
+        vues = portees[face] | (hors_reg & toutes)
+        manque = sorted(plein[k] for k in (toutes - vues))
         restantes[face] = manque
         print("  %-7s %2d concrets | %2d portes (%d au registre, %d hors registre) | RESTE %d"
               % (face, len(toutes), len(vues), len(portees[face] & toutes),
-                 len(set(PORTEES_HORS_REGISTRE) & toutes), len(manque)))
+                 len(hors_reg & toutes), len(manque)))
         for c in manque:
             print("      RESTE : %s" % c)
     # Un nom porte qui ne serait dans AUCUNE face du binaire = un port oriente vers du vide.
-    connues = {r["classe"] for r in tsv}
+    connues = {noyau(r["classe"]) for r in tsv}
     for face, noms in portees.items():
-        orphelines = sorted(n for n in noms
-                            if n not in connues and n.replace("NonOwnerPlaybook", "Playbook")
-                            not in connues)
+        orphelines = sorted(n for n in noms if n not in connues)
         if orphelines:
-            print("  ⚠ portees SANS entree binaire (%s) : %r" % (face, orphelines))
+            print("  ATTENTION portees SANS entree binaire (%s) : %r" % (face, orphelines))
     return restantes
 
 
@@ -156,7 +170,7 @@ def porteurs_par_voie(nom_ability: str) -> dict[str, list[str]]:
     que de re-lire le gameconfig a la main : un second recenseur divergerait du premier."""
     import unit_map as UM
     out = {}
-    for k in UM.kits():
+    for k in UM.all_kits():
         for v in UM.carrier_voies(k, nom_ability.lower()):
             out.setdefault(v, []).append(k["id"])
     return out
@@ -299,9 +313,65 @@ def etape4():
     print("     octets (owner a +0x18). Deux manques MESURES, aucun n'est la rarete :")
     print("     (a) le `visualId` du MOVER n'est publie par aucun `*_leaf_ctx` (etape 3) ;")
     print("     (b) l'evaluateur DSL ne se branche pas sur le dict `tile_leaf_ctx`.")
-    print("  ⚠ `UtilityMovementCase$$StaysOnTile`, que la fiche citait comme canal manquant, EST")
-    print("     disponible : son corps est `GetMainTile(case.unit) == case.Position.MainTile`,")
-    print("     c'est-a-dire `tile == ctx['self_pos']`. Cette moitie de la fiche est PERIMEE.")
+    print("  ATTENTION `UtilityMovementCase$$StaysOnTile`, que la fiche citait comme canal")
+    print("     manquant, EST disponible : son corps est")
+    print("     `GetMainTile(case.unit) == case.Position.MainTile`, c'est-a-dire")
+    print("     `tile == ctx['self_pos']`. Cette moitie de la fiche est PERIMEE.")
+
+
+# ---------------------------------------------------------------------------------------------
+# ETAGE 5 -- le RAYON DE SOUFFLE du geste manquant, mesure sur les corps DEJA portes
+# ---------------------------------------------------------------------------------------------
+def etape5():
+    """Le geste qui debloque les quatre corps est d'ELARGIR l'univers de porteurs aux MoW (le
+    pendant exact de ce que `#999-r3-r1-r1` a fait pour les deux agregateurs d'aura). Sa question
+    de surete n'est PAS << est-ce lisible ? >> mais << les corps DEJA portes se taisent-ils sur un
+    porteur SANS position ? >>. On le MESURE au lieu de l'affirmer : chaque corps du registre est
+    appele avec un `owner` prive de `pos`, et on compte ceux qui versent quand meme."""
+    from engine import weights as W
+    from engine.playbook import non_owner as NO
+    print("\nETAPE 5 -- rayon de souffle : les corps PORTES se taisent-ils sur un porteur SANS pos ?")
+    wt = W.load()
+    ctx = {"is_spawning": False,
+           "uid": 1, "self_pos": (0, 0),
+           "unit_traits": tuple(range(0, 3000)),      # tous les traits : aucun gate de trait ne coupe
+           "unit_faction": 10,                        # DarkAngels : ne coupe pas non plus
+           "unit_parent_id": 2,
+           "elev_by_pos": {p: 1 for p in POS},
+           "neigh_by_pos": {p: _voisins(p) for p in POS},
+           "walkable_by_pos": {p: True for p in POS},
+           "friend_units": [], "enemy_units": [], "friend_positions": []}
+    # PORTEUR SANS `pos` -- exactement ce qu'une MoW rendrait si le dispatcher la yieldait.
+    owner = {"id": 2, "vis": "thousDaemonPrince", "triggered": (), "active": (),
+             "traits": (), "effects": (), "parent": None}
+    bavards = []
+    for aid, pb in sorted(NO.NON_OWNER_MOVE_PLAYBOOKS.items()):
+        try:
+            v = pb.calculate_movement_utility_in_steps((1, 0), owner, True, ctx, wt)
+        except Exception as exc:                      # un corps qui LEVE est aussi un rayon
+            bavards.append((type(pb).__name__, "LEVE %s" % type(exc).__name__))
+            continue
+        if v:
+            bavards.append((type(pb).__name__, "verse %r" % v))
+    print("  corps MOVE au registre : %d" % len(NO.NON_OWNER_MOVE_PLAYBOOKS))
+    print("  corps qui VERSENT ou LEVENT sur un porteur sans position : %d" % len(bavards))
+    from engine.entities.triggered_ability_type import TriggeredAbilityType as T
+    for nom, quoi in bavards:
+        aid = next((a for a, pb in NO.NON_OWNER_MOVE_PLAYBOOKS.items()
+                    if type(pb).__name__ == nom), None)
+        ab = T(aid).name if aid is not None else "?"
+        voies = porteurs_par_voie(ab) if aid is not None else {}
+        mow = VOIE_MOW in voies
+        print("      %-42s %s | ability %s | portee par une MoW : %s"
+              % (nom, quoi, ab, "OUI" if mow else "NON"))
+        if not mow:
+            print("          -> rayon REEL nul : aucune MoW ne porte cette ability, donc le")
+            print("             dispatcher elargi ne lui presenterait jamais un porteur sans pos.")
+    if not bavards:
+        print("  => l'elargissement de l'univers aux MoW est INERTE pour les corps deja portes :")
+        print("     ils lisent tous `owner['pos']` et rendent 0 quand il manque. Le geste est donc")
+        print("     BORNE au dispatcher, il ne redistribue aucun terme existant.")
+    return bavards
 
 
 def main() -> int:
@@ -310,7 +380,9 @@ def main() -> int:
     mow_dans_univers = etape2()
     etape3()
     etape4()
+    bavards = etape5()
     print("\n--- SYNTHESE ---")
+    print("corps deja portes qui reagiraient a l'elargissement de l'univers : %d" % len(bavards))
     bloques_mow = sorted(c for c, v in verdicts.items() if v["porteur_mow"])
     print("corps restants a porteur MACHINE OF WAR : %d -> %r" % (len(bloques_mow), bloques_mow))
     print("la MoW entre dans l'univers de porteurs du dispatcher : %s"
