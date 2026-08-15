@@ -40,8 +40,9 @@ donnees et repond a deux questions distinctes :
           exactement le profil du defunt `dsl-vocabulary-catalog.md` -- estampille
           d'un build anterieur, sans bandeau, lu comme a jour. Priorite HAUTE.
 
-  (2) ESTAMPILLES DE BUILD -- un hash de build (forme `[a-z0-9]{8}6c`) different du
-      contenu de `data/symbols/CURRENT`. Distingue :
+  (2) ESTAMPILLES DE BUILD -- un hash de build (reconnu par `build_hash`, qui DERIVE la
+      liste des builds de l'arbre au lieu d'epingler une forme) different du contenu de
+      `data/symbols/CURRENT`. Distingue :
         - EN-TETE  : le hash apparait dans les `--stamp-lines` premieres lignes, ou
                      sur une ligne qui le DECLARE (`build: x`, `build **x**`, ...).
                      C'est l'estampille du document -- perimee, elle fait lire tout
@@ -66,19 +67,35 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+if str(REPO / "scripts" / "python") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts" / "python"))
+
+import build_hash  # noqa: E402
+
 SYMBOLS_DIR = REPO / "data" / "symbols"
 IMAGE_BASE = 0x180000000
 
 # Meme regex que probe_va_in_code_vs_prose.py -- les deux comptes doivent etre comparables.
 VA_RE = re.compile(r"(?<![0-9a-fA-Fx])(?:0x|@)(18[0-9a-fA-F]{7})(?![0-9a-fA-F])")
 
-# Hash de build Tacticus : 10 caracteres, suffixe de plateforme `6c`.
-# Observes : nb3o9lmt6c, uu2fr8mv6c, kqkbjqfb6c, rmvdp0v56c, gqfc5mff6c, rnca9r7q6c.
-BUILD_RE = re.compile(r"(?<![a-z0-9])([a-z0-9]{8}6c)(?![a-z0-9])")
+# LA CIBLE DU RECENSEUR -- DERIVEE DE L'ARBRE, PLUS JAMAIS ECRITE ICI (#330-r3).
+#
+# Ce module portait `r"(?<![a-z0-9])([a-z0-9]{8}6c)(?![a-z0-9])"`, et `DECLARES_RE` la MEME forme
+# une seconde fois. Le suffixe `6c` etait une REGULARITE des six premiers builds observes, pas une
+# regle : `BUILD_RE.search(current_build())` rendait `None` sur `t6dpr4k06g`. Mesure du
+# 2026-08-15, sur le seul perimetre de ce probe (`docs` + `.claude`, `.md/.txt/.tsv`) :
+# 60 occurrences du build courant invisibles, dans 17 fichiers -- dont les trois `.tsv` de
+# `docs/rl/dsl-usage/`, qui n'ont aucune autre garde que leur estampille.
+#
+# La forme se DERIVE (`build_hash` : tables versionnees, `CURRENT`, position de chemin,
+# installation locale) et `build_hash.verifier_la_forme()` REFUSE si un build connu lui echappe.
+BUILD_RE = build_hash.build_re()
 
-# Une ligne qui DECLARE le build de reference du document, ou qu'elle se trouve.
+# Une ligne qui DECLARE le build de reference du document, ou qu'elle se trouve. Le hash y est le
+# MEME motif derive -- les porter separement, c'etait garantir qu'ils divergent (ils avaient
+# diverge : la doctrine du depot a corrige `build-pin.ts` sans voir ces deux-ci).
 DECLARES_RE = re.compile(
-    r"(build|dump|binaire|binary|symbols?|table)\b[^\n]{0,40}?(?<![a-z0-9])[a-z0-9]{8}6c",
+    r"(build|dump|binaire|binary|symbols?|table)\b[^\n]{0,40}?" + BUILD_RE.pattern,
     re.IGNORECASE,
 )
 
@@ -249,6 +266,18 @@ def main() -> int:
     print("build courant (data/symbols/CURRENT) : %s" % current)
     print("tables chargees : %s" % ", ".join([current] + [t.build for t in olds]))
     print("racines : %s" % ", ".join(args.roots))
+    # LA CIBLE DU RECENSEUR, DITE AVANT TOUT COMPTE (#330-r3) : ce probe a compte 2 903
+    # occurrences pendant qu'il en ratait 176 -- celles du build COURANT. Un recenseur qui ne
+    # dit pas ce qu'il cherche laisse lire ses zeros comme des mesures.
+    try:
+        rap = build_hash.verifier_la_forme()
+        forme_refusee = ""
+    except build_hash.FormeRefusee as exc:
+        rap = build_hash.rapport_des_sources()
+        forme_refusee = str(exc)
+    build_hash.imprimer_les_sources(rap)
+    if forme_refusee:
+        print("  !! FORME REFUSEE -- %s" % forme_refusee.replace("\n", "\n     "))
     print("")
 
     files = list(iter_prose_files(args.roots, args.exclude))
@@ -266,12 +295,18 @@ def main() -> int:
     body_stamp_hashes = Counter()
     files_with_va = set()
     files_with_header_stamp = set()
+    candidats = Counter()
+    connus = set(rap["connus"])
 
     for path, rel in files:
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        # INVENTAIRE (non bloquant) : les jetons de la FORME d'un hash qu'aucun build connu ne
+        # porte. Seul canal par lequel un build NEUF peut se signaler avant d'avoir une table ou
+        # un chemin -- et BRUYANT par construction, donc il ne decide rien (cf. build_hash).
+        candidats.update(build_hash.candidats_de_forme(text, connus))
         fam = family(rel)
         lines = text.splitlines()
         for lineno, line in enumerate(lines, 1):
@@ -404,6 +439,24 @@ def main() -> int:
         print("    hash %s : %d mention(s)" % (h, n))
     print("")
 
+    print("=== (3) JETONS DE LA FORME D'UN HASH, qu'AUCUN build connu ne porte (inventaire) ===")
+    print("Ce canal ne decide RIEN, et c'est mesure : la forme generique seule rend %d jeton(s)"
+          % len(candidats))
+    print("distinct(s) sur cette prose, pour %d build(s) reel(s). Le critere qui discrimine est la"
+          % len(connus))
+    print("POSITION (`games|dumps|symbols/<x>`), pas la forme. Il existe pour qu'un build NEUF")
+    print("puisse se signaler avant d'avoir une table ou un chemin.")
+    print("  jetons : %d distinct(s), %d occurrence(s)" % (len(candidats), sum(candidats.values())))
+    for h, n in candidats.most_common(args.top):
+        print("    %-14s %d" % (h, n))
+    if len(candidats) > args.top:
+        print("    ... et %d autre(s) jeton(s)" % (len(candidats) - args.top))
+    print("")
+
+    if args.fail_on_header_stamp and forme_refusee:
+        print("CLIQUET ROUGE : la FORME du hash de build ne reconnait plus un build CONNU.")
+        print("  %s" % forme_refusee.replace("\n", "\n  "))
+        return 1
     if args.fail_on_header_stamp and header_stamps:
         print("CLIQUET ROUGE : %d estampille(s) d'en-tete perimee(s) -- un lecteur lira ce document"
               % len(header_stamps))
