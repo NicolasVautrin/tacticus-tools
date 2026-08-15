@@ -55,8 +55,54 @@ ANCRES_TYPES = (
     ("IdunBattle.Core", "MatchState"),
 )
 TSV_REL = ("metadata", "can_be_immune_to.tsv")
-#: les deux corps triviaux, DESIGNES PAR LEURS OCTETS. `mov al,1 ; ret` / `xor eax,eax ; ret`.
+#: les deux corps triviaux, DESIGNES PAR LEURS OCTETS. `mov al,1 ; ret` / `xor al,al ; ret`.
 OCTETS_VRAI, OCTETS_FAUX = "b0 01 c3", "32 c0 c3"
+#: combien d'octets on lit d'un corps constant. 3 suffisent a un BOOLEEN, pas a un ENTIER :
+#: `mov eax, imm32 ; ret` en occupe SIX. On en lit 8 et chaque decodeur decoupe ce qu'il sait lire.
+OCTETS_LUS = 8
+
+
+def decoder_booleen(oct8: str) -> tuple[object, str]:
+    """`(True|False|None, libelle)` -- le decodeur HISTORIQUE, celui de `get_CanBeImmuneTo`."""
+    if oct8.startswith(OCTETS_VRAI):
+        return True, "override `mov al,1 ; ret`"
+    if oct8.startswith(OCTETS_FAUX):
+        return False, "override `xor al,al ; ret`"
+    return None, ""
+
+
+def decoder_entier(oct8: str) -> tuple[object, str]:
+    """`(int|None, libelle)` -- les corps constants qui rendent un ENTIER (ou un enum).
+
+    ⚠ LA LARGEUR EST LE PIEGE, et confondre les deux `xor` ferait lire un octet d'operande comme
+    une valeur : `32 c0` est `xor al,al` (8 bits, ce qu'un compilateur emet pour un `bool`),
+    `33 c0` / `31 c0` sont `xor eax,eax` (32 bits). Les TROIS valent zero et sont acceptes -- mais
+    seulement suivis d'un `ret` (`c3`), sans quoi le corps n'est pas constant et on REFUSE.
+
+    ⚠ ET UN CORPS DE UN OCTET EXISTE : `c3` nu = `ret` sans rien ecrire dans `eax`. Ce n'est PAS
+    zero -- c'est un corps qui ne DEFINIT pas sa valeur de retour, donc illisible ici. On le nomme
+    au lieu de le rabattre sur 0, faute qui inventerait un `PreUnitRemove` par defaut.
+    """
+    if oct8.startswith("c3"):
+        return None, "CORPS `ret` NU -- ne definit pas eax, valeur non lisible"
+    for pre in ("33 c0 c3", "31 c0 c3", "32 c0 c3"):
+        if oct8.startswith(pre):
+            return 0, "constante 0 (`%s`)" % pre
+    o = oct8.split(" ")
+    # `mov eax, imm32 ; ret`
+    if len(o) >= 6 and o[0] == "b8" and o[5] == "c3":
+        return int.from_bytes(bytes(int(x, 16) for x in o[1:5]), "little"), \
+            "constante %d (`mov eax, imm32 ; ret`)" % int.from_bytes(
+                bytes(int(x, 16) for x in o[1:5]), "little")
+    # `mov al, imm8 ; ret` -- l'encodage court, celui d'un enum a soubassement etroit.
+    if len(o) >= 3 and o[0] == "b0" and o[2] == "c3":
+        return int(o[1], 16), "constante %d (`mov al, imm8 ; ret`)" % int(o[1], 16)
+    return None, ""
+
+
+#: Le decodeur EN VIGUEUR. Repositionne par les modules qui reutilisent le deriveur pour un autre
+#: slot (meme protocole que `GETTER` -- cf. `probe_982r4_keep_on_change_owner.py`).
+DECODEUR = decoder_booleen
 
 
 def build_dir(build: str | None = None) -> Path:
@@ -108,26 +154,67 @@ class _PE:
         return struct.unpack_from("<Q", self.data, off)[0]
 
 
-def _fonctions(build: str) -> tuple[dict, dict]:
-    """`{symbole: {VA...}}` et `{VA: symbole}` de `ghidra/functions.tsv`.
+def source_ancre(build: str) -> Path | None:
+    """Le fichier qui sert d'ANCRE au calage, ou `None` si AUCUN n'est la.
 
-    ⚠ Le symbole est associe a un ENSEMBLE de VA, jamais a une seule : la table porte des
-    HOMONYMES (mesure sur ce build -- `ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange`
-    y figure deux fois). Ecraser la premiere VA faisait rendre `ALIGNEMENT REFUSE` avec un message
-    ou l'attendu et le lu portaient LE MEME NOM."""
+    Deux tables portent la meme information utile ici -- un couple (symbole, VA) pour des methodes
+    NOMMEES -- et l'ancre n'a besoin de rien d'autre : elle ne sert qu'a situer le bloc
+    `methodPointers`, jamais a prouver qu'une methode existe ou pas.
+
+    ⚠ ORDRE, et il est load-bearing : `frida/methods.tsv` D'ABORD. Elle est ESTAMPILLEE par le
+    sha256 du binaire dont elle est tiree (ligne `#!il2cpp-provenance`), donc une table qui ne
+    correspond pas au build charge se voit ; `ghidra/functions.tsv` ne porte aucune estampille et
+    n'est extraite qu'APRES l'analyse ghidra, qui prend des heures. Mesure du 2026-08-15, au
+    lendemain du passage a `t6dpr4k06g` : `ghidra/functions.tsv` ABSENTE, et ce module levait un
+    `FileNotFoundError` NU -- pas le refus tri-etat qu'il documente partout ailleurs. Un cliquet
+    qui casse au lieu de refuser ne se lit pas comme << pas mesure >>, il se lit comme un bug.
+    """
+    for rel in (("frida", "methods.tsv"), ("ghidra", "functions.tsv")):
+        p = build_dir(build).joinpath(*rel)
+        if p.is_file():
+            return p
+    return None
+
+
+def _fonctions(build: str) -> tuple[dict, dict, Path | None]:
+    """`{symbole: {VA...}}`, `{VA: symbole}` et le FICHIER d'ou ils sortent.
+
+    ⚠ Le symbole est associe a un ENSEMBLE de VA, jamais a une seule : les deux tables portent des
+    HOMONYMES (mesure -- `ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` y figure deux
+    fois). Ecraser la premiere VA faisait rendre `ALIGNEMENT REFUSE` avec un message ou l'attendu
+    et le lu portaient LE MEME NOM.
+
+    Les deux formats different, et la normalisation se fait ICI :
+      * `ghidra/functions.tsv` : `<VA hex>\\t<Classe$$Methode>`.
+      * `frida/methods.tsv`    : `<RVA hex>\\t<Classe.Methode>\\t<Classe>\\t...` -- on RECONSTRUIT
+        le `$$` en retirant le prefixe de classe, et on ajoute l'image base pour rendre une VA.
+    """
     par_sym: dict[str, set[int]] = {}
     par_va: dict[int, str] = {}
-    p = build_dir(build) / "ghidra" / "functions.tsv"
+    p = source_ancre(build)
+    if p is None:
+        return par_sym, par_va, None
+    frida = p.name == "methods.tsv"
     for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("#"):
+            continue
         c = line.split("\t")
-        if len(c) >= 2:
-            try:
-                va = int(c[0], 16)
-            except ValueError:
+        if len(c) < 2:
+            continue
+        try:
+            va = int(c[0], 16) + (_PE.IMAGE_BASE if frida else 0)
+        except ValueError:
+            continue
+        if frida:
+            # colonne 1 = nom PLEIN (`Classe.Methode`), colonne 2 = la classe.
+            if len(c) < 3 or not c[2] or not c[1].startswith(c[2] + "."):
                 continue
-            par_sym.setdefault(c[1], set()).add(va)
-            par_va.setdefault(va, c[1])
-    return par_sym, par_va
+            sym = "%s$$%s" % (c[2], c[1][len(c[2]) + 1:])
+        else:
+            sym = c[1]
+        par_sym.setdefault(sym, set()).add(va)
+        par_va.setdefault(va, sym)
+    return par_sym, par_va, p
 
 
 def _parents(build: str) -> dict[str, str]:
@@ -198,22 +285,29 @@ def _cache(getter: str):
 
 
 def _sha_des_entrees(build: str) -> str | None:
-    """Empreinte des QUATRE entrees du build. `None` = PAS MESURABLE, jamais un sha.
+    """Empreinte des entrees du build. `None` = PAS MESURABLE, jamais un sha.
 
     TRI-ETAT OBLIGATOIRE : sans le jeu installe, on ne sait pas de quel build on parle -- servir
     une entree cachee reviendrait a attester une derivation qu'on n'a pas pu faire. On rend `None`,
-    l'appelant recalcule (et refusera lui-meme de conclure, comme avant ce cache)."""
+    l'appelant recalcule (et refusera lui-meme de conclure, comme avant ce cache).
+
+    ⚠ LA CLE HACHE LA SOURCE D'ANCRE REELLEMENT UTILISEE, pas une liste ecrite d'avance. Elle
+    citait `ghidra/functions.tsv` en dur ; le jour ou cette table est absente (extraction en cours
+    apres un changement de build), `sha_gros_fichiers` rend `None` et le cache se desarme -- ce qui
+    est SUR mais muet. Pire regime possible dans l'autre sens : l'ancre BASCULE de `methods.tsv` a
+    `functions.tsv` quand l'extraction se termine, et une cle qui ne verrait pas ce basculement
+    servirait un verdict derive avec l'AUTRE source. La source entre donc dans la cle.
+    """
     import verdict_cache
-    from symbols_layout import build_dir
     try:
         meta = Path(build_pin.global_metadata())
     except build_pin.BuildPinRefused:
         return None
     dll = meta.parents[3] / "GameAssembly.dll"
-    d = build_dir(build)
-    return verdict_cache.sha_gros_fichiers(meta, dll,
-                                           d / "frida" / "methods.tsv",
-                                           d / "ghidra" / "functions.tsv")
+    src = source_ancre(build)
+    if src is None:
+        return None
+    return verdict_cache.sha_gros_fichiers(meta, dll, src)
 
 
 def deriver() -> dict | None:
@@ -241,7 +335,11 @@ def deriver() -> dict | None:
         return _deriver_brut()
     import verdict_cache
     cache = _cache(GETTER)
-    rel, appel = "data/symbols/%s" % build, "deriver:%s" % GETTER
+    # LE DECODEUR ENTRE DANS LA CLE : le meme getter lu par deux decodeurs ne rend pas la meme
+    # table (un booleen et un entier ne decoupent pas les memes octets). Sans lui, repositionner
+    # `DECODEUR` servirait le verdict de l'autre -- un faux vert que rien ne signalerait.
+    rel = "data/symbols/%s" % build
+    appel = "deriver:%s:%s" % (GETTER, getattr(DECODEUR, "__name__", "?"))
     vu = cache.obtenir(rel, appel, sha)
     if vu is not verdict_cache.MANQUE:
         return vu
@@ -282,7 +380,12 @@ def _deriver_brut() -> dict | None:
     classes = [BASE] + descendants
     print("[1] fermeture transitive de %s : %d descendants" % (BASE, len(descendants)))
 
-    par_sym, par_va = _fonctions(build)
+    par_sym, par_va, src = _fonctions(build)
+    if src is None:
+        print("[0] DERIVATION : PAS MESUREE -- aucune table d'ancre sous data/symbols/%s "
+              "(ni frida/methods.tsv ni ghidra/functions.tsv)" % build)
+        return None
+    print("[0b] ancre du calage : %s (%d symboles)" % (src.name, len(par_sym)))
     pe = _PE(dll)
 
     def method_start(ns: str, court: str) -> int:
@@ -327,11 +430,10 @@ def _deriver_brut() -> dict | None:
     def lire_valeur(plein, noms, off_getter):
         """`(valeur|None, octets, libelle)` du corps pointe a `off_getter` (offset FICHIER)."""
         va = pe.qword(off_getter)
-        oct_ = pe.octets(va) or ""
-        if oct_ == OCTETS_VRAI:
-            return True, oct_, "override `mov al,1 ; ret`"
-        if oct_ == OCTETS_FAUX:
-            return False, oct_, "override `xor eax,eax ; ret`"
+        oct_ = pe.octets(va, OCTETS_LUS) or ""
+        val, lib = DECODEUR(oct_)
+        if val is not None or lib:
+            return val, oct_, lib
         # `0f b6 8x` = `movzx eax, byte ptr [rcx+disp]` : la valeur est un CHAMP d'instance,
         # ecrit par le `.ctor` -- pas une constante de classe. On le NOMME au lieu de trancher.
         if oct_.startswith("0f b6"):
@@ -547,13 +649,13 @@ def runtime(classes: list[str]) -> tuple[dict, list]:
                           % (len(hits), GETTER, len(propre))))
             continue
         rva = hits.pop()
-        oct_ = pe.octets(rva + _PE.IMAGE_BASE) or ""
-        if oct_ == OCTETS_VRAI:
-            lus[plein] = True
-        elif oct_ == OCTETS_FAUX:
-            lus[plein] = False
+        oct_ = pe.octets(rva + _PE.IMAGE_BASE, OCTETS_LUS) or ""
+        val, lib = DECODEUR(oct_)
+        if val is None:
+            refus.append((plein, "corps non trivial (rva 0x%x, octets %s)%s"
+                          % (rva, oct_ or "?", " -- " + lib if lib else "")))
         else:
-            refus.append((plein, "corps non trivial (rva 0x%x, octets %s)" % (rva, oct_ or "?")))
+            lus[plein] = val
     return lus, refus
 
 
