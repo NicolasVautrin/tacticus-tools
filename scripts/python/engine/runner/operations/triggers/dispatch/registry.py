@@ -330,6 +330,10 @@ from ..loki.electrochaff_backups import (                             # #1025 (M
     ElectrochaffBackupsOnRangedDamageAbility)                         #  TERTIAIRE, cf. le registre)
 from ..loki.hyper_corrosive_acid import HyperCorrosiveAcidAbility      # #1035 (MYTHIQUE 1455, MoW
                                                                       #  tyranBiovore, voie TERTIAIRE)
+from ..loki.masters_of_manoeuvre import (MastersOfManoeuvrePlaceOnMove,     # #999-r1 (MYTHIQUE 1508,
+                                         MastersOfManoeuvrePlaceOnTurnEnd)  #  MoW darkaStormSpeeder ;
+                                                                      #  2 classes = la disjonction
+                                                                      #  d'`On()` du CreateTrigger)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1953,6 +1957,36 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # par `UnitContext.rarity` -- c'est le noeud `HasRarity` qui le lit, avec son tri-etat.
     # Cf. loki/shield_of_faith.py.
     "ShieldOfFaith": [ShieldOfFaithAbility],
+    # MastersOfManoeuvre (#999-r1) -- MYTHIQUE de `darkaStormSpeeder` (MoW Dark Angels),
+    # `TriggeredAbilityType` 0x5e4 = 1508. MEME voie TERTIAIRE que ses deux voisines ci-dessus, donc
+    # MEME registre (cf. le paragraphe de `ShieldOfFaith` : un registre `MYTHIC_*` separe inventerait
+    # une distinction que le natif n'a pas, et c'est ce registre-ci qui donne a
+    # `triggered_ability_state` le couple TERTIAIRE).
+    #   `$$CreateTrigger` = op_BitwiseOr(<A>, <B>) sur le prefixe COMMUN
+    #       AreFriends(Actor@<DSLSelectors+0x40>, Owner@<+0x30>, 0, false)
+    #     & HasRarity(Actor@+0x40, idun.meta.Rarity.Mythic = 5)
+    #     & NOT HasEffect(Actor@+0x40, 0x5e6 = 1510, onlyActive: 0, effectTarget: 6)
+    #     <A> = On(4 = UnitAfterMove, 1) & COMMUN
+    #           & AmountIsEqualOrGreater(TilesMovedThisTurn(Actor@+0x40),
+    #                                    Get(GetNumberConstant(tilesTraversed = 0x88)))
+    #     <B> = On(0x28 = UnitFinishedTurn, 1) & COMMUN
+    #           & AmountIsGreaterThanZero(Filter(AdjacentFriends(Actor@+0x40, unique: 1, 3),
+    #                 HasRarity(Subject@+0x68, 5) & HasFaction(Subject@+0x68, 0xa = DarkAngels, 3)))
+    #   `$$CreateBehaviour` = AddEffect(0x5e6, get_AbilityStateReference(this),
+    #                                   source = Owner@+0x30, targets = **Actor@+0x40**,
+    #                                   TurnsFromRounds(GetNumberConstant(nrOfRounds = 0x45)))
+    # La disjonction d'`On()` se ventile en DEUX CLASSES (le registre etant indexe par `event_id`,
+    # patron `HaywireMinePlaceOnMove`/`HaywireMinePlaceOnTurnEnd`) ; elles ne peuvent pas double-poser,
+    # le 3e conjoint du COMMUN etant `NOT HasEffect(Actor, 1510)`.
+    # ⚠ MEME leve de verrou que `ShieldOfFaith` juste au-dessus : la docstring d'
+    # `entities/effects/loki/masters_of_manoeuvre.py` declare cette face bloquee par `HasRarity`
+    # << canal ABSENT du port >> -- enonce ecrit sur `rnca9r7q6c` et PERIME depuis #999-r3/#1039.
+    # ⚠ NE FAIT PAS DOUBLE EMPLOI avec `factory.TERTIARY_ABILITY_POSED_EFFECTS["MastersOfManoeuvre"]`,
+    # qui n'est PAS une pose : `snapshot._rebake_tertiary_posed_effects` RE-BAKE le couple (niveau,
+    # multiplicateur) d'instances DEJA CAPTEES et ne cree aucune entite. Live = le natif pose et le
+    # re-bake corrige ; offline = personne ne posait, c'est ce module qui pose, deja au bon couple.
+    # Cf. loki/masters_of_manoeuvre.py.
+    "MastersOfManoeuvre": [MastersOfManoeuvrePlaceOnMove, MastersOfManoeuvrePlaceOnTurnEnd],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------
