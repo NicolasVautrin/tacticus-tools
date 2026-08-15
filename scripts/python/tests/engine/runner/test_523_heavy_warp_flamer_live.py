@@ -236,8 +236,11 @@ def test_r2_aucune_cible_hors_de_l_ensemble_geometrique(r2):
 
 
 def test_r2_le_report_suit_la_loi_de_get_left_over_hits(r2):
-    """`extraHitsAfterTargetKilled` est NULL -> report = `max(0, H - k - 1) + 0`. Le relais SURVIT
-    (90 000 PV), donc son compte d'events LIVE EST son nombre de coups."""
+    """`extraHitsAfterTargetKilled` est NULL -> report = `max(0, H - k) + 0` (#489-r1 : le `- 1`
+    etait un coup de trop retire -- le compte natif est celui des entrees `LeftOverDamage` a flag
+    `wasAlreadyDead` VRAI, donc les coups joues APRES le coup fatal). Le relais SURVIT (90 000 PV),
+    donc son compte d'events LIVE EST son nombre de coups : c'est le verdict qui MORD, puisqu'il
+    confronte le port au natif et non a la formule qui l'a produit."""
     H, k, attendu = P.left_over_attendu(r2["off_chain"][0])
     assert k is not None, "R2 doit TUER la cible du message"
     assert attendu > 0, "R2 doit produire un report NON NUL (baisser hp_target sinon)"

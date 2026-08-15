@@ -1368,12 +1368,18 @@ def the_lions_wrath_tree(taunt_rounds: int):
     `taunt_rounds` = `GetNumberConstant(0x45 = nrOfRounds)`, LU du gameconfig par l'appelant (jamais
     code en dur : c'est une constante d'ability, pas un litteral du decompile).
 
-    ⚠ **NON RESOLU -- le champ `+0x08` des `AttackDamageBehaviourOptions`** (une `List<int>` a
-    laquelle le call-site `Add(1)`). Meme champ, meme liste, meme valeur que dans la PHASE 2 ; sa
-    semantique n'est pas lue et le port ne lui prete aucun effet -- residu **#889-r2**, detail dans
-    l'en-tete de `runner/operations/triggers/loki/lions_wrath_attack.py`. Le PREMIER qword des
-    options vaut 0, donc ni `alwaysOverkilled` (+4), ni `alwaysCrit` (+5), ni
-    `isNormalAttackDamage` (+6)."""
+    ⚠ **RESOLU (#889-r2, 2026-08-15) -- le champ `+0x08` des `AttackDamageBehaviourOptions`** (une
+    `List<int>` a laquelle le call-site `Add(1)`) est la liste des numeros de coup **1-based** apres
+    lesquels `isCriticalDamageAllowed` reste VRAI. Son LECTEUR est
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` -- pas `$$ExecuteHit`, ou la fiche du
+    residu le cherchait : `hitGroup.isCriticalDamageAllowed = options[+0x40] != null &&
+    options[+0x40].Any(hitIndex => hitIndex == i + 1)`, le predicat etant le corps ENTIER de
+    `...AttackDamageOperation.u003Cu003Ec__DisplayClass4_0$$u003CExecuteHitsu003Eb__0`. Il est donc
+    porte (`crit_allowed_hits=[1]`), MEME liste et MEME valeur qu'en PHASE 2. Effet : `nrOfHits = 2`
+    et le crit reste autorise APRES le coup 1, donc les DEUX coups peuvent criter -- sans lui, seul
+    le premier le pourrait. C'est exactement ce que dit l'effet compagnon `1522` de ce meme cast,
+    dont le gate est `AmountIsEqual(CurrentHitIndex(), 1)`. Le PREMIER qword des options vaut 0,
+    donc ni `alwaysOverkilled` (+4), ni `alwaysCrit` (+5), ni `isNormalAttackDamage` (+6)."""
     e1 = AddEffect(LW_EXTRA_CRIT, EffectType.TheLionsWrath_ExtraCritChance.name,
                    Owner(), duration_rounds=None, scale_from_source=True)
     atk = AttackWithAttackDamage(
@@ -1387,7 +1393,9 @@ def the_lions_wrath_tree(taunt_rounds: int):
         level_slot="active",
         multi=False,                                    # selecteur MONO-cible (le slot `Target`)
         ability_type=int(ActiveAbilityType.TheLionsWrath),
-        force_overkill=False, force_crit=False)         # premier qword des options = 0
+        force_overkill=False, force_crit=False,         # premier qword des options = 0
+        # #889-r2 : `options+0x08 = List<int>{1}` -- le crit reste autorise APRES le coup n^o 1.
+        crit_allowed_hits=[1])
     b1 = AddBondEffect(LW_TAUNTED, EffectType.Taunted_OnlySpecificTargets.name,
                        Owner(), Target(), duration_rounds=int(taunt_rounds), bonded_ref=Owner())
     b2 = AddBondEffect(LW_PENDING_ATTACK, EffectType.TheLionsWrath_PendingAttack.name,

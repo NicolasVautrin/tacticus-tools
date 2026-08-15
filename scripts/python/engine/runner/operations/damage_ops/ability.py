@@ -70,7 +70,8 @@ class _AbilityAttack:
                                hit_index0: int = 0, crit_allowed0: bool = True,
                                failed_block0=None,
                                is_outside_attack: bool = True,
-                               skip_hits_modifiers: bool = False) -> Optional[dict]:
+                               skip_hits_modifiers: bool = False,
+                               crit_allowed_hits=None) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -141,6 +142,16 @@ class _AbilityAttack:
             hits = <Nullable<int> options+0x18>.GetValueOrDefault(1)
             if (options+0x28 != 0) return hits;             # <-- CE drapeau
             return BattleQuery.<slot 0xb6>(caster, target, hitGroupIndex, <requete hits=hits>)
+
+        `crit_allowed_hits` (defaut None, #889-r2) = le champ `+0x08` du
+        `Nullable<AttackDamageBehaviourOptions>` -- une `List<int>` de numeros de coup **1-based**
+        apres lesquels `isCriticalDamageAllowed` reste VRAI. La chaine d'offsets etait deja lue
+        (`AttackDamageBehaviourOptions+0x08` -> `AttackDamageBehaviour+0xa0` ->
+        `AttackDamageOptions+0x40`) ; ce qui manquait etait son LECTEUR, qui vit dans
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` -- pas dans `$$ExecuteHit`, ou la
+        fiche du residu le cherchait. Predicat LU verbatim, cf. `damage_hits._run_hits`. `None` =
+        les douze call-sites a struct zeroee + l'attaque normale : le crit s'eteint au premier coup
+        non-critique, comportement STRICTEMENT inchange.
 
         -> `True` = le nombre de coups passe est DEJA FINAL, la couche de modificateurs de coups
         (`AttackHitsWithModifiersFormula` == le foyer `attack_hits_with_modifiers` du port) n'est
@@ -668,6 +679,8 @@ class _AbilityAttack:
                                             # crit acquis par coup, SANS tirage (le natif saute
                                             # RollCritical quand l'octet options+5 est pose).
                                             force_crit=force_crit,
+                                            # #889-r2 : `options[+0x40]` (cf. la docstring).
+                                            crit_allowed_hits=crit_allowed_hits,
                                             pending_sink=_pdt_sink)     # #1020-r4
         # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
         # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
@@ -871,6 +884,21 @@ class _AbilityAttack:
                 # ou un bouclier s'interpose.
                 "per_hit_health": r["per_hit_health"], "hp_before": _hp_before_chain,
                 "hp_after": int(thc.hp or 0),
+                # #489-r1 -- L'ETAT D'OVERKILL DE LA SERIE, DESORMAIS PUBLIE. La fiche du residu
+                # declarait « le retour d'`execute_ability_attack` n'expose AUCUN flag d'overkill »
+                # et en faisait un BLOQUANT ; la mesure du 2026-08-15 dit que l'ETAGE existait deja
+                # (`damage_hits.overkill_flag_posted_by_hit`, mirror de `IdunBattle.Core.Services.
+                # DamagePrediction$$IsOverkill`, porte par #462-r4e-o-r1) et que seul le CABLAGE
+                # manquait -- ces trois cles sont dans `r` depuis, jamais remontees.
+                #   `overkilled`      = verdict de serie (`UnitFlag.Overkilled` pose par un coup) ;
+                #                       `None` = non calculable (PV non captes), JAMAIS un `False`
+                #                       devine -- l'appelant retombe alors sur `_did_overkill`.
+                #   `overkill_at_hit` = index 0-based, DANS CETTE SERIE, du coup qui l'a pose. C'est
+                #                       le `k` ou `k+1` selon la magnitude dont parle la docstring
+                #                       de `ChainLeftOverHitsAttackDamage._left_over_hits`.
+                #   `hits_executed`   = coups EXECUTES (!= `len(per_hit)`, que le SITE (A) tronque).
+                "overkilled": r.get("overkilled"), "overkill_at_hit": r.get("overkill_at_hit"),
+                "hits_executed": r.get("hits_executed"),
                 # #419-r3 : l'etat de l'`OngoingAttack` EN SORTIE (`+0x30`, `+0x40`, `+0x48`), tel
                 # qu'une feuille `DSLBehaviors$$AttackDamage` NUE composee APRES celle-ci dans le
                 # MEME `Attack(...)` le lirait par `GetCurrentAttackOrDefault(isOutsideAttack: 0)`.

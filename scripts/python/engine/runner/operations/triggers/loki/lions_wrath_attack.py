@@ -66,18 +66,37 @@ QUATRE POINTS DE FIDELITE, tous LUS :
    `AdjacentEnemies(...)` et exige donc `multi=True` pour que l'`OrderBy` d'`AttackBehaviour`
    s'applique.
 
-⚠ **NON RESOLU -- le champ `+0x08` des `AttackDamageBehaviourOptions`.** Le call-site construit une
-`List<int>` a laquelle il `Add(1)`, la range a l'offset `+0x08` de la struct d'options et emballe le
-tout dans un `Nullable`. Chemin LU : `AttackDamageBehaviour$$.ctor` recopie
-`Nullable.GetValueOrDefault(options)` en `this+0x98..0xb7` (donc `options+0x08` -> `this+0xa0`), et
-`AttackDamageBehaviour$$ExecuteTarget` transmet `this+0xa0` TEL QUEL dans la requete passee a
-l'operation de degat. Sa SEMANTIQUE n'est pas lue : les trois octets connus de cette struct
-(`+0x04 alwaysOverkilled`, `+0x05 alwaysCrit`, `+0x06 isNormalAttackDamage`) sont tous dans le
-premier qword, qui vaut **0** ici. AUCUN autre call-site porte du depot ne renseigne ce champ (les
-douze recenses passent la struct ZEROEE). Le port ne l'invente donc pas -- residu **#889-r2**.
-La MEME liste `[1]` est passee par la PHASE 1, ce qui rend l'hypothese « indices de coups » lisible
-a cote de l'`AmountIsEqual(CurrentHitIndex(), 1)` de l'effet 1522 -- mais une hypothese lisible
-n'est pas une lecture, et la coder serait un fit.
+✅ **RESOLU (#889-r2, 2026-08-15) -- le champ `+0x08` des `AttackDamageBehaviourOptions`.** Le
+call-site construit une `List<int>` a laquelle il `Add(1)`, la range a l'offset `+0x08` de la struct
+d'options et emballe le tout dans un `Nullable`. Chaine d'offsets (deja lue par #986) :
+`AttackDamageBehaviour$$.ctor` recopie `Nullable.GetValueOrDefault(options)` en `this+0x98..0xb7`
+(donc `options+0x08` -> `this+0xa0`), et `AttackDamageBehaviour$$ExecuteTarget` transmet `this+0xa0`
+dans l'`AttackDamageOptions` du message, a **`+0x40`**.
+
+CE QUI MANQUAIT ETAIT LE **LECTEUR**, et la fiche le cherchait au mauvais etage : il n'est pas dans
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (ou le champ n'est en effet que recopie)
+mais dans `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`, la boucle AU-DESSUS, en fin de
+chaque coup NON CRITIQUE :
+
+    hitGroup.<+0x3c isCriticalDamageAllowed> =
+        options[+0x40] != null && options[+0x40].Any(hitIndex => hitIndex == i + 1)
+
+`i` etant le compteur de la boucle, remis a **0** en tete de chaque `ExecuteHits`. Le predicat est le
+corps ENTIER de `IdunBattle.Operations.AttackDamageOperation.u003Cu003Ec__DisplayClass4_0$$
+u003CExecuteHitsu003Eb__0` :
+
+    return hitIndex == this.<+0x10 = i> + 1;
+
+et `IdunBattle.Operations.AttackDamageOperation$$Execute` propage le resultat a l'attaque par
+`attack[+0x40] &= hitGroup[+0x3c]`.
+
+=> **`options+0x08` est la liste des numeros de coup (1-BASED) apres lesquels le crit reste
+AUTORISE.** Avec `{1}` et `nrOfHits_2 = 2`, les DEUX coups de cette phase peuvent criter ; sans
+elle (`Any(null)` = faux, le cas des douze autres call-sites du depot et de l'attaque normale),
+seul le premier le pourrait. C'est exactement ce que dit l'effet compagnon `1522
+TheLionsWrath_ExtraCritChance`, dont le gate est `AmountIsEqual(CurrentHitIndex(), 1)` -- et
+l'hypothese « indices de coups », que #889-r2 refusait de coder faute de lecture, se trouve
+CONFIRMEE par le predicat ci-dessus. Port : `crit_allowed_hits=[1]` sur les DEUX phases.
 
 NI `TARGETING_OPTIONS` NI `ABILITY_ATTACK_TYPE` : `BaseTriggeredAbility`, hors `ABILITY_CLASSES`.
 ASCII only.
@@ -148,9 +167,10 @@ def lions_wrath_attack_tree():
         multi=False,                                          # cf. point 4 : MONO-cible
         ability_type=LW_ATTACK,
         # `options` : premier qword a ZERO -> ni `alwaysOverkilled` (+4) ni `alwaysCrit` (+5) ni
-        # `isNormalAttackDamage` (+6). Le champ `+0x08` (une `List<int>{1}`) est NON RESOLU --
-        # residu #889-r2, cf. l'en-tete ; le port ne lui prete aucun effet.
-        force_overkill=False, force_crit=False)
+        # `isNormalAttackDamage` (+6). Le champ `+0x08` (une `List<int>{1}`) est RESOLU depuis
+        # #889-r2 : ce sont les numeros de coup 1-based apres lesquels `isCriticalDamageAllowed`
+        # reste VRAI (cf. l'en-tete). `nrOfHits_2 = 2` -> les DEUX coups peuvent criter.
+        force_overkill=False, force_crit=False, crit_allowed_hits=[1])
     rm2 = RemoveEffect(LW_EXTRA_CRIT, Owner())
     cond = TriggerAnd(IsAlive(Target()),
                       IsAdjacent(Caster(), Target(), _ADJ_SELECTION))
