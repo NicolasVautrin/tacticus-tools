@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **461** ; kits avec du travail : **30**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **12** · `[CD]` **134**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **11** · `[CD]` **135**
 - Passifs distincts : **177** — portes **143**, non portes **34**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -86,13 +86,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (12)
+## Faces DECISION ouvertes sur des actives EXECUTEES (11)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -238,9 +238,9 @@ sont des **faces** absentes d'items presents.
 | astraBossCreedLEG | 0 | SupremeCommander(1028)[CD] | - | - | - |
 | astraBossCreedLHE | 0 | SupremeCommander(1028)[CD] | - | - | - |
 | astraBossCreedSurv | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraBossOrdnance | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
-| astraBossOrdnanceLEG | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
-| astraBossOrdnanceLHE | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
+| astraBossOrdnance | 0 | BasiliskBarrage(1026)[CD] | - | - | relic:RelicOfLostCadia |
+| astraBossOrdnanceLEG | 0 | BasiliskBarrage(1026)[CD] | - | - | relic:RelicOfLostCadia |
+| astraBossOrdnanceLHE | 0 | BasiliskBarrage(1026)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossPrimarisPsy | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossPrimarisPsyLHE | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossPrimarisPsySurv | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
@@ -255,7 +255,7 @@ sont des **faces** absentes d'items presents.
 | astraNpcCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |
 | astraNpcDreir | 0 | LeadingTheCharge(1204)[CD] | - | - | relic:SabreOfSacrifice |
 | astraNpcMowOrdnanceBattery | 0 | MalleusRocketLauncher(1142)[CD]<br>ForwardSpotter(1143)[CD] | - | - | mythic:OnMyPosition |
-| astraNpcOrdnance | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
+| astraNpcOrdnance | 0 | BasiliskBarrage(1026)[CD] | - | - | relic:RelicOfLostCadia |
 | astraNpcPrimarisPsy | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
 | astraNpcYarrick | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
 | astraYarrick_LHE | 0 | SendInTheNextWave(1016)[CD] | - | - | - |

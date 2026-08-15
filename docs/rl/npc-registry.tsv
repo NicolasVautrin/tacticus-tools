@@ -316,17 +316,17 @@ astraBossCreedLHE	AstraMilitarum	Imperial	None	trait	Hero		1
 astraBossCreedSurv	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
 astraBossCreedSurv	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
 astraBossCreedSurv	AstraMilitarum	Imperial	None	trait	Hero		1	
-astraBossOrdnance	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraBossOrdnance	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	1
 astraBossOrdnance	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
 astraBossOrdnance	AstraMilitarum	Imperial	None	trait	Hero		1	
 astraBossOrdnance	AstraMilitarum	Imperial	None	trait	SuppressiveFire		1	
 astraBossOrdnance	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
-astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	1
 astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
 astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	trait	Hero		1	
 astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	trait	SuppressiveFire		1	
 astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
-astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	1
 astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
 astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	trait	Hero		1	
 astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	trait	SuppressiveFire		1	
@@ -396,7 +396,7 @@ astraNpcDreir	AstraMilitarum	Imperial	None	trait	Unstoppable		1
 astraNpcMowOrdnanceBattery	AstraMilitarum	Imperial	None	active	MalleusRocketLauncher	1142	1	1
 astraNpcMowOrdnanceBattery	AstraMilitarum	Imperial	None	active	ForwardSpotter	1143	1	1
 astraNpcMowOrdnanceBattery	AstraMilitarum	Imperial	None	trait	MachineOfWar		1	
-astraNpcOrdnance	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraNpcOrdnance	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	1
 astraNpcOrdnance	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
 astraNpcOrdnance	AstraMilitarum	Imperial	None	trait	Hero		1	
 astraNpcOrdnance	AstraMilitarum	Imperial	None	trait	SuppressiveFire		1	
