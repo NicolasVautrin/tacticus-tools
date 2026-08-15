@@ -164,14 +164,23 @@ def etape1_slots(verbose: bool = True) -> dict:
 
 # ====================================================================== etape 2 : REACHABILITY
 
-#: `(namespace, classe, declare EvaluateInternal ?, declare ShouldExecute ?, gate VIVANT ?)`
+#: `(namespace, classe, declare EvaluateInternal ?, declare ShouldExecute ? -- LIVE)`
 #:
 #: Le verdict `gate vivant` se DERIVE : `ShouldExecute && !EvaluateInternal`. Il n'est PAS une
 #: quatrieme donnee -- l'ecrire a part permettrait de le faire mentir.
+#:
+#: ⚠ **LA COLONNE `ShouldExecute` EST CELLE DE LA MESURE LIVE, ET LES DEUX SOURCES DIVERGENT SUR
+#: `CultDemagoguePlaybook`** -- mesure du 2026-08-15 : `frida/methods.tsv` ne la porte PAS,
+#: `resolveMethodPtr` la rend a `depth 0`. C'est exactement le faux negatif que le CLAUDE.md decrit
+#: (« l'ABSENCE d'une methode dans les tables ne prouve RIEN » : IL2CPP DEDUPLIQUE les corps
+#: triviaux, et un `ShouldExecute` non specialise pointe sur le corps de trois octets
+#: `mov al,1 ; ret`, dont un seul proprietaire est nomme). L'etape OFFLINE ne peut donc juger que
+#: les PRESENCES ; l'etape LIVE juge les deux. Ecrire ici la valeur offline aurait fige le faux
+#: negatif comme s'il etait le fait.
 REACH = (
     ("IdunBattle.AI.Playbook",      "BloodChalicePlaybook",      True,  True),
     ("IdunBattle.AI.Playbook.Loki", "MomentShacklePlaybook",     False, True),   # TEMOIN
-    ("IdunBattle.AI.Playbook.Loki", "CultDemagoguePlaybook",     True,  False),
+    ("IdunBattle.AI.Playbook.Loki", "CultDemagoguePlaybook",     True,  True),
     ("IdunBattle.AI.Playbook.Loki", "ArmoriumCherubPlaybook",    False, True),
     ("IdunBattle.AI.Playbook.Loki", "TacticalPrecisionPlaybook", False, True),
 )
@@ -195,23 +204,35 @@ def _methods_by_class(classes: set) -> dict:
 
 
 def etape2_reachability(verbose: bool = True) -> dict:
-    """`ShouldExecute` d'une classe qui OVERRIDE `EvaluateInternal` est INATTEIGNABLE."""
+    """`ShouldExecute` d'une classe qui OVERRIDE `EvaluateInternal` est INATTEIGNABLE.
+
+    ⚠ Cette etape ne juge que `EvaluateInternal`, et c'est DELIBERE : l'ABSENCE d'une methode dans
+    `methods.tsv` ne prouve rien (dedup IL2CPP des corps triviaux), donc un `ShouldExecute` absent
+    y est un NON-DIT, pas un fait. La divergence mesuree (`CultDemagoguePlaybook` : absente
+    offline, presente live) est IMPRIMEE comme telle -- elle est le TEMOIN que cette prudence n'est
+    pas theorique."""
     full = {"%s.%s" % (ns, cls) for ns, cls, _e, _s in REACH}
     seen = _methods_by_class(full)
-    bad = 0
+    bad, ecarts = 0, []
     if verbose:
-        print("[etape 2] reachability -- frida/methods.tsv (OFFLINE)")
-    for ns, cls, want_ei, want_se in REACH:
+        print("[etape 2] reachability -- frida/methods.tsv (OFFLINE ; juge `EvaluateInternal` SEUL)")
+    for ns, cls, want_ei, want_se_live in REACH:
         names = seen.get("%s.%s" % (ns, cls)) or set()
         ei, se = ("EvaluateInternal" in names), ("ShouldExecute" in names)
-        ok = (ei == want_ei) and (se == want_se)
+        ok = (ei == want_ei)
         if not ok:
             bad += 1
+        if se != want_se_live:
+            ecarts.append(cls)
         if verbose:
-            print("  %s %-28s EvaluateInternal=%-5s ShouldExecute=%-5s -> gate %s"
+            print("  %s %-28s EvaluateInternal=%-5s | ShouldExecute(offline)=%-5s%s"
                   % ("OK " if ok else "BAD", cls, ei, se,
-                     "VIVANT" if (se and not ei) else ("MORT" if se else "-- (aucun)")))
-    return {"bad": bad}
+                     "  <- ABSENT offline, PRESENT live (dedup IL2CPP)" if se != want_se_live
+                     else ""))
+    if verbose and ecarts:
+        print("  ECART offline/live sur %d classe(s) : %s -- l'absence offline n'est pas un fait."
+              % (len(ecarts), ", ".join(ecarts)))
+    return {"bad": bad, "ecarts_offline_live": ecarts}
 
 
 def etape2b_reachability_live(verbose: bool = True) -> dict:
@@ -491,64 +512,134 @@ def gate_inverted_1147():
 # ====================================================================== etape 3 : 1147, trois bras
 
 A1147 = 1147
-#: `HadesAutocannons.constants.range = 2` (gameconfig) ; `darkaTerminator` est melee (portee 1).
-#: `--unit-stat <CASTER>:Movement=0` ferme les DEUX concurrents (le generateur de MOUVEMENT et
-#: l'attaque normale, dont le sweep se reduit alors a l'origine).
+#: Second porteur de `UnitTrait.Summon`, du COTE ALLIE -- il faut deux visualId DISTINCTS pour que
+#: la table `visualId -> id` de `decisionView` reste injective. `thousSmnScreamer` est declare par
+#: une seule ability (`MasterOfTheTutelaries`), donc ses stats de spawn sont non ambigues.
+SUMMON_ALLY = "thousSmnScreamer"
+
+# ⚠ **CE QUE LA MESURE A IMPOSE AU MONTAGE, ET QUI CHANGE LE VERDICT.**
+#
+# Le premier jet montait trois bras (`none` / `ally` / `enemy`) et attendait que le natif REFUSE
+# dans les deux premiers. Il a rendu, sur les deux, `castHere = False` et `abilityTargets` a ZERO --
+# et le RPC `abilityReason` a NOMME la cause :
+#
+#     targetReason = { ruleClass: "GenericBrokenTargetingRule",
+#                      hex: "0x0000000000002000", reasons: ["TargetIsSummon"] }
+#
+# Le masque de `HadesAutocannonsAbility` porte `TargetIsSummon` (bit 13), et ce bit est LE MEME
+# predicat que le gate : `HasTrait(target, UnitTrait.Summon)` (cf.
+# `engine/runner/abilities/targeting.py`, bloc TRAITS). **Donc, sur la route du natif, le gate est
+# une TAUTOLOGIE** : `CalculateActionUtility` n'est appelee que pour un couple (caster, target) que
+# `GetEligibleTargetsSelectable` a laisse passer, donc pour une cible qui EST un summon ENNEMI,
+# donc la boucle de `ShouldExecute` en trouve un et rend `true`. Le natif ne peut PAS refuser ici.
+#
+# Consequence sur ce que la tranche corrige, et elle est plus forte que prevu : l'ancienne lecture
+# (les ALLIES) etait une degradation **RESTRICTIVE**, pas permissive -- le port REFUSAIT un cast
+# que le natif fait, des que le camp du caster n'avait pas de summon a lui. C'est ce que le bras
+# `enemy` mesure, et c'est le seul bras qui puisse mesurer quoi que ce soit.
+#
+#   | bras    | summon ENNEMI | summon ALLIE | cibles legales | natif | port corrige | port ANCIEN |
+#   |---------|---------------|--------------|----------------|-------|--------------|-------------|
+#   | `enemy` | oui           | non          | >= 1           | OUI   | OUI          | **NON**     |
+#   | `both`  | oui           | oui          | >= 1           | OUI   | OUI          | oui         |
+#   | `none`  | non           | non          | **0**          | non   | non          | non         |
+#
+# Le bras `both` est le TEMOIN de coincidence : il montre que l'ancien port ne « marchait » que
+# quand un allie portait par hasard le trait. Le bras `none` mesure la NON-DISCRIMINATION (aucune
+# cible legale -> le gate n'est jamais atteint), c.-a-d. la tautologie elle-meme.
 
 
-def _stage_1147(logs: str, tag: str, seed_bc: str) -> dict:
+def _legal_targets(rid: int, uid: int, ability: int) -> list:
+    """Les cibles LEGALES `fromHere` (le natif applique deja le masque et la regle dynamique)."""
+    at = rpc("abilityTargets", {"runnerId": rid, "unitId": uid, "allAbilities": True}, 120) or {}
+    out = []
+    for u in (at.get("units") or ()):
+        if u.get("unitId") != uid:
+            continue
+        for a in (u.get("abilities") or ()):
+            if a.get("abilityId") != ability:
+                continue
+            for t in (a.get("fromHere") or ()):
+                tid = t.get("targetId")
+                if t.get("kind") == "unit" and tid is not None:
+                    out.append(int(tid))
+    return out
+
+
+#: `(bras, summon du camp ADVERSE, summon du camp du CASTER)`
+ARMS_1147 = (("enemy", SUMMON, None), ("both", SUMMON, SUMMON_ALLY), ("none", None, None))
+
+
+def _summon_sides(rid: int, cid: int) -> dict:
+    """`{"enemy": [uids], "ally": [uids]}` -- les porteurs de `UnitTrait.Summon`, classes par camp
+    RELATIVEMENT au caster.
+
+    ⚠ La resolution se fait par le TRAIT MESURE, pas par le `visualId` demande : `--p-units
+    thousSmnScreamer` fait apparaitre `thousNpc2Screamer` sur le plateau (mesure du 2026-08-15 --
+    la normalisation substitue le jumeau npc). Un montage qui apparie par le nom demande accuse
+    alors une absence qui n'en est pas une, et un montage qui l'IGNORE mesurerait un bras dont il
+    ignore la composition."""
+    from engine.playbook.prediction._shared import _entity_traits
+    _dv2, ctx = _ctx(rid, cid)
+    sc, team = ctx.scene, ctx.scene.team(cid)
+    out = {"enemy": [], "ally": []}
+    for u in (sc.units or ()):
+        uid = u.get("id")
+        if uid is None or uid == cid:
+            continue
+        if "Summon" in _entity_traits(sc, uid):
+            out["ally" if sc.team(uid) == team else "enemy"].append(int(uid))
+    return out
+
+
+def _stage_1147(logs: str, tag: str, enemy_smn, ally_smn, seed_bc: str) -> dict:
     sf = os.path.join(logs, "tr14r5r2r1r1r1r3r1_1147_%s.json" % tag)
-    p_units = [CASTER] + ([SUMMON] if tag == "ally" else [])
-    a_units = [FOE] + ([SUMMON] if tag == "enemy" else [])
+    p_units = [CASTER] + ([ally_smn] if ally_smn else [])
+    a_units = [FOE] + ([enemy_smn] if enemy_smn else [])
     tail = ["--seed", "4242", "--seed-bc", seed_bc,
             "--p-units", ",".join(p_units), "--a-units", ",".join(a_units),
             "--unit-stat", "%s:Movement=0" % CASTER]
-    if tag in ("ally", "enemy"):
-        tail += ["--explicit-stats", SUMMON]
+    for s in (enemy_smn, ally_smn):
+        if s:
+            tail += ["--explicit-stats", s]
     rid = _build(sf, tail)
     dv = _dv(rid)
     ids = {u.get("visualId"): u.get("id") for u in (dv.get("units") or ())}
-    if ids.get(CASTER) is None or ids.get(FOE) is None:
-        _dispose(rid)
-        raise MontageError("montage 1147/%s : caster=%s foe=%s (units=%s)"
-                           % (tag, ids.get(CASTER), ids.get(FOE), sorted(ids)))
-    if tag in ("ally", "enemy") and ids.get(SUMMON) is None:
-        _dispose(rid)
-        raise MontageError("montage 1147/%s : le porteur de Summon est ABSENT" % tag)
-    geo = _deploy_at(sf, rid, ids[CASTER], ids[FOE], DIST)
-    return {"tag": tag, "rid": rid, "sf": sf, "ids": ids, **geo}
+    for want in (CASTER, FOE):
+        if ids.get(want) is None:
+            _dispose(rid)
+            raise MontageError("montage 1147/%s : %r absent (units=%s)" % (tag, want, sorted(ids)))
+    sides = _summon_sides(rid, ids[CASTER])
+    # L'ANCRE du placement est le summon ENNEMI quand il existe (c'est la SEULE cible legale de
+    # 1147) ; a defaut le `FOE`, et le bras mesure alors zero cible -- ce qui EST son objet.
+    anchor = sides["enemy"][0] if sides["enemy"] else ids[FOE]
+    geo = _deploy_at(sf, rid, ids[CASTER], anchor, DIST)
+    return {"tag": tag, "rid": rid, "sf": sf, "ids": ids, "anchor": anchor, "sides": sides, **geo}
 
 
 def _measure_1147(case: dict) -> dict:
-    from engine.playbook.prediction._shared import _entity_traits
     dv, ctx = _ctx(case["rid"], case["ids"][CASTER])
-    cid, fid = case["ids"][CASTER], case["ids"][FOE]
-    u, port = _port_decides(ctx, A1147, fid)
+    cid = case["ids"][CASTER]
+    legal = _legal_targets(case["rid"], cid, A1147)
+    tid = legal[0] if legal else case["anchor"]
+    u, port = _port_decides(ctx, A1147, tid)
     with gate_cut(A1147):
-        _u2, cut = _port_decides(ctx, A1147, fid)
+        _u2, cut = _port_decides(ctx, A1147, tid)
     with gate_inverted_1147():
-        _u3, old = _port_decides(ctx, A1147, fid)
+        _u3, old = _port_decides(ctx, A1147, tid)
     nat, msgs = _native_proposes(case["rid"], cid, A1147)
-    sc = ctx.scene
-    team = sc.team(cid)
-    summon_side = None
-    if case["tag"] in ("ally", "enemy"):
-        sid_ = case["ids"].get(SUMMON)
-        if sid_ is not None:
-            has = "Summon" in _entity_traits(sc, sid_)
-            summon_side = ("ally" if sc.team(sid_) == team else "enemy") if has else "SANS-TRAIT"
     return {"arm": case["tag"], "dist": case["dist"], "frozen": case["frozen"],
-            "normal_plan": _normal_has_plan(dv, cid),
-            "castable_here": _ability_castable_here(dv, cid, A1147),
-            "summon_side": summon_side, "u": u,
-            "native": nat, "port": port, "port_gate_cut": cut, "port_ancien": old, "msgs": msgs}
+            "normal_plan": _normal_has_plan(dv, cid), "legal": len(legal), "target": tid,
+            "n_enemy_smn": len(case["sides"]["enemy"]), "n_ally_smn": len(case["sides"]["ally"]),
+            "u": u, "native": nat, "port": port,
+            "port_gate_cut": cut, "port_ancien": old, "msgs": msgs}
 
 
 def etape3_live_1147(logs: str, verbose: bool = True) -> dict:
     seed_bc = _graft_seed_bc(os.path.join(logs, "bc_1147_graft.json"), [A1147], CASTER)
     rows, bad = [], 0
-    for tag in ("none", "ally", "enemy"):
-        case = _stage_1147(logs, tag, seed_bc)
+    for tag, esmn, asmn in ARMS_1147:
+        case = _stage_1147(logs, tag, esmn, asmn, seed_bc)
         try:
             rows.append(_measure_1147(case))
         finally:
@@ -557,50 +648,67 @@ def etape3_live_1147(logs: str, verbose: bool = True) -> dict:
         print("[etape 3] 1147 HadesAutocannons -- greffee sur %s, board %s, Movement=0, dist=%d"
               % (CASTER, BOARD, DIST))
         for r in rows:
-            print("  [%-5s] summon=%-9s dist=%-4s frozen=%-5s normalPlan=%-5s castHere=%-5s "
-                  "u=%-9s natif=%-5s port=%-5s ancien=%-5s"
-                  % (r["arm"], r["summon_side"], r["dist"], r["frozen"], r["normal_plan"],
-                     r["castable_here"], "None" if r["u"] is None else round(r["u"], 3),
+            print("  [%-5s] smnEnnemis=%d smnAllies=%d legal=%-3d dist=%-4s frozen=%-5s "
+                  "normalPlan=%-5s u=%-9s natif=%-5s port=%-5s ancien=%-5s"
+                  % (r["arm"], r["n_enemy_smn"], r["n_ally_smn"], r["legal"], r["dist"],
+                     r["frozen"], r["normal_plan"],
+                     "None" if r["u"] is None else round(r["u"], 3),
                      r["native"], r["port"], r["port_ancien"]))
 
-    want_side = {"none": None, "ally": "ally", "enemy": "enemy"}
-    want_gate = {"none": False, "ally": False, "enemy": True}
-    for r in rows:
-        # MONTAGE -- quatre conditions, sans elles la ligne ne mesure pas ce qu'elle annonce.
-        if (not r["frozen"]) or r["dist"] != DIST or r["normal_plan"] or not r["castable_here"]:
-            print("  BAD MONTAGE [%s] frozen=%s dist=%s normalPlan=%s castHere=%s"
-                  % (r["arm"], r["frozen"], r["dist"], r["normal_plan"], r["castable_here"]))
-            bad += 1
-            continue
-        if r["summon_side"] != want_side[r["arm"]]:
-            print("  BAD MONTAGE [%s] porteur de Summon du cote %s (attendu %s)"
-                  % (r["arm"], r["summon_side"], want_side[r["arm"]]))
-            bad += 1
-            continue
-        # CRITERE A : accord PLEIN natif/port sur les trois bras.
-        if bool(r["native"]) != bool(r["port"]):
-            print("  VIOLE A [%s] natif=%s port=%s msgs=%s" % (r["arm"], r["native"], r["port"],
-                                                               r["msgs"]))
-            bad += 1
-        # CRITERE B : le gate porte rend bien ce que le corps natif dit, bras par bras.
-        if bool(r["port"]) != want_gate[r["arm"]]:
-            print("  VIOLE B [%s] port=%s (attendu %s)" % (r["arm"], r["port"], want_gate[r["arm"]]))
-            bad += 1
-        # CRITERE C : la contre-epreuve « gate coupe » MORD exactement la ou le gate refuse.
-        if (r["port_gate_cut"] != r["port"]) != (not r["port"]):
-            print("  VIOLE C [%s] gate_cut=%s port=%s" % (r["arm"], r["port_gate_cut"], r["port"]))
-            bad += 1
-    # CRITERE D -- L'INVERSION ETAIT OBSERVABLE : le port d'AVANT diverge du natif sur `ally` ET
-    # sur `enemy`, et coincide sur `none`. Sans ce cran, les trois verts ci-dessus se liraient
-    # aussi bien comme « le gate n'a jamais rien change ».
+    #: `(bras, nb de summons ENNEMIS attendu, nb de summons ALLIES attendu)` -- le montage est
+    #: verifie sur la MESURE des traits, pas sur les ids demandes a `--p-units`.
+    want_sides = {"enemy": (1, 0), "both": (1, 1), "none": (0, 0)}
     by = {r["arm"]: r for r in rows}
-    if len(by) == 3:
-        for arm, doit_diverger in (("none", False), ("ally", True), ("enemy", True)):
-            diverge = bool(by[arm]["port_ancien"]) != bool(by[arm]["native"])
-            if diverge != doit_diverger:
-                print("  VIOLE D [%s] ancien=%s natif=%s -> divergence=%s (attendu %s)"
-                      % (arm, by[arm]["port_ancien"], by[arm]["native"], diverge, doit_diverger))
+    for r in rows:
+        # MONTAGE -- trois conditions communes.
+        if (not r["frozen"]) or r["dist"] != DIST or r["normal_plan"]:
+            print("  BAD MONTAGE [%s] frozen=%s dist=%s normalPlan=%s"
+                  % (r["arm"], r["frozen"], r["dist"], r["normal_plan"]))
+            bad += 1
+            continue
+        if (r["n_enemy_smn"], r["n_ally_smn"]) != want_sides[r["arm"]]:
+            print("  BAD MONTAGE [%s] summons (ennemis, allies) = %s (attendu %s)"
+                  % (r["arm"], (r["n_enemy_smn"], r["n_ally_smn"]), want_sides[r["arm"]]))
+            bad += 1
+            continue
+        # REGIME : `enemy`/`both` DOIVENT avoir une cible legale, `none` DOIT n'en avoir aucune --
+        # c'est la mesure de la TAUTOLOGIE (le gate n'est atteint que la ou il ne peut qu'accepter).
+        if (r["legal"] > 0) != (r["arm"] in ("enemy", "both")):
+            print("  BAD REGIME [%s] cibles legales=%d" % (r["arm"], r["legal"]))
+            bad += 1
+            continue
+        if r["arm"] == "none":
+            # Aucune cible legale : ni le natif ni le port ne peuvent proposer. Le bras ne mesure
+            # PAS le gate, et c'est ce qu'il est la pour etablir.
+            if r["native"] or r["port"]:
+                print("  VIOLE none : natif=%s port=%s alors qu'AUCUNE cible n'est legale"
+                      % (r["native"], r["port"]))
                 bad += 1
+            continue
+        # CRITERE A : accord natif/port, et les DEUX doivent ACCEPTER.
+        if not (r["native"] and r["port"]):
+            print("  VIOLE A [%s] natif=%s port=%s msgs=%s"
+                  % (r["arm"], r["native"], r["port"], r["msgs"]))
+            bad += 1
+        # CRITERE B : le gate porte est INERTE ici -- le couper ne change rien. C'est la forme
+        # executable de « le gate est une tautologie sur la route du natif ».
+        if r["port_gate_cut"] != r["port"]:
+            print("  VIOLE B [%s] le gate MORD (gate_cut=%s port=%s) alors que la seule cible "
+                  "legale est un summon ennemi" % (r["arm"], r["port_gate_cut"], r["port"]))
+            bad += 1
+    # CRITERE C -- L'INVERSION ETAIT OBSERVABLE, ET DANS LE SENS RESTRICTIF. Le port d'AVANT
+    # REFUSE le bras `enemy` (aucun allie porteur) et ACCEPTE le bras `both` (un allie porteur par
+    # coincidence). Sans ce cran, l'accord des deux bras se lirait « le gate n'a jamais rien
+    # change » -- alors qu'il changeait le verdict d'une action que le natif emet.
+    if {"enemy", "both"} <= set(by):
+        if by["enemy"]["port_ancien"] is not False:
+            print("  VIOLE C : le port ANCIEN n'a pas refuse le bras `enemy` (ancien=%s) -- "
+                  "la contre-epreuve est INERTE" % by["enemy"]["port_ancien"])
+            bad += 1
+        if by["both"]["port_ancien"] is not True:
+            print("  VIOLE C : le port ANCIEN n'a pas accepte le bras `both` (ancien=%s)"
+                  % by["both"]["port_ancien"])
+            bad += 1
     return {"bad": bad, "rows": rows}
 
 
