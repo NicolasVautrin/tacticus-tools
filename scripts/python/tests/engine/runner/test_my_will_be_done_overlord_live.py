@@ -162,7 +162,13 @@ def test_mwbd_target_tree_groups_and_sort():
     from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
         my_will_be_done_target_friend)
     tree = my_will_be_done_target_friend()
-    assert isinstance(tree, First) and tree.index == 0, "First(chain, amount = 1)"
+    # ⚠ CETTE ASSERTION LISAIT `tree.index == 0` alors que sa propre etiquette disait
+    # « First(chain, amount = 1) » : le noeud `First` du port prenait un INDICE, et AUCUNE
+    # surcharge de `IdunBattleLogic.Entities.DSLSelectors$$First` ne le fait (#1032-r2). Elle lit
+    # desormais l'`amount` NATIF -- et `ignoreForcedTargets`, le 4e argument, dont le litteral
+    # `xor r9d, r9d` de ce call-site vaut 0 (donc les cibles FORCEES priment).
+    assert isinstance(tree, First), "First(chain, amount = 1, ignoreForcedTargets = 0)"
+    assert tree.amount == 1 and tree.ignore_forced_targets is False
     srt = tree.source
     assert isinstance(srt, SortByFormula)
     assert srt.ascending is False, "ascending = 0 (lu au desassemblage) -> tri DESCENDANT"
