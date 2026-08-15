@@ -105,6 +105,41 @@ d'attaque**, quand la cible n'est plus couverte alors qu'elle porte encore une m
 assumé, seul instant où le port observe le couple (cible, couverture). Résidu : une cible qui sort
 puis rentre **sans qu'aucune attaque ne la vise** garde sa marque côté port.
 
+### 4bis. La purge par SORTIE de cible — portée au REFRESH (2026-08-15)
+
+Deux choses écrites au §4 étaient **fausses au moment d'être relues**, et une troisième était
+sous-estimée.
+
+* ❌ « **le port ne matérialise pas `Targets`** » — faux depuis #477-r21-r2 volet A :
+  `refresh_effects.update_effect_targets` est un mirror **1:1** avec `EffectComponentView.targets`,
+  `get_targets_to_remove` et `remove_targets_from_effect`. Ce qui restait vrai est plus étroit et
+  plus intéressant : **ce mirror n'avait aucun appelant dans le flux de combat** (un probe, un test,
+  un traducteur de flux — rien d'autre).
+* ❌ Le **foyer** annoncé au backlog citait `entities/effects/loki/extra_damage_aura.py`, qui n'a
+  rien à voir. Les vrais sont `loki/hits.py` (la classe 1395) et `effects/base.py` (le protocole).
+* ⚠ « **Sous-application possible en self-play multi-tours** » sous-estime : le régime est le régime
+  **NORMAL**. Le sélecteur exige `HasUsedActiveAbilityThisTurn` d'un allié, et
+  `UnitFlagsComponent$$RemoveTurnFlags` le retire à **chaque** entrée de tour — la couverture tombe
+  donc tous les tours, et le port **refusait un bonus que le natif re-donne**. C'est très exactement
+  ce que la mesure du §4 avait établi *sur le natif*.
+
+**Ce qui est livré.** `BaseEffect.targets_to_revert_on_exit` (défaut `()`, discriminant par **MRO** —
+un `hasattr` confondrait « pas porté » et « rien à purger »), sa surcharge sur 1395, et le driver
+`refresh_effects.revert_effects_for_exited_targets`, appelé par `refresh_stat_modifier_effects`.
+Le point d'appel n'est pas un choix de commodité : le natif **ne scinde pas** les deux volets
+(`RefreshEffectsOperation$$Execute` évalue `ShouldBeActive` **puis** appelle `UpdateEffectTargets`),
+et les trois sites qui appellent déjà ce driver (`turnflow` en `TurnChanged` — **après**
+`remove_turn_flags` —, `movement`, `damage`) sont ceux où le natif refresh.
+
+**Pourquoi aucune matérialisation n'est nécessaire — et c'est une ÉQUIVALENCE, pas un collapse.**
+`RevertInternal` de 1395 est un `ClearPersistentData` **par cible** : sur une cible sortie mais **non
+marquée**, c'est un no-op. L'ensemble des cibles *marquées* est donc un sur-ensemble suffisant de
+`targetsToRemove` **pour ce qui est observable** — balayer les marques rend le même état que
+balayer `Targets`.
+
+Contre-épreuve : **4 mutations du code de production, 4 rouges**
+(`tests/engine/test_419r1tr9r4r1r2r1b_purge_hors_attaque_offline.py`, 7 tests).
+
 ## 5. Le port — ce qui entre, et où
 
 | pièce | fichier |
@@ -189,7 +224,7 @@ et le port lit désormais `EffectComponent.IsActive` comme le fait
 * **Le régime multi-groupes** : `hit_group_index != 0` n'est pas atteint par le port (les groupes
   additionnels ne traversent pas la formule) ; le nœud est confronté par **mutation**, pas par une
   attaque native à plusieurs groupes.
-* **La purge hors attaque** : une cible qui sort puis rentre dans l'aura sans être attaquée
-  entre-temps garde sa marque côté port (§4).
+* ~~**La purge hors attaque**~~ — **FERMÉE le 2026-08-15 (`#419-r1-tr9-r4-r1-r2-r1b`)**, cf. §4bis.
+  Ce qui reste ouvert est sa **confrontation live** sur le régime propre (`#419-r1-tr9-r4-r1-r2-r1b-r2`).
 * **Une seule magnitude** : `nrOfHits[L50] = 2`, lue, jamais codée en dur — mais une seule valeur a
   été confrontée.
