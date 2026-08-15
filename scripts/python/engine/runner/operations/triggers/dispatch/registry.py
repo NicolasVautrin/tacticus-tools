@@ -184,6 +184,10 @@ from ..loki.doctrina_imperatives import (DoctrinaImperativesSetStartAbility,   #
 from ..loki.calibanite_greatsword import (                                     # #521-r4 / #521-r7
     CalibaniteGreatswordNormalAttackAdditionalDamageAbility,                   # (1189 -> 1316)
     CALIBANITE_GREATSWORD_ACTIVE)
+from ..loki.daemonic_ordnance import (                                    # #521-r4 / #521-r10
+    DaemonicOrdnanceAddCritChanceAbility,                                 # (1148 -> 1244)
+    DaemonicOrdnanceRemoveCritChanceAbility,
+    DAEMONIC_ORDNANCE_ACTIVE)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.daemonic_patrons import (DaemonicPatronsFinaleSuccessAbility,   # #911-r1 (1203 -> 1473)
                                      DaemonicPatronsFinaleFailAbility,
@@ -1613,12 +1617,15 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 # COMMENTAIRE (nom + ordinal), pour que le lecteur voie ce qui est porte et ce qui ne l'est pas :
 #   1032 Catalyst              -> 1062 GuildBossRunAway                            (non porte)
 #   1070 BreathOfSilence       -> 1128 BreathOfSilence_SetStart                    (non porte)
-#   1118 DoctrinaImperatives   -> 1201 DoctrinaImperatives_SetStart                (non porte)
-#   1148 DaemonicOrdnance      -> 1244 DaemonicOrdnance_Crit                       (non porte)
+#   1118 DoctrinaImperatives   -> 1201 DoctrinaImperatives_SetStart                <- PORTE (#521-r4)
+#   1148 DaemonicOrdnance      -> 1244 DaemonicOrdnance_Crit                       <- PORTE (#521-r4)
 #   1189 CalibaniteGreatsword  -> 1316 CalibaniteGreatsword_NormalAttackAdditionalDamage <- PORTE (#521-r4)
 #   1195 TalonsOfTheEmperor    -> 1330 TalonsOfTheEmperor_UsedAbilities            <- PORTE (#521-r1)
-# Les trois non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
+# Les DEUX non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
 # faire ici tant que leur classe n'existe pas (une entree vide serait un mensonge de couverture).
+# `1062` n'a qu'un porteur npc (greffe a verifier) ; `1070 BreathOfSilence` n'est meme pas dans
+# `ABILITY_CLASSES`, donc `1128` n'a aucune active portee en amont (re-mesure 2026-08-15 : les
+# QUATRE autres actives du dict -- 1032, 1118, 1148, 1189 -- y sont, elle seule manque).
 PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 0x4ab (1195 TalonsOfTheEmperor, `custoAtlacoya` HERO) -> 0x532 (1330 TalonsOfTheEmperor_Used
     # Abilities) : a la FERMETURE de toute active d'un allie `Hero` non-`MachineOfWar` qui COMPTE
@@ -1650,6 +1657,27 @@ PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # le porte, et c'est cette lecture partielle qui avait fait conclure a l'absence d'emetteur.
     # Cf. loki/calibanite_greatsword.py. #521-r4.
     CALIBANITE_GREATSWORD_ACTIVE: [CalibaniteGreatswordNormalAttackAdditionalDamageAbility],
+    # 0x47c (1148 DaemonicOrdnance, `blackForgefiend` -- Forgefiend, MACHINE OF WAR du pool) ->
+    # 0x4dc (1244 DaemonicOrdnance_Crit). DEUX classes natives pour UNE cle (patron `Lakrimae` /
+    # `DaemonfleshPlate`), et elles vivent dans **`Active.Loki`** -- pas `Triggered.Loki`, ce qui
+    # avait fait conclure a une classe INTROUVABLE :
+    #   * `DaemonicOrdnance_AddCritChance` -- `On(0x21 = AbilityInit) & <YesTrigger> &
+    #     get_OwnerIsActor` (trigger PARTAGE `<DSLTriggers+0x30>`, corps ICF-dedupliqué resolu par
+    #     le slot de vtable `0x2d8`) -> `AddStaticStatModifierEffectToOwner(1316
+    #     DaemonicOrdnance_ExtraCritChance, 9 = CRIT_CHANCE, <DSLFormulas+0x18> = Direct(0))`.
+    #     MAGNITUDE ZERO : c'est un MARQUEUR, qui ARME l'etage [4] de l'active 1148 (lequel fait
+    #     l'`AddOrUpdate` a `(nbUsages + 1) x extraCritChance`). ⚠ INERTE sur le regime courant,
+    #     comme `DoctrinaImperatives_SetStart` : `On(AbilityInit)` n'est emis qu'au SPAWN ;
+    #   * `DaemonicOrdnance_RemoveCritChance` -- `On(0xe = UnitPostAbility, alive 1) &
+    #     get_OwnerIsCaster` -> `If(CriticalHitsThisTurn(Owner) >= Direct(GetHits2() = nrOfHits_2),
+    #     RemoveEffect(Owner, 1316))`. CELUI-LA MORD : l'effet 1316 arrive par `load_state` sur les
+    #     unites du roster. C'est lui qui EMPECHE le crit-chance de croitre indefiniment.
+    # ⚠ Les deux volets partent ENSEMBLE : poser le marqueur sans jamais le retirer serait pire que
+    # l'absence. L'etage qui bloquait (`DSLFormulas$$CriticalHitsThisTurn` et son substrat
+    # `ActorStatisticsComponent+0x54`) est porte par la MEME tranche (#521-r10).
+    # Cf. loki/daemonic_ordnance.py. #521-r4.
+    DAEMONIC_ORDNANCE_ACTIVE: [DaemonicOrdnanceAddCritChanceAbility,
+                               DaemonicOrdnanceRemoveCritChanceAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
