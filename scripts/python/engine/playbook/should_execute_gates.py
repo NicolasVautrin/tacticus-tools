@@ -196,7 +196,8 @@ class HadesAutocannonsPlaybook(DefaultActiveAbilityPlaybook):
     qualifie par l'enum -- le littéral du décompilé ne le dit pas). L'utilite, la cible et la tuile
     de cast ne sont pas lues.
 
-    ⚠ **LE SLOT DIT `GetAllEnemiesOf`, ET LE PORT LISAIT LES ALLIES** (`#1119-r1`). Le slot `0x8e`
+    ⚠ **LE SLOT DIT `GetAllEnemiesOf`, ET LE PORT LISAIT LES ALLIES**
+    (`#419-r1-tr14-r5-r2-r1-r1-r1-r3-r1`). Le slot `0x8e`
     est `GetAllEnemiesOf` dans `data/symbols/<build>/metadata/interface_slots.tsv`
     (`GetAllFriendsOf` est le slot VOISIN, `0x8d = 141`), et les deux corps ne different QUE par le
     sens de la comparaison :
@@ -222,7 +223,18 @@ class HadesAutocannonsPlaybook(DefaultActiveAbilityPlaybook):
 
     ⚠ `GetAllEnemiesOf` ne filtre NI la mort NI la position (cf. `battle_query.all_enemies_of`, qui
     porte le meme natif sur le substrat `ctx.units`/`ctrl`) : ce mirror ne les filtre pas non plus.
-    Un summon MORT valide donc le gate, cote natif comme ici."""
+    Un summon MORT valide donc le gate, cote natif comme ici.
+
+    ⚠ **SUR LA ROUTE DU NATIF, CE GATE EST UNE TAUTOLOGIE -- et c'est ce qui a rendu l'inversion
+    RESTRICTIVE plutot que permissive.** Le masque de `HadesAutocannonsAbility` porte
+    `TargetIsSummon` (bit 13), mesure au RPC `abilityReason` (`hex: 0x2000`, `reasons:
+    ["TargetIsSummon"]`), et ce bit EST le meme predicat que le gate -- `HasTrait(target,
+    UnitTrait.Summon)`, cf. le bloc TRAITS de `runner/abilities/targeting.py`. Or
+    `CalculateActionUtility` n'est appelee que pour une cible que `GetEligibleTargetsSelectable` a
+    laissee passer : elle est donc DEJA un summon ENNEMI, et la boucle ci-dessous en trouve
+    forcement un. **Le natif ne peut pas refuser ici.** L'ancienne lecture (les ALLIES), elle,
+    REFUSAIT des que le camp du caster n'avait pas de summon a lui -- mesure live :
+    `natif=OUI port_ancien=NON` sur un bras a un seul summon, cote ENNEMI."""
 
     ability_id = int(ActiveAbilityType.HadesAutocannons)        # 0x47b = 1147
 
