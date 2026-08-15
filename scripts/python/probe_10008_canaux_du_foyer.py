@@ -1,6 +1,6 @@
 """probe #10008 -- le VOLET LIVE des canaux du foyer `frida/hooks/features/ai-step/rpc-snapshot.ts`.
 
-Trois volets, chacun lisible tout seul, chacun avec son CRITERE pose AVANT la methode.
+CINQ volets, chacun lisible tout seul, chacun avec son CRITERE pose AVANT la methode.
 
   V1 (#545-r1 + #287-r5-r2) -- LE REGIME DISCRIMINANT, celui que les deux fiches declarent NON
       ATTEINT (<< la marche d'approche a cale sur la geometrie et les deux cotes rendaient 0/0,
@@ -40,8 +40,16 @@ Trois volets, chacun lisible tout seul, chacun avec son CRITERE pose AVANT la me
       est absent : rien a conclure) de << en vol et FAUX >> (le champ est la et le contrat n'est
       pas tenu) -- confondre les deux ferait lire une non-mesure comme un vert.
 
+  V4 (#1036-r8) -- LE NIVEAU d'une ability MYTHIQUE de Machine of War, que la fiche declare
+      << publie par AUCUN canal live >>. PREMISSE REFUTEE : il arrive par DEUX voies
+      independantes. Detail dans la docstring de `volet_v4`.
+
+  V5 (#347-r3) -- LA DISPOSITION du `Nullable<UnitPositionId>`. La fiche oppose deux hypotheses ;
+      la mesure en donne une TROISIEME, ce qui etablit la derivation par metadonnees comme la
+      seule issue et pas comme la plus prudente. Detail dans la docstring de `volet_v5`.
+
 Lancement (depuis `scripts/python`) :
-    python probe_10008_canaux_du_foyer.py --state-file <ABS> [--volet v1|v2|v3]
+    python probe_10008_canaux_du_foyer.py --state-file <ABS> [--volet v1|v2|v3|v4|v5]
 
 ASCII only (cp1252).
 """
@@ -357,6 +365,157 @@ def volet_v3(state_file: str) -> dict:
     return res
 
 
+# =================================================================================================
+# V4 -- LE NIVEAU DE L'ABILITY MYTHIQUE D'UNE MACHINE (#1036-r8)
+# =================================================================================================
+
+#: La MoW et sa mythique, exactement le montage que la fiche #1036-r8 prescrit.
+MOW = "necroReanimator"
+MYTHIQUE = "GuardianConstruct"
+MYTHIQUE_NIVEAU = 4
+
+
+def volet_v4(state_file: str) -> dict:
+    """#1036-r8 -- << Le NIVEAU d'une ability MYTHIQUE de MoW n'est publie par AUCUN canal live >>.
+
+    ⚠ PREMISSE RE-MESUREE et REFUTEE (2026-08-15, session 93). La fiche conclut
+    `UnitContext.tertiary_ability = None`, `tertiary_ability_level = 0` pour toute Machine, et en
+    tire que << toute magnitude d'aura de MoW est structurellement nulle cote port >>. Mesure :
+    le niveau arrive, et par DEUX voies INDEPENDANTES.
+
+      * `unitAbilityStates` -- canal PREEXISTANT, non specifique aux Machines : il rend pour la MoW
+        une entree `triggered` avec `raw[10] == 3` (hierarchie TERTIAIRE) et `level = 4`. C'est
+        exactement ce que `snapshot._load_tertiary_abilities` consomme deja, et le port rend
+        `tertiary_ability = 'GuardianConstruct'`, `level = 4` sur un etat RECHARGE.
+      * `combatSnapshot.units[].tertiary` -- le capteur #1072, par la voie `GetBaseUnitComponent`
+        (celle qui sert les MoW). Il rend `{ability: 1530, level: 4, multiplier: 100}`.
+
+    LE CRITERE porte sur les DEUX et sur leur ACCORD, et il exige un niveau `>= 1` : un accord a
+    `0/0` serait DEGENERE -- c'est precisement l'etat que la fiche decrit, et il faut pouvoir l'en
+    distinguer. D'ou le montage `--equip-mythic <mow>:<ability>:4`, dont le `4` est le TEMOIN."""
+    res = {"volet": "v4", "items": ["#1036-r8"], "mow": MOW, "niveau_demande": MYTHIQUE_NIVEAU}
+    sid = _resolve_session()
+    st = _build(state_file, extra=("--p-mow", MOW,
+                                   "--equip-mythic", "%s:%s:%d" % (MOW, MYTHIQUE,
+                                                                   MYTHIQUE_NIVEAU)))
+    rid = int(st["runnerId"])
+    res["runnerId"] = rid
+    try:
+        from engine.runner.components import StatsComponent
+        dv = _rpc(sid, "decisionView", [{"runnerId": rid}], 60).get("result") or {}
+        ob = _rpc(sid, "observeBattle", [{"runnerId": rid}], 60).get("result") or {}
+        snap = _rpc(sid, "combatSnapshot", [{"runnerId": rid}], 90).get("result") or {}
+        abst = _rpc(sid, "unitAbilityStates", [{"runnerId": rid}], 90).get("result") or {}
+        bg = _rpc(sid, "boardGraph", [{"runnerId": rid}], 60).get("result") or {}
+        board = Board(bg["tiles"], adjacency="native_sym") if bg.get("tiles") else None
+
+        # --- VOIE 1 : le capteur `tertiary` de `combatSnapshot` ---------------------------
+        ligne = next((u for u in (snap.get("units") or [])
+                      if (u.get("tertiary") or {}).get("configId") == MOW), None)
+        if ligne is None:
+            res["ok"] = False
+            res["why"] = ("PORTEUR MANQUANT : aucune ligne de snapshot ne porte `configId == %r`. "
+                          "La MoW n'est pas entree en bataille -- ce n'est PAS un verdict sur le "
+                          "canal." % MOW)
+            return res
+        res["entityId"] = ligne.get("entityId")
+        res["entityType"] = ligne.get("entityType")
+        res["capteur_tertiary"] = ligne.get("tertiary")
+        res["tertiaryLevelMeasured"] = snap.get("tertiaryLevelMeasured")
+        res["tertiaryAbilityMeasured"] = snap.get("tertiaryAbilityMeasured")
+        niv_capteur = (ligne.get("tertiary") or {}).get("level")
+
+        # --- VOIE 2 : le PORT, sur un etat RECHARGE ---------------------------------------
+        etat = load_state(dv, ob, snap, board=board, ability_states=abst)
+        ent = etat.get_entity(ligne.get("entityId"))
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        uctx = getattr(sc, "ctx", None) if sc is not None else None
+        res["port"] = None if uctx is None else {
+            "tertiary_ability": uctx.tertiary_ability,
+            "tertiary_ability_level": uctx.tertiary_ability_level,
+            "multiplier": uctx.tertiary_ability_variables_multiplier,
+        }
+        niv_port = None if uctx is None else uctx.tertiary_ability_level
+
+        res["non_degenere"] = bool(niv_capteur == MYTHIQUE_NIVEAU >= 1
+                                   and niv_port == MYTHIQUE_NIVEAU)
+        res["accord"] = niv_capteur == niv_port
+        res["ok"] = bool(res["non_degenere"] and res["accord"]
+                         and uctx is not None and uctx.tertiary_ability == MYTHIQUE)
+        if res["ok"]:
+            res["why"] = ("PREMISSE DE LA FICHE REFUTEE : le niveau arrive par DEUX voies "
+                          "independantes et vaut %d des deux cotes. Le mur << magnitude d'aura "
+                          "de MoW structurellement nulle >> n'existe plus." % MYTHIQUE_NIVEAU)
+    finally:
+        _dispose(state_file, rid)
+    return res
+
+
+# =================================================================================================
+# V5 -- LE DECODAGE DU `Nullable<UnitPositionId>` (#347-r3)
+# =================================================================================================
+
+def volet_v5(state_file: str) -> dict:
+    """#347-r3 -- << Le decodage du `Nullable<UnitPositionId>` est MUET, et la disposition etait
+    SUPPOSEE >>.
+
+    ⚠ CE QUE LA MESURE AJOUTE A LA FICHE. Celle-ci oppose DEUX dispositions : `{T value; bool
+    hasValue}` (ce que le capteur supposait, `hasValue` a `off + 8`) et `{hasValue @+0, value @+4}`
+    (relevee par `game/match-state.ts` sur `MachinePlatformComponent`). La disposition REELLE de ce
+    `Nullable`-ci n'est **NI L'UNE NI L'AUTRE** : `nullableLayout = {hasValueOff: 0, valueOff: 8}`.
+    L'offset de `value` suit l'ALIGNEMENT de `T` -- 8 pour un `UnitPositionId`, 4 pour un `int`. Un
+    choix << a l'oeil >> entre les deux hypotheses de la fiche aurait donc ete FAUX DANS LES DEUX
+    CAS, ce qui etablit la derivation par metadonnees comme la seule issue, et pas comme la plus
+    prudente.
+
+    ⚠ ET LE MECANISME DE L'ACCIDENT SE VERIFIE SUR LE BRUT : les 16 octets d'un champ non vide
+    commencent par `[1, 0, <mot bas du pointeur>, <mot haut>]`. L'ancienne lecture prenait l'octet
+    de poids faible du MOT 2 -- non nul des que la liste existe, nul sinon : le drapeau
+    << marchait >> par coincidence, exactement comme la fiche l'annonce.
+
+    CRITERE : la disposition est DERIVEE (pas `off + 8`), et au moins un champ decode `ok` avec
+    des tuiles -- un `decode` uniformement nul serait l'etat d'AVANT."""
+    res = {"volet": "v5", "items": ["#347-r3"]}
+    sid = _resolve_session()
+    st = _build(state_file)
+    rid = int(st["runnerId"])
+    res["runnerId"] = rid
+    try:
+        stats = _rpc(sid, "actorStats", [{"runnerId": rid}], 60).get("result") or {}
+        lay = (stats.get("movementLayout") or {})
+        nl = lay.get("nullableLayout")
+        res["movementLayout"] = lay
+        res["derivee"] = isinstance(nl, dict) and nl.get("hasValueOff") is not None
+        res["disposition"] = nl
+        # Les deux hypotheses de la fiche, NOMMEES, pour que le verdict dise ce qu'il refute.
+        res["hypothese_fiche_value_puis_hasValue"] = (
+            isinstance(nl, dict) and nl.get("hasValueOff") == 8)
+        res["hypothese_match_state_value_a_4"] = (
+            isinstance(nl, dict) and nl.get("valueOff") == 4)
+        champs = []
+        for u in (stats.get("units") or []):
+            mv = u.get("movement") or {}
+            for cle, val in mv.items():
+                if isinstance(val, dict):
+                    champs.append({"entityId": u.get("entityId"), "champ": cle,
+                                   "decode": val.get("decode"),
+                                   "tuiles": len(val.get("tiles") or []),
+                                   "raw": val.get("raw")})
+        res["champs_decodes"] = [c for c in champs if c["decode"] == "ok"][:4]
+        res["nb_ok"] = sum(1 for c in champs if c["decode"] == "ok")
+        res["nb_champs_non_nuls"] = len(champs)
+        res["ok"] = bool(res["derivee"] and res["nb_ok"] >= 1
+                         and all(c["tuiles"] >= 1 for c in champs if c["decode"] == "ok"))
+        if res["nb_champs_non_nuls"] == 0:
+            res["ok"] = None
+            res["why"] = ("PORTEUR MANQUANT : aucune unite ne porte de position enregistree "
+                          "(toutes les `Nullable` sont VIDES). Le decodage n'a rien a decoder -- "
+                          "ce n'est PAS un verdict.")
+    finally:
+        _dispose(state_file, rid)
+    return res
+
+
 def _confronter_gameconfig(lignes) -> list:
     """L'ECART que le residu #419 existe pour rendre MESURABLE : le natif itere le
     `WeaponsComponent`, le port lit `GC.unit(visualId).weapons`. Rend la liste des divergences
@@ -388,7 +547,7 @@ def _profil(w) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", required=True)
-    ap.add_argument("--volet", default="tous", choices=["tous", "v1", "v2", "v3"])
+    ap.add_argument("--volet", default="tous", choices=["tous", "v1", "v2", "v3", "v4", "v5"])
     ap.add_argument("--seeds-fled", default=SEED,
                     help="v2 : seeds a essayer pour attraper un tirage `BattleFatigue`, "
                          "separes par des virgules. Le VERDICT ne depend pas du tirage "
@@ -410,7 +569,7 @@ def main() -> int:
                 return dernier
         return dernier or {"volet": "v2", "ok": None, "erreur": "aucun seed fourni"}
 
-    volets = {"v1": volet_v1, "v2": _v2, "v3": volet_v3}
+    volets = {"v1": volet_v1, "v2": _v2, "v3": volet_v3, "v4": volet_v4, "v5": volet_v5}
     choisis = list(volets) if a.volet == "tous" else [a.volet]
     tout = {}
     for nom in choisis:
