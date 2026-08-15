@@ -439,11 +439,20 @@ class DslContext:
     # None = contexte sans `State` -> le noeud rend l'ordre SOURCE inchange, ZERO calcul
     # (degradation nommee par le noeud). Fourni par `entities_from_state`.
     sort_tiles_by_utility: object | None = None
-    # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`,
-    # champ +0x110 = le `DamageAppliedResult` du coup courant) -> `Nullable<bool>` valant
-    # `DamageAppliedResult.get_IsFirstHit` = `hitIndex == 0`. Lu par le SEUL predicat
+    # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`) ->
+    # `Nullable<bool>` = `hitIndex == 0`. Lu par le SEUL predicat
     # `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` (`HasValue ? Value : false`).
     # Defaut None = coup hors serie / index inconnu -> le predicat rend False (mirror du `!HasValue`).
+    # ⚠ CITATION D'OFFSET CORRIGEE (#927-r5) : ce getter lit **`AbilityEntities+0x108`** (le champ
+    # `hitIndex`, un `Nullable<int>`), PAS `+0x110` -- `+0x110` est `hitGroupIndex`, que lit
+    # `get_IsFirstHitGroup`. Le meme couple avait deja ete re-mesure par #963 et corrige dans
+    # `entities/triggers.py::IsFirstHitInSeries` ; cette ligne-ci portait encore l'ancienne valeur.
+    # Et ce n'est pas « le `DamageAppliedResult` du coup courant » : c'est un entier nullable.
+    # ⚠ **AUCUN VECTEUR DU PORT NE POSE CE CHAMP** (#927-r5, mesure : 0 site construit un
+    # `DslContext` avec `is_first_hit`). Le drapeau circule bien, mais par les OPERATIONS de degat
+    # et le bus d'evenements (`AttackWithAttackDamage.is_first_hit` -> `execute_normal_like`),
+    # jamais par le contexte DSL. Consequences, toutes deux silencieuses : `IsFirstHitInSeries`
+    # rend TOUJOURS False, et ce slot ne discrimine RIEN dans la cle du noeud `Cache`.
     is_first_hit: bool | None = None
     # `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit, triggeredAbilityType)` =
     # `unit.GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)` -- le SEUL etage du
