@@ -21,6 +21,11 @@ design), donc leur unique « position candidate » est la position nulle.
 from __future__ import annotations
 
 from engine import battle_query as bq   # FORME B : feuille, aucune arete de cycle (#485-r1-r1)
+# #969-r4 -- FORME B egalement (`import <module>` + acces attributaire) : un `monkeypatch.setattr`
+# sur le foyer MORD toujours, ce qu'une liaison `from X import f` au niveau module GELERAIT
+# (regle 'HISSER EN FORME B' du CLAUDE.md). `should_evaluate_target` est une FEUILLE : elle
+# n'importe que `entities.traits.unit_trait`, donc aucune arete de cycle.
+from engine.playbook import should_evaluate_target as _SET
 
 
 class CtxBoard:
@@ -115,11 +120,27 @@ def _ability_entry(ctx, ability_id: int) -> dict | None:
     return None
 
 
+def _ctx_by_id(ctx) -> dict:
+    """`{entityId: UnitContext}` de la scene, ou `{}` = PAS MESURE (pas de predicteur).
+
+    Un dict VIDE laisse `filtrer_cibles` tout garder : c'est le statu quo, et c'est voulu --
+    cf. le bloc TRI-ETAT de `should_evaluate_target`."""
+    sc = getattr(ctx, "scene", None)
+    return (getattr(sc, "ctx_by_id", None) or {}) if sc is not None else {}
+
+
 def eligible_units(ctx, ability_id: int) -> list[tuple]:
     """Cibles UNITE eligibles depuis l'origine -> `[(targetId, (col, row) | None), ...]`, ORDRE NATIF.
 
     La position est celle publiee par `abilityTargets` (`pos`/`tile`) ou, a defaut, celle de la
-    meme unite dans `ctx.units` -- le meme repli que `ThriceBlessedConflagrationPlaybook`."""
+    meme unite dans `ctx.units` -- le meme repli que `ThriceBlessedConflagrationPlaybook`.
+
+    ⚠ #969-r4 -- LE `Remove` DU NATIF EST APPLIQUE ICI. `abilityTargets` rend la sortie BRUTE du
+    slot `0x42` d'`IAttackQuery` ; `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsEntities`,
+    lui, y enchaine un `ListExtensions.Remove(list, t => !ShouldEvaluateTarget(t))` que le port
+    n'avait PAS -- l'ensemble des cibles de tout playbook etait donc PERMISSIF, silencieusement.
+    MESURE (runner 112, board MC1_67) : `LootObj_Strongbox_Imp` (trait `Object`, `attack = 0`)
+    figure dans `fromHere` a cote d'`orksKillaKan`, et le natif le retire."""
     a = _ability_entry(ctx, ability_id)
     if a is None:
         return []
@@ -138,7 +159,7 @@ def eligible_units(ctx, ability_id: int) -> list[tuple]:
         p = ((src.get("col"), src.get("row")) if src.get("col") is not None
              else pos_by_id.get(tid))
         out.append((tid, p if (p and p[0] is not None) else None))
-    return out
+    return _SET.filtrer_cibles(_ctx_by_id(ctx), out, cle=lambda e: e[0])
 
 
 def eligible_any(ctx, ability_id: int) -> list[tuple]:
@@ -169,7 +190,10 @@ def eligible_any(ctx, ability_id: int) -> list[tuple]:
         if tid is None and p is not None:
             tid = (ctx.tile_id_by_pos or {}).get(p)
         out.append((tid, p, kind))
-    return out
+    # #969-r4 : meme `Remove`, mais `kind` est ici EXPLICITE -- une entite TUILE n'est jamais
+    # ecartee (`IsIrrelevantObject` exige un `BaseUnitComponent`, cf. le foyer).
+    return _SET.filtrer_cibles(_ctx_by_id(ctx), out, cle=lambda e: e[0],
+                               kind=lambda e: e[2] == "unit")
 
 
 def eligible_units_at_position(ctx, ability_id: int, P: tuple,

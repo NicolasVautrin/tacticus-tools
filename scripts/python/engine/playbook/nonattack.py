@@ -79,6 +79,9 @@ exploiter.
 from __future__ import annotations
 
 from .base import NO_ACTION, ComparablePlaybook, tile_utility, register
+# #969-r4 -- FORME B (`import <module>` + acces attributaire) : un `monkeypatch.setattr` sur le
+# foyer MORD toujours (regle 'HISSER EN FORME B' du CLAUDE.md). Feuille, aucune arete de cycle.
+from engine.playbook import should_evaluate_target as _SET
 
 
 class NonAttackComparablePlaybook(ComparablePlaybook):
@@ -255,7 +258,13 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
                         continue
                     if tid not in out:
                         out.append(tid)
-        return out
+        # #969-r4 -- LE `Remove` QUE CETTE DOCSTRING DECRIVAIT SANS LE PORTER. Il est desormais
+        # applique par le foyer `should_evaluate_target`, avec le `kind` EXPLICITE : une entite
+        # TUILE n'est jamais ecartee (`IsIrrelevantObject` exige un `BaseUnitComponent`), ce qui
+        # preserve exactement le domaine que #302 a ouvert.
+        sc = getattr(ctx, "scene", None)
+        tab = (getattr(sc, "ctx_by_id", None) or {}) if sc is not None else {}
+        return _SET.filtrer_cibles(tab, out, kind=lambda _t: not tile_domain)
 
 
 # Registre EXPLICITE : ability_id -> playbook non-attaque. Alimente par `register_nonattack`.
