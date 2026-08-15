@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **458** ; kits avec du travail : **33**
+- Unites `npc` : **491** ; kits sans manque : **461** ; kits avec du travail : **30**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **12** · `[CD]` **134**
-- Passifs distincts : **177** — portes **142**, non portes **35**
+- Passifs distincts : **177** — portes **143**, non portes **34**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -50,7 +50,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | type | item | porteurs | exemples |
 |---|---|---:|---|
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
-| passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
 | passif | Bounce | 2 | orksNpc7Squig, orksNpc7SquigSurv |
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
@@ -653,13 +652,10 @@ sont des **faces** absentes d'items presents.
 | tyranNpcTyrantGuard | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
 | tyranNpcWingedPrime | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
 
-### Ultramarines — 25 unites, 3 avec du travail
+### Ultramarines — 25 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| ultraNpc3Intercessor | 1 | - | RapidFire | - | - |
-| ultraNpc4HeavyIntercessor | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
-| ultraNpc4HeavyIntercessorSurv | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
 | ultraBossApothecary | 0 | CombatRestoratives(1002)[CD] | - | - | - |
 | ultraBossApothecaryLHE | 0 | CombatRestoratives(1002)[CD] | - | - | - |
 | ultraBossCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
@@ -676,6 +672,9 @@ sont des **faces** absentes d'items presents.
 | ultraBossTitusSurv | 0 | TacticalPrecision(1154)[CD] | - | - | relic:RelicBoltPistol |
 | ultraNpc1Inceptor | 0 | - | - | - | - |
 | ultraNpc2Eliminator | 0 | - | - | - | - |
+| ultraNpc3Intercessor | 0 | - | - | - | - |
+| ultraNpc4HeavyIntercessor | 0 | HellfireShells(1080)[CD] | - | - | - |
+| ultraNpc4HeavyIntercessorSurv | 0 | HellfireShells(1080)[CD] | - | - | - |
 | ultraNpcApothecary | 0 | CombatRestoratives(1002)[CD] | - | - | - |
 | ultraNpcCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
 | ultraNpcEliminatorSgt | 0 | MortisRound(1004)[CD] | - | - | - |

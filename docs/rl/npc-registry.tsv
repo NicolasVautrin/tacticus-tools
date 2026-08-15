@@ -2311,14 +2311,14 @@ ultraNpc1Inceptor	Ultramarines	Imperial	None	trait	MkXGravis		1
 ultraNpc2Eliminator	Ultramarines	Imperial	None	passif	CamoCloak		1	
 ultraNpc2Eliminator	Ultramarines	Imperial	None	trait	HeavyWeapon		1	
 ultraNpc2Eliminator	Ultramarines	Imperial	None	trait	Overwatch		1	
-ultraNpc3Intercessor	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraNpc3Intercessor	Ultramarines	Imperial	None	passif	RapidFire		1	
 ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	active	HellfireShells	1080	1	1
-ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	passif	RapidFire		1	
 ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	trait	MkXGravis		1	
 ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	trait	HeavyWeapon		1	
 ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	trait	SuppressiveFire		1	
 ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	active	HellfireShells	1080	1	1
-ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	passif	RapidFire		1	
 ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	trait	MkXGravis		1	
 ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	trait	HeavyWeapon		1	
 ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	trait	SuppressiveFire		1	

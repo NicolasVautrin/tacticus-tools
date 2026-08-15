@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **57** ; kits avec du travail : **8**
+- Unites `summons` : **65** ; kits sans manque : **58** ; kits avec du travail : **7**
 - Actives distinctes : **16** — `[C-]` **4** · `[CD]` **12**
-- Passifs distincts : **47** — portes **39**, non portes **8**
+- Passifs distincts : **47** — portes **40**, non portes **7**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -53,7 +53,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | FiringPosition | 1 | blackSmnHavoc |
 | passif | NoHidingFromTheWatchers | 1 | darkaSmnWatcher |
 | passif | PileIn | 1 | orksGrot |
-| passif | RapidFire | 1 | ultraSmnHeavyIntercessor |
 | passif | RepairEnthusiast | 1 | votanSmnEcog |
 | passif | Shrapnel | 1 | astraSmnMortar |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
@@ -214,12 +213,12 @@ sont des **faces** absentes d'items presents.
 | tyranSmnTermagant | 0 | - | - | - | - |
 | tyranSmnWarrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 
-### Ultramarines — 4 unites, 1 avec du travail
+### Ultramarines — 4 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| ultraSmnHeavyIntercessor | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
 | ultraSmnDreadnought | 0 | - | - | - | - |
 | ultraSmnEliminator | 0 | - | - | - | - |
+| ultraSmnHeavyIntercessor | 0 | HellfireShells(1080)[CD] | - | - | - |
 | ultraSmnInceptor | 0 | - | - | - | - |
 

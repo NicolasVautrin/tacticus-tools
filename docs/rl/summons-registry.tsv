@@ -253,7 +253,7 @@ ultraSmnEliminator	Ultramarines	Imperial	None	trait	Summon		1
 ultraSmnEliminator	Ultramarines	Imperial	None	trait	HeavyWeapon		1	
 ultraSmnEliminator	Ultramarines	Imperial	None	trait	Overwatch		1	
 ultraSmnHeavyIntercessor	Ultramarines	Imperial	None	active	HellfireShells	1080	1	1
-ultraSmnHeavyIntercessor	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraSmnHeavyIntercessor	Ultramarines	Imperial	None	passif	RapidFire		1	
 ultraSmnHeavyIntercessor	Ultramarines	Imperial	None	trait	Summon		1	
 ultraSmnHeavyIntercessor	Ultramarines	Imperial	None	trait	MkXGravis		1	
 ultraSmnHeavyIntercessor	Ultramarines	Imperial	None	trait	HeavyWeapon		1	
