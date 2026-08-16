@@ -21,6 +21,16 @@ qui, à chaque pas comparé, classe le hit/miss par étage :
   events natifs). Si la paire native repasse devant -> le miss est «prediction»
   (entièrement expliqué par l'étage prédiction) ; sinon -> «utility-logic» (résiduel).
 
+  ⚠ UN RÉSIDUEL N'EST UN VERDICT QUE SI LES DEUX CÔTÉS ONT ÉTÉ SCORÉS. Quand le choix du
+  MOTEUR n'a pas d'utilité offline (`base_eng is None`), le contrefactuel n'a PAS eu lieu :
+  «utility-logic» accuserait alors la formule d'utilité — l'étage qu'on mesure exact par
+  ailleurs. Ces cas sortent NOMMÉS, jamais fondus dans le résiduel :
+    le moteur caste une ability NonComparable (hors formule 4-familles) -> «eng-nc-pair»
+      (`nc-pair` plus haut ne teste que le côté NATIF — ce cas y échappait) ;
+    tout autre défaut de scoring du choix moteur                        -> «eng-unscored».
+  Mesuré le 2026-08-16 (777+909) : les 2 «utility-logic» du lot étaient CE cas — u81, natif
+  69 vs moteur 1129, avec `u_off_eng_choice = null` et `cf.eng = null`.
+
   ÉTAGE UTILITÉ (#45b') — confrontation par paire, MÊME TUILE, hits inclus :
     natif   = RPC `pairUtility` (= `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` invoqué en direct — la valeur EXACTE que le bucket natif
               attribue à la paire, SANS le terme Tile(7) qui vit hors du scorer) ;
@@ -38,8 +48,33 @@ qui, à chaque pas comparé, classe le hit/miss par étage :
     u_off(T_native) == u_off(T_engine)   -> «move-tie-break» ;
     u_off(T_native) <  u_off(T_engine)   -> «move-formula» (breakdown Tile7/MinDist loggé) ;
     u_off(T_native) >  u_off(T_engine)   -> «move-selection-anomaly» (argmax incohérent).
-    Un chunk COMPOSÉ (move+ability) a sa position en aval du choix d'ability ->
-    «pos-downstream-of-ability» (pas de double-comptage).
+    Un chunk COMPOSÉ (move+ability) dont l'ability DIVERGE a sa position en aval de ce
+    choix -> «pos-downstream-of-ability» (pas de double-comptage).
+
+  ⚠ « EN AVAL DU CHOIX D'ABILITY » EXIGE QUE L'ABILITY DIVERGE. Quand les deux côtés castent
+  la MÊME paire (ability, cible) et que seule la TUILE diffère, rien en amont n'explique
+  l'écart : le court-circuit classait un miss réel sous une étiquette signifiant « déjà
+  expliqué ailleurs » (mesuré 777 s8 u79 : 69→93 identique, position à 2 hexes). Ce n'est pas
+  non plus du move PUR — la tuile sort du sweep de position de la PAIRE, pas de
+  Tile(7)+MinDist. Échelle dédiée, à la paire commune, ORDRE LOAD-BEARING (elle écarte les
+  causes DÉJÀ MESURÉES avant d'oser nommer l'argmax). `own` = nos prédictions, `cf` = les
+  prédictions NATIVES injectées :
+    T_nat hors du candidat-set offline -> «pos-pair-enumeration» (feed, jamais énumérée) ;
+    une des quatre valeurs absente     -> «pos-pair-unscored» (non mesuré, PAS un verdict) ;
+    own(T_nat) >  own(T_eng)           -> «pos-pair-selection-anomaly» (argmax VRAI : notre
+                                          propre score préférait déjà la native) ;
+    cf(T_nat)  >  cf(T_eng)            -> «pos-pair-prediction» (choix cohérent avec NOS
+                                          prédictions ; c'est la prédiction qui est fausse —
+                                          déjà compté à l'étage prédiction) ;
+    cf égaux (tolérance)               -> «pos-pair-tie-break» ;
+    sinon                              -> «pos-pair-formula» (bien prédit, on sur-score la nôtre).
+
+  ⚠ CE PIÈGE A ÉTÉ TENDU PAR CE MODULE MÊME. La v1 de cette échelle ne comparait QUE `cf` et
+  a rendu «pos-pair-selection-anomaly» sur 777 s8 u79 (146.479 vs 138.155) — un argmax accusé
+  à tort. Le record d'ability du MÊME pas portait la réponse : `pred.match = false`,
+  `kill off=false / nat=true` à la tuile native. Notre moteur ne voyait pas le kill, donc son
+  choix était COHÉRENT ; l'écart n'existait que sous prédictions natives injectées. D'où
+  `_pair_own_at` et l'ordre ci-dessus.
 
   Cas non décomposés v1 (comptés tels quels) : «nc-pair» (utilité NonComparable =
   heuristique entière), «generator-overfire» (le moteur caste là où le natif bouge).
@@ -287,6 +322,34 @@ class StageProbe:
                 best = {"u_full": cand["u_full"], "u": cand["u"], "tile": tile,
                         "pred": cand["pred"]}
         return best if best is not None else "gated"
+
+    # ---- utilité de la paire à UNE tuile, avec NOS PROPRES prédictions ----
+    def _pair_own_at(self, ctx, ab: int, tgt: int, tile):
+        """`u_full` de la paire à `tile` avec les prédictions du MOTEUR — le scoring qu'il a
+        réellement appliqué au moment de décider. C'est le PENDANT de
+        `_counterfactual_utility`, qui injecte les prédictions NATIVES : seul l'écart entre
+        les deux distingue un argmax INCOHÉRENT (notre propre score préférait déjà la tuile
+        native) d'un simple gap de PRÉDICTION (notre choix était cohérent avec ce qu'on
+        prédisait, et c'est la prédiction qui est fausse)."""
+        if tile is None or playbooks.is_noncomp(ab):
+            return None
+        pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
+        cand = pb.calculate_action_utility(ctx, tile, tgt, ab)
+        return None if cand is None else cand["u_full"]
+
+    # ---- tuiles ÉNUMÉRÉES offline pour une paire (candidat-set du sweep) ----
+    def _pair_ranked_tiles(self, ctx, ab: int, tgt: int):
+        """Tuiles que le sweep offline a EFFECTIVEMENT énumérées pour la paire (`ranked` de
+        l'eval attackPlans). `None` = paire absente des evals. Sans ce contrôle, une tuile
+        jamais énumérée se lit comme un défaut d'argmax alors que c'est un trou de FEED."""
+        plan = ctx.plans.get(ctx.uid) or {}
+        ev = next((e for e in (plan.get("evals") or [])
+                   if e.get("abilityId") == ab and e.get("targetId") == tgt
+                   and e.get("rankCount")), None)
+        if ev is None:
+            return None
+        return {(rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or [])
+                if rk.get("col") is not None}
 
     # ---- confrontation prédiction (MÊME tuile des deux côtés = la tuile d'attaque) ----
     def _confront_prediction(self, ctx, dv, mov_by_unit, step: int, uid: int,
@@ -614,9 +677,25 @@ class StageProbe:
                                                      eng.get("to") or ctx.origin)
         nu_nat = (rec.get("util") or {}).get("nat")
         nu_eng = (rec.get("util_eng") or {}).get("nat")
-        rec["stage"] = ("native-gate" if (nu_nat is not None and nu_eng is not None
-                                          and nu_nat < nu_eng)
-                        else "utility-logic")    # résiduel : formule/termes d'utilité
+        if nu_nat is not None and nu_eng is not None and nu_nat < nu_eng:
+            rec["stage"] = "native-gate"
+            return rec
+        # RÉSIDUEL — mais un résiduel n'est un VERDICT que si les DEUX côtés ont été scorés.
+        # `base_eng is None` ⇒ le choix du MOTEUR n'a jamais pu être scoré offline, donc le
+        # contrefactuel n'a PAS eu lieu : le classer «utility-logic» accuse la formule
+        # d'utilité — précisément l'étage qu'on mesure EXACT par ailleurs (19/19, delta -0.0
+        # sur 777+909 le 2026-08-16). On NOMME l'absence de mesure au lieu de la déguiser en
+        # cause. Cas dominant mesuré : le moteur caste une ability NonComparable (utilité =
+        # heuristique entière, hors formule 4-familles) là où le natif en caste une
+        # Comparable — `nc-pair` ci-dessus ne teste que le côté NATIF, donc ce cas tombait
+        # dans le fourre-tout. (777 s10/s18 u81 : natif 69, moteur 1129.)
+        if base_eng is None:
+            rec["stage"] = ("eng-nc-pair" if (eng_is_ab and eng_ab is not None
+                                              and playbooks.is_noncomp(eng_ab))
+                            else "eng-unscored")
+            return rec
+        # Deux côtés scorés, et aucune des portes ci-dessus ne l'explique : gap de formule.
+        rec["stage"] = "utility-logic"
         return rec
 
     # ---- LEVER 1 : précondition offline « terme TriggeredAbilities suspect » (sans capture) ----
@@ -753,11 +832,54 @@ class StageProbe:
         if d == 0:
             rec["stage"] = "hit"
             return rec
-        if nat["ability"] or eng.get("kind") == "ability":
+        na = nat["ability"]
+        eng_is_ab = eng.get("kind") == "ability"
+        # « En aval du choix d'ability » n'a de sens que si l'ability DIVERGE. Quand les deux
+        # côtés castent la MÊME paire, rien en amont n'explique l'écart de tuile : court-circuiter
+        # là revient à classer un miss réel sous une étiquette qui dit « déjà expliqué ailleurs ».
+        # (Mesuré 777 s8 u79 : ability 69→93 IDENTIQUE des deux côtés, position à 2 hexes.)
+        same_pair = bool(na) and eng_is_ab and eng.get("ability") == na["ability"] \
+            and (eng.get("target") == na["target"] or playbooks.is_summon(na["ability"]))
+        if (na or eng_is_ab) and not same_pair:
             # Chunk composé (ou moteur qui caste) : la position découle du choix d'ability.
-            rec["stage"] = ("generator-overfire"
-                            if (not nat["ability"] and eng.get("kind") == "ability")
+            rec["stage"] = ("generator-overfire" if (not na and eng_is_ab)
                             else "pos-downstream-of-ability")
+            return rec
+        if same_pair:
+            # Même paire des deux côtés, tuile différente. Ce n'est PAS du move pur (la tuile
+            # sort du sweep de position de la PAIRE, pas de Tile(7)+MinDist) et ce n'est PAS en
+            # aval d'un choix d'ability. Échelle dédiée — ORDRE LOAD-BEARING : elle écarte les
+            # causes DÉJÀ MESURÉES avant d'oser nommer un argmax incohérent.
+            ab_, tgt_ = na["ability"], na["target"]
+            ranked = self._pair_ranked_tiles(ctx, ab_, tgt_)
+            u_own_nat = self._pair_own_at(ctx, ab_, tgt_, nat_to)
+            u_own_eng = self._pair_own_at(ctx, ab_, tgt_, eng_to)
+            u_cf_nat = self._counterfactual_utility(ctx, step, uid, ab_, tgt_, nat_to)
+            u_cf_eng = (self._counterfactual_utility(ctx, step, uid, ab_, tgt_, eng_to)
+                        if eng_to is not None else None)
+            _r3 = lambda v: None if v is None else round(v, 3)          # noqa: E731
+            rec["pair_pos_u"] = {"own": {"nat": _r3(u_own_nat), "eng": _r3(u_own_eng)},
+                                 "cf": {"nat": _r3(u_cf_nat), "eng": _r3(u_cf_eng)}}
+            if ranked is not None and nat_to not in ranked:
+                rec["stage"] = "pos-pair-enumeration"     # tuile native jamais énumérée (feed)
+                return rec
+            if None in (u_own_nat, u_own_eng, u_cf_nat, u_cf_eng):
+                rec["stage"] = "pos-pair-unscored"        # non mesuré, PAS un verdict
+                return rec
+            if u_own_nat > u_own_eng:
+                # NOS PROPRES prédictions préféraient déjà la tuile native, et on a pris l'autre :
+                # incohérence d'argmax VRAIE, indépendante de toute divergence de prédiction.
+                rec["stage"] = "pos-pair-selection-anomaly"
+            elif u_cf_nat > u_cf_eng:
+                # Notre choix était COHÉRENT avec ce qu'on prédisait ; injecter les prédictions
+                # NATIVES suffit à faire repasser la tuile native devant -> le miss est porté par
+                # l'étage PRÉDICTION, où il est déjà compté. Ne pas le compter deux fois, et
+                # surtout ne pas l'imputer à l'argmax.
+                rec["stage"] = "pos-pair-prediction"
+            elif abs(u_cf_nat - u_cf_eng) <= max(0.01, 0.001 * abs(u_cf_nat)):
+                rec["stage"] = "pos-pair-tie-break"
+            else:
+                rec["stage"] = "pos-pair-formula"         # même bien prédit, on sur-score la nôtre
             return rec
         # Move PUR des deux côtés -> décomposition Tile7 + MinDist.
         legal = {(t["col"], t["row"]) for t in ctx.move_tiles}
