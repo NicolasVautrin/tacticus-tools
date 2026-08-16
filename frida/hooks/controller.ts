@@ -66,6 +66,11 @@ import * as messageTrace from "./features/message-trace.js";
 // (`Replay.GetWholeBattleOutputStream`), celle-la meme que `Runner.ReplayValidator`
 // compare caractere par caractere.
 import * as replayOutputStream from "./features/replay-output-stream.js";
+// replay-launch = l'autre face du replay : l'OUVRIR dans le viewer du jeu au lieu de le lire.
+// N'arme rien non plus. Il existe parce que la chaine passe un OBJET d'un appel natif au
+// suivant (`DeserializeReplay` -> `+0x10` -> `StartUserReplayMatch`), ce qu'`invoquerCommande`
+// refuse volontairement de faire : `argIl2cpp` n'accepte aucun argument de type objet.
+import * as replayLaunch from "./features/replay-launch.js";
 import * as aiStep from "./features/ai-step/index.js";
 // modifier-observe = diagnostic PERMANENT on-demand (decompo par etage prediction+combat — l'outil
 // doctrine « divergence de degat = decomposition, jamais fit », promu au build standard par #98).
@@ -481,7 +486,7 @@ export function wireRpc(ctx: Ctx): void {
      aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
-     replayOutputStream,
+     replayOutputStream, replayLaunch,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }
