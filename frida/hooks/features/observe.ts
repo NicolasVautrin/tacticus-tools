@@ -10,6 +10,11 @@
 // diag scripts: { stage, stageName, units: [{entityId, visualId,
 // playerId, col, row, hp, hpMax, ...}], counts, byType }.
 // Per-foot entries (= one row per visible tile occupied by a unit).
+//
+// `units[].inPlay` (2026-08-16) porte le verdict natif `UnitExtensions$$IsAlive` — le
+// SEUL canal qui distingue une unité RETIRÉE d'une unité vivante ici, `isDead` restant
+// `false` dans les deux cas. Voir sa docstring : sans lui, les pieds d'un avatar de MoW
+// rappelé restent publiés à pleine vie et se lisent comme une divergence de moteur.
 
 import { state } from "../game/state.js";
 import { runnerOff } from "../game/runner.js";
@@ -17,7 +22,15 @@ import {
     forEachEntity, forEachComponent, projectMatchState, EntityType,
 } from "../game/match-state.js";
 import { getRunner as getRegistryRunner } from "../game/runner-registry.js";
-import { class_get_name, class_get_namespace, cstr } from "../il2cpp/helpers.js";
+import {
+    class_get_name, class_get_namespace, cstr, findMethodByParamCount,
+} from "../il2cpp/helpers.js";
+import { unitExtClass, invokeBoolOrNull } from "./ai-step/internals.js";
+
+/** `IdunBattle.Entities.UnitExtensions$$IsAlive(entity, state)` — résolution RUNTIME
+ *  (aucune RVA), `null` si irrésolue, ce que `inPlay` publie alors tel quel. */
+const isAliveMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "IsAlive", 2) : null;
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 
@@ -87,6 +100,30 @@ interface UnitObservation {
     /** L'ESCOUADE — c'est CELUI-CI qu'on passe partout ailleurs (`applyAction`,
      *  `fsmInput`, `decisionView.unitId`/`targetId`, `_unit` du FSM). */
     squadId: number;
+    /** Verdict d'`IdunBattle.Entities.UnitExtensions$$IsAlive(entity, state)` sur
+     *  l'ESCOUADE. Tri-état : `null` = PAS MESURÉ (méthode irrésolue), jamais rabattu
+     *  sur `false` — un capteur en panne qui rendrait `false` effacerait TOUTES les
+     *  unités, c'est-à-dire serait indiscernable d'une bataille vide.
+     *
+     *  ⚠ CE N'EST PAS `isDead`, ET C'EST TOUT L'INTÉRÊT. `isDead` lit le composant ;
+     *  `IsAlive` teste EN PLUS l'appartenance à la collection du MatchState. Une unité
+     *  RETIRÉE SANS MOURIR a donc `isDead: false` mais `inPlay: false` — cas mesuré le
+     *  2026-08-16 sur l'avatar de Machine of War : `AetherStride` fait descendre la MoW
+     *  en unité invoquée (`RemoveMachine` + `AddUnit`, `Unit_Parent_Id`), puis le
+     *  `StartTurn` suivant la rappelle (`StartTurnOperation$$ResetMachine`) avec
+     *  `Unit_IsDying:0`. Le moteur la retire ; ses PIEDS, eux, restaient publiés ici à
+     *  pleine vie, sur des tuiles qu'elle n'occupe plus.
+     *
+     *  Le coût de l'absence de ce canal a été mesuré : un rejeu pas-à-pas du combat
+     *  d'un autre joueur a été déclaré DIVERGENT (3 unités « survivantes » à 7634 PV)
+     *  alors qu'il était BIT-EXACT — 47 messages, 0 écart — dès qu'on croisait avec
+     *  `combatSnapshot`, qui filtre par ce même prédicat (`isAliveMi`, cf.
+     *  `rpc-snapshot.ts`). L'écart n'était pas dans le moteur mais dans cette vue.
+     *
+     *  Les lignes ne sont PAS supprimées : ~250 montages Python consomment cette forme,
+     *  et une unité retirée reste utile à observer. On PUBLIE le verdict, on ne filtre
+     *  pas à la place de l'appelant. */
+    inPlay: boolean | null;
     visualId: string | null;
     /** Logical team id (1=player, 2=AI, 3=env). Use this for friend/foe. */
     teamId: number | null;
@@ -171,10 +208,27 @@ function observeBattle(opts?: { runnerId?: number }): BattleObservation {
     obs.stageName = proj.stageName;
     obs.currentPlayer = proj.playerOnTurn;
 
+    // `IsAlive` se juge sur l'ENTITÉ ESCOUADE (Type Unit/Machine), pas sur le pied :
+    // le prédicat natif prend `(entity, state)`. On indexe donc par id d'escouade,
+    // puis on annote chaque pied. Une escouade ABSENTE de la collection n'a plus
+    // d'entité du tout — c'est `false` (retirée), pas `null` (pas mesuré).
+    const enJeuParEscouade = new Map<number, boolean | null>();
+    if (isAliveMi) {
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
+            enJeuParEscouade.set(id, invokeBoolOrNull(isAliveMi, [e, statePtr]));
+        });
+    }
+
     for (const u of proj.units) {
         obs.units.push({
             entityId: u.id,
             squadId: u.squadId,
+            inPlay: isAliveMi === null
+                ? null
+                : (enJeuParEscouade.has(u.squadId)
+                    ? enJeuParEscouade.get(u.squadId) ?? null
+                    : false),
             visualId: u.visualId,
             teamId: u.teamId,
             playerId: u.ownerId,
