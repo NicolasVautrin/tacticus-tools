@@ -106,7 +106,34 @@ import {
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { getRunner, listRunners } from "../game/runner-registry.js";
 import { getReplayMi, runnerOff } from "../game/runner.js";
+import { state } from "../game/state.js";
 import { Ctx } from "../controller.js";
+
+/** Le runner visé — REGISTRE si un `runnerId` est donné, sinon le runner VIVANT.
+ *
+ *  POURQUOI ce repli existe. Tout ce module passait par `getRunner(runnerId)`, qui ne connaît
+ *  que le registre : sur une bataille jouée à l'écran, `replaySteps` rendait
+ *  `runner -1 not found` — donc l'oracle le plus dense qu'on ait (le flux canonique que
+ *  `Runner.ReplayValidator` compare caractère par caractère) était inatteignable là où on en
+ *  a le plus besoin, c'est-à-dire sur une vraie partie. Mesuré le 2026-08-16 en voulant
+ *  comparer deux runs live.
+ *
+ *  Le `recordReplay` d'un runner vivant n'est pas connu du registre : on rend `null`, et
+ *  l'appelant retombe sur la MESURE native (`recorderPlayersOff`) -- jamais sur un `false`
+ *  inventé. */
+function resoudreRunner(
+    runnerId: number,
+): { runner: NativePointer; recordReplay: boolean | null } | null {
+    if (runnerId >= 0) {
+        try {
+            const e = getRunner(runnerId);
+            return { runner: e.runner, recordReplay: e.recordReplay === true };
+        } catch { return null; }
+    }
+    const live = state.liveRunner;
+    if (!live || live.isNull()) return null;
+    return { runner: live, recordReplay: null };
+}
 
 // --- Replay accessors ---
 
@@ -211,7 +238,12 @@ export function replayOutputStream(
         return emptyResult(runnerId, "ReplayRecorder.GetReplay not resolved");
     }
 
-    const entry = getRunner(runnerId);
+    const entry = resoudreRunner(runnerId);
+    if (!entry) {
+        return emptyResult(runnerId, runnerId >= 0
+            ? "runner " + runnerId + " not found"
+            : "aucun runner VIVANT (pas de bataille montee) et aucun `runnerId` donne");
+    }
     const recorder = entry.runner.add(runnerOff.replayRecorder).readPointer();
     if (recorder.isNull()) {
         // Le ctor du runner cree le recorder AVANT toute option : un null
@@ -391,7 +423,12 @@ export function replaySteps(
         return { ok: false, runnerId, steps: null,
                  err: "ReplayRecorder.GetReplay not resolved" };
     }
-    const entry = getRunner(runnerId);
+    const entry = resoudreRunner(runnerId);
+    if (!entry) {
+        return { ok: false, runnerId, steps: null, err: runnerId >= 0
+            ? "runner " + runnerId + " not found"
+            : "aucun runner VIVANT (pas de bataille montee) et aucun `runnerId` donne" };
+    }
     const recorder = entry.runner.add(runnerOff.replayRecorder).readPointer();
     if (recorder.isNull()) {
         return { ok: false, runnerId, steps: null, err: "runner has no ReplayRecorder" };
@@ -484,7 +521,12 @@ export function replayRngEvents(
         return { ok: false, runnerId, events: null,
                  err: "ReplayRecorder.GetReplay not resolved" };
     }
-    const entry = getRunner(runnerId);
+    const entry = resoudreRunner(runnerId);
+    if (!entry) {
+        return { ok: false, runnerId, events: null, err: runnerId >= 0
+            ? "runner " + runnerId + " not found"
+            : "aucun runner VIVANT (pas de bataille montee) et aucun `runnerId` donne" };
+    }
     const recorder = entry.runner.add(runnerOff.replayRecorder).readPointer();
     if (recorder.isNull()) {
         return { ok: false, runnerId, events: null, err: "runner has no ReplayRecorder" };
