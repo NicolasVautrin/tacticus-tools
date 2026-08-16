@@ -8,6 +8,18 @@ plus. C'est la seule catégorie de `data/` qu'on ne peut pas re-dériver.
 `worktree remove --force` l'effacent sans trace. `git add` le fichier DANS LE MÊME geste que
 la récupération, jamais « plus tard ».
 
+## À LA RÉCUPÉRATION — trois gestes, dans le même commit
+
+1. **Sauver le BRUT** (`.replay.txt`, base64+gzip), pas seulement le décodé. Le jeu fait
+   tourner son répertoire : le brut n'est récupérable que le jour même.
+2. **`git add`** immédiatement — cf. ci-dessus.
+3. **Renseigner `rank`.** ⚠ **C'est la SEULE colonne qu'on ne peut pas retrouver après coup.**
+   `boss`, `map`, `spawn` se re-dérivent du fichier à volonté ; le tier de raid, lui, n'est
+   écrit NULLE PART dedans (cf. plus bas). Si on ne le note pas au moment où on récupère le
+   replay — moment où on sait encore de quel raid il vient — l'information est perdue, et
+   aucune relecture du fichier ne la rendra. Une ligne à `rank` vide est une dette, pas un
+   simple champ manquant.
+
 ## Format — mesuré, pas supposé
 
 Un `.replay.txt` du jeu est **`base64(gzip(JSON UTF-8))`**. Vérifié le 2026-08-16 sur les
