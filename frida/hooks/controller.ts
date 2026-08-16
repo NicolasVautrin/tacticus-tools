@@ -45,6 +45,7 @@ import * as expeditionBoard from "./features/expedition-board.js";
 import * as rosterOwned from "./features/roster-owned.js";
 import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as promoCode from "./features/promo-code.js";
+import * as inbox from "./features/inbox.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -449,7 +450,11 @@ export function wireRpc(ctx: Ctx): void {
      // (`promoRedeem`, sous `confirmer: true`), et son capteur est l'ARDOISE du delegue qu'il
      // passe au natif -- pas un ancrage. Verrou interne sur `MaxFailsReached` : le serveur
      // compte les echecs et bloque la fonction, donc une boucle de codes doit s'arreter SEULE.
-     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, promoCode,
+     // `inbox` complete `promo-code` : les recompenses d'un code n'entrent PAS dans
+     // l'inventaire, elles atterrissent en boite de reception. Il n'installe rien non plus, et
+     // il NE FILTRE PAS -- il expose le type de chaque recompense pour que l'appelant epargne
+     // ce qui plafonne (la stamina, qui se jette si la jauge est pleine).
+     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, promoCode, inbox,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
