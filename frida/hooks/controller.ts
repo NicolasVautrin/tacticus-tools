@@ -46,6 +46,7 @@ import * as rosterOwned from "./features/roster-owned.js";
 import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as promoCode from "./features/promo-code.js";
 import * as inbox from "./features/inbox.js";
+import * as shop from "./features/shop.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -454,7 +455,12 @@ export function wireRpc(ctx: Ctx): void {
      // l'inventaire, elles atterrissent en boite de reception. Il n'installe rien non plus, et
      // il NE FILTRE PAS -- il expose le type de chaque recompense pour que l'appelant epargne
      // ce qui plafonne (la stamina, qui se jette si la jauge est pleine).
+     // `shop` n'installe rien non plus. Il ECRIT, mais SEULEMENT sur des offres a cout NUL :
+     // son RPC s'appelle `shopBuyFree` et refuse tout produit dont il n'a pas LU sur l'objet
+     // vivant que le cout est zero -- y compris un cout NON MESURE. Il n'existe pas de voie
+     // payante dans ce module, et c'est la garde qui l'etablit, pas le nom du RPC.
      netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, promoCode, inbox,
+     shop,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
