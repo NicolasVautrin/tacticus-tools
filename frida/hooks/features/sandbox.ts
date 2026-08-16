@@ -54,9 +54,22 @@
 // ---------------------------------------------------------------------------
 // Le ctor déclare `unitProgression: idun.tests.TestUnitProgression`. On lui passait le VRAI
 // `IUnitProgression` du compte, lu sur l'exécuteur vivant ; `il2cpp_runtime_invoke` ne
-// type-check pas, donc ça montait sans broncher. Sauf que la vraie `UnitProgression..ctor`
-// prend un `guildBossProgression: thor.UserProgress.IGuildBossProgression` — la dépendance
-// qui DÉPENSE les jetons. La progression de test, elle, ne la porte pas.
+// type-check pas, donc ça montait sans broncher.
+//
+// ⚠ LE DANGER N'EST PAS LE TYPE — LE CHAMP EST DÉCLARÉ `IUnitProgression` (RPC `classFields` :
+// `TestSceneBattleModeSource` = `_battleConfiguration@0x10`, `_unitProgression@0x18`
+// (IUnitProgression), `_gameViews@0x20`, `_menuSystems@0x28`, `_battleFinished@0x30`).
+// C'EST UNE HYPOTHÈSE DE **DISPOSITION**. Le ctor construit un délégué et l'écrit à
+// `*(unitProgression + 0x88)`, un offset qui n'a de sens que dans la classe de TEST :
+//
+//     idun.tests.TestUnitProgression        +0x88 = _GetAbilityConfig  (Func`3)  <- slot prévu
+//     IdunMetaLogic.UserProgress.UnitProgression  +0x88 = _powerFormula (IPowerFormula)
+//
+// Passer la vraie progression ÉCRASE donc `_powerFormula` du compte par un délégué. Tout
+// calcul de puissance ultérieur (`GetPowerForUnit`, `GetPowerForNpcUnit`,
+// `GetAccumulatedPowerOfAllPlayerUnits`, ...) dispatche sur le mauvais vtable — ce qui
+// explique le CRASH au retour au meta, qui recalcule la puissance partout.
+// (`_guildBossProgression` est ailleurs, à +0xc0, et n'est pas touché.)
 //
 // ⚠ CE N'EST PAS PAR LÀ QUE LES JETONS SONT PARTIS — voir le bloc suivant. Le correctif reste
 // juste (le type déclaré est une classe de test, et le ctor ÉCRIT dans l'objet reçu), mais il
@@ -132,9 +145,11 @@ function epinglerBc(p: NativePointer): void {
  *
  *  `idun.tests.TestUnitProgression..ctor` ne prend AUCUN paramètre — donc rien n'oblige à
  *  emprunter celle du compte, et c'est ce qui rend le refus tenable plutôt que théorique.
- *  À l'inverse, `IdunMetaLogic.UserProgress.UnitProgression..ctor` prend 26 dépendances,
- *  dont `guildBossProgression: thor.UserProgress.IGuildBossProgression` : c'est CELLE-LÀ
- *  qui débite les jetons de boss de guilde, et deux l'ont été.
+ *
+ *  ⚠ La raison est une DISPOSITION, pas un type (mesurée au RPC `classFields`) : le ctor
+ *  écrit un délégué à `+0x88`, qui vaut `_GetAbilityConfig` (`Func`3`) sur la classe de test
+ *  et `_powerFormula` (`IPowerFormula`) sur la vraie `UnitProgression`. Lui passer celle du
+ *  compte CORROMPT donc le calcul de puissance — cf. l'en-tête du module.
  *
  *  Mémoïsée + `gcRoot` : réinstancier à chaque montage ferait un objet managé de plus à
  *  garder en vie pour rien, et un objet non enraciné peut être déplacé entre sa création et
