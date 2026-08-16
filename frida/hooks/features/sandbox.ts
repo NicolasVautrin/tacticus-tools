@@ -58,18 +58,37 @@
 // prend un `guildBossProgression: thor.UserProgress.IGuildBossProgression` — la dépendance
 // qui DÉPENSE les jetons. La progression de test, elle, ne la porte pas.
 //
-// Mesure du 2026-08-16, dans l'état local du jeu (`user_progression.json`) :
-//     guildBoss.battleTokens.countdownStartedAt          = 05:18:08
-//     guildBoss.guildProgressionPlayerState.attempts.lastUpdatedThreshold = 05:18:08
-// Un compte à rebours de régénération ne démarre QUE sur une dépense. 05:18:08 tombe
-// 73 secondes après le 3ᵉ montage sandbox (05:16:55) et à l'instant du crash — aucun geste
-// de l'utilisateur là-dedans. Trois montages enregistrés (04:34:48, 04:35:48, 05:16:55,
-// mode `Campaign`, BC hybride à 197 unités / boss 22 200 785), et deux replays `GuildBoss`
-// apparus dans leur sillage (04:39:59, contenu identique au combat de 01:33 ; 05:28:35).
+// ⚠ CE N'EST PAS PAR LÀ QUE LES JETONS SONT PARTIS — voir le bloc suivant. Le correctif reste
+// juste (le type déclaré est une classe de test, et le ctor ÉCRIT dans l'objet reçu), mais il
+// ne faut pas lui attribuer la perte : le RE l'a réfuté.
 //
-// ⇒ DEPUIS, LE DÉFAUT EST LA PROGRESSION DE TEST, et l'absence de celle-ci est un REFUS, pas
-// un repli sur celle du compte. Le risque ci-dessus était déjà ÉCRIT ici avant l'incident, à
-// trois endroits, et il n'a rien arrêté : seule une porte exécutable arrête un comportement.
+// CE QUI FAIT PERDRE UNE TENTATIVE DE BOSS DE GUILDE — ÉTABLI PAR RE
+// -------------------------------------------------------------------
+// `ViewCommandExecutor$$StartMatch` ne dépense RIEN et ne touche AUCUNE progression :
+//
+//     if (checkIfAlreadyRunning) { ... refuse + LogError si un match tourne déjà ... }
+//     holder = new <MatchHolder>; *(holder + 0x20) = gameModeSource;
+//     **(statique + 0xb8) = holder;          // ÉCRASE LE MATCH COURANT
+//     thor.Loader$$LoadBattle(0);
+//
+// Côté boss de guilde, la tentative est enregistrée AU CHARGEMENT, avant qu'on joue :
+// `GuildBossGameModeSource$$SendLoadBattleGameEventInternal` appelle
+// `TempBattleData$$GenerateNewBattleId` puis poste un game-event au serveur. D'où
+// `GuildBossProgression$$WasLastLoadedBattleAcknowledgedByServer`,
+// `IBattleReconciliationProgression`, et le `battle_reconciliation.json` du disque.
+// Une tentative enregistrée puis JAMAIS TERMINÉE est perdue — et aucun compteur local n'est
+// décrémenté, donc la perte ne laisse AUCUNE trace côté client.
+//
+// ⇒ La garde est le booléen `checkIfAlreadyRunning`, et ce module passait `false`. Il est
+// désormais à `true` par défaut. S'y ajoute : ne pas monter depuis un écran de bataille ou
+// une prévisualisation de combat, et ne PAS revenir au meta avec cette source (elle n'a pas
+// de `HandleFinishBattle`, donc le meta hérite d'une bataille jamais close).
+//
+// ⚠ CE QUE LE RE A RÉFUTÉ, ET QU'IL NE FAUT PAS RÉÉCRIRE : « le compte à rebours de
+// `guildBoss.battleTokens.countdownStartedAt` ne démarre que sur une dépense ». FAUX.
+// `GuildBossProgressionData$$ApplyBattleTokens` lit une quantité et une date DANS LE DTO
+// SERVEUR et les recopie par `AbstractStaminaProgressionData$$SetEnergyAtServerTime` : cet
+// horodatage marque une SYNCHRONISATION, pas une dépense, et n'accuse personne.
 
 import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, s,
@@ -239,7 +258,7 @@ export function register(ctx: Ctx): void {
      *  Chaîne, toute native :
      *      JSON -> `BattleConfiguration`
      *      -> `new TestSceneBattleModeSource(bc, unitProgression, menuSystems)`
-     *      -> `ViewCommandExecutor$$StartMatch(source, checkIfAlreadyRunning: false)`
+     *      -> `ViewCommandExecutor$$StartMatch(source, checkIfAlreadyRunning: true)`
      *
      *  ⚠ `_menuSystems` se prend PAR NOM sur l'exécuteur vivant, jamais par offset : les
      *  offsets bougent d'un build à l'autre, et une valeur lue au mauvais offset ne se
@@ -334,8 +353,25 @@ export function register(ctx: Ctx): void {
                           + " déclaré est la cause la plus probable"
                         : "") };
             }
+            // ⚠⚠ LE DÉFAUT EST `true`, ET C'EST LA GARDE PRINCIPALE DE CE MODULE.
+            //
+            // `ViewCommandExecutor$$StartMatch` ne dépense rien et ne touche aucune
+            // progression : elle ÉCRASE le match courant dans un champ statique, puis
+            // appelle `thor.Loader$$LoadBattle`. Avec `checkIfAlreadyRunning`, elle REFUSE
+            // (et journalise) quand un match tourne déjà ; sans lui, elle écrase.
+            //
+            // Or côté boss de guilde la tentative est enregistrée AU CHARGEMENT, avant
+            // qu'on joue : `GuildBossGameModeSource$$SendLoadBattleGameEventInternal`
+            // appelle `TempBattleData$$GenerateNewBattleId` puis poste un game-event.
+            // D'où `WasLastLoadedBattleAcknowledgedByServer`, `IBattleReconciliationProgression`
+            // et le `battle_reconciliation.json` du disque. Écraser un match enregistré mais
+            // non terminé PERD la tentative -- sans qu'aucun compteur local ne soit décrémenté,
+            // donc sans trace côté client.
+            //
+            // Ce module passait `false`. C'était la valeur exactement inverse de celle qu'il
+            // fallait, et elle désarmait la seule garde native disponible.
             const chk = Memory.alloc(1);
-            chk.writeU8(body.checkIfAlreadyRunning === true ? 1 : 0);
+            chk.writeU8(body.checkIfAlreadyRunning === false ? 0 : 1);
             try {
                 invokeMethod(miStart.info, ex, [src, chk]);
             } catch (e) {
