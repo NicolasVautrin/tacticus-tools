@@ -108,6 +108,12 @@ export async function injectBundle(opts: {
         pid,
         target: "tacticus",
         source,
+        // ⚠ PAS de défaut ici, et c'est VOULU (cf. `index.ts` : le défaut a été retiré le
+        // 2026-07-26 après avoir accumulé 3 663 Mo / 828 fichiers `run-*.jsonl` — un par
+        // session, contenant CHAQUE message de l'agent — sans qu'aucun lecteur existe
+        // dans le dépôt). Le journal reste une CAPACITÉ, demandée explicitement par
+        // `log_dir` dans le corps de l'inject. Les timings de stop, eux, passent par le
+        // `console.log` de `stopSession` : ils n'ont pas besoin du flux complet.
         logDir: opts.logDir,
         exePath: exePath ?? undefined,
         bundlePath,

@@ -217,6 +217,23 @@ export async function stopSession(id: number): Promise<void> {
     const session = sessions.get(id);
     if (!session || session.status !== "running") return;
 
+    // CHRONOMÉTRAGE DES TROIS ÉTAGES DU STOP (#10016-r1).
+    //
+    // Mesuré le 2026-08-16 : un `POST /api/admin/inject` a mis 400 s puis échoué, et le
+    // suivant — stop désormais terminé — a rendu la main en 9 s. Tout le coût est donc
+    // dans le stop, jamais dans l'attach. Mais PERSONNE NE SAIT LEQUEL des trois appels
+    // le porte : le handshake est plafonné à 2 s, tandis qu'`unload()` et `detach()`
+    // n'ont NI mesure NI timeout. Le seul témoin disponible était le temps de bout en
+    // bout de la requête HTTP, qui mélange stop + attach — donc inutilisable pour
+    // décider quoi que ce soit.
+    //
+    // ⚠ TRI-ÉTAT, et il n'est pas décoratif : `-1` = l'appel N'A PAS TERMINÉ (exception,
+    // ou étage jamais atteint parce que le précédent a levé). Un `0` s'y lirait comme
+    // « instantané », c'est-à-dire comme une MESURE — exactement le rabattement qui
+    // ferait innocenter l'étage fautif.
+    const chrono = { handshakeMs: -1, unloadMs: -1, detachMs: -1 };
+    const t0 = Date.now();
+
     try {
         if (session.fridaScript) {
             session.fridaScript.post({ type: "cleanup" });
@@ -235,14 +252,31 @@ export async function stopSession(id: number): Promise<void> {
                 }),
                 new Promise<void>((resolve) => setTimeout(resolve, 2000)),
             ]);
+            chrono.handshakeMs = Date.now() - t0;
+            const tUnload = Date.now();
             await session.fridaScript.unload();
+            chrono.unloadMs = Date.now() - tUnload;
         }
         if (session.fridaSession) {
+            const tDetach = Date.now();
             await session.fridaSession.detach();
+            chrono.detachMs = Date.now() - tDetach;
         }
     } catch {
         // Already detached
     }
+
+    // Émis MÊME quand un étage a levé : c'est précisément le cas où l'on veut savoir
+    // lequel, et les `-1` le disent. Le total de bout en bout est repris à côté des
+    // trois étages pour que la somme manquante saute aux yeux.
+    console.log(
+        `[sessions] stop ${id} — handshake=${chrono.handshakeMs}ms `
+        + `unload=${chrono.unloadMs}ms detach=${chrono.detachMs}ms `
+        + `(total=${Date.now() - t0}ms ; -1 = n'a pas termine)`,
+    );
+    try {
+        appendLog(id, { t: "stop_timings", ...chrono, totalMs: Date.now() - t0 });
+    } catch { /* journal non ouvert (aucun logDir a l'inject) — le console.log suffit */ }
 
     session.status = "stopped";
     session.endedAt = new Date().toISOString();
