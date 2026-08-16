@@ -30,6 +30,10 @@ import * as viewCommand from "./features/view-command.js";
 // Jouer une `BattleConfiguration` ARBITRAIRE a l'ecran, via `IdunMainView$$StartBattle`.
 // N'installe AUCUN hook au register : deux RPC, dont un purement observateur.
 import * as sandbox from "./features/sandbox.js";
+// L'INVERSE de `sandbox.ts` : la source FABRIQUE la BC au lieu d'en consommer une.
+// `SandboxGameModeSource$$LoadBattle` la construit depuis une `ISandboxBattleConfig`, donc
+// plus besoin d'avoir capture une BC au prealable. N'installe AUCUN hook au register.
+import * as sandboxMode from "./features/sandbox-mode.js";
 import * as retreatCapture from "./features/retreat-capture.js";
 import * as fsmInput from "./features/fsm-input.js";
 import * as battleEvents from "./features/battle-events.js";
@@ -431,7 +435,7 @@ export function wireRpc(ctx: Ctx): void {
      // par les porteurs natifs de `ViewCommandExecutor`.
      // `ui-windows.ts` SURVIT sans `register` : le warmup importe `ecouterTransitions`, qui
      // OBSERVE les transitions de fenêtre et ne clique rien.
-     viewCommand, sandbox, retreatCapture,
+     viewCommand, sandbox, sandboxMode, retreatCapture,
      fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.
