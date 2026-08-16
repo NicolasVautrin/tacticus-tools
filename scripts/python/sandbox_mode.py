@@ -217,8 +217,21 @@ def dto_vagues(args):
 
     Le type d'element vient du TYPE DE RETOUR du convertisseur
     `OnslaughtGameModeSource.<>c.<GetWaveBattleConfigDto>b__52_0`, et ce convertisseur met
-    TOUTES les `EnemyIds` du modele sous UNE SEULE cle du dictionnaire -- d'ou `--enemies-key`,
-    dont `0` suffit (JSON n'a que des cles-chaines, Newtonsoft convertit vers K).
+    TOUTES les `EnemyIds` du modele sous UNE SEULE cle du dictionnaire -- d'ou `--enemies-key`.
+
+    (!) CETTE CLE EST LE `SpawnPointTag`, ET SA VALEUR COMPTE. Elle a longtemps valu `0` ici,
+    sur l'idee fausse que K serait numerique et que Newtonsoft convertirait. K est un `String`,
+    et le tag ecrit par le jeu est `defaultGroup` -- MESURE le 2026-08-16 en comparant la BC
+    fabriquee a une BC CAPTUREE sur une vraie partie du meme tier :
+
+        vraie BC  : "SpawnPointTag": "defaultGroup"
+        avec `0`  : "SpawnPointTag": "0"
+
+    Un tag inconnu ne leve RIEN. La bataille demarre, tourne QUATRE vagues, puis une unite ne
+    trouve plus ou se poser : elle reste `inPlay=false` a PV pleins, la vague ne se termine
+    jamais et la machine a etats s'arrete d'avancer. Le symptome se lit comme une boucle de
+    l'IA -- il n'en est pas une : un RPC queued revient en 0,06 s, le thread principal pompe.
+    C'est pourquoi le defaut est le tag natif, et pas une valeur << neutre >>.
 
     (!) `waves` EST l'onslaught : `BattleConfigBuilder$$GetHotSeatGameModeSpecificConfig`
     route `SandboxWavesBattleConfig` vers `GetOnslaughtConfig`. Les vagues de LEGENDARY EVENT
@@ -411,8 +424,10 @@ def main(argv):
                     help="Imperial|Chaos|Xenos : la bataille REELLE du compte (board + waveIds)")
     ap.add_argument("--onslaught-tier", default=None,
                     help="tier de battles.onslaught.tierWaves ; une vague par round")
-    ap.add_argument("--enemies-key", default="0",
-                    help="la cle unique du dict `enemies` d'une WaveConfigDto")
+    ap.add_argument("--enemies-key", default="defaultGroup",
+                    help="la cle unique du dict `enemies` = le SpawnPointTag. `defaultGroup` "
+                         "est la valeur MESUREE sur une BC capturee ; la changer casse la pose "
+                         "des unites SANS lever d'erreur (cf. dto_vagues)")
     ap.add_argument("--wave-set", default=None,
                     help="battleSets du gameconfig -- REFUSE en mode waves, cf. dto_vagues")
     ap.add_argument("--battle-nr", type=int, default=1)
