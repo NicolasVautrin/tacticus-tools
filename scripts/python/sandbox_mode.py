@@ -1,7 +1,8 @@
 """Fabriquer une `BattleConfiguration` PAR MODE DE JEU, sans l'avoir capturee au prealable.
 
     python scripts/python/sandbox_mode.py probe --mode waves
-    python scripts/python/sandbox_mode.py bc --mode waves --units a,b,c --wave-set <jeu>
+    python scripts/python/sandbox_mode.py bc --mode waves --units a,b,c --onslaught-tier 5
+    python scripts/python/sandbox_mode.py bc --mode waves --units a,b,c --from-account Xenos
     python scripts/python/sandbox_mode.py bc --mode guildBoss --units a,b,c --boss <id> ...
     python scripts/python/sandbox_mode.py start --mode waves ... --confirmer
 
@@ -26,10 +27,16 @@ boss de guilde) et l'ordre n'est pas devinable. Ce script porte l'ordre MESURE s
 (`sandboxModeProbe`) et REFUSE si l'arite ou les classes ne concordent pas. Un renumerotage
 inter-build donne donc un refus nomme, pas un `health` passe la ou va `rounds`.
 
-(!)CE QUI RESTE NON EPROUVE. `SandboxGameModeSource` porte les SIX `Handle*` qui manquaient a
-`TestSceneBattleModeSource` -- c'est la cause IDENTIFIEE des trois pannes de sortie du
-2026-08-16 (retraite sans effet / process tue / chargement suspendu). Aucune sortie n'a
-encore ete JOUEE sur cette source : la cause est reparee, la panne n'est pas constatee resolue.
+EPROUVE DE BOUT EN BOUT le 2026-08-16 (session 19, build t6dpr4k06g) : onslaught tier 5 monte,
+`IdunMainView` passe d'ABSENTE a vivante, 12 unites sur le plateau (5 heros en equipe 3,
+7 ennemis en equipe 4). LA RETRAITE FONCTIONNE -- apres elle `IdunMainView` est de nouveau
+ABSENTE, aucun chargement suspendu, process vivant sur les DEUX criteres. C'est la
+CONFIRMATION de la cause : `TestSceneBattleModeSource` ne porte pas `HandleBattleSurrender`
+(retraite sans effet, carte figee), `SandboxGameModeSource` porte les SIX `Handle*`.
+
+(!)Le montage n'ECRIT RIEN sur le compte, verifie au decompile : aucun `Send*GameEvent` dans
+toute la classe (contrairement a `GuildBossGameModeSource`, qui enregistre une tentative AU
+CHARGEMENT) ; `HandleLoadBattle` pose un drapeau local que `HandleFinishBattle` restaure.
 
 (!)`start` ECRASE le match courant. Cote boss de guilde une tentative est enregistree AU
 CHARGEMENT, donc ecraser un match enregistre et non termine PERD la tentative sans qu'aucun
@@ -39,6 +46,7 @@ ASCII only en sortie (console Windows cp1252).
 """
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -128,6 +136,79 @@ def verifier_signature(jeu, mode):
     return True, "signature CONCORDANTE (%d parametres)" % len(sig), sig
 
 
+def dto_du_compte(args, cfg):
+    """La bataille d'onslaught REELLE du compte : son tier le plus haut, SON board, SES waveIds.
+
+    La progression que le jeu ecrit (`user_progression.json`) porte, par alliance, les batailles
+    en cours -- chacune avec `board.boardId` et la liste `{round, waveId}`. On resout chaque
+    couple contre `battles.onslaught.tierWaves` pour retrouver les `enemies` exacts.
+
+    C'est plus fidele que `--onslaught-tier`, qui prend la premiere vague de chaque round : le
+    jeu, lui, TIRE au poids, et le tirage est deja fait -- il est dans ce fichier.
+
+    (!) TIER LE PLUS HAUT n'est pas TIER DEBLOQUE : le deblocage se lit dans `tiers`
+    (`battlesToUnlock`) croise avec le nombre de batailles du compte. On IMPRIME les deux."""
+    d = (Path(os.environ.get("USERPROFILE", Path.home())) / "AppData" / "LocalLow"
+         / "Snowprint" / "Warhammer 40,000_ Tacticus" / "user_progression.json")
+    if not d.exists():
+        print("REFUS : progression du compte INTROUVABLE (%s)." % d)
+        print("  Elle n'est fraiche que si le jeu TOURNE. Rien n'est devine.")
+        return None
+    age = time.time() - d.stat().st_mtime
+    prog = json.loads(d.read_text(encoding="utf-8"))
+    par_alliance = ((prog.get("onslaught") or {}).get("data") or {})
+    if args.from_account not in par_alliance:
+        print("REFUS : alliance `%s` absente. Presentes : %s"
+              % (args.from_account, ", ".join(sorted(par_alliance))))
+        return None
+    batailles = (par_alliance[args.from_account].get("battles") or {})
+    dispo = sorted((int(k) for k in batailles if str(k).isdigit()))
+    if not dispo:
+        print("REFUS : aucune bataille enregistree pour `%s`." % args.from_account)
+        return None
+    tier = int(args.onslaught_tier) if args.onslaught_tier else dispo[-1]
+    if tier not in dispo:
+        print("REFUS : tier %s absent du compte. Presents : %s" % (tier, dispo))
+        return None
+    b = batailles[str(tier)]
+
+    # deblocage : le nombre de batailles du compte contre `battlesToUnlock`
+    paliers = {t.get("tier"): t.get("battlesToUnlock") for t in (cfg.get("tiers") or [])}
+    suivant = tier + 1
+    print("  progression du compte : %.0f s d'age ; %d bataille(s) pour `%s`"
+          % (age, len(dispo), args.from_account))
+    if suivant in paliers:
+        besoin = paliers[suivant]
+        print("  tier %d : debloque a %s bataille(s) -- le compte en a %d => %s"
+              % (suivant, besoin, len(dispo),
+                 "DEBLOQUE" if len(dispo) >= (besoin or 0) else "PAS ENCORE"))
+
+    # chaque {round, waveId} se resout contre tierWaves -- jamais << la premiere du round >>
+    index = {}
+    for w in (cfg.get("tierWaves") or []):
+        index[(str(w.get("tier")), w.get("round"), str(w.get("waveId")))] = w
+    vagues, manquantes = [], []
+    for v in (b.get("waves") or []):
+        cle = (str(tier), v.get("round"), str(v.get("waveId")))
+        w = index.get(cle)
+        if w is None:
+            manquantes.append(cle)
+            continue
+        vagues.append({"round": v.get("round"),
+                       "enemies": {args.enemies_key: list(w.get("enemies") or [])},
+                       "rewards": None})
+    if manquantes:
+        print("  (!) %d vague(s) du compte INTROUVABLE(S) dans tierWaves : %s"
+              % (len(manquantes), manquantes[:4]))
+    if not vagues:
+        print("REFUS : aucune vague resolue -- on ne monte pas une bataille vide.")
+        return None
+    board = args.board or ((b.get("board") or {}).get("boardId"))
+    print("  tier %d, board=%s, %d vague(s) resolue(s) sur %d"
+          % (tier, board, len(vagues), len(b.get("waves") or [])))
+    return {"spawnPointsSet": args.spawn_set, "boardId": board, "waves": vagues}
+
+
 def dto_vagues(args):
     """Le `WaveBattleConfigDto`. FORME MESUREE sur le jeu, pas deduite d'un nom :
 
@@ -152,11 +233,13 @@ def dto_vagues(args):
         print("  `WaveConfigDto` (round/enemies:dict) -- deux types differents sous le meme mot.")
         print("  Pour l'onslaught : `--onslaught-tier N`. Pour un battleSet : mode `survival`.")
         return None
-    if args.onslaught_tier is None:
-        return None
     sys.path.insert(0, str(RACINE / "scripts" / "python"))
     import gameconfig as GC
     cfg = GC._cfg().get("battles", {}).get("onslaught", {})
+    if args.from_account:
+        return dto_du_compte(args, cfg)
+    if args.onslaught_tier is None:
+        return None
     tw = [w for w in (cfg.get("tierWaves") or [])
           if str(w.get("tier")) == str(args.onslaught_tier)]
     if not tw:
@@ -315,6 +398,8 @@ def main(argv):
     ap.add_argument("--board", default=None)
     ap.add_argument("--spawn-set", type=int, default=0)
     # waves (= onslaught)
+    ap.add_argument("--from-account", default=None,
+                    help="Imperial|Chaos|Xenos : la bataille REELLE du compte (board + waveIds)")
     ap.add_argument("--onslaught-tier", default=None,
                     help="tier de battles.onslaught.tierWaves ; une vague par round")
     ap.add_argument("--enemies-key", default="0",

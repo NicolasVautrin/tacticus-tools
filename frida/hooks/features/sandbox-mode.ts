@@ -29,13 +29,32 @@
 // trois pannes de sortie du 2026-08-16 (retraite sans effet / process tué / chargement
 // suspendu) : personne ne recevait la fin de bataille.
 //
-// ⚠ CE QUI RESTE NON MESURÉ, ET QUI DOIT SE LIRE COMME TEL
-// ---------------------------------------------------------
-// Le ctor à 5 paramètres renseigne 5 des 9 champs. `_gameViews` (+0x38) et
-// `_stateMachineActions` (+0x48) restent NULS — le jeu les injecte peut-être ailleurs, on ne
-// l'a pas établi. `sandboxModeProbe` les RELIT après construction pour que ça se voie, au lieu
-// de le supposer. Tant que la sortie n'a pas été jouée en vrai, ce module a réparé une cause
-// IDENTIFIÉE, pas une panne CONSTATÉE comme résolue.
+// ✅ ÉPROUVÉ DE BOUT EN BOUT (2026-08-16, session 19, build `t6dpr4k06g`)
+// -----------------------------------------------------------------------
+// Onslaught tier 5 monté par `sandboxModeStart` : `IdunMainView` passe d'ABSENTE à vivante,
+// 12 unités sur le plateau (5 en équipe 3 — les héros demandés — et 7 en équipe 4, la vague).
+// **LA RETRAITE FONCTIONNE** : après elle, `IdunMainView` est de nouveau ABSENTE, aucun
+// chargement suspendu, process vivant sur les DEUX critères (RPC queué revenu en 0,14 s,
+// `Responding=True`, CPU qui progresse).
+//
+// C'est la CONFIRMATION de la cause, plus une hypothèse : sur `TestSceneBattleModeSource` la
+// retraite ne faisait RIEN (carte figée à l'écran) parce que la source ne porte pas
+// `HandleBattleSurrender`. Ici elle le porte, et ça marche.
+//
+// ⚠ CE QUI RESTE NON MESURÉ. Le ctor à 5 paramètres renseigne 5 des 9 champs : `_gameViews`
+// (+0x38) et `_stateMachineActions` (+0x48) restent NULS. Le décompilé montre que ni
+// `LoadBattle` ni `HandleLoadBattle` ne les lisent, et que `HandleStartGame` ne les touche que
+// pour une config **Draft** — donc ils sont inertes ici, mais un sandbox Draft y buterait.
+// `sandboxModeProbe` les RELIT après construction pour que ça se voie.
+//
+// CE QUE LE MONTAGE ÉCRIT SUR LE COMPTE — RIEN, ET C'EST VÉRIFIÉ AU DÉCOMPILÉ
+// ---------------------------------------------------------------------------
+// La surface complète de `SandboxGameModeSource` ne porte AUCUN `Send*GameEvent` (relevée
+// méthode par méthode) — contrairement à `GuildBossGameModeSource`, dont le
+// `SendLoadBattleGameEventInternal` enregistre une tentative AU CHARGEMENT.
+// `HandleLoadBattle` fait UN appel d'interface sur `_unitProgression` (slot `0xd8`) avec `1` ;
+// `HandleFinishBattle` refait le MÊME appel avec `0`. C'est un drapeau local, et il est
+// restauré. Aucun jeton, aucune tentative, aucun loot.
 //
 // ⚠ ET IL FAIT COURIR LE MÊME RISQUE DE COMPTE QUE `sandbox.ts`
 // --------------------------------------------------------------
