@@ -86,13 +86,13 @@ def main():
     if not isinstance(d, dict) or d.get("ok") is not True:
         print("inboxList a echoue : %s" % ascii_(json.dumps(d, ensure_ascii=False))[:400])
         return 1
-    envois = d.get("envois") or []
+    envois = d.get("entries") or []
     print("=== %d envoi(s) en boite de reception ===" % len(envois))
     print()
 
     a_prendre, a_epargner, sans_guid = [], [], []
     for e in envois:
-        recs = e.get("recompenses")
+        recs = e.get("rewards")
         # `null` = la classe ne porte pas de `<rewards>` : NON MESURE. On ne reclame pas un
         # envoi dont on n'a pas pu lire le contenu -- il pourrait contenir de la stamina.
         detail = []
@@ -102,7 +102,7 @@ def main():
                 n = noms.get(r.get("type"), "INCONNU(%s)" % r.get("type"))
                 if n == NOM_STAMINA:
                     stamina = True
-                detail.append("%s x%s%s" % (n, r.get("montant"),
+                detail.append("%s x%s%s" % (n, r.get("amount"),
                                             (" [%s]" % r["id"]) if r.get("id") else ""))
         marque = "  <<< STAMINA" if stamina else ""
         print("  %-38s %-26s %s%s"
@@ -126,7 +126,7 @@ def main():
         print("  EPARGNE    : %-38s (%s)" % (ascii_(str(e.get("guid")))[:38], motif))
     for e in sans_guid:
         print("  SANS GUID  : %s -- non reclamable par cette voie"
-              % ascii_(str(e.get("classe"))))
+              % ascii_(str(e.get("cls"))))
     print()
 
     if not a.reclamer:
@@ -148,7 +148,7 @@ def main():
     if not isinstance(d2, dict) or d2.get("ok") is not True:
         print("relecture IMPOSSIBLE -- les reclamations sont DEJA PARTIES, ne pas rejouer.")
         return 1
-    apres = d2.get("envois") or []
+    apres = d2.get("entries") or []
     restants = {x.get("guid") for x in apres}
     partis = [g for g in guids if g not in restants]
     print("=== ATTESTATION ===")
