@@ -1,8 +1,14 @@
-# #596-r3 — Qui devait emettre le message d'entree : `HandleStartSpawningUnitsOfTurn`
+# #596-r3 — Qui devait emettre le message d'entree : la porte est `QueueComputerActions`
 
-Mesure du 2026-08-16, build `t6dpr4k06g`. Cloture la question laissee ouverte par #596-r1
-(« CE QUI a fait lever ces `Apply` ») — la reponse est qu'il n'y avait **rien a lever** : aucun
-message d'entree n'etait produit.
+Mesure du 2026-08-16, build `t6dpr4k06g`. Repond a la question laissee ouverte par #596-r1
+(« CE QUI a fait lever ces `Apply` ») : il n'y avait **rien a lever** — aucun message d'entree
+n'etait produit. La porte qui aurait du en produire est
+`IdunBattle.View.Game.IdunGameViews$$QueueComputerActions`, et elle porte un **verrou de
+reentrance**.
+
+⚠ **Cette fiche a d'abord accuse `HandleStartSpawningUnitsOfTurn`. C'est FAUX** — la lecture du
+site d'appel l'a refute, et la section « CORRECTION » ci-dessous garde le detail. L'absence de
+ce handler sur `SandboxGameModeSource` reste un fait mesure, mais elle n'est pas la cause.
 
 ## Le fait
 
@@ -23,20 +29,55 @@ l'objet vivant. Il montre aussi que la classe de base de `Sandbox` est `System.O
 Six sources l'implementent : `LinearHeroEvent`, `Onslaught`, `LegendaryEvent`,
 `SurvivalEvent`, `TestScene`, `TreasureBeach`.
 
-## La chaine, de bout en bout
+## ⚠ CORRECTION — la chaine ecrite ici d'abord etait une INFERENCE, et elle est FAUSSE
 
-Le seul travail du handler est d'appeler son `continueCallback` (verifie sur deux
-implementations : `Onslaught` affiche le HUD de vague puis l'appelle ; `TestScene` delegue a
-un slot d'interface). En aval,
-`IdunBattle.View.Game.IdunGameViews$$RunComputerActionsForCurrentPlayerInMultipleFrames`
-prend `IdunRunner$$get_AiControl`, lit `IdunGameViews$$get_CurrentPlayerEntityId`, construit
-l'iterateur de `AiControl$$CalculateAndApplyAllComputerActions` et le deroule **sur plusieurs
-frames** sous budget en millisecondes.
+La premiere redaction de cette fiche reliait « le handler manque » a « la coroutine d'IA ne
+part pas ». **Ce lien n'a jamais ete etabli, et la lecture du SITE D'APPEL le refute.**
 
-Sans le handler, `continueCallback` n'est jamais invoque : la coroutine n'est jamais lancee,
-aucun message d'entree n'est enfile, la pompe de phase reste au repos et
-`IdunBattle.View.FSM.AiTurnState` — qui n'a AUCUN `Update` et ne sort que par un changement
-d'etat externe — ne sort jamais.
+`idun.Ui.IdunGameHud$$StartSpawningUnitsOfTurn(playerId, group, continueCallback)` :
+
+```c
+if (hud + 0x1f8 == 0)  -> continueCallback.Invoke()   // le HUD continue LUI-MEME
+else                   -> slot 4 d'interface -> HandleStartSpawningUnitsOfTurn
+```
+
+Quand aucune source n'est enregistree, **le HUD invoque le callback lui-meme** : la chaine ne
+casse pas. Et ce handler porte sur l'APPARITION DES VAGUES, pas sur le tour d'IA — nos 39
+unites apparaissent effectivement. L'absence du handler est un fait ; ce n'est pas la cause.
+
+## La vraie porte : `IdunGameViews$$QueueComputerActions`
+
+```c
+IsPlayerAiControlled(this, joueurCourant) != 0
+  && this+0x80 == 0 && this+0x81 == 0 && this+0x82 == 0 && this+0x83 == 0
+  && this+0x1f8 == 0                                   // <- VERROU
+     -> this+0x1f8 = IdunBattle.Utils.EmptyEnumerator.Instance   // on l'ARME
+        puis on lance la coroutine (slot 0 d'interface sur this+0xe0)
+```
+
+`IdunGameViews +0x1f8` est un **verrou de reentrance** : pose quand la coroutine est mise en
+file, et la porte exige qu'il soit NUL pour remettre en file. S'il n'est jamais relache, plus
+aucun tour d'IA n'est jamais enfile — ce qui donne exactement « ca tourne un moment, puis plus
+rien, definitivement ».
+
+En aval, `RunComputerActionsForCurrentPlayerInMultipleFrames` prend
+`IdunRunner$$get_AiControl`, lit `get_CurrentPlayerEntityId`, construit l'iterateur de
+`AiControl$$CalculateAndApplyAllComputerActions` et le deroule sur plusieurs frames sous
+budget en millisecondes.
+
+⚠ **Le `+0x1f8` du HUD et celui d'`IdunGameViews` sont DEUX champs de DEUX classes** — meme
+offset par coincidence. Les confondre ferait lire un verrou la ou il y a un test de source.
+
+## TROIS candidats, tous MESURABLES, aucun tranche
+
+1. `IsPlayerAiControlled` rend faux pour notre joueur ;
+2. l'un des quatre booleens `+0x80..0x83` est arme ;
+3. le verrou `+0x1f8` est reste pose.
+
+Le 3 explique le mieux la forme observee (progression puis arret definitif), mais **ce n'est
+pas une mesure**. Il se lit en direct sur l'instance : `IdunMainView.gameViews` (+0xb0), puis
+les cinq champs. Tant que ce n'est pas fait, cette fiche NE nomme pas la cause — elle nomme la
+porte.
 
 ## Le releve qui l'a rendu visible
 
@@ -70,6 +111,30 @@ ancrages d'`Apply`** (coupes tous les trois via `applyHooks`, gel identique au b
 pas quand la fonction leve — ce qui arrive sur TOUTE exception, y compris parfaitement
 rattrapee. Elle etait un artefact de notre instrumentation. Les trois ancrages coupes, la pile
 reste vide et le gel arrive quand meme.
+
+## ⚠ CONSEQUENCE DE PORTEE : ce pilote est dans la couche VUE — inutilisable SANS UI
+
+`QueueComputerActions`, le verrou `+0x1f8` et
+`RunComputerActionsForCurrentPlayerInMultipleFrames` sont tous des membres de
+`IdunBattle.View.Game.**IdunGameViews**`, et le deroulement est une coroutine Unity etalee sur
+plusieurs frames sous budget en millisecondes. **Le tour d'IA d'une bataille live est donc
+pilote par la VUE.**
+
+Consequence directe pour un objectif « jouer des batailles SANS UI » : reparer `PlayerType.AI`
+par ce chemin n'y sert a RIEN — il n'y a ni `IdunGameViews`, ni frames, ni coroutine. Ne pas
+investir la si c'est la cible. Les voies headless connues, a instruire a leur place :
+
+* `Runner.AutomaticBattleRunner..ctor(logger, battleConfig, **maxAmountOfTurns**, findReplayBugs,
+  validate, timeSource)` -> `Run()` -> `AutomaticBattleResult {config, state, query, replay,
+  runTimeInMs, exception, validationResult}` — banc headless du jeu, avec plafond de tours
+  (donc un blocage y serait COUPE) et validation par le moteur lui-meme ;
+* `AutomaticBattlesGameModeSource`, qui porte son propre `LoadBattle` ;
+* cote harnais, `autoPlayRunner` boucle deja `CheatRunAIMessage` sur un runner ENREGISTRE
+  jusqu'a `Finished` ou `maxTurns`, sans toucher a l'etat live.
+
+Le contournement `--player-type 0` + `cheatRunAi` decrit plus bas a la meme propriete
+interessante : il passe par un MESSAGE, pas par la vue. C'est donc le seul des deux regimes
+qui ait une chance de se transposer headless.
 
 ## Portee — ce qui reste NON etabli
 
