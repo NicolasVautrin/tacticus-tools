@@ -21,7 +21,7 @@ import {
 } from "./ai-control.js";
 import {
     pushApply, popApply, enterApply, leaveApply, StreamEvent,
-    humanAiHookWanted, registerHumanAiListener,
+    ancrageVoulu, enregistrerAncrage,
 } from "./apply-stack.js";
 import {
     getReplayMi, replayOff, runnerApplyMi, runnerOff,
@@ -160,7 +160,11 @@ export function install(): boolean {
         } catch { return false; }
     }
 
-    state.installedListeners.push(Interceptor.attach(runnerApplyMi.ptr, {
+    // DÉBRANCHABLE — contre-épreuve #596-r1, cf. l'en-tête de `apply-stack.ts`. C'est
+    // l'ancrage le plus lourd de conséquences : sans lui le recorder ne journalise plus rien
+    // (`state.log` vide, pas de miroir). On ne le coupe donc que pour une MESURE, jamais en
+    // régime courant — d'où le défaut à `true`.
+    const ancrageRunnerApply = !ancrageVoulu("runnerApply") ? null : Interceptor.attach(runnerApplyMi.ptr, {
         onEnter(this: MarkerThis, args) {
             // "AI plays on mirror" Phase 1: capture sub-messages dispatched
             // on the mirror runner; ignore any live applies we triggered
@@ -307,7 +311,9 @@ export function install(): boolean {
                 } catch { /* registry entry already gone */ }
             }
         },
-    }));
+    });
+    if (ancrageRunnerApply) state.installedListeners.push(ancrageRunnerApply);
+    enregistrerAncrage("runnerApply", ancrageRunnerApply);
 
     function attachAi(
         mi: { ptr: NativePointer } | null, tag: "ai" | "humanAi",
@@ -428,12 +434,13 @@ export function install(): boolean {
         state.installedListeners.push(listener);
         return listener;
     }
-    attachAi(applyAiMsgMi, "ai");
-    // `humanAi` est DÉBRANCHABLE — contre-épreuve #596-r1, cf. l'en-tête de `apply-stack.ts`.
-    // Le choix survit à un `install()` : sans ça, un changement de runner rearmerait la sonde
-    // au milieu de la mesure, et on lirait le résultat de l'autre régime.
-    registerHumanAiListener(
-        humanAiHookWanted() ? attachAi(applyHumanAiMsgMi, "humanAi") : null);
+    // Les deux ancrages IA, DÉBRANCHABLES eux aussi. Le choix survit à un `install()` : sans
+    // ça, un changement de runner rearmerait la sonde au milieu de la mesure et on lirait le
+    // résultat de l'autre régime.
+    enregistrerAncrage("ai",
+        ancrageVoulu("ai") ? attachAi(applyAiMsgMi, "ai") : null);
+    enregistrerAncrage("humanAi",
+        ancrageVoulu("humanAi") ? attachAi(applyHumanAiMsgMi, "humanAi") : null);
     Interceptor.flush();
 
     // Bootstrap preamble from native ReplayRecorder._replay.Messages

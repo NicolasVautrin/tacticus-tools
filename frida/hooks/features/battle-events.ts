@@ -26,7 +26,8 @@
 // sommet le temps de son appel. Les deux canaux coexistent, aucun ne masque l'autre.
 
 import { applyStack, applyStackRoles, ensureStreamHooks, popApply, pushApply,
-    setHumanAiHook, humanAiHookWanted, streamHookStats } from "../game/apply-stack.js";
+    reglerAncrages, etatAncrages, streamHookStats } from "../game/apply-stack.js";
+import type { AncrageApply } from "../game/apply-stack.js";
 import type { StreamEvent } from "../game/apply-stack.js";
 import { Ctx } from "../controller.js";
 
@@ -57,29 +58,41 @@ function frameEnPlace(): boolean {
 }
 
 export function register(ctx: Ctx): void {
-    /** CONTRE-EPREUVE #596-r1 : brancher/debrancher `AiControl$$ApplyHumanAiMessage`.
+    /** CONTRE-EPREUVE #596-r1 : brancher/debrancher LES TROIS ancrages d'`Apply`.
      *
-     *  body: { actif: boolean }  — sans body, se contente de RENDRE l'etat.
+     *  body: { runnerApply?, ai?, humanAi? }  — sans booleen, se contente de RENDRE l'etat.
      *
-     *  Ce que ca teste : un `Interceptor.attach` pose un trampoline sans information de
-     *  deroulement, donc un unwind SEH qui le traverse peut manquer son `catch` natif. Si la
-     *  bataille jouee par l'IA VA AU BOUT une fois l'ancrage retire, la sonde est la cause ;
-     *  si elle se fige pareil, elle ne l'est pas. Les deux reponses valent, et c'est le seul
-     *  ancrage que ce regime traverse en propre.
+     *  Ce que ca teste : ce n'est pas le trampoline d'entree qui gene, c'est le `onLeave` --
+     *  Frida REECRIT l'adresse de retour, que l'`.pdata` du PE ne decrit pas, donc l'unwind
+     *  SEH qui la traverse peut manquer son `catch` natif. Si la bataille jouee par l'IA VA
+     *  AU BOUT une fois les ancrages retires, nos sondes sont la cause ; si elle se fige
+     *  pareil, elles ne le sont pas. Les deux reponses valent.
+     *
+     *  (!) IL EN FAUT TROIS. Couper `humanAi` SEUL a ete joue le 2026-08-16 : REFUTE, la
+     *  bataille se fige au meme point, et la frame orpheline apparait quand meme -- elle
+     *  vient donc d'un autre ancrage.
+     *
+     *  (!) `runnerApply` coupe DESARME le recorder (pas de `state.log`, pas de miroir) : a ne
+     *  couper que pour une mesure. Le temoin de gel reste lisible, `totalAction` vient des
+     *  hooks `StreamDispatcher` qui sont independants.
      *
      *  (!) A JOUER HORS BATAILLE. Detacher pendant un `Apply` en vol laisse la frame poussee
      *  par son `onEnter` sans le `onLeave` qui la depile -- on fabriquerait la fuite meme
      *  qu'on mesure. On rend donc `pileApply` et un avertissement quand elle n'est pas vide. */
-    ctx.rpc.humanAiHook = (body?: { actif?: boolean }): unknown => {
-        if (!body || typeof body.actif !== "boolean") {
+    ctx.rpc.applyHooks = (
+        body?: Partial<Record<AncrageApply, boolean>>,
+    ): unknown => {
+        const cles: AncrageApply[] = ["runnerApply", "ai", "humanAi"];
+        const demande = body && cles.some((k) => typeof body[k] === "boolean");
+        if (!demande) {
             return {
-                ok: true, lecture: true, voulu: humanAiHookWanted(),
+                ok: true, lecture: true, etat: etatAncrages(),
                 pileApply: applyStack.length, pile: applyStackRoles(),
-                note: "passer { actif: true|false } pour basculer ; "
+                note: "passer { runnerApply?, ai?, humanAi? } en booleens pour basculer ; "
                     + "un rebranchement ne prend qu'au prochain `install()` du recorder",
             };
         }
-        return setHumanAiHook(body.actif);
+        return reglerAncrages(body);
     };
 
     /** Le journal des events de la bataille vivante.

@@ -64,58 +64,87 @@ export function enterApply(): void { _applyDepth++; }
 export function leaveApply(): void { if (_applyDepth > 0) _applyDepth--; }
 export function insideApply(): number { return _applyDepth; }
 
-// --- l'ancrage `AiControl$$ApplyHumanAiMessage`, DEBRANCHABLE (#596-r1) -----------------
+// --- LES TROIS ANCRAGES D'`Apply`, DÉBRANCHABLES UN PAR UN (#596-r1) --------------------
 //
-// POURQUOI CE SEUL ANCRAGE A SON INTERRUPTEUR. Sous IL2CPP/Windows une exception managée EST
-// une exception SEH ; le jeu en lève et en rattrape en permanence (398 relevées en une
-// session). Un `Interceptor.attach` pose un trampoline SANS information de déroulement
-// enregistrée, donc un unwind qui le traverse peut ne pas retrouver son `catch` natif : la
-// sonde transformerait une exception RATTRAPABLE en rupture. C'est une hypothèse, et elle
-// n'est testable que par une CONTRE-ÉPREUVE — d'où l'interrupteur.
+// POURQUOI. Sous IL2CPP/Windows une exception managée EST une exception SEH ; le jeu en lève
+// et en rattrape en permanence (398 relevées en une session). Ce n'est PAS le trampoline
+// d'entrée qui gêne, c'est le `onLeave` : pour l'implémenter, Frida RÉÉCRIT L'ADRESSE DE
+// RETOUR sur la pile pour la faire pointer sur son thunk. L'`.pdata` du PE ne décrit pas
+// cette zone, donc `RtlVirtualUnwind` qui remonte à la recherche d'un `catch` arrive sur une
+// adresse qu'aucune information de déroulement ne couvre. Ça expliquerait d'un coup les deux
+// symptômes : le `onLeave` jamais appelé (frame orpheline) ET un `catch` natif sauté.
 //
-// Et c'est CET ancrage-là parce qu'il est le seul que le régime « l'IA joue le joueur »
-// traverse et qu'une partie humaine ne traverse pas : partie à la main = pas de blocage,
-// partie en `--player-type 1` = blocage. C'est le seul différentiel structurel connu.
+// ⚠ CE N'EST QU'UNE HYPOTHÈSE, et la frame orpheline NE LA SOUTIENT PAS : elle s'explique
+// déjà par « `onLeave` non appelé sur exception », ce qui arrive sur TOUTE exception, y
+// compris parfaitement rattrapée. Le seul relevé qui tranche est la contre-épreuve — d'où
+// ces interrupteurs, et d'où le fait qu'il en faille TROIS. `humanAi` seul a été coupé le
+// 2026-08-16 : REFUTÉ, la bataille se fige au même point.
 //
-// Le handle vit ICI, dans un module FEUILLE, et pas dans `recorder.ts` : le RPC qui le
+// Les handles vivent ICI, dans un module FEUILLE, et pas dans `recorder.ts` : le RPC qui les
 // bascule est côté `features/`, et le faire dépendre du recorder (qui importe `sim-engine`)
 // fabriquerait un cycle. `apply-stack` n'importe que des helpers IL2CPP.
-let humanAiListener: InvocationListener | null = null;
-let humanAiWanted = true;   // défaut = comportement historique, on ne change rien sans le dire
+export type AncrageApply = "runnerApply" | "ai" | "humanAi";
 
-export function humanAiHookWanted(): boolean { return humanAiWanted; }
+const ANCRAGES: AncrageApply[] = ["runnerApply", "ai", "humanAi"];
+
+const handles: Record<AncrageApply, InvocationListener | null> = {
+    runnerApply: null, ai: null, humanAi: null,
+};
+// défaut = comportement historique : on ne change rien sans qu'on le demande.
+const voulus: Record<AncrageApply, boolean> = {
+    runnerApply: true, ai: true, humanAi: true,
+};
+
+export function ancrageVoulu(n: AncrageApply): boolean { return voulus[n]; }
 
 /** Appelé par `recorder.install()` : mémorise le handle pour pouvoir le détacher à chaud. */
-export function registerHumanAiListener(l: InvocationListener | null): void {
-    humanAiListener = l;
+export function enregistrerAncrage(
+    n: AncrageApply, l: InvocationListener | null,
+): void {
+    handles[n] = l;
 }
 
-/** Branche/débranche l'ancrage SANS reinject. Le `wanted` survit à un `install()` ultérieur,
- *  sinon un simple changement de runner rearmerait la sonde au milieu de la contre-épreuve.
+export function etatAncrages(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const n of ANCRAGES) out[n] = { voulu: voulus[n], enPlace: handles[n] !== null };
+    return out;
+}
+
+/** Branche/débranche SANS reinject. Le `voulu` survit à un `install()` ultérieur, sinon un
+ *  simple changement de runner rearmerait la sonde au milieu de la contre-épreuve et on
+ *  lirait le résultat de l'autre régime.
  *
  *  (!) À jouer HORS bataille : détacher pendant un `Apply` en vol laisserait la frame que
  *  son `onEnter` a poussée sans le `onLeave` qui la dépile — on fabriquerait exactement la
- *  fuite qu'on cherche à mesurer. On rend donc la hauteur de pile, à l'appelant de vérifier. */
-export function setHumanAiHook(enabled: boolean): Record<string, unknown> {
-    const avant = humanAiWanted;
-    humanAiWanted = enabled;
-    let action = "inchange";
-    if (!enabled && humanAiListener) {
-        try { humanAiListener.detach(); action = "detache"; }
-        catch { action = "detache-echec"; }
-        humanAiListener = null;
-        Interceptor.flush();
-    } else if (enabled && !humanAiListener) {
-        // Le rattachement passe par `recorder.install()` (c'est lui qui tient les filtres
-        // d'identité) — on ne le refait pas ici, on dit juste que c'est REDEMANDE.
-        action = "redemande-au-prochain-install";
+ *  fuite qu'on cherche à mesurer. On rend donc la hauteur de pile, à l'appelant de juger. */
+export function reglerAncrages(
+    patch: Partial<Record<AncrageApply, boolean>>,
+): Record<string, unknown> {
+    const actions: Record<string, string> = {};
+    let flush = false;
+    for (const n of ANCRAGES) {
+        const veut = patch[n];
+        if (typeof veut !== "boolean" || veut === voulus[n]) continue;
+        voulus[n] = veut;
+        if (!veut && handles[n]) {
+            try { handles[n]!.detach(); actions[n] = "detache"; }
+            catch { actions[n] = "detache-echec"; }
+            handles[n] = null;
+            flush = true;
+        } else if (veut && !handles[n]) {
+            // Le rattachement passe par `recorder.install()` — c'est lui qui tient les
+            // filtres d'identité. On ne le refait pas ici, on DIT que c'est redemandé.
+            actions[n] = "redemande-au-prochain-install";
+        } else {
+            actions[n] = "inchange";
+        }
     }
+    if (flush) Interceptor.flush();
     return {
-        ok: true, avant, apres: humanAiWanted, action,
-        ancrageEnPlace: humanAiListener !== null,
+        ok: true, actions, etat: etatAncrages(),
         pileApply: applyStack.length,
         avertissement: applyStack.length > 0
-            ? "pile NON VIDE : une frame est en vol ou orpheline — lire `pile` de battleEvents"
+            ? "pile NON VIDE : une frame est en vol ou orpheline — basculer HORS bataille"
             : null,
     };
 }
