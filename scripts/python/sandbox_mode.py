@@ -281,6 +281,35 @@ def dto_vagues(args):
     return {"spawnPointsSet": spawn, "boardId": board, "waves": vagues}
 
 
+def verifier_player_type(args):
+    """`--player-type 1` sur le JOUEUR fige la bataille. Mesure du 2026-08-16, sur les DEUX BC.
+
+    CE QU'ON A ELIMINE AVANT D'ARRIVER LA, pour qu'on ne le refasse pas : la boucle IA (un RPC
+    queued revient en 0,06 s, les compteurs sont figes -- rien ne tourne), le draft, la
+    montee des vagues, le `SpawnPointTag` (vraie faute, corrigee, mais pas la cause), NOS
+    TROIS ancrages d'`Apply` (coupes, gel identique au bit pres), et notre BC elle-meme -- la
+    BC CAPTUREE sur une partie reelle jouee jusqu'au bout se fige AUSSI, et plus tot.
+
+    SIGNATURE, invariante sur 4 montages, 2 BC, 3 seeds : `currentPlayer` reste sur l'ennemi,
+    la FSM reste dans `IdunBattle.View.FSM.AiTurnState` (qui n'a AUCUN `Update` et ne sort que
+    par un changement d'etat externe), et il reste UN `tyranNpc4Warrior` a PV pleins, en jeu,
+    jamais joue.
+
+    LA VOIE QUI MARCHE : laisser le joueur en `Human` (`--player-type 0`) et lui envoyer
+    `CheatRunAIMessage` a chaque fois que c'est son tour (RPC `cheatRunAi`). Mesure : bataille
+    menee a `Finished` en 10 tirs, sans un gel, et la FSM cycle normalement
+    (`NormalState` -> `AiTurnState` -> `WaitingForPlayerTurnToEndVisuallyState`).
+
+    On AVERTIT sans refuser : le regime reste montable pour qui veut l'instruire."""
+    if args.player_type != 1:
+        return
+    print("(!) AVERTISSEMENT : `--player-type 1` pose `PlayerType.AI` sur le JOUEUR, et ce")
+    print("    regime FIGE la bataille (mesure sur 2 BC differentes, dont une CAPTUREE sur")
+    print("    une partie reelle -- ce n'est donc pas la BC). La FSM reste dans `AiTurnState`.")
+    print("    Pour faire jouer ton equipe par l'IA : `--player-type 0` + RPC `cheatRunAi`")
+    print("    a chaque tour du joueur. Voir `verifier_player_type` dans ce fichier.")
+
+
 def batir_args(args):
     """Les descripteurs d'arguments, dans l'ordre du mode. `None` = refus deja imprime."""
     if args.mode == "waves":
@@ -416,7 +445,8 @@ def main(argv):
     ap.add_argument("--units", default="", help="ids separes par des virgules")
     ap.add_argument("--all-units", default="", help="waves : le catalogue ; defaut = --units")
     ap.add_argument("--machine", default=None, help="id de machine of war (optionnel)")
-    ap.add_argument("--player-type", type=int, default=0, help="0 Human, 1 AI, 4 HumanAI")
+    ap.add_argument("--player-type", type=int, default=0, help="0 Human, 1 AI, 4 HumanAI. "
+                    "(!) `1` FIGE la bataille -- cf. `verifier_player_type`")
     ap.add_argument("--board", default=None)
     ap.add_argument("--spawn-set", type=int, default=0)
     # waves (= onslaught)
@@ -446,6 +476,7 @@ def main(argv):
     args = ap.parse_args(argv)
 
     jeu = Jeu(args.hote, args.session)
+    verifier_player_type(args)
     if args.action == "probe":
         return cmd_probe(jeu, args)
     if args.action == "start" and not args.confirmer:

@@ -359,6 +359,13 @@ function epingler(p: NativePointer): NativePointer {
     return p;
 }
 
+/** L'override de BC : la `BattleConfiguration` que `LoadBattle` rendra à la place de la
+ *  sienne. `null` = transparent. Épinglée, sinon le GC la ramasse entre l'armement et le
+ *  montage — le symptôme serait une bataille montée à moitié. */
+let bcOverride: NativePointer | null = null;
+let overrideListener: InvocationListener | null = null;
+let overrideFires = 0;
+
 function classeDuMode(mode?: string, classe?: string): NativePointer | Refus {
     const nom = classe ?? (mode ? MODES[mode] : undefined);
     if (!nom) {
@@ -747,6 +754,12 @@ export function register(ctx: Ctx): void {
                 + "`sandboxModeProbe {mode}` donne la signature attendue.");
         }
         return queueOnMainThread(() => {
+            if (bcOverride !== null) {
+                return refus("REFUS : un override de BC est ARMÉ, donc `LoadBattle` est "
+                    + "ancré -- l'invoquer ici GÈLE le jeu (ancrer ce qu'on invoque). "
+                    + "Retirer l'override par `sandboxModeBcOverride { configJson: null }`, "
+                    + "ou utiliser `sandboxModeStart`, où c'est le JEU qui appelle LoadBattle.");
+            }
             const m = construire(body?.mode, body?.classe, body?.args as Arg[]);
             if (estRefus(m)) return m;
             const kSrc = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
@@ -782,6 +795,82 @@ export function register(ctx: Ctx): void {
                 configJson: json,
                 champsSource: champsDeLaSource(m.source),
             };
+        });
+    };
+
+    /** SUBSTITUER la BC que `LoadBattle` rend — pour faire tourner une BC **CAPTURÉE** dans
+     *  la sandbox, au lieu d'une qu'on fabrique.
+     *
+     *  body: { configJson: string }  pose l'override · `{ configJson: null }` le retire ·
+     *         rien : lit l'état.
+     *
+     *  À QUOI ÇA SERT, ET POURQUOI C'EST LA BONNE MANCHE. Quand un montage se fige, deux
+     *  causes restent : notre BC est infidèle, ou le régime lui-même (l'IA qui joue le
+     *  joueur) ne tient pas. Une BC **capturée sur une partie réelle jouée jusqu'au bout**
+     *  est un témoin connu-bon : si elle se fige ici, notre BC est hors de cause ; si elle va
+     *  au bout, c'est la nôtre. Une manche répond, là où un diff de formes cherche une
+     *  aiguille.
+     *
+     *  POURQUOI ON N'UTILISE PAS `sandboxStartMatch({configJson})`, QUI PREND DÉJÀ UNE BC :
+     *  il passe par `TestSceneBattleModeSource`, qui ne porte QUE `HandleStartMatch` et
+     *  `HandleStartSpawningUnitsOfTurn` — pas `HandleBattleSurrender`. On monterait la BC et
+     *  on ne pourrait plus SORTIR sans relancer le jeu (geste utilisateur). Ici on garde
+     *  `SandboxGameModeSource` et ses six `Handle*`, dont la retraite est ÉPROUVÉE.
+     *
+     *  ⚠ ANCRER CE QU'ON INVOQUE = GEL. `sandboxModeBuildBc` appelle `LoadBattle` lui-même ;
+     *  avec ce hook armé, ça a déjà coûté un gel dans ce dépôt. On REFUSE donc `buildBc` tant
+     *  qu'un override est posé, plutôt que de laisser la faute se rejouer. */
+    ctx.rpc.sandboxModeBcOverride = (body?: {
+        configJson?: string | null;
+    }): Promise<unknown> | unknown => {
+        if (!body || body.configJson === undefined) {
+            return { ok: true, lecture: true, arme: bcOverride !== null,
+                     ancrage: overrideListener !== null,
+                     note: "passer { configJson } pour armer, { configJson: null } pour retirer" };
+        }
+        return queueOnMainThread(() => {
+            if (body.configJson === null) {
+                bcOverride = null;
+                return { ok: true, arme: false, action: "retire",
+                         note: "l'ancrage reste posé mais devient transparent" };
+            }
+            if (!isDeserializerReady()) {
+                return refus("`JsonConvert.DeserializeObject` non résolu -- on ne peut pas "
+                    + "relire une BC");
+            }
+            const kBc = findClassAnywhere("IdunBattle.Configuration", "BattleConfiguration");
+            if (!kBc) return refus("classe `BattleConfiguration` INTROUVABLE");
+            let bc: NativePointer;
+            try { bc = deserializeFromJson(body.configJson as string, kBc); }
+            catch (e) { return refus("désérialisation refusée : " + (e as Error).message); }
+            if (bc.isNull()) {
+                return refus("désérialisation rendue NULLE -- le JSON n'est pas une "
+                    + "`BattleConfiguration` (vérifier que c'est bien la BC, pas un replay)");
+            }
+            epingler(bc);
+            bcOverride = bc;
+
+            if (!overrideListener) {
+                const kSrc = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
+                const mi = kSrc ? findMethodByParamCount(kSrc, "LoadBattle", 1) : null;
+                if (!mi) return refus("`SandboxGameModeSource$$LoadBattle` INTROUVABLE -- "
+                    + "override désarmé");
+                overrideListener = Interceptor.attach(mi.ptr, {
+                    onLeave(retval) {
+                        if (bcOverride === null) return;   // transparent quand non armé
+                        overrideFires++;
+                        retval.replace(bcOverride);
+                    },
+                });
+                Interceptor.flush();
+            }
+            return { ok: true, arme: true, bc: bc.toString(),
+                     taille: (body.configJson as string).length,
+                     ancrage: "IdunBattle.ViewLogic.BattleSource.SandboxGameModeSource$$LoadBattle",
+                     fires: overrideFires,
+                     avertissement: "ARMÉ. `sandboxModeBuildBc` est REFUSÉ tant que ça dure "
+                         + "(ancrer ce qu'on invoque gèle le jeu). Retirer avec "
+                         + "`{ configJson: null }` avant de refabriquer une BC." };
         });
     };
 
