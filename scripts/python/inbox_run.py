@@ -20,7 +20,14 @@ reclamer a la main quand ta jauge est basse.
 recopie pas la table : un miroir fige ici se perimerait en silence au changement de build.
 `Stamina` y vaut 5 aujourd'hui -- et c'est le NOM qui est teste, jamais l'ordinal.
 
-⚠ Le retour d'une reclamation ne prouve rien : on relit la boite, c'est elle qui atteste.
+⚠ UN ENVOI RECLAME NE DISPARAIT PAS : il RESTE en boite, marque `claimed`. Le decompile le dit
+(`InboxProgression$$ClaimInboxItemInternal` pose le drapeau, appelle `ReadInboxItemInternal` et
+`BroadcastInboxItemChanged` -- il n'y a AUCUN `RemoveInboxItemLocally`). La premiere version de
+cet outil attestait par la DISPARITION : elle a donc rapporte << 0 / 23 reclames >> sur une
+reclamation qui avait parfaitement marche. Un oracle faux accuse le code juste.
+
+⚠ Le retour d'une reclamation ne prouve rien non plus : on relit la boite et on regarde
+`isClaimed`, c'est LUI qui atteste.
 
 ASCII only en sortie (console Windows cp1252).
 """
@@ -90,7 +97,7 @@ def main():
     print("=== %d envoi(s) en boite de reception ===" % len(envois))
     print()
 
-    a_prendre, a_epargner, sans_guid = [], [], []
+    a_prendre, a_epargner, sans_guid, deja = [], [], [], []
     for e in envois:
         recs = e.get("rewards")
         # `null` = la classe ne porte pas de `<rewards>` : NON MESURE. On ne reclame pas un
@@ -105,12 +112,18 @@ def main():
                 detail.append("%s x%s%s" % (n, r.get("amount"),
                                             (" [%s]" % r["id"]) if r.get("id") else ""))
         marque = "  <<< STAMINA" if stamina else ""
-        print("  %-38s %-26s %s%s"
-              % (ascii_(str(e.get("guid")))[:38], ascii_(str(e.get("type")))[:26],
+        print("  %-38s %-3s %-26s %s%s"
+              % (ascii_(str(e.get("guid")))[:38],
+                 "OK" if e.get("isClaimed") else "",       # deja reclame
+                 ascii_(str(e.get("type")))[:26],
                  ascii_(" + ".join(detail)) if detail
                  else ("(recompenses NON LISIBLES)" if recs is None else "(aucune recompense)"),
                  marque))
-        if not e.get("guid"):
+        # DEJA RECLAME -> rien a faire. Un envoi reclame RESTE en boite (cf. l'en-tete), donc
+        # sans ce test on le rejouerait a chaque passage.
+        if e.get("isClaimed"):
+            deja.append(e)
+        elif not e.get("guid"):
             sans_guid.append(e)
         elif recs is None:
             a_epargner.append((e, "contenu NON LISIBLE"))
@@ -121,7 +134,8 @@ def main():
 
     print()
     print("=== tri ===")
-    print("  a reclamer : %d" % len(a_prendre))
+    print("  a reclamer      : %d" % len(a_prendre))
+    print("  deja reclames   : %d (ils RESTENT en boite, c'est normal)" % len(deja))
     for e, motif in a_epargner:
         print("  EPARGNE    : %-38s (%s)" % (ascii_(str(e.get("guid")))[:38], motif))
     for e in sans_guid:
@@ -149,18 +163,25 @@ def main():
         print("relecture IMPOSSIBLE -- les reclamations sont DEJA PARTIES, ne pas rejouer.")
         return 1
     apres = d2.get("entries") or []
-    restants = {x.get("guid") for x in apres}
-    partis = [g for g in guids if g not in restants]
-    print("=== ATTESTATION ===")
-    print("  boite : %d -> %d envoi(s)" % (len(envois), len(apres)))
-    print("  reclames et disparus : %d / %d" % (len(partis), len(guids)))
-    encore = [g for g in guids if g in restants]
-    if encore:
-        print("  ENCORE PRESENTS (%d) -- la reclamation n'a pas mordu, ou la boite n'est pas"
-              % len(encore))
-        print("  encore rafraichie cote serveur. NE PAS rejouer sans avoir relu.")
-        for g in encore[:10]:
+    # ⚠ L'ATTESTATION EST LE DRAPEAU `isClaimed`, PAS LA DISPARITION. Un envoi reclame reste
+    #   en boite (cf. l'en-tete) : attester par la disparition rapportait << 0 / 23 >> sur une
+    #   reclamation reussie, et accusait le code au lieu de l'oracle.
+    etat = {x.get("guid"): bool(x.get("isClaimed")) for x in apres}
+    ok = [g for g in guids if etat.get(g) is True]
+    rate = [g for g in guids if etat.get(g) is False]
+    absent = [g for g in guids if g not in etat]
+    print("=== ATTESTATION (drapeau `claimed`) ===")
+    print("  boite : %d -> %d envoi(s)  (un envoi reclame RESTE, c'est normal)"
+          % (len(envois), len(apres)))
+    print("  reclames : %d / %d" % (len(ok), len(guids)))
+    if absent:
+        print("  DISPARUS de la boite : %d -- inattendu, mais pas un echec" % len(absent))
+    if rate:
+        print("  TOUJOURS NON RECLAMES (%d) -- la reclamation n'a PAS mordu." % len(rate))
+        print("  NE PAS rejouer sans avoir compris pourquoi.")
+        for g in rate[:10]:
             print("    %s" % ascii_(g))
+        return 1
     return 0
 
 
