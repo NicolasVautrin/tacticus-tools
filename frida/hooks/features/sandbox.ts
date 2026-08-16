@@ -44,13 +44,32 @@
 //
 // Cause probable, à confirmer : `TestSceneBattleModeSource` ne porte NI `HandleFinishBattle`
 // NI `HandleBattleSurrender` — `SandboxGameModeSource`, si. Le retour au meta réclame
-// score / loot / métadonnées de replay à la source, qui ne les fournit pas. S'y ajoute que
-// son ctor déclare `TestUnitProgression` et qu'on lui passe le VRAI `IUnitProgression` :
-// `runtime_invoke` ne type-check pas, donc ça passe au montage sans rien garantir après.
+// score / loot / métadonnées de replay à la source, qui ne les fournit pas.
 //
 // ⇒ Ne pas traiter ce montage comme acquis tant que la sortie n'est pas résolue. Pistes NON
 // essayées : construire un `SandboxGameModeSource` (il porte les deux `Handle*`) au lieu
 // d'un `TestSceneBattleModeSource` ; ou ne jamais sortir, et relancer par-dessus.
+//
+// ⚠⚠⚠ ET IL A COÛTÉ DEUX JETONS DE BOSS DE GUILDE SUR LE COMPTE RÉEL — MESURÉ
+// ---------------------------------------------------------------------------
+// Le ctor déclare `unitProgression: idun.tests.TestUnitProgression`. On lui passait le VRAI
+// `IUnitProgression` du compte, lu sur l'exécuteur vivant ; `il2cpp_runtime_invoke` ne
+// type-check pas, donc ça montait sans broncher. Sauf que la vraie `UnitProgression..ctor`
+// prend un `guildBossProgression: thor.UserProgress.IGuildBossProgression` — la dépendance
+// qui DÉPENSE les jetons. La progression de test, elle, ne la porte pas.
+//
+// Mesure du 2026-08-16, dans l'état local du jeu (`user_progression.json`) :
+//     guildBoss.battleTokens.countdownStartedAt          = 05:18:08
+//     guildBoss.guildProgressionPlayerState.attempts.lastUpdatedThreshold = 05:18:08
+// Un compte à rebours de régénération ne démarre QUE sur une dépense. 05:18:08 tombe
+// 73 secondes après le 3ᵉ montage sandbox (05:16:55) et à l'instant du crash — aucun geste
+// de l'utilisateur là-dedans. Trois montages enregistrés (04:34:48, 04:35:48, 05:16:55,
+// mode `Campaign`, BC hybride à 197 unités / boss 22 200 785), et deux replays `GuildBoss`
+// apparus dans leur sillage (04:39:59, contenu identique au combat de 01:33 ; 05:28:35).
+//
+// ⇒ DEPUIS, LE DÉFAUT EST LA PROGRESSION DE TEST, et l'absence de celle-ci est un REFUS, pas
+// un repli sur celle du compte. Le risque ci-dessus était déjà ÉCRIT ici avant l'incident, à
+// trois endroits, et il n'a rien arrêté : seule une porte exécutable arrête un comportement.
 
 import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, s,
@@ -89,6 +108,45 @@ function epinglerBc(p: NativePointer): void {
 // en permanence là où le foyer rend `0 / false`. Un garde qui se trompe dans ce sens bloque
 // tout ; dans l'autre, il autoriserait le geste exactement au pire moment.
 // Le foyer passe par `il2cpp_field_static_get_value` (voie NOMMÉE) et porte le tri-état.
+
+/** La progression JETABLE que le ctor de `TestSceneBattleModeSource` déclare vraiment.
+ *
+ *  `idun.tests.TestUnitProgression..ctor` ne prend AUCUN paramètre — donc rien n'oblige à
+ *  emprunter celle du compte, et c'est ce qui rend le refus tenable plutôt que théorique.
+ *  À l'inverse, `IdunMetaLogic.UserProgress.UnitProgression..ctor` prend 26 dépendances,
+ *  dont `guildBossProgression: thor.UserProgress.IGuildBossProgression` : c'est CELLE-LÀ
+ *  qui débite les jetons de boss de guilde, et deux l'ont été.
+ *
+ *  Mémoïsée + `gcRoot` : réinstancier à chaque montage ferait un objet managé de plus à
+ *  garder en vie pour rien, et un objet non enraciné peut être déplacé entre sa création et
+ *  l'appel du ctor. */
+let progTest: NativePointer | null = null;
+
+function progressionDeTest(): NativePointer | Refus {
+    if (progTest && !progTest.isNull()) return progTest;
+    const k = findClassAnywhere("idun.tests", "TestUnitProgression");
+    if (!k) {
+        return { ok: false, error: "`idun.tests.TestUnitProgression` INTROUVABLE sur ce build "
+            + "-- REFUS. Pas de repli sur la progression du compte : c'est elle qui porte "
+            + "`IGuildBossProgression`, et ce repli a déjà coûté 2 jetons de boss de guilde." };
+    }
+    const ctor = findMethodByParamCount(k, ".ctor", 0);
+    if (!ctor) {
+        return { ok: false, error: "`TestUnitProgression..ctor` à 0 paramètre INTROUVABLE "
+            + "-- REFUS (le ctor sans argument est ce qui rend la progression jetable "
+            + "constructible ; sans lui, on ne sait pas en fabriquer une)" };
+    }
+    try {
+        const p = il2cpp_object_new(k) as NativePointer;
+        if (p.isNull()) return { ok: false, error: "il2cpp_object_new(TestUnitProgression) -> NULL" };
+        gcRoot.add(p);
+        invokeMethod(ctor.info, p, []);
+        progTest = p;
+        return p;
+    } catch (e) {
+        return { ok: false, error: "TestUnitProgression..ctor a levé : " + (e as Error).message };
+    }
+}
 
 interface Cible { klass: NativePointer; inst: NativePointer; mi: { info: NativePointer } }
 
@@ -183,12 +241,17 @@ export function register(ctx: Ctx): void {
      *      -> `new TestSceneBattleModeSource(bc, unitProgression, menuSystems)`
      *      -> `ViewCommandExecutor$$StartMatch(source, checkIfAlreadyRunning: false)`
      *
-     *  ⚠ Les deux dépendances se prennent PAR NOM sur l'exécuteur vivant
-     *  (`_unitProgression`, `_menuSystems`), jamais par offset : les offsets bougent d'un
-     *  build à l'autre, et une valeur lue au mauvais offset ne se signale pas -- elle
-     *  fabrique un pointeur plausible. */
+     *  ⚠ `_menuSystems` se prend PAR NOM sur l'exécuteur vivant, jamais par offset : les
+     *  offsets bougent d'un build à l'autre, et une valeur lue au mauvais offset ne se
+     *  signale pas -- elle fabrique un pointeur plausible.
+     *
+     *  ⚠⚠ La progression, elle, est FABRIQUÉE (`idun.tests.TestUnitProgression`, ctor sans
+     *  argument) et non empruntée à l'exécuteur. `progressionDuCompte: true` rebranche celle
+     *  du compte, et alors la bataille court POUR DE VRAI : elle débite jetons et tentatives.
+     *  Mesuré le 2026-08-16 -- 2 jetons de boss de guilde, cf. l'en-tête du module. */
     ctx.rpc.sandboxStartMatch = (body?: {
         configJson?: string; confirmer?: boolean; checkIfAlreadyRunning?: boolean;
+        progressionDuCompte?: boolean;
     }): Promise<unknown> | unknown => {
         if (!body?.configJson) return { ok: false, error: "`configJson` manquant" };
         if (body.confirmer !== true) {
@@ -223,12 +286,25 @@ export function register(ctx: Ctx): void {
                     + `_unitProgression=${offProg} _menuSystems=${offMenu} `
                     + "-- chemin PÉRIMÉ, ne pas replier sur un offset" };
             }
-            const prog = ex.add(offProg).readPointer();
+            const progCompte = ex.add(offProg).readPointer();
             const menu = ex.add(offMenu).readPointer();
-            if (prog.isNull() || menu.isNull()) {
+            if (progCompte.isNull() || menu.isNull()) {
                 return { ok: false, error: "dépendance NULLE sur l'exécuteur : "
-                    + `_unitProgression=${prog} _menuSystems=${menu} `
+                    + `_unitProgression=${progCompte} _menuSystems=${menu} `
                     + "-- l'exécuteur existe mais n'a pas reçu ses dépendances" };
+            }
+
+            // ⚠ LA PROGRESSION EST LE POINT DE DÉBIT DU COMPTE, PAS UN DÉTAIL DE CÂBLAGE.
+            // Défaut = la jetable ; celle du compte n'est atteignable que sur demande
+            // NOMMÉE. Ce n'est pas de la prudence de principe : le repli silencieux a
+            // débité 2 jetons de boss de guilde le 2026-08-16 (cf. l'en-tête).
+            let prog: NativePointer;
+            if (body.progressionDuCompte === true) {
+                prog = progCompte;
+            } else {
+                const pt = progressionDeTest();
+                if (estRefus(pt)) return pt;
+                prog = pt;
             }
             if (!isDeserializerReady()) {
                 return { ok: false, error: "JsonConvert.DeserializeObject non résolu" };
@@ -246,14 +322,17 @@ export function register(ctx: Ctx): void {
                 src = il2cpp_object_new(kSrc) as NativePointer;
                 if (src.isNull()) return { ok: false, error: "il2cpp_object_new -> NULL" };
                 gcRoot.add(src);
-                // Le ctor déclare `TestUnitProgression` ; on passe le VRAI `IUnitProgression`
-                // du compte. `runtime_invoke` ne type-check pas -- si le corps appelle une
-                // méthode absente de l'implémentation réelle, ça lèvera ICI, et c'est dit.
+                // `prog` est la progression JETABLE, du type que le ctor déclare -- sauf
+                // `progressionDuCompte: true`, où c'est celle du compte et où le débit est
+                // ASSUMÉ par l'appelant.
                 invokeMethod(ctor.info, src, [bc, prog, menu]);
             } catch (e) {
                 return { ok: false, error: "TestSceneBattleModeSource..ctor a levé : "
-                    + (e as Error).message + " -- la substitution d'`IUnitProgression` au "
-                    + "`TestUnitProgression` déclaré est la cause la plus probable" };
+                    + (e as Error).message
+                    + (body.progressionDuCompte === true
+                        ? " -- la substitution d'`IUnitProgression` au `TestUnitProgression`"
+                          + " déclaré est la cause la plus probable"
+                        : "") };
             }
             const chk = Memory.alloc(1);
             chk.writeU8(body.checkIfAlreadyRunning === true ? 1 : 0);
@@ -265,8 +344,13 @@ export function register(ctx: Ctx): void {
             }
             return {
                 ok: true, source: src.toString(), bc: bc.toString(),
+                progression: body.progressionDuCompte === true ? "DU COMPTE" : "de test",
                 avertissement: "appel passé -- le montage se MESURE (sandboxProbe : "
-                    + "`chargementEnCours` puis `instance`), un retour d'appel ne le prouve pas",
+                    + "`chargementEnCours` puis `instance`), un retour d'appel ne le prouve pas"
+                    + (body.progressionDuCompte === true
+                        ? " ; et cette bataille court SUR LE COMPTE RÉEL -- elle peut en "
+                          + "débiter jetons et tentatives"
+                        : ""),
             };
         });
     };
