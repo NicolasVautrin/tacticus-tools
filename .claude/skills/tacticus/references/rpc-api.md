@@ -205,7 +205,18 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
 - **MachinesOfWar** (`mow-builder.ts`) : `buildMachinesOfWarConfig`,
   `dumpMachinesOfWarCatalog`, `machinesOfWarBuilderStatus`, `dumpLiveEvent*`,
   `dumpMoWProgressionState` (hors-sujet MoW arena PvP : cf. `project_mow_deploy_gate`).
-- **UI nav** (`ui-nav.ts`) : `uiList`, `uiListAll`, `uiClick(path)`.
+- **UI nav — SUPPRIMÉ.** Les neuf endpoints d'interface (`uiList`, `uiListAll`, `uiClick`,
+  `uiTexts`, `uiWindows`, `uiWindowEvents`, `uiScrollList`, `uiScrollSet`, `uiMutations`) et
+  leurs modules (`ui-nav.ts`, `ui-scroll.ts`, `ui-mutations.ts`, le paquet
+  `scripts/python/gamenav/`) ont été retirés. **Piloter l'écran pour lire ou écrire sur le
+  compte est proscrit** : `expedition_run.py` avait déjà supprimé son étape UI, et sa raison
+  vaut pour tout le reste — elle FAISAIT DISPARAÎTRE l'écran du joueur, exigeait un écran de
+  départ précis, et chaque clic devait être validé par son EFFET (`interactable` précède la
+  fin de l'animation, donc le retour d'un clic ne prouve rien).
+  Ce qu'on lisait par l'écran se demande au jeu : `rosterOwned` pour la possession,
+  `expeditionBoard` pour le plateau, les porteurs de `ViewCommandExecutor` pour le reste.
+  ⚠ `ui-windows.ts` SURVIT, sans `register` : le warmup importe `ecouterTransitions`, qui
+  OBSERVE les transitions de fenêtre et ne clique rien.
 - **Config / visuels** : `getGameConfig`/`getMatchState` (`config-io.ts`) ;
   `getGameVersion`/`dumpEnum(s)`/`resolveVtableSlot` (`introspect.ts`) ;
   `resolveUnitVisual`/`dumpAllUnitVisuals`/`getUnitAssetMap` (`unit-visual-resolve.ts`,

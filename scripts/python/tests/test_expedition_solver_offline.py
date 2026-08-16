@@ -31,20 +31,17 @@ gameconfig du jour, donc ce garde ne rougit pas au prochain changement de build.
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/expedition_solver.py",
-        # Le capteur de pool : ses fonctions PURES sont gardees ici (l'I/O ne l'est
-        # pas -- elle exige une session vivante).
-        "scripts/python/expedition_roster.py",
+        # ⚠ `expedition_roster.py` et `gamenav/transport.py` ont ETE RETIRES du
+        # declencheur EN MEME TEMPS que les modules eux-memes : ils lisaient le pool
+        # par l'ecran (`uiList`/`uiClick`), et les neuf endpoints d'interface sont
+        # supprimes. Un declencheur qui cite un chemin DISPARU ne protege rien -- il
+        # se contente de ne jamais se declencher, ce qui se lit comme un vert.
         # Importe AU CHARGEMENT du solveur : un changement de son API casse l'import
         # de ce fichier avant meme le premier assert. Declare bien qu'aucun test
         # ci-dessous ne LISE le gameconfig -- les kits sont synthetiques.
         "scripts/python/unit_map.py",
         # Tire par `unit_map` au chargement, meme chaine de raisonnement.
         "scripts/python/gameconfig.py",
-        # Tire par `expedition_roster` au chargement (`from gamenav.transport import
-        # Hote`). AUCUN test ici n'ouvre de session -- seules les fonctions PURES du
-        # capteur sont exercees -- mais l'import, lui, a bien lieu, et une rupture
-        # d'API de `Hote` casserait le fichier avant le premier assert.
-        "scripts/python/gamenav/transport.py",
         # Le pilote : sa decision PURE `motif_non_partante` est gardee ici (le reste
         # exige une session vivante). Un motif faux ne casse RIEN -- il fait juste
         # conclure a l'envers, ce qui est deja arrive.
@@ -324,54 +321,18 @@ def test_multiplicite_et_recouvrement_se_combinent():
     assert "c" not in ids
 
 
-# --- 7. capteur de pool : les fonctions PURES --------------------------------
-
-def test_extraire_deduplique_et_ignore_ce_qui_n_est_pas_un_portrait():
-    import expedition_roster as ER
-    boutons = [
-        {"name": "ButtonPortrait_custoTrajann"},
-        {"name": "ButtonPortrait_custoTrajann"},   # widget poole en double
-        {"name": "ButtonPortrait_ultraCalgar"},
-        {"name": "button_dispatch"},
-        {"name": ""},
-        {},
-    ]
-    assert ER.extraire(boutons) == ["custoTrajann", "ultraCalgar"]
-
-
-def test_qualifier_signale_le_VIDE_au_lieu_de_le_taire():
-    """Le vide doit etre un DRAPEAU, pas une liste vide qui se lit
-    << tu ne possedes rien >>."""
-    import expedition_roster as ER
-    v = ER.qualifier([], {})
-    assert v["vide"] is True and v["n"] == 0
-
-
-def test_qualifier_sans_gameconfig_rend_NON_MESURE_et_pas_un_zero():
-    """Tri-etat : `qualification` a None = PAS MESURE. Le rabattre sur False ou sur
-    des compteurs a zero ferait passer une absence de mesure pour un resultat."""
-    import expedition_roster as ER
-    v = ER.qualifier(["custoTrajann"], None)
-    assert v["qualification"] is None
-    assert "alliances" not in v, "un compteur a zero a ete fabrique sans mesure"
-
-
-def test_qualifier_croise_alliances_et_MoW():
-    import expedition_roster as ER
-    kits = {
-        "custoTrajann": _kit("custoTrajann", alliance="Imperial"),
-        "ultraDreadnought": _kit("ultraDreadnought", alliance="Imperial",
-                                 traits=["MachineOfWar"]),
-        "orksWarboss": _kit("orksWarboss", alliance="Xenos"),
-    }
-    v = ER.qualifier(["custoTrajann", "ultraDreadnought"], kits)
-    assert v["alliances"] == {"Imperial": 2}
-    assert v["mow_captees"] == ["ultraDreadnought"]
-    # `orksWarboss` est Xenos : hors PORTEE de la capture, il ne doit PAS etre
-    # compte comme un absent -- sinon toute capture mono-alliance se lirait
-    # comme un roster troue.
-    assert v["absents_de_la_capture"] == []
-
+# --- 7. capteur de pool : RETIRE avec la voie UI -----------------------------
+#
+# `expedition_roster.py` capturait le pool en lisant les boutons de l'ecran
+# (`uiList`/`uiClick`). Les neuf endpoints d'interface ont ete SUPPRIMES : piloter
+# l'ecran pour lire ou ecrire sur le compte est proscrit -- `expedition_run.py` avait
+# deja retire son etape UI pour la meme raison (elle FAISAIT DISPARAITRE l'ecran du
+# joueur). Le pipeline lit desormais le roster par le RPC natif `rosterOwned`, qui
+# DEMANDE la possession au jeu au lieu de la deduire d'un ecran.
+#
+# Les quatre tests qui vivaient ici gardaient les fonctions PURES de ce capteur
+# (`extraire`, `qualifier`). Ils partent avec lui : garder un test sur du code
+# supprime le rendrait vert sans rien garder.
 
 def test_plateau_couvre_les_deux_operations_quand_le_roster_suffit():
     kits = {

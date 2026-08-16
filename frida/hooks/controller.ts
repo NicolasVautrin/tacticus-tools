@@ -24,9 +24,6 @@ import * as dumpComposed from "./features/dump-composed.js";
 import * as dispatchObserve from "./features/dispatch-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
 import * as autoBoot from "./features/auto-boot.js";
-import * as uiNav from "./features/ui-nav.js";
-import * as uiScroll from "./features/ui-scroll.js";
-import * as uiWindows from "./features/ui-windows.js";
 // #992 — la surface de commandes du jeu, requetable (`viewSurface`/`viewList`/`viewInvoke`),
 // et l'interception de la retraite (pile complete + instance capturee a l'ancrage).
 import * as viewCommand from "./features/view-command.js";
@@ -50,7 +47,6 @@ import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
-import * as uiMutations from "./features/ui-mutations.js";
 import * as initTrace from "./features/init-trace.js";
 import * as winnerCapture from "./features/winner-capture.js";
 import * as messageTrace from "./features/message-trace.js";
@@ -422,7 +418,17 @@ export function wireRpc(ctx: Ctx): void {
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
      overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
-     uiNav, uiScroll, uiWindows, viewCommand, sandbox, retreatCapture,
+     // ⚠ `uiNav` / `uiScroll` / `uiWindows` / `uiMutations` NE SONT PLUS ENREGISTRÉS : les
+     // neuf endpoints d'interface (`uiList`, `uiListAll`, `uiClick`, `uiTexts`, `uiWindows`,
+     // `uiWindowEvents`, `uiScrollList`, `uiScrollSet`, `uiMutations`) ont été RETIRÉS.
+     // Piloter l'interface pour agir sur le compte est proscrit — `expedition_run.py` avait
+     // déjà supprimé son étape UI pour la même raison : elle FAISAIT DISPARAÎTRE l'écran du
+     // joueur, exigeait un écran de départ précis, et chaque clic devait être validé par son
+     // EFFET (`interactable` précède la fin de l'animation). Ce qui écrit sur le compte passe
+     // par les porteurs natifs de `ViewCommandExecutor`.
+     // `ui-windows.ts` SURVIT sans `register` : le warmup importe `ecouterTransitions`, qui
+     // OBSERVE les transitions de fenêtre et ne clique rien.
+     viewCommand, sandbox, retreatCapture,
      fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.
@@ -438,7 +444,7 @@ export function wireRpc(ctx: Ctx): void {
      // sans `confirmer: true`, et l'armement n'installe que de l'OBSERVATION.
      // `gc-rendezvous` n'INSTALLE RIEN : il expose un RPC qui force une collecte, et qui
      // PEUT geler le jeu -- c'est ce qu'il mesure (#600). Il ne touche pas au compte.
-     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, uiMutations,
+     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne

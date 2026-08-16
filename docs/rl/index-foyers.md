@@ -59,7 +59,7 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/probe_273_gitignored_inputs.py` | 4 | #464-r1b, #464-r1c, #471-r1, #486-r9 |
 | `frida/hooks/features/ai-step/` | 3 | #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3 |
 | `frida/hooks/features/ai-step/rpc-snapshot.ts` | 3 | #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #487-r2 |
-| `frida/hooks/features/ui-nav.ts` | 3 | #595-r1, #595-r2, #596 |
+| ~~`frida/hooks/features/ui-nav.ts`~~ SUPPRIME | 3 | #595-r1, #595-r2, #596 -- foyer DISPARU avec les endpoints d'interface |
 | `scripts/python/engine/ai/context.py` | 3 | #1027-r5, #425-r1, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1 |
 | `scripts/python/engine/entities/abilities/active_ability.py` | 3 | #585-r1, #909-r1, #957-r4 |
 | `scripts/python/engine/entities/formulas.py` | 3 | #1008-r1, #895-r1, #920-r3 |
@@ -341,9 +341,9 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/services/movement_query.py` | #1048-r2 | `porteur` |
 | `scripts/python/engine/utilities/__init__.py` | #485-r3 | `aucun` |
 | `scripts/python/engine/utilities/damage.py` | #449-r2-r4-r3 | `porteur` |
-| `scripts/python/game_nav.py` | #595-r1 | `capteur` |
-| `scripts/python/gamenav/` | #596 | `capteur` |
-| `scripts/python/gamenav/carte.py` | #596-r2 | `capteur` |
+| ~~`scripts/python/game_nav.py`~~ SUPPRIME | #595-r1 | `capteur` -- foyer DISPARU |
+| ~~`scripts/python/gamenav/`~~ SUPPRIME | #596 | `capteur` -- paquet DISPARU |
+| ~~`scripts/python/gamenav/carte.py`~~ SUPPRIME | #596-r2 | `capteur` -- foyer DISPARU |
 | `scripts/python/gen_ai_targets.py` | #464-r1b | `aucun` |
 | `scripts/python/gen_battlelogic_targets.py` | #464-r1b | `aucun` |
 | `scripts/python/gen_campaign_builder_targets.py` | #464-r1b | `aucun` |
