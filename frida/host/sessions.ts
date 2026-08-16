@@ -269,17 +269,54 @@ export async function stopSession(id: number): Promise<void> {
     // Émis MÊME quand un étage a levé : c'est précisément le cas où l'on veut savoir
     // lequel, et les `-1` le disent. Le total de bout en bout est repris à côté des
     // trois étages pour que la somme manquante saute aux yeux.
+    session.status = "stopped";
+    session.endedAt = new Date().toISOString();
+
+    // ⚠ LIBÉRER LES OBJETS FRIDA — la Map `sessions` n'est JAMAIS purgée (`sessions.set`
+    // ligne 119, aucun `sessions.delete` dans le fichier), donc chaque session stoppée
+    // gardait son `frida.Session` ET son `frida.Script` référencés pour toute la vie du
+    // process host. Ce ne sont pas de simples objets JS : ce sont des poignées vers des
+    // ressources natives du binding frida-node.
+    //
+    // COÛT MESURÉ (#10016-r1, 2026-08-16). Sur un host lancé le 2026-08-07 — neuf jours
+    // et une longue série de sessions — un stop mettait des MINUTES et faisait échouer
+    // l'inject qui le suivait (400 s, puis `session: null`). Host redémarré, MÊME jeu
+    // (PID 80832 inchangé, donc ni son tas managé ni ses hooks ne sont en cause) :
+    //     [sessions] stop 1 -- handshake=2ms unload=24ms detach=2ms (total=28ms)
+    // La dégradation suit donc le NOMBRE de sessions accumulées dans le process node,
+    // pas la durée d'une session — ce qui explique que de très longues sessions
+    // passaient sans problème auparavant.
+    //
+    // On garde l'ENTRÉE (métadonnées d'historique : status, dates, pid — `sanitize` les
+    // publie et les retire déjà de la sortie) et on lâche les POIGNÉES.
+    session.fridaScript = undefined;
+    session.fridaSession = undefined;
+
+    // ⚠ COMPTÉ APRÈS LA LIBÉRATION, sinon l'observable s'accuse LUI-MÊME : le signal
+    // `fridaScript.destroyed` de l'unload passe la session à `stopped` via `finalize()`
+    // AVANT qu'on arrive ici, donc elle entrait dans son propre filtre et le compteur
+    // affichait 1 en permanence. Mesuré sur trois stops enchaînés : `en memoire` montait
+    // 1 → 2 → 3 tandis que `RETENUES` restait figé à 1 — c'est ce plafond qui prouvait
+    // que la libération marchait, et c'est exactement ce qu'un cliquet à 0 doit dire
+    // sans qu'on ait à l'interpréter.
+    //
+    // `retenues` DOIT rester à 0 : c'est le cliquet de la libération ci-dessous. S'il
+    // remonte, une voie de stop a été ajoutée sans lâcher les poignées, et la
+    // dégradation reviendra — silencieusement, sur plusieurs jours. La RSS du host est
+    // imprimée à côté parce que c'est l'autre face de la même fuite.
+    const retenues = [...sessions.values()]
+        .filter((s) => s.status !== "running" && (s.fridaScript || s.fridaSession)).length;
     console.log(
         `[sessions] stop ${id} — handshake=${chrono.handshakeMs}ms `
         + `unload=${chrono.unloadMs}ms detach=${chrono.detachMs}ms `
-        + `(total=${Date.now() - t0}ms ; -1 = n'a pas termine)`,
+        + `(total=${Date.now() - t0}ms ; -1 = n'a pas termine) `
+        + `— sessions en memoire=${sessions.size} dont RETENUES=${retenues} `
+        + `(doit valoir 0) ; rss=${Math.round(process.memoryUsage().rss / 1048576)}Mo`,
     );
     try {
         appendLog(id, { t: "stop_timings", ...chrono, totalMs: Date.now() - t0 });
     } catch { /* journal non ouvert (aucun logDir a l'inject) — le console.log suffit */ }
 
-    session.status = "stopped";
-    session.endedAt = new Date().toISOString();
     closeLog(id);
 
     // Runners live inside the Frida script's heap — stopping the session
