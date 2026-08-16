@@ -1035,6 +1035,192 @@ export function register(ctx: Ctx): void {
         });
     };
 
+    /** RAFRAÎCHIR le plateau d'Operations, sans aucun écran.
+     *
+     *  LA PORTE :
+     *      ExpeditionGameEvents$$RefreshBoard(index:System.Int32, adRefresh:System.Boolean,
+     *                                         callback:System.Action<System.Boolean>)
+     *
+     *  MÊME ÉTAGE QUE L'ENVOI, ET CE N'EST PAS UNE ANALOGIE. `ExpeditionGameEvents` ne porte
+     *  que quatre champs, tous des commandes : `_dispatchCommand`, `_claimRewardCommand`,
+     *  `_claimAllRewardsCommand`, `_refreshBoardCommand`. L'UI (`ExpeditionRefreshFlow`,
+     *  `ExpeditionRefreshConfirmationPopup`) est AU-DESSUS, et c'est elle qu'on contourne --
+     *  exactement comme `expeditionDispatch` contourne `ExpeditionDispatchScreenPresenter`.
+     *
+     *  ⚠ CE RPC ÉCRIT, ET C'EST LE SEUL DU MODULE QUI PEUT COÛTER DES GEMMES.
+     *  `clientGameConfig.expeditions.refresh` est une table de 21 paliers : le 1er GRATUIT,
+     *  puis 25, 30, 35... +5 par palier jusqu'à 100, puis 150, 250, 500 et 1000 au 21e --
+     *  2900 gemmes pour la journée entière. Et `index` est le PALIER FACTURÉ, fourni par
+     *  L'APPELANT : rien dans cette porte ne le recalcule ni ne le borne.
+     *
+     *  CONTOURNER L'UI SUPPRIME LE GARDE-FOU DU JOUEUR, d'où le nôtre. Sur le chemin normal,
+     *  `ExpeditionRefreshFlow$$ConfirmRefreshIfNeeded` ouvre une popup qui ANNONCE le prix
+     *  avant de débiter. Ici, personne ne l'annonce. On lit donc le palier courant par le
+     *  natif lui-même (`ExpeditionRefreshProgression$$GetCurrentTierIndex`, lecture pure
+     *  vérifiée au décompilé) et on REFUSE tout palier != 0, sauf `autoriserPalier`
+     *  explicitement égal à ce que la lecture vient de rendre. Une prose n'arrête pas une
+     *  dépense ; un refus, si.
+     *
+     *  LE PALIER, tel que le natif le calcule :
+     *      si `IsLastUpdateBeforeTodayReset()`  ->  0                       (le gratuit)
+     *      sinon  ->  Clamp(MaxAmount - currentAmount, 0, MaxAmount)
+     *  `GetCurrentTier` indexe ensuite la table DIRECTEMENT (`tiers[idx]`, 0-base) alors que
+     *  le champ `index` de la config est 1-base : `tiers[0]` porte `index: 1`, le gratuit.
+     *  Confondre les deux bases fait lire « 25 gemmes » là où c'est gratuit, et l'inverse.
+     *  Le reset tombe à MINUIT UTC (`new DateTime(now.Year, now.Month, now.Day)` sur
+     *  `ServerTimeUtc`), donc UN gratuit par jour.
+     *
+     *  ⚠ `MaxAmount` vient du DTO SERVEUR (`ExpeditionRefreshTiersDto$$get_MaxAmount`, champ
+     *  +0x18) et n'apparaît PAS dans l'état sérialisé que rend `expeditionBoardRead` : hors
+     *  ligne, le palier n'est donc calculable QUE dans la branche « reset passé ». Raison de
+     *  plus de le DEMANDER au natif ici plutôt que de le reconstituer.
+     *
+     *  ⚠ `adRefresh` reste FALSE, toujours. La branche pub exige qu'une régie ait réellement
+     *  diffusé ; on ne peut ni le faire ni le simuler.
+     *
+     *  CE QUE LE PLATEAU VIDE A RÉFUTÉ. On avait déduit des noms
+     *  (`ShowNoExpeditionToRefreshFlyout`, et `IsFirstExpeditionDispatchable` qui rend faux
+     *  sur `Count == 0`) que le refresh serait un REROLL, donc refusé sur un plateau vide.
+     *  FAUX, mesuré à l'écran le 2026-08-16 : plateau à 0/7, bouton ACTIF et GRATUIT -- le
+     *  refresh REPEUPLE. La déduction appariait le slot 3 d'`IExpeditionBoardQuery` à une
+     *  méthode homonyme d'une AUTRE classe ; deux méthodes qui racontent la même histoire ne
+     *  sont pas la même méthode. Les lectures pures sont RENDUES dans la réponse pour que le
+     *  prochain lecteur mesure au lieu de déduire. */
+    ctx.rpc.expeditionRefresh = (body?: {
+        confirmer?: boolean; autoriserPalier?: number;
+    }): Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return { ok: false, error: "REFUS : `confirmer: true` exigé. Ce RPC ÉCRIT et peut "
+                + "coûter des gemmes -- `expeditionBoardRead` pour l'état, celui-ci pour l'acte." };
+        }
+        const autorise = body?.autoriserPalier;
+        if (autorise !== undefined
+            && (typeof autorise !== "number" || !Number.isInteger(autorise) || autorise < 0)) {
+            return { ok: false, error: "`autoriserPalier` doit être un entier >= 0 : c'est le "
+                + "palier EXACT qu'on accepte de payer, pas un drapeau" };
+        }
+        return queueOnMainThread(() => {
+            const NS = "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression";
+            const prog = progressionParExecuteur();
+            if (prog === null) {
+                return { ok: false, error: "`ExpeditionProgression` introuvable sur "
+                    + "`ViewCommandExecutor._expeditionProgression` -- jouer "
+                    + "`expeditionDispatchArm` d'abord (il résout les offsets par NOM)" };
+            }
+            const kProg = findClassAnywhere(NS, "ExpeditionProgression");
+            const kRefresh = findClassAnywhere(NS, "ExpeditionRefreshProgression");
+            const kEvents = findClassAnywhere(NS, "ExpeditionGameEvents");
+            if (!kProg || !kRefresh || !kEvents) {
+                return { ok: false, error: `classe absente de ce build (prog=${!!kProg} `
+                    + `refresh=${!!kRefresh} events=${!!kEvents})` };
+            }
+            // ⚠ Par NOM, jamais par le +0x18 mesuré : un offset en dur se périme AU SILENCE.
+            //   Et `-1` est *truthy* -- tester `< 0`, jamais `||`.
+            const offRefresh = getFieldOffset(kProg, "<Refresh>k__BackingField");
+            if (offRefresh < 0) {
+                return { ok: false, error: "`<Refresh>k__BackingField` INTROUVABLE sur "
+                    + "`ExpeditionProgression` -- chemin PÉRIMÉ sur ce build, ne pas replier "
+                    + "sur un offset constaté" };
+            }
+            const refreshProg = prog.add(offRefresh).readPointer();
+            if (refreshProg.isNull()) {
+                return { ok: false, error: "`<Refresh>` est nul sur l'`ExpeditionProgression` "
+                    + "vivante -- rien à interroger, on n'envoie pas à l'aveugle" };
+            }
+
+            // LES LECTURES PURES, avant toute écriture.
+            // ⚠ `il2cpp_runtime_invoke` BOXE les types valeur : la charge utile commence à
+            //   +0x10, après l'en-tête (`Il2CppClass*` + moniteur). Lire le pointeur rendu
+            //   tel quel donnerait une ADRESSE prise pour un booléen -- donc toujours vrai.
+            const lire = (klass: NativePointer, obj: NativePointer, nom: string,
+                          octets: 1 | 4): number | null => {
+                try {
+                    const m = findMethodByParamCount(klass, nom, 0);
+                    if (!m) return null;
+                    const r = invokeMethod(m.info, obj, null);
+                    if (r.isNull()) return null;
+                    return octets === 1 ? r.add(0x10).readU8() : r.add(0x10).readS32();
+                } catch { return null; }
+            };
+            const bool = (v: number | null): boolean | null => (v === null ? null : v !== 0);
+            // ⚠ `CanAffordCurrentTier` existe et serait informatif -- on ne l'invoque PAS :
+            //   il n'a pas été lu au décompilé, et on n'invoque pas un natif qu'on n'a pas lu.
+            //   Il n'apporterait rien ici de toute façon : le refus ci-dessous rend un palier
+            //   payant inatteignable sans autorisation explicite.
+            const palier = lire(kRefresh, refreshProg, "GetCurrentTierIndex", 4);
+            const etat = {
+                palier,
+                gratuitDispo: bool(lire(kRefresh, refreshProg, "IsFreeRefreshAvailable", 1)),
+                premiereEnvoyable:
+                    bool(lire(kRefresh, refreshProg, "IsFirstExpeditionDispatchable", 1)),
+                peutRafraichir: bool(lire(kProg, prog, "CanRefreshBoard", 1)),
+            };
+
+            // LE REFUS EXÉCUTABLE. `null` n'est PAS rabattu sur 0 : ne pas avoir mesuré le
+            // palier est une raison de REFUSER, pas de supposer la gratuité.
+            if (palier === null) {
+                return { ok: false, etat, error: "palier NON MESURÉ (`GetCurrentTierIndex` "
+                    + "introuvable ou muet) -- on refuse plutôt que de supposer le gratuit" };
+            }
+            if (palier !== 0 && autorise !== palier) {
+                return { ok: false, palier, etat,
+                    error: `palier ${palier} != 0 : ce rafraîchissement est PAYANT `
+                        + "(`clientGameConfig.expeditions.refresh`, entrée `tiers[" + palier
+                        + "]`). En lire le coût AVANT, puis repasser "
+                        + `\`autoriserPalier: ${palier}\` pour l'assumer.` };
+            }
+
+            const mi = findMethodByParamCount(kEvents, "RefreshBoard", 3);
+            if (!mi) {
+                return { ok: false, etat, error: "`RefreshBoard` à 3 paramètres INTROUVABLE -- "
+                    + "chemin PÉRIMÉ sur ce build" };
+            }
+            const ev = evenements();
+            if (ev === null) {
+                return { ok: false, etat, error: "`ExpeditionGameEvents` introuvable : ni capté "
+                    + "à l'écran, ni lisible sur `ViewCommandExecutor._expeditionProgression`" };
+            }
+            // La classe du callback vient de la signature de CETTE porte (paramètre 2), pas de
+            // celle de l'envoi : deux `Action<Boolean>` peuvent être des classes IL2CPP
+            // distinctes, et emprunter la mauvaise fabriquerait un delegate mal typé.
+            const cb = delegateInerte(methodParamClass(mi.info, 2));
+            if (!cb.d) {
+                return { ok: false, etat, error: "callback inerte non fabricable : "
+                    + (cb.err ?? "?") + " -- on n'envoie PAS avec un callback nul, le natif le "
+                    + "déréférence à la réponse serveur (c'est ce qui tuait le process, #600)" };
+            }
+
+            const aIndex = Memory.alloc(4); aIndex.writeS32(palier);
+            const aAd = Memory.alloc(1); aAd.writeU8(0);          // adRefresh = false, toujours
+            const tasAvant = gcRoot.heapSize();
+            const utiliseAvant = gcRoot.usedSize();
+            log("[expedition-dispatch] rafraîchissement palier=" + palier + " adRefresh=false"
+                + ", tas=" + utiliseAvant + "/" + tasAvant
+                + " -- si le jeu gèle, cette ligne est la dernière sortie");
+            const e: Envoi = {
+                n: journal.length + 1, ts: Date.now(), origine: "emis", via: "RefreshBoard",
+                expeditionId: null, unitIds: null, bonusFulfilled: null,
+            };
+            try {
+                invokeMethod(mi.info, ev, [aIndex, aAd, cb.d.ptr]);
+            } catch (ex) {
+                e.err = String((ex as Error).message || ex).slice(0, 200);
+            }
+            if (journal.length >= 64) journal.shift();
+            journal.push(e);
+            return {
+                ok: !e.err, palier, etat, rafraichissement: e,
+                tas: { utiliseAvant, tasAvant,
+                       utiliseApres: gcRoot.usedSize(), tasApres: gcRoot.heapSize() },
+                note: "L'appel est passé -- ça ne prouve PAS que le plateau est repeuplé. "
+                    + "Confronter à `expeditionBoardRead` : c'est lui qui atteste, pas ce "
+                    + "retour. Et un rafraîchissement part MÊME SI le jeu gèle ensuite : ne "
+                    + "jamais retenter à l'aveugle, le gratuit du jour serait déjà consommé "
+                    + "et la reprise se ferait à 25 gemmes.",
+            };
+        });
+    };
+
     ctx.rpc.expeditionDispatchDisarm = (): Promise<unknown> => queueOnMainThread(() => {
         for (const l of listeners) { try { l.detach(); } catch { /* deja parti */ } }
         listeners.length = 0;
