@@ -34,6 +34,10 @@ import * as sandbox from "./features/sandbox.js";
 // `SandboxGameModeSource$$LoadBattle` la construit depuis une `ISandboxBattleConfig`, donc
 // plus besoin d'avoir capture une BC au prealable. N'installe AUCUN hook au register.
 import * as sandboxMode from "./features/sandbox-mode.js";
+// NOMMER une boucle native en echantillonnant les piles. Le SEUL RPC du depot qui ne passe
+// PAS par `queueOnMainThread`, et deliberement : il mesure un thread principal qui ne rend
+// pas la main. Lecture pure, aucun hook installe.
+import * as stackSample from "./features/stack-sample.js";
 import * as retreatCapture from "./features/retreat-capture.js";
 import * as fsmInput from "./features/fsm-input.js";
 import * as battleEvents from "./features/battle-events.js";
@@ -435,7 +439,7 @@ export function wireRpc(ctx: Ctx): void {
      // par les porteurs natifs de `ViewCommandExecutor`.
      // `ui-windows.ts` SURVIT sans `register` : le warmup importe `ecouterTransitions`, qui
      // OBSERVE les transitions de fenêtre et ne clique rien.
-     viewCommand, sandbox, sandboxMode, retreatCapture,
+     viewCommand, sandbox, sandboxMode, stackSample, retreatCapture,
      fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.

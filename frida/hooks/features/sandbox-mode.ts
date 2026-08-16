@@ -104,7 +104,7 @@
 // qui prennent un `BattleSetConfigDto` : survival et infested.
 
 import {
-    class_get_name, class_is_valuetype, findClassAnywhere,
+    class_get_name, class_is_valuetype, findClassAnywhere, findMethodByParamClasses,
     findMethodByParamCount, getFieldOffset, methodParamClass, s,
 } from "../il2cpp/helpers.js";
 import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
@@ -450,7 +450,232 @@ function champsDeLaSource(src: NativePointer): Record<string, string | null> {
     return out;
 }
 
+// --- le SEED, pour rendre une bataille REJOUABLE ----------------------------------------
+//
+// CHAINE MESURÉE (décompilé) :
+//
+//     idun.IdunMainView$$ShowBattle
+//         seed = 0
+//         cs = gameModeSource.CustomSeed                 // Nullable<Int32>, slot 6 de
+//                                                        // IGameModeSource
+//         si cs.HasValue        -> seed = cs.Value       // SyncPvp est le SEUL à l'imposer
+//         sinon si !BC.DisableRandomness (+0xe7)
+//                               -> seed = (Int32)DateTime.Now.Ticks
+//         IdunBattle.Runner.IdunRunner$$Initialize(runner, BC, seed, ...)
+//             -> new IdunBattle.Utils.PRNG.MersenneTwister(seed)
+//
+// ⇒ hors PvP synchrone, le seed d'une bataille est L'HORLOGE. Rien n'est rejouable.
+//
+// POURQUOI ON N'ANCRE PAS `get_CustomSeed`, QUI SERAIT L'ENDROIT « LOGIQUE »
+// --------------------------------------------------------------------------
+// Il n'a QU'UNE implémentation dans la table, sur `SyncPvpGameModeSource` — ce qui ne veut PAS
+// dire que les autres sources n'en ont pas : le `return null` de la base est un corps TRIVIAL,
+// et IL2CPP déduplique ces corps-là. S'attacher dessus ferait donc feu sur tous les getters
+// qui partagent le même `return null`, c'est-à-dire potentiellement des centaines, sur des
+// chemins chauds. C'est le contraire de ce qu'on veut.
+//
+// On ancre le CONSOMMATEUR, qui est un corps bien à lui et tire UNE FOIS PAR BATAILLE.
+//
+// ⚠ LES DEUX SURCHARGES D'`Initialize` ONT LA MÊME ARITÉ (6). L'une prend un `IPseudoRNG`
+// déjà construit, l'autre l'`Int32` qui nous intéresse — `findMethodByParamCount` rendrait
+// donc l'une OU l'autre, sans le dire. On désambiguïse par la CLASSE du paramètre 1.
+let seedImpose: number | null = null;
+let seedUnCoup = true;
+let seedListener: InvocationListener | null = null;
+const seedJournal: Array<{ remplace: string; par: number }> = [];
+
+function methodeInitializeSeed(): { info: NativePointer; ptr: NativePointer } | Refus {
+    const k = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
+    if (!k) return refus("classe `IdunBattle.Runner.IdunRunner` introuvable sur ce build");
+    const mr = findMethodByParamClasses(k, "Initialize",
+                                        ["BattleConfiguration", "Int32", null, null, null, null]);
+    if (!mr) {
+        return refus("`IdunRunner$$Initialize` à 6 paramètres dont un `Int32` en position 1 "
+            + "INTROUVABLE -- ne PAS se replier sur l'arité seule : l'autre surcharge prend un "
+            + "`IPseudoRNG` et l'ancrer n'imposerait aucun seed, en silence");
+    }
+    return mr;
+}
+
+/** Arme (ou désarme) l'imposition du seed. `null` = désarmer.
+ *
+ *  ⚠ Ce n'est PAS un `replace` : on laisse le natif s'exécuter, on ne fait que réécrire
+ *  l'argument 2 à l'entrée. Le journal garde ce qui a été remplacé, pour que « la bataille
+ *  a bien pris mon seed » soit une MESURE et pas une croyance. */
+function armerSeed(seed: number | null, unCoup: boolean): Record<string, unknown> | Refus {
+    if (seed === null) {
+        if (seedListener) { try { seedListener.detach(); } catch { /* best effort */ } }
+        seedListener = null;
+        seedImpose = null;
+        return { ok: true, arme: false, journal: seedJournal.slice(-8) };
+    }
+    const mr = methodeInitializeSeed();
+    if (estRefus(mr)) return mr;
+    seedImpose = seed | 0;
+    seedUnCoup = unCoup;
+    if (!seedListener) {
+        seedListener = Interceptor.attach(mr.ptr, {
+            onEnter(args) {
+                if (seedImpose === null) return;
+                // `this`=args[0], `configuration`=args[1], `rngSeed`=args[2].
+                let avant = "?";
+                try { avant = args[2].toString(); } catch { /* best effort */ }
+                args[2] = ptr(seedImpose >>> 0);
+                seedJournal.push({ remplace: avant, par: seedImpose });
+                if (seedJournal.length > 32) seedJournal.shift();
+                if (seedUnCoup) seedImpose = null;   // un seul coup : la bataille SUIVANTE
+            },
+        });
+    }
+    return { ok: true, arme: true, seed: seedImpose, unCoup,
+             methode: "IdunBattle.Runner.IdunRunner$$Initialize (surcharge Int32)" };
+}
+
+// --- `_gameViews` : le champ SANS LEQUEL UN MODE À VAGUES NE TOURNE PAS -------------------
+//
+// CE QUE ÇA RÉPARE, ET COMMENT ON L'A TROUVÉ
+// -------------------------------------------
+// Une bataille montée par ce module SE MONTE mais NE TOURNE PAS : mesuré deux fois, elle se
+// fige sur le tour de l'équipe ennemie, l'état ne bouge plus pendant 15 s alors que le CPU
+// consomme, et l'équipe bloquée porte des unités VIVANTES à `inPlay: false` — des unités de
+// vague dont l'apparition ne s'est jamais terminée.
+//
+// Le blocage est INDÉPENDANT du seed (deux seeds, même point d'arrêt) et INDÉPENDANT du draft
+// (mesuré : seul le joueur du HÉROS a `DraftAfterUnitDeath`, le blocage est sur l'AUTRE camp,
+// et une des deux captures a ZÉRO mort côté héros).
+//
+// Cause : **six** sources implémentent `HandleStartSpawningUnitsOfTurn`, et ce sont exactement
+// les modes à vagues (Onslaught, LegendaryEvent, SurvivalEvent, TreasureBeach, LinearHeroEvent,
+// TestScene). `SandboxGameModeSource` n'en fait PAS partie. L'implémentation de référence est
+// minuscule et dit tout :
+//
+//     TestSceneBattleModeSource$$HandleStartSpawningUnitsOfTurn(this, playerId, group, continue)
+//         if (this->_gameViews != 0)  return _gameViews.<slot 0x2b>(group, continue);
+//
+// Elle RELAIE LA CONTINUATION à `_gameViews`. Et le ctor à 5 paramètres de
+// `SandboxGameModeSource` laisse `_gameViews` (+0x38) NUL.
+//
+// ⛔⛔ CE DIAGNOSTIC EST **RÉFUTÉ** — NE PAS LE RÉÉCRIRE, ET NE PAS ARMER CE RPC EN CROYANT
+// QU'IL RÉPARE LA BOUCLE.
+//
+// L'utilisateur a corrigé l'observation : la bataille NE se bloque PAS à la première vague,
+// elle tourne **quatre vagues** avant de se figer. L'apparition FONCTIONNE donc, et
+// `_gameViews` n'est pas la cause. Re-mesuré sur les deux captures : les `entityId` du camp
+// bloqué s'étalent sur 113..330 avec 4 sauts — plusieurs lots étaient bien passés.
+//
+// L'INVARIANT RÉEL, lui, est net et tient sur les deux blocages (seeds ET positions
+// différents) : le camp bloqué n'a plus qu'**UNE** unité jouable, c'est un
+// `tyranNpc4Warrior`, à PV PLEINS (4919/4919) — jamais touché, jamais joué. Son kit :
+// `BigTarget` (« cannot be displaced »), `Synapse`, `ShadowInTheWarp`, l'active mêlée
+// `ScythingTalons` (1065), et le passif `ReinforcedHiveNode` dont la condition dépend du round
+// où l'unité est ENTRÉE EN JEU — donc sensible à une arrivée par vague tardive.
+//
+// ⇒ La suite se mesure avec `stack-sample.ts` (échantillonnage de piles), qui NOMME la boucle
+// au lieu de la deviner. Ce RPC-ci reste livré parce qu'il est inoffensif (opt-in, n'écrit que
+// sur une `SandboxGameModeSource` dont le champ est nul) et que le champ nul est un fait — mais
+// il ne répare PAS ce qu'on cherchait, et c'est mesuré.
+//
+// Ce qui reste vrai et mesuré : les six sources qui portent le handler, le corps de la version
+// TestScene, et `_gameViews` nul après notre ctor.
+//
+// POURQUOI UN HOOK ET PAS UNE ÉCRITURE À LA CONSTRUCTION
+// -------------------------------------------------------
+// Au moment de `StartMatch`, `IdunMainView` N'EXISTE PAS (mesuré : aucune instance hors
+// bataille). C'est `ShowBattle` qui la peuple, via `LoadGameViews`, au tout début. On s'accroche
+// donc à `ShowBattle` et on écrit à la SORTIE, quand `gameViews` (+0xb0) est renseigné.
+//
+// ⚠ Le hook ne touche QUE ce qu'il doit : il lit la source réellement active
+// (`IdunMainView._activeGameSource`, +0xd0), n'agit que si sa classe EST
+// `SandboxGameModeSource`, et n'écrit que si le champ est ENCORE NUL. Une bataille normale du
+// jeu passe donc dessous sans être modifiée.
+let gvListener: InvocationListener | null = null;
+const gvJournal: Array<{ source: string; gameViews: string }> = [];
+let gvRefus: string | null = null;
+
+function armerInjectionGameViews(): Record<string, unknown> | Refus {
+    if (gvListener) return { ok: true, arme: true, deja: true, journal: gvJournal.slice(-6) };
+    const kVue = findClassAnywhere("idun", "IdunMainView");
+    const kSrc = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
+    if (!kVue || !kSrc) {
+        return refus("classe manquante : IdunMainView=" + (kVue !== null)
+            + " SandboxGameModeSource=" + (kSrc !== null));
+    }
+    const mi = findMethodByParamCount(kVue, "ShowBattle", 2);
+    if (!mi) return refus("`IdunMainView$$ShowBattle` à 2 paramètres INTROUVABLE");
+    // PAR NOM, jamais par offset : un offset faux écrirait un pointeur plausible dans un
+    // champ voisin, et rien ne le signalerait.
+    const offVueGv = getFieldOffset(kVue, "gameViews");
+    const offVueSrc = getFieldOffset(kVue, "_activeGameSource");
+    const offSrcGv = getFieldOffset(kSrc, "_gameViews");
+    if (offVueGv < 0 || offVueSrc < 0 || offSrcGv < 0) {
+        return refus("champ absent sur ce build : IdunMainView.gameViews=" + offVueGv
+            + " IdunMainView._activeGameSource=" + offVueSrc
+            + " SandboxGameModeSource._gameViews=" + offSrcGv
+            + " -- chemin PÉRIMÉ, pas de repli sur un offset en dur");
+    }
+    gvListener = Interceptor.attach(mi.ptr, {
+        onEnter(args) { (this as unknown as { vue: NativePointer }).vue = args[0]; },
+        onLeave() {
+            try {
+                const vue = (this as unknown as { vue: NativePointer }).vue;
+                if (!vue || vue.isNull()) return;
+                const src = vue.add(offVueSrc).readPointer();
+                if (src.isNull()) return;
+                const kObj = classeDeLObjet(src);
+                if (!kObj || !kObj.equals(kSrc)) return;      // pas NOTRE source : on ne touche pas
+                if (!src.add(offSrcGv).readPointer().isNull()) return;   // déjà renseigné
+                const gv = vue.add(offVueGv).readPointer();
+                if (gv.isNull()) { gvRefus = "IdunMainView.gameViews encore NUL à la sortie de "
+                    + "ShowBattle -- rien écrit"; return; }
+                src.add(offSrcGv).writePointer(gv);
+                gvJournal.push({ source: src.toString(), gameViews: gv.toString() });
+                if (gvJournal.length > 16) gvJournal.shift();
+            } catch (e) { gvRefus = "injection a levé : " + (e as Error).message; }
+        },
+    });
+    return { ok: true, arme: true,
+             note: "injection armée sur IdunMainView$$ShowBattle -- n'agit que sur une "
+                 + "SandboxGameModeSource dont `_gameViews` est encore nul" };
+}
+
 export function register(ctx: Ctx): void {
+
+    /** Arme/lit l'injection de `_gameViews` (cf. le bloc ci-dessus). Le journal dit ce qui a
+     *  ETE ECRIT : une injection « armee » qui n'a jamais tire se voit, au lieu de passer pour
+     *  appliquee. */
+    ctx.rpc.sandboxModeGameViews = (body?: { armer?: boolean }): unknown => {
+        if (body == null || body.armer === undefined) {
+            return { ok: true, arme: gvListener !== null, journal: gvJournal.slice(-6),
+                     refus: gvRefus,
+                     note: "lecture seule -- passer `armer: true` pour armer" };
+        }
+        if (body.armer === false) {
+            if (gvListener) { try { gvListener.detach(); } catch { /* best effort */ } }
+            gvListener = null;
+            return { ok: true, arme: false, journal: gvJournal.slice(-6) };
+        }
+        return armerInjectionGameViews();
+    };
+
+    /** Imposer le seed de la PROCHAINE bataille, pour la rendre REJOUABLE.
+     *
+     *  body: { seed: <Int32> | null, unCoup?: boolean }
+     *    - `seed: null`   -> desarme
+     *    - `unCoup: true` (defaut) -> n'agit que sur la bataille suivante, puis se desarme
+     *
+     *  Le retour porte le JOURNAL : ce qui a ete remplace, et par quoi. Un seed « impose »
+     *  qui n'a jamais tire se verrait donc, au lieu de passer pour applique. */
+    ctx.rpc.sandboxModeSeed = (body?: { seed?: number | null; unCoup?: boolean }): unknown => {
+        // ⚠ `body == null` et NON `=== undefined` : un RPC appelé sans argument arrive à
+        // `null`, pas à `undefined`, et le test strict laissait passer jusqu'au déréférencement
+        // (« cannot read property 'seed' of null »). Mesuré à la première lecture.
+        if (body == null || body.seed === undefined) {
+            return { ok: true, arme: seedListener !== null, seedCourant: seedImpose,
+                     unCoup: seedUnCoup, journal: seedJournal.slice(-8),
+                     note: "lecture seule -- passer `seed` pour armer, `seed: null` pour desarmer" };
+        }
+        return armerSeed(body.seed === null ? null : (body.seed | 0), body.unCoup !== false);
+    };
 
     /** OBSERVATION PURE — ne construit rien, n'invoque rien qui écrive. */
     ctx.rpc.sandboxModeProbe = (body?: { mode?: string; classe?: string }): Promise<unknown> =>
@@ -498,6 +723,11 @@ export function register(ctx: Ctx): void {
                 serialiseurPret: isSerializerReady(),
                 deserialiseurPret: isDeserializerReady(),
                 chargementEnCours: chargementEnCours(),
+                // le seed : arme ou non, et ce qu'il a REELLEMENT remplace
+                seedResolu: !estRefus(methodeInitializeSeed()),
+                seedArme: seedListener !== null,
+                seedCourant: seedImpose,
+                seedJournal: seedJournal.slice(-8),
             };
         });
 
@@ -561,7 +791,7 @@ export function register(ctx: Ctx): void {
      *  chargement de scène. Ce n'est pas un lecteur. */
     ctx.rpc.sandboxModeStart = (body?: {
         mode?: string; classe?: string; args?: Arg[];
-        confirmer?: boolean; checkIfAlreadyRunning?: boolean;
+        confirmer?: boolean; checkIfAlreadyRunning?: boolean; injecterGameViews?: boolean;
     }): Promise<unknown> | unknown => {
         if (!Array.isArray(body?.args)) return refus("`args` manquant");
         if (body?.confirmer !== true) {

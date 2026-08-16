@@ -352,6 +352,15 @@ def cmd_bc(jeu, args, monter):
     a = batir_args(args)
     if a is None:
         return 2
+    if monter and args.seed is not None:
+        # Le seed ne se pose PAS dans la BC : `IdunMainView$$ShowBattle` le tire de
+        # `gameModeSource.CustomSeed` (nul hors PvP synchrone) sinon de `DateTime.Now.Ticks`.
+        # On l'impose donc a `IdunRunner$$Initialize`, une fois, pour la bataille suivante.
+        d = jeu.rpc("sandboxModeSeed", [{"seed": args.seed, "unCoup": True}])
+        if not (isinstance(d, dict) and d.get("ok")):
+            print("REFUS : seed NON ARME -- %s" % json.dumps(d, ensure_ascii=False)[:300])
+            return 2
+        print("seed arme : %s (un coup) sur %s" % (args.seed, d.get("methode")))
     if monter:
         d = jeu.rpc("sandboxModeStart", [{"mode": args.mode, "args": a, "confirmer": True}],
                     timeout=120000)
@@ -416,6 +425,8 @@ def main(argv):
     ap.add_argument("--health", type=int, default=1000000)
     ap.add_argument("--remaining", type=int, default=-1, help="defaut = --health")
     ap.add_argument("--rounds", type=int, default=10)
+    ap.add_argument("--seed", type=int, default=None,
+                    help="impose le seed de la bataille montee (sinon : DateTime.Now.Ticks)")
     ap.add_argument("--confirmer", action="store_true")
     args = ap.parse_args(argv)
 
