@@ -19,7 +19,10 @@ import { resolveMt, snapshotMt } from "../il2cpp/mt.js";
 import {
     applyAiMsgMi, applyHumanAiMsgMi, dumpAiRngProbe,
 } from "./ai-control.js";
-import { pushApply, popApply, enterApply, leaveApply, StreamEvent } from "./apply-stack.js";
+import {
+    pushApply, popApply, enterApply, leaveApply, StreamEvent,
+    humanAiHookWanted, registerHumanAiListener,
+} from "./apply-stack.js";
 import {
     getReplayMi, replayOff, runnerApplyMi, runnerOff,
 } from "./runner.js";
@@ -306,9 +309,11 @@ export function install(): boolean {
         },
     }));
 
-    function attachAi(mi: { ptr: NativePointer } | null, tag: "ai" | "humanAi"): void {
-        if (!mi || mi.ptr.isNull()) return;
-        state.installedListeners.push(Interceptor.attach(mi.ptr, {
+    function attachAi(
+        mi: { ptr: NativePointer } | null, tag: "ai" | "humanAi",
+    ): InvocationListener | null {
+        if (!mi || mi.ptr.isNull()) return null;
+        const listener = Interceptor.attach(mi.ptr, {
             onEnter(this: MarkerThis, args) {
                 // Phase 1 of simRunAiTurn: AI sub-messages dispatched on
                 // the mirror's aiControl get captured into mirrorTurnQueue.
@@ -419,10 +424,16 @@ export function install(): boolean {
                 }
                 try { applyToMirror(); } catch { /* best effort */ }
             },
-        }));
+        });
+        state.installedListeners.push(listener);
+        return listener;
     }
     attachAi(applyAiMsgMi, "ai");
-    attachAi(applyHumanAiMsgMi, "humanAi");
+    // `humanAi` est DÉBRANCHABLE — contre-épreuve #596-r1, cf. l'en-tête de `apply-stack.ts`.
+    // Le choix survit à un `install()` : sans ça, un changement de runner rearmerait la sonde
+    // au milieu de la mesure, et on lirait le résultat de l'autre régime.
+    registerHumanAiListener(
+        humanAiHookWanted() ? attachAi(applyHumanAiMsgMi, "humanAi") : null);
     Interceptor.flush();
 
     // Bootstrap preamble from native ReplayRecorder._replay.Messages

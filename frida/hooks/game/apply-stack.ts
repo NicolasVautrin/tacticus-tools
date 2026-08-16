@@ -64,6 +64,62 @@ export function enterApply(): void { _applyDepth++; }
 export function leaveApply(): void { if (_applyDepth > 0) _applyDepth--; }
 export function insideApply(): number { return _applyDepth; }
 
+// --- l'ancrage `AiControl$$ApplyHumanAiMessage`, DEBRANCHABLE (#596-r1) -----------------
+//
+// POURQUOI CE SEUL ANCRAGE A SON INTERRUPTEUR. Sous IL2CPP/Windows une exception managée EST
+// une exception SEH ; le jeu en lève et en rattrape en permanence (398 relevées en une
+// session). Un `Interceptor.attach` pose un trampoline SANS information de déroulement
+// enregistrée, donc un unwind qui le traverse peut ne pas retrouver son `catch` natif : la
+// sonde transformerait une exception RATTRAPABLE en rupture. C'est une hypothèse, et elle
+// n'est testable que par une CONTRE-ÉPREUVE — d'où l'interrupteur.
+//
+// Et c'est CET ancrage-là parce qu'il est le seul que le régime « l'IA joue le joueur »
+// traverse et qu'une partie humaine ne traverse pas : partie à la main = pas de blocage,
+// partie en `--player-type 1` = blocage. C'est le seul différentiel structurel connu.
+//
+// Le handle vit ICI, dans un module FEUILLE, et pas dans `recorder.ts` : le RPC qui le
+// bascule est côté `features/`, et le faire dépendre du recorder (qui importe `sim-engine`)
+// fabriquerait un cycle. `apply-stack` n'importe que des helpers IL2CPP.
+let humanAiListener: InvocationListener | null = null;
+let humanAiWanted = true;   // défaut = comportement historique, on ne change rien sans le dire
+
+export function humanAiHookWanted(): boolean { return humanAiWanted; }
+
+/** Appelé par `recorder.install()` : mémorise le handle pour pouvoir le détacher à chaud. */
+export function registerHumanAiListener(l: InvocationListener | null): void {
+    humanAiListener = l;
+}
+
+/** Branche/débranche l'ancrage SANS reinject. Le `wanted` survit à un `install()` ultérieur,
+ *  sinon un simple changement de runner rearmerait la sonde au milieu de la contre-épreuve.
+ *
+ *  (!) À jouer HORS bataille : détacher pendant un `Apply` en vol laisserait la frame que
+ *  son `onEnter` a poussée sans le `onLeave` qui la dépile — on fabriquerait exactement la
+ *  fuite qu'on cherche à mesurer. On rend donc la hauteur de pile, à l'appelant de vérifier. */
+export function setHumanAiHook(enabled: boolean): Record<string, unknown> {
+    const avant = humanAiWanted;
+    humanAiWanted = enabled;
+    let action = "inchange";
+    if (!enabled && humanAiListener) {
+        try { humanAiListener.detach(); action = "detache"; }
+        catch { action = "detache-echec"; }
+        humanAiListener = null;
+        Interceptor.flush();
+    } else if (enabled && !humanAiListener) {
+        // Le rattachement passe par `recorder.install()` (c'est lui qui tient les filtres
+        // d'identité) — on ne le refait pas ici, on dit juste que c'est REDEMANDE.
+        action = "redemande-au-prochain-install";
+    }
+    return {
+        ok: true, avant, apres: humanAiWanted, action,
+        ancrageEnPlace: humanAiListener !== null,
+        pileApply: applyStack.length,
+        avertissement: applyStack.length > 0
+            ? "pile NON VIDE : une frame est en vol ou orpheline — lire `pile` de battleEvents"
+            : null,
+    };
+}
+
 let streamHooksInstalled = false;
 let _actionFiresTotal = 0;
 let _actionFiresStackEmpty = 0;

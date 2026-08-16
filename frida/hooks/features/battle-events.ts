@@ -26,7 +26,7 @@
 // sommet le temps de son appel. Les deux canaux coexistent, aucun ne masque l'autre.
 
 import { applyStack, applyStackRoles, ensureStreamHooks, popApply, pushApply,
-    streamHookStats } from "../game/apply-stack.js";
+    setHumanAiHook, humanAiHookWanted, streamHookStats } from "../game/apply-stack.js";
 import type { StreamEvent } from "../game/apply-stack.js";
 import { Ctx } from "../controller.js";
 
@@ -57,6 +57,31 @@ function frameEnPlace(): boolean {
 }
 
 export function register(ctx: Ctx): void {
+    /** CONTRE-EPREUVE #596-r1 : brancher/debrancher `AiControl$$ApplyHumanAiMessage`.
+     *
+     *  body: { actif: boolean }  — sans body, se contente de RENDRE l'etat.
+     *
+     *  Ce que ca teste : un `Interceptor.attach` pose un trampoline sans information de
+     *  deroulement, donc un unwind SEH qui le traverse peut manquer son `catch` natif. Si la
+     *  bataille jouee par l'IA VA AU BOUT une fois l'ancrage retire, la sonde est la cause ;
+     *  si elle se fige pareil, elle ne l'est pas. Les deux reponses valent, et c'est le seul
+     *  ancrage que ce regime traverse en propre.
+     *
+     *  (!) A JOUER HORS BATAILLE. Detacher pendant un `Apply` en vol laisse la frame poussee
+     *  par son `onEnter` sans le `onLeave` qui la depile -- on fabriquerait la fuite meme
+     *  qu'on mesure. On rend donc `pileApply` et un avertissement quand elle n'est pas vide. */
+    ctx.rpc.humanAiHook = (body?: { actif?: boolean }): unknown => {
+        if (!body || typeof body.actif !== "boolean") {
+            return {
+                ok: true, lecture: true, voulu: humanAiHookWanted(),
+                pileApply: applyStack.length, pile: applyStackRoles(),
+                note: "passer { actif: true|false } pour basculer ; "
+                    + "un rebranchement ne prend qu'au prochain `install()` du recorder",
+            };
+        }
+        return setHumanAiHook(body.actif);
+    };
+
     /** Le journal des events de la bataille vivante.
      *
      *  body: { start?, stop?, clear?, depuis?: number, max?: number }
