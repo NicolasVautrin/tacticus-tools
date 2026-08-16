@@ -3,19 +3,34 @@
     python scripts/python/promo_run.py --lister        # lecture seule, RIEN n'est joue
     python scripts/python/promo_run.py --jouer         # joue les codes encore non tentes
 
-CE QUE COMPTE `MaxFailsReached` : LES ECHECS SUR UN MEME CODE, PAS UN CUMUL GLOBAL.
+CE QUE COMPTE `MaxFailsReached` : UN CUMUL D'ECHECS SUR LE COMPTE. MESURE, PAS SUPPOSE.
 
 `thor.UserProgress.RedeemPromoCodeResult` porte `MaxFailsReached = 5`. Le compteur vit cote
-SERVEUR -- aucun decompile ne dit ce qu'il agrege, le client ne recoit que le verdict. La
-premiere version de cet outil a suppose un cumul GLOBAL et s'est arretee au bout de 4 echecs
-d'affilee : elle a renonce a 90 codes pour proteger un compteur qui, par code, ne bougeait pas.
-On suit donc la lecture PAR CODE (utilisateur du jeu, 2026-08-16), et le garde qui compte
-devient :
+SERVEUR -- aucun decompile ne dit ce qu'il agrege, le client ne recoit que le verdict. Il a
+donc fallu le MESURER, et les deux hypotheses successives etaient fausses :
+
+  * << cumul global, arret a 4 ECHECS CONSECUTIFS >> : protecteur par accident, mais sur la
+    MAUVAISE GRANDEUR -- et il a fait renoncer a 90 codes des sa premiere sortie ;
+  * << compteur PAR CODE, donc enchainer des codes distincts ne risque rien >> : REFUTE le
+    2026-08-16 -- `MaxFailsReached` est tombe sur `SETZSOLOVESCAFFY`, un code JAMAIS tente.
+
+LA MESURE (registre du 2026-08-16, 39 tentatives) : au declenchement, les echecs CONSECUTIFS
+valaient 3 et les echecs CUMULES 21. Un SUCCES remet le consecutif a zero mais PAS le cumul --
+`FOURFOR40` reussit a 18 cumules, et trois echecs plus tard le serveur bloque. Le seuil est
+donc CUMULATIF, autour de 20.
+
+D'ou le garde actuel, `--budget-echecs` (defaut 12) : on compte les echecs DEJA INSCRITS AU
+REGISTRE dans les dernieres 24 h et on s'arrete avant le seuil mesure. La fenetre de remise a
+zero du serveur n'est PAS connue -- 24 h glissantes est une approximation prudente, pas une
+mesure ; si elle etait quotidienne (minuit UTC, comme le rafraichissement d'Operations), ce
+garde serait simplement un peu plus strict que necessaire.
+
+Reste vrai, et c'etait deja la :
 
   * le REGISTRE local (`logs/promo-codes-tentes.json`) -- un code tente n'est JAMAIS rejoue.
-    C'est LUI la protection sous la lecture par code, et il etait deja la.
+    Il ne protege pas du cumul, mais il evite de rebruler les memes echecs a chaque passage.
 
-Le reste n'est plus de la protection mais de l'EFFICACITE, et se regle :
+Le reste releve de l'EFFICACITE, et se regle :
 
   * l'ORDRE DE JEU : du plus RECENT au plus ANCIEN. Les codes recents sont les seuls a avoir
     une vraie chance -- mesure : les 15 succes du 2026-08-16 vont du 10 au 15 aout, rien
@@ -175,7 +190,9 @@ def main():
     ap.add_argument("--lister", action="store_true")
     ap.add_argument("--max", type=int, default=40, help="plafond de codes joues par execution")
     ap.add_argument("--echecs-max", type=int, default=0,
-                    help="arret apres N echecs consecutifs ; 0 = desactive (defaut)")
+                    help="arret apres N echecs CONSECUTIFS ; 0 = desactive (defaut)")
+    ap.add_argument("--budget-echecs", type=int, default=12,
+                    help="plafond d'echecs CUMULES sur 24 h (seuil serveur mesure : 20)")
     ap.add_argument("--pause", type=float, default=3.0, help="secondes entre deux codes")
     ap.add_argument("--attente", type=float, default=12.0, help="secondes d'attente d'une reponse")
     a = ap.parse_args()
@@ -221,9 +238,28 @@ def main():
         print("prochain passage (le registre ne retient que ce qui a ete REELLEMENT tente).")
         print()
 
+    # LE BUDGET D'ECHECS CUMULES. Le compteur du serveur est CUMULATIF (mesure : 21 echecs au
+    # declenchement, dont seulement 3 consecutifs), et il survit a nos executions -- donc on le
+    # reconstitue depuis le REGISTRE, pas depuis cette boucle.
+    # ⚠ La fenetre de remise a zero du serveur est INCONNUE : 24 h glissantes est une
+    #   approximation PRUDENTE, pas une mesure.
+    recent = time.time() - 24 * 3600
+    cumul = sum(1 for v in reg.values()
+                if v.get("resultat") not in (0, None) and (v.get("ts") or 0) >= recent)
+    print("echecs cumules sur 24 h (registre) : %d / budget %d  [seuil serveur mesure : 20]"
+          % (cumul, a.budget_echecs))
+    if cumul >= a.budget_echecs:
+        print("BUDGET ATTEINT -- on ne joue rien. Attendre la remise a zero du serveur, ou")
+        print("relever --budget-echecs en sachant que le blocage tombe vers 20.")
+        return 0
+    print()
+
     echecs = 0
     for i, c in enumerate(lot):
         code = c["code"]
+        if cumul >= a.budget_echecs:
+            print("--- BUDGET d'echecs cumules atteint (%d) -- arret." % cumul)
+            break
         print("--- [%d/%d] %s" % (i + 1, len(lot), code))
         r = jeu.rpc("promoRedeem", [{"code": code, "confirmer": True}], timeout=60000)
         if not isinstance(r, dict) or r.get("ok") is not True:
@@ -278,6 +314,8 @@ def main():
         # La POLITIQUE d'echecs consecutifs vit ici, pas dans le hook -- et elle est desactivee
         # par defaut. Sous la lecture << compteur par code >>, enchainer des codes DISTINCTS ne
         # coute rien ; sous la lecture globale, `--echecs-max 4` restitue l'ancien regime.
+        if ordinal != 0:
+            cumul += 1
         echecs = 0 if ordinal == 0 else echecs + 1
         if a.echecs_max and echecs >= a.echecs_max:
             print("    %d echecs consecutifs (seuil --echecs-max=%d) -- on s'arrete."
