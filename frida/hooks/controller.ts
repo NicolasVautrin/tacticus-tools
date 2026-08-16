@@ -44,6 +44,7 @@ import * as wsCapture from "./features/ws-capture.js";
 import * as expeditionBoard from "./features/expedition-board.js";
 import * as rosterOwned from "./features/roster-owned.js";
 import * as expeditionDispatch from "./features/expedition-dispatch.js";
+import * as promoCode from "./features/promo-code.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -444,7 +445,11 @@ export function wireRpc(ctx: Ctx): void {
      // sans `confirmer: true`, et l'armement n'installe que de l'OBSERVATION.
      // `gc-rendezvous` n'INSTALLE RIEN : il expose un RPC qui force une collecte, et qui
      // PEUT geler le jeu -- c'est ce qu'il mesure (#600). Il ne touche pas au compte.
-     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch,
+     // `promo-code` n'INSTALLE RIEN au register : aucun `Interceptor`, meme arme. Il ECRIT
+     // (`promoRedeem`, sous `confirmer: true`), et son capteur est l'ARDOISE du delegue qu'il
+     // passe au natif -- pas un ancrage. Verrou interne sur `MaxFailsReached` : le serveur
+     // compte les echecs et bloque la fonction, donc une boucle de codes doit s'arreter SEULE.
+     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, promoCode,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
