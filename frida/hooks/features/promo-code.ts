@@ -47,13 +47,26 @@
 //     +0x10  result      thor.UserProgress.RedeemPromoCodeResult
 //     +0x18  inboxItem   PromoCodeUserInboxItem      (non nul = des recompenses sont arrivees)
 //
-// ⚠⚠ `RedeemPromoCodeResult` CONTIENT `MaxFailsReached = 5`, ET C'EST LE FAIT QUI COMMANDE
-// TOUT L'USAGE. Le serveur COMPTE les echecs et finit par VERROUILLER. Enfiler une liste de
-// codes ramassee sur Discord -- dont la plupart sont perimes (`OutOfTimeFrame`) ou deja
-// consommes (`AlreadyUsed`) -- grille ce compteur pour les codes VALABLES qui suivraient.
-// D'ou le VERROU de ce module : des qu'un `MaxFailsReached` est observe, `promoRedeem` REFUSE
-// tout envoi ulterieur jusqu'a `promoReset` explicite. Une consigne en prose n'arrete pas une
-// boucle ; un refus, si.
+// ⚠⚠ `RedeemPromoCodeResult` CONTIENT `MaxFailsReached = 5` : le serveur COMPTE les echecs et
+// finit par VERROUILLER. Des qu'il est observe, `promoRedeem` REFUSE tout envoi ulterieur
+// jusqu'a `promoReset` explicite. Une consigne en prose n'arrete pas une boucle ; un refus, si.
+//
+// ⚠ CE QUE CE COMPTEUR COMPTE N'EST PAS ETABLISSABLE D'ICI, et la premiere version de ce
+// module s'est trompee de lecture. Il vit cote SERVEUR -- le client ne recoit que le verdict,
+// donc aucun decompile ne le dira. Deux lectures, aux consequences OPPOSEES :
+//   * GLOBALE (echecs cumules du compte, quel que soit le code) -> enfiler une liste ramassee
+//     sur Discord, majoritairement perimee, griderait le compteur pour les codes valables ;
+//   * PAR CODE (echecs sur CE code) -> enfiler des codes DISTINCTS ne risque rien, et la
+//     protection utile est de ne jamais REJOUER un code.
+// L'utilisateur du jeu tranche pour la seconde (2026-08-16). On la suit, et on en tire la
+// consequence : le garde n'est plus ici, il est dans le REGISTRE du pilote
+// (`scripts/python/promo_run.py`), qui n'a jamais rejoue un code tente.
+//
+// D'OU LE PARTAGE DES ROLES, qui est le bon independamment de la reponse : ce module ne
+// verrouille QUE sur un fait MESURE (`MaxFailsReached`, dit par le serveur). Le seuil d'echecs
+// consecutifs etait une POLITIQUE deguisee en garde -- il a coute 90 codes non tentes sur sa
+// premiere sortie. La politique appartient a l'appelant, qui la regle par `--echecs-max` ; le
+// compteur reste publie ici pour qu'il puisse la fonder.
 //
 // ⚠ Les recompenses n'atterrissent PAS dans l'inventaire : elles vont dans la BOITE DE
 // RECEPTION (`idun.ui.InboxScreen$$ShowPromoCodeRewards`, `IdunLocalization.PromoCode$$Inbox*`).
@@ -80,9 +93,7 @@ function estRefusVue(x: NativePointer | RefusVue): x is RefusVue {
 /** L'ordinal de `MaxFailsReached`. ⚠ C'est un MIROIR, mesure sur `t6dpr4k06g` par le RPC
  *  `dumpEnum` ET par le dump Il2CppDumper de mai (concordants). Il ne sert QU'AU VERROU :
  *  tout le reste de l'interpretation se fait cote appelant, qui redemande les noms au jeu
- *  (`dumpEnum thor.UserProgress RedeemPromoCodeResult`) plutot que de recopier une table.
- *  Si l'ordinal glissait, le verrou se relacherait -- d'ou le second filet, ci-dessous :
- *  tout resultat != `Success` compte aussi comme un echec pour le compteur local. */
+ *  (`dumpEnum thor.UserProgress RedeemPromoCodeResult`) plutot que de recopier une table. */
 const MAX_FAILS_REACHED = 5;
 const SUCCESS = 0;
 
@@ -101,13 +112,12 @@ interface Reclamation {
 }
 
 const journal: Reclamation[] = [];
-/** Le verrou. Arme des qu'un `MaxFailsReached` est observe -- ou que trop d'echecs se
- *  succedent. Se leve par `promoReset`, jamais tout seul. */
+/** Le verrou. Arme UNIQUEMENT sur `MaxFailsReached` -- un fait DIT PAR LE SERVEUR, pas une
+ *  extrapolation de notre part. Se leve par `promoReset`, jamais tout seul. */
 let verrou: string | null = null;
+/** Publie, jamais agi : c'est a l'appelant d'en faire une politique (`--echecs-max`). Un
+ *  seuil applique ici serait une politique deguisee en garde -- cf. l'en-tete. */
 let echecsConsecutifs = 0;
-/** Au-dela, on s'arrete meme sans `MaxFailsReached` : c'est le filet qui survit a un
- *  glissement d'ordinal, et il vaut mieux renoncer a 3 codes que verrouiller la fonction. */
-const ECHECS_MAX = 4;
 
 /** La `PromoCodeProgression` vivante, lue sur le `ViewCommandExecutor`.
  *
@@ -248,20 +258,12 @@ export function register(ctx: Ctx): void {
             derniere.resultat = resultat ?? undefined;
             derniere.rdxBrut = ar.rdx;
             derniere.inboxItem = ar.r8;
-            // LE VERROU, arme sur MESURE. Deux crans : l'ordinal connu, et le compteur
-            // d'echecs -- ce dernier survit a un glissement d'ordinal.
+            // LE VERROU, arme sur le SEUL fait mesure : le serveur dit `MaxFailsReached`.
+            // Le compteur d'echecs, lui, est tenu et PUBLIE -- jamais agi ici.
             if (resultat === MAX_FAILS_REACHED) {
                 verrou = "`MaxFailsReached` observe sur le code `" + derniere.code + "`";
-            } else if (resultat === SUCCESS) {
-                echecsConsecutifs = 0;
-            } else {
-                echecsConsecutifs += 1;
-                if (echecsConsecutifs >= ECHECS_MAX) {
-                    verrou = echecsConsecutifs + " echecs consecutifs (dernier code : `"
-                        + derniere.code + "`, resultat " + resultat + ") -- on s'arrete AVANT "
-                        + "que le serveur ne compte assez d'echecs pour bloquer la fonction";
-                }
             }
+            echecsConsecutifs = (resultat === SUCCESS) ? 0 : echecsConsecutifs + 1;
         }
         return {
             ok: true, repondu, appels: ar.appels,

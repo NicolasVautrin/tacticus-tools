@@ -3,24 +3,30 @@
     python scripts/python/promo_run.py --lister        # lecture seule, RIEN n'est joue
     python scripts/python/promo_run.py --jouer         # joue les codes encore non tentes
 
-CE QUI COMMANDE TOUT LE DESSIN : LE SERVEUR COMPTE LES ECHECS.
+CE QUE COMPTE `MaxFailsReached` : LES ECHECS SUR UN MEME CODE, PAS UN CUMUL GLOBAL.
 
-`thor.UserProgress.RedeemPromoCodeResult` porte `MaxFailsReached = 5`. Une liste ramassee sur
-Discord est majoritairement PERIMEE (`OutOfTimeFrame`) ou DEJA CONSOMMEE (`AlreadyUsed`) : la
-jouer en entier grille le compteur d'echecs, et ce sont les codes VALABLES suivants qui en
-paient le prix. D'ou, en couches :
+`thor.UserProgress.RedeemPromoCodeResult` porte `MaxFailsReached = 5`. Le compteur vit cote
+SERVEUR -- aucun decompile ne dit ce qu'il agrege, le client ne recoit que le verdict. La
+premiere version de cet outil a suppose un cumul GLOBAL et s'est arretee au bout de 4 echecs
+d'affilee : elle a renonce a 90 codes pour proteger un compteur qui, par code, ne bougeait pas.
+On suit donc la lecture PAR CODE (utilisateur du jeu, 2026-08-16), et le garde qui compte
+devient :
 
-  * l'ORDRE DE JEU : du plus RECENT au plus ANCIEN. Les codes du jour sont les seuls a avoir
-    une vraie chance ; l'ordre chronologique depenserait les tentatives sur les plus surement
-    perimes et le verrou tomberait avant de les atteindre ;
+  * le REGISTRE local (`logs/promo-codes-tentes.json`) -- un code tente n'est JAMAIS rejoue.
+    C'est LUI la protection sous la lecture par code, et il etait deja la.
+
+Le reste n'est plus de la protection mais de l'EFFICACITE, et se regle :
+
+  * l'ORDRE DE JEU : du plus RECENT au plus ANCIEN. Les codes recents sont les seuls a avoir
+    une vraie chance -- mesure : les 15 succes du 2026-08-16 vont du 10 au 15 aout, rien
+    au-dela ;
   * l'ARRET SUR `AlreadyUsed` : dans cet ordre, un code deja consomme prouve qu'on avait deja
-    reclame jusque-la, donc tout ce qui est plus ancien l'est aussi. On s'arrete au lieu de
-    depenser des tentatives sur des echecs certains ;
-  * le REGISTRE local (`logs/promo-codes-tentes.json`) -- un code deja tente n'est JAMAIS
-    rejoue, c'est ce qui evite de rebruler les memes echecs a chaque passage ;
-  * un PLAFOND par execution (`--max`, defaut 6) ;
-  * l'arret sur `verrou` cote hook, qui s'arme seul sur `MaxFailsReached` ou sur 4 echecs
-    consecutifs.
+    reclame jusque-la, donc tout ce qui est plus ancien l'est aussi -- on arrete par INUTILITE ;
+  * `--echecs-max` : arret apres N echecs consecutifs. DESACTIVE par defaut (0), puisque sous
+    la lecture par code il n'y a rien a economiser. Le mettre a 4 restitue l'ancien regime ;
+  * un PLAFOND par execution (`--max`), qui borne la duree, pas le risque ;
+  * l'arret sur `verrou` cote hook, qui ne s'arme plus que sur `MaxFailsReached` REELLEMENT
+    observe -- un fait dit par le serveur, pas une extrapolation.
 
 ⚠ LE VERDICT N'EST PAS DANS LE RETOUR DE L'APPEL. La reponse est un aller-retour serveur : on
 sonde `promoLire` jusqu'a ce que l'ardoise du delegue-capteur bouge. Un code dont la reponse
@@ -167,7 +173,9 @@ def main():
     ap.add_argument("--pause-discord", type=float, default=1.0)
     ap.add_argument("--jouer", action="store_true", help="sans ce drapeau : lecture seule")
     ap.add_argument("--lister", action="store_true")
-    ap.add_argument("--max", type=int, default=6, help="plafond de codes joues par execution")
+    ap.add_argument("--max", type=int, default=40, help="plafond de codes joues par execution")
+    ap.add_argument("--echecs-max", type=int, default=0,
+                    help="arret apres N echecs consecutifs ; 0 = desactive (defaut)")
     ap.add_argument("--pause", type=float, default=3.0, help="secondes entre deux codes")
     ap.add_argument("--attente", type=float, default=12.0, help="secondes d'attente d'une reponse")
     a = ap.parse_args()
@@ -213,6 +221,7 @@ def main():
         print("prochain passage (le registre ne retient que ce qui a ete REELLEMENT tente).")
         print()
 
+    echecs = 0
     for i, c in enumerate(lot):
         code = c["code"]
         print("--- [%d/%d] %s" % (i + 1, len(lot), code))
@@ -264,6 +273,15 @@ def main():
         # ⚠ Compare par le NOM resolu au jeu (`dumpEnum`), pas par l'ordinal 2 recopie ici.
         if nom == "AlreadyUsed":
             print("    DEJA RECLAME -- on s'arrete : les codes plus anciens le sont aussi.")
+            break
+
+        # La POLITIQUE d'echecs consecutifs vit ici, pas dans le hook -- et elle est desactivee
+        # par defaut. Sous la lecture << compteur par code >>, enchainer des codes DISTINCTS ne
+        # coute rien ; sous la lecture globale, `--echecs-max 4` restitue l'ancien regime.
+        echecs = 0 if ordinal == 0 else echecs + 1
+        if a.echecs_max and echecs >= a.echecs_max:
+            print("    %d echecs consecutifs (seuil --echecs-max=%d) -- on s'arrete."
+                  % (echecs, a.echecs_max))
             break
 
         if lu.get("verrou"):
