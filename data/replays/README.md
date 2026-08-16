@@ -105,12 +105,28 @@ n'ajoute qu'une chose à périmer.
 * `spawn` ← `BattleConfiguration.SpawnPointSetIndex`. **Colonne à part entière** : à carte
   égale, c'est parfois le seul écart entre deux rencontres.
 
-⚠ **`rank` n'est PAS dans le replay** — aucun champ `rank`/`tier` au niveau racine ni BC, et le
-`BossUnit` n'en porte pas. Le suffixe du nom de carte ne le donne pas non plus : les cartes
-connues sont `GB_Mortarion_05`, `GB_RogalDorn_02`, `GB_Lion_01`, `GB_Dakka_01`… — l'indice
-varie d'un boss à l'autre sans former de série, il désigne une VARIANTE, pas un rang. La
-colonne existe et se remplit **à la main**. La laisser vide est un résultat ; y mettre un
-chiffre dérivé du nom de carte serait faux.
+⚠ **`rank` (le tier de raid, ex. `mythic2`) n'est PAS dans le replay — colonne DÉCLARÉE, à
+remplir à la main.** Cherché mot à mot sur deux fichiers : `mythic` n'apparaît que dans une clé
+de poids IA (`MastersOfManoeuvre_AdjacentFriendlyMythicDA`), `legendary` que dans
+`LegendaryCommander`, `tier` que dans `UnitSpawningOverTime.Tiers` (vide), et `rank` **que sur
+les unités du JOUEUR** (`Rank: 16`, `Rank: 17` — le roster, pas le boss). Le tier est une
+notion META : la BC n'en porte que les EFFETS.
+
+⚠ **Deux fausses pistes, toutes deux réfutées — ne pas les rouvrir :**
+
+* **le `12` de `GuildBoss12Boss1DarkaLion` (et `BossUnit.Id = 12`) n'est PAS le rang, c'est
+  QUEL BOSS.** Mesuré sur les 13 identifiants du build : `GuildBoss5…Mortarion`,
+  `GuildBoss7…Rogaldorn`, `GuildBoss8…EldarAvatar`, `GuildBoss9…ThousMagnus` — donc 12 = Lion.
+  Et `Boss1/2/3` est la VARIANTE (`…Boss1TyranTervigonLeviathan` / `Boss2…Kronos` /
+  `Boss3…Gorgon`). Qu'un tier « mythic 2 » tombe aussi sur 12 par une arithmétique
+  6 raretés × 2 niveaux est une COÏNCIDENCE ;
+* **le suffixe du nom de carte non plus** : `GB_Mortarion_05`, `GB_RogalDorn_02`, `GB_Lion_01`,
+  `GB_Dakka_01` — l'indice varie d'un boss à l'autre sans former de série, il désigne une
+  variante de carte.
+
+**Le seul discriminant DÉRIVABLE du tier est `BossUnit.Health`** (37 500 000 pour Lion
+mythic2). Il ne le NOMME pas, mais il le sépare : à mesure qu'on collecte d'autres tiers, il
+permettra de contrôler un `rank` saisi à la main. Se re-dérive du fichier, donc pas de colonne.
 
 **DÉCLARÉES** (invérifiables depuis le fichier — elles viennent du chat ou de nous) :
 `source`, `role`.
