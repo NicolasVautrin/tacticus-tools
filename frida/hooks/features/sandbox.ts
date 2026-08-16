@@ -33,6 +33,24 @@
 // ⚠ ET IL NE DISPENSE PAS D'OBSERVER D'ABORD. `sandboxProbe` est là pour ça, et il ne mute
 // RIEN : le dépôt a déjà rendu `ok: true` puis trouvé le jeu MORT en invoquant un natif qui
 // écrit sans l'avoir observé.
+//
+// ⚠⚠ LA SORTIE DE BATAILLE FAIT CRASHER LE JEU — LE CYCLE DE VIE N'EST PAS BOUCLÉ
+// ------------------------------------------------------------------------------
+// Mesuré le 2026-08-16 : le MONTAGE marche (boss de guilde à 22 200 785 PV, ses adds, sans
+// campagne ni warmup), mais `IdunMainView$$EndBattleAndGoToMeta` sur une bataille montée
+// ainsi rend `IsBattleActive = false` PUIS `loader = 0` — les deux lectures RÉUSSISSENT —
+// et le process MEURT ensuite, pendant le chargement du meta (`Tacticus.exe.80832.dmp`,
+// 38 Mo). Les mesures d'après-coup étaient VERTES : le crash arrive après elles.
+//
+// Cause probable, à confirmer : `TestSceneBattleModeSource` ne porte NI `HandleFinishBattle`
+// NI `HandleBattleSurrender` — `SandboxGameModeSource`, si. Le retour au meta réclame
+// score / loot / métadonnées de replay à la source, qui ne les fournit pas. S'y ajoute que
+// son ctor déclare `TestUnitProgression` et qu'on lui passe le VRAI `IUnitProgression` :
+// `runtime_invoke` ne type-check pas, donc ça passe au montage sans rien garantir après.
+//
+// ⇒ Ne pas traiter ce montage comme acquis tant que la sortie n'est pas résolue. Pistes NON
+// essayées : construire un `SandboxGameModeSource` (il porte les deux `Handle*`) au lieu
+// d'un `TestSceneBattleModeSource` ; ou ne jamais sortir, et relancer par-dessus.
 
 import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, s,
