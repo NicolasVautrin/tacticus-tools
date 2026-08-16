@@ -30,6 +30,9 @@ import * as uiWindows from "./features/ui-windows.js";
 // #992 — la surface de commandes du jeu, requetable (`viewSurface`/`viewList`/`viewInvoke`),
 // et l'interception de la retraite (pile complete + instance capturee a l'ancrage).
 import * as viewCommand from "./features/view-command.js";
+// Jouer une `BattleConfiguration` ARBITRAIRE a l'ecran, via `IdunMainView$$StartBattle`.
+// N'installe AUCUN hook au register : deux RPC, dont un purement observateur.
+import * as sandbox from "./features/sandbox.js";
 import * as retreatCapture from "./features/retreat-capture.js";
 import * as fsmInput from "./features/fsm-input.js";
 import * as battleEvents from "./features/battle-events.js";
@@ -419,7 +422,7 @@ export function wireRpc(ctx: Ctx): void {
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
      overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
-     uiNav, uiScroll, uiWindows, viewCommand, retreatCapture,
+     uiNav, uiScroll, uiWindows, viewCommand, sandbox, retreatCapture,
      fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.

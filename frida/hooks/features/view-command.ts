@@ -95,7 +95,7 @@ function chaineHeritage(klass: NativePointer): string[] {
  *  ⚠ SURCHARGE A 3 ARGUMENTS (`FindObjectsInactive.Include = 1`). Celle a 2 arguments EXCLUT
  *  les inactifs -- mesure de `ui-windows.ts` : elle rendait **0 ecran** sur une classe qui
  *  resout parfaitement. Un objet desactive est exactement ce qu'on cherche ici. */
-function premiereInstance(klass: NativePointer): NativePointer | Refus {
+export function premiereInstance(klass: NativePointer): NativePointer | Refus {
     const kObj = findClassAnywhere("UnityEngine", "Object");
     if (!kObj) return { ok: false, error: "UnityEngine.Object introuvable" };
     const mi3 = findMethodByParamCount(kObj, "FindObjectsByType", 3);
