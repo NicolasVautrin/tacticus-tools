@@ -307,11 +307,23 @@ Outils de RE / observabilité — aucun hook live ne les APPELLE, mais leur code
     (`thor.Client.ResponseProcessing.GameStateSynchronizerLogic$$ApplyExpeditionProgress` et
     deux autres portes, `via` publié). L'UI est virtualisée (4 lignes visibles sur 7) et
     `net-capture` ne voit que le sortant : les deux voies naïves mentent.
-  - **`features/expedition-dispatch.ts`** (5) : `expeditionCallbackForge`, `expeditionDispatch`,
-    `expeditionDispatchArm`, `expeditionDispatchDisarm`, `expeditionDispatchJournal` —
-    ⚠ **seul module de la famille qui ÉCRIT** : `expeditionDispatch` engage le compte (unités
-    immobilisées pour la durée de l'opération). Les `*Arm`/`*Journal` observent la chaîne réelle
-    (`ExpeditionGameEvents$$DispatchExpedition`) sans rien envoyer.
+  - **`features/expedition-dispatch.ts`** (7) : `expeditionCallbackForge`, `expeditionClaim`,
+    `expeditionDispatch`, `expeditionDispatchArm`, `expeditionDispatchDisarm`,
+    `expeditionDispatchJournal`, `expeditionRefresh` —
+    ⚠ **seul module de la famille qui ÉCRIT**, par TROIS portes, toutes sur
+    `ExpeditionGameEvents` (dont les quatre champs sont des commandes — l'UI est au-dessus,
+    et c'est elle qu'on contourne) : `expeditionDispatch` engage le compte (unités
+    immobilisées pour la durée), `expeditionClaim` encaisse, `expeditionRefresh` repeuple le
+    plateau. Les `*Arm`/`*Journal` observent la chaîne réelle sans rien envoyer.
+    ⚠ **`expeditionRefresh` est le SEUL RPC du dépôt qui puisse coûter des GEMMES** : son
+    paramètre `index` est le palier facturé, fourni par l'appelant, et la table
+    `clientGameConfig.expeditions.refresh` va de 0 (1er du jour) à 1000 gemmes (21ᵉ). Le
+    contournement de l'UI supprime la popup qui annonce le prix, d'où un **refus exécutable** :
+    le palier est lu au natif (`ExpeditionRefreshProgression$$GetCurrentTierIndex`) et tout
+    palier ≠ 0 est REFUSÉ sauf `autoriserPalier` explicitement égal. Un palier NON MESURÉ fait
+    refuser, jamais supposer le gratuit.
+    ⚠ Les trois portes **partent même si le jeu gèle ensuite** (#600) : ne jamais rejouer à
+    l'aveugle, relire le plateau et n'inclure que ce qui reste à faire.
   - **`probes/gc-rendezvous.ts`** : `gcRendezvous` — sonde de MESURE, pas d'outil : elle
     établit qu'un GC forcé sous Frida FIGE le jeu (145 threads dans `ntdll`, `.Responding` à
     `False`). C'est pourquoi `gcRoot.collect()` refuse par défaut. **Ne la lancer que pour
