@@ -910,6 +910,131 @@ export function register(ctx: Ctx): void {
         };
     });
 
+    /** RÉCLAMER les récompenses d'Operations terminées, sans aucun écran.
+     *
+     *  LA PORTE :
+     *      ExpeditionGameEvents$$ClaimReward(expeditionId:System.String)
+     *      ExpeditionGameEvents$$ClaimAllRewards(expeditionIds:List<System.String>)
+     *
+     *  ⚠ CE RPC ÉCRIT. Même famille que `expeditionDispatch`, même garde `confirmer: true`.
+     *
+     *  POURQUOI C'EST MOINS RISQUÉ QUE L'ENVOI, et ce n'est pas une impression :
+     *  `ClaimReward` ne déclare AUCUN callback. Toute la pièce fragile de l'envoi — le
+     *  delegate fabriqué, ses trois champs, la convention de passage du `bool` — n'existe
+     *  pas ici. Notre part d'allocation se réduit à UNE chaîne managée (ou une `List` pour
+     *  la forme groupée), donc la fenêtre où une collecte peut tomber est plus étroite.
+     *
+     *  ⚠ MAIS LE RISQUE RÉSIDUEL EST LE MÊME, ET IL N'EST PAS SUPPRIMABLE : un
+     *  stop-the-world du GC sous instrumentation Frida peut figer n'importe quel appel
+     *  natif qui alloue (mesuré, `probes/gc-rendezvous.ts` gèle SANS aucun envoi —
+     *  `docs/rl/case-600-gel-du-dispatch-natif.md`). Si ça gèle : ce n'est pas une énigme,
+     *  c'est un tirage de plus sur le même dé.
+     *
+     *  ⚠ ET UNE RÉCLAMATION PART MÊME SI LE JEU MEURT. Ne jamais retenter à l'aveugle :
+     *  relire le plateau (`expeditionBoardRead`) et n'inclure QUE ce qui est encore
+     *  réclamable. C'est la règle qui vaut déjà pour l'envoi (#600).
+     *
+     *  UN SEUL id -> `ClaimReward`. PLUSIEURS -> `ClaimAllRewards`. On ne boucle PAS sur la
+     *  forme unitaire pour un lot : le jeu offre la forme groupée, et N appels natifs, c'est
+     *  N fenêtres de collecte au lieu d'une. */
+    ctx.rpc.expeditionClaim = (body?: {
+        ids?: string[]; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const ids = Array.isArray(body?.ids) ? (body as { ids: string[] }).ids : [];
+        if (ids.length === 0) {
+            return { ok: false, error: "`ids` manquant ou vide -- ce RPC n'ÉNUMÈRE PAS. "
+                + "Lire le plateau (`expeditionBoardRead`) et lui passer les identifiants "
+                + "des Operations RÉELLEMENT terminées." };
+        }
+        if (ids.some((x) => typeof x !== "string" || !x)) {
+            return { ok: false, error: "`ids` doit être une liste de chaînes non vides" };
+        }
+        if (ids.length > MAX_UNITES) {
+            return { ok: false, error: `réclamation de ${ids.length} > ${MAX_UNITES} -- borne `
+                + "de sécurité, comme pour l'envoi" };
+        }
+        if (body?.confirmer !== true) {
+            return { ok: false, error: "REFUS : `confirmer: true` exigé. Ce RPC ÉCRIT sur le "
+                + "compte -- il est à un caractère de `expeditionBoardRead`, qui ne fait que lire." };
+        }
+        return queueOnMainThread(() => {
+            const ev = evenements();
+            if (ev === null) {
+                return { ok: false, error: "`ExpeditionGameEvents` introuvable : ni capté à "
+                    + "l'écran, ni lisible sur `ViewCommandExecutor._expeditionProgression`. "
+                    + "Jouer `expeditionDispatchArm` d'abord (il résout l'offset par NOM)." };
+            }
+            const kEvents = findClassAnywhere(
+                "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression",
+                "ExpeditionGameEvents");
+            if (!kEvents) {
+                return { ok: false, error: "classe `ExpeditionGameEvents` absente de ce build" };
+            }
+            const unitaire = ids.length === 1;
+            const mi = unitaire
+                ? findMethodByParamCount(kEvents, "ClaimReward", 1)
+                : findMethodByParamCount(kEvents, "ClaimAllRewards", 1);
+            if (!mi) {
+                return { ok: false, error: (unitaire ? "ClaimReward" : "ClaimAllRewards")
+                    + " à 1 paramètre INTROUVABLE -- chemin PÉRIMÉ sur ce build, "
+                    + "ne pas replier sur l'autre forme" };
+            }
+
+            // L'argument. Forme unitaire : une chaîne. Forme groupée : la `List<String>`
+            // mesurée par `mesurerListe`, exactement comme l'envoi -- on ne refabrique pas
+            // une disposition, on réutilise celle qui a déjà servi.
+            let arg: NativePointer;
+            if (unitaire) {
+                arg = createManagedString(ids[0] as string);
+            } else {
+                const kListe = methodParamClass(mi.info, 0);
+                const dispo = kListe ? mesurerListe(kListe) : null;
+                // ⚠ `mesurerListe` rend `ctor`/`add` à `null` quand la méthode manque : on les
+                // exige EXPLICITEMENT. Les supposer présents fabriquerait une liste vide qui
+                // partirait quand même -- une réclamation de RIEN, avec un `ok: true`.
+                if (!dispo || !dispo.ctor || !dispo.add) {
+                    return { ok: false, error: "`List<String>` de `ClaimAllRewards` non "
+                        + `mesurable (dispo=${dispo !== null} ctor=${!!dispo?.ctor} `
+                        + `add=${!!dispo?.add}) -- réclamer un par un plutôt que de `
+                        + "fabriquer une liste au jugé" };
+                }
+                arg = createObject(dispo.klass);
+                invokeMethod(dispo.ctor.info, arg, null);
+                for (const x of ids) invokeMethod(dispo.add.info, arg, [createManagedString(x)]);
+            }
+            gcRoot.add(arg);
+
+            const tasAvant = gcRoot.heapSize();
+            const utiliseAvant = gcRoot.usedSize();
+            log("[expedition-dispatch] réclamation " + ids.join(",") + " via "
+                + (unitaire ? "ClaimReward" : "ClaimAllRewards") + ", tas=" + utiliseAvant
+                + "/" + tasAvant + " -- si le jeu gèle, cette ligne est la dernière sortie");
+            const e: Envoi = {
+                n: journal.length + 1, ts: Date.now(), origine: "emis",
+                via: unitaire ? "ClaimReward" : "ClaimAllRewards",
+                expeditionId: unitaire ? (ids[0] as string) : null,
+                unitIds: unitaire ? null : ids.slice(),
+                bonusFulfilled: null,
+            };
+            try {
+                invokeMethod(mi.info, ev, [arg]);
+            } catch (ex) {
+                e.err = String((ex as Error).message || ex).slice(0, 200);
+            }
+            try { gcRoot.remove(arg); } catch { /* best effort */ }
+            if (journal.length >= 64) journal.shift();
+            journal.push(e);
+            return {
+                ok: !e.err, reclamation: e,
+                tas: { utiliseAvant, tasAvant,
+                       utiliseApres: gcRoot.usedSize(), tasApres: gcRoot.heapSize() },
+                note: "L'appel est passé -- ça ne prouve PAS que la récompense est créditée. "
+                    + "Confronter au plateau (`expeditionBoardRead`) : c'est lui qui atteste, "
+                    + "pas ce retour. Et une réclamation part même si le jeu gèle ensuite.",
+            };
+        });
+    };
+
     ctx.rpc.expeditionDispatchDisarm = (): Promise<unknown> => queueOnMainThread(() => {
         for (const l of listeners) { try { l.detach(); } catch { /* deja parti */ } }
         listeners.length = 0;
