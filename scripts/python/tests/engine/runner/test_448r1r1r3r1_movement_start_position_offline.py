@@ -382,5 +382,101 @@ def test_6c_appele_SANS_path_la_fonction_garde_son_contrat(board):
     assert _movement_steps(st, 1, None, b) == 0
 
 
+# ------------------------------------------------------ 7. GENERALISATION (anti sur-ajustement)
+def test_7_la_CHAINE_COMPLETE_bouger_puis_QUITTER_puis_revenir(board):
+    """LE SCENARIO QUE PERSONNE N'AVAIT MONTE, et il enchaine les trois etages a la suite --
+    c'est le regime que produisent `GhostRevive`, `EchoesFromTheWarp` et `StormboyzStrike_Fallback`
+    en bataille reelle, pas un montage synthetique :
+
+        1. l'unite bouge NORMALEMENT       -> `save_previous_position` ecrit `@+0x98`
+        2. elle est RETIREE du plateau     -> l'etape 6 REECRIT `@+0x98` avec la tuile QUITTEE
+        3. elle bouge de nouveau           -> le SECOND BRAS part de cette tuile-la
+
+    Le cran qui compte est l'etape 2 : sans elle, l'etape 3 repartirait de la position d'AVANT le
+    mouvement de l'etape 1, c'est-a-dire d'une tuile que l'unite a quittee DEUX fois."""
+    neigh, walk, _ = board.walk_maps_by_pos()
+    a = next(p for p, w in sorted(walk.items()) if w and len(neigh.get(p) or ()) >= 2)
+    voisins = [q for q in neigh[a] if walk.get(q)]
+    b, c = voisins[0], voisins[1]
+    st = P._state(board, [(1, a, 1, [])])
+    uc = st.get_entity(1).get_component(UnitComponent)
+
+    MoveUnitOperation(1, b).execute(st, EventBus())                  # 1
+    assert P._pos(st, 1) == b
+    assert uc.previous_position_this_turn == [a], uc.previous_position_this_turn
+
+    RemoveUnitFromTilesOperation.execute(st, 1)                      # 2
+    assert uc.previous_position_this_turn == [b], (
+        "apres le retrait, `@+0x98` vaut %r au lieu de la tuile QUITTEE %r -- l'etape 6 n'a pas "
+        "reecrit, et le pas suivant repartirait de la position d'AVANT le 1er mouvement."
+        % (uc.previous_position_this_turn, b))
+
+    op = MoveUnitOperation(1, c)                                     # 3
+    op.execute(st, EventBus())
+    assert op.last_path and op.last_path[0] == b, (
+        "le second bras part de %r au lieu de la tuile quittee %r" % (op.last_path, b))
+    assert P._pos(st, 1) == c
+
+
+def test_7b_une_unite_MULTI_HEX_reste_value_preservante(board):
+    """`_movement_start_position` rend l'EMPREINTE ENTIERE (`GetUnitFeet`), et `startTile` en prend
+    le PREMIER element -- `movementStartPosition[0]`, c'est-a-dire la main tile. Sur une unite
+    multi-hex, `set_unit_feet` recale `pc.col,pc.row = tiles[0]` : le cablage doit donc rendre
+    exactement `old_pos`, comme en mono-hex. Sans ce controle, le `[0]` pourrait designer un pied
+    quelconque et l'ecart ne se verrait que sur une unite a trois pieds."""
+    from engine.runner.components import set_unit_feet
+    neigh, walk, _ = board.walk_maps_by_pos()
+    a = next(p for p, w in sorted(walk.items()) if w and len(neigh.get(p) or ()) >= 2)
+    pieds = [a] + [q for q in neigh[a] if walk.get(q)][:1]
+    st = P._state(board, [(1, a, 1, [])])
+    set_unit_feet(st, 1, pieds)
+    assert len(get_unit_feet(st, 1)) == len(pieds) > 1, "montage inerte : l'unite est mono-hex"
+    pc = st.get_entity(1).get_component(PositionComponent)
+    assert _movement_start_position(st, 1) == pieds
+    assert _movement_start_position(st, 1)[0] == (pc.col, pc.row)
+
+
+@pytest.mark.parametrize("autre_board", ["MC1_67", "C3_26"])
+def test_7c_le_verdict_ne_depend_pas_de_CE_board(autre_board):
+    """GENERALISATION GEOMETRIQUE. `C4_09` a ete choisi pour ses DEUX composantes de marche -- une
+    propriete rare (242 dumps sur 779). Les etages 1, 2 et 4 ne dependent pas d'elle : on les
+    rejoue sur deux boards ORDINAIRES pour verifier qu'on n'a pas ajuste le port a une geometrie.
+
+    ⚠ Ce que ce parametrage NE couvre pas, et c'est dit : le bras `Fly` de l'etage 3b exige deux
+    composantes, donc il reste mesure sur `C4_09` seul."""
+    from engine.runner.operations.triggers.tiles import tile_defense_mod
+    bd = P._load_board(autre_board)
+    neigh, walk, _ = bd.walk_maps_by_pos()
+
+    def _neutre(p):
+        """Tuile SANS stat-mod DEFENSE de terrain. ⚠ MONTAGE, pas fidelite : le `_state` du probe
+        #448-r2b construit un `UnitContext` NU (`__new__`, seuls `traits` comptent), et le vecteur
+        `apply_tile_defense_on_move` y leve des qu'une transition change le mod -- `C3_26` en porte,
+        `C4_09` et `MC1_67` n'en ont pas sur leurs premieres tuiles. Restreindre la paire aux
+        tuiles neutres garde ce test sur SON sujet ; le vecteur terrain a ses propres gardes."""
+        return tile_defense_mod(bd.terrain_at(p[0], p[1])) == 0
+
+    paires = ((p, q) for p, w in sorted(walk.items()) if w and _neutre(p)
+              for q in (neigh.get(p) or ()) if walk.get(q) and _neutre(q))
+    a, b = next(paires, (None, None))
+    assert a is not None, "aucune paire de tuiles neutres sur %s : montage impossible" % autre_board
+    # 1. nominal : value-preservant
+    st = P._state(bd, [(1, a, 1, [])])
+    assert _movement_start_position(st, 1) == [a]
+    op = MoveUnitOperation(1, b)
+    op.execute(st, EventBus())
+    assert (op.last_path, op.last_movement_steps, unit_tiles_moved_this_turn(st, 1)) == ([a, b], 2, 1)
+    # 2. degenere : `[end, end]`, 2 pas, 1 tuile
+    st2 = P._state(bd, [(1, None, 1, [])])
+    op2 = MoveUnitOperation(1, b)
+    op2.execute(st2, EventBus())
+    assert (op2.last_path, op2.last_movement_steps, unit_tiles_moved_this_turn(st2, 1)) \
+        == ([b, b], 2, 1)
+    # 4. substrat : le retrait ecrit la tuile quittee
+    st3 = P._state(bd, [(1, a, 1, [])])
+    RemoveUnitFromTilesOperation.execute(st3, 1)
+    assert st3.get_entity(1).get_component(UnitComponent).previous_position_this_turn == [a]
+
+
 if __name__ == "__main__":                                  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
