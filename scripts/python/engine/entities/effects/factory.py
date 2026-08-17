@@ -51,7 +51,9 @@ from .loki.damage_reduction import (
     FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect,
     HeraldOfTheApocalypseExtraDamageEffect,
     LightOfSanguiniusDmgReductionEffect, MarkerlightEffect,
-    MartialKatahDmgReductionEffect, NeuroparasiteEffect, NightshroudDmgReductionEffect,
+    MartialKatahDmgReductionEffect,
+    ModifiedExoarmourPierceReductionEffect,             # 1543, slot 25 (#10007-r1)
+    NeuroparasiteEffect, NightshroudDmgReductionEffect,
     TimesplinterMantleDamageReductionEffect,
     OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
     PsychicFortressDmgReductionEffect, SereneUnifierSenseOfStoneEffect,
@@ -1202,6 +1204,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EffectType 0x608=1544 (case-322 ; l'ecart mesure par #312 valait 44.395 vs 17.8 en utilite).
     # MEME forme que FuelledByFury (Multiply(ConfigVar, <compteur>)), le compteur en moins.
     "ModifiedExoarmour_ExtraDmg": ModifiedExoarmourExtraDmgEffect,
+    # ModifiedExoarmour, volet DEFENSIF (#10007-r1) -- EffectType 0x607=1543, pose par le MEME
+    # `ModifiedExoarmourAbility$$CreateBehaviour` (`AddEffect(0x607) & AddEffect(0x608)`, UNE seule
+    # expression). SEULE surchargeante native du slot d'interface **25 (`0x19`
+    # `CreatePiercingMalusForDefense`)** sur le build : jusqu'ici le canal porte par #10007 n'avait
+    # AUCUN emprunteur. `EffectBonus.ForSubtraction(get_OwnerIsTarget & !DamageProfileIs(Psychic)
+    # & !DamageProfileIs(DirectDamage), ConfigVar(0x3f=extraPierceRatio))` -> percage de l'attaquant
+    # reduit de 20 points au palier 50 (`for_piercing(-v)` : le corps commun du slot NIE le montant
+    # d'un `ForSubtraction`). Aucun `CreateActiveCondition` -> toujours actif, toujours capte, donc
+    # PAS d'entree de seed d'owner-effects (contrairement a son jumeau 1544).
+    "ModifiedExoarmour_PierceReduction": ModifiedExoarmourPierceReductionEffect,
     # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
     # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier ForPercentDecrease
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau

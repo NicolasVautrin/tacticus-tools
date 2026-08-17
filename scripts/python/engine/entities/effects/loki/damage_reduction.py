@@ -298,6 +298,97 @@ class SuperchargeExtraPiercingEffect(BaseEffect):
         return for_piercing(False, int(v)) if v else None      # owner=cible (percage de QUI l'attaque)
 
 
+#: `ModifiedExoarmour` -- le NOM d'ability sous lequel le gameconfig indexe la config lue par le
+#: `ConfigVar` ET les deux `GetDamageProfile*` de `ModifiedExoarmour_PierceReductionEffect`
+#: (`cfg@this+0x60`, pose par `BaseEffect..ctor(this, AbilityOrEffect(<litteral>), 1)`).
+MODIFIED_EXOARMOUR_ABILITY = "ModifiedExoarmour"
+
+
+class ModifiedExoarmourPierceReductionEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_PierceReductionEffect` -- effet
+    `EffectType` 0x607 = **1543** `ModifiedExoarmour_PierceReduction`, volet DEFENSIF du passif
+    `ModifiedExoarmour` (`TriggeredAbilityType` 0x5f9 = 1529) de `votanChampion` << Kimm >>.
+    Jumeau de `ModifiedExoarmourExtraDmgEffect` (1544, `loki/extra_damage.py`). Residu **#10007-r1**.
+
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour`
+    (mirror du decompile) :
+
+        AddEffect(0x607, get_AbilityStateReference(this), Owner@<+0x30>, Owner@<+0x30>, <zeroe>)
+          op_BitwiseAnd
+        AddEffect(0x608, ...)
+
+    -- UNE seule expression, donc les DEUX effets sont poses ENSEMBLE sur le porteur a l'init. 1543
+    n'a **aucun** `CreateActiveCondition` (son bloc `methodPointers` ne porte que `.ctor` et
+    `CreatePiercingMalusForDefense`) : il est TOUJOURS actif, donc TOUJOURS publie par le canal
+    `decisionView` par defaut -- c'est deja le TEMOIN d'entite de son jumeau
+    (`ModifiedExoarmourExtraDmgEffect.seed_witness_effect`), et c'est pourquoi il n'a PAS besoin
+    d'entree dans `ABILITY_INIT_OWNER_EFFECTS`.
+
+    ## LE SLOT -- `CreatePiercingMalusForDefense` (interface **25 = `0x19`**), pas le 24
+
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` invoque
+    `0x1a` / `0x1b` / **`0x19`** ; son homologue attaquant invoque `0x16` / `0x17` / **`0x18` = 24**.
+    Cette classe est la SEULE surchargeante native du slot 25 sur le build -- le canal port
+    (`BaseEffect.create_piercing_malus_for_defense`, pose par #10007) etait jusqu'ici sans aucun
+    emprunteur.
+
+    ## LE CORPS -- mirror 1:1 de `...ModifiedExoarmour_PierceReductionEffect$$CreatePiercingMalusForDefense`
+
+        EffectBonus.ForSubtraction(
+            get_OwnerIsTarget
+              & !DamageProfileIs( AbilityConfiguration.GetDamageProfile (cfg@+0x60) )
+              & !DamageProfileIs( AbilityConfiguration.GetDamageProfile2(cfg@+0x60) ),
+            DSLFormulas.ConfigVar(0x3f = extraPierceRatio, GetAbilityState(this), cfg@+0x60) )
+
+    Gameconfig LU (pas deduit) : `constants.damageProfile` = `Psychic`,
+    `constants.damageProfile_2` = `DirectDamage`, `extraPierceRatio` = 10/15/20 selon le palier
+    (**20** au niveau 50), et `extraPierceRatio` n'est **PAS** dans `variablesAffectedByRarityBonus`
+    (seul `extraDmg` l'est) -> le multiplicateur de rarete est inerte sur cette variable, et
+    `ability_var` le sait deja.
+    => toute attaque contre Kimm qui n'est ni `Psychic` ni `DirectDamage` voit le ratio de percage
+    de l'attaquant reduit de `extraPierceRatio` points.
+
+    ⚠ **LE SIGNE.** `IdunBattle.Entities.Effects.BaseEffect$$PiercingMalusForDefense` et
+    `$$PiercingBonusForAttack` ont des corps IDENTIQUES a l'octet pres (seul le champ de cache
+    differe, `+0x180` contre `+0x128`), et ce corps commun sert les DEUX fabriques : `ForPiercing`
+    (champ `+0x10`) rend la valeur telle quelle, **`ForSubtraction` (champ `+0x18`) la rend NIEE**.
+    Une reduction se porte donc ici par `for_piercing(..., -v)` -- surtout PAS par
+    `for_subtraction`, dont `add_modifier` route le kind vers le scalaire DEGAT (`flat_reductions`)
+    et pas vers l'axe percage `@+0x20`.
+
+    `get_OwnerIsTarget` est STRUCTURELLEMENT satisfait sur ce canal : `build_defender_modifiers_from_
+    effects` n'itere que les effets de la CIBLE du coup (meme lecture que
+    `SuperchargeExtraPiercingEffect` ci-dessus).
+
+    NIVEAU -- `GetAbilityState(this)` indexe `variables[level]` du config de `ModifiedExoarmour`,
+    qui est un PASSIF : meme cascade que le jumeau 1544
+    (`active_ability_level -> ability_level -> level`)."""
+
+    def create_piercing_malus_for_defense(self, damage_profile: str | None = None,
+                                          is_melee: bool | None = None,
+                                          attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        import gameconfig as _GC
+        consts = ((_GC.ability(MODIFIED_EXOARMOUR_ABILITY) or {}).get("constants") or {})
+        prof = damage_profile or None
+        # `!DamageProfileIs(GetDamageProfile(cfg))` & `!DamageProfileIs(GetDamageProfile2(cfg))` --
+        # les DEUX profils viennent de la CONFIG, jamais d'un litteral (`Psychic` / `DirectDamage`
+        # aujourd'hui). Profil NON threade (`None`) -> aucune egalite, les deux gates OUVRENT : le
+        # natif compare a un enum dont la valeur par defaut (`DamageProfileType.None_`) n'est ni
+        # l'un ni l'autre.
+        for key in ("damageProfile", "damageProfile_2"):
+            excluded = consts.get(key)
+            if excluded and prof == excluded:
+                return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        v = ability_var(MODIFIED_EXOARMOUR_ABILITY, "extraPierceRatio", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        if not v:
+            return None
+        # `ForSubtraction` NIE le montant dans le corps commun du slot -> percage NEGATIF.
+        return for_piercing(False, -int(v))
+
+
 class TerrifyingExtraDefenseEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Terrifying_ExtraDefense_Effect$$CreateDamageModifier : réduit le dégât MÊLÉE reçu par
     son PORTEUR (l'effet est sur la CIBLE). Trigger natif = `get_OwnerIsTarget & IsMeleeAttack`
