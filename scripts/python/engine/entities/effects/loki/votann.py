@@ -105,7 +105,7 @@ class AugmentedAssaultReduceArmorEffect(BaseEffect):
                                       AbilityStateReference, duree = <aucune> )
 
     SENS TRANCHE AU DECOMPILE (pas au tooltip) sur DEUX etages independants :
-      1. QUI porte l'effet — `IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffect` (overload
+      1. QUI porte l'effet — `IdunBattleLogic.Entities.DSLBehaviors$$AddDynamicStatModifierEffect` (overload
          a 8 args) construit `AddStatModifierEffectBehaviour(.., source=param_3, targets=param_2, ..)` ;
          `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$Execute` ITERE le selecteur
          **+0x60 (= targets)** et pose une instance par element, en attribuant la ValueModification a

@@ -326,7 +326,7 @@ def main(argv) -> int:
 
         # --- VECTEUR D'EXTINCTION : l'instance 1502 peut-elle devenir INERTE en bataille ? -----
         # `RefreshEffectsOperation$$DeactivateEffect` est le SEUL ecrivain de `+0x5c = 0` hors du
-        # 2e volet `DSLFactory$$DeactivateEffect` (que 1502 n'emprunte pas : `removeEffect`=1 ->
+        # 2e volet `IdunBattleLogic.Entities.DSLBehaviors$$DeactivateEffect` (que 1502 n'emprunte pas : `removeEffect`=1 ->
         # `BaseEffect$$GetRemoveEffectBehaviour`). On observe l'instance survivante tour apres tour :
         # si elle FINIT `active=false`, l'extinction est atteignable ; si elle DISPARAIT d'un coup,
         # c'est un RETRAIT (`RemoveEffect`) et l'inertie reste hors de portee du jeu.

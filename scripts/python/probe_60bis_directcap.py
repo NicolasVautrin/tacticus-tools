@@ -8,7 +8,7 @@ RE (structure, decompile = verite) :
   (un degat direct ne tue AU PLUS qu'UN membre), skip si flag payload.
 - `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDirectDamage` = MEME wrapper (profile=NULL), dispatch virtuel
   = la variante per-hit du pipeline d'attaque (`IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`, bytes de mode
-  du hit-struct) — la route empruntee par la feuille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (DoT feu).
+  du hit-struct) — la route empruntee par la feuille `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (DoT feu).
 Le port `execute_direct` n'applique AUCUN member-cap (case-60 par. 5). Ce probe mesure LIVE si le
 tick natif du DoT feu est cape a la frontiere de membre (et donc si le port doit caper).
 

@@ -397,7 +397,7 @@ class BaseEffect:
     #     MEME type est RE-pose sur une cible qui le porte deja (branche `IsUpdatable(type)` + match
     #     `EffectComponent.Type @+0x58` + match `ParentEffect @+0x70`).
     # LU par `IdunBattle.Entities.Effects.BaseEffect$$GetTimesApplied` (retourne litteralement `+0x6c`)
-    # et par le noeud DSL `IdunBattleLogic.Entities.DSLFactory$$TimesEffectApplied` ->
+    # et par le noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$TimesEffectApplied` ->
     # `IdunBattle.Entities.Formulas.TimesEffectAppliedFormula$$Calculate` (somme `+0x6c` sur les entites
     # rendues par le selecteur). Consommateur porte : `Chronometron_ExtraDamageEffect` (magnitude
     # `Multiply(ConfigVar, TimesEffectApplied(Effect@0x150))`).
@@ -549,7 +549,7 @@ class BaseEffect:
     applied_trait_grants = None
     # CLE de la `ValueModification` que CETTE instance a posee sur le `UnitStats` de sa cible. Cote natif
     # c'est litteralement l'ENTITE-EFFET : `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification`
-    # passe `DSLFactory$$Entity(<effectEntity>)` en 6e argument de `IdunBattleLogic.Entities.DSLFactory$$ChangeStat`,
+    # passe `IdunBattleLogic.Entities.DSLSelectors$$Entity(<effectEntity>)` en 6e argument de `IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat`,
     # et `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` REPASSE LA MEME entite avec
     # `Position(stat, part 6)` -> `IdunBattle.Entities.Components.ValueModification$$ReverseModification`.
     # => UNE seule cle par instance d'effet, quel que soit le chemin qui l'a posee. Renseignee par les
@@ -587,8 +587,8 @@ class BaseEffect:
     # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` ecrit sur l'entite-effet
     # (`BondEffect(id)` blueprint, puis `<composant>.BondedEntityId = param_3`), et que relit
     # `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId(effect)` -- la source du noeud
-    # `IdunBattleLogic.Entities.DSLFactory$$BondedEntityFromEffect` / `ABondEffect$$BondedEntitySelector`.
-    # L'id vient du 5e argument d'`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect` (`bondedEntity`, un
+    # `IdunBattleLogic.Entities.DSLSelectors$$BondedEntityFromEffect` / `ABondEffect$$BondedEntitySelector`.
+    # L'id vient du 5e argument d'`IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect` (`bondedEntity`, un
     # SELECTEUR range dans les options), resolu A L'EXECUTION par
     # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder` (`this+0x70` -> `SelectSingle`
     # -> `EntityId`) : `0`/null => builder d'effet ORDINAIRE, donc AUCUN bond.

@@ -15,7 +15,7 @@ i2 / gameconfig 1204 (`Melee`, profil `Power{PiercingRatio:40}`, `nrOfHits=3`, `
       friendly unit that has been defeated this battle. »
 
 RE (build `rnca9r7q6c`, DECOMPILE MIRROR). Correspondance des slots de selecteur utilisee partout
-ci-dessous (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, cf. `engine/dsl/base.py`) :
+ci-dessous (`IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`, cf. `engine/dsl/base.py`) :
 `DSLSelectors` vit a `factory+0x90` et ses champs sont ceux de la factory decales de `0x118` --
 `sel+0x30 = Owner(0x148)`, `sel+0x48 = Caster(0x160)`, `sel+0x50 = CasterTile(0x168)`,
 `sel+0x60 = Target(0x178)`, `sel+0x68 = ActiveTarget(0x180)`, `sel+0x78 = TargetTiles(0x190)`.

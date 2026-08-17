@@ -1438,9 +1438,9 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     **ZÉRO tirage** — le tri ne touche pas le PRNG.
 
     Chaîne de l'utilité, lue au décompilé :
-      * `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility` a DEUX surcharges — celle qui prend un
+      * `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility` a DEUX surcharges — celle qui prend un
         `int` construit `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(utilityType)` et délègue à
-        celle qui prend l'objet ; `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` fait
+        celle qui prend l'objet ; `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon` fait
         pareil en fixant le sélecteur d'unités à `IdunBattle.Entities.Selectors.AllAliveMachinesSelector` ;
       * `UtilityDefinition..ctor(utilityType)` = `Buckets = [ new UtilityBucket(utilityType, null) ]`,
         `UtilityBucket..ctor` = `[ new WeightedUtility(utilityType, null) ]` et
@@ -1475,7 +1475,7 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     `runner_tile_leaf_ctx` en dérive le `ctx` par-décision.
 
     `parent_id` = le sélecteur `parent` du natif (`dc.parent`), 4ᵉ argument de
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`.
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`.
     **`unit_id=None` + `parent_id` renseigné EST le call-site SUMMON** : case-205 a établi au décompilé
     que son `dc.unit` vaut **`null`** — et non « un ENSEMBLE d'unités » comme le supposait le résidu
     #165b §4. Le sélecteur d'unités que `SortTilesByUtilityForSummon` construit est bien un
@@ -1698,7 +1698,7 @@ def _board_maps(state) -> tuple:
 
 def _spawn_leaf_ctx(state, parent_id: int) -> dict:
     """Regime SPAWN (`case.unit == null && case.parent != null`) -- call-site
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` (case-205).
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon` (case-205).
 
     ⚠ **Ce ctx portait `{"is_spawning": True}` SEUL, et c'etait un ecart CHIFFRE** (#271-r3). Le
     natif n'arrete PAS l'evaluation quand le sujet manque :
@@ -2311,12 +2311,12 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
       `GetSourceUnits` concrets donnent les trois voisinages, TOUS `MINUS` le selecteur de l'unite
       qui evalue (`IdunBattle.DSL.TargetsSelector$$op_Subtraction`), donc self EXCLU :
         * `IdunBattle.AI.Utilities.UnitEffectsAdjacentUtility$$GetSourceUnits`
-          = `IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(..., 1)`   -> ring-1
+          = `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(..., 1)`   -> ring-1
             (`IterateAdjacentTiles` -> porte d'elevation `|Delta| < 2`, cf. `battle_query.is_adjacent`)
         * `IdunBattle.AI.Utilities.UnitEffectsSurroundingUtility$$GetSourceUnits`
-          = `IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(..., 1, 1, 3)` -> DISQUE r=1
+          = `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(..., 1, 1, 3)` -> DISQUE r=1
         * `IdunBattle.AI.Utilities.UnitEffectsRangedUtility$$GetSourceUnits`
-          = `IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(..., 2, 1, 3)` -> DISQUE r=2
+          = `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(..., 2, 1, 3)` -> DISQUE r=2
       Le corps partage `IdunBattle.AI.Utilities.AUnitEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
       itere ces unites, puis leur `EffectsOwnedComponent`, prend `EffectType.ToString()` de chaque
       effet et somme `HasUtilityValue(nom) ? GetUtilityValue(nom) : 0` dans la categorie BC de la

@@ -8,7 +8,7 @@ WIRING valide LIVE.
     push   = PushUnit(caster@0x160, target@0x178)                                       # recul 1 hex
 
 Port = `mortis_round_tree` (ultramarines.py) : `AtomicGroup(op_and(AttackWithAttackDamage(Target(),
-"MortisRound","HeavyRound",ranged), PushUnit(Caster(),Target())))`. Overload attaque = IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (famille
+"MortisRound","HeavyRound",ranged), PushUnit(Caster(),Target())))`. Overload attaque = IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (famille
 ATTACK, resolu par XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3). i2 : « Deals 1x 3274-3638 Heavy Round Damage to a single
 target within range 3, which is then pushed back 1 hex. »
 

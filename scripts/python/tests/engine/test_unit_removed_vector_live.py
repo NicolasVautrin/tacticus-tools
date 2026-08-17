@@ -10,7 +10,7 @@ evenement que rien ne declenchait : degradation **RESTRICTIVE et silencieuse** (
 crash, le trigger ne fire jamais). C'est exactement la classe de trou qu'aucun test ne voit.
 
 CHAINE NATIVE (decompile = verite) :
-    `IdunBattleLogic.Entities.DSLFactory$$RemoveUnit`
+    `IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnit`
       -> `IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute`  (slot +6, args `(uid, 1, 0)`)
       -> `Core.Services.OperationProcessor$$RemoveUnit`
       -> `IdunBattle.Operations.RemoveUnitOperation$$Execute`

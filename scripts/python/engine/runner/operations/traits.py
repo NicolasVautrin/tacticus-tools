@@ -44,7 +44,7 @@ Transcription des CLES du cctor : le dict TRIGGERED en porte 41 (0x3e8, 0x3f8, 0
 cet etage : il rougirait sur le premier trait qui en a besoin plutot que d'inventer une derivation
 silencieuse (cf. `_derived_abilities_are_a_noop`).
 
-APPELANTS PORTES : la feuille DSL `AddTrait` (`IdunBattleLogic.Entities.DSLFactory$$AddTrait` ->
+APPELANTS PORTES : la feuille DSL `AddTrait` (`IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` ->
 `IdunBattle.Entities.Behaviours.AddTraitBehaviour`, ex. `DutyEternalAbility`) et le canal
 `applied_traits` du cycle de vie des effets (`IdunBattle.Entities.Effects.Loki.
 WarHowl_ExtraDamage_UnstoppableEffect$$ApplyInternal` / `$$RevertInternal`, qui appellent

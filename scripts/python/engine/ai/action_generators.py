@@ -741,7 +741,7 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
         ghidra gqfc5mff6c). Tile-swept sur les cibles de `abilityTargets` (self + amis Mechanical, vérité
         live — le natif cible target!=caster, mais le self-repair est OBSERVÉ live seed909 step14).
 
-        MAGNITUDE `IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$GetOverrideAttackDamageAmount` = `IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax`
+        MAGNITUDE `IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$GetOverrideAttackDamageAmount` = `IdunBattleLogic.Entities.DSLFormulas$$PercentageOfAttackCappedAtMax`
         = `M = min(round(cible.Attack_INITIALE × dmgPct/100), maxDmg)` — % de l'Attack INITIALE de la
         CIBLE réparée (`StatType=Attack`, `StatPart=Initial` ; le « 100% of *its own* Damage » du tooltip),
         plafonnée à `maxDmg`. `dmgPct`/`maxDmg` = vars du passif GalvanicField au niveau PASSIF du CASTER

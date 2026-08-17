@@ -3,7 +3,7 @@
 
 Chaine natif -> port :
 
-    IdunBattleLogic.Entities.DSLFactory$$ThreeTileUnitSpawnShape(inner)
+    IdunBattleLogic.Entities.DSLSelectors$$ThreeTileUnitSpawnShape(inner)
         -> new ThreeUnitSpawnTileShapeSelector(inner, <IBattleQuery>, <state>)
     ThreeUnitSpawnTileShapeSelector$$Select(ctx)
         -> tile = inner.Select(ctx)            // = la TUILE CIBLE de l'ability = l'ANCRE

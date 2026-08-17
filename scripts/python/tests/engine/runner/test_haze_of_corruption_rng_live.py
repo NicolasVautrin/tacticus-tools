@@ -9,7 +9,7 @@ Chaines natives portees (symboles) :
                                  & AdjacentFriends(Target@0x178, 1, 3) ), 2, 0, 0x7fffffff, false )`
         + 1 ou 2 `AddBondEffect(0x435 = 1077 HazeOfCorruption_DamageTransfer)`
   `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` (loi case-130)
-  `IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends` (surcharge 4-args : la REFERENCE d'equipe est
+  `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends` (surcharge 4-args : la REFERENCE d'equipe est
       le centre, pas le caster)
 Cf. `docs/rl/case-207-haze-of-corruption-target-finder.md`.
 

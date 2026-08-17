@@ -14,7 +14,7 @@ methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS
       On(TurnStart_Actions=0x16) & @0xa0(OwnerIsActor) & AmountIsGreaterThanZero(GetValidTargets)
   * `On(0x16, 1, 0)` = TurnStart_Actions (`DSLFactory.On`), vecteur `start_turn_triggers` (dispatch.py) --
     MEME event que EnvAmbushResurrect (0x16). (LivingMetal, lui, ecoute 0x13=TurnStart_Other.)
-  * `@0xa0` = `*(dslFactory + 0xa0)` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, ctor gshared) = scoping
+  * `@0xa0` = `*(dslFactory + 0xa0)` (`IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`, ctor gshared) = scoping
     OwnerIsActor "le proprietaire est le joueur ENTRANT" -- MEME slot @0xa0 que LivingMetal.CreateTrigger
     (IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateTrigger, prouve LIVE probe_203 : ne fire QU'AU tour du proprietaire). Porte = `ev.player_id ==
     OwnerComponent.player`.
@@ -31,8 +31,8 @@ methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS
                               nrOfHits = GetNumberConstant(config, 0x2f) = 1,
                               source = AbilityOrEffect(DestroyerHive),
                               alwaysOverkilled = Nullable<bool>(HasValue=0) )
-  * `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` = famille "attack" (2 tirages/coup a cc=0) -- VERIFIE par XREF du
-    CALL-SITE de CreateBehaviour (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PAS IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage ability ; tip #2 / rngcrit-1202).
+  * `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` = famille "attack" (2 tirages/coup a cc=0) -- VERIFIE par XREF du
+    CALL-SITE de CreateBehaviour (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, PAS IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage ability ; tip #2 / rngcrit-1202).
     Mono-coup (nrOfHits=1) mais la famille reste "attack" (defaut) -> `is_attack_damage_op=True`.
   * 8e arg Nullable<bool> alwaysOverkilled = HasValue=0 (`local_68..local_48 = 0` dans le decompile) ->
     PAS de `force_overkill` (contraste FlailSwing `local_198=0x100000000` HasValue=1).
@@ -128,7 +128,7 @@ class DestroyerHiveAbility(TriggeredAbility):
         atk = AttackDamageOperation.execute_ability_attack(
             state, self.owner_id, target, bmin, bmax, pierce, hits,
             damage_profile=DAMAGE_PROFILE, is_melee=True,        # attackRangeType=Melee
-            is_attack_damage_op=True,                                 # famille "attack" IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (XREF du call-site)
+            is_attack_damage_op=True,                                 # famille "attack" IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (XREF du call-site)
             force_overkill=False)                                # alwaysOverkilled Nullable HasValue=0
         return {"type": "destroyer_hive", "owner": int(self.owner_id), "target": int(target),
                 "hits": hits, "min": bmin, "max": bmax, "pierce": pierce, "attack": atk}

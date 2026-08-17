@@ -22,7 +22,7 @@ RE (decompile = verite, gqfc5mff6c) -- chaine LUE, appelant par appelant :
     attacker+0xf0)` (= `UpdateHitGroupAfterHit`), et `AbilityDamageOperation$$Execute` re-boucle
     sur une COPIE de `hitGroup+0x58` -> les coups bonus DEFERES existent aussi cote ABILITY.
   * l'index DEMARRE A 0 POUR CHAQUE CIBLE : les deux factories emballent leur behaviour de degat
-    dans un `AttackBehaviour` (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` et
+    dans un `AttackBehaviour` (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` et
     `$$AttackWithAbilityDamage` finissent tous deux par
     `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, targets, <behaviour>, options)`),
     et `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` emet

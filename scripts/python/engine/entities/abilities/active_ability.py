@@ -511,10 +511,10 @@ class HarvesterOfSoulsAbility(AActiveAbility):
                    dsl.Sum(dsl.ConfigConst("nrOfHits", 1), dsl.ConfigConst("extraHit", 0)))
 
     # IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetSurroundingUnits (RE COMPLETE 2026-07-02) — tree natif EXACT (chaine LUE) :
-    #   A   = IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits(sel@0x160, ConfigConst(0x16)) -> IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles -> Units
-    #   B   = Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))     IdunBattleLogic.Entities.DSLFactory$$Enemies ; IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends
+    #   A   = IdunBattleLogic.Entities.DSLSelectors$$SurroundingUnits(sel@0x160, ConfigConst(0x16)) -> IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles -> Units
+    #   B   = Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))     IdunBattleLogic.Entities.DSLSelectors$$Enemies ; IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends
     #   AoE = op_BitwiseAnd(A, B)                                   IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd
-    # Selecteurs resolus (IdunBattleLogic.Entities.DSLFactory$$InitializeShared alloue +0x148..+0x198 via ctors gshared MISLABELES
+    # Selecteurs resolus (IdunBattleLogic.Entities.DSLSelectors$$InitializeShared alloue +0x148..+0x198 via ctors gshared MISLABELES
     # `BoardGeometry..ctor` -> identite = pointeur de classe + usage, PAS le nom du ctor) :
     #   sel@0x160 = OWNER/caster : StatAmount(@0x160,Health=5)=maxHP caster (DakkaDakkaDakka.GetHealthToLose
     #               IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose) ; HasFlag(@0x160)=flag caster (IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits). Comme POSITION
@@ -576,7 +576,7 @@ class BloodyFuryAbility(AActiveAbility):
 class PlasmaCannonAbility(AActiveAbility):
     """`PlasmaCannonAbility` (TypeDefIndex 9922) — « 3x dégâts Plasma à un ennemi à portée 3 et
     jusqu'à DEUX ennemis DERRIÈRE la cible ». Playbook `IdunBattle.AI.Playbook.Loki.PlasmaCannonPlaybook$$MakeDamagePredictions` : batch principal + batch SECONDAIRE (`IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetValidSecondaryTargetsSelector`
-    = `IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind`), pondéré `min(1, GetMaxSecondaryTargets/n)`
+    = `IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind`), pondéré `min(1, GetMaxSecondaryTargets/n)`
     (`GetMaxSecondaryTargets meta_pvp_screen_test.u003Cu003Ec$$u003CStartu003Eb__6_1 = 2`)."""
 
     _SECONDARY = dsl.Damageable(dsl.UnitsDirectlyBehind())
@@ -695,7 +695,7 @@ class MurderousSwingAbility(AActiveAbility):
 
 class ExecutionerAbility(AActiveAbility):
     """`ExecutionerAbility` (eldarFarseer « Eldryon », id 1066). `IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` =
-    `DSLFactory.RoundsStarted` (IdunBattleLogic.Entities.DSLFactory$$RoundsStarted -> `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate`) =
+    `DSLFactory.RoundsStarted` (IdunBattleLogic.Entities.DSLFormulas$$RoundsStarted -> `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate`) =
     Σ `UnitComponent.turnsStarted@+0x58` sur les units-in-scope (= le CASTER) = nb de rounds STARTED
     (i2 : « takes 582-2183 Psychic Damage FOR EACH ROUND THAT HAS STARTED »). `ExecutionerPlaybook.
     IdunBattle.AI.Playbook.Loki.ExecutionerPlaybook$$GeneratePredictions` passe N=GetHits comme compte multi-coups à `GenerateMultiHit
@@ -749,7 +749,7 @@ class FrenziedFiringAbility(AActiveAbility):
     -> `probability = Fix64.FromInt(1)`, donc AUCUNE ponderation `GetMaxSecondaryTargets` ici.
 
     `GetTargets` = `DSLFactory.AdjacentEnemies(caster@0x160, TargetTiles@0x190, 1)`, surcharge
-    `IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies` a 4 args :
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies` a 4 args :
         `Enemies(caster@0x160, Units(AdjacentTiles(TargetTiles@0x190), 1, 3) - TargetTiles@0x190, 3)`
     = les unites d'equipe != celle du CASTER posees sur les tuiles adjacentes (ring-1 hex) a la tuile
     de la CIBLE. Le centre est deja exclu par `AdjacentTiles` (le `op_Subtraction` natif est defensif) ;
@@ -824,7 +824,7 @@ class SavageEchoesAbility(AActiveAbility):
         (= `damageProfile` config = Eviscerate) : AUCUN quirk `param_8 = null` facon #164/#165 ;
       * hits  = `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits`
         = `GetNumberConstant(0x2f = nrOfHits)` = le chemin generique `get_special_hits` ;
-      * cibles = `IdunBattleLogic.Entities.DSLFactory$$Entity(target)` -> MONO-CIBLE (aucun batch AoE).
+      * cibles = `IdunBattleLogic.Entities.DSLSelectors$$Entity(target)` -> MONO-CIBLE (aucun batch AoE).
     Seule la BASE diverge donc, et c'est `_savage_echoes_inputs` qui la fournit."""
 
     @staticmethod
@@ -843,7 +843,7 @@ class SavageEchoesAbility(AActiveAbility):
         `IdunBattle.Entities.TileExtensions$$CanAddUnitFromAbility` = tuile MARCHABLE et LIBRE (aucun
         pied d'unite vivante). Plus Cezare est degage, plus il frappe fort.
 
-        SUJET = `Owner` (slot factory `+0x148`, cf. la carte `DSLFactory$$InitializeShared` :
+        SUJET = `Owner` (slot factory `+0x148`, cf. la carte `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` :
         `0x148 Owner · 0x158 Actor · 0x160 Caster · 0x168 CasterTile · 0x178 Target`) — pour une ability
         ACTIVE l'Owner EST le caster, d'ou le noeud `Caster()` du port (le port n'expose pas de noeud
         `Owner` distinct ; meme convention que le mirror COMBAT deja livre).

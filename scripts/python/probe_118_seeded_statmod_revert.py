@@ -8,8 +8,8 @@ tique jusqu'a expiration et lit la crit chance.
 Question tranchee (RE, build gqfc5mff6c) : le natif applique la stat-modification d'un effet en
 `ValueModification` PAR-SOURCE keyee par l'ENTITE-EFFET
 (`IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` passe
-`IdunBattleLogic.Entities.DSLFactory$$Entity(<effectEntity>)` en 6e argument de
-`IdunBattleLogic.Entities.DSLFactory$$ChangeStat`) et la RETIRE au retrait de l'effet
+`IdunBattleLogic.Entities.DSLSelectors$$Entity(<effectEntity>)` en 6e argument de
+`IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat`) et la RETIRE au retrait de l'effet
 (`IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`, meme entite, `Position(stat,
 part 6)` -> `IdunBattle.Entities.Components.ValueModification$$ReverseModification`). Le port devait
 donc, lui aussi, attribuer la contribution du SEED a une source retirable.

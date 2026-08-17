@@ -17,7 +17,7 @@ HeavyWeapon intact, cible DEPLACEE a portee par applyAction) :
   cherub      : ArmoriumCherub (1014, adeptRetributor HeavyWeapon, 4x Flame ranged range 2,
                 famille ATTACK) -> attendu x1.25 par coup ; ASSERT bit-exact.
   leech       : SpiritLeech (1104, tyranNeurothrope RangedSpecialist, 1x Psychic ranged, famille
-                **ABILITY** IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> AbilityDamageOperation) -> les mods ATTAQUANT sont VIDES
+                **ABILITY** IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> AbilityDamageOperation) -> les mods ATTAQUANT sont VIDES
                 (#45f) : le +33% ne doit s'appliquer NI live NI offline (datapoint adversarial du
                 gate famille -- un threading non-gate rendrait l'offline x1.33 TROP HAUT).
 

@@ -88,7 +88,7 @@ _TRIANGLE_SHAPE_DIRECTIONS = {
 
 
 class TilesInTriangleShape(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$TilesInTriangleShape` -> `IdunBattle.Entities.Selectors.TilesInTriangleShapeSelector$$Select`
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesInTriangleShape` -> `IdunBattle.Entities.Selectors.TilesInTriangleShapeSelector$$Select`
     -> `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape` : la tuile-CENTRE + les DEUX voisines du coin
     `direction` (0..5) = un triangle de 3 hexes. `direction > 5` -> le centre SEUL (garde native
     `if (5 < param_3) goto LAB_18106bd25`). Les voisines hors-plateau sont ignorees (le natif
@@ -117,7 +117,7 @@ class TilesInTriangleShape(TargetsSelector):
 
 
 class ThreeTileUnitSpawnShape(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$ThreeTileUnitSpawnShape(inner)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$ThreeTileUnitSpawnShape(inner)` ->
     `IdunBattle.Entities.Selectors.ThreeUnitSpawnTileShapeSelector$$Select` — mirror :
 
         tile = inner.Select(ctx);                       // l'ANCRE (la tuile CIBLEE par le cast)
@@ -165,7 +165,7 @@ class ThreeTileUnitSpawnShape(TargetsSelector):
 
 
 class TileFromVector(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$TileFromVector` -> `IdunBattle.Entities.Selectors.TileFromVectorSelector$$Select` : pour CHAQUE
+    """`IdunBattleLogic.Entities.DSLSelectors$$TileFromVector` -> `IdunBattle.Entities.Selectors.TileFromVectorSelector$$Select` : pour CHAQUE
     tuile de `tiles`, la VOISINE dans la direction hex `direction` (`IdunBattle.Utils.Hex.AxialCoordinate$$NeighbourAt`). Le natif abandonne si le noeud-vecteur (Nullable @+0x28) n'a pas de valeur, et n'ajoute
     que les tuiles resolues (hors-plateau -> ignorees). Retour list[int] (tile ids)."""
     def __init__(self, tiles: TargetsSelector, direction):
@@ -310,7 +310,7 @@ def _sign(v: int) -> int:
 
 
 class Walkable(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Walkable` : garde les tuiles WALKABLE (`BattleQuery.IsWalkableTile` =
+    """`IdunBattleLogic.Entities.DSLSelectors$$Walkable` : garde les tuiles WALKABLE (`BattleQuery.IsWalkableTile` =
     `TileExtensions.IsWalkable`, expose par `Board.walkable`). N'exige PAS que la tuile soit LIBRE
     (c'est `CanAddUnit` qui ajoute la contrainte d'occupation). Ordre de `source` preserve."""
     def __init__(self, source: TargetsSelector):
@@ -324,7 +324,7 @@ class Walkable(TargetsSelector):
 
 
 class SortReverse(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SortReverse` -> `IdunBattle.Entities.Selectors.SortReverseSelector$$Select`
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortReverse` -> `IdunBattle.Entities.Selectors.SortReverseSelector$$Select`
     = `System.Linq.Enumerable.Reverse(source).ToList()` — INVERSION pure de l'ordre du selecteur source
     (aucun filtre, aucune cle de tri malgre le nom).
 
@@ -508,11 +508,11 @@ class SortByRow(TargetsSelector):
 
 
 class Blocking(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Blocking` : garde les tuiles BLOQUANTES = le COMPLEMENT
+    """`IdunBattleLogic.Entities.DSLSelectors$$Blocking` : garde les tuiles BLOQUANTES = le COMPLEMENT
     exact de `Walkable` sur le meme predicat de tuile.
 
-    RE (structure, PAS le nom) : `IdunBattleLogic.Entities.DSLFactory$$Blocking` et
-    `IdunBattleLogic.Entities.DSLFactory$$Walkable` allouent la MEME classe de selecteur (meme
+    RE (structure, PAS le nom) : `IdunBattleLogic.Entities.DSLSelectors$$Blocking` et
+    `IdunBattleLogic.Entities.DSLSelectors$$Walkable` allouent la MEME classe de selecteur (meme
     singleton de type) et n'appellent qu'UN ctor commun, avec un seul argument different -- le dernier
     litteral : `Walkable` passe **0**, `Blocking` passe **1**. Ghidra mislabelle ce ctor gshared
     `EffectWithTypeSelector$$.ctor` (il est FOLDE : `AtIndex`/`IsMechanical`/`MechanicalUnits`/
@@ -533,7 +533,7 @@ class Blocking(TargetsSelector):
 
 
 class TilesOnSameElevation(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$TilesOnSameElevation` -> `IdunBattle.Entities.Selectors.TilesOnSameElevationSelector$$Select` :
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesOnSameElevation` -> `IdunBattle.Entities.Selectors.TilesOnSameElevationSelector$$Select` :
     garde les tuiles de `tiles` dont l'ECART D'ELEVATION avec la tuile d'ANCRAGE (selecteur @+0x18, une
     seule tuile) est <= `max_diff` (@+0x28) — `TileExtensions.GetElevationDifference(tile, anchor) <=
     maxDiff`. Ancrage introuvable -> [] (le natif abandonne si le selecteur d'ancre ne rend rien)."""
@@ -556,7 +556,7 @@ class TilesOnSameElevation(TargetsSelector):
 
 
 class EntitiesWithoutEffects(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$EntitiesWithoutEffects` -> `IdunBattle.Entities.Selectors.EntitiesWithoutEffectsSelector$$Select` : garde les entites de `source` qui NE portent AUCUN des `effect_types`
+    """`IdunBattleLogic.Entities.DSLSelectors$$EntitiesWithoutEffects` -> `IdunBattle.Entities.Selectors.EntitiesWithoutEffectsSelector$$Select` : garde les entites de `source` qui NE portent AUCUN des `effect_types`
     (`EntityExtensions.HasOneOfEffects(entity, types, source-flag 6)` -> exclusion).
 
     Domaine MIXTE, comme le natif (il itere des `IEntity` indifferenciees) : une entite-UNITE (dict) est
@@ -581,7 +581,7 @@ class EntitiesWithoutEffects(TargetsSelector):
 
 
 class EntitiesWithAnyEffect(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$EntitiesWithAnyEffect` -> `IdunBattle.Entities.Selectors.EntitiesWithAnyEffectSelector$$Select` : JUMEAU EXACT (branche opposee) d'`EntitiesWithoutEffects` -- garde les entites de `source`
+    """`IdunBattleLogic.Entities.DSLSelectors$$EntitiesWithAnyEffect` -> `IdunBattle.Entities.Selectors.EntitiesWithAnyEffectSelector$$Select` : JUMEAU EXACT (branche opposee) d'`EntitiesWithoutEffects` -- garde les entites de `source`
     qui portent AU MOINS UN des `effect_types` (`EntityExtensions.HasOneOfEffects(entity, types, ...,
     source-flag @+0x30)` -> INCLUSION ; le `Without` fait l'exclusion sur le MEME appel).
 
@@ -729,7 +729,7 @@ class Otherwise(TargetsSelector):
 
 
 class TilesBehindInLine(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine(from, to, settings)` -> `IdunBattle.Entities.Selectors.TilesBehindInLineSelector$$Select` : les tuiles ALIGNEES au-dela de `to`, en partant de `to`, dans la direction
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesBehindInLine(from, to, settings)` -> `IdunBattle.Entities.Selectors.TilesBehindInLineSelector$$Select` : les tuiles ALIGNEES au-dela de `to`, en partant de `to`, dans la direction
     `from -> to`. Geometrie CUBE droite (parite-INDEPENDANTE) DEJA live-reconciliee par les deux autres
     consommateurs portes du meme noeud (`IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles`
     `_line_tiles`, `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine`) :
@@ -748,7 +748,7 @@ class TilesBehindInLine(TargetsSelector):
     La ligne S'ARRETE au 1er echec (`return list`) — c'est un PREFIXE, pas un filtre.
 
     `check_walkable` / `update_reference` = les DEUX bools de la struct `settings` que chaque call-site
-    alloue et passe a `IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine` (champs `+0x10` / `+0x11`),
+    alloue et passe a `IdunBattleLogic.Entities.DSLSelectors$$TilesBehindInLine` (champs `+0x10` / `+0x11`),
     relayes par `IdunBattle.Entities.Selectors.TilesBehindInLineSelector$$Select` a
     `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind(from, to, bool1, bool2, maxCount)` :
       * `+0x10 = check_walkable` : gate `IsWalkable` **ET** — c'est la consequence NON EVIDENTE —
@@ -1099,8 +1099,8 @@ class EdgeTiles(TargetsSelector):
 
 
 class FilterContinuous(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$FilterContinuous(source, predicate)` = MEME construction que
-    `IdunBattleLogic.Entities.DSLFactory$$Filter` (`FromTriggerSelector`) + le FLAG de court-circuit : on garde
+    """`IdunBattleLogic.Entities.DSLSelectors$$FilterContinuous(source, predicate)` = MEME construction que
+    `IdunBattleLogic.Entities.DSLSelectors$$Filter` (`FromTriggerSelector`) + le FLAG de court-circuit : on garde
     le PREFIXE CONTIGU d'elements satisfaisant le predicat et on S'ARRETE au premier echec (une « ligne »
     d'ennemis s'interrompt au premier trou), la ou `Filter` balaie tout.
 
@@ -1142,9 +1142,9 @@ class FilterContinuous(TargetsSelector):
 
 
 class UnitsWithVisualId(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithVisualId(visualIdValue, mode)` = `UnitsWithIdSelector(ctx,
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithVisualId(visualIdValue, mode)` = `UnitsWithIdSelector(ctx,
     factory+0x80, visualIdValue, mode)`. La source est le slot PARTAGE `factory+0x80` (pose par
-    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, == la source d'`AllUnits`/`Friends(caster, @0x80)` de
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`, == la source d'`AllUnits`/`Friends(caster, @0x80)` de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`) -> le selecteur est **BOARD-WIDE : AUCUN RAYON**, a ne pas
     confondre avec `UnitsWithIds(source, ids)` (qui FILTRE un sous-ensemble deja restreint, ex.
     `SurroundingFriends` de SupremeCommander IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour).
@@ -1173,7 +1173,7 @@ class UnitsWithVisualId(TargetsSelector):
 
 
 class UnitsWithId(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithId(source, idValue, mode)` = `UnitsWithIdSelector(ctx, source,
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithId(source, idValue, mode)` = `UnitsWithIdSelector(ctx, source,
     TestUnitProvider(idValue), mode)` : le VOLET MONO-ID d'`UnitsWithIds` (qui, lui, UNIONNE les volets sur
     un tableau d'ids). Filtre `source` par `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)`.
     Consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
@@ -1276,7 +1276,7 @@ def _ability_entities_key(ctx):
 
 
 class Cache(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Cache(source)` → `IdunBattle.Entities.Selectors.CacheSelector$$Select` : **MÉMOÏSE** le résultat
+    """`IdunBattleLogic.Entities.DSLSelectors$$Cache(source)` → `IdunBattle.Entities.Selectors.CacheSelector$$Select` : **MÉMOÏSE** le résultat
     du sous-arbre. Décompilé : 1re éval calcule (`source.evaluate` + `ToList`) et STOCKE dans le slot
     `+0x28` (mode slot unique, flag `+0x20`==0) ou un dict keyé par le contexte (`+0x30`) ; évals suivantes
     renvoient le CACHE. **PAS un pass-through** : la mémoïsation est OBSERVABLE quand l'état mute entre deux
@@ -1423,7 +1423,7 @@ class Entity(TargetsSelector):
 
 
 class Nothing(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Nothing` : sélecteur VIDE (retourne `[]`). Classe DISTINCTE de `Null`."""
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Nothing` : sélecteur VIDE (retourne `[]`). Classe DISTINCTE de `Null`."""
     def select(self, ctx):
         return []
 
@@ -1480,21 +1480,21 @@ class ConditionalSelector(SelectIf):
 
 
 class Null(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Null` : entité/valeur NULLE (retourne `None`). Même classe qu'`Entity` avec
+    """`IdunBattleLogic.Entities.DSLSelectors$$Null` : entité/valeur NULLE (retourne `None`). Même classe qu'`Entity` avec
     arg null ; distinct de `Nothing` (ensemble vide)."""
     def select(self, ctx):
         return None
 
 
 class EffectSource(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$EffectSource` : entité SOURCE de l'effet COURANT (`ctx.effect`). NON captable
+    """`IdunBattleLogic.Entities.DSLSelectors$$EffectSource` : entité SOURCE de l'effet COURANT (`ctx.effect`). NON captable
     hors application d'effet → None si `ctx.effect` absent."""
     def select(self, ctx):
         return _effect_field(ctx.effect, "source", None)
 
 
 class EffectFromOwner(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$EffectFromOwner(effectType)` → `EffectWithTypeSelector IdunBattle.Entities.Selectors.EffectWithTypeSelector$$Select` : effets
+    """`IdunBattleLogic.Entities.DSLSelectors$$EffectFromOwner(effectType)` → `EffectWithTypeSelector IdunBattle.Entities.Selectors.EffectWithTypeSelector$$Select` : effets
     du type possédés par l'owner. NON captable offline (effets par unité absents du state) → `[]` défaut."""
     def __init__(self, effect_type):
         self.effect_type = effect_type
@@ -1504,7 +1504,7 @@ class EffectFromOwner(TargetsSelector):
 
 
 class EffectsFromUnitSource(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource(source, effectType)` -> `EffectWithTypeSelector
+    """`IdunBattleLogic.Entities.DSLSelectors$$EffectsFromUnitSource(source, effectType)` -> `EffectWithTypeSelector
     IdunBattle.Entities.Selectors.EffectWithTypeSelector$$Select` (frere d'`EffectFromOwner`, keye sur la SOURCE au lieu de l'owner) : les INSTANCES d'effet
     du type `effect_type` dont le `EffectComponent.SourceUnit @+0x10` est l'unite `source`. Domaine =
     ENTITES-EFFET (pas des unites) -> consomme par `OwnerOfEffect` qui remonte a leurs porteurs.
@@ -1533,7 +1533,7 @@ class EffectsOfUnits(TargetsSelector):
     la surcharge a DEUX arguments (signature LUE au decompile :
     `EffectFromOwner(void *this, void *effectTarget, void *effectType)`), ou `effectTarget` est un
     SELECTEUR D'UNITES et non l'owner implicite du contexte. A NE PAS confondre avec
-    `EffectFromOwner` ci-dessous, qui mirrore `DSLFactory$$EffectFromOwner(effectType)` (owner
+    `EffectFromOwner` ci-dessous, qui mirrore `IdunBattleLogic.Entities.DSLSelectors$$EffectFromOwner(effectType)` (owner
     implicite, non captable offline -> `[]`).
 
     Domaine de sortie = ENTITES-EFFET, comme `EffectsFromUnitSource` : dicts
@@ -1561,7 +1561,7 @@ class EffectsOfUnits(TargetsSelector):
 
 
 class OwnerOfEffect(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$OwnerOfEffect(effects)` : remonte de chaque ENTITE-EFFET a l'UNITE qui la
+    """`IdunBattleLogic.Entities.DSLSelectors$$OwnerOfEffect(effects)` : remonte de chaque ENTITE-EFFET a l'UNITE qui la
     PORTE (`EffectComponent.Target @+0x14` / cle `EffectsState.by_unit`). Rend des dicts d'unite
     (domaine unit) dedupliques, dans l'ordre du selecteur source."""
     def __init__(self, effects: TargetsSelector):

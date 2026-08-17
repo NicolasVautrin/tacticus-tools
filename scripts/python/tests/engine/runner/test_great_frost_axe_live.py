@@ -9,7 +9,7 @@
                                   GetDamageProfile=Piercing, GetNumberConstant(0x2f)=nrOfHits)) )         # attaque
 
 Patron « Stormcaller inverse » : glace la tuile de la cible + ring-1 PUIS attaque la CIBLE DIRECTE
-nrOfHits x Piercing (mono-cible, ATTACK-family IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -- XREF from_address 1811e367f).
+nrOfHits x Piercing (mono-cible, ATTACK-family IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage -- XREF from_address 1811e367f).
 
 ORACLE DU NOMBRE DE COUPS (#96 / lot A) : le natif LIT la valeur telle quelle
 (`AbilityConfiguration.GetNumberConstant(cfg, 0x2f)`, aucune formule) -> valeur BRUTE, oracle = la CONFIG
@@ -81,7 +81,7 @@ def _cfg_hits(key: str = "nrOfHits") -> int:
     """ORACLE du nb de coups = la CONSTANTE de config de GreatFrostAxe, PAS un litteral.
     `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour` passe
     `hits = IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` a
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
     l'oracle est `gameconfig.ability("GreatFrostAxe").constants[<key>]`."""
     c = (GC.ability("GreatFrostAxe") or {}).get("constants") or {}
     v = c.get(key)

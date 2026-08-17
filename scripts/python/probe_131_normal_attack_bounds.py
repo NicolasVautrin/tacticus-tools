@@ -5,10 +5,10 @@ normale dont les bornes de degat sont reduites (percage + armure) ?
 
 CHAINE NATIVE (RE gqfc5mff6c, symboles VERBATIM) :
     IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteNormalAttack
-      -> ...$$GetAttackDamageBehaviour -> IdunBattleLogic.Entities.DSLFactory$$AttackDamage
+      -> ...$$GetAttackDamageBehaviour -> IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage
       -> IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage
            = HitDamage(node.GetMin, node.GetMax) sur `NormalAttackDamage(caster)`
-             (IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage = StatAmountFormula(Attack))
+             (IdunBattleLogic.Entities.DSLFormulas$$NormalAttackDamage = StatAmountFormula(Attack))
       -> IdunBattle.Operations.AttackDamageOperation$$Execute
       -> IdunBattle.Operations.AttackDamageOperation$$ExecuteHits
       -> IdunBattle.Operations.AttackDamageOperation$$ExecuteHit :

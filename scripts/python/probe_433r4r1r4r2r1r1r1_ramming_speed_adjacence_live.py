@@ -66,7 +66,7 @@ A_UNITS = "necroWarden,ultraTitus"
 # La MoW ADVERSE ne porte PAS l'axe C par elle-meme (elle a un `MachineComponent`, pas de pieds) :
 # elle le porte par son SUMMON. `DutyEternal` (1158) fait naitre `ultraSmnDreadnought` (Galatian),
 # la SEULE unite a 3 pieds confrontable de ce build -- le seul autre producteur du noeud
-# `DSLFactory$$ThreeTileUnitSpawnShape`, `AetherStride` (1208, `thousDaemonPrince`), est hors seed
+# `IdunBattleLogic.Entities.DSLSelectors$$ThreeTileUnitSpawnShape`, `AetherStride` (1208, `thousDaemonPrince`), est hors seed
 # BC et non porte. `ultraDreadnought` est dans les 8 MoW spawnables (`build --list-pool`).
 A_MOW = "ultraDreadnought"
 SEED = 43341
@@ -297,7 +297,7 @@ def _occupants(rid: int) -> set:
 def faire_naitre_galatian(rid: int, caster_pos) -> bool:
     """Fait caster `DutyEternal` (1158) a la MoW ADVERSE -> `ultraSmnDreadnought` (Galatian), la
     SEULE unite a 3 pieds confrontable de ce build (l'autre producteur de
-    `DSLFactory$$ThreeTileUnitSpawnShape`, `AetherStride` 1208, est hors seed BC et non porte).
+    `IdunBattleLogic.Entities.DSLSelectors$$ThreeTileUnitSpawnShape`, `AetherStride` 1208, est hors seed BC et non porte).
 
     L'ancre est choisie pour que l'empreinte tombe PRES du caster : sans ca les tuiles
     discriminantes -- adjacentes a un pied SECONDAIRE et a distance >= 2 du pied 0 -- sortent du

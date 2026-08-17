@@ -9,7 +9,7 @@ mirror 1:1, cf. `engine/runner/abilities/deathguard.py`) = AoE CONCENTRIQUE a TR
     ExecuteAtomic( Group(a1,0x4b) & Group(a2,0x4c) & Group(a3,0x4d) )
 
 nrOfHits = `GetNumberConstant(0x2f)` = 1, LA MEME pour les trois bandes ; profil `Psychic`
-(PiercingRatio 100, `NoBlocking`) ; famille ABILITY (`DSLFactory$$AttackWithAbilityDamage` -> 1 tirage
+(PiercingRatio 100, `NoBlocking`) ; famille ABILITY (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> 1 tirage
 par coup, aucun crit).
 
 CE QUE CE TEST VALIDE (deux cas DISCRIMINANTS ; montage = la fixture NOMMEE `psychic_aoe_case`,

@@ -82,9 +82,9 @@ AddStaticStatModifierEffect( Self@0x148, 0x4b1 = 1201, statType 7 = BLOCK_CHANCE
                              GetVariableForLevel(0x15 = blockChance) )
 ```
 
-## Le 4e argument de `DSLFactory$$HasEffect` = ACTIVE-ONLY (pas un minLevel)
+## Le 4e argument de `IdunBattleLogic.Entities.DSLTriggers$$HasEffect` = ACTIVE-ONLY (pas un minLevel)
 
-`IdunBattleLogic.Entities.DSLFactory$$HasEffect(sel, type, param4, param5)` construit
+`IdunBattleLogic.Entities.DSLTriggers$$HasEffect(sel, type, param4, param5)` construit
 `IdunBattle.Entities.Triggers.HasEffectTrigger(sel, type, query, param5, param4)` ; son `ShouldTrigger`
 appelle `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects(entity, query, [type], param4, param5)`.
 Dans `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` : `if (param_4 != 0) { if
@@ -97,7 +97,7 @@ Dans `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` : `if (param_4 != 0
 = `AddStaticStatModifierEffect(Self, 0x4b2=1202, stat 8, blockDmg[0x14])
    + AddStaticStatModifierEffect(Self, 0x4b0=1200, stat 7, blockChance[0x15])`. Son `CreateTrigger` est
 le corps DEDUPLIQUE `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateTrigger`
-(`return df@0xa8`), et `df@0xa8` est construit par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`
+(`return df@0xa8`), et `df@0xa8` est construit par `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`
 = `On(0x21 = AbilityInit) & OwnerIsActor` -> ce sont des **owner-effects poses A L'INIT**, PAS on-block
 (mis-attribution corrigee en #222). Les deux classes d'effet sont portees (`hits.py`) ; 1200 est en plus
 inscrit dans `ABILITY_INIT_OWNER_EFFECTS["AnvilShield"]` parce que, INACTIF au-dessus de 35 % PV, il est
@@ -260,7 +260,7 @@ class AnvilShieldApplyStunAbility(TriggeredAbility):
         if not uc.alive:                                                 # IsAlive(caster@0x160)
             return False
         # IsMeleeAttack : le natif lit le TYPE DE TIMELINE de l'ability courante ; le port dispose du
-        # discriminant POSITION (`_is_ranged_position`, mirror `DSLFactory$$IsRangedAttack`) — meme
+        # discriminant POSITION (`_is_ranged_position`, mirror `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack`) — meme
         # discriminant deja utilise par SuppressiveFire pour sa face ranged.
         if _is_ranged_position(state, ev.actor_id, ev.target_id):
             return False
@@ -312,7 +312,7 @@ class AnvilShieldFrozenAttackerAdvantageAbility(TriggeredAbility):
     `0x2b` que depuis `AttackDamageOperation`). Depuis que le vecteur part AUSSI de
     `AbilityHandler.visit_ActiveAbilityMessage` (de-fork du site natif unique), il est PORTE
     explicitement : `abilities/attack_type.is_normal_attack` (mirror
-    `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`). Sans lui, Arjac gagnerait +20 % de block
+    `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`). Sans lui, Arjac gagnerait +20 % de block
     sur n'importe quel cast adverse — un faux-positif que le natif refuse."""
     event_id = _ON_PRE_ABILITY
 

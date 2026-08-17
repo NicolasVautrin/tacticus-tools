@@ -576,7 +576,7 @@ def _in_attack_range(state: State, attacker_id: int, target_id: int, from_pos=No
 
 
 def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
-    """Mirror `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` (= `IsRangedAttackAbilityTrigger` IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger, qui
+    """Mirror `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack` (= `IsRangedAttackAbilityTrigger` IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger, qui
     calcule les POSITIONS caster/cible via `IdunBattleLogic.Entities.DSLTriggers$$IsRangedPosition`) : une attaque est RANGED ssi le
     caster N'EST PAS adjacent (mêlée) à la cible — **POSITION-based, PAS le type d'arme/profil**. Donc un
     splash psychique porté sur un ennemi ADJACENT au caster est MÊLÉE → ne re-déclenche PAS Smite (pas de

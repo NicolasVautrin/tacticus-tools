@@ -487,20 +487,20 @@ RAIL: dict[str, tuple[str, str]] = {
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
-# parce que leur PROPRE ARBRE porte un noeud qui le lit (`DSLFactory$$IsEffectActive`,
-# `DSLFactory$$HasEffect(..., onlyActive=1)`). Lire n'y est donc PAS une infidelite.
+# parce que leur PROPRE ARBRE porte un noeud qui le lit (`IdunBattleLogic.Entities.DSLTriggers$$IsEffectActive`,
+# `IdunBattleLogic.Entities.DSLTriggers$$HasEffect(..., onlyActive=1)`). Lire n'y est donc PAS une infidelite.
 ARRAYSET_READS_BY_TREE = {
     "TimeFluxGhostRemoveOnSourceDeathInactive":   # `NOT IsEffectActive(self@0x150)`
-        "IdunBattleLogic.Entities.DSLFactory$$IsEffectActive",
+        "IdunBattleLogic.Entities.DSLTriggers$$IsEffectActive",
     "EchoesGhostRemoveOnSourceDeathInactive":     # idem -- MEME arbre natif, 2e effectType
-        "IdunBattleLogic.Entities.DSLFactory$$IsEffectActive",
+        "IdunBattleLogic.Entities.DSLTriggers$$IsEffectActive",
     "EarlyWarningOverrideHitReductionPurge":  # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
-        "IdunBattleLogic.Entities.DSLFactory$$HasEffect",
+        "IdunBattleLogic.Entities.DSLTriggers$$HasEffect",
     # #943 -- MEME arbre natif (Triggered #2 de `AReactivateOverwatchEffect`), second porteur : la
     # lecture du flag vient du noeud `HasEffect(..., onlyActive=1)` de l'arbre, pas d'un gate
     # d'evaluation. Le port herite du `matches` de la base, donc de la MEME lecture.
     "InescapableDeathHitReductionPurge":      # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
-        "IdunBattleLogic.Entities.DSLFactory$$HasEffect",
+        "IdunBattleLogic.Entities.DSLTriggers$$HasEffect",
 }
 
 # GAPS ATTENDUS : rail a gate natif dont le port ne lit pas le flag. Toute entree qui SORT ou

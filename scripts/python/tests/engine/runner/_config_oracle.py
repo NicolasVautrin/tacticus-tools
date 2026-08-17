@@ -45,7 +45,7 @@ def ability_damage_profile(ability: str) -> "str | None":
 
     C'est la source que lit `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile`. Toutes les
     abilities ne passent PAS par la : certaines fournissent un litteral `DamageProfileType` directement a
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (ex. `HarvesterOfSoulsAbility$$ExecuteBehaviour`
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (ex. `HarvesterOfSoulsAbility$$ExecuteBehaviour`
     -> `Nullable<DamageProfileType>(0x13 = HeavyRound)`) -- pour celles-la le NOM du profil est un fait de
     structure, pas une valeur de config, et seul son `PiercingRatio` se lit ici."""
     return ((GC.ability(ability) or {}).get("constants") or {}).get("damageProfile")

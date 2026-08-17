@@ -66,7 +66,7 @@ attaque MULTI-COUPS dont plusieurs coups sont bloques.
   max)` qu'utilise `FuelledByFury`. Le sélecteur `EffectFromOwner(Owner, T)` designe l'ENTITE-EFFET
   de type `T` portee par l'Owner ; cote port, `IncreaseEffectLevel(<type>, Caster(), ...)` designe
   le MEME ensemble d'instances (meme collapse que `neuroparasite.py`).
-* `amount = NULL` -> `IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel` substitue
+* `amount = NULL` -> `IdunBattleLogic.Entities.DSLBehaviors$$IncreaseEffectLevel` substitue
   `df@0xc0 = Const(1)` : increment **+1** par declenchement.
 * `max = NULL` -> **AUCUN CAP** (le clamp d'`IdunBattle.Operations.IncreaseEffectLevelOperation$$
   Execute` est desactive) -- contraste `TerrifyingCrescendo` (`buffMaxLevel = 6`). Le gameconfig

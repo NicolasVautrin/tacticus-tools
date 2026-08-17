@@ -9,7 +9,7 @@ trigger de TIR (`RangedAutoAttackEffect$$CreateTargetTrigger`). Le 1er, celui qu
     On(TurnStart_EffectActivation = 0x12)
       & NOT IsTurnOf(owner@0x148)                                            # df@0xa0
       & ( HasEffect(owner, IgnoreUsedAbilityInOverwatch = 0x516)
-          | DoesNotHaveFlag(owner, UnitFlag.ActiveAbilityUsed = 2) )         # DSLFactory$$DoesNotHaveFlag
+          | DoesNotHaveFlag(owner, UnitFlag.ActiveAbilityUsed = 2) )         # IdunBattleLogic.Entities.DSLTriggers$$DoesNotHaveFlag
       & AdditionalActivateTrigger()                                          # NOT HasEffect(owner, Pinned)
     -> ActivateEffect(effect@0x150)
 

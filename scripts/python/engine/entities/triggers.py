@@ -127,7 +127,7 @@ class YesTrigger(AbilityTrigger):
 
 
 class MaybeTrigger(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$Maybe(chance)` (surcharge a UN argument) ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$Maybe(chance)` (surcharge a UN argument) ->
     `IdunBattle.Entities.Triggers.MaybeTrigger$$.ctor` / `$$ShouldTrigger` : PREDICAT NON DETERMINISTE
     (kind T) qui tire `NextBool(chance)`.
 
@@ -173,7 +173,7 @@ class MaybeTrigger(AbilityTrigger):
 
 
 class IsFirstHitInSeries(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsFirstHitInSeries()` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsFirstHitInSeries()` ->
     `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` (MIRROR 1:1) :
 
         var v = entities.IsFirstHit;          // Nullable<bool>
@@ -233,7 +233,7 @@ class HasFlag(AbilityTrigger):
 
 
 class HasUnitFlag(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasFlag(unit, flag)` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasFlag(unit, flag)` ->
     `IdunBattle.Entities.Conditions.HasFlagAbilityTrigger$$.ctor(unit, flag, want=1)` : l'UNITE selectionnee
     porte-t-elle le drapeau `IdunBattle.Entities.Enum.UnitFlag` ? C'est le jumeau UNIT-DOMAIN du noeud
     `HasFlag` ci-dessus (qui, lui, teste un flag SCALAIRE du contexte de decision, `ctx.flags` -- ex. le
@@ -257,7 +257,7 @@ class HasUnitFlag(AbilityTrigger):
 
 
 class AreEqual(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AreEqual(a,b)` : `a == b` (ctor générique 2-arg, singleton DAT_183200238 ;
+    """`IdunBattleLogic.Entities.DSLTriggers$$AreEqual(a,b)` : `a == b` (ctor générique 2-arg, singleton DAT_183200238 ;
     sémantique DÉDUITE du nom — eval résiduelle non décompilée. À confirmer si branché sur des enums/
     objets non-int).
 
@@ -290,7 +290,7 @@ class AreEqual(AbilityTrigger):
 
 
 class AmountIsEqual(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AmountIsEqual(a,b)` → `IdunBattle.Entities.Conditions.AmountIsEqualAbilityTrigger$$ShouldTrigger` : `a == b`."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$AmountIsEqual(a,b)` → `IdunBattle.Entities.Conditions.AmountIsEqualAbilityTrigger$$ShouldTrigger` : `a == b`."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
         self.a, self.b = a, b
 
@@ -299,7 +299,7 @@ class AmountIsEqual(AbilityTrigger):
 
 
 class AmountIsGreater(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater(a,b)` → `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger` : `a > b` STRICT
+    """`IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreater(a,b)` → `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger` : `a > b` STRICT
     (classe DAT_1832482b0, DISTINCTE de AmountIsEqualOrGreater malgré le même nom de ctor mislabel)."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
         self.a, self.b = a, b
@@ -309,7 +309,7 @@ class AmountIsGreater(AbilityTrigger):
 
 
 class AmountIsEqualOrGreater(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AmountIsEqualOrGreater(a,b)` → `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` : `a >= b`
+    """`IdunBattleLogic.Entities.DSLTriggers$$AmountIsEqualOrGreater(a,b)` → `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` : `a >= b`
     (classe DAT_183248030, distincte de AmountIsGreater)."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
         self.a, self.b = a, b
@@ -368,8 +368,8 @@ def has_adjacent_enemies(unit: TargetsSelector, unit_tile: TargetsSelector,
 
 
 class CacheTrigger(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$Cache(trigger)` (overload PRÉDICAT du `Cache` — le sélecteur est
-    `IdunBattleLogic.Entities.DSLFactory$$Cache`, même famille, singleton de classe DISTINCT `DAT_183282208` ; le ctor
+    """`IdunBattleLogic.Entities.DSLTriggers$$Cache(trigger)` (overload PRÉDICAT du `Cache` — le sélecteur est
+    `IdunBattleLogic.Entities.DSLSelectors$$Cache`, même famille, singleton de classe DISTINCT `DAT_183282208` ; le ctor
     affiché `thor_Menu_WaitForCondition..ctor` est un fold gshared MISLABELÉ, structure lue = 1 champ =
     le nœud caché) : MÉMOÏSE le verdict booléen du sous-arbre. La 1ʳᵉ évaluation calcule et stocke ;
     les suivantes rendent le CACHE — la mémoïsation est OBSERVABLE dès que l'état mute entre deux
@@ -495,7 +495,7 @@ class IsTrenchTile(AbilityTrigger):
 
 
 class AmountIsZero(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AmountIsZero(a)` = `NOT(AmountIsEqualOrGreater(a, 1))` : `a <= 0`
+    """`IdunBattleLogic.Entities.DSLTriggers$$AmountIsZero(a)` = `NOT(AmountIsEqualOrGreater(a, 1))` : `a <= 0`
     (== 0 pour un cardinal). ⚠ `a <= 0`, PAS `a == 0` (mirror exact du natif `NOT(a >= 1)`)."""
     def __init__(self, a: AbilityTrigger):
         self.a = a
@@ -505,7 +505,7 @@ class AmountIsZero(AbilityTrigger):
 
 
 class AmountIsOdd(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AmountIsOdd(a)` = `NOT(AmountIsEven)` → `(a & 1) == 1` (bit0 de l'int)."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$AmountIsOdd(a)` = `NOT(AmountIsEven)` → `(a & 1) == 1` (bit0 de l'int)."""
     def __init__(self, a: AbilityTrigger):
         self.a = a
 
@@ -514,7 +514,7 @@ class AmountIsOdd(AbilityTrigger):
 
 
 class Modulo(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$Modulo(a,b,c)` → `IdunBattle.Entities.Conditions.ModuloAbilityTrigger$$ShouldTrigger` :
+    """`IdunBattleLogic.Entities.DSLTriggers$$Modulo(a,b,c)` → `IdunBattle.Entities.Conditions.ModuloAbilityTrigger$$ShouldTrigger` :
     `(a mod b) == c` — ⚠ c'est un PRÉDICAT bool, PAS une valeur `a mod b`. Modulo entier signé C.
     (Pour une valeur modulo pure il faudrait un autre nœud, absent du batch.)"""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger, c: AbilityTrigger):
@@ -525,7 +525,7 @@ class Modulo(AbilityTrigger):
 
 
 class HasTrait(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasTrait(unit, traitId)` : `UnitExtensions.HasFlag(unit, traitId)` (même
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasTrait(unit, traitId)` : `UnitExtensions.HasFlag(unit, traitId)` (même
     primitive que HasFlag/UnitsWithTrait). Sujet = l'opérande (passer `Subject()` sous un Filter).
     `ctx.has_trait` défaut None → trait absent → False. [ctor mislabelé, sémantique DÉDUITE ; single-vs-
     any sur une liste = à confirmer à l'agreement]."""
@@ -952,7 +952,7 @@ class HasGrandAlliance(AbilityTrigger):
 
 
 class HasEffect(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType, activeOnly, sourceFlags)` →
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasEffect(unit, effectType, activeOnly, sourceFlags)` →
     `IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger` → `IdunBattle.Entities.
     EntityExtensions$$HasOneOfEffects(entity, query, [effectType], activeOnly, sourceFlags)`.
 
@@ -1047,7 +1047,7 @@ class HasEffect(AbilityTrigger):
 
 
 class HasAnyEffect(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasAnyEffect(unit, effectTypes)` → `IdunBattle.Entities.Triggers.HasAnyEffectTrigger$$ShouldTrigger` : au moins un effet parmi
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasAnyEffect(unit, effectTypes)` → `IdunBattle.Entities.Triggers.HasAnyEffectTrigger$$ShouldTrigger` : au moins un effet parmi
     la liste (mode 6). `ctx.has_effect` défaut None → False."""
     def __init__(self, unit: AbilityTrigger, effect_types):
         self.unit, self.effect_types = unit, effect_types
@@ -1060,7 +1060,7 @@ class HasAnyEffect(AbilityTrigger):
 
 
 class HasFaction(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasFaction(unit, faction, mode)` -> `IdunBattle.Entities.Triggers.HasFactionTrigger$$ShouldTrigger` :
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasFaction(unit, faction, mode)` -> `IdunBattle.Entities.Triggers.HasFactionTrigger$$ShouldTrigger` :
     resout `unit` en UNE entite (slot 7 = select-single) puis `IdunBattle.Entities.UnitExtensions$$HasFaction(entity, faction@+0x10)`.
     `faction` = valeur de l'enum `IdunBattle.Entities.Enum.UnitFaction` (0=Ultramarines, 1=Sisterhood,
     2=AstraMilitarum, ...). Entite absente -> False (le natif retourne sans valeur = 0).
@@ -1245,7 +1245,7 @@ class Contains(AbilityTrigger):
 
 
 class HasUnit(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasUnit(tiles, mode)` : la/les TUILE(s) du selecteur portent-elles
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasUnit(tiles, mode)` : la/les TUILE(s) du selecteur portent-elles
     une unite (`GetUnitOrMachine(tile) != null`) ? Predicat TILE-domain -- consomme sous un `Filter`/
     `FilterContinuous` ou le sujet est un id de tuile (`IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`).
     Lit `ctx.board.coord(tile)` + l'occupation VIVANTE de `ctx.units` (meme modele que `CanAddUnit`/`Units`).
@@ -1331,7 +1331,7 @@ class AreEnemies(AbilityTrigger):
 
 
 class HasNegativeModifier(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasNegativeModifier(unit, statType)` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasNegativeModifier(unit, statType)` ->
     `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger` : l'entite porte-t-elle AU MOINS UNE
     modification PER-SOURCE strictement NEGATIVE sur l'un des StatTypes du filtre (`@+0x18` = array inline) ?
     Le natif itere le `Dictionary<source, ValueModification>` du `StatComponent` et rend true au 1er
@@ -1357,7 +1357,7 @@ class HasNegativeModifier(AbilityTrigger):
 
 class IsInTeamAura(AbilityTrigger):
     """`IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$ShouldTrigger` (construit par
-    `IdunBattleLogic.Entities.DSLFactory$$IsInTeamContagionsOfNurgleAura(unit, teamReference)` = le meme trigger
+    `IdunBattleLogic.Entities.DSLTriggers$$IsInTeamContagionsOfNurgleAura(unit, teamReference)` = le meme trigger
     fige sur `effectType = 0x42f = 1071 ContagionsOfNurgle_ArmorReduction1`) :
 
         unit = <selecteur @+0x10>.SelectSingle(entities)      ; null -> false
@@ -1461,7 +1461,7 @@ class IsInUnitAura(AbilityTrigger):
 
 
 class IsAlive(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsAlive(unit)` → `IdunBattle.Entities.Conditions.IsAliveAbilityTrigger$$ShouldTrigger` : `UnitExtensions.IsAlive` = vivant & hp>0.
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsAlive(unit)` → `IdunBattle.Entities.Conditions.IsAliveAbilityTrigger$$ShouldTrigger` : `UnitExtensions.IsAlive` = vivant & hp>0.
     (`Damageable`/`Alive` filtrent un ENSEMBLE sur le même critère.)"""
     def __init__(self, unit: AbilityTrigger):
         self.unit = unit
@@ -1594,7 +1594,7 @@ class IsObscured(AbilityTrigger):
 
 
 class IsDead(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsDead(unit)` = `NOT(IsAlive)`."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsDead(unit)` = `NOT(IsAlive)`."""
     def __init__(self, unit: AbilityTrigger):
         self.unit = unit
 
@@ -1603,7 +1603,7 @@ class IsDead(AbilityTrigger):
 
 
 class IsRepairable(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsRepairable(unit, flag)` -- le predicat qui aiguille le
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsRepairable(unit, flag)` -- le predicat qui aiguille le
     `If(IsRepairable, Repair, Heal)` de `IdunBattleLogic.Entities.Abilities.Active.Loki.
     InspiredToGreatnessAbility$$RepairOrHeal` (i2 : « heals **or repairs** it »).
 
@@ -1630,7 +1630,7 @@ class IsRepairable(AbilityTrigger):
 
 
 class IsPositionMachineForCurrentPlayer(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsPositionMachineForCurrentPlayer` -> `IsPositionMachineForPlayerTrigger
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsPositionMachineForCurrentPlayer` -> `IsPositionMachineForPlayerTrigger
     .IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger` :
 
         turn   = state.GetMatchTurn() ; player = state.GetPlayer(turn.CurrentPlayerId)
@@ -1700,7 +1700,7 @@ class CurrentPlayerIsOfTeam(AbilityTrigger):
 
 
 class IsMeleeAttack(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` → `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` : l'ABILITY COURANTE est-elle une attaque de
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack` → `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` : l'ABILITY COURANTE est-elle une attaque de
     mêlée ? (type de timeline de l'ability, donnée statique gameconfig). `ctx.attack_kind == 'melee'`
     (nouveau slot câblé par la couche ability ; défaut None → False)."""
     def should_trigger(self, ctx):
@@ -1708,14 +1708,14 @@ class IsMeleeAttack(AbilityTrigger):
 
 
 class IsRangedAttack(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` : l'ability courante est-elle une attaque à distance ?
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack` : l'ability courante est-elle une attaque à distance ?
     `ctx.attack_kind == 'ranged'` (même classe qu'IsMeleeAttack, timeline-type distinct)."""
     def should_trigger(self, ctx):
         return ctx.attack_kind == "ranged"
 
 
 class IsNormalAttack(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` → `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` : l'ability courante == ActiveAbilityType
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` → `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` : l'ability courante == ActiveAbilityType
     normal (0x3f5 = 1013, `op_Implicit` lu). `ctx.attack_ability_type == NORMAL_ATTACK_KIND`
     (nouveau slot ; défaut None → False).
 
@@ -1723,7 +1723,7 @@ class IsNormalAttack(AbilityTrigger):
     L'ordinal 1013 est bien un membre valide d'`ActiveAbilityType` (`PrecisionShot_Attack`), et
     l'y attribuer aurait ete SILENCIEUSEMENT faux : le decompile nomme ce littéral
     `AbilityOrEffect 0x3f5`, argument du `DirectAbilitySelector` de la 2e branche
-    d'`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` -- un marqueur de KIND, pas l'ability
+    d'`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` -- un marqueur de KIND, pas l'ability
     de PrecisionShot. Le build ne publie aucun enum `AbilityOrEffect` ; le foyer nomme du depot est
     `runner/abilities/attack_type.NORMAL_ATTACK_KIND` (= `lord_of_tempests.SMITE_KIND`). Import
     LOCAL : `entities/` ne doit pas dependre de `runner/` au chargement.
@@ -1973,7 +1973,7 @@ class IsAdjacent(AbilityTrigger):
 
 
 class IsCharging(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsCharging(a, b)` -> predicat dont l'`Evaluate` appelle le
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsCharging(a, b)` -> predicat dont l'`Evaluate` appelle le
     slot `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)`. MIRROR du decompile de
     CETTE methode (2 termes, `&`) :
 
@@ -2031,7 +2031,7 @@ class IsCharging(AbilityTrigger):
 
 
 class IsInRange(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsInRange(a, b, range)` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsInRange(a, b, range)` ->
     `IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger` -- MIRROR du decompile,
     et il n'est NI `dist(mainTile, mainTile)` NI un `any` sur les entites :
 
@@ -2067,7 +2067,7 @@ class IsInRange(AbilityTrigger):
 
 
 class IsSurrounding(IsInRange):
-    """`IdunBattleLogic.Entities.DSLFactory$$IsSurrounding(a, b, radius)` -- et c'est **LA MEME
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsSurrounding(a, b, radius)` -- et c'est **LA MEME
     CLASSE NATIVE QUE `IsInRange`**, pas un noeud frere.
 
     MESURE (#433-r3-r1) : `IdunBattleLogic.Entities.DSLTriggers$$IsSurrounding` et
@@ -2090,20 +2090,20 @@ class IsSurrounding(IsInRange):
 
 
 class OwnerIsTarget(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsTarget` = `AreEqual(Owner, Target)` : l'entité OWNER est-elle la
+    """`IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsTarget` = `AreEqual(Owner, Target)` : l'entité OWNER est-elle la
     même que la cible ? (`ctx.owner` défaut → `ctx.caster`, hypothèse Owner==Caster documentée)."""
     def should_trigger(self, ctx):
         return _same_entity(ctx.owner or ctx.caster, ctx.target)
 
 
 class OwnerIsCaster(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsCaster` = `AreEqual(Owner, Caster)` : OWNER == qui lance ?"""
+    """`IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster` = `AreEqual(Owner, Caster)` : OWNER == qui lance ?"""
     def should_trigger(self, ctx):
         return _same_entity(ctx.owner or ctx.caster, ctx.caster)
 
 
 class OwnerIsActor(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsActor` = `AreEqual(Owner, Actor)` : OWNER == acteur du contexte ?
+    """`IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsActor` = `AreEqual(Owner, Actor)` : OWNER == acteur du contexte ?
     (`ctx.actor` défaut → `ctx.caster`)."""
     def should_trigger(self, ctx):
         return _same_entity(ctx.owner or ctx.caster, ctx.actor or ctx.caster)

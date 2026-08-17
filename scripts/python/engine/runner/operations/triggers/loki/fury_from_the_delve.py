@@ -268,7 +268,7 @@ class FuryFromTheDelveCheckTargetHealthAbility(TriggeredAbility):
     TRIGGERED_ABILITY_ID = TriggeredAbilityType.FuryFromTheDelve
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        # `IsNormalAttack` -- mirror `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` (#120),
+        # `IsNormalAttack` -- mirror `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` (#120),
         # lu sur `ev.ability_type`. Sans lui, le flag serait reecrit par n'importe quel CAST du
         # porteur, avec la cible de ce cast : un faux positif que le natif refuse.
         if not is_normal_attack(ev.ability_type):

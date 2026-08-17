@@ -532,7 +532,7 @@ def _hellfire_shells_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     """`IdunBattle.AI.Playbook.Loki.HellfireShellsPlaybook$$MakeDamagePredictions` (carrier NPC/summon ultraNpc4Heavy-
     Intercessor / ultraSmnHeavyIntercessor, ability 1080) — mirror parfait de `CrushingClawsPlaybook
     IdunBattle.AI.Playbook.Loki.CrushingClawsPlaybook$$MakeDamagePredictions` (meme signature, meme appel `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`). SURCHARGE :
-      - BASE = `IdunBattleLogic.Entities.DSLFactory$$Direct(GetVariableForLevel(0xc=minDmg)) = minDmg SEUL (rarity-scaled), PAS
+      - BASE = `IdunBattleLogic.Entities.DSLFormulas$$Direct(GetVariableForLevel(0xc=minDmg)) = minDmg SEUL (rarity-scaled), PAS
         l'avg(minDmg,maxDmg) generique (@lvl65 mult100 : minDmg 582 vs avg 727 -> generique sur-pred +145/coup).
       - HITS = `GetNumberConstant(0x2f=nrOfHits)` + (`HasTrait(target, 0x3f9=BigTarget)` ?
         `GetNumberConstant(0x2b=extraHit)` : 0) = 2 vs cible normale, 4 vs BigTarget. Litteral (PAS +ExtraHits
@@ -957,7 +957,7 @@ def _savage_echoes_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # targ
     Les 3 autres entrees du call-site sont generiques (relues au decompile du playbook, aucune n'est
     surchargee) : profil = `AActiveAbility$$GetDamageProfile` -> `Nullable` NON vide (Eviscerate, PAS le
     quirk `param_8 = null` de #164/#165) ; hits = `ArmoriumCherubAbility$$GetHits`
-    = `GetNumberConstant(0x2f = nrOfHits)` ; cibles = `DSLFactory$$Entity(target)` -> mono-cible.
+    = `GetNumberConstant(0x2f = nrOfHits)` ; cibles = `IdunBattleLogic.Entities.DSLSelectors$$Entity(target)` -> mono-cible.
 
     L'ARBRE est celui de `SavageEchoesAbility.get_damage_formula` (DEFINITION UNIQUE, partagee avec la
     face COMBAT — un seul artefact natif, un seul port). Ce handler ne fait que lui fournir son
@@ -1706,7 +1706,7 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
       - PRIMARY (cible) : base=`minDmg` (AbilityVariableType 12, IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$GetMinDamage), hits=`nrOfHits`
         (AbilityConstantType 47, IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits = 2), profil=`damageProfile` (Power).
       - SECONDARY (chaque ennemi VIVANT adjacent a la cible, `IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$GetAdjacentTargets` =
-        `Enemies(AdjacentUnits(TARGET, r=1))` ou `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `Units(AdjacentTiles(target))
+        `Enemies(AdjacentUnits(TARGET, r=1))` ou `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(target))
         − target` : unites lues par OCCUPATION DE TUILE → un mort n'est plus sur le board (notre
         pos_by_id garde les cadavres, d'ou le filtre hp>0 explicite — #57m, corpse u95 +120 a 54321 s8),
         plafond `SelectUniqueUnits(3)`) : base=`minDmg_2` (var 54,
@@ -1754,7 +1754,7 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
     caster_team = scene.team(caster_id)
     t_pos = scene.pos(target_id)
     if t_pos is not None:
-        # `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = Units(AdjacentTiles(target)) − target : occupation de TUILE
+        # `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` = Units(AdjacentTiles(target)) − target : occupation de TUILE
         # → vivants seulement (pos_by_id garde les cadavres ; idiome hp>0 = IsAlive, cf. l.227/276).
         _elev, _neigh = scene.elev_by_pos, _bq.neigh_map(scene)
         adj = [u for u in scene.pos_by_id

@@ -13,7 +13,7 @@ restored **cannot exceed 4365 Health**. »
 
       <trigger de base factory@0xa0>  &  On(0x13 = 19 = TurnStart_Other, subject=1)
 
-  `factory@0xa0` (cache de `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`) = **`OwnerIsActor`**
+  `factory@0xa0` (cache de `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`) = **`OwnerIsActor`**
   — « le proprietaire est le joueur ENTRANT ». C'est le MEME cache que
   `IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateTrigger`, ou il est
   PROUVE live (`probe_203` : regen nulle au tour adverse). Noter l'ABSENCE de `IsDamaged(self)`

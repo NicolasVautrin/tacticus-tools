@@ -141,7 +141,7 @@ def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None,
     """`pos` est-il sur une tuile ADJACENTE à `tile` selon l'adjacence NATIVE ?
 
     Primitive d'adjacence COMMUNE à tous les usages du playbook : les comptages `GetAdjacent*`
-    (slots 124/126/128) ET `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` (= `AdjacentTiles` puis `Units`,
+    (slots 124/126/128) ET `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` (= `AdjacentTiles` puis `Units`,
     ciblage des heals `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets`). Les deux passent par `IterateAdjacentTiles`, donc
     le MÊME substrat et la MÊME porte d'élévation doivent s'appliquer.
 
@@ -207,7 +207,7 @@ def are_entities_adjacent(a: tuple, b: tuple, elev_by_pos: dict | None = None,
         TileQuery$$IterateAdjacentTiles(t, ...) parcourt la liste d'adjacence STOCKÉE sur `t`,
                                                 donc ne rend JAMAIS `t` elle-même
 
-    `is_adjacent` mirrore le SECOND (les comptages `GetAdjacent*`, `DSLFactory$$AdjacentUnits`) et a
+    `is_adjacent` mirrore le SECOND (les comptages `GetAdjacent*`, `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits`) et a
     donc raison de ne pas compter la tuile source. Le premier, lui, porte le COURT-CIRCUIT
     D'IDENTITÉ : `t1 == t2` court-circuite `IsNeighbour` et rend VRAI, et `|dElev| = 0 < 2` ne peut
     pas le contredire. Confondre les deux fait REFUSER une adjacence que le natif accorde — sans
@@ -910,7 +910,7 @@ def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
     retirer ne changerait rien.
 
     `check_walkable` / `update_reference` = les DEUX bools de la struct `settings` que chaque
-    call-site alloue et passe a `IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine` (champs
+    call-site alloue et passe a `IdunBattleLogic.Entities.DSLSelectors$$TilesBehindInLine` (champs
     `+0x10` / `+0x11`). INVENTAIRE des call-sites (LU au decompile, #117) :
       | `DarkTalonStrikeAbility$$GetTilesInLine`            | 1 | 1 |
       | `ExcruciatingFrequenciesAbility$$GetAffectedTiles`  | 1 | 1 |
@@ -1317,7 +1317,7 @@ def get_adjacent_tiles(pos: tuple, walkable_at=None, elevation_at=None, tile_exi
     `is_tile_valid_for_list` -- un palier a +2 est inaccessible A PIED comme A LA LIGNE.
 
     Flags PORTES = ceux LUS a l'unique call-site porte (`IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`
-    appelle le slot avec `(entity, 0, 1, 1)`, cf. `IdunBattleLogic.Entities.DSLFactory$$AdjacentTiles`) :
+    appelle le slot avec `(entity, 0, 1, 1)`, cf. `IdunBattleLogic.Entities.DSLSelectors$$AdjacentTiles`) :
     `onlyEmptyOrSteppable=False` (les tuiles OCCUPEES passent -- indispensable, on vise des ennemis),
     `onlyWalkableTiles=True`, `allowTemporary=True`. Les deux autres combinaisons ne sont PAS portees
     (pas de substrat offline pour `IsTemporary`/`IsEmptyOrSteppable`) et leve plutot que de mentir.
@@ -1373,7 +1373,7 @@ def get_surrounding_tiles(pos: tuple, radius: int = 1, include_center: bool = Fa
     FLAGS PORTES = ceux LUS a la chaine de call-sites (`IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select`
     -> slot 0x65 avec `(tile, radius, requireEmptyOrSteppable=0, checkWalkable=(sel+0x29 == 0),
     unitFilter=sel+0x28, includeSelf=1)`, ou `sel+0x28`/`+0x29` sont les 2 derniers arguments de
-    `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles`). Les deux call-sites de ce chemin-la
+    `IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles`). Les deux call-sites de ce chemin-la
     (`GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector` r=2, `ThriceBlessedConflagrationAbility$$GetTilesInBestLine`
     r=1) passent `(..., 0, 0)` -> `requireEmptyOrSteppable=False` (les tuiles OCCUPEES passent),
     `checkWalkable=True`, `unitFilter=0`. `includeCenter=0` cote DSL est resolu par la branche
@@ -1435,7 +1435,7 @@ def surrounding_enemies(origin: tuple, positions: list,
     du caster (`Caster@+0x160` = CasterSelector -> ENTITÉ -> `GetMainTile` dans
     `IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select` — PAS la tuile balayée du contexte).
 
-    Chaîne native (décompilée, case-49x) : `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` =
+    Chaîne native (décompilée, case-49x) : `IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies` =
     `Enemies(Units(SurroundingTiles(caster, r=2) - Tiles(caster)))` ; `SurroundingTiles` -> slot
     0x65 = `IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles` -> `IdunBattle.Core.Services.TileQuery$$IterateSurroundingTiles` (cube-loop DISQUE dist <= 2 — pas le ring exact) avec flags MESURÉS au call-site
     (IdunBattle.Entities.Selectors.SurroundingTilesSelector$$.ctor <- SurroundingTiles(query, caster, 1, r=2, 0, 0)) :
@@ -1445,7 +1445,7 @@ def surrounding_enemies(origin: tuple, positions: list,
         walkable, SANS test d'élévation ni d'occupation (une unité stationne sur du walkable -> no-op
         offline) ; PAS de porte |Δelev| ici (contrairement au ring-1 `IterateAdjacentTiles`) ;
       - includeSelf = ON (p7=1) puis `- Tiles(caster)` au niveau DSL -> exclure `origin`.
-    `IdunBattleLogic.Entities.DSLFactory$$Unobscured` -> `IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` depuis la tuile
+    `IdunBattleLogic.Entities.DSLSelectors$$Unobscured` -> `IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` depuis la tuile
     RÉELLE : dist 1 jamais obscurci, dist 2 via `is_target_tile_obscured`.
     Retour : set de positions (== unités : 1 unité/tuile) — l'union avec ring1(T) est dédupliquée
     par le `IdunBattle.DSL.TargetsSelector$$SelectUniqueUnits` du playbook.
@@ -1943,7 +1943,7 @@ def gauntlets_target(tile: tuple, enemies: list, neigh_by_pos: dict | None = Non
     Le natif boucle sur `GetEligibleTargetsSelectable(caster, MainTile)` et `GenerateAction(pos,
     eligible_target, Fix64(count))` : 1 action / eligible target, MÊME utilité (arc-count, tuile-only)
     -> `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` garde le PREMIER à égalité (remplace SSI `op_GreaterThan` strict).
-    L'énumération des eligible targets est INVERSÉE (`DSLFactory.Tiles`=`SortReverseSelector IdunBattleLogic.Entities.DSLFactory$$Tiles`)
+    L'énumération des eligible targets est INVERSÉE (`DSLFactory.Tiles`=`SortReverseSelector IdunBattleLogic.Entities.DSLSelectors$$Tiles`)
     -> la cible = 1er ennemi ring-1 dans l'ordre `boardGraph.neighbours` (= `GetAdjacentTiles` natif)
     **INVERSÉ**, sinon ring-2. VALIDÉ LIVE (#117 : caster@(3,5), ring-1 fwd [80,114,78,118] -> inversé ->
     118 = cible native EXACTE).

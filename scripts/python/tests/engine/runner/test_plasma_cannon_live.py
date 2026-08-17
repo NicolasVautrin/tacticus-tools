@@ -6,9 +6,9 @@
         AttackWithAttackDamage(caster, PickRandomly(UnitsDirectlyBehind(caster,target), 2), MEME
                                MinMaxDamage, Plasma, nrOfHits(MEME)) ), 0x2a )                            # SPLASH <=2
 FINDINGS DECOMPILE (VA citees dans darkangels.py) :
-  - factory native = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> native_factory="attack" (2 tirages/coup a cc=0),
-    CLASSIFIE PAR XREFS (call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x1eb/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x2a6 -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage ; PlasmaCannon ABSENT des xrefs de
-    IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage ability). CONTRASTE le template PlasmaGrenade "ability". Piege rngcrit-1202 / tip #2.
+  - factory native = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> native_factory="attack" (2 tirages/coup a cc=0),
+    CLASSIFIE PAR XREFS (call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x1eb/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x2a6 -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage ; PlasmaCannon ABSENT des xrefs de
+    IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage ability). CONTRASTE le template PlasmaGrenade "ability". Piege rngcrit-1202 / tip #2.
   - splash = `PickRandomly(UnitsDirectlyBehind(target), 2)` : jusqu'a 2 unites ennemies DIRECTEMENT DERRIERE
     la cible (anneau R1, cote oppose au caster), meme plage/hits que la principale. CONTRASTE PlasmaGrenade
     (splash = ennemis ADJACENTS a la cible, tous cotes).
@@ -45,7 +45,7 @@ ORACLE DU NOMBRE DE COUPS (#96 -- aucun scalaire de gameplay fige). Le decompile
 `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour`, les DEUX volets
 (main ET splash) passent `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits`
 = `GetNumberConstant(cfg, 0x2f)` directement en argument de
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -- aucune formule, et
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -- aucune formule, et
 `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'un `GetStringConstant` +
 `System.Int32.Parse`. Valeur BRUTE -> l'oracle est la CONFIG :
 `gameconfig.ability("PlasmaCannon").constants.nrOfHits`. Cle non ambigue malgre la COLLISION DE VALEUR

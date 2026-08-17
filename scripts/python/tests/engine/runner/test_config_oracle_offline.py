@@ -75,7 +75,7 @@ def test_damage_profiles_used_by_the_suite_are_distinct():
 def test_ability_damage_profile_reads_the_config_constant():
     """Les abilities dont le behaviour natif appelle `AbilityConfiguration$$GetDamageProfile` exposent bien
     `constants.damageProfile` ; celles qui passent un litteral `DamageProfileType` a
-    `DSLFactory$$AttackWithAttackDamage` (HarvesterOfSouls -> 0x13 = HeavyRound) n'ont RIEN a y lire."""
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (HarvesterOfSouls -> 0x13 = HeavyRound) n'ont RIEN a y lire."""
     for ability, profile in (("FlailSwing", "Power"), ("MartialApotheosis", "Energy"),
                              ("HarbingerOfDestruction", "DirectDamage"),
                              ("DestroyerHive", "DirectDamage")):

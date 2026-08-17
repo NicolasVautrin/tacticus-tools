@@ -6,7 +6,7 @@ RE (decompile ghidra, build `gqfc5mff6c`) :
   `IdunBattleLogic.Entities.Abilities.Active.Loki.ListenUpMaggotsAbility$$CreateTrigger` :
       df@0xa8  &  HasUnit( Parent(caster@0x160), 3 )
   ou `df@0xa8` est le trigger de base PRE-CACHE construit par
-  `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` :
+  `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` :
       On(0x21 = AbilityInit) & df@0x128 & OwnerIsActor(owner@0x148, actor@0x158)
   (le MEME `df@0xa8` que `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateTrigger`,
   corps dedupliqe de toute la famille des owner-effects poses A L'INIT DE L'ABILITY).

@@ -7,7 +7,7 @@ of {hp} Health, unless Overkilled. Can only be triggered once per turn. »
 
 DISCRIMINANT vs TaintedNarthecium (le point le plus facile a rater) : `get_ReviveOnOverkill @vtable+0x738`
 = GameCamera$$ShouldBlurBackground `return 0` pour Narthecium (et la base) vs GameCamera$$get_ShouldDisableRenderingWhenBehindSomething `return 1` pour TaintedNarthecium (lu
-LIVE, `probe_79_revive_vtable.py`). Byte==0 -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` AJOUTE `NOT(HasFlag(dying,
+LIVE, `probe_79_revive_vtable.py`). Byte==0 -> `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent` AJOUTE `NOT(HasFlag(dying,
 8=overkill))`. Les tests `test_overkill_blocks_revive` / `test_no_overkill_revives` opposent les deux faces.
 
 METHODE (mirror test_tainted_narthecium_revive_live, DETERMINISTE) : etat REEL (board+stats via load_state),

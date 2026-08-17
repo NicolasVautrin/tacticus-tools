@@ -6,7 +6,7 @@ n'ont PAS servi a construire le port :
       `blackTerminator` -> le canal ne depend ni du profil d'arme ni du reste du kit ;
   G2. autre BOARD    : `C1_74` au lieu de `MC1_67` ;
   G3. cible sur DRYBUSH (cover HEBERGE par le terrain, `LightCoverAbility`) -> DISCRIMINANT du residu 5
-      du case-doc : si `IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect` comptait les covers de terrain, le +1 serait
+      du case-doc : si `IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect` comptait les covers de terrain, le +1 serait
       SYSTEMATIQUE sur une cible en DryBush ; s'il ne compte que les status-effects DYNAMIQUES portes
       par l'entite-tuile (ce que le port mirrore), on doit retrouver l'oscillation ~33 %.
       Carrier MELEE choisi expres : LightCover est gate `!IsMeleeAttack` -> aucun confond de coups.

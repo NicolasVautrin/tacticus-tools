@@ -2,10 +2,10 @@
 IMPERATIF). **Un DESPAWN, PAS une mort** : aucun vecteur on-death, aucune attribution de tueur,
 les PV ne sont pas touches et le flag `Dead (6)` n'est PAS pose.
 
-Frontiere DSL (#149) : la feuille `IdunBattleLogic.Entities.DSLFactory$$RemoveUnit` (au-dessus,
+Frontiere DSL (#149) : la feuille `IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnit` (au-dessus,
 structurelle) APPELLE cette Operation (en-dessous, imperative). Chaine native complete :
 
-    IdunBattleLogic.Entities.DSLFactory$$RemoveUnit(sel)
+    IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnit(sel)
       -> IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute
            resout le selecteur `+0x50` (groupType 3), puis PAR UNITE :
            slot +6 de l'interface `Core.Services.OperationProcessor` avec `(unitId, 1, 0)`

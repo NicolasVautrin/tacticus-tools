@@ -17,7 +17,7 @@ Ce que le test confronte au LIVE (aucune fixture gelee, aucun scalaire fitte) :
      Profil `Toxic` (PiercingRatio 70) -> le net n'est PAS 25% du maxPV : decomposition d'etage
      verifiee (base -> percage -> armure).
   C. `test_explodes_fires_on_overkill_live` — LE PIEGE. Les deux `CreateTrigger` passent `a=1` a
-     `OnPreDeath2` => `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute PAS le `NOT HasFlag(dying, Overkilled=8)`.
+     `OnPreDeath2` => `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent` n'ajoute PAS le `NOT HasFlag(dying, Overkilled=8)`.
      Un port copie sur `FinalJustice` (dont le gate overkill vit dans son BEHAVIOUR) serait FAUX.
      On monte une mort **OVERKILL CERTAINE** (degat BRUT de la prediction >= 2 x PV) et on exige que
      la nova parte quand meme.
@@ -25,8 +25,8 @@ Ce que le test confronte au LIVE (aucune fixture gelee, aucun scalaire fitte) :
      `OnDeathEvent(2, a, b)` mirrores, verifies OFFLINE (aucun porteur `Steppable` de `PutridExplosion`
      n'existe en gameconfig -> gate non confrontable live : mirror + toggle offline).
 
-Artefacts natifs (build gqfc5mff6c) : `ExplodesAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour ; `PutridExplosion_Ability` IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateBehaviour ; `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2`
--> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` ; emetteur de la sequence de mort `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute`
+Artefacts natifs (build gqfc5mff6c) : `ExplodesAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour ; `PutridExplosion_Ability` IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateBehaviour ; `IdunBattleLogic.Entities.DSLTriggers$$OnPreDeath2`
+-> `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent` ; emetteur de la sequence de mort `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute`
 (ordre d'instruction LU : On(1) -> On(2) -> On(0) -> On(54 = UnitDefeated) -> On(53 = PostUnitKill)).
 
 ⚠ `--block-target 0,0` : le block EST tire dans la famille ABILITY (prouve live), mais le rejeu
@@ -269,7 +269,7 @@ def test_putrid_explosion_faction_exclusion_live(live_session, rpc, build_runner
 
 
 def test_no_overkill_gate_offline():
-    """Les DEUX `CreateTrigger` passent `a=1` a `OnPreDeath2` -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute
+    """Les DEUX `CreateTrigger` passent `a=1` a `OnPreDeath2` -> `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent` n'ajoute
     PAS `NOT HasFlag(dying, UnitFlag.Overkilled=8)`. Le port ne doit donc lire `ev.overkill` NULLE PART."""
     for cls in (ExplodesAbility, PutridExplosionAbility):
         ab = cls(7)

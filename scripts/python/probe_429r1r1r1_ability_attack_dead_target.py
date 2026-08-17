@@ -71,14 +71,14 @@ GATE_NAME = "is_dead_unit_and_not_allowed_by_ability"
 #: Ce n'est pas un commentaire : le volet `tri` CONFRONTE cette table au scan, dans les DEUX sens.
 TRI = {
     ("runner/abilities/behaviours/combat.py", "AttackWithAttackDamage::execute"): (
-        False, "IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage",
+        False, "IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage",
         "Feuille DSL. Etage natif `AttackBehaviour$$Execute` -> `AttackDamageBehaviour$$ExecuteTarget`"
         " -> `AttackDamageOperation$$Execute` : aucun gate cadavre sur le trajet."),
     ("runner/abilities/behaviours/combat.py", "ChainLeftOverHitsAttackDamage::execute"): (
         False, "IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$Execute",
         "Feuille DSL. Ses callees NOMMES ne comportent aucun test de mort."),
     ("runner/abilities/behaviours/combat.py", "AttackWithAbilityDamage::execute"): (
-        False, "IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage",
+        False, "IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage",
         "Feuille DSL, famille ABILITY -> `IdunBattle.Operations.AbilityDamageOperation$$Execute` :"
         " teste `EntityExtensions$$IsUnit` (lecture de stat), jamais la mort."),
     ("runner/abilities/loki/splash.py", "_splash_ability_behaviour"): (

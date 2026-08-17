@@ -16,7 +16,7 @@ par probe_62_campred 24/24, ligne u77 (4,3) +748) :
                 IsRangedAttack IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack : tuiles melee INCLUSES) ;
   - sygex_out : tuile a >2 hexes -> pas de bonus (rayon ConfigConst 0x16=2) ;
   - barq_in   : Baraqiel (HW melee-only, AUCUNE arme ranged) a <=2 hexes -> +extraDmg_2 AUSSI :
-                MESURE (run 1, 2 lignes +1194/1197 = 3x ~399) puis RE — `IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks` = UNION UnitsWithWeaponsSelector(2) + TilesOnSameElevationSelector
+                MESURE (run 1, 2 lignes +1194/1197 = 3x ~399) puis RE — `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedAttacks` = UNION UnitsWithWeaponsSelector(2) + TilesOnSameElevationSelector
                 (ref porteur, |delta elev|<=2 via IdunBattle.Entities.TileExtensions$$GetElevationDifference) -> sur
                 MC1_67 (elev 3-4) le noeud est un pass-through. Le port mirrore l'union ;
   - thad self : Thaddeus lui-meme -> pas d'aura (SurroundingFriends exclut le porteur).

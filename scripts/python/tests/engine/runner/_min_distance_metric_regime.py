@@ -19,7 +19,7 @@ Ce module fabrique le complement : la BANDE ETROITE ou les deux modeles se separ
     Sur le board MC1_67 : 46,6 % des paires de tuiles jouables ont une distance differente et
     **5,82 % font diverger le gate `<= 2`** (`probe_min_distance_metric.py --stage offline`).
 
-RE (decompile = verite, gqfc5mff6c) — `IdunBattleLogic.Entities.DSLFactory$$MinDistance` construit
+RE (decompile = verite, gqfc5mff6c) — `IdunBattleLogic.Entities.DSLFormulas$$MinDistance` construit
 `IdunBattle.Entities.Formulas.MinDistanceFormula`, dont le `Calculate` prend le `Min` sur les paires
 de `IdunBattle.Entities.Components.PositionComponent$$Distance` =
 `IdunBattle.Utils.Hex.AxialCoordinate$$ToCubeCoordinate` x2 puis

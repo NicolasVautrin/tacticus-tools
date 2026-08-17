@@ -136,8 +136,8 @@ def savage_echoes_tree(regenerate: bool, damage_override):
       a chaque coup, porte via `damage_override` (mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetAttackDamage`, meme point
       d'injection : le natif passe la node de degat calculee a `AttackWithAttackDamage`).
     - `native_factory="attack"` (defaut) : l'`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour+0x21b appelle `DSLFactory.AttackWith
-      AttackDamage IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK, 2 tirages/coup a cc=0 -- verifie par XREFS, cas rngcrit-1202) ;
-      IDENTIQUE au template ArmoriumCherub (IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage). Bit-exact multi-coups by construction.
+      AttackDamage IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille ATTACK, 2 tirages/coup a cc=0 -- verifie par XREFS, cas rngcrit-1202) ;
+      IDENTIQUE au template ArmoriumCherub (IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage). Bit-exact multi-coups by construction.
     L'ordre `op_and` (Attack PUIS Heal) n'insere aucun tirage RNG hors l'attaque (Heal deterministe) ->
     l'ordre RNG de l'attaque est inchange."""
     attack = AttackWithAttackDamage(Target(), "SavageEchoes", "Eviscerate", is_melee=True,

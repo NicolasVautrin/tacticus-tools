@@ -9,7 +9,7 @@ construit un `PickRandomly`. Leur noeud natif, et donc leur consommation :
     `First(SortTilesByUtilityForSummon(., 7 = UtilityType.Tile, caster), 1)` ->
     `SortTilesByUtilitySelector$$Select` = `OrderBy(-utilite)` STABLE : 0 tirage ;
   * `PileInAbility$$CreateBehaviour` : `First(SortByFormula(Randomize(.), If(HasTrait(0x1b), Direct(0),
-    Direct(1)), ascending=false), 1)` -> `DSLFactory$$Randomize` = `PickRandomAmountSelector(amount =
+    Direct(1)), ascending=false), 1)` -> `IdunBattleLogic.Entities.DSLSelectors$$Randomize` = `PickRandomAmountSelector(amount =
     0x7fffffff)` = MELANGE COMPLET : **`len(pool)` tirages**, bornes DECROISSANTES (loi #130).
 Le port d'AVANT tirait **1 fois des que le pool depassait 1** sur les QUATRE -- un tirage parasite qui
 decale tout ce qui consomme apres (degat, crit, cibles suivantes).
@@ -82,7 +82,7 @@ class _S:
 
 @pytest.mark.parametrize("k", [0, 1, 2, 5])
 def test_randomize_is_a_full_shuffle_with_decreasing_bounds(k):
-    """`DSLFactory$$Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` : **`len(pool)`
+    """`IdunBattleLogic.Entities.DSLSelectors$$Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` : **`len(pool)`
     tirages**, bornes `(0,k) (0,k-1) ... (0,1)`, et le SET rendu est le pool entier. Rougirait si
     quelqu'un le rabattait sur un tri (0 tirage) ou sur un `PickRandomly(., 1)` (1 tirage)."""
     st = _S()
@@ -125,14 +125,14 @@ def test_deterministic_placement_nodes_never_draw(k):
 
 
 def test_first_is_take_head_not_a_pick():
-    """`DSLFactory$$First(., 1)` = prise en TETE (0 tirage), None sur liste vide."""
+    """`IdunBattleLogic.Entities.DSLSelectors$$First(., 1)` = prise en TETE (0 tirage), None sur liste vide."""
     assert _first([9, 8, 7]) == 9
     assert _first([]) is None
 
 
 @pytest.mark.parametrize("count,want", [(0, []), (1, [9]), (2, [9, 8]), (5, [9, 8, 7])])
 def test_first_n_is_take_head_min_count_len(count, want):
-    """`DSLFactory$$First(., count)` = les `min(count, len)` PREMIERS, 0 tirage (#462-r6 : ce noeud
+    """`IdunBattleLogic.Entities.DSLSelectors$$First(., count)` = les `min(count, len)` PREMIERS, 0 tirage (#462-r6 : ce noeud
     est desormais NOMME dans le port -- il s'ecrivait `[:count]` en slice anonyme, et c'est ce qui
     avait fait perdre son point d'ancrage au contre-controle ci-dessous)."""
     assert _first_n([9, 8, 7], count) == want

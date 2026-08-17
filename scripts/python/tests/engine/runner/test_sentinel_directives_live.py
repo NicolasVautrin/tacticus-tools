@@ -9,7 +9,7 @@ au LIVE (case-220 §6.17).
         AddEffect(0x429=1065 Pinned, source=AbilityStateReference, target@0x178, dureeNode=0) ) )  # Pin cible
 plain `Execute` (l'op_Addition passe DIRECTEMENT a `AActiveAbility.Execute`, aucun AtomicGroup). Quasi-clone de
 SpiritLeech MOINS le degat conditionnel (GetAttackDamage) et le lifesteal (Heal). `native_factory="attack"`
-(la CALLEE de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour = `DSLFactory$$AttackWithAttackDamage`, JAMAIS `AttackWithAbilityDamage`). Mono-coup ->
+(la CALLEE de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, JAMAIS `AttackWithAbilityDamage`). Mono-coup ->
 non concerne par le desync per-hit (tip #2). « Does not end Sy-Gex's turn » = SetsEndTurnFlags/
 SetsActiveAbilityUsedFlag=False (1139 dans les frozensets base.py).
 
@@ -30,9 +30,9 @@ Ce que ces tests PROUVENT (lit l'etat LIVE ; drive les positions ; state-file UN
 
 ORACLES DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : dans
 `IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour`, le nb de coups
-part de `IdunBattleLogic.Entities.DSLFactory$$ConfigConst(0x2f)` et le profil de
+part de `IdunBattleLogic.Entities.DSLFormulas$$ConfigConst(0x2f)` et le profil de
 `IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile`, tous deux passes DIRECTEMENT a
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -- aucune formule (et
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -- aucune formule (et
 `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` = `GetStringConstant` +
 `System.Int32.Parse`). Valeurs BRUTES -> l'oracle est la CONFIG :
 `gameconfig.ability("SentinelDirectives").constants` (`nrOfHits`, `damageProfile`, `range`) et

@@ -202,7 +202,7 @@ def bonus_attack_tree(profile: str):
 
     CE QUE LE PORT EN FAIT : rien, et c'est le comportement JUSTE **ici** -- ce call-site est l'un
     des TROIS (sur 18) qui posent `1`. La feuille est montee par
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, qui finit par
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, qui finit par
     `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` et pousse donc un `OngoingAttack` NEUF
     par cible : c'est exactement la semantique `isOutsideAttack = true`. Poser le drapeau serait un
     no-op.

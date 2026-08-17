@@ -3,7 +3,7 @@
 Verrouille la CONJONCTION portee par `_ranged_auto_attack_is_active`, mirror du 1er `Triggered()` de
 `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` :
 
-    NOT IsTurnOf(owner@0x148)                                              # df@0xa0 (DSLFactory$$IsTurnOf)
+    NOT IsTurnOf(owner@0x148)                                              # df@0xa0 (IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf)
     & ( HasEffect(owner, IgnoreUsedAbilityInOverwatch = 0x516)
         | DoesNotHaveFlag(owner, UnitFlag.ActiveAbilityUsed = 2) )
     & AdditionalActivateTrigger()                                          # NOT HasEffect(owner, Pinned)

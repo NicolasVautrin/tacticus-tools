@@ -79,7 +79,7 @@ class ItItchesPlaybook(NonComparablePlaybook):
         `_traits(visualId)` -- le KIT gameconfig SEUL. Le natif lit
         `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, c'est-a-dire la collection
         `BaseUnitComponent+0x48`/`+0x40`, qui porte AUSSI les traits ACCORDES EN BATAILLE (leaf DSL
-        `IdunBattleLogic.Entities.DSLFactory$$AddTrait` -> `IdunBattle.Operations.AddTraitOperation
+        `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` -> `IdunBattle.Operations.AddTraitOperation
         $$AddTrait`) et le pseudo-trait de grande-alliance. Le foyer porte est
         `entity_trait_names(ctx)`, exactement ce que lisent l'autre miroir de DECISION
         (`loki_custom.py::MortisRoundPlaybook._is_displaceable`) et le foyer RUNNER

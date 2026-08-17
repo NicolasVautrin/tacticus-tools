@@ -757,7 +757,7 @@ class SavageEchoesPlaybook(_CustomOnlyPlaybook):
     `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetRegenerateCondition`
     = `DSLFactory.HealthPctIsBelowOrEqual(caster@0x160, ConfigConst(0x4f))`
     = `new IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger(caster, 5, thr)`
-    (`IdunBattleLogic.Entities.DSLFactory$$HealthPctIsBelowOrEqual` — le `5` est le `StatType.Health`).
+    (`IdunBattleLogic.Entities.DSLTriggers$$HealthPctIsBelowOrEqual` — le `5` est le `StatType.Health`).
     `0x4f` = `IdunBattle.Configuration.AbilityConstantType.healthPct` -> gameconfig `SavageEchoes.
     constants.healthPct` = 50 (l'enum est resolue depuis `data/symbols/<build>/frida/enums.tsv`,
     aucune valeur codee en dur ici : le seuil est relu du gameconfig).

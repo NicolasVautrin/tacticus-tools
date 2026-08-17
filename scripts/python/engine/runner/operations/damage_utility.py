@@ -1,5 +1,5 @@
 """Port de `IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector` (noeud DSL
-`IdunBattleLogic.Entities.DSLFactory$$SortUnitsByDamageUtility`) — tri de cibles par l'UTILITE IA de degat.
+`IdunBattleLogic.Entities.DSLSelectors$$SortUnitsByDamageUtility`) — tri de cibles par l'UTILITE IA de degat.
 
 DECOMPILE (`…SortUnitsByDamageUtilitySelector$$Select`, lecture integrale) :
 

@@ -52,7 +52,7 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
     - CIBLE EXACTE (#117) : le natif boucle sur `GetEligibleTargetsSelectable(caster, MainTile)` et
       `GenerateAction(position, eligible_target, Fix64(count))` (local_1a8 = eligible target, un ENNEMI ;
       1 action/eligible target, MÊME utilité -> bucket keep-first). L'énumération est INVERSÉE
-      (`DSLFactory.Tiles`=`SortReverseSelector IdunBattleLogic.Entities.DSLFactory$$Tiles`) => cible = 1er ennemi ring-1 dans l'ordre
+      (`DSLFactory.Tiles`=`SortReverseSelector IdunBattleLogic.Entities.DSLSelectors$$Tiles`) => cible = 1er ennemi ring-1 dans l'ordre
       `boardGraph.neighbours` (GetAdjacentTiles natif) **INVERSÉ**, sinon ring-2 (`bq.gauntlets_target`).
       VALIDÉ LIVE BIT-EXACT (#117 : natif tgt=118 = ultraCalgar @(3,5) ring-1 [80,114,78,118]_fwd inversé).
       PAS la MainTile ni None.

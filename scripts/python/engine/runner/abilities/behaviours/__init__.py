@@ -3,7 +3,7 @@ builder de contexte `entities_from_state` (#149).
 
 Contenu = les `*Behaviour` CONCRETS qui MUTENT l'etat en emettant une runner Operation deja portee :
 `Spawn` (`SpawnUnitBehaviour` IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$.ctor -> `_spawn_config_grot`), `AttackWithAttackDamage`
-(`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -> `AttackDamageOperation.execute_ability_attack`/
+(`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage -> `AttackDamageOperation.execute_ability_attack`/
 `execute_normal_like` : attaque d'ability crit/block), `AttackWithAbilityDamage`
 (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> `AbilityDamageBehaviour` + `AttackBehaviour`
 -> `AttackDamageOperation.execute_ability_attack(is_attack_damage_op=False)` : famille ABILITY, sans crit —

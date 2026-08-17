@@ -42,7 +42,7 @@ AddEffectOrIncreaseLevel( 0x590, AbilityStateReference, self@0x148, selector=sel
                           amount = df@0xc0 = Const(1), max = Direct(constant) )
 ```
 - `df@0xc0` est construit par `DSLFactory..IdunBattleLogic.Entities.DSLFactory$$.ctor` : `new <DAT_183202d40>(1)` = le noeud
-  constant **1** (la meme classe que `IdunBattleLogic.Entities.DSLFactory$$Get(n)`) -> increment = **+1** par
+  constant **1** (la meme classe que `IdunBattleLogic.Entities.DSLFormulas$$Get(n)`) -> increment = **+1** par
   declenchement. (Comparatif : `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` passe le MEME `df@0xc0`
   avec un `max` NULL.)
 - `GetNumberConstant(0x62)` -> gameconfig `abilities.TerrifyingCrescendo.constants` = **`buffMaxLevel`

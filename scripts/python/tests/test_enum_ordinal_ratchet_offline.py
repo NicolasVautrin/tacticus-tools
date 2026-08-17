@@ -180,7 +180,7 @@ def test_4bis_mord_sur_la_forme_TRIPLE_du_depot():
 def test_4bis_ne_mord_PAS_sur_un_nombre_type_par_On():
     """FAUX POSITIF MESURE (3 sites) : `` `On(0x12)` -> ActivateEffect ``. `0x12` est un
     `EventTriggerType` JUSTE ; `ActivateEffect` est un membre de `StepType` dont 0x12 etait
-    l'ordinal archive. Le contrat natif `DSLFactory$$On(EventTriggerType, ...)` type le
+    l'ordinal archive. Le contrat natif `IdunBattleLogic.Entities.DSLTriggers$$On(EventTriggerType, ...)` type le
     nombre : aucun AUTRE enum ne peut le revendiquer."""
     assert not _larges("# `On(0x21)&OwnerIsActor`, `On(0x12)` -> ActivateEffect ;\n")
 

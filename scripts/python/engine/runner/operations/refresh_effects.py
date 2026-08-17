@@ -13,7 +13,7 @@ Chaine native RE'd (build gqfc5mff6c) :
 
 Le flag `+0x5c` est CE QUE LIT le gate `HasEffect(..., activeOnly=1)` :
 `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` skippe toute entree dont `+0x5c == 0` quand son
-4e argument est non nul (et TOUS les `DSLFactory$$HasEffect` du cluster AnvilShield passent 1).
+4e argument est non nul (et TOUS les `IdunBattleLogic.Entities.DSLTriggers$$HasEffect` du cluster AnvilShield passent 1).
 
 ## Pourquoi ce driver
 

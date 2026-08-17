@@ -363,7 +363,7 @@ class _DamageHitsMixin:
         que l'appelant le THREADE (cf. `operations/additional_hits.py`).
 
         `force_overkill` (défaut False) = flag « always overkilled » d'un `AttackWithAttackDamage` natif
-        (Nullable<bool>=true, 8e arg de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour`
+        (Nullable<bool>=true, 8e arg de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AttackDamageBehaviour`
         -> `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`) : force `overkill=True` a CHAQUE coup dans les 3 sites de
         calcul `_ovk`, ce qui BYPASSE le cap Resilient (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit` :
         `if not overkill: cap = curHP-1`). N'affecte QUE le cap Resilient (member-cap/boss/impervious ne lisent
@@ -382,7 +382,7 @@ class _DamageHitsMixin:
         COMBAT. Il est porte pour la fidelite, pas parce qu'il a ete confronte.
 
         `force_crit` (defaut False) = flag « always crit » du `Nullable<AttackOptions>` (8e arg de
-        `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, **octet +5 de la struct
+        `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, **octet +5 de la struct
         d'options**) -> chaque coup est CRITIQUE **sans tirage**. RE (mirror
         `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) :
 
@@ -736,7 +736,7 @@ class _DamageHitsMixin:
 
         def _ability_shield_split(raw: int, reduce_fn, flat: int) -> tuple:
             """`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` — mirror de l'ORDRE natif
-            (famille ABILITY = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` ->
+            (famille ABILITY = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` ->
             `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`, cf. `is_attack_damage_op`) :
 
                 dmg        = Math.Max(param_2, 0)                                   # degat DEJA resolu
@@ -1005,10 +1005,10 @@ class _DamageHitsMixin:
                 # (`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` : Next(v, v+1) SANS gate largeur-1). C'EST le
                 # tirage « fantôme » mesuré par #220/#205 — le fix du désync multi-coups cc=0.
                 # `is_attack_damage_op` = LA FAMILLE DE FACTORY NATIVE (deux operations distinctes) :
-                #   True  = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage/350/
+                #   True  = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage/350/
                 #           520/6b0) -> AttackDamageBehaviour -> AttackDamageOperation.ExecuteHit
                 #           IdunBattle.Operations.AttackDamageOperation$$ExecuteHit -> le resolve slot-8 consomme (2 tirages/coup a cc=0) ;
-                #   False = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+                #   False = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
                 #           -> AbilityDamageBehaviour -> IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits
                 #           (GetDamage par coup) + IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage (0 RNG) : AUCUN
                 #           resolve -> 1 tirage/coup. Mesure live : Stormcaller 3-hit bit-exact SANS

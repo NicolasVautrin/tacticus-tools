@@ -208,8 +208,8 @@ def mortis_round_tree() -> AtomicGroup:
     pass-through (RE #201). `PushUnit` est DETERMINISTE (aucun tirage rng) -> ne decale PAS l'ordre RNG de
     l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->push.
 
-    Overload d'attaque : le call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3 appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
-    (famille ATTACK, resolu par XREF — PAS le nom ; IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage != le IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage de ThunderousAssault, mais
+    Overload d'attaque : le call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3 appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
+    (famille ATTACK, resolu par XREF — PAS le nom ; IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage != le IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage de ThunderousAssault, mais
     MEME famille attack, precedents portes ScythingTalons/Executioner) -> `native_factory="attack"` (defaut,
     resolve slot-8 gaspille = 2 tirages/coup a cc=0). Profil `HeavyRound` (constants.damageProfile), attaque
     RANGED (attackRangeType=Ranged, range 3) -> `is_melee=False`. `nrOfHits` ABSENT de la config (constants
@@ -772,7 +772,7 @@ def tactical_precision_tree(crit_amount: int, caster_id: int):
     couple ChangeStat qui l'encadre, pas du flag.
 
     `native_factory = "attack"` pour les DEUX volets : le decompile appelle
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (overload `hits` entier ->
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (overload `hits` entier ->
     `Direct(hits)`), pas `AttackWithAbilityDamage`. Profil `Bolter` / `Chain`, `attackRangeType`
     = Melee -> `is_melee=True` des deux cotes."""
     charging = IsCharging(Caster(), Target())

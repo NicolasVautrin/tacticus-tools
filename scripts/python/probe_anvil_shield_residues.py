@@ -19,7 +19,7 @@ Decompile (build gqfc5mff6c) :
       = On(0x3c = UnitBlocked) & OwnerIsTarget & IsMeleeAttack & !HasTrait(caster, 0x1b = Steppable)
         & IsUnit(caster) & IsAlive(caster)
         & ( HasEffect(target@0x178, 0x4b0, 1, 6) | HasEffect(target@0x178, 0x4b1, 1, 6) )
-  (le 4e argument natif de `IdunBattleLogic.Entities.DSLFactory$$HasEffect` est ACTIVE-ONLY, pas un
+  (le 4e argument natif de `IdunBattleLogic.Entities.DSLTriggers$$HasEffect` est ACTIVE-ONLY, pas un
    minLevel : `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` teste `EffectComponent+0x5c` =
    le flag IsActive, mis a 0 par `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect`.)
 

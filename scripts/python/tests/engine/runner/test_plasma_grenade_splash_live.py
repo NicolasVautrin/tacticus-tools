@@ -117,7 +117,7 @@ def test_plasma_grenade_migration_matches_imperative(live_session, rpc, build_ru
 
     # [IMPERATIF] la mecanique partagee _splash_ability_behaviour + _adjacent_enemies_of (ancien chemin)
     imp_set = _adjacent_enemies_of(st_imp, caster_id, target_id)
-    # rngcrit-1202 : PlasmaGrenade = factory native IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (XREFS) ->
+    # rngcrit-1202 : PlasmaGrenade = factory native IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage (XREFS) ->
     # AbilityDamageOperation, 1 tirage/coup SANS resolve gaspille -> l'oracle imperatif doit passer
     # la MEME famille que l'arbre DSL (native_factory="ability").
     res_imp = _splash_ability_behaviour(st_imp, caster_id, target_id, "PlasmaGrenade", "Plasma",

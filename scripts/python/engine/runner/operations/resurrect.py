@@ -1,6 +1,6 @@
 """Résurrection d'unité — `IdunBattle.Operations.ResurrectUnitOperation$$Execute` (mutateur ECS IMPÉRATIF).
 
-Frontière DSL : la feuille `IdunBattleLogic.Entities.DSLFactory$$Resurrect` (au-dessus, structurelle) APPELLE cette
+Frontière DSL : la feuille `IdunBattleLogic.Entities.DSLBehaviors$$Resurrect` (au-dessus, structurelle) APPELLE cette
 Operation (en-dessous, impératif). Chaîne native : `IdunBattle.Entities.Behaviours.ResurrectBehaviour$$Execute` (zip units×tiles)
 → `ResurrectUnitMessage` → `Core.Services.OperationProcessor$$ResurrectUnit` → `IdunBattle.Operations.ResurrectUnitOperation$$Execute`. Ici on porte la MUTATION observable (le pipeline de file/stream = couche view non suivie) :
 

@@ -141,7 +141,7 @@ def test_force_ranged_attack_est_un_no_op_exact_hors_regime():
 
 # ==================================================================================================
 # ETAGE 2 -- `ignoreUnitHavingAbility`, le 8e argument de
-# `IdunBattleLogic.Entities.DSLFactory$$TriggerAbility`, code en dur a `false` avant #1002-r1.
+# `IdunBattleLogic.Entities.DSLBehaviors$$TriggerAbility`, code en dur a `false` avant #1002-r1.
 # ==================================================================================================
 class _EtatBidon:
     """Substrat MINIMAL : `TriggerAbility.execute` ne lit du `state` que ce que

@@ -117,7 +117,7 @@ def revitalizing_malignancy_tree(regular_amount: int, chaos_amount: int) -> Atom
     #   `...RevitalizingMalignancyAbility$$ExecuteBehaviour` :
     #       UnitsWithoutTrait(gs, ., 0x7ea Chaos, 3) ; UnitsWithTrait(gs, ., 0x7ea, 3)
     # ⚠ Le `AdjacentUnits` du port (classe de `entities/selectors/units.py`, mirror de
-    # `DSLFactory$$AdjacentUnits(target, radius, mask)`) ne porte PAS encore le parametre -- son
+    # `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(target, radius, mask)`) ne porte PAS encore le parametre -- son
     # `mask` natif vaut ici 3 aussi, mais l'ETAGE MANQUE. Sans consequence sur CE site : le
     # `Friends` qui l'enveloppe filtre la sortie. Residu note dans `case-585r1-releve-des-litteraux.md`.
     all_heal = UnitsWithoutTrait(
@@ -205,8 +205,8 @@ def flail_swing_tree() -> "op_and":
       = `Power` (`constants.damageProfile`="Power" ; melee, PiercingRatio 40). `attackRangeType=Melee` ->
       `is_melee=True`.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : le decompile appelle litteralement
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour =
-      symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` ; tip #2 /
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour =
+      symbole `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, JAMAIS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` ; tip #2 /
       rngcrit-1202). Attaque MULTI-COUPS (3x) -> classification par XREF OBLIGATOIRE, faite ici.
     - `InformWeapon` = `op_BitwiseAnd` volet GAUCHE (execute EN PREMIER) : canal weapon-inform (TAGS DE
       FLUX, `InformBehaviour`) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre `state.rng`
@@ -216,7 +216,7 @@ def flail_swing_tree() -> "op_and":
       `TagKey.Attack_Weapon_IsMelee` vaut **1** et `..._Use_Special` est ABSENT. Porte litteralement
       (`is_melee=True`) ; il CONCORDE avec l'`attackRangeType=Melee` de l'attaque, mais il est LU, pas deduit.
     - **`alwaysOverkilled` (Nullable=true) PORTE via `force_overkill=True`** : le 8e arg de
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (`&local_198` = `Nullable<bool>` HasValue=1, cf. `local_1e8=0x100000000`
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (`&local_198` = `Nullable<bool>` HasValue=1, cf. `local_1e8=0x100000000`
       + `System.Nullable<...>.ctor`) = flag « always overkilled » passe a `AttackDamageBehaviour` puis a l'etage
       `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` (`overkill=true` bypasse le cap Resilient
       `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`). La feuille passe `force_overkill=True` -> `_run_hits` force
@@ -536,7 +536,7 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
                                           AbilityOrEffect(this+0x10 = 0x490 = 1168) ) )
 
     - **native_factory = "ability"** : le decompile appelle litteralement `DSLFactory.
-      IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (overload core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage), PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
+      IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (overload core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage), PAS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
       1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench) — MEME route que
       Stormcaller/SpiritLeech (classification par XREF, jamais au juge).
     - `MinMaxDamage` = bornes `minDmg`(0xc)/`maxDmg`(0xd)[activeAbilityLevel] scalees par
@@ -794,7 +794,7 @@ class SpawnPoxwalkersAbility(ActiveAbility):
 # (l'autre active du deathCrawler), ici applique COMME FILTRE DE CIBLES au sein du behaviour (donc face
 # COMBAT, portee) et non comme gate de ciblage.
 #
-# NOTE `Difference` : la factory native est `IdunBattleLogic.Entities.DSLFactory$$Difference(a, b)` = `a - b` ;
+# NOTE `Difference` : la factory native est `IdunBattleLogic.Entities.DSLFormulas$$Difference(a, b)` = `a - b` ;
 # `factory+0xc0` est le noeud constante `Get(1)` (`IdunBattleLogic.Entities.DSLFactory$$.ctor` : +0xb8=Get(0),
 # +0xc0=Get(1), +0xc8=Get(2), +0xd0=Get(100), +0xd8=Get(-1)) -> `nrOfTiles - 1` tuiles TIREES, la tuile de la
 # cible etant deja dans l'union -> `nrOfTiles` entites contaminees au total.
@@ -1663,7 +1663,7 @@ def blight_grenades_tree() -> AtomicGroup:
 
     FACTORY NATIVE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (symbole resolu
     tel quel dans le corps decompile) -> `native_factory="ability"` = `AbilityDamageOperation` = 1
-    tirage/coup, PAS les 2 tirages/coup de `DSLFactory$$AttackWithAttackDamage` (piege rngcrit-1202 :
+    tirage/coup, PAS les 2 tirages/coup de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (piege rngcrit-1202 :
     PlasmaCannon, dont cet arbre est le jumeau STRUCTUREL, est de l'autre famille).
     RANGED (`attackRangeType: Ranged`, `constants.range` = 2), profil Toxic, `nrOfHits` = 1.
 

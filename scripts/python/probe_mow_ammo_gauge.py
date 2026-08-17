@@ -164,7 +164,7 @@ def _phase(sid, ammo, endturns, verbose, target_kind="unit", pre_endturns=0, spl
 
     `target_kind` : `unit` (un allie MECHANICAL) ou `mow` (la MoW elle-meme). Le domaine du
     selecteur de `ReanimationBeamAbility$$ExecuteBehaviour` part de `DSLFactory+0x80`, pose par
-    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` -- les deux cibles discriminent.
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` -- les deux cibles discriminent.
 
     `pre_endturns` : tours a purger AVANT le cast. `ReanimationBeam` porte
     `initialCooldownTurns = 1` au gameconfig -> au tour 1 le 2e terme de

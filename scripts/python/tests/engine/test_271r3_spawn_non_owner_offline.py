@@ -16,7 +16,7 @@ aucune cle d'unite => la feuille rend 0 ». Les DEUX moities etaient fausses :
 
 L'ecart etait donc CHIFFRE et SILENCIEUX : chaque tuile de spawn adjacente a un porteur ami valait
 jusqu'a 30 points de moins cote port que cote natif, sur la decision qui choisit OU un summon
-apparait (`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon`).
+apparait (`IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon`).
 
 DEUX FAUTES SYMETRIQUES SONT GARDEES ICI, et la seconde est la plus vicieuse
 -----------------------------------------------------------------------------

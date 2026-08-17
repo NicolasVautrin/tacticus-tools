@@ -20,7 +20,9 @@ _USE_PROBABILITY_FACTOR = 0.1
 
 
 def _buff_range() -> int | None:
-    """`DSLFormulas$$GetNumberConstant(config, 0x16)` = `constants["range"]` de `CrusadeOfWrath`.
+    """`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(0x16)` = `constants["range"]`
+    de `CrusadeOfWrath`. (La citation portait `DSLFormulas$$GetNumberConstant` : AUCUNE des cinq
+    classes DSL ne declare cette methode -- c'est un accesseur de CONFIG, pas un noeud, #1032-r3.)
 
     LU dans le gameconfig, jamais ecrit en dur : le natif le lit lui aussi par constante
     (`AbilityConstantType.range` = 22 = 0x16).

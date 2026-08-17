@@ -2,7 +2,7 @@
 """Probe #217 — validation live de la face COMBAT de Stormcaller (active 1113, Njal spaceStormcaller).
 
 Port : engine/runner/abilities/loki/stormcaller.py (mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$ExecuteBehaviour` : AddEffect(Ice 0x11, cible+ring1) -> AttackWithAbilityDamage(3x Psychic, ennemis sur
-tuiles GLACEES, overload IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage == SpiritLeech) -> AddEffect(Stunned 0x48a, Flying du cache,
+tuiles GLACEES, overload IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage == SpiritLeech) -> AddEffect(Stunned 0x48a, Flying du cache,
 TurnsFromRounds(1))). Methode = REPLAY-DIFF bit-exact (pattern test_lord_of_tempests_ice_live) :
 meme etat pre-cast (dec/ob/snap/dumpRng), cast 1113 live ET offline, puis diff.
 

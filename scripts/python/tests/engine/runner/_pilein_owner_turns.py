@@ -1,7 +1,7 @@
 """Montage NOMME et REUTILISABLE du scenario `OwnerHasFinishedMinTurns(2)` de PileIn.
 
 Le gate natif se lit dans
-`IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns` ->
+`IdunBattleLogic.Entities.DSLTriggers$$OwnerHasFinishedMinTurns` ->
 `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger` :
 
     amount = <int @+0x18>                                   # 2 pour PileIn

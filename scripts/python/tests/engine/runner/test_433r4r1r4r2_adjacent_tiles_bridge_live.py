@@ -10,7 +10,7 @@ C'EST LE SPLASH DE `FragBomb` (1017, `astraBullgryn`). Decompile :
 
     splash = AdjacentUnits(Target@0x178, 0, 3) - Caster@0x160
 
-`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `AdjacentTiles` puis `Units`, donc
+`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` = `AdjacentTiles` puis `Units`, donc
 `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` -- exactement
 l'iterateur que `battle_query.is_adjacent` mirroir. L'oracle est alors un fait de BATAILLE (les
 events de degat), pas une lecture de capteur.

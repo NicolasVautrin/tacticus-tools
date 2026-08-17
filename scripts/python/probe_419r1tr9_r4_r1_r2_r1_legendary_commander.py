@@ -31,7 +31,7 @@ MONTAGE (RE : `docs/rl/case-419-r1-tr9-r4-r1-r2-r1-legendary-commander.md`)
   de toute facon).
 
   Attaquant : `deathBlightlord` / `FlailSwing` -- ability de la famille ATTACK
-  (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`), donc le SEUL vecteur qui
+  (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`), donc le SEUL vecteur qui
   traverse `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` -> la formule de coups.
   Une attaque de la famille ABILITY ne la traverse PAS (cf. l'entete de
   `engine/services/attack_hits_formula.py`), et la PREDICTION non plus : le seul regime ou 1395

@@ -13,7 +13,7 @@ contre un `DslContext` (etat de bataille). Types de valeur (comme le DSL natif, 
 CONDITION -> bool ; POSITION -> (col,row) ; CIBLAGE -> list[unit]. Unite = dict `{id, team, hp, alive,
 pos:{col,row}, visualId}`.
 
-Ghidra MISLABEL les ctors de noeuds gshared (le ctor de `IdunBattleLogic.Entities.DSLFactory$$Sum` s'affiche
+Ghidra MISLABEL les ctors de noeuds gshared (le ctor de `IdunBattleLogic.Entities.DSLFormulas$$Sum` s'affiche
 `HasUsedActiveAbilityThisTurnTrigger$$.ctor`) -> semantique lue via la STRUCTURE (pointeur de classe, args
 enfants, arithmetique), JAMAIS via les noms. cf. [[feedback_re_ghidra_not_experiment]].
 
@@ -155,7 +155,7 @@ class DslContext:
     # OriginalTarget) — lu par le nœud `Subject` et les prédicats évalués sous un Filter. None hors Filter.
     subject: dict | None = None
     # ACCUMULATEUR des enfants SPAWNÉS par le behaviour courant (mirror du champ factory natif `+0x148`
-    # que `DSLFactory.Spawn` alimente et que `IdunBattleLogic.Entities.DSLFactory$$Children` (= `AllAliveMachinesSelector`)
+    # que `DSLFactory.Spawn` alimente et que `IdunBattleLogic.Entities.DSLSelectors$$Children` (= `AllAliveMachinesSelector`)
     # relit — cf. GetEmRuntz `Foreach(Children, TauntWithNewChildrenWhoDidDamage)`). Liste PARTAGÉE (le
     # `replace(subject=…)` du `Foreach` la partage par référence) : les feuilles `SpawnUnit` y ajoutent le
     # dict de l'unité spawnée, `Children` la retourne. Défaut [] ; hors behaviour de spawn = vide.
@@ -168,7 +168,7 @@ class DslContext:
     owner: dict | None = None
     actor: dict | None = None
     # `ActiveTarget` = slot factory `+0x180` (carte des `TargetsSelector` caches du `DSLFactory`,
-    # `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
+    # `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
     # 0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget · 0x188
     # PreviousActiveTarget · 0x190 TargetTiles · 0x198 UnitFeetTiles`). C'est l'ELEMENT COURANT du
     # behaviour qui l'a lie : (a) le SUMMON fraichement pose pour un sous-behaviour on-appearance
@@ -178,7 +178,7 @@ class DslContext:
     # le noeud `ActiveTarget` rend None (hors behaviour liant).
     active_target: object | None = None
     # Joueur dont c'est LE TOUR (`TurnComponent.CurrentPlayer`) — lu par le nœud `IsTurnOf`
-    # (`IdunBattleLogic.Entities.DSLFactory$$IsTurnOf`, qui referme le `matchState@+0x10` de la
+    # (`IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf`, qui referme le `matchState@+0x10` de la
     # factory dans son trigger). None = contexte sans tour courant (prédiction, arbre purement
     # numérique) → `IsTurnOf` rend False (dégradation conservatrice).
     current_player_id: int | None = None
@@ -212,14 +212,14 @@ class DslContext:
     # Accès effets par unité (HasEffect/HasAnyEffect), mirror `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects` — hors state
     # standard. `has_effect(unit, effectType, source_flag=6, min_level=0)->bool` défaut None → False.
     has_effect: object | None = None
-    # Accès effets par TUILE (prédicat de `IdunBattleLogic.Entities.DSLFactory$$UnitsOnTilesWithEffect` : la tuile porte-t-elle un
+    # Accès effets par TUILE (prédicat de `IdunBattleLogic.Entities.DSLSelectors$$UnitsOnTilesWithEffect` : la tuile porte-t-elle un
     # effet ACTIF du type — ex. Ice 0x11 pour Stormcaller #217). `tile_has_effect(tile_id, effectType)
     # ->bool` ; défaut None → sélecteur dégradé [] (documenté par nœud). Fourni par `entities_from_state`
     # (lit `state.effects` keyé tile-id, même clé que la pose `AddEffectOperation`, cf. case-35).
     tile_has_effect: object | None = None
     # Effet COURANT (EffectSource/EffectLevel) — n'existe qu'en application d'effet ; défaut None.
     effect: object | None = None
-    # Accès aux INSTANCES d'effet par SOURCE (mirror `IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource` =
+    # Accès aux INSTANCES d'effet par SOURCE (mirror `IdunBattleLogic.Entities.DSLSelectors$$EffectsFromUnitSource` =
     # `EffectWithTypeSelector(source, effectType)`) : `effects_from_source(source_unit, effectType)`
     # -> list[{"effect_type", "source", "owner_id"}] (une entrée par instance d'effet ACTIVE dont le
     # `EffectComponent.SourceUnit` == `source_unit`). Défaut None -> sélecteur dégradé [] (documenté par

@@ -171,7 +171,7 @@ def attempted_possession_targets():
             Object, selectionType: 3 )
 
     ⚠ `Children` est ici `DSLSelectors$$Children(parent)` -- le selecteur SCOPE sur un parent, porte
-    par `entities/selectors/tiles.py::ChildrenOf` -- et **NON** `DSLFactory$$Children` (sans
+    par `entities/selectors/tiles.py::ChildrenOf` -- et **NON** `IdunBattleLogic.Entities.DSLSelectors$$Children` (sans
     argument), qui est l'accumulateur des summons du CAST courant. La confusion rendrait un
     selecteur toujours vide sur cette ability, qui ne spawne rien.
 

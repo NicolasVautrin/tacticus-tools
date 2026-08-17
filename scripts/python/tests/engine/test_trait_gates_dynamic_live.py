@@ -3,7 +3,7 @@
 CRITERE BINAIRE : un `HasTrait` de la couche decision rend-il le MEME verdict que le natif APRES
 qu'un `AddTraitOperation` a accorde le trait en cours de bataille ?
 
-Le chemin d'ECRITURE natif est `IdunBattleLogic.Entities.DSLFactory$$AddTrait` ->
+Le chemin d'ECRITURE natif est `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` ->
 `IdunBattle.Operations.AddTraitOperation$$AddTrait`, qui ecrit `BaseUnitComponent+0x40` (ajout
 PERMANENT, `isTemporary == 0`) ou `+0x48` (temporaire) ; la LECTURE
 `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` est

@@ -58,7 +58,7 @@ ORACLE DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRA
 profil sont lus TELS QUELS dans la config d'ability par
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour`
 (`GetNumberConstant(cfg, 0x2f)` et `GetDamageProfile(cfg, 0)` passes directement en arguments de
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -- aucune formule),
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -- aucune formule),
 et `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'un
 `GetStringConstant` + `System.Int32.Parse`. Ce sont donc des valeurs BRUTES -> l'oracle est la CONFIG :
 `gameconfig.ability("MartialApotheosis").constants` (`nrOfHits`, `damageProfile`) et

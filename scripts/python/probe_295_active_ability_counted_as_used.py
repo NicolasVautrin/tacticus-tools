@@ -58,8 +58,11 @@ import probe_293_aura_predicate_comparator as P293      # noqa: E402  (Binary/_v
 # Le sujet. Deux noms selon le build : la classe DSL a ete scindee entre `gqfc5mff6c`
 # (`DSLFactory`) et `rnca9r7q6c` (`DSLTriggers` / `DSLFormulas`). On essaie les deux plutot que de
 # rendre le probe inutilisable au prochain renommage.
+# ⚠ CE TUPLE PORTE DEUX ORTHOGRAPHES, ET C'EST TOUT SON OBJET (#1032-r3) : la migration de masse
+# des citations l'a d'abord ECRASE en un doublon -- un migrateur ne distingue pas une citation
+# PERIMEE d'un REPLI DELIBERE sur l'ancienne. Ne pas << corriger >> la premiere entree.
 SYMS_SUBJECT = ("IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed",
-                "IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed")
+                "IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed")  # REPLI DELIBERE
 SYMS_CONST_CTOR = ("IdunBattleLogic.Entities.DSLFormulas$$.ctor",
                    "IdunBattleLogic.Entities.DSLFactory$$.ctor")
 

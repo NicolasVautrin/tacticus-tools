@@ -69,7 +69,7 @@ class RitesOfBattleExtraDmgEffect(BaseEffect):
     """`RitesOfBattleExtraDmgEffect` (Effects.Loki) — AURA stat-mod +dégât de Calgar (2 EffectTypes
     permanents sur le porteur : Basic `...ExtraDmgBasic` 1002 / Imperial `...ExtraDmgImperial` 1003).
     `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfBattleAbility$$CreateBehaviour` → 2 `DynamicStatModifierEffect` sur le SOURCE ;
-    `CreateTargetSelector` = `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(1)` (source EXCLUE) → `IdunBattleLogic.Entities.DSLFactory$$Friends` →
+    `CreateTargetSelector` = `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(1)` (source EXCLUE) → `IdunBattleLogic.Entities.DSLSelectors$$Friends` →
     `With/WithoutTrait(0x1a=26)` (26 = grande-alliance Imperial, `idun.Idun.Source.Shared.GrandAlliance$$GetTrait`).
     Montant `GetDynamicStatModificationAmount` = `GetVariableForLevel(idx8→extraDmg | idx9→extraDmg_2,
     niveau SOURCE)` × multiplier SOURCE (les 2 vars dans `variablesAffectedByRarityBonus`) ; ajouté à la
@@ -83,7 +83,7 @@ class RitesOfBattleExtraDmgEffect(BaseEffect):
     def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> int | None:
         """AURA `RitesOfBattleAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfBattleAbility$$CreateBehaviour (2 effets permanents sur Calgar : Basic 1002 / Imperial
         1003) : +extraDmg/_2 au DÉGÂT DE BASE des ALLIÉS ring-1 du porteur, gate grande-alliance Imperial.
-        `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(1)` (source EXCLUE) → `IdunBattleLogic.Entities.DSLFactory$$Friends` (même équipe) →
+        `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(1)` (source EXCLUE) → `IdunBattleLogic.Entities.DSLSelectors$$Friends` (même équipe) →
         `With/WithoutTrait(0x1a=26)`. Montant = `GetVariableForLevel(var, niveau SOURCE) × multiplier SOURCE`
         (RE-validé : `extraDmg_2[L50]×1.8 = 1298`, `extraDmg[L50]×1.8 = 898`). Modélisé CÔTÉ SOURCE
         (l'effet-entité vit sur Calgar, pas sur le buffé) et ré-évalué PAR CANDIDAT (adjacence à `att_pos`)."""
@@ -370,7 +370,7 @@ class _SpotterReworkedAuraBase(BaseEffect):
     `SurroundingFriends(owner, ConfigConst(0x16)=range=2, 1, 3) → UnitsWithRangedAttacks → fork trait`
     (self exclu, ami à ≤range hexes).
 
-    ⚠ `IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks` N'EST PAS un filtre arme-ranged pur : c'est l'UNION
+    ⚠ `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedAttacks` N'EST PAS un filtre arme-ranged pur : c'est l'UNION
     (`TargetsSelector.op_Addition`, même sens que LordOfTheHost RapidAssault+Flying) de
     `UnitsWithWeaponsSelector(type 2=ranged)` ET `TilesOnSameElevationSelector(réf=DSLFactory+0x28
     = entité du contexte (porteur), maxDiff=2)` — `IdunBattle.Entities.TileExtensions$$GetElevationDifference` =
@@ -388,7 +388,7 @@ class _SpotterReworkedAuraBase(BaseEffect):
 
     @staticmethod
     def _in_ranged_attacks_selector(c: Mapping) -> bool:
-        """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks` : arme ranged au kit OU |Δélévation| ≤ 2 vs porteur."""
+        """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedAttacks` : arme ranged au kit OU |Δélévation| ≤ 2 vs porteur."""
         if c.get("att_has_ranged_weapon"):
             return True
         b, op, ap = c.get("board"), c.get("owner_pos"), c.get("att_pos")

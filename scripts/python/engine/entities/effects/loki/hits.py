@@ -362,7 +362,7 @@ class FoulInfusionExtraHitsEffect(BaseEffect):
     `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` execute son repli
     `if (param_8 != 0) param_3 = param_8; param_1[2] = param_3` : `minNode` (+0x10, DISPLAY)
     retombe sur `amountNode` (+0x08, ROLL), et ce noeud unique est un **SCALAIRE**
-    (`IdunBattleLogic.Entities.DSLFactory$$ConfigVar` -> `IdunBattle.Entities.Formulas.ConfigAmount`,
+    (`IdunBattleLogic.Entities.DSLFormulas$$ConfigVar` -> `IdunBattle.Entities.Formulas.ConfigAmount`,
     qui n'a pas de `CalculateMin`/`CalculateMax` propres). La face COMBAT
     (`BaseEffect$$AdditionalHits`, `useDisplay = false`) lit donc slot 2 ET slot 3 du MEME noeud
     scalaire => `MinMaxDamage(v, v)`. Consequence sur la CONSOMMATION, et pas seulement sur la
@@ -430,7 +430,7 @@ class ExemplarOfTheKauyonAdditionalHitsEffect(BaseEffect):
     (noeud DISPLAY) vaut **0**, donc `EffectAdditionalHits$$Create` execute son repli
     `if (param_8 != 0) param_3 = param_8; param_1[2] = param_3` -> `minNode` (+0x10) retombe sur
     l'`amountNode` (+0x08), et ce noeud unique est un SCALAIRE
-    (`IdunBattleLogic.Entities.DSLFactory$$ConfigVar` -> `IdunBattle.Entities.Formulas.ConfigAmount`,
+    (`IdunBattleLogic.Entities.DSLFormulas$$ConfigVar` -> `IdunBattle.Entities.Formulas.ConfigAmount`,
     sans `CalculateMin`/`CalculateMax` propres). La face COMBAT (`BaseEffect$$AdditionalHits`,
     `useDisplay = false`) lit donc slot 2 ET slot 3 du MEME noeud => `MinMaxDamage(v, v)`, et
     `IdunBattle.Core.HitDamage$$GetDamage` ouvre sur `if (*param_1 == param_1[1]) return *param_1;`
@@ -928,7 +928,7 @@ class AnvilShieldAdditionalBlockEffect(BaseEffect):
 
     ⚠ MIS-ATTRIBUTION CORRIGEE (#222) : l'ancienne note « pose par le vecteur ON-BLOCK » etait FAUSSE.
     Le `CreateTrigger` de cette ability est le corps DEDUPLIQUE `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateTrigger` (`return df@0xa8`), et
-    `df@0xa8` est construit par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` = `On(0x21 = AbilityInit) &
+    `df@0xa8` est construit par `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` = `On(0x21 = AbilityInit) &
     OwnerIsActor` -> 1202 (et 1200) sont poses A LA CREATION de l'unite, PAS au block. GROUND TRUTH live :
     Arjac porte `AnvilShield_AdditionalBlock` (level 1, remaining 0) des le PREMIER `decisionView` d'un
     runner frais -> l'effet est deja materialise par le seed, RIEN a caber. Le vrai volet ON-BLOCK
@@ -1164,7 +1164,7 @@ class DaemonExtraBlockEffect(BaseEffect):
 class PsychicFortressExtraBlockEffect(BaseEffect):
     """`PsychicFortress_ExtraBlockChanceEffect` (effet 0x3ef=1007, base `MultiValueStatEntryEffect` IdunBattle.Entities.Effects.Loki.PsychicFortress_ExtraBlockChanceEffect$$.ctor, passif PsychicFortress de Tigurius ultraTigurius) — source de BLOCK SUPPLEMENTAIRE posee
     par `IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour` :
-      `IdunBattleLogic.Entities.DSLFactory$$AddExtraBlockEffectToOwner(0x3ef, Direct(GetNumberConstant(0x2d=blockChance)),
+      `IdunBattleLogic.Entities.DSLBehaviors$$AddExtraBlockEffectToOwner(0x3ef, Direct(GetNumberConstant(0x2d=blockChance)),
                                   Direct(GetVariableForLevel(0x14=blockDmg)))
     = `AddMultiValueStatEntryEffectBehaviour(context@0x148, 0x3ef, [{statType 7=BLOCK_CHANCE: chance},
       {statType 8=BLOCK_DAMAGE: amount}])`. Entree separee de `GetMultiValueStat(7)`
@@ -1529,7 +1529,7 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` avec :
       - condition = `get_OwnerIsCaster & ( TargetHasTileEffect | IsPersistentData(0x5ca, Self@0x148,
         Get(<statique>)) )`, ou `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)`
-        (IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect) — **GENERIQUE** : n'importe quel status-effect de tuile, pas un type precis ;
+        (IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect) — **GENERIQUE** : n'importe quel status-effect de tuile, pas un type precis ;
       - degat  = `FirstHitInCurrentAttackDamageRange` (param_3 ET param_8 : roll ET display) ;
       - profil = **-1** (`CONCAT44(0,0xffffffff)` -> `Nullable<DamageProfileType>` NULL) ;
       - count  = **noeud NULL** (param_6=0, la ou `MasterAnnihilator_AdditionalHitEffect

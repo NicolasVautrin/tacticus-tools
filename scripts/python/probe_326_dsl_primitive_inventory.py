@@ -57,7 +57,7 @@ DSL_BASE_CLASSES = [
 ]
 
 # Namespaces des CLASSES DE NOEUD (le type construit par la factory). Le port cite tantot la
-# factory (`DSLFactory$$Filter`), tantot la classe de noeud (`...Selectors.XSelector$$Select`).
+# factory (`IdunBattleLogic.Entities.DSLSelectors$$Filter`), tantot la classe de noeud (`...Selectors.XSelector$$Select`).
 NODE_NAMESPACES = (
     "IdunBattle.Entities.Selectors.",
     "IdunBattle.Entities.Formulas.",

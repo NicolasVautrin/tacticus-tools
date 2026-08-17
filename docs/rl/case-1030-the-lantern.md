@@ -119,11 +119,33 @@ et `IdunBattle.DSL.TargetsSelector$$SelectUnit` porte le
 `CountOrAdd` est donc **l'acteur déjà résolu**, et `GetUnitOrMachine` n'y est plus que l'identité —
 ce qui explique qu'il ne serve qu'au test de camp.
 
+⚠ **LA LIGNE 2 EST DU CODE MORT — MESURÉ (#1030-r6, 2026-08-17).** Le résidu en tirait que le port
+était « plus restrictif que le natif » sur les ~600 call-sites unit-domain. **Les deux moitiés de
+la prémisse sont fausses.** (a) `get_ReturnsOnlyActors` n'a qu'**UNE** définition dans tout le
+`global-metadata.dat` — la virtuelle de `TargetsSelector`, slot 21 : **aucun sélecteur ne la
+surcharge**. Elle ne peut donc pas distinguer une source unit-domain d'une source tuile ; c'est une
+CONSTANTE, et l'écart tel qu'il était écrit est structurellement impossible. (b) Cette constante
+vaut **FAUX**, lue AUX OCTETS : `32 c0 c3` (`xor al,al ; ret`), contre `b0 01 c3`
+(`mov al,1 ; ret`) pour les 17 surcharges triviales de la famille. ⇒ la boucle tourne **toujours**,
+et l'application inconditionnelle de `_selection_ok` par le port est **correcte**.
+
+**Ce qu'il a fallu construire pour le lire.** Le getter est absent des DEUX tables de noms — corps
+trivial, donc fondu par l'ICF, et une table indexée par ADRESSE n'a qu'un propriétaire par corps.
+Le probe localise `g_MethodPointers` par **concordance** (10 couples `(rid, RVA)` lus des deux côtés
+sur `IdunBattle.DSL.TargetsSelector`, unanimité exigée, aucun seuil), puis lit le corps par
+`rid = token & 0xffffff`. Deux contrôles, et le second n'est pas décoratif : **témoin non vide**
+(la même famille porte 9 / 3 / 5 surcharges) et **vérité terrain** (la table dérivée doit retrouver
+exactement les deux seules `get_ReturnsOnly*` que `ghidra/functions.tsv` nomme — une mutation qui
+décale la table d'une entrée laisse la lecture d'octets VERTE et n'est vue que par ce contrôle-là).
+Outil : `probe_1030r6_court_circuit_returns_only_actors.py` ; cliquet :
+`tests/engine/test_1030r6_returns_only_actors_offline.py`.
+
 **Trois recoupements, aucun n'étant le raisonnement qui a échoué :**
 
 | recoupement | ce qu'il établit |
 |---|---|
 | fonction SŒUR — `$$SelectAllUnits` teste `+0x278` (slot 20 `get_ReturnsOnlyUnits`), `$$SelectAllActors` teste `+0x288` (slot 21 `get_ReturnsOnlyActors`) | même forme, slots adjacents ⇒ la grille de vtable est la bonne |
+| le `global-metadata.dat` place `get_ReturnsOnlyUnits` au slot **20** et `get_ReturnsOnlyActors` au slot **21** — exactement ce que donnent les deux offsets (`(0x278 − 0x138)/0x10 = 20`, `(0x288 − 0x138)/0x10 = 21`) | la grille de vtable est confirmée par une source qui n'est PAS le pseudo-C |
 | `...NovaChargeAbility$$GetAdditionalMarkedTiles` enchaîne `NormalUnits(Enemies(Owner@+0x30, <TUILES>, 3), 3)` | un sélecteur d'UNITÉS consomme la sortie d'`Enemies` — absurde sur des ids de tuile |
 | `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` (le nœud `Tiles`) appelle le **slot 3 `SelectAllUnits`** puis `GetMainTile` | un sélecteur nommé « UnitsMainTiles » qui demande « SelectAllUnits » : `DAT_183383210` **est** `ITargetsSelector` |
 
@@ -305,11 +327,16 @@ consommateurs » ne l'aurait pas contenu.
 * `#1030-r2` — l'empreinte 7-hex du caster sur une position de MOUVEMENT, face DÉCISION.
 * `#1030-r3` — la confrontation LIVE sur DEUX tours (elle falsifierait §2.1 en une mesure).
 * `#1030-r4` — `pierce_effect_bonus` non threadé par `AttackWithAbilityDamage`.
-* `#1030-r6` — les DEUX écarts que la lecture de `$$SelectAllActors` laisse non portés (§2.2) :
-  **(a)** le court-circuit `get_ReturnsOnlyActors` / `get_ReturnsOnlyUnits` rend `Select(entities)`
-  TEL QUEL, donc **sans appliquer le `selectionType`**, là où le port applique toujours
-  `_selection_ok` ; **(b)** la branche `else if (IsMachine(entity)) result.Add(entity)` ajoute une
-  MACHINE qui a échoué `SelectUnit` — donc y compris quand elle ne matche pas le `selectionType` —,
-  alors que le port n'a pas de domaine machine distinct (`unit_or_machine` rend un dict d'unité).
-  Aucun des deux n'est atteint par les régimes portés à ce jour ; les écrire sans porteur
-  confrontable serait spéculatif.
+* ~~`#1030-r6`~~ — **volet (a) RÉSOLU (2026-08-17) : la prémisse était FAUSSE.** Le court-circuit
+  `get_ReturnsOnlyActors` est du **CODE MORT** — une seule définition dans le metadata (donc une
+  CONSTANTE pour tous les sélecteurs, incapable de distinguer un domaine d'un autre), et son corps
+  rend `false` (`32 c0 c3`). Détail et outillage : §2.2. Le volet **(b)**, la branche MACHINE, est
+  ré-ouvert sous `#1030-r8` avec son blocage RE-MESURÉ.
+* `#1030-r8` — la branche `else if (IsMachine(entity)) result.Add(entity)` de `$$SelectAllActors`
+  n'est pas portée. Elle est l'**UNIQUE** porte par laquelle une MoW entre dans un
+  `Enemies`/`Friends` : `UnitExtensions$$MatchesUnitSelectionType` rend `false` dès que
+  `EntityType != 1`, **même pour `selectionType = Any`**, donc une machine échoue TOUJOURS
+  `SelectUnit`. Le natif l'ajoute alors **sans aucun filtre** ; le port la traite comme une unité
+  (`unit_or_machine` rend son dict, puis `_selection_ok`). Les deux lectures **concordent sur toute
+  MoW vivante et ciblable** — elles ne divergent que sur une machine MORTE ou `Untargetable`, et
+  aucun call-site porté ne l'atteint (leur source est `AllAliveUnits`).

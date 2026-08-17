@@ -7,7 +7,7 @@ Ripper Swarm in the defeated unit's hex. Ripper Swarm stats: 4583 Health 800 Dam
 ================================================================================================
 RE (decompile ghidra, build `gqfc5mff6c`) — les DEUX faces du meme artefact natif
 ================================================================================================
-Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` :
+Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` :
 `0x138 TriggeringAbility · 0x148 Owner · 0x158 Actor · 0x160 Caster · 0x178 Target · 0x180 ActiveTarget`.
 
 ## `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateTrigger`

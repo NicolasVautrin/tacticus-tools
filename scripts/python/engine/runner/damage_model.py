@@ -242,7 +242,7 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
         if oc is None or pc is None or oc.team != toc.team:
             continue                                      # Friends du porteur = même équipe que le défenseur
         # VIVANTS SEULEMENT (#57m, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r1) : `AdjacentFriends(1)` est
-        # une OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` =
+        # une OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` =
         # `Units(AdjacentTiles(.)) - .`) -- un mort n'est plus sur le board, donc ne projette aucune
         # aura. Ce balayage etait le SEUL des six du port sans gate de vivacite : ses cinq freres
         # (`build_hits_board`, `_crit_carriers`, `collect_additional_hit_groups`,
@@ -605,7 +605,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            "att_faction": att_gu.get("FactionId"),
            "damage_profile": damage_profile,
            # UnitsWithRangedAttacks (selector SpotterReworked IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateTargetSelector) = UNION {arme ranged au kit}
-           # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
+           # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
            "board": state.board,
            # LionHelm_ExtraDmg (#passifs DA) : `IsOverwatchAttack` du gate d'aura — MEME flag que celui
@@ -939,7 +939,7 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
 
 def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
     """`{(col,row): [noms]}` des **status-effects DYNAMIQUES portes par la TUILE** aux positions
-    demandees — mirror runner de la lecture native `IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect` (la tuile est une
+    demandees — mirror runner de la lecture native `IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect` (la tuile est une
     ENTITE qui porte ses effets : `state.effects.by_unit[tile_entity_id]`, ids de tuile disjoints des
     ids d'unite, cf. `TileEffectTrigger`). Alimente le contexte CIBLE de la formule de coups
     (`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`, gate `TargetHasTileEffect`).
@@ -1024,7 +1024,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     natif +0, offline-sans-gate +extraDmg x 3 x 3 hits ; le natif NE l'applique PAS aux attaques d'ability).
     Défaut True = attaque normale / normal-like (le smite Psyker porte le KIND 1013 = attaque-normale).
     `trigger_ability_type` (#47) = l'ABILITY DÉCLENCHANTE du coup (AbilityOrEffect numérique, mirror du
-    champ du contexte d'attaque natif lu par `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`) — threadé dans `att_ctx`
+    champ du contexte d'attaque natif lu par `IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs`) — threadé dans `att_ctx`
     pour les amounts conditionnels par-ability (HeavyWeapon_ExtraDmg IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier : `ConditionalAmount(
     TriggeringAbilityIs(0x3ec=1004) ? base x2 : base)`). None (attaque normale/caller historique) =
     clé absente -> branche base.
@@ -1053,7 +1053,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # #924-r2 -- CE COUP EST-IL L'AUTO-ATTAQUE D'UN OVERWATCH ? Le natif ne pose pas de booleen : il
     # lit `AbilityEntities+0x98` (l'`AbilityOrEffect` DECLENCHANTE) et le compare a
     # `AbilityOrEffect{Effect = EffectType.Overwatch_AutoAttack}` -- c'est ce que font, a
-    # l'identique, `IdunBattleLogic.Entities.DSLFactory$$TriggeringEffectIs` et
+    # l'identique, `IdunBattleLogic.Entities.DSLTriggers$$TriggeringEffectIs` et
     # `IdunBattleLogic.Entities.DSLTriggers$$IsOverwatchAttack` (memes trois indirections
     # `DSLTriggers+0x10 -> +0x90 -> +0x90`, meme `DSLSelectors.Direct`). Le port a DEJA ce fait sous
     # la main : `is_overwatch`, pose par le SEUL producteur du vecteur
@@ -1374,10 +1374,10 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             # `AreFriends(caster, <noeud entite>)` et `HasTrait(caster, …)`. Contexte PARTAGE avec la
             # PREDICTION (`playbook/prediction/_shared.py`), MEMES cles, MEME semantique — le fork
             # combat/prediction est ce que plusieurs residus de l'inventaire decrivent.
-            #  * `is_unit`     = `IdunBattleLogic.Entities.DSLFactory$$IsUnit(caster@0x160)` : l'attaquant
+            #  * `is_unit`     = `IdunBattleLogic.Entities.DSLTriggers$$IsUnit(caster@0x160)` : l'attaquant
             #    est une ENTITE-UNITE (presence d'un `UnitComponent`), pas une tuile/entite-effet.
             #  * `team`        = equipe de l'attaquant (`OwnerComponent.team`) = membre GAUCHE d'
-            #    `IdunBattleLogic.Entities.DSLFactory$$AreFriends` (-> `IdunBattle.Entities.Triggers.
+            #    `IdunBattleLogic.Entities.DSLTriggers$$AreFriends` (-> `IdunBattle.Entities.Triggers.
             #    AreEntityFriendsAbilityTrigger$$ShouldTrigger` = `battleQuery.AreFriends(a, b)`).
             #  * `team_by_id`  = {unit_id: team} — le membre DROIT d'`AreFriends` n'est PAS toujours
             #    l'attaquant (`EffectSource(Effect@0x150)` = le POSEUR de l'effet, cf. Chronometron) :
@@ -1750,7 +1750,7 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
     multiplicator@+0x18, ADDITION@+0x20, subtraction/minimum/override/reset/sources/abilityOrEffect)
     collectee par `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` et consommee par le per-coup partage
     (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` / CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers). L'Ice ne remplit QUE le canal ADDITION :
-        trigger  = IdunBattleLogic.Entities.DSLFactory$$AttackDamageIsCritical
+        trigger  = IdunBattleLogic.Entities.DSLTriggers$$AttackDamageIsCritical
                  & AreEqual(Units(occupant des tuiles de l'effet), target@0x178)
                  & op_LogicalNot(HasTrait(target, 0x19=Immune))
         addition = PercentageOf(StatAmount(attacker@0x160, 10=CRIT_DAMAGE), EffectConfig(5))
@@ -1852,7 +1852,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
-        # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits`
+        # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits`
         # = `Units(AdjacentTiles(.)) - .`) — un mort (alive=False, reste dans state.entities) n'est
         # plus sur le board : ni compte GetStuckIn, ni porteur d'aura. Cible conservee (vivante par
         # construction d'une attaque).

@@ -5,7 +5,7 @@ CE QUE CA TRANCHE (question binaire). Le noeud de degat de
 `Sum(NormalAttackDamage(caster), Direct(GetVariableForLevel(8=extraDmg)))`. `NormalAttackDamage`
 construit un `IdunBattle.Entities.Formulas.StatAmountFormula` -- LE MEME noeud que celui de
 l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$
-AttackAmount` appelle `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage`, xrefs verifiees).
+AttackAmount` appelle `IdunBattleLogic.Entities.DSLFormulas$$NormalAttackDamage`, xrefs verifiees).
 Le port (`engine/runner/abilities/sisterhood.py`) lit ce noeud comme DEGENERE -> `HitDamage(V, V)`
 -> coups tous EGAUX. Le cast LIVE, lui, rend des coups INEGAUX.
 

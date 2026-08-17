@@ -13,7 +13,7 @@ RE (decompile = verite, gqfc5mff6c) :
     additionnels retombent donc sur le MEME per-coup `IdunBattle.Operations.AttackDamageOperation$$
     ExecuteHit` que l'attaque d'arme.
   * `execute_normal_like` est le mode `amount` de la MEME feuille `AttackDamageBehaviour`
-    (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) et la route du
+    (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`) et la route du
     `UseNormalAttackIfAble` on-appearance d'un summon -- toutes deux famille ATTACK, donc
     encore `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`.
   * `ExecuteHit` resout la cellule par le slot 4 `IdunBattle.Core.Services.DamagePrediction$$

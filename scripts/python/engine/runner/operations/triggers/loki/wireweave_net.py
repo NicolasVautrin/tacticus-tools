@@ -219,7 +219,7 @@ class WireweaveNetCounterAttack(EffectTrigger):
         attacker = ev.actor_id
         if attacker is None or int(attacker) == int(self.owner_id):
             return False
-        # (d) `IsNormalAttack` (`DSLFactory$$IsNormalAttack(df)` = `IsNormalAttack(df, df@0x130)`,
+        # (d) `IsNormalAttack` (`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack(df)` = `IsNormalAttack(df, df@0x130)`,
         #     l'ability EN COURS) : une ACTIVE de melee ne reveille PAS la riposte, seule l'attaque
         #     NORMALE le fait. C'est ce qui distingue ce gate de celui de `MartialSuperiority`
         #     (`IsDirectTargetAttack` = `AbilityHasAttackType(DirectTargetAttack) | IsNormalAttack`,

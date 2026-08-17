@@ -1,7 +1,7 @@
 """Opération `ChangeStat` du runner — applique/reverte une stat-modification sur `UnitStats` en cours
 de bataille, mirror de `IdunBattle.Messages.ModifyStatMessage` (émis par `AStatModifierEffect.
 IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` part 5/9 = apply, `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` part 6 = revert) et de
-`IdunBattleLogic.Entities.DSLFactory$$ChangeStat`.
+`IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat`.
 
 GÉNÉRALISE la mutation de stat ad-hoc (ActOfFaith `cc_delta/cd_delta`, `operations.triggers`) : la
 **modification par-source** de `UnitStats` rend le revert EXACT **sans stocker de delta** (le natif

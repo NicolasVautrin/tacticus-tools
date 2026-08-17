@@ -265,7 +265,7 @@ def test_le_substrat_est_l_ENTITE_et_le_canal_muet_retombe_sur_le_kit():
         "une mesure d'entite SANS `%s` laisse quand meme `18` : le kit prime sur la mesure, ce qui "
         "est l'inverse du contrat (#264)." % TRAIT)
     # Symetrique : une unite dont le KIT n'a pas le trait, mais dont l'ENTITE l'a recu en bataille
-    # (`DSLFactory$$AddTrait` -> `AddTraitOperation$$AddDerivedAbilities`).
+    # (`IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` -> `AddTraitOperation$$AddDerivedAbilities`).
     # ⚠ L'unite doit EXISTER : un `unitId` mort rend `GC.unit(...) is None`, et les deux premieres
     # assertions passeraient par VACUITE (faute commise a l'ecriture de ce test, sur un
     # `ultraIntercessor` qui n'est pas au gameconfig).

@@ -2,7 +2,7 @@
 
 Ce que cette garde verrouille
 -----------------------------
-`IdunBattleLogic.Entities.DSLFactory$$Unobscured` ->
+`IdunBattleLogic.Entities.DSLSelectors$$Unobscured` ->
 `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` ->
 `IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` ->
 `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain` : cote natif l'elevation est un

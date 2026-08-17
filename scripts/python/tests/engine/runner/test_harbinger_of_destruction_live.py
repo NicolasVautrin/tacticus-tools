@@ -12,7 +12,7 @@ avec
                         range=GetNumberConstant(0x16)=2) - target)), count = nrOfUnits(0x9a) - 1 )
 i2/config : cible + N-1 ennemis RANDOM dans un DISQUE rayon-2 du CASTER (non obscurcis, damageable), 1 coup
 MinMaxDamage profil "DirectDamage" (PiercingRatio 100). `native_factory="attack"` (IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour appelle
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, VERIFIE par les callees ; "DirectDamage" est le NOM DU
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, VERIFIE par les callees ; "DirectDamage" est le NOM DU
 PROFIL, PAS l'effet direct-damage).
 
 *** PORTEUR UNSPAWNABLE -> validation CASTER-AGNOSTIQUE (precedent PlasmaGrenade eldarSmnGuardian) ***

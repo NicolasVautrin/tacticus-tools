@@ -792,7 +792,7 @@ class HeroicFusilladeAbility(ActiveAbility):
 #           AttackWithAttackDamage(caster, target, MinMaxDamage, GetDamageProfile,           # mono-cible
 #                                  GetNumberConstant(0x2f)=nrOfHits) ) )
 # Differences avec HeroicFusillade (IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour), lues au decompile :
-#  - MOVE gate = `Not(IsAdjacent(caster, target, 3))` (`IdunBattleLogic.Entities.DSLFactory$$IsAdjacent` -> `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger`) au lieu de
+#  - MOVE gate = `Not(IsAdjacent(caster, target, 3))` (`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` -> `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger`) au lieu de
 #    `Not(IsSurrounding(caster, target, radius=1))`. `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger : le predicat
 #    par-paire = slot iface `0x5f` (bool `AreNeighbours(pos_a,pos_b)`, PAS `0x6e`=GetDistance d'`IsInRange`
 #    IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger) -> seuil dist==1 STRICT ; le `3` (champ +0x18) n'est PAS passe a `0x5f` -- il ne va qu'a

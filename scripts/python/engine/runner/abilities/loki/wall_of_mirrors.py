@@ -133,7 +133,7 @@ def wall_of_mirrors_possible_tiles(rng: int):
     la difference des deux disques est bien l'anneau a distance EXACTEMENT `rng`.
 
     `FromTrigger(tiles, Not(IsObscured(ActiveTarget, Target)))` = le noeud `Filter` du port
-    (`DSLFactory$$Filter` est le THUNK de `DSLFactory$$FromTrigger`) : il lie chaque tuile candidate au
+    (`IdunBattleLogic.Entities.DSLSelectors$$Filter` est le THUNK de `IdunBattleLogic.Entities.DSLSelectors$$FromTrigger`) : il lie chaque tuile candidate au
     slot `ability+0x180` = `ActiveTarget`, que le predicat relit. La ligne de vue est donc evaluee
     DEPUIS la tuile candidate VERS la cible."""
     ring = Sub(SurroundingTiles(Target(), Const(int(rng))),

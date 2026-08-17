@@ -4,7 +4,7 @@ RE (decompile = verite) -- `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`
 `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` (consommes par
 `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` /
 `IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger`, qui materialisent les noeuds
-`IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` / `$$IsRangedAttack` des `CreateEffectDamageBonusForAttack`)
+`IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack` / `$$IsRangedAttack` des `CreateEffectDamageBonusForAttack`)
 partent TOUS DEUX de `IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType(ability du coup)` :
 
     Nullable<AbilityOrEffect> VIDE  -> rangeType 0      -> melee=FALSE  ranged=FALSE

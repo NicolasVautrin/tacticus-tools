@@ -147,9 +147,9 @@ def test_les_replis_legitimes_sont_dans_le_perimetre_de_letape4(arbres_reels):
     `d <= 1` -- une forme que `_est_compare_geo` ne reconnaissait pas, l'appel de distance n'y
     etant pas l'operande gauche. Elle est LEGITIME et c'est precisement le patron que l'etape 4
     doit valider : elle SEPARE deja les deux substrats de la famille `AUnitEffectsUtility` --
-    `adjacent` par `battle_query.is_adjacent` (`DSLFactory$$AdjacentFriends` -> liste stockee +
+    `adjacent` par `battle_query.is_adjacent` (`IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends` -> liste stockee +
     porte d'elevation), `surrounding1`/`ranged2` par la distance nue
-    (`DSLFactory$$SurroundingFriends(1|2)` -> disque CUBE, sans liste ni porte).
+    (`IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(1|2)` -> disque CUBE, sans liste ni porte).
 
     Ce test assertionne l'ensemble EXACT, et c'est voulu : le relacher en inclusion ferait taire
     l'arrivee d'un site a risque. Le prix est qu'il rougit quand le PERIMETRE bouge -- et c'est

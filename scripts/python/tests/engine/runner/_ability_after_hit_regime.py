@@ -22,7 +22,7 @@ l'ability (leftover hits redistribues) s'allume et la mesure ne porte plus sur l
 
 L'ability 1171 n'etant PAS au registre `ABILITY_CLASSES`, le rejeu offline appelle
 `AttackDamageOperation.execute_ability_attack` DIRECTEMENT avec les parametres que sa feuille
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` lui passerait (lus au decompile :
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` lui passerait (lus au decompile :
 `AActiveAbility$$MinMaxDamage`, `DakkaDakkaDakkaAbility$$GetNumHits`,
 `AbilityConfiguration$$GetDamageProfile`). C'est la DECOMPOSITION PAR ETAGE : on mesure l'etage
 porte (le vecteur de degat d'ability), pas l'arbre DSL de l'ability -- et le RATCHET (les coups

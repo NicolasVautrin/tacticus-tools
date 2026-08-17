@@ -939,7 +939,7 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
       sur chaque id de `PlayerComponent.CurrentlyOwnedUnitIds` du joueur finissant, puis sur sa
       Machine of War) et RELU par `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`. Ses
       consommateurs sont des GATES : `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger`
-      (le noeud `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns`, gate de PileIn ->
+      (le noeud `IdunBattleLogic.Entities.DSLTriggers$$OwnerHasFinishedMinTurns`, gate de PileIn ->
       porte dans `operations/triggers/dispatch/turn.py`), plus
       `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability` et
       `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$GetUseProbability`. Sans ce seed,

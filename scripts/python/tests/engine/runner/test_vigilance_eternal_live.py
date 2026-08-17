@@ -13,7 +13,7 @@ FINDINGS DECOMPILE :
     (champ +0x18) ne va qu'a l'eval du selecteur (INERTE pour Caster/Target). Gate = "bouge SAUF si deja
     adjacent" == move-gate HeroicFusillade `Not(IsSurrounding(...,1))`. Corrobore wiki Tyrith + node porte
     dist==1 + precedent TheBetrayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour.
-  - `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
     Direct(GetNumberConstant(0x16)=range=2), reachOnly=1)` = `CanAddUnit(AdjacentTiles(target))
     op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)` == meme pool que
     HeroicFusillade (surround_radius=1, move_range=2). Le TRI en aval est

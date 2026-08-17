@@ -1,7 +1,7 @@
 """Probe #1026 BasiliskBarrage -- ORDRE DES TIRAGES + ORDRE DU POOL de `PickRandomly`.
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour` tire ses obus
-via TROIS `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(<tuiles>, <n>, allowRepeat=1,
+via TROIS `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(<tuiles>, <n>, allowRepeat=1,
 maxRepeats=0x7fffffff)` puis attaque les tuiles tirees (`AttackWithAbilityDamage`, nrOfHits coups par
 obus). `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` fait
 `candidates.ElementAt(rng.NextInternal(0, candidates.Count))` : l'ORDRE du pool ET l'ORDRE des trois

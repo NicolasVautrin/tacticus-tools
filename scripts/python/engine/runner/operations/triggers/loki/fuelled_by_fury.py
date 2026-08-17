@@ -21,10 +21,10 @@ compteur MORT -- les deux se degradent en silence.
 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateTrigger` |
 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateBehaviour` |
 | `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed` |
-| `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` (= `IsNormalAttackOrHealOrRepair`) |
+| `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` (= `IsNormalAttackOrHealOrRepair`) |
 | `IdunBattle.Entities.Triggers.AbilityIsCountedOnceTrigger$$ShouldTrigger` |
 | `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$ShouldAbilityOnlyBeCountedOncePerBattleAbility` |
-| `IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel` (surcharge 5-args) |
+| `IdunBattleLogic.Entities.DSLBehaviors$$IncreaseEffectLevel` (surcharge 5-args) |
 
 ### `...FuelledByFury_ExtraDamageAbility$$CreateTrigger`
 ```
@@ -100,7 +100,7 @@ If( HasEffect(Owner@0x148, 0x52b, 0, 6),
     IncreaseEffectLevel(Owner@0x148, 0x52b, amount = NULL, max = NULL),
     AddEffect(0x52b, AbilityStateReference, source = Owner@0x148, cible = Owner@0x148, options = {0}) )
 ```
-- `amount = NULL` -> `IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel` substitue
+- `amount = NULL` -> `IdunBattleLogic.Entities.DSLBehaviors$$IncreaseEffectLevel` substitue
   `df@0xc0 = Const(1)` : increment **+1** par declenchement.
 - `max = NULL` -> **AUCUN CAP** (le clamp d'`IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute`
   est desactive), contrairement a TerrifyingCrescendo (`buffMaxLevel = 6`) : le stack de Titus monte

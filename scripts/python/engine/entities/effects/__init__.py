@@ -883,7 +883,7 @@ def effect_stat_mod_key(eff):
 
     NATIF : la source d'un `ChangeStat` d'effet EST l'entite-effet elle-meme.
     `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` appelle
-    `IdunBattleLogic.Entities.DSLFactory$$ChangeStat(Entity(target), Position(stat, part 5|9), 4,
+    `IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat(Entity(target), Position(stat, part 5|9), 4,
     Direct(amount), Entity(<effectEntity>), ...)` et
     `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` rejoue le MEME appel avec
     `Position(stat, part 6)` et LA MEME `Entity(<effectEntity>)` ->

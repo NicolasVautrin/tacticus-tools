@@ -53,8 +53,8 @@ RE ghidra gqfc5mff6c (decompile = verite). La classe native `MartialApotheosisAb
     `level_slot="passive"` (dans un runner rank-based active==passive, verifie live necroOverlord 50/50 ;
     on lit la BONNE source pour rester fidele hors de cette coincidence).
   * `attackRangeType = Melee` -> `is_melee=True`. Profil "Energy" -> pierce 30.
-  * FAMILLE "attack" : `CreateBehaviour` appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (+overloads
-    IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage/350/520/6b0), PAS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> `native_factory="attack"` (defaut,
+  * FAMILLE "attack" : `CreateBehaviour` appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (+overloads
+    IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage/350/520/6b0), PAS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> `native_factory="attack"` (defaut,
     2 tirages/coup a cc=0 ; cf. rngcrit-1202/tip #2, classe par les XREFS de l'ExecuteBehaviour, pas au juge).
 
 COLLAPSE du `PickRandomly(count=1)` (doctrine slice-18/19, == HarbingerOfDestruction/BringerOfDespair) : le

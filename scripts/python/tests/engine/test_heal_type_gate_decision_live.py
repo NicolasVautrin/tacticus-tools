@@ -24,7 +24,7 @@ Trois etages :
   etage 2 -- DISCRIMINATION (live + octroi) : un allie MECANIQUE qui recoit `AffectedByHealAndRepair`
              EN BATAILLE entre dans le compte d'utilite de `RitesOfRestorationPlaybook`. Le chemin
              d'ecriture est le leaf DSL deja porte `AddTrait` (mirror de
-             `IdunBattleLogic.Entities.DSLFactory$$AddTrait` -> `AddTraitOperation`, collection
+             `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` -> `AddTraitOperation`, collection
              `BaseUnitComponent+0x40`), exactement le levier de #225.
 
 PORTABILITE DE L'ETAGE 2 : la voie NATIVE d'octroi de 0x421 est la relique

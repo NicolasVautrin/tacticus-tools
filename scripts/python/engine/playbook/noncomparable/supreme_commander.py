@@ -85,8 +85,8 @@ class SupremeCommanderPlaybook(NonComparablePlaybook):
         """`Any(u => IsFriendlyKell(u, caster))` sur `baseSelector@+0x80 + AllDeadUnits()`.
 
         Le selecteur amont est l'union « toutes les unites VIVANTES » (`DSLFactory@+0x80`, pose par
-        `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`) et « toutes les MORTES »
-        (`IdunBattleLogic.Entities.DSLFactory$$AllDeadUnits`) = TOUTES les unites, les deux camps :
+        `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`) et « toutes les MORTES »
+        (`IdunBattleLogic.Entities.DSLSelectors$$AllDeadUnits`) = TOUTES les unites, les deux camps :
         c'est `IsFriend` qui filtre l'equipe, pas le selecteur. D'ou le pool = `ctx.units` (dv, qui
         garde les depouilles — `project_decisionview_keeps_dead`) + `ctx.obs_units` (observeBattle,
         qui porte `isDead`), SANS filtre de vie : un Kell MORT satisfait encore le gate.

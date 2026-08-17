@@ -1,7 +1,7 @@
 """PROBE case-205 -- QUEL SUJET le call-site SUMMON de `SortTilesByUtility` met-il dans le
 `UtilityMovementCase` ?
 
-`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` fixe le selecteur d'unites a un
+`IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon` fixe le selecteur d'unites a un
 `IdunBattle.Entities.Selectors.AllAliveMachinesSelector`. Le residu case-165b en deduisait « un
 ENSEMBLE d'unites » et laissait les feuilles gatees sur l'unite muettes. Le decompile dit autre
 chose : `dc.unit` est un IEntity SINGULIER et il vaut **null** (le selecteur est construit avec un

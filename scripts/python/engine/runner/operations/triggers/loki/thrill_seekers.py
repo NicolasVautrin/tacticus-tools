@@ -89,7 +89,7 @@ RESIDUS (honnetes) :
   SEMANTIQUEMENT EQUIVALENT `IsAlive(Caster())` (`UnitFlag.Dead` <=> `!IsAlive`), lui-meme REDONDANT
   avec le gate « owner vivant » de `evaluate_trigger_operation` (`CanGetAbilityTrigger`) — garde
   double, aucun effet observable divergent.
-- Le gate implicite ANDe a tout `On(e, subject)` natif (`DSLFactory$$On` : `OnEvent(e) &
+- Le gate implicite ANDe a tout `On(e, subject)` natif (`IdunBattleLogic.Entities.DSLTriggers$$On` : `OnEvent(e) &
   factory@0x98` si subject!=0, `& factory@0x128` sinon) n'est identifie pour AUCUN `On()` du port
   (vocabulaire entier) : residu UNIFORME, pas propre a ce trait.
 - GRANULARITE (meme classe d'approximation que `unit_blocked_triggers`) : le natif emet `On(6)` PAR

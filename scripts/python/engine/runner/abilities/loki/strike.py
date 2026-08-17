@@ -283,7 +283,7 @@ def cord_claw_tree() -> "op_add":
     - profil `GetDamageProfile` = `DirectDamage` (constants.damageProfile ; PiercingRatio 100 = ignore armure,
       i2 « Direct Damage »). Attaque MELEE (attackRangeType=Melee).
     - cible de l'`AddEffect` = `Self@0x148` (noeud sélecteur d'une CLASSE DISTINCTE de `Caster@0x160`, cf.
-      `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` -- 0x148 sert de référentiel « owner » dans
+      `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` -- 0x148 sert de référentiel « owner » dans
       `HasUsedActiveAbilityThisTurnTrigger`). Pour un cast SELF, `Self` == le caster (Exitor-Rho) -> porté via
       `Caster()` (observable identique : l'effet se pose sur le caster, i2 « All of Exitor-Rho's further
       attacks »). BlackRage pose ses self-buffs via `Caster@0x160` ; le nuance Self/Caster n'a AUCUN effet

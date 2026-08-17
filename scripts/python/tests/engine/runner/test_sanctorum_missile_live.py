@@ -10,9 +10,9 @@ avec `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$Ge
     Unobscured( self, ( Units(AdjacentTiles(target)) - caster ) + EmptyOrHasSteppableUnit(AdjacentTiles(target)) )
 
 FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
-  - factory native = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> native_factory="attack" (2 tirages/coup a cc=0),
-    CLASSIFIE PAR XREFS (call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage ; SanctorumMissile ABSENT des xrefs de
-    IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage ability). Piege rngcrit-1202 / tip #2.
+  - factory native = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> native_factory="attack" (2 tirages/coup a cc=0),
+    CLASSIFIE PAR XREFS (call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage ; SanctorumMissile ABSENT des xrefs de
+    IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage ability). Piege rngcrit-1202 / tip #2.
   - splash = unites ADJACENTES a la cible (AUCUN filtre d'equipe = FRIENDLY-FIRE, band UNIT `Units(AdjacentTiles(
     target))`) MOINS le CASTER (hex de Morvenn EXCLU), Unobscured depuis le caster. Band TILE EmptyOrHasSteppable
     (tuiles vides/steppables) NON porte -- inerte pour le degat-unite (le frere natif GetAdjacentDamageTargetsUnits
@@ -42,7 +42,7 @@ TARGETING, nb de coups, native_factory (ratio-constant), PAS l'egalite de degat 
 ORACLE DU NOMBRE DE COUPS (#96 -- aucun scalaire de gameplay fige). Le decompile TRANCHE : dans
 `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour`, les deux
 `GetNumberConstant(cfg, 0x2f)` / `GetNumberConstant(cfg, 0x32)` partent DIRECTEMENT en argument des deux
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (main / splash) -- aucune formule, et
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (main / splash) -- aucune formule, et
 `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'un `GetStringConstant` +
 `System.Int32.Parse`. Valeurs BRUTES -> l'oracle est la CONFIG :
 `gameconfig.ability("SanctorumMissile").constants.nrOfHits` / `.nrOfHits_2`. C'est CETTE ability qui LEVE

@@ -48,7 +48,7 @@ class Seq(AbilityBehaviour):
 
 
 class Maybe(AbilityBehaviour):
-    """`IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute` (`IdunBattleLogic.Entities.DSLFactory$$Maybe`, IdunBattle.Entities.Behaviours.MaybeBehaviour$$.ctor) : UN
+    """`IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute` (`IdunBattleLogic.Entities.DSLBehaviors$$Maybe`, IdunBattle.Entities.Behaviours.MaybeBehaviour$$.ctor) : UN
     tirage `next_bool(chance)` AVANT le child ; child execute SSI vrai. `chance` = noeud VALEUR
     (`AAmountFormula`, evaluate/calculate -> int) ou int litteral. `ectx.rng` absent -> tirage non calable offline -> child NON execute
     (no-op documente ; caler `state.rng` pour exercer/valider). Un seul `next_bool` par instance
@@ -68,7 +68,7 @@ class Maybe(AbilityBehaviour):
 
 
 class Foreach(AbilityBehaviour):
-    """`IdunBattle.Entities.Behaviours.ForeachBehaviour$$Execute` (`IdunBattleLogic.Entities.DSLFactory$$Foreach`, IdunBattle.Entities.Behaviours.ForeachBehaviour$$.ctor) :
+    """`IdunBattle.Entities.Behaviours.ForeachBehaviour$$Execute` (`IdunBattleLogic.Entities.DSLBehaviors$$Foreach`, IdunBattle.Entities.Behaviours.ForeachBehaviour$$.ctor) :
     evalue `selector` (noeud SELECTEUR `TargetsSelector` -> liste), puis DANS L'ORDRE DU SELECTEUR (pas de tri) reconstruit
     `entities` (subject = element courant, `DSLFactory.Entity`) et execute `body`. `body` = un
     `AbilityBehaviour` STATIQUE, ou un Callable(entities_subject) -> AbilityBehaviour (corps dependant de
@@ -76,13 +76,13 @@ class Foreach(AbilityBehaviour):
 
     NORMALISATION du selecteur (mirror du contrat natif `TargetsSelector` = IEnumerable) : un selecteur
     MONO-ENTITE (`Caster()`/`Target()`/`Subject()`, qui rend un DICT d'unite) compte pour UN element --
-    sinon Python itererait les CLES du dict. Cas reel : `IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` construit
+    sinon Python itererait les CLES du dict. Cas reel : `IdunBattleLogic.Entities.DSLBehaviors$$AddEffectOrIncreaseLevel` construit
     `Foreach(self@0x148, ...)` sur un selecteur mono-entite.
 
     LIAISON DE L'ELEMENT COURANT — le natif ecrit dans DEUX endroits selon la forme du corps
     (`IdunBattle.Entities.Behaviours.ForeachBehaviour$$Execute`, lu au decompile) :
       * corps = `Func<entity, behaviour>` (champ +0x68) -> il enveloppe l'element dans
-        `IdunBattleLogic.Entities.DSLFactory$$Entity(elem)` et le passe au lambda (== `Subject()` cote port) ;
+        `IdunBattleLogic.Entities.DSLSelectors$$Entity(elem)` et le passe au lambda (== `Subject()` cote port) ;
       * corps = behaviour STATIQUE (champ +0x60) -> il ecrit `entities[slot 4] = elem` AVANT d'executer,
         c.-a-d. le slot que le selecteur cache `factory+0x180` (**ActiveTarget**, `It`) relit.
     Le port lie donc les DEUX (`subject` ET `active_target`) : les corps existants qui lisent `Subject()`
@@ -109,7 +109,7 @@ class Foreach(AbilityBehaviour):
 
 
 class If(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$If(cond, then[, else])` (predicat LAZY + branches a EFFET) : execute `then`
+    """`IdunBattleLogic.Entities.DSLBehaviors$$If(cond, then[, else])` (predicat LAZY + branches a EFFET) : execute `then`
     SSI `cond.evaluate` est vrai, sinon `otherwise` s'il existe. `cond` = noeud PREDICAT (`AbilityTrigger`,
     evaluate/should_trigger -> bool). La branche `else` est le 4e argument natif : ABSENTE (0) sur
     GetEmRuntz / `IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$TauntWithNewChildrenWhoDidDamage / la rotation FleshmetalGuns IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour,
@@ -170,7 +170,7 @@ class Repeat(AbilityBehaviour):
 
 
 class SetCache(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$SetCache(node)` (3 overloads -> MEME classe `SetCacheBehaviour`,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$SetCache(node)` (3 overloads -> MEME classe `SetCacheBehaviour`,
     DAT_18320e858 ; les ctors affiches `RefreshDynamicStatModifierValueBehaviour`/`ActivateEffectBehaviour`
     sont des folds gshared MISLABELES) -> `IdunBattle.Entities.Behaviours.SetCacheBehaviour$$Execute` : EVALUE le noeud cache
     (slot +0x60 pour un PREDICAT, +0x50 selecteur / +0x58 formule) et rend un resultat VIDE — **aucune
@@ -225,7 +225,7 @@ class Inform(AbilityBehaviour):
 
 
 class AtomicGroup(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AtomicGroup` (`Core.Services.OperationProcessor$$CreateAtomicGroup` → `IdunBattle.Operations.AtomicGroupOperation$$Execute`) : enveloppe un behaviour dans un GROUPE ATOMIQUE. RE #201 (docs/rl/runner-engine.md §1.5bis)
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AtomicGroup` (`Core.Services.OperationProcessor$$CreateAtomicGroup` → `IdunBattle.Operations.AtomicGroupOperation$$Execute`) : enveloppe un behaviour dans un GROUPE ATOMIQUE. RE #201 (docs/rl/runner-engine.md §1.5bis)
     a PROUVÉ que le groupe s'exécute **INLINE** (pas différé) : `AtomicGroupOperation.Execute` ouvre le groupe,
     **invoque le callback (= exécute le child ICI, synchrone)**, ferme, mini-drain local. Le port n'a pas de
     transaction ECS atomique (les Operations mutent `state` en direct) → le groupe = **pass-through
@@ -241,7 +241,7 @@ class AtomicGroup(AbilityBehaviour):
 
 
 class Group(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$Group(child, targetsSelector, groupId)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Group(child, targetsSelector, groupId)` ->
     `IdunBattle.Entities.Behaviours.GroupBehaviour$$Execute` — MIRROR du decompile :
 
         targets = (+0x68).Select(entities)              # selecteur de cibles du groupe (VUE)
@@ -285,7 +285,7 @@ class Group(AbilityBehaviour):
 
 
 class ChainBehaviour(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ChainBehaviour` -> `Entities.Behaviours.ChainBehaviourBehaviour` : BOUCLE
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ChainBehaviour` -> `Entities.Behaviours.ChainBehaviourBehaviour` : BOUCLE
     BORNEE qui REJOUE `body` au plus `times` fois, en RE-CONSTRUISANT a CHAQUE ITERATION le selecteur
     d'element (`next_selector`, natif `System.Func<>` sur une methode de la classe d'ability) et en le
     liant a **`ActiveTarget@0x180`** pour le corps. La boucle S'ARRETE des que le selecteur rend un

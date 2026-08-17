@@ -3,7 +3,7 @@
 
 Les deux sont des mutateurs d'IDENTITE (ce que l'unite EST / ce qu'elle SAIT faire), par opposition
 aux effets (`effects.py`, entites-effet a duree) et aux stats (`stats.py`). Le natif les construit
-par `IdunBattleLogic.Entities.DSLFactory$$AddTrait` / `$$AddTriggeredAbility` ; leur premier
+par `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` / `$$AddTriggeredAbility` ; leur premier
 consommateur porte est le volet ON-APPEARANCE de `DutyEternalAbility$$ExecuteBehaviour`."""
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from ...operations import traits as _tr
 
 
 class AddTrait(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddTrait(factory, sel, traitId, flag)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddTrait(factory, sel, traitId, flag)` ->
     `IdunBattle.Entities.Behaviours.AddTraitBehaviour` : ACCORDE le trait `trait_id` a chaque unite
     du selecteur.
 
@@ -63,7 +63,7 @@ class AddTrait(AbilityBehaviour):
             if uid is None:
                 continue
             # `isTemporary` : la feuille `AddTraitBehaviour` porte le flag `param_4` du
-            # `DSLFactory$$AddTrait`, que le seul call-site porte (`DutyEternalAbility`) laisse a
+            # `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait`, que le seul call-site porte (`DutyEternalAbility`) laisse a
             # sa valeur PERMANENTE. Cote port les deux collections natives sont fondues en un
             # ensemble unique de NOMS (cf. `operations/traits.py`), donc le flag n'a pas
             # d'observable distinct -- on garde le comportement HISTORIQUE de cette feuille.
@@ -74,7 +74,7 @@ class AddTrait(AbilityBehaviour):
 
 
 class AddTriggeredAbility(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddTriggeredAbility(factory, sel, abilityId, levelInfo)`
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddTriggeredAbility(factory, sel, abilityId, levelInfo)`
     -> `IdunBattle.Entities.Behaviours.AddTriggeredAbilityBehaviour` -> l'operation
     `IdunBattle.Operations.AddTriggeredAbilityOperation$$Execute`, qui enregistre l'ability dans le
     `TriggeredAbilityComponent` de l'unite (`TryAdd` sur la `KeyedCollection` @+0x18).

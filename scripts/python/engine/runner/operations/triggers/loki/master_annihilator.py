@@ -26,7 +26,7 @@ coups (`create_effect_hits_malus_for_defense`) mais un GROUPE du canal #179
 On(0x26=NormalAttack) & get_OwnerIsCaster & AreEnemies(target@0x178, caster@0x160)
 ```
 = << quand Vitruvius fait une ATTAQUE NORMALE contre un ennemi >>. (`On(id, 1, 0)` = `EventNode(id) &
-df@0x98`, cf. `IdunBattleLogic.Entities.DSLFactory$$On`.)
+df@0x98`, cf. `IdunBattleLogic.Entities.DSLTriggers$$On`.)
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour` (`AbilityBehaviour.op_Addition` = sequence)
 ```

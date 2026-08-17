@@ -2,7 +2,7 @@
 
 Chaine PORTEE (decompile ghidra, build gqfc5mff6c) :
   - `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`
-    { condition = `OwnerIsCaster & (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect | IdunBattleLogic.Entities.DSLFactory$$IsPersistentData(0x5ca))`,
+    { condition = `OwnerIsCaster & (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect | IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData(0x5ca))`,
       degat = `FirstHitInCurrentAttackDamageRange`, profil = -1 (NULL), count = noeud NULL -> 1 } ;
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` = `On(5=PreAttack) & OwnerIsCaster &
     Maybe(ConfigConst 0x2a = traitVariables.LetTheGalaxyBurnChancePct=33) & !HasTileStatusEffect(Targets)` ;

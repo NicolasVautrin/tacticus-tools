@@ -96,7 +96,7 @@ def _team_of(state: State, uid: Optional[int]):
 
 
 def _is_defeated(state: State, uid: Optional[int]) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$IsDefeated(target)` — la cible est-elle morte ?
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsDefeated(target)` — la cible est-elle morte ?
     Entite absente = consideree defaite (aucune attaque a lancer)."""
     e = state.get_entity(uid) if uid is not None else None
     if e is None:

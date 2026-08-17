@@ -7,7 +7,7 @@ laisse-t-il a 1 PV ?
 
 RE (decompile = verite) :
 - `IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour` appelle
-  `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`, qui construit
+  `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`, qui construit
   `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor`
   (`AttackBehaviour$$Execute` : +0x50 = caster resolu en UNE entite = `Tiles(<occupant>)` = la TUILE,
   +0x58 = la liste des cibles = l'occupant) -> famille ABILITY = `IdunBattle.Operations.AbilityDamageOperation`

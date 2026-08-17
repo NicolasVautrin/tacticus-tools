@@ -11,9 +11,9 @@ VAs portees :
      `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetContinueTrigger`)
   `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour`
      (+ `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange`)
-Primitives : `IdunBattleLogic.Entities.DSLFactory$$UnitsWithVisualId`, `IdunBattleLogic.Entities.DSLFactory$$VisualUnitIdFromUnitId`,
-  `IdunBattleLogic.Entities.DSLFactory$$ChainBehaviour`, `IdunBattleLogic.Entities.DSLFactory$$UseNormalAttackIfAble`,
-  `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition`, `IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus`.
+Primitives : `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithVisualId`, `IdunBattleLogic.Entities.DSLFormulas$$VisualUnitIdFromUnitId`,
+  `IdunBattleLogic.Entities.DSLBehaviors$$ChainBehaviour`, `IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttackIfAble`,
+  `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition`, `IdunBattleLogic.Entities.DSLFormulas$$UnitMovementRangeWithBonus`.
 
 ASCII-only. Skip si pas de session / geometrie non cooperative.
 """
@@ -129,7 +129,7 @@ def test_waaagh_buff_effects_posed_live_and_port(waaagh):
 
 
 def test_waaagh_move_range_uses_effect_not_double_count(waaagh):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus` = `If(HasEffect(caster,1099), StatAmount(MOVEMENT),
+    """`IdunBattleLogic.Entities.DSLFormulas$$UnitMovementRangeWithBonus` = `If(HasEffect(caster,1099), StatAmount(MOVEMENT),
     Sum(StatAmount(MOVEMENT), bonus))` -> ANTI-DOUBLE-COMPTE : comme le buff 1099 est pose AVANT
     l'etage move, la portee resolue == MOVEMENT courant (deja +extraMovement), PAS MOVEMENT+2x."""
     d = waaagh

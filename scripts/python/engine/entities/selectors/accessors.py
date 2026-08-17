@@ -1,6 +1,6 @@
 """Accesseurs SELECTEUR : les slots de role du contexte natif (kind S).
 
-`IdunBattleLogic.Entities.DSLFactory$$InitializeShared` pose `0x148 Owner · 0x150 Effect ·
+`IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` pose `0x148 Owner · 0x150 Effect ·
 0x158 Actor · 0x160 Caster · 0x178 Target ...` ; ce module rend chacun de ces slots comme un
 noeud. Aucune dependance vers les autres tranches. Tranche 3 -- cf. `__init__.py`."""
 from __future__ import annotations
@@ -223,7 +223,7 @@ class Target(TargetsSelector):
 
 class ActiveTarget(TargetsSelector):
     """Slot `factory+0x180` = **ActiveTarget** (carte des selecteurs caches du `DSLFactory`, posee par
-    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
     0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget · 0x188 PreviousActiveTarget ·
     0x190 TargetTiles · 0x198 UnitFeetTiles`). C'est l'ELEMENT COURANT lie par le behaviour englobant :
 
@@ -244,7 +244,7 @@ class ActiveTarget(TargetsSelector):
 
 
 class SurroundingTiles(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles(center, includeCenter, radius, ...)` : les TUILES du disque
+    """`IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles(center, includeCenter, radius, ...)` : les TUILES du disque
     hex de rayon `radius` autour du centre (`center` = selecteur unit-domain OU position). `include_center`
     = l'argument natif `includeCenter` (0 aux call-sites portes : Poxwalkers IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour, SendInTheNextWave
     IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetPossibleSpawnTiles/IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector, CultDemagogue IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour -> centre EXCLU). Retour list[int] (tile ids), ordre

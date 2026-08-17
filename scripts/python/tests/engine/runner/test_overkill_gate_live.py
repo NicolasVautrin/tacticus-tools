@@ -17,7 +17,7 @@ Un seul des deux regimes ne conclurait rien : `control` seul ne distingue pas le
 `titus` seul ne prouve pas que l'observable reagit.
 
 OBSERVABLE : `TerrifyingCrescendo` (branche `On(UnitDeath) & OwnerIsActor & TargetIsOverkilled`, et
-`IdunBattleLogic.Entities.DSLFactory$$TargetIsOverkilled` = `HasFlagAbilityTrigger(target, 8)`)
+`IdunBattleLogic.Entities.DSLTriggers$$TargetIsOverkilled` = `HasFlagAbilityTrigger(target, 8)`)
 incremente `TerrifyingCrescendo_ExtraDmg` sur le tueur -- niveau lisible dans
 `decisionView.units[].effects[]`. Montage : `scripts/python/probe_178_overkill_gate.py`.
 
@@ -199,7 +199,7 @@ def test_overkill_force_flag_below_threshold(overkill_revive_case):
     """`isForceOverkill` (`DealDamageInfo@+0x2c`) — 2e champ threade par #R33, mesure SANS AUCUN crit.
 
     `FlailSwing` (1042, `deathBlightlord`) pose `alwaysOverkilled` (`AttackOptions@+4`, 8e argument
-    d'`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) : `IsOverkill` rend vrai DES QUE
+    d'`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`) : `IsOverkill` rend vrai DES QUE
     le coup est letal, meme tres en-dessous d'`overkillDmgPctOfHealth`. Contre-epreuve = le regime
     `revive-nocrit` : MEME observable, MEME classe de degat (letal, sous le seuil, sans crit), mais
     sans le flag -> la victime est revive. Le port ne cablait `force_overkill` que sur le cap

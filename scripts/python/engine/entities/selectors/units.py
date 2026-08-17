@@ -23,7 +23,7 @@ from ._pick import PickFirstN
 # n'importe pas `units.py` (verifie), et les deux modules restent importables SEULS en process frais.
 from .tiles import AllAliveUnits
 # #270-r4 : les deux litteraux de ce module DESIGNENT, et leur enum est LU au decompile --
-# `UnitsWithTrait(source, 0x10)` (le parametre `trait` de `DSLFactory$$UnitsWithTrait`) et
+# `UnitsWithTrait(source, 0x10)` (le parametre `trait` de `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTrait`) et
 # `has_unit_flag(u, 0xe)` (le parametre `flag` d'`UnitExtensions$$HasFlag`).
 from ..traits.unit_trait import UnitTrait
 from ..unit_flag import UnitFlag
@@ -59,10 +59,10 @@ def _selection_ok(u, selection_type, ctx) -> bool:
 
 
 class SurroundingUnits(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits(center, radius, ..., includeCenter, ...)` =
+    """`IdunBattleLogic.Entities.DSLSelectors$$SurroundingUnits(center, radius, ..., includeCenter, ...)` =
     `Units(SurroundingTiles(center, includeCenter, radius))` = unités à distance hex <= radius du centre.
 
-    `include_center` = MIRROR de l'argument natif `param_3` de `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles`
+    `include_center` = MIRROR de l'argument natif `param_3` de `IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles`
     (lu au décompilé) : `param_3 == 0` -> le factory construit `SurroundingTiles(includeCenter=1) op_Subtraction
     Tiles(center)` (centre EXCLU) ; `param_3 != 0` -> `SurroundingTilesSelector` DIRECT (centre **INCLUS**).
     Défaut `False` = centre exclu (tous les call-sites portés jusqu'ici). `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` passe `SurroundingUnits(target@0x178, range, 1, 1, 3)` -> `SurroundingTiles(..., param_5=1, ...)`
@@ -92,7 +92,7 @@ class SurroundingUnits(TargetsSelector):
 
 
 class AdjacentEnemies(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(caster)` = `Enemies(Units(AdjacentTiles(caster)) - {caster})`
+    """`IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies(caster)` = `Enemies(Units(AdjacentTiles(caster)) - {caster})`
     = ennemis (team != caster) à dist <= radius du caster, self exclu.
 
     ⚠ DEUX SURCHARGES d'ARITE 4, meme nom affiche, INDISCERNABLES dans le pseudo-C (#585-r3) --
@@ -128,7 +128,7 @@ class AdjacentEnemies(TargetsSelector):
 
 
 class AdjacentUnits(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(target, radius, mask)` = `Units(AdjacentTiles(target)) - {target}`
+    """`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(target, radius, mask)` = `Units(AdjacentTiles(target)) - {target}`
     = TOUTES les unités (AUCUN filtre d'équipe) à distance hex <= radius de `target`, target exclu. ⚠ à la
     DIFFÉRENCE de `AdjacentEnemies` (filtre team != caster) et de `Enemies(...)` (wrapper `UnitsByTeamSelector`),
     ce sélecteur ne filtre PAS l'équipe → inclut les ALLIÉS du caster (et le caster) s'ils sont adjacents à la
@@ -159,7 +159,7 @@ class AdjacentUnits(TargetsSelector):
 
 
 class Enemies(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Enemies(reference, source, mode)` -> `UnitsByTeamSelector`
+    """`IdunBattleLogic.Entities.DSLSelectors$$Enemies(reference, source, mode)` -> `UnitsByTeamSelector`
     (`IdunBattle.Entities.Selectors.UnitsByTeamSelector$$Select` -> `$$CountOrAdd`, flag@+0x28 = 0) :
     filtre -> equipe != celle du referent (le CASTER a tous les call-sites portes). Symetrique exact de
     `Friends` (meme classe, flag 1).
@@ -213,6 +213,37 @@ class Enemies(TargetsSelector):
     `...NovaChargeAbility$$GetAdditionalMarkedTiles` enchaine
     `NormalUnits(Enemies(Owner@+0x30, <des TUILES>, 3), 3)` -- un selecteur d'UNITES consomme la
     sortie d'`Enemies`, ce qui n'aurait aucun sens sur des ids de tuile.
+    TROISIEME source, celle-la EXHAUSTIVE : le `global-metadata.dat` place `get_ReturnsOnlyUnits`
+    au slot **20** et `get_ReturnsOnlyActors` au slot **21**, ce qui est exactement ce que les deux
+    offsets de vtable donnent (`(0x278 - 0x138) / 0x10 = 20`, `(0x288 - 0x138) / 0x10 = 21`).
+
+    ⚠ **LE COURT-CIRCUIT DE LA LIGNE 2 EST DU CODE MORT, ET C'EST MESURE (#1030-r6).** La lecture
+    d'origine en tirait que le port etait << plus restrictif que le natif >> sur les sources qui ne
+    rendent que des acteurs, donc sur l'ecrasante majorite des ~600 call-sites unit-domain. Les
+    DEUX moities de cette premisse sont fausses :
+
+      * `get_ReturnsOnlyActors` n'a qu'**UNE** definition dans tout le `global-metadata.dat` (la
+        virtuelle de `TargetsSelector`, slot 21) : **AUCUN selecteur ne la surcharge**. Elle ne peut
+        donc pas distinguer une source unit-domain d'une source tuile -- c'est UNE CONSTANTE pour
+        tous les selecteurs, et l'ecart tel qu'il etait ecrit est structurellement impossible.
+        Temoin non vide : la MEME famille porte 9 / 3 / 5 surcharges (`Tiles` / `Units` / `Unique`),
+        donc le compteur discrimine bel et bien.
+      * cette constante vaut **FAUX**, lue AUX OCTETS : `32 c0 c3` (`xor al,al ; ret`), contre
+        `b0 01 c3` (`mov al,1 ; ret`) pour les 17 surcharges triviales de la famille.
+
+    ⇒ la boucle tourne TOUJOURS, et l'application INCONDITIONNELLE de `_selection_ok` ci-dessous est
+    CORRECTE. Le getter etant absent des deux tables de noms (corps trivial, fondu par l'ICF), il a
+    fallu passer par `g_MethodPointers` : `probe_1030r6_court_circuit_returns_only_actors.py`
+    re-derive tout, et `tests/engine/test_1030r6_returns_only_actors_offline.py` le fige.
+
+    ⚠ **CE QUI RESTE NON PORTE : la branche MACHINE** (`else if (IsMachine(entity))`), residu
+    `#1030-r8`. Le natif ajoute une MACHINE qui a echoue `SelectUnit` -- et elle echoue TOUJOURS,
+    `MatchesUnitSelectionType` rendant `false` des que `EntityType != 1`, meme pour
+    `selectionType = Any`. Cette branche est donc l'UNIQUE porte par laquelle une MoW entre dans un
+    `Enemies`/`Friends`, et elle n'applique AUCUN `selectionType`. Le port, lui, traite la machine
+    comme une unite (`unit_or_machine` rend son dict, puis `_selection_ok`) : les deux lectures
+    CONCORDENT sur toute MoW vivante et ciblable, et ne divergent que sur une machine MORTE ou
+    `Untargetable` -- regime qu'aucun call-site porte n'atteint (leur source est `AllAliveUnits`).
 
     ⚠ CE QUE CETTE LECTURE CORRIGE : la forme d'avant rendait l'entite SOURCE, donc des ids de
     TUILE des que la source etait tile-domain -- `1094 TheLantern` (`Enemies(Caster, <zone>, 3)`
@@ -345,13 +376,13 @@ class UnitSet(TargetsSelector):
 
 
 class Filter(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Filter(source, predicate)` → thunk `IdunBattleLogic.Entities.DSLFactory$$FromTrigger` →
+    """`IdunBattleLogic.Entities.DSLSelectors$$Filter(source, predicate)` → thunk `IdunBattleLogic.Entities.DSLSelectors$$FromTrigger` →
     `IdunBattle.Entities.Selectors.FromTriggerSelector$$Select` : énumère `source` et, POUR CHAQUE élément, LIE l'élément
     au slot sujet du contexte (mirror du `0x20`→`ability+0x180` natif) puis évalue le prédicat bool
     contre ce contexte ; garde l'élément si le prédicat est vrai. Preuve binding : `TheBetrayer
     IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$GetPreferredAttackTargets` = `Filter(src, NOT(HasTrait(subject, 0xd)))` — le prédicat
     lit son sujet via `Subject` (= `ctx.subject`). Retour list.
-    (`IdunBattleLogic.Entities.DSLFactory$$FilterContinuous` = même construction + flag short-circuit ; `IdunBattleLogic.Entities.DSLFactory$$FilterByDirection` = classe distincte directionnelle — hors batch, à porter à la demande.)"""
+    (`IdunBattleLogic.Entities.DSLSelectors$$FilterContinuous` = même construction + flag short-circuit ; `IdunBattleLogic.Entities.DSLSelectors$$FilterByDirection` = classe distincte directionnelle — hors batch, à porter à la demande.)"""
     def __init__(self, source: TargetsSelector, predicate: TargetsSelector):
         self.source, self.predicate = source, predicate
 
@@ -370,7 +401,7 @@ class Filter(TargetsSelector):
 
 
 class UnitsDirectlyBehind(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind` — cibles secondaires « derrière la cible »
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind` — cibles secondaires « derrière la cible »
     (PlasmaCannon…). Transcription EXACTE de la construction native :
         ring    = SurroundingTiles(target, 1, 1) − Tiles(target)          # anneau R1 de la CIBLE
         cands   = Enemies(caster, Units(ring))                            # ennemis du caster dessus
@@ -378,11 +409,11 @@ class UnitsDirectlyBehind(TargetsSelector):
         behind  = FromTrigger(cands, MinDistance(caster, cand) > MinDistance(caster, target))  # côté OPPOSÉ
     COMPARATEUR = `>` STRICT (case #48). Piège gshared résolu par le SINGLETON de classe (ancre fiable,
     PAS le nom de ctor foldé/mislabelé par ghidra) : le comparateur natif est `DAT_1832482b0` = classe
-    construite par `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater` (`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger : iVar16 < iVar15`
+    construite par `IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreater` (`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger : iVar16 < iVar15`
     = `amount > threshold`), et NON `AmountIsEqualOrGreater` (IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger `<=` = `>=`) comme le laissait
     croire le ctor foldé `AmountIsEqualOrGreaterAbilityTrigger___ctor` (ghidra fusionne les ctors qui
     stockent 2 champs → nom faux). La formule = `DAT_18324e3c0` = classe construite par
-    `IdunBattleLogic.Entities.DSLFactory$$MinDistance` — **distance HEX, jamais un pathfinding** :
+    `IdunBattleLogic.Entities.DSLFormulas$$MinDistance` — **distance HEX, jamais un pathfinding** :
     `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` prend le `Min` sur toutes les paires
     (a de selA, b de selB) de `IdunBattle.Entities.Components.PositionComponent$$Distance`, qui est
     `AxialCoordinate$$ToCubeCoordinate` ×2 puis `CubeCoordinate$$Distance = Max(|dx|,|dy|,|dz|)`.
@@ -454,7 +485,7 @@ class UnitsDirectlyBehind(TargetsSelector):
 
 
 class Friends(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Friends(reference, source)` → `UnitsByTeamSelector(ctx, reference, source,
+    """`IdunBattleLogic.Entities.DSLSelectors$$Friends(reference, source)` → `UnitsByTeamSelector(ctx, reference, source,
     flag=1)` (symétrique exact d'`Enemies` flag=0) : garde les unités de `source` ALLIÉES au **RÉFÉRENT**.
 
     Le référent est le 1ᵉʳ argument NATIF (`param_2`), pas une constante : `reference=None` (défaut) = le
@@ -487,6 +518,10 @@ class Friends(TargetsSelector):
         # `result.Add(entity)` reinjecte l'ACTEUR RESOLU. Demonstration complete et recoupements :
         # docstring d'`Enemies` ci-dessus. `Friends` portait le meme trou (une source en domaine
         # TUILE rendait `[]`), et il se repare du meme geste : la classe native est UNE.
+        # Le `_selection_ok` INCONDITIONNEL ci-dessous est correct : le court-circuit
+        # `get_ReturnsOnlyActors` de `SelectAllActors` est du CODE MORT (une seule definition dans
+        # le metadata, corps `32 c0 c3` = `return false`, #1030-r6). La branche MACHINE, elle,
+        # reste non portee -- residu #1030-r8, meme raison qu'`Enemies`.
         out = []
         for e in _entities_of(self.inner, ctx):
             u = unit_or_machine(e, ctx)          # `UnitExtensions$$GetUnitOrMachine(entity, state)`
@@ -522,7 +557,7 @@ def _est_entite_tuile(d: dict, board) -> bool:
 
 
 class Units(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Units(tiles)` → `UnitsOnTilesSelector` : unités DEBOUT sur les tuiles du
+    """`IdunBattleLogic.Entities.DSLSelectors$$Units(tiles)` → `UnitsOnTilesSelector` : unités DEBOUT sur les tuiles du
     sélecteur source (`tiles` évalue → liste de positions). Généralise l'inline de SurroundingUnits.
     (Mode d'occupation main/steppable = raffinement inerte offline : 1 unité par tuile.)
 
@@ -632,7 +667,7 @@ class Units(TargetsSelector):
 
 
 class UnitsOnTilesWithEffect(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsOnTilesWithEffect(source, effectType)` → `FromTrigger(source,
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsOnTilesWithEffect(source, effectType)` → `FromTrigger(source,
     <prédicat tuile-porte-effet>)` : garde les unités de `source` dont la TUILE porte un effet ACTIF
     du type `effect_type`. Structure du décompilé : construit un objet-config (effectType stocké
     @+0x20) + un prédicat (ctor gshared MISLABELÉ « AttackHitsWithModifiersFormula » dans ghidra —
@@ -671,7 +706,7 @@ class UnitsOnTilesWithEffect(TargetsSelector):
 
 
 class Tiles(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Tiles(units)` → `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` (ctor mislabelé
+    """`IdunBattleLogic.Entities.DSLSelectors$$Tiles(units)` → `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` (ctor mislabelé
     "SortReverse", singleton distinct DAT_183278e98) : unités → leur MainTile. Retour list[position].
     `units` normalisé par `_units_of` (comme `AdjacentTiles`) : accepte une unité SEULE (dict, ex.
     `Tiles(Target())` d'OnFireDamage) ou une liste — sans quoi itérer un dict nu rendrait ses CLÉS.
@@ -813,7 +848,7 @@ class First(PickFirstN):
 
 
 class Unique(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Unique(source)` → LINQ Distinct : dedup de la source (ordre de 1re
+    """`IdunBattleLogic.Entities.DSLSelectors$$Unique(source)` → LINQ Distinct : dedup de la source (ordre de 1re
     apparition préservé), clé = identité d'entité (== par id). [structure PROUVÉE, clé DÉDUITE du nom]."""
     def __init__(self, source: TargetsSelector):
         self.source = source
@@ -917,7 +952,7 @@ def has_unit_id(unit, cfg_id) -> bool:
 
 
 class UnitsWithIds(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithIds(source, string[] ids)` : UNION (`op_Addition`) sur `ids` de
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithIds(source, string[] ids)` : UNION (`op_Addition`) sur `ids` de
     `UnitsWithIdSelector(source, TestUnitProvider(id))` -- l'accumulateur part du selecteur VIDE
     (`ctor` gshared mislabele « AllAliveMachinesSelector » dans ghidra : structure lue, jamais le nom),
     donc `ids` vide -> ensemble VIDE.
@@ -973,7 +1008,7 @@ class UnitsWithIds(TargetsSelector):
 
 
 class UnitsWithTrait(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, traitId)` → `UnitsWithFlagSelector` flag=1 : garde
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTrait(source, traitId)` → `UnitsWithFlagSelector` flag=1 : garde
     les unités où `HasFlag(unit, traitId)` (même primitive que HasFlag). `ctx.has_trait` teste le trait ;
     défaut None → trait ABSENT (convention HasFlag) → set vide.
 
@@ -993,7 +1028,7 @@ class UnitsWithTrait(TargetsSelector):
 
 
 class UnitsWithoutTrait(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithoutTrait(source, traitId)` → `UnitsWithFlagSelector` flag=0 : garde
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutTrait(source, traitId)` → `UnitsWithFlagSelector` flag=0 : garde
     les unités où `HasFlag(unit, traitId)` est FAUX. Défaut `ctx.has_trait` None → trait absent → garde
     TOUT.
 
@@ -1293,9 +1328,9 @@ class NormalUnits(TargetsSelector):
 
 
 def hero_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
-    """`IdunBattleLogic.Entities.DSLFactory$$HeroUnits(source, mask)` — MIRROR du decompile : la factory
+    """`IdunBattleLogic.Entities.DSLSelectors$$HeroUnits(source, mask)` — MIRROR du decompile : la factory
     native N'ALLOUE PAS de selecteur dedie, elle DELEGUE textuellement a
-    `IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, 0x10, mask)`. On mirror donc la FACTORY
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTrait(source, 0x10, mask)`. On mirror donc la FACTORY
     (fonction de composition), pas une classe inventee — `0x10` = `UnitTrait.Hero` (16). Consommateur porte :
     `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$GetNonCharacterFriendsSelector`
     (`Friends(...) op_Subtraction HeroUnits(...)` = les amis NON-Character).
@@ -1440,7 +1475,7 @@ class MechanicalUnits(TargetsSelector):
 
 
 class AllDeadOrResurrectedUnits(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$AllDeadOrResurrectedUnits` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$AllDeadOrResurrectedUnits` ->
     `IdunBattle.Entities.Selectors.AllDeadOrResurrectedUnitsSelector$$Select` — MIRROR du decompile :
 
         result = StateExtensions.<slot 0x8a>(state)          # == AllDeadUnitsSelector.Select : les MORTS
@@ -1473,7 +1508,7 @@ class AllDeadOrResurrectedUnits(TargetsSelector):
 
 
 class UnitsDamagedThisPhase(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsDamagedThisPhase(attacker)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsDamagedThisPhase(attacker)` ->
     `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select` — MIRROR du decompile :
 
         result = OrderedSet<IEntity>()
@@ -1515,7 +1550,7 @@ class UnitsDamagedThisPhase(TargetsSelector):
 
 
 class AdjacentFriends(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(X)` = symétrique d'`AdjacentEnemies` (finit par
+    """`IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(X)` = symétrique d'`AdjacentEnemies` (finit par
     `Friends`) : alliés à dist <= radius du centre, self exclu.
 
     ⚠ La REFERENCE d'équipe est le 2e argument de `Friends`, PAS le caster. La surcharge 4-args LUE au
@@ -1568,10 +1603,10 @@ class SurroundingEnemies(TargetsSelector):
     d'une unite de REFERENCE.
 
     ⚠ DEUX FORMES NATIVES, distinguees par le nombre d'arguments (lues au decompile) :
-      * surcharge 6-args `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies`/`IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : `SurroundingEnemies(ref, center, radius, ...)` ->
+      * surcharge 6-args `IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies`/`IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies` : `SurroundingEnemies(ref, center, radius, ...)` ->
         reference et centre SEPARES ; le call-site standard passe le CASTER en reference
         (symetrique du `SurroundingFriends(caster, casterTile, ...)` de SupremeCommander IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour) ;
-      * surcharge 4-args `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies`/`IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : `SurroundingEnemies(X, radius, ...)` -> le MEME
+      * surcharge 4-args `IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies`/`IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies` : `SurroundingEnemies(X, radius, ...)` -> le MEME
         selecteur `X` sert de centre **ET** de reference (`Enemies(param_2 = X, units)`). Call-site lu :
         `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
         (`SurroundingEnemies(target@0x178, GetNumberConstant(0x44)=range, 1, 3)`) -> « unites entourant la
@@ -1605,7 +1640,7 @@ class SurroundingEnemies(TargetsSelector):
 
 
 class SurroundingFriends(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(center, radius)` = `Friends(SurroundingUnits(center,
+    """`IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(center, radius)` = `Friends(SurroundingUnits(center,
     radius))` : alliés (team == caster) à dist <= radius du centre, centre exclu."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector, selection_type=None):
         self.center, self.radius = center, radius
@@ -1627,7 +1662,7 @@ class SurroundingFriends(TargetsSelector):
 
 
 class SortByFormula(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SortByFormula(source, formula[, ascending])` → `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : trie la source par `formula` évaluée PAR ÉLÉMENT.
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortByFormula(source, formula[, ascending])` → `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : trie la source par `formula` évaluée PAR ÉLÉMENT.
     ⚠ flag natif : 0 (défaut) → DESCENDANT, 1 → ASCENDANT. Tri STABLE (mergesort .NET ≡ `sorted`).
 
     ⚠ **LE SLOT LIE EST `AbilityEntities.ActiveTarget@+0x20`, ET IL EST LU, PAS DEDUIT (#927).**
@@ -1807,7 +1842,7 @@ class ValidNormalAttackTargets(TargetsSelector):
 
 
 class SortByDistance(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(source, refPoint)` → `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` : trie la source par distance hex CROISSANTE au `refPoint` (arg2 = sélecteur de
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortByDistance(source, refPoint)` → `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` : trie la source par distance hex CROISSANTE au `refPoint` (arg2 = sélecteur de
     position/unité, PAS forcément le caster). ASCENDANT, tri STABLE.
 
     Domaine MIXTE (unité / id de tuile / position) des DEUX côtés : le natif trie des ENTITES et lit leur
@@ -1828,7 +1863,7 @@ class SortByDistance(TargetsSelector):
 
 
 class Alive(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Alive(source)` = `Filter(source, IsAlive)` : garde les unités vivantes
+    """`IdunBattleLogic.Entities.DSLSelectors$$Alive(source)` = `Filter(source, IsAlive)` : garde les unités vivantes
     (alive & hp>0). Équivaut à `Damageable`. Retour list."""
     def __init__(self, source: TargetsSelector):
         self.source = source
@@ -1838,7 +1873,7 @@ class Alive(TargetsSelector):
 
 
 class UnitsThatCanHaveActiveAbilityReset(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitsThatCanHaveActiveAbilityReset(source, flag)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsThatCanHaveActiveAbilityReset(source, flag)` ->
     `IdunBattle.Entities.Selectors.UnitsThatCanHaveActiveAbilityResetSelector$$Select` : garde les
     unites de `source` pour lesquelles `IdunBattle.Core.Services.BattleQuery$$
     EntityCanHaveActiveAbilityReset(unit, flag)` est vrai -- c'est-a-dire celles dont une ability
@@ -1866,7 +1901,7 @@ class UnitsThatCanHaveActiveAbilityReset(TargetsSelector):
 
 
 class Unobscured(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Unobscured(from, source)` -> `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` :
+    """`IdunBattleLogic.Entities.DSLSelectors$$Unobscured(from, source)` -> `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` :
     garde les unites de `source` dont la tuile n'est PAS obscurcie (terrain) depuis la tuile du referent
     `from` (`IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` -> `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain`, mask 6 = elevation bit2 + murs bit4 ; TERRAIN seul, aucun blocage par unite).
 

@@ -23,7 +23,7 @@ from ....dsl.event_trigger_type import EventTriggerType
 
 
 class KillDeadUnits(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLBehaviors$$KillDeadUnits` = `IdunBattleLogic.Entities.DSLFactory$$Kill(subject, DownedUnits(units_sel), options)`
+    """`IdunBattleLogic.Entities.DSLBehaviors$$KillDeadUnits` = `IdunBattleLogic.Entities.DSLBehaviors$$Kill(subject, DownedUnits(units_sel), options)`
     -> `IdunBattle.Entities.Behaviours.KillUnitBehaviour$$Execute` : pour chaque unite DOWNED (flag 0xf, via
     `DownedUnits`=`UnitsWithFlagSelector(units_sel, 0xf, want=1) IdunBattleLogic.Entities.DSLSelectors$$DownedUnits`) NON exemptee (le natif skippe
     `HasFlag(9|6|0x1a)`), emet une Operation de KILL (finalise la mort : retrait + on-death). Args natifs
@@ -65,7 +65,7 @@ class KillDeadUnits(AbilityBehaviour):
 
 
 class RemoveUnit(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$RemoveUnit` -> `IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute` : RETIRE de la
+    """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnit` -> `IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute` : RETIRE de la
     bataille chaque unite du selecteur — un DESPAWN, PAS une mort (i2 MV71 : « the one with the lowest
     Health is REMOVED ») : AUCUN vecteur on-death (pas de PreUnitDeath/UnitDefeated, pas d'attribution
     de tueur). Call-sites portes (MV71SniperDroneSquadAttack IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour) : eviction (a)
@@ -186,7 +186,7 @@ class Resurrect(AbilityBehaviour):
 
 
 class RemoveMachine(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$RemoveMachine(factory, sel)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveMachine(factory, sel)` ->
     `IdunBattle.Entities.Behaviours.RemoveMachineBehaviour$$Execute` : resout son selecteur `+0x50`
     (= `caster@0x160` au seul call-site porte) et appelle l'operation
     `IdunBattle.Operations.RemoveMachineOperation$$Execute(entity, removeEffects=1, ...)`.
@@ -690,7 +690,7 @@ class TriggerAbilityDelayed(AbilityBehaviour):
 
 
 class TriggerAbility(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$TriggerAbility(targets, abilityType, actor, caster, target,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$TriggerAbility(targets, abilityType, actor, caster, target,
     <sel4>, groupType, flag)` -> `IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$Execute` : pour
     CHAQUE unite du selecteur `targets_sel` (champ `+0x50`), DECLENCHE l'ability TRIGGERED `ability_type`
     (`+0x58`) avec cette unite pour OWNER -- un declenchement DIRECT, qui court-circuite le `CreateTrigger`

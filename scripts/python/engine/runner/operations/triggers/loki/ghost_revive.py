@@ -606,7 +606,7 @@ class GhostRemoveOnSourceRemoved(_GhostRemoval):
     TUILE (source = le poseur), donc `RemoveEffects(poseur)` ne le toucherait pas.
 
     ATTEIGNABILITE, mesuree : aucune des cinq abilities natives qui appellent
-    `IdunBattleLogic.Entities.DSLFactory$$RemoveUnit` ne retire le poseur d'un ghost -- MV71 retire
+    `IdunBattleLogic.Entities.DSLBehaviors$$RemoveUnit` ne retire le poseur d'un ghost -- MV71 retire
     un drone, `AggressiveOnslaught_Unsummon` les `Children(Owner)`, `HunterOfSouls` son PROPRE
     porteur, `NoHidingFromTheWatchers` n'a que des porteurs npc/summon, `PriorityReclamation` aucun
     porteur au gameconfig. Ce trigger reste donc INERTE en bataille reelle ; il est exerce par la

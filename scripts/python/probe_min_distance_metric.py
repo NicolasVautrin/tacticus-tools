@@ -1,16 +1,16 @@
-"""R7 -- `IdunBattleLogic.Entities.DSLFactory$$MinDistance` mesure-t-il une distance HEX ou une
+"""R7 -- `IdunBattleLogic.Entities.DSLFormulas$$MinDistance` mesure-t-il une distance HEX ou une
 distance de CHEMIN ? Et le proxy Chebyshev qui le remplace dans le chemin de DEGAT diverge-t-il
 du natif sur une configuration ATTEIGNABLE en bataille ?
 
 QUESTION (binaire), et pourquoi elle se posait : le depot AFFIRMAIT LES DEUX.
   * `engine/entities/traits/combat.py` : "Proxy distance (Chebyshev sur coordonnees offset) du
     MinDistance natif (pathfinding)" ;
-  * `engine/entities/selectors/units.py` : "`IdunBattleLogic.Entities.DSLFactory$$MinDistance`
+  * `engine/entities/selectors/units.py` : "`IdunBattleLogic.Entities.DSLFormulas$$MinDistance`
     (distance hex entre MainTiles)".
 
 RE (decompile = verite, gqfc5mff6c) -- chaine LUE, appelant par appelant :
 
-  `IdunBattleLogic.Entities.DSLFactory$$MinDistance(ctx, selA, selB)` construit une instance de la
+  `IdunBattleLogic.Entities.DSLFormulas$$MinDistance(ctx, selA, selB)` construit une instance de la
   classe `DAT_18324e3c0` en lui passant les DEUX selecteurs (ctor foldé/mislabelé par ghidra en
   `HasUsedActiveAbilityThisTurnTrigger___ctor` -- l'ANCRE fiable est le singleton de classe, pas le
   nom du ctor). Le `Calculate` de cette classe est
@@ -40,7 +40,7 @@ la geometrie hexagonale PURE, en coordonnees cube, sur la convention offset odd-
 EGAUX sur tout cube valide, ou x+y+z=0).
 
 D'OU VENAIT LA CONFUSION -- deux natifs DISTINCTS aux noms voisins :
-  * `IdunBattleLogic.Entities.DSLFactory$$MinDistance` (noeud DSL)                -> HEX (ci-dessus) ;
+  * `IdunBattleLogic.Entities.DSLFormulas$$MinDistance` (noeud DSL)                -> HEX (ci-dessus) ;
   * `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` (utilite IA
     de MOUVEMENT) -> celui-la itere les tuiles du `ClosestEnemy` et demande une ROUTE au service de
     pathfinding, dont il lit la LONGUEUR (`route+0x18`). C'est bien une distance de CHEMIN, et

@@ -51,7 +51,7 @@ LES POINTS QUI NE SE DEVINENT PAS
     l'observable le plus dur de cette relique.
   * **LE DOUBLEMENT PORTE SUR LES DEUX CHANCES, PAS SUR UNE.** `ConditionalAmount` est construit
     DEUX fois, sur le MEME noeud `special` (le registre `pvVar4` est reutilise au decompile).
-  * **`Double(x)` = `x * 2`, sans plafond a 100.** `IdunBattleLogic.Entities.DSLFactory$$Double` =
+  * **`Double(x)` = `x * 2`, sans plafond a 100.** `IdunBattleLogic.Entities.DSLFormulas$$Double` =
     `Multiply(a, 2)` ; aucun `Min(.., 100)` dans l'arbre. Aux niveaux 9-10 (`chance` = 48 / 50) une
     active porte donc 96 % / **100 %**, et le natif ne clampe rien -- c'est le tirage
     `IntBasedMersenneTwister$$NextBool` qui borne de fait.

@@ -798,7 +798,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
     # (`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`, MEME formule que la facade combat runner) :
     # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
-    # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` =
+    # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` =
     # `Units(AdjacentTiles(.)) - .`) — les cadavres de scene.pos_by_id (decisionView les garde) n'y
     # sont plus : ni compte GetStuckIn (IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance), ni porteur d'aura (idiome hp>0, cf. l.227/276).
     _alive_ids = [uid for uid in scene.pos_by_id

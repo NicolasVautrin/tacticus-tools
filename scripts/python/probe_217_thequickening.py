@@ -4,7 +4,7 @@
 `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$ExecuteBehaviour` : cast TILE-TARGET. Le caster se TELEPORTE sur la tuile
 ciblee (portee-mouvement 2) ; l'unite presente y est ECHANGEE vers la tuile d'origine du caster ; puis
 caster + unite-echangee (SI BloodAngels, `HasFaction 0xe=14`) attaquent en melee depuis leur nouvelle
-position, Attack OVERRIDE par `IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax` = min(maxDmg[lvl]xmult,
+position, Attack OVERRIDE par `IdunBattleLogic.Entities.DSLFormulas$$PercentageOfAttackCappedAtMax` = min(maxDmg[lvl]xmult,
 round(Attack x dmgPct[lvl]/100)).
 
 LOIS MESUREES (parse de la CASCADE BRUTE du cast) :

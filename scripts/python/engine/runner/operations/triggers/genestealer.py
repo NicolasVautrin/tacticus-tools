@@ -291,7 +291,7 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
 # Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki`. Le trait 1052 = 2 abilities-triggers :
 #   - `Ambush_SummonAbility`      (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour) : mort -> decoy.
 #   - `EnvAmbushResurrectAbility`  (IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour)   : resurrection.
-# La feuille DSL `IdunBattleLogic.Entities.DSLFactory$$Resurrect appelle l'Operation imperative `ResurrectUnitOperation.Execute
+# La feuille DSL `IdunBattleLogic.Entities.DSLBehaviors$$Resurrect appelle l'Operation imperative `ResurrectUnitOperation.Execute
 # IdunBattle.Operations.ResurrectUnitOperation$$Execute` (../resurrect.py) qui pose le flag one-shot 0xe + crushe le decoy + emet On(UnitResurrected=46).
 # RE ghidra gqfc5mff6c ; doc docs/rl/genestealer-cults.md (verdict G3).
 # =====================================================================================================
