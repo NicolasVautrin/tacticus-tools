@@ -368,6 +368,9 @@ function armerPhase(): true | Refus {
     if (mg && teteG && teteG.erreur === null && !teteTriviale(teteG)) {
         enableListener = Interceptor.attach(mg.ptr, {
             onEnter(args) {
+                // L'instance vivante d'`IdunGameViews`, captée au passage : c'est elle qui
+                // reposera la MoW au rejeu (`AddPlaceholderMachine`). Coût nul, aucun scan.
+                try { if (!args[0].isNull()) vuesJeu = args[0]; } catch { /* avale */ }
                 if (enableObservations.length < 32) {
                     enableObservations.push({ skip: args[1].toInt32() & 0xff });
                 }
@@ -437,8 +440,20 @@ const CLS_SANDBOX = "SandboxGameModeSource";
  * unité obligatoire, objectifs) — sans lui le déploiement reste permissif, ce qui n'est PAS le
  * déploiement du jeu.
  */
-const DELEGUEES: Array<{ nom: string; params: number; role: string }> = [
-    { nom: "GetUnitModel", params: 2,
+/**
+ * ⚠ `valeurs` — QUELS PARAMÈTRES SONT DES TYPES VALEUR, et pourquoi ça ne s'improvise pas.
+ *
+ * `il2cpp_runtime_invoke` attend, pour un type VALEUR, un POINTEUR vers la valeur. Les
+ * arguments interceptés, eux, arrivent bruts : un `System.Boolean` `false` est le mot `0`.
+ * Le retransmettre tel quel revient à passer `0x0` comme adresse.
+ *
+ * MESURÉ le 2026-08-17 : `GetUnitModel(unitId, isPvpEnemyUnit)` -- seule entrée de cette table
+ * à porter un paramètre -- a levé « access violation accessing 0x0 » sur ses 101 appels, soit
+ * exactement l'adresse `false`. Les trois autres n'ont AUCUN paramètre : elles fonctionnaient
+ * par chance de forme, pas parce que le transfert était correct.
+ */
+const DELEGUEES: Array<{ nom: string; params: number; role: string; valeurs?: boolean[] }> = [
+    { nom: "GetUnitModel", params: 2, valeurs: [false, true],
       role: "commande la POSE -- sandbox rend un `HotseatUnitModel`, qui échoue à `IsUnlocked`" },
     { nom: "GetGameModeSpecificDeploymentHudOptions", params: 0,
       role: "apporte les RESTRICTIONS -- sandbox rend des options par défaut, donc AUCUNE règle" },
@@ -493,6 +508,39 @@ function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteu
         return { ptr: sourceGuildBossForgee(), cls: "GuildBossGameModeSource", nom: "guildBoss" };
     }
     return { ptr: getCampaignGameModeSourcePtr(), cls: CLS_CAMP, nom: "campagne" };
+}
+
+/** Le contexte du prêteur guild boss, retenu pour pouvoir RÉ-EMPRUNTER à l'identique. */
+let gbEncounterIndex = 0;
+let gbIncludeLocked = false;
+
+/**
+ * ⚠ UNE `PooledList` NE SE SUBSTITUE QU'UNE FOIS -- et c'est le RETRY qui l'a révélé.
+ *
+ * Le pré-emprunt fige UNE valeur, calculée avant le montage, puis la re-pose à chaque appel.
+ * Ça tient tant qu'il n'y a qu'un seul `Show`. Mesuré le 2026-08-17 : au RETRY, l'écran revient
+ * bien en phase de déploiement mais le roster est VIDE -- le premier `Show` a consommé la
+ * liste, qui est retournée au pool, et le second reçoit un pointeur recyclé. Le nom du type le
+ * disait déjà.
+ *
+ * Le prêteur guild boss n'a AUCUN besoin du pré-emprunt : celui-ci n'existe que pour laisser le
+ * masque `sansFiltre` agir hors hook (cf. §24), or `GetDeployableUnitsPooled` applique déjà
+ * `DisallowedFactions`. On ré-emprunte donc FRAIS à chaque appel.
+ */
+function rosterFraisGuildBoss(): NativePointer | null {
+    const boite = rosterPooledGuildBoss(gbEncounterIndex, gbIncludeLocked);
+    if (typeof boite === "object" && boite !== null
+        && (boite as { ok?: boolean }).ok === false) return null;
+    const b = boite as NativePointer;
+    if (b.isNull()) return null;
+    gcRoot.add(b);
+    try {
+        // `PooledList<T>` est un TYPE VALEUR : `runtime_invoke` le boxe, la valeur est à +0x10.
+        const deboxe = b.add(0x10).readPointer();
+        if (deboxe.isNull()) return null;
+        gcRoot.add(deboxe);
+        return deboxe;
+    } catch { return null; }
 }
 
 // ============================================================================
@@ -723,6 +771,9 @@ function armerHud(): true | Refus {
                 // un START gris : le HUD ne compte que ce que LUI a posé, et `UpdateButtons`
                 // n'a aucun appelant après le montage dans ce régime.
                 if (syncAuto) planifierSync(6);
+                // ⛔ ON N'INVOQUE RIEN ICI NON PLUS : `rejouerMemoire` ENFILE. C'est le retour
+                // de la phase de déploiement (retry) qui doit rendre l'équipe déjà composée.
+                if (memoireAuto) rejouerMemoire();
             },
         });
     }
@@ -742,6 +793,30 @@ function armerHud(): true | Refus {
                 }
             },
         });
+    }
+    if (!listenerMoW) {
+        // LE PENDANT MoW de `UnitDeployment_PlaceUnitOnBoard`. Même étage, autre signature :
+        // pas de colonne/ligne, mais une `MachineOfWarPosition`.
+        const kam = findClassAnywhere("IdunBattle.View.FSM", "StateMachineActions");
+        const mm = kam
+            ? findMethodByParamCount(kam, "UnitDeployment_PlaceMachineOfWarUnitOnBoard", 4)
+            : null;
+        if (mm && !mm.ptr.isNull()) {
+            const tm = lireTete(mm.ptr);
+            if (tm.erreur === null && !teteTriviale(tm)) {
+                listenerMoW = Interceptor.attach(mm.ptr, {
+                    onEnter(args) {
+                        try {
+                            const uid = readIl2cppString(args[1]);
+                            if (uid === null || uid === "") return;
+                            // args[2]=isManual, args[3]=playerId, args[4]=position
+                            memoireMoW = { unitId: uid, playerId: args[3].toInt32(),
+                                           position: args[4].toInt32() };
+                        } catch { /* best effort : la mémoire MoW reste ce qu'elle était */ }
+                    },
+                });
+            }
+        }
     }
     if (!listenerBoard) {
         const ka = findClassAnywhere("IdunBattle.View.FSM", "StateMachineActions");
@@ -865,7 +940,9 @@ function armerBorne(b: Borne): true | Refus {
 }
 
 /** Arme UNE délégation. Rend un refus NOMMÉ plutôt qu'un silence. */
-function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }): true | Refus {
+function armerUneDelegation(
+    d: Delegation, spec: { nom: string; params: number; valeurs?: boolean[] },
+): true | Refus {
     if (d.listener) return true;
 
     const ks = findClassAnywhere(NS_SRC, CLS_SANDBOX);
@@ -902,8 +979,16 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
         // `args[0]` est le `this` sandbox — on ne le transmet PAS, c'est tout l'objet de la
         // délégation : la vraie source répond avec SON état.
         onEnter(args) {
-            (this as unknown as { argv: NativePointer[] }).argv =
-                nParams >= 1 ? [args[1], args[2]].slice(0, nParams) : [];
+            // Un paramètre de type VALEUR doit être RÉ-EMPAQUETÉ : on alloue et on écrit la
+            // valeur, puis on transmet SON ADRESSE. Sans ça, `false` (le mot 0) part comme
+            // pointeur nul -- cf. le bloc `valeurs` sur `DELEGUEES`.
+            const bruts = nParams >= 1 ? [args[1], args[2]].slice(0, nParams) : [];
+            (this as unknown as { argv: NativePointer[] }).argv = bruts.map((a, i) => {
+                if (!spec.valeurs || !spec.valeurs[i]) return a;
+                const cell = Memory.alloc(8);
+                cell.writePointer(a);          // conserve les 8 octets tels quels
+                return cell;
+            });
         },
         onLeave(retval) {
             d.fires++;
@@ -920,6 +1005,20 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
             // `GetDeployableUnits` a pu la voir — et le masque `sansFiltre` a pu agir. Ici on
             // ne fait plus que la poser. C'est la seule forme qui permette de modifier
             // l'appel emprunté (cf. §24 : un `Interceptor` est aveugle aux appels imbriqués).
+            // GUILD BOSS : on ré-emprunte FRAIS, jamais la valeur figée -- une `PooledList`
+            // consommée par un premier `Show` revient VIDE au retry (cf. `rosterFraisGuildBoss`).
+            if (spec.nom === METHODE && p.nom === "guildBoss") {
+                const frais = rosterFraisGuildBoss();
+                if (frais === null) {
+                    d.dernier = { ok: false, detail: "ré-emprunt guild boss ÉCHOUÉ -- rien "
+                        + "substitué (mieux vaut le roster natif qu'une liste recyclée)" };
+                    return;
+                }
+                retval.replace(frais);
+                d.emprunts++;
+                d.dernier = { ok: true, detail: `ré-emprunt FRAIS -> ${frais}` };
+                return;
+            }
             if (preEmprunt !== null && spec.nom === METHODE) {
                 retval.replace(preEmprunt);
                 d.emprunts++;
@@ -2331,7 +2430,107 @@ function verifierPuisNettoyer(p: Pose, avant: number | null, reste: number): voi
 }
 
 /** Premier temps : appliquer l'`AddUnitMessage` — le MÊME message que le harnais RL emploie. */
+// ============================================================================
+// MÉMOIRE DE DÉPLOIEMENT — pour que le RETRY reparte avec l'équipe déjà composée.
+//
+// Le retry ramène la phase de déploiement, mais le plateau revient VIDE : la bataille est
+// reconstruite depuis la BC, qui ne porte aucun `PredefinedUnits` côté joueur. Recomposer cinq
+// unités à chaque essai rend le mode inutilisable pour ce à quoi il sert -- réessayer une
+// composition contre un boss.
+//
+// On mémorise donc les poses APPLIQUÉES, et on les rejoue quand la phase revient.
+//
+// ⚠ LE REJEU EST GARDÉ PAR L'ÉTAT DU PLATEAU, pas par un drapeau : on ne rejoue QUE si le camp
+// du joueur est vide. Sans ce cran, un `Show` qui tire alors que les unités sont déjà là
+// doublerait la mise -- et une pose sur une case occupée échoue en silence (mesuré le
+// 2026-08-17 : `ultraApothecary` sur la case de `ultraTigurius`).
+const memoirePoses: Pose[] = [];
+let memoireAuto = false;
+let memoireRejeux = 0;
+let memoireDernier: string | null = null;
+
+/**
+ * ⚠ LA MACHINE OF WAR A SON PROPRE CHEMIN, ET IL NE CROISE JAMAIS CELUI DES UNITÉS.
+ *
+ * Mesuré le 2026-08-17 : `tyranBiovore` sort de `TryMarkUnitAsPlaced` avec `mow=true` et
+ * `accepte=true`, mais n'apparaît NI dans la mémoire NI dans `deploymentPlateau`. Deux causes
+ * distinctes, toutes deux structurelles :
+ *
+ *   * la pose passe par `AddPlaceholderMachine(unitId, isManual, playerId, position)` -- une
+ *     MoW n'a ni colonne ni ligne, elle a une `MachineOfWarPosition` et sa plateforme. Notre
+ *     ancrage ne visait que `AddPlaceholderUnit` ;
+ *   * `deploymentPlateau` énumère des `AUnitView` ; une MoW est une `MachineView`. Son absence
+ *     de l'inventaire ne prouvait donc PAS son absence de l'écran.
+ *
+ * ⛔ ON ANCRE l'étage FSM (`UnitDeployment_PlaceMachineOfWarUnitOnBoard`, qui porte la
+ * `position`) ET ON INVOQUE l'étage vues (`AddPlaceholderMachine`). Deux classes, deux
+ * méthodes : la règle « ne jamais ancrer ce qu'on invoque » est tenue.
+ */
+interface PoseMoW { unitId: string; playerId: number; position: number }
+let memoireMoW: PoseMoW | null = null;      // une seule MoW par bataille
+let vuesJeu: NativePointer | null = null;   // l'`IdunGameViews` vivante, captée au passage
+let listenerMoW: InvocationListener | null = null;
+
+/** Retient une pose, dédupliquée par unité (la dernière position gagne). */
+function memoriser(p: Pose): void {
+    const i = memoirePoses.findIndex((x) => x.unitId === p.unitId);
+    if (i >= 0) memoirePoses[i] = p; else memoirePoses.push(p);
+}
+
+/**
+ * Rejoue la mémoire si le camp du joueur est VIDE.
+ *
+ * ⛔ Appelé depuis la FILE du thread principal, jamais depuis un callback d'interception.
+ */
+function rejouerMemoire(): void {
+    if (memoirePoses.length === 0 && memoireMoW === null) return;
+    queueOnMainThread(() => compteJoueur()).then((n) => {
+        const nb = n as number | null;
+        if (nb === null) { memoireDernier = "plateau non lisible -- rejeu ANNULÉ"; return; }
+        if (nb > 0) {
+            memoireDernier = `plateau déjà peuplé (${nb}) -- rejeu ANNULÉ (pas de doublon)`;
+            return;
+        }
+        memoireRejeux++;
+        memoireDernier = `rejeu de ${memoirePoses.length} pose(s)`
+            + (memoireMoW ? ` + MoW ${memoireMoW.unitId}` : " (aucune MoW mémorisée)");
+        for (const p of memoirePoses) committerUnePose(p);
+        if (memoireMoW !== null) rejouerLaMoW(memoireMoW);
+    }, (e) => { memoireDernier = "rejeu ÉCHOUÉ : " + String(e); });
+}
+
+/**
+ * Re-pose la MoW par `IdunGameViews$$AddPlaceholderMachine`.
+ *
+ * ⛔ ENFILÉ, jamais appelé depuis un callback d'interception.
+ * ⚠ On ne rend pas la MoW RÉELLE ici : on la remet à sa plateforme, comme le ferait le clic.
+ * Le passage au réel est le travail du START, comme pour les unités pré-positionnées.
+ */
+function rejouerLaMoW(m: PoseMoW): void {
+    queueOnMainThread((): Record<string, unknown> => {
+        if (vuesJeu === null || vuesJeu.isNull()) {
+            return { ok: false, error: "aucune `IdunGameViews` captée -- la MoW n'est PAS reposée" };
+        }
+        const k = findClassAnywhere(NS_VIEWS, CLS_VIEWS);
+        const mi = k ? findMethodByParamCount(k, "AddPlaceholderMachine", 4) : null;
+        if (!mi) return { ok: false, error: "`AddPlaceholderMachine` INTROUVABLE (4 paramètres)" };
+        try {
+            // `isManual` et `position` sont des types VALEUR : on transmet l'ADRESSE de la
+            // valeur, jamais la valeur elle-même (cf. le correctif `GetUnitModel`).
+            const manuel = Memory.alloc(1); manuel.writeU8(1);
+            const pid = Memory.alloc(4); pid.writeS32(m.playerId);
+            const pos = Memory.alloc(4); pos.writeS32(m.position);
+            invokeMethod(mi.info, vuesJeu, [createManagedString(m.unitId), manuel, pid, pos]);
+            return { ok: true, unitId: m.unitId };
+        } catch (e) { return { ok: false, error: "LEVÉ : " + (e as Error).message }; }
+    }).then((r) => {
+        const rr = r as { ok?: boolean; error?: string };
+        if (rr.ok !== true) memoireDernier = (memoireDernier ?? "") + ` | MoW: ${rr.error}`;
+    }, (e) => { memoireDernier = (memoireDernier ?? "") + ` | MoW levée: ${String(e)}`; });
+}
+
 function committerUnePose(p: Pose): void {
+    memoriser(p);
     queueOnMainThread((): Record<string, unknown> => {
         const avant = compteJoueur();
         const runner = state.liveRunner;
@@ -2614,6 +2813,50 @@ export function register(ctx: Ctx): void {
      * runner (`launch.ts` : « apply AddUnitMessages for each player placement, then StartMatch »).
      * `SpawnSource = Deployment (5)` par défaut, écrit au champ +0x28 comme `applyAddUnitSrc`.
      */
+    /**
+     * LA MÉMOIRE DE DÉPLOIEMENT — pour que le RETRY reparte avec l'équipe déjà composée.
+     *
+     * Armée, elle retient chaque pose appliquée et la rejoue quand la phase de déploiement
+     * revient (le `Show` du HUD). `{ oublier: true }` la vide ; sans corps, elle se lit.
+     *
+     * ⚠ Le rejeu ne part QUE si le camp du joueur est vide -- c'est l'état du plateau qui
+     * garde, pas un drapeau. Un `Show` sur un plateau déjà peuplé ne doit rien doubler.
+     */
+    ctx.rpc.deploymentMemoire = (body?: {
+        armer?: boolean; oublier?: boolean; rejouer?: boolean; confirmer?: boolean;
+    }): unknown => {
+        const etat = () => ({
+            arme: memoireAuto, poses: memoirePoses.map((p) => ({
+                unitId: p.unitId, playerId: p.playerId, col: p.col, row: p.row,
+            })),
+            // La MoW est SÉPARÉE, parce que son chemin natif l'est : elle n'a ni colonne ni
+            // ligne. La publier à part évite de la croire absente quand on lit `poses`.
+            mow: memoireMoW,
+            vuesJeu: vuesJeu === null ? null : vuesJeu.toString(),
+            rejeux: memoireRejeux, dernier: memoireDernier,
+        });
+        if (body?.oublier === true) {
+            memoirePoses.length = 0; memoireMoW = null; memoireDernier = "mémoire vidée";
+            return { ok: true, action: "oubliee", ...etat() };
+        }
+        if (body?.rejouer === true) {
+            if (body.confirmer !== true) {
+                return refus("`confirmer: true` exigé : le rejeu APPLIQUE des `AddUnitMessage` "
+                    + "au runner vivant");
+            }
+            rejouerMemoire();
+            return { ok: true, action: "rejeu ENFILÉ", ...etat() };
+        }
+        if (body?.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`armer: true` : chaque pose est retenue et REJOUÉE au retour de la "
+                         + "phase de déploiement (retry). Le rejeu ne part que si le camp du "
+                         + "joueur est VIDE." };
+        }
+        memoireAuto = body.armer === true;
+        return { ok: true, action: memoireAuto ? "arme" : "retire", ...etat() };
+    };
+
     ctx.rpc.deploymentCommit = (body?: {
         confirmer?: boolean; spawnSource?: number; poses?: Array<{
             unitId: string; playerId: number; col: number; row: number;
@@ -3469,6 +3712,10 @@ export function register(ctx: Ctx): void {
         if (quelle === "guildBoss") {
             const idx = body.encounterIndex ?? 0;
             const incl = body.includeLocked === true;
+            // Retenu pour que le RÉ-EMPRUNT de la délégation reparte du MÊME contexte : un
+            // roster frais qui viserait un autre encounter serait pire qu'une liste vide.
+            gbEncounterIndex = idx;
+            gbIncludeLocked = incl;
             return queueOnMainThread(() => {
                 const boite = rosterPooledGuildBoss(idx, incl);
                 if (typeof boite === "object" && boite !== null
