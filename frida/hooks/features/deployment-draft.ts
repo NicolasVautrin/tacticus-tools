@@ -52,7 +52,8 @@
 //   * le régime REMPLIR exige `confirmer: true` ET une observation préalable réussie.
 
 import {
-    class_get_fields, class_get_name, class_instance_size, field_get_name, field_get_offset,
+    class_get_element_class, class_get_fields, class_get_name, class_instance_size,
+    field_get_name, field_get_offset,
     field_get_type, findClassAnywhere, findMethodByParamCount, getFieldOffset, il2cppBase, s,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
@@ -1711,6 +1712,10 @@ const CLS_BOUTONS = "UnitDeploymentHudButtons";
 let listenerBouton: InvocationListener | null = null;
 let boutonImpose: number | null = null;
 let boutonFires = 0;
+/** Le compte dérivé du plateau, calculé HORS hook puis mis en cache. `null` = jamais calculé —
+ *  ce qui n'est PAS zéro : le relais laisse alors passer ce que le HUD croit. */
+let compteCache: number | null = null;
+let compteCacheDetail: Record<string, number | string> | null = null;
 const boutonObs: Array<{
     recu: number; impose: number; min: number; max: number;
     source: string; plateau: Record<string, number | string>;
@@ -1756,29 +1761,54 @@ function compterSurLePlateau(): Record<string, number | string> {
             const boite = invokeMethod(mCur.info, vues, null);
             if (boite.isNull()) return "joueur courant NUL";
             const idCourant = boite.add(0x10).readS32();
-            const liste = invokeMethod(mAll.info, vues, null);
-            if (liste.isNull()) return "`GetAllUnitViews` rend NUL";
-            const kl = liste.readPointer();
-            const offSize = getFieldOffset(kl, "_size");
-            const offItems = getFieldOffset(kl, "_items");
-            if (offSize < 0 || offItems < 0) {
-                return `retour \`${s(class_get_name(kl) as NativePointer)}\` non parcourable `
-                    + "(`_size`/`_items` absents)";
+            // ⚠ `GetAllUnitViews` rend une `ValueCollection` (mesuré), pas une `List` : elle n'a
+            // ni `_items` ni `_size`. On parcourt donc les ENTRÉES du dictionnaire, avec la
+            // taille d'élément DÉRIVÉE de la classe du tableau -- jamais supposée.
+            const offVues = getFieldOffset(k, "_unitViews");
+            if (offVues < 0) return "champ `_unitViews` ABSENT";
+            const dico = vues.add(offVues).readPointer();
+            if (dico.isNull()) return "`_unitViews` est NUL";
+            const kd = dico.readPointer();
+            const offEntries = getFieldOffset(kd, "_entries");
+            const offCount = getFieldOffset(kd, "_count");
+            if (offEntries < 0 || offCount < 0) return "`_entries`/`_count` absents du dictionnaire";
+            const entries = dico.add(offEntries).readPointer();
+            const nEntries = dico.add(offCount).readS32();
+            if (entries.isNull()) return "`_entries` est NUL";
+            if (nEntries < 0 || nEntries > 4096) return `_count invraisemblable (${nEntries})`;
+            if (class_get_element_class === null || class_instance_size === null) {
+                return "`class_get_element_class`/`class_instance_size` absents -- taille "
+                    + "d'element NON DERIVABLE, on ne devine pas";
             }
-            const n = liste.add(offSize).readS32();
-            const items = liste.add(offItems).readPointer();
-            if (items.isNull() || n < 0 || n > 512) return `taille invraisemblable (${n})`;
+            const kElem = class_get_element_class(entries.readPointer()) as NativePointer;
+            // Type valeur : `instance_size` inclut l'en-tete d'objet (2 pointeurs).
+            const tailleElem = (class_instance_size(kElem) as number) - Process.pointerSize * 2;
+            if (tailleElem <= 0 || tailleElem > 128) {
+                return `taille d'element derivee invraisemblable (${tailleElem})`;
+            }
             let compte = 0;
             let offJoueur = -1;
-            for (let i = 0; i < n; i++) {
-                const uv = items.add(0x20 + i * Process.pointerSize).readPointer();
+            let lus = 0;
+            for (let i = 0; i < nEntries; i++) {
+                // `{ hashCode, next, cle, valeur }` : la valeur est une REFERENCE, donc en fin
+                // d'entree apres alignement.
+                const uv = entries.add(0x20 + i * tailleElem + tailleElem - Process.pointerSize)
+                    .readPointer();
                 if (uv.isNull()) continue;
                 if (offJoueur < 0) {
                     offJoueur = getFieldOffset(uv.readPointer(),
                                                "<PlayerEntityId>k__BackingField");
                     if (offJoueur < 0) return "champ `<PlayerEntityId>k__BackingField` ABSENT";
                 }
+                lus++;
                 if (uv.add(offJoueur).readS32() === idCourant) compte++;
+            }
+            // Le parcours se CONTROLE : si on n'a pas lu autant de vues que le dictionnaire en
+            // annonce, la disposition supposee est fausse et le compte ne vaut RIEN.
+            const attendu = compteDict(dico);
+            if (typeof attendu === "number" && lus !== attendu) {
+                return `parcours INCOHERENT : ${lus} vues lues pour ${attendu} annoncees `
+                    + `(taille d'element ${tailleElem}) -- on ne rend PAS un compte faux`;
             }
             return compte;
         } catch (e) { return "LEVÉ : " + (e as Error).message; }
@@ -1817,10 +1847,16 @@ function armerBouton(): true | Refus {
             const recu = args[2].toInt32();
             const mn = args[4].toInt32();
             const mx = args[5].toInt32();
-            // LE COMPTE VIENT DU PLATEAU, pas d'une constante : la contrainte reste ÉVALUÉE.
-            const plateau = compterSurLePlateau();
-            const surPlateau = typeof plateau.unitesDuJoueurHumain === "number"
-                ? plateau.unitesDuJoueurHumain : null;
+            // ⛔ CE CALLBACK N'INVOQUE RIEN, ET C'EST LA LEÇON D'UN GEL.
+            // La version précédente appelait `compterSurLePlateau()` ICI : elle invoquait donc
+            // deux natifs et parcourait un dictionnaire DEPUIS UN CALLBACK D'INTERCEPTION, sur le
+            // thread de rendu, à CHAQUE rafraîchissement du bouton. C'est le motif que le dépôt
+            // interdit (« ne jamais invoquer un natif depuis un hook »), et le jeu s'est figé.
+            // Le compte est désormais calculé HORS hook (`deploymentBoutonArmer {rafraichir}`)
+            // et seulement LU ici.
+            const surPlateau = compteCache;
+            const plateau: Record<string, number | string> = compteCacheDetail
+                ?? { cache: "jamais calculé -- appeler `rafraichir: true`" };
             // Ordre : consigne explicite > compte dérivé du plateau > ce que le HUD croit.
             // ⚠ On ne descend JAMAIS sous `recu` : le HUD sait ce qu'il a posé lui-même, et une
             // dérivation ratée ne doit pas RETIRER des unités qu'il a comptées.
@@ -1933,8 +1969,21 @@ export function register(ctx: Ctx): void {
     /** Débloque le bouton START quand les unités sont PRÉ-POSITIONNÉES (venues de `bc.Units`,
      *  donc invisibles de `_currentlyPlacedUnits`). Force le COMPTE reçu par le relais. */
     ctx.rpc.deploymentBoutonArmer = (body?: {
-        armer?: boolean; compte?: number; confirmer?: boolean;
-    }): unknown => {
+        armer?: boolean; compte?: number; confirmer?: boolean; rafraichir?: boolean;
+    }): Promise<unknown> | unknown => {
+        // Le calcul se fait ICI, sur la file du thread principal — JAMAIS dans le callback.
+        if (body?.rafraichir === true) {
+            return queueOnMainThread(() => {
+                const d = compterSurLePlateau();
+                compteCacheDetail = d;
+                compteCache = typeof d.unitesDuJoueurHumain === "number"
+                    ? d.unitesDuJoueurHumain : null;
+                return { ok: true, compteCache, detail: d,
+                         note: compteCache === null
+                             ? "compte NON DÉRIVÉ : le relais laissera passer ce que le HUD croit"
+                             : "compte en cache -- le relais le lira sans rien invoquer" };
+            });
+        }
         const etat = () => ({
             arme: listenerBouton !== null, impose: boutonImpose, fires: boutonFires,
             obs: boutonObs.slice(-8), bouton: etatDuBouton(),
