@@ -1139,3 +1139,69 @@ donc une voie d'observation indirecte, pas une hypothese de plus.
 Le premier compteur etait conditionne par la fenetre d'emprunt. Il ne distinguait pas
 « jamais appelee » de « appelee hors fenetre » — les deux rendent zero, et ce zero-la ne designe
 rien. Le compteur inconditionnel est ce qui a rendu le fait ci-dessus **exploitable**.
+
+## 24. LA VOIE D'OBSERVATION INDIRECTE : faire appeler par le JEU -- et ce qu'elle a renverse
+
+Le SS23 laissait un fait reproductible et inexplique : nos emprunts ne faisaient jamais tirer
+l'ancrage sur `CampaignProgression$$GetDeployableUnits`, alors que tous les maillons statiques
+concordaient. Le tester directement demandait d'ancrer la methode qu'on invoque -- **interdit**,
+c'est le motif qui gele le jeu.
+
+### La voie, et elle ne coute rien
+
+**Ne rien invoquer, et laisser le JEU appeler.** L'ancrage reste en place, on lance un warmup
+ordinaire (il navigue la campagne), et on lit le compteur. Aucun forcage, aucune invocation :
+aucun risque ajoute au-dela du warmup qu'on joue de toute facon.
+
+Resultat immediat : **`fires: 2`, `dansEmprunt: false`**. L'ancrage est SAIN. Le zero du SS23
+n'accusait donc pas l'execution, mais notre OBSERVATION.
+
+### Le discriminant, puis le verdict
+
+`deploymentPoolEmprunterUneFois` fait le MEME emprunt depuis la file du thread principal, **hors
+de tout callback d'interception** (et respecte la regle : on invoque `GetUnitsForDeploymentHUD`,
+on ancre `GetDeployableUnits` -- deux methodes distinctes).
+
+    firesAvant 0 -> firesApres 1   delta = 1
+
+⇒ **Le corps emprunte S'EXECUTE.** Un `Interceptor` Frida ne re-observe pas un appel declenche
+depuis l'interieur d'un autre callback d'interception, sur le meme thread.
+
+**Consequences, dans les deux sens :**
+
+* La delegation du SS19 est CONFIRMEE : elle emprunte vraiment. L'alarme du SS23
+  (<< toutes nos substitutions sont des illusions >>) est REFUTEE.
+* Mais le regime `sansFiltre` ne pouvait PAS fonctionner : il n'agit que `dansEmprunt`,
+  c'est-a-dire exactement dans la fenetre ou l'ancrage est aveugle. Il n'etait pas mal reglé,
+  il etait structurellement inerte.
+
+### LA DISPOSITION DU `Nullable<Int32>` EST L'INVERSE DE CELLE QU'ON SUPPOSE
+
+L'appel naturel donne `0x4a00000001` pour `_currentLocationIndex = 74` :
+
+    32 bits BAS  = hasValue (1)
+    32 bits HAUTS = la valeur (0x4a = 74)
+
+Donc `{ bool hasValue; int value; }`, pas `{ int value; bool hasValue; }`. Le masque prevu
+(effacer les bits HAUTS) aurait garde `hasValue = 1` et mis l'index a **0** : un AUTRE noeud, pas
+l'absence de filtre. Il aurait << marche >> en faisant tout autre chose, et le roster different
+aurait servi de fausse confirmation. **C'est precisement ce que le regime observation-d'abord
+existe pour attraper** -- et c'est la deuxieme fois dans ce dossier qu'il paie.
+
+Masque corrige (`and(0xffffffff00000000)`), applique et verifie sur un emprunt isole :
+`ecrit: true`, jeu vivant (temoin `Responding` + delta CPU avant ET apres).
+
+### CE QUI SUIT, ET IL EST NOMME
+
+Puisque l'ancrage est aveugle pendant la delegation, la modification ne peut pas s'y faire.
+La forme correcte est **PRE-EMPRUNTER PUIS SUBSTITUER** : faire l'appel emprunte hors de tout
+hook (la ou l'ancrage voit, donc ou le masque agit), garder le resultat, et ne laisser au
+`onLeave` de la delegation qu'un `retval.replace` de cette valeur deja calculee.
+
+### CLIQUET DE METHODE
+
+**Un compteur d'`Interceptor` ne vaut RIEN tant qu'il n'a pas ete valide sur un appel NATUREL.**
+Son zero ne distingue pas << jamais appelee >> de << appelee la ou je ne vois pas >>, et ce
+dossier a produit les deux lectures fausses de suite : d'abord une refutation d'appariement de
+slot (fausse, cf. SS23), puis une accusation contre `invokeMethod` (fausse aussi). Le controle
+coute un warmup.

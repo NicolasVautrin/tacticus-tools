@@ -497,8 +497,17 @@ function armerSansFiltre(ecrire: boolean): true | Refus {
             const brut = args[1];
             let ecrit = false;
             if (sansFiltreArme && dansEmprunt && sansFiltreEcrit) {
-                // `hasValue` occupe l'octet 4 du struct empaqueté : on ne garde que la valeur.
-                args[1] = brut.and(ptr("0xffffffff"));
+                // ⚠ DISPOSITION **MESURÉE**, ET ELLE EST L'INVERSE DE CELLE QU'ON SUPPOSE.
+                // Observation d'un appel NATUREL du jeu : `0x4a00000001` pour
+                // `_currentLocationIndex = 74`. Donc 32 bits BAS = `hasValue` (1), 32 bits
+                // HAUTS = la valeur (0x4a). Le `Nullable<Int32>` est rangé
+                // `{ bool hasValue; int value; }`, pas `{ int value; bool hasValue; }`.
+                //
+                // Masquer les bits BAS (ce que faisait la version d'avant) aurait gardé
+                // `hasValue = 1` et mis l'index à 0 : un AUTRE nœud, pas l'absence de filtre.
+                // Ça aurait « marché » en faisant tout autre chose -- et c'est exactement ce
+                // que le régime observation-d'abord existe pour attraper.
+                args[1] = brut.and(ptr("0xffffffff00000000"));
                 ecrit = true;
             }
             if (observationsNullable.length < 24) {
@@ -680,6 +689,68 @@ export function register(ctx: Ctx): void {
 
     /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
+
+    /**
+     * EMPRUNT ISOLÉ — invoque la méthode campagne HORS de tout callback d'interception.
+     *
+     * ⚠ C'EST UN DISCRIMINANT, PAS UNE COMMODITÉ. Mesuré : l'ancrage sur
+     * `CampaignProgression$$GetDeployableUnits` attrape les appels NATURELS du jeu (2 fires
+     * pendant une navigation de campagne, `dansEmprunt: false`) mais JAMAIS ceux de nos
+     * emprunts. Deux lectures restent :
+     *
+     *   (a) le corps emprunté ne s'exécute pas -- `invokeMethod` rendrait un pointeur sans
+     *       rien faire, et toutes nos substitutions seraient des illusions ;
+     *   (b) il s'exécute, mais un appel déclenché DEPUIS un callback d'interception n'est pas
+     *       re-observé par l'`Interceptor` sur le même thread.
+     *
+     * Ce RPC tranche : il fait le MÊME appel, depuis la file du thread principal, sans être
+     * dans aucun hook. Si le compteur bouge, c'est (b) — nos emprunts marchent, c'est notre
+     * OBSERVATION qui est aveugle. S'il ne bouge pas, c'est (a), et c'est bien plus grave.
+     *
+     * ⚠ La règle « ne jamais ancrer la méthode qu'on invoque » est RESPECTÉE : on invoque
+     * `GetUnitsForDeploymentHUD`, on ancre `GetDeployableUnits`. Deux méthodes distinctes.
+     * Et c'est un appel que le JEU fait lui-même — pas un natif jamais observé.
+     */
+    ctx.rpc.deploymentPoolEmprunterUneFois = (body?: { confirmer?: boolean }):
+        Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return { ok: false, error: "`confirmer: true` exigé : ce RPC INVOQUE une méthode "
+                + "native sur la source campagne vivante. C'est une mesure, pas un lecteur." };
+        }
+        return queueOnMainThread(() => {
+            const src = getCampaignGameModeSourcePtr();
+            if (!src || src.isNull()) {
+                return { ok: false, error: "aucune `CampaignGameModeSource` captée" };
+            }
+            const kc = findClassAnywhere(NS_SRC, "CampaignGameModeSource");
+            if (!kc) return { ok: false, error: "`CampaignGameModeSource` INTROUVABLE" };
+            const mc = findMethodByParamCount(kc, METHODE, 0);
+            if (!mc) return { ok: false, error: `\`${METHODE}\` INTROUVABLE (0 paramètre)` };
+            const avant = firesDeployable;
+            let r: NativePointer | null = null;
+            let erreur: string | null = null;
+            // Cet emprunt-ci est HORS hook, donc l'ancrage le VOIT : c'est le seul endroit où
+            // `sansFiltre` peut réellement agir. On ouvre donc la même fenêtre que la
+            // délégation -- sans quoi le masque resterait inerte ici aussi.
+            dansEmprunt = true;
+            try { r = invokeMethod(mc.info, src, null); }
+            catch (e) { erreur = (e as Error).message; }
+            finally { dansEmprunt = false; }
+            return {
+                ok: erreur === null,
+                erreur,
+                retour: r === null || r.isNull() ? null : r.toString(),
+                // LE chiffre : combien de fois `GetDeployableUnits` a été vu PENDANT cet appel.
+                firesAvant: avant, firesApres: firesDeployable,
+                delta: firesDeployable - avant,
+                lecture: firesDeployable > avant
+                    ? "(b) le corps S'EXÉCUTE -- c'est notre observation depuis un hook qui est "
+                      + "aveugle aux appels imbriqués"
+                    : "(a) le corps NE s'exécute PAS -- toutes nos substitutions sont des "
+                      + "illusions, à re-mesurer avant d'en tirer quoi que ce soit",
+            };
+        });
+    };
 
     /**
      * LÈVE LE FILTRE DE NŒUD sur le roster emprunté — deux régimes, observation par défaut.
