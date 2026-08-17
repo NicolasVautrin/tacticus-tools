@@ -213,4 +213,11 @@ que `#489-r1` reprochait au VERDICT-4 de `probe_489`. Il **délègue** désormai
 
 * **`#489-r2`** — la loi de `GetLeftOverHits` se lit sur l'index d'OVERKILL, pas de MORT ; il manque
   le point qui sépare `H-o` de `H-o+1`. Montage écrit, entrée désormais publiée.
+  → **SUITE (2026-08-18) : cette prémisse est RÉFUTÉE**, et le montage proposé ici était une
+  tautologie. Le site (b) d'`AddLeftoverHit` pousse lui aussi un flag VRAI, donc `o` n'entre pas
+  dans le compte. Détail, dix points natifs et le verrou restant :
+  `case-512r4-489r2-cardinalite-on9-et-loi-du-report.md` §2.
 * **`#512-r4`** — `On(9)` par FEUILLE au lieu de par CIBLE ; mord sur `1088 HellfyreMissileRack`.
+  → **RÉSOLU (2026-08-18)**, et l'écart avait **trois** porteurs, pas un (s'y ajoutent le FOLD de
+  l'attaque normale et les N transferts d'`HazeOfCorruption`) :
+  `case-512r4-489r2-cardinalite-on9-et-loi-du-report.md` §1.
