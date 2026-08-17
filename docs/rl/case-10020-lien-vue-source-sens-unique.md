@@ -1339,3 +1339,74 @@ manage decode -- sans lui on ne voyait qu'un ecran vide.
 Chaque essai rate **grise l'unite definitivement** (`TryMarkUnitAsPlaced` est appele au clic du
 portrait, pas seulement a la pose) : tous les tests posterieurs au premier sont CONTAMINES.
 Un montage neuf est obligatoire entre deux epreuves.
+
+## 27. LE BOUTON START : deux comptabilites separees, et c'est la METHODE DU JEU qui les raccorde
+
+Depart : les unites declarees dans `bc.Units` apparaissent bien sur le plateau (la phase de
+deploiement forcee ne les retient pas -- mesure, pas suppose), mais **START reste gris**.
+
+### Le gate, entierement decompile
+
+```
+UnitDeploymentHud$$UpdateButtons :
+    n = Count(_currentlyPlacedUnits, <predicat>)
+    UnitDeploymentHudButtons$$UpdateState(gameMode, n, nMoW, min, max)
+
+UpdateState : n < min  -> SetInteger(<etat>, 0)   // BOUTON DESACTIVE
+              n >= max -> SetInteger(<etat>, 2)
+              sinon    -> SetInteger(<etat>, 1)
+```
+
+⚠ **La comptabilite du HUD et la composition REELLE de la bataille sont DEUX choses separees, et
+en sandbox aucune ne nourrit l'autre** :
+
+| montage | plateau | `_currentlyPlacedUnits` | START |
+|---|---|---|---|
+| unites dans `bc.Units` | 5 unites REELLES | **0** | gris |
+| unites posees par le HUD | 0 unite reelle | 4 | actif, mais la bataille finit AUSSITOT |
+
+### FORCER LE COMPTE NE SUFFIT PAS -- ca ne change que l'APPARENCE
+
+Reecrire l'argument que `UpdateState` recoit allume le bouton, et rien de plus : le chemin de
+demarrage RELIT `_currentlyPlacedUnits`. Mesure : START s'allume puis repond
+« il faut positionner une unite ». Un forcage d'affichage ne franchit pas un gate de donnees.
+
+### CE QUI MARCHE : appeler la methode que le jeu emploie lui-meme
+
+`UnitDeploymentHud$$TryMarkUnitAsPlaced(unitId, isMoW)` est ce que le jeu appelle a chaque pose.
+On l'invoque une fois par unite du joueur PRESENTE SUR LE PLATEAU : la comptabilite du HUD
+rejoint la realite au lieu d'etre maquillee. Mesure : 5/5 acceptees, `_currentlyPlacedUnits`
+passe a 5, et le relais recoit alors `recu = 5` -- **le forcage devient inerte**, la contrainte
+`count >= min` est satisfaite NATURELLEMENT.
+
+### LA LISTE DES UNITES DU JOUEUR, ET LE PIEGE DE L'IDENTITE
+
+* `GetAllUnitViews` rend une `ValueCollection` : ni `_items` ni `_size`. On parcourt les ENTREES
+  de `_unitViews`, taille d'element DERIVEE (`class_get_element_class` + `class_instance_size`),
+  jamais supposee. Le parcours **se controle** : s'il ne lit pas autant de vues que le
+  dictionnaire en annonce, il rend l'incoherence au lieu d'un compte faux.
+* ⚠ **Le joueur se demande par `FirstPlayerEntityIdOfHumanOnThisDevice`, PAS par
+  `get_CurrentPlayerEntityId`** : le second designe le joueur DU TOUR COURANT, et pendant le
+  deploiement il ne designe pas le proprietaire de l'appareil. Mesure : le premier apparie
+  **5 unites sur 8**, le second en appariait **0**. C'est en publiant les ids OBSERVES (`3,4`)
+  qu'on l'a vu -- un compte a zero ne dit pas s'il n'y a pas d'unite ou si l'appariement ment.
+
+### DEUX CRANS D'EXPLOITATION
+
+1. ⛔ **UN CALLBACK D'INTERCEPTION N'INVOQUE RIEN.** La premiere version derivait le compte DANS
+   le `onEnter` de `UpdateState` : deux natifs invoques et un dictionnaire parcouru, sur le
+   thread de rendu, a chaque rafraichissement du bouton -> **le jeu s'est fige deux fois**.
+   Contrairement aux gels du cycle inject/warmup, la cause etait ICI. Le compte se calcule hors
+   hook (file du thread principal) et le callback ne fait plus que LIRE un cache.
+2. ⚠ **`UpdateButtons` n'a que CINQ appelants** (`Show`, `TryMarkUnitAsPlaced`, `PutUnitIntoHand`,
+   `RemoveUnit`, `HandleOnRemoveAllHeroesPressed`). Sur des unites PRE-POSITIONNEES, aucun ne se
+   produit apres le montage : le bouton reste fige sur l'etat calcule a `Show`. Il faut donc
+   PROVOQUER le rafraichissement -- en invoquant `UpdateButtons`, qui n'est pas ancre, depuis la
+   file du thread principal.
+
+### RESIDU CONNU
+
+Le clear (`HandleOnRemoveAllHeroesPressed`) vide desormais la liste du HUD -- donc il grise le
+bouton -- mais **ne retire pas les unites du plateau** : il ne sait oter que des
+`PlaceholderUnitView`, et celles venues de `bc.Units` n'en ont pas. La declaration marche dans un
+sens, pas dans l'autre.

@@ -1716,6 +1716,9 @@ let boutonFires = 0;
  *  ce qui n'est PAS zéro : le relais laisse alors passer ce que le HUD croit. */
 let compteCache: number | null = null;
 let compteCacheDetail: Record<string, number | string> | null = null;
+/** L'entité du joueur humain, retenue au dernier parcours — publiée pour rendre un appariement
+ *  raté LISIBLE (un compte à zéro ne dit pas s'il n'y a pas d'unité ou si l'appariement ment). */
+let dernierIdJoueurHumain: number | null = null;
 const boutonObs: Array<{
     recu: number; impose: number; min: number; max: number;
     source: string; plateau: Record<string, number | string>;
@@ -1751,16 +1754,52 @@ function compterSurLePlateau(): Record<string, number | string> {
     // ⚠ `_humanPlayerEntityIds` compte les JOUEURS (mesuré : 1) et `_unitViews` compte LES DEUX
     // CAMPS (mesuré : 8 pour 5+3). Ni l'un ni l'autre ne repond a la question ; c'est en les
     // publiant tous les deux qu'on l'a vu, plutot qu'en en elisant un.
-    out.unitesDuJoueurHumain = (() => {
+    const ids = idsDesUnitesDuJoueur();
+    out.unitesDuJoueurHumain = Array.isArray(ids) ? ids.length : ids;
+    if (Array.isArray(ids)) out.idsSurLePlateau = ids.join(",");
+    if (dernierIdJoueurHumain !== null) out.idJoueurHumain = dernierIdJoueurHumain;
+    try {
+        const k = vues.readPointer();
+        for (const [cle, champ, genre] of [
+            ["unitesDuJoueur", "_humanPlayerEntityIds", "liste"],
+            ["toutesLesVues", "_unitViews", "dico"],
+            ["placeholders", "_placeholderUnitViews", "dico"],
+        ] as const) {
+            const o = getFieldOffset(k, champ);
+            if (o < 0) { out[cle] = `champ \`${champ}\` ABSENT`; continue; }
+            const p = vues.add(o).readPointer();
+            out[cle] = genre === "liste" ? tailleListe(p) : compteDict(p);
+        }
+    } catch (e) { out.erreur = (e as Error).message; }
+    return out;
+}
+
+/**
+ * Les `unitId` des unités du JOUEUR HUMAIN actuellement sur le plateau.
+ *
+ * ⚠ LE JOUEUR SE DEMANDE PAR `FirstPlayerEntityIdOfHumanOnThisDevice`, PAS PAR
+ * `get_CurrentPlayerEntityId` : le second désigne le joueur DU TOUR COURANT, et pendant le
+ * déploiement il ne désigne pas le propriétaire de l'appareil. Mesuré : le premier apparie 5
+ * unités sur 8, le second en appariait **0**.
+ */
+function idsDesUnitesDuJoueur(): string[] | string {
+    const vues = vuesDePose;
+    if (vues === null || vues.isNull()) return "aucune `IdunGameViews` observée";
+    return (() => {
         try {
             const k = vues.readPointer();
+            // ⚠ `get_CurrentPlayerEntityId` designe le joueur DU TOUR COURANT, pas le proprietaire
+            // de l'appareil : pendant le deploiement il peut ne designer personne de pertinent.
+            // `FirstPlayerEntityIdOfHumanOnThisDevice` est la question qu'on pose vraiment.
             const mAll = findMethodByParamCount(k, "GetAllUnitViews", 0);
-            const mCur = findMethodByParamCount(k, "get_CurrentPlayerEntityId", 0);
-            if (!mAll || !mCur) return "`GetAllUnitViews`/`get_CurrentPlayerEntityId` INTROUVABLES";
+            const mHum = findMethodByParamCount(k, "FirstPlayerEntityIdOfHumanOnThisDevice", 0)
+                ?? findMethodByParamCount(k, "get_CurrentPlayerEntityId", 0);
+            if (!mAll || !mHum) return "`GetAllUnitViews`/joueur humain INTROUVABLES";
             // ⚠ `BEntityId` est un TYPE VALEUR : `runtime_invoke` le BOXE, la valeur est a +0x10.
-            const boite = invokeMethod(mCur.info, vues, null);
-            if (boite.isNull()) return "joueur courant NUL";
+            const boite = invokeMethod(mHum.info, vues, null);
+            if (boite.isNull()) return "joueur humain NUL";
             const idCourant = boite.add(0x10).readS32();
+            dernierIdJoueurHumain = idCourant;
             // ⚠ `GetAllUnitViews` rend une `ValueCollection` (mesuré), pas une `List` : elle n'a
             // ni `_items` ni `_size`. On parcourt donc les ENTRÉES du dictionnaire, avec la
             // taille d'élément DÉRIVÉE de la classe du tableau -- jamais supposée.
@@ -1786,9 +1825,11 @@ function compterSurLePlateau(): Record<string, number | string> {
             if (tailleElem <= 0 || tailleElem > 128) {
                 return `taille d'element derivee invraisemblable (${tailleElem})`;
             }
-            let compte = 0;
+            const trouves: string[] = [];
             let offJoueur = -1;
+            let offUnitId = -1;
             let lus = 0;
+            const vus: number[] = [];
             for (let i = 0; i < nEntries; i++) {
                 // `{ hashCode, next, cle, valeur }` : la valeur est une REFERENCE, donc en fin
                 // d'entree apres alignement.
@@ -1798,35 +1839,29 @@ function compterSurLePlateau(): Record<string, number | string> {
                 if (offJoueur < 0) {
                     offJoueur = getFieldOffset(uv.readPointer(),
                                                "<PlayerEntityId>k__BackingField");
+                    offUnitId = getFieldOffset(uv.readPointer(), "<UnitId>k__BackingField");
                     if (offJoueur < 0) return "champ `<PlayerEntityId>k__BackingField` ABSENT";
+                    if (offUnitId < 0) return "champ `<UnitId>k__BackingField` ABSENT";
                 }
                 lus++;
-                if (uv.add(offJoueur).readS32() === idCourant) compte++;
+                const idVue = uv.add(offJoueur).readS32();
+                // Les ids OBSERVES sont publies : un compte a zero ne dit pas s'il n'y a pas
+                // d'unite du joueur ou si c'est l'appariement qui est faux.
+                if (vus.indexOf(idVue) < 0 && vus.length < 12) vus.push(idVue);
+                if (idVue !== idCourant) continue;
+                const nom = readIl2cppString(uv.add(offUnitId).readPointer());
+                if (nom !== null && nom !== "") trouves.push(nom);
             }
             // Le parcours se CONTROLE : si on n'a pas lu autant de vues que le dictionnaire en
             // annonce, la disposition supposee est fausse et le compte ne vaut RIEN.
             const attendu = compteDict(dico);
             if (typeof attendu === "number" && lus !== attendu) {
                 return `parcours INCOHERENT : ${lus} vues lues pour ${attendu} annoncees `
-                    + `(taille d'element ${tailleElem}) -- on ne rend PAS un compte faux`;
+                    + `(taille d'element ${tailleElem}) -- on ne rend RIEN plutot qu'un faux`;
             }
-            return compte;
+            return trouves;
         } catch (e) { return "LEVÉ : " + (e as Error).message; }
     })();
-    try {
-        const k = vues.readPointer();
-        for (const [cle, champ, genre] of [
-            ["unitesDuJoueur", "_humanPlayerEntityIds", "liste"],
-            ["toutesLesVues", "_unitViews", "dico"],
-            ["placeholders", "_placeholderUnitViews", "dico"],
-        ] as const) {
-            const o = getFieldOffset(k, champ);
-            if (o < 0) { out[cle] = `champ \`${champ}\` ABSENT`; continue; }
-            const p = vues.add(o).readPointer();
-            out[cle] = genre === "liste" ? tailleListe(p) : compteDict(p);
-        }
-    } catch (e) { out.erreur = (e as Error).message; }
-    return out;
 }
 
 function armerBouton(): true | Refus {
@@ -1968,6 +2003,64 @@ export function register(ctx: Ctx): void {
 
     /** Débloque le bouton START quand les unités sont PRÉ-POSITIONNÉES (venues de `bc.Units`,
      *  donc invisibles de `_currentlyPlacedUnits`). Force le COMPTE reçu par le relais. */
+    /**
+     * DÉCLARE AU HUD les unités DÉJÀ SUR LE PLATEAU, par SA PROPRE méthode.
+     *
+     * ⚠ POURQUOI FORCER LE COMPTE NE SUFFIT PAS. `deploymentBoutonArmer` réécrit l'argument que
+     * `UpdateState` reçoit : ça change l'APPARENCE du bouton, rien d'autre. Le chemin de
+     * démarrage, lui, relit `_currentlyPlacedUnits` — mesuré : START s'allume puis répond
+     * « il faut positionner une unité », parce que la liste est toujours vide.
+     *
+     * On n'écrit donc PAS dans cette liste : on appelle `TryMarkUnitAsPlaced`, la méthode que le
+     * jeu emploie lui-même à chaque pose, une fois par unité du joueur présente sur le plateau.
+     * La comptabilité du HUD rejoint la réalité au lieu d'être maquillée.
+     *
+     * ⚠ `TryMarkUnitAsPlaced` est ANCRÉ par `deploymentHudArmer` : on l'invoque depuis la file du
+     * thread principal, jamais depuis un callback — c'est cette distinction qui a gelé le jeu.
+     */
+    ctx.rpc.deploymentBoutonMarquer = (body?: { confirmer?: boolean }):
+        Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return refus("`confirmer: true` exigé : ce RPC APPELLE `TryMarkUnitAsPlaced` sur le "
+                + "HUD vivant, une fois par unité du joueur présente sur le plateau");
+        }
+        return queueOnMainThread(() => {
+            const ids = idsDesUnitesDuJoueur();
+            if (!Array.isArray(ids)) return refus("plateau non lisible : " + ids);
+            if (ids.length === 0) return refus("aucune unité du joueur sur le plateau");
+            if (hudInstance === null || hudInstance.isNull()) {
+                return refus("aucune instance de HUD captée");
+            }
+            const c = classeDerriere(hudInstance);
+            if (c.classe !== CLS_HUD) {
+                return refus(`le pointeur de HUD ne porte plus \`${CLS_HUD}\` mais `
+                    + `\`${c.classe ?? c.erreur}\` -- PÉRIMÉ`);
+            }
+            const kh = findClassAnywhere(NS_HUD, CLS_HUD);
+            const mMark = kh ? findMethodByParamCount(kh, "TryMarkUnitAsPlaced", 2) : null;
+            const mUp = kh ? findMethodByParamCount(kh, "UpdateButtons", 0) : null;
+            if (!mMark) return refus("`TryMarkUnitAsPlaced` INTROUVABLE (2 paramètres)");
+            const faits: Array<{ unitId: string; accepte: boolean | string }> = [];
+            const faux = Memory.alloc(1); faux.writeU8(0);   // `isMachineOfWar: false`
+            for (const id of ids) {
+                try {
+                    const r = invokeMethod(mMark.info, hudInstance,
+                                           [createManagedString(id), faux]);
+                    // ⚠ retour BOXÉ : le booléen est à +0x10, pas dans le pointeur.
+                    faits.push({ unitId: id, accepte: boolBoxe(r) });
+                } catch (e) {
+                    faits.push({ unitId: id, accepte: "LEVÉ : " + (e as Error).message });
+                }
+            }
+            let placees: number | string = "non relu";
+            if (mUp) { try { invokeMethod(mUp.info, hudInstance, null); } catch { /* best effort */ } }
+            const b = etatDuBouton();
+            if (typeof b.placees !== "undefined") placees = b.placees as number | string;
+            return { ok: true, faits, marquees: faits.filter((f) => f.accepte === true).length,
+                     placeesApres: placees };
+        });
+    };
+
     ctx.rpc.deploymentBoutonArmer = (body?: {
         armer?: boolean; compte?: number; confirmer?: boolean; rafraichir?: boolean;
     }): Promise<unknown> | unknown => {
@@ -1978,10 +2071,50 @@ export function register(ctx: Ctx): void {
                 compteCacheDetail = d;
                 compteCache = typeof d.unitesDuJoueurHumain === "number"
                     ? d.unitesDuJoueurHumain : null;
-                return { ok: true, compteCache, detail: d,
-                         note: compteCache === null
-                             ? "compte NON DÉRIVÉ : le relais laissera passer ce que le HUD croit"
-                             : "compte en cache -- le relais le lira sans rien invoquer" };
+                const sortie: Record<string, unknown> = { ok: true, compteCache, detail: d };
+                // ⚠ SANS CE SECOND TEMPS, LE CACHE NE SERT À RIEN SUR DES UNITÉS PRÉ-POSITIONNÉES.
+                // `UpdateButtons` n'a que cinq appelants (`Show`, `TryMarkUnitAsPlaced`,
+                // `PutUnitIntoHand`, `RemoveUnit`, `HandleOnRemoveAllHeroesPressed`) : quand les
+                // unités viennent de `bc.Units`, AUCUN ne se produit après le montage. Le bouton
+                // reste donc figé sur l'état calculé à `Show`, où le cache n'existait pas encore.
+                // On provoque donc le rafraîchissement.
+                //
+                // ⚠ On invoque `UpdateButtons`, qui n'est PAS ancré ; c'est `UpdateState`, qu'il
+                // appelle, qui l'est. Et l'appel part de la FILE DU THREAD PRINCIPAL, pas d'un
+                // callback d'interception — c'est cette distinction-là, et non l'ancrage, qui a
+                // gelé le jeu deux fois ce soir.
+                if (hudInstance === null || hudInstance.isNull()) {
+                    sortie.rafraichi = false;
+                    sortie.raison = "aucune instance de HUD captée (`Show` n'a pas tiré)";
+                    return sortie;
+                }
+                const c = classeDerriere(hudInstance);
+                if (c.classe !== CLS_HUD) {
+                    sortie.rafraichi = false;
+                    sortie.raison = `le pointeur de HUD ne porte plus \`${CLS_HUD}\` mais `
+                        + `\`${c.classe ?? c.erreur}\` -- PÉRIMÉ, on n'invoque rien dessus`;
+                    return sortie;
+                }
+                const kh = findClassAnywhere(NS_HUD, CLS_HUD);
+                const mUp = kh ? findMethodByParamCount(kh, "UpdateButtons", 0) : null;
+                if (!mUp) {
+                    sortie.rafraichi = false;
+                    sortie.raison = "`UnitDeploymentHud$$UpdateButtons` INTROUVABLE (0 paramètre)";
+                    return sortie;
+                }
+                const avant = boutonFires;
+                try { invokeMethod(mUp.info, hudInstance, null); }
+                catch (e) {
+                    sortie.rafraichi = false;
+                    sortie.raison = "`UpdateButtons` a levé : " + (e as Error).message;
+                    return sortie;
+                }
+                // Le TÉMOIN : le relais a-t-il vraiment re-tiré ? Sans lui, « rafraîchi » ne
+                // dirait que « l'appel est passé », ce qui ne prouve rien.
+                sortie.rafraichi = boutonFires > avant;
+                sortie.relaisTirs = boutonFires - avant;
+                sortie.dernier = boutonObs.length > 0 ? boutonObs[boutonObs.length - 1] : null;
+                return sortie;
             });
         }
         const etat = () => ({
