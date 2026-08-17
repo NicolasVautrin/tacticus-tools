@@ -6,7 +6,7 @@
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage, GetDamageProfile=Power, 0x2f=4),  # MAIN
         AttackWithAttackDamage(caster@0x160, bonusSel,     MinMaxDamage, Power,                  0x32=4) ), 0x45 )  # BONUS
 i2 : « 4x Power to a melee target and 4x Power to another random enemy adjacent to Angrax [le caster]. »
-`native_factory="attack"` (les DEUX volets = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, VERIFIE par les
+`native_factory="attack"` (les DEUX volets = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, VERIFIE par les
 callees de IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour) = 2 tirages/coup a cc=0 -- pipeline partage rngcrit-1202 (tip #2).
 
 Ce que ces tests PROUVENT (drive les 2 camps -- applyAction ignore propriete+portee -- `--hp-target` = armure

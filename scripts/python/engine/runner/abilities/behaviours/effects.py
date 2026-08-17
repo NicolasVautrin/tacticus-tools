@@ -237,7 +237,7 @@ def _placed_effect_is_active(state, target_id, eff) -> bool:
 
 
 class AddEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddEffect` -> `AddEffectBehaviour.Execute` : pose un effet, `source` =
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect` -> `AddEffectBehaviour.Execute` : pose un effet, `source` =
     `AbilityStateReference` (= le caster), sur CHAQUE cible du selecteur `target_sel`, duree
     `TurnsFromRounds(rounds)`. Wrapper MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de
     l'imperatif). DIFFERE de `AddBondEffect` (qui LIE source+target = deux unites distinctes) : ici la source
@@ -298,7 +298,7 @@ class AddEffect(AbilityBehaviour):
         # le derive. `None` (defaut) = comportement STRICTEMENT inchange pour tous les call-sites
         # anterieurs, qui n'en passent aucun.
         self.ability_state = ability_state
-        # `source_ref` = le 4e argument NATIF d'`IdunBattleLogic.Entities.DSLFactory$$AddEffect` (le noeud
+        # `source_ref` = le 4e argument NATIF d'`IdunBattleLogic.Entities.DSLBehaviors$$AddEffect` (le noeud
         # SOURCE, `AddEffectBehaviour..ctor` param_4) : `caster@0x160` / `Owner@0x148` sur la quasi-totalite
         # des call-sites -> defaut None = le caster (comportement historique INCHANGE).
         # `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour` passe
@@ -310,7 +310,7 @@ class AddEffect(AbilityBehaviour):
         #     `lVar14 = <cible courante>; if (<resultat du selecteur source> != 0) lVar14 = <ce resultat>;`
         # puis passe `lVar14` en SOURCE a l'operation. Autrement dit : **selecteur source absent =>
         # la source EST la cible**, PAS le caster.
-        # Le declenche : la surcharge 4-args `IdunBattleLogic.Entities.DSLFactory$$AddEffect(effectType,
+        # Le declenche : la surcharge 4-args `IdunBattleLogic.Entities.DSLBehaviors$$AddEffect(effectType,
         # stateRef, targets)`, qui passe litteralement `0` en `+0x60` (les surcharges 6-args, elles,
         # posent une source explicite). Call-sites portes : le FEU de
         # `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
@@ -398,7 +398,7 @@ class AddEffect(AbilityBehaviour):
 
 
 class IncreaseEffectLevel(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel` -> `IdunBattle.Entities.Behaviours.IncreaseEffectLevelBehaviour$$Execute`
+    """`IdunBattleLogic.Entities.DSLBehaviors$$IncreaseEffectLevel` -> `IdunBattle.Entities.Behaviours.IncreaseEffectLevelBehaviour$$Execute`
     -> `IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute` : incremente le NIVEAU (`EffectComponent.Level
     @+0x68`) des instances d'effet `effect_type` portees par les cibles du selecteur, avec CAP optionnel.
 
@@ -468,7 +468,7 @@ def add_effect_or_increase_level(effect_type: int, name: str, target_sel: Target
 
 
 class RemoveEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$RemoveEffect` -> `RemoveEffectBehaviour.Execute` : retire de la cible TOUS les
+    """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveEffect` -> `RemoveEffectBehaviour.Execute` : retire de la cible TOUS les
     effets du type `effect_type` (non consommes), ANNULE leur StatModification (`<Effect>.RevertInternal`)
     et DE-ENREGISTRE leur nom de l'`EffectsOwnedComponent` (mirror `IdunBattle.Operations.
     RemoveEffectOperation$$Execute`, qui retire l'id de l'entite-effet d'`ActiveEffectIds`) des qu'aucune
@@ -528,7 +528,7 @@ class RemoveEffect(AbilityBehaviour):
 
 
 class ActivateEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ActivateEffect(effectSelector)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ActivateEffect(effectSelector)` ->
     `IdunBattle.Entities.Behaviours.ActivateEffectBehaviour$$Execute` -- MIRROR du DECOMPILE (3 branches
     mutuellement exclusives, on porte celle du SEUL call-site vise) :
 
@@ -664,7 +664,7 @@ class DeactivateEffect(AbilityBehaviour):
 
 
 class ChangeEffectTurns(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ChangeEffectTurns(owner, effectType, turnsNode, changeType)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ChangeEffectTurns(owner, effectType, turnsNode, changeType)` ->
     `IdunBattle.Entities.Behaviours.ChangeEffectTurnsBehaviour$$Execute` — MIRROR du DECOMPILE :
 
         this+0x50 = EffectFromOwner(owner, effectType)   # selecteur d'ENTITES-EFFET
@@ -1047,7 +1047,7 @@ class SetOnFire(AbilityBehaviour):
 
 
 class CreateShield(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$CreateShield` -> `IdunBattle.Entities.Behaviours.CreateShieldBehaviour$$Execute` : pour CHAQUE cible
+    """`IdunBattleLogic.Entities.DSLBehaviors$$CreateShield` -> `IdunBattle.Entities.Behaviours.CreateShieldBehaviour$$Execute` : pour CHAQUE cible
     du selecteur `target_sel` (+0x50), accorde/rafraichit un bouclier de `amount` (formule +0x58, scalaire)
     duree `duration` rounds via `ShieldComponent.add_or_update_shield` (cumule meme-source/meme-duree, sinon
     nouvelle instance ; no-op si amount<=0). Options +0x60..+0x88 (2e amount Nullable +0x78, flags) non

@@ -319,7 +319,7 @@ def unit_is_overkill(current_health: int, damage: int, *,
     `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`, dont le resultat est ecrit en
     `didOverkill` du `DamageAppliedResult` (@+0x13) et consomme par
     `IdunBattle.Operations.ApplyDamageOperation$$Execute+0x17d5` -> `UnitFlagsComponent.Add(target, 8)`
-    (= `UnitFlag.Overkilled`, lu par le noeud DSL `IdunBattleLogic.Entities.DSLFactory$$TargetIsOverkilled`
+    (= `UnitFlag.Overkilled`, lu par le noeud DSL `IdunBattleLogic.Entities.DSLTriggers$$TargetIsOverkilled`
     = `HasFlagAbilityTrigger(target, 8)`).
 
     Mirror du corps natif, dans l'ordre :

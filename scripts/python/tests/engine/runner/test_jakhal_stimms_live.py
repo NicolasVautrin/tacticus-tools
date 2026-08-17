@@ -15,7 +15,7 @@ Nullable(GetDamageProfile), hits = GetHits)`. `GetHits` = `IdunBattleLogic.Entit
 dedup) = `GetNumberConstant(nrOfHits=0x2f)`. i2 : « Deals 4x [dmg] Physical Damage to an adjacent enemy and all
 other enemies adjacent to both Macer and the target. Then Macer loses 25% of his current Health. Using Jakhal
 Stimms does not end Macer's turn. » Attaque MELEE, profil Physical (pierce 1) ; config 1131 : constantes
-`nrOfHits` (0x2f) et `hpPct`. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour/GetAttackBehaviour ;
+`nrOfHits` (0x2f) et `hpPct`. `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, XREF ExecuteBehaviour/GetAttackBehaviour ;
 2 tirages/coup a cc=0, cas rngcrit-1202).
 
 ORACLE DU NOMBRE DE COUPS (#96 / lot A) : `ArmoriumCherubAbility$$GetHits` (corps partage, lit ici la config
@@ -96,7 +96,7 @@ def _cfg_hits(key: str = "nrOfHits") -> int:
     `IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$GetAttackBehaviour` passe
     `hits = IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` (corps partage)
     = `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` a
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
     l'oracle est `gameconfig.ability("JakhalStimms").constants[<key>]`."""
     c = (GC.ability("JakhalStimms") or {}).get("constants") or {}
     v = c.get(key)

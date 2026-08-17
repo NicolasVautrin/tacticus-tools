@@ -40,7 +40,7 @@ _BC_EFFECT_CFG: dict | None = None
 
 def bc_effect_config(key: str, default: int | None = None) -> int | None:
     """Entrée NOMMÉE de la section `Effect` de la BattleConfiguration — la table que
-    `IdunBattleLogic.Entities.DSLFactory$$EffectConfig` (-> `EffectConfigAmount`) et `IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` (Dict peuplé par `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig`) indexent par enum. Source unique =
+    `IdunBattleLogic.Entities.DSLFormulas$$EffectConfig` (-> `EffectConfigAmount`) et `IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` (Dict peuplé par `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig`) indexent par enum. Source unique =
     `weights.DEFAULT_BC` (même pattern que `CONTAMINATED_ARMOR_REDUCTION_PCT`, effect_triggers.py).
     Ex. `StunnedDmgReductionPct`=50 (EffectConfig(2), Stunned_DamageModifierEffect IdunBattle.Entities.Effects.Loki.Stunned_DamageModifierEffect$$CreateEffectDamageMalusForDefense),
     `PinnedDmgReductionPct`=30, `IceCritDmgBonusPct`=25. Cache module (BC statique par bataille)."""

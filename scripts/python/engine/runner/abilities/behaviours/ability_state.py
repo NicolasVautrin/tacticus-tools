@@ -10,7 +10,7 @@ from ...operations.ability_reset import ResetActiveAbilityOperation, SetActiveAb
 
 
 class ResetActiveAbility(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ResetActiveAbility(unitSel, flag)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ResetActiveAbility(unitSel, flag)` ->
     `IdunBattle.Entities.Behaviours.ResetActiveAbilityBehaviour$$Execute` -- MIRROR du DECOMPILE :
 
         foreach unit in (this+0x50).Select(entities, kind 4) :

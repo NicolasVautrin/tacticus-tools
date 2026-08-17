@@ -8,7 +8,7 @@ Artefacts natifs (RE ghidra gqfc5mff6c, VAs) :
   - IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour : `AttackWithAttackDamage(caster, PickRandomly(GetValidTargets, 1),
       MinMaxDamage(minDmg 0xc/maxDmg 0xd)[passive lvl], GetDamageProfile(0)=DirectDamage(pierce-100),
       nrOfHits=GetNumberConstant(0x2f)=1, alwaysOverkilled=Nullable(HasValue=0))`. Factory "attack"
-      IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e ; is_attack_damage_op=True), pas de force_overkill.
+      IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e ; is_attack_damage_op=True), pas de force_overkill.
   - `PickRandomly(.,1)` IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select tire `NextInternal(0,count)` UNE fois -- consomme 1 genrand MEME a
       count==1 (branche puissance-de-2 IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal) -> la pick precede l'attaque, load-bearing pour la
       bit-exactness (prouve : le port bit-exact 3 seeds ; no-draw diverge).

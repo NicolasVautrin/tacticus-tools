@@ -240,7 +240,7 @@ def _setup_smite_geometry(rpc, rid, board):
 
 
 def test_lord_of_tempests_addice_smite_branch(live_session, rpc, build_runner):
-    """BRANCHE 2 du trigger (`On(9=Attack) & <kind attaque-normale 0x3f5>` d'`IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite`) : la victime du splash « Smite » Psyker est glacee AUSSI — i2 « The hex of EACH
+    """BRANCHE 2 du trigger (`On(9=Attack) & <kind attaque-normale 0x3f5>` d'`IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite`) : la victime du splash « Smite » Psyker est glacee AUSSI — i2 « The hex of EACH
     enemy that is hit by Njal's normal attacks is covered in Ice ».
 
     Discriminant : la tuile de E2 (touche par le SEUL splash, jamais par l'attaque primaire) est

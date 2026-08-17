@@ -1,9 +1,9 @@
 """Case #48 -- DISCRIMINANT LIVE du comparateur `UnitsDirectlyBehind` : `>` STRICT (AmountIsGreater).
 
-RE (docs/rl/case-48-units-directly-behind-comparator.md) : `IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind`
-finit par le SINGLETON `DAT_1832482b0` = classe construite par `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater`
+RE (docs/rl/case-48-units-directly-behind-comparator.md) : `IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind`
+finit par le SINGLETON `DAT_1832482b0` = classe construite par `IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreater`
 (`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger : iVar16 < iVar15` == `>` STRICT) -- PAS `AmountIsEqualOrGreater` (le nom du
-ctor FOLDE, mislabele par ghidra, le faisait croire). Formule = `IdunBattleLogic.Entities.DSLFactory$$MinDistance` (distance hex).
+ctor FOLDE, mislabele par ghidra, le faisait croire). Formule = `IdunBattleLogic.Entities.DSLFormulas$$MinDistance` (distance hex).
 Donc `MinDistance(caster, candidate) > MinDistance(caster, target)` (`>` STRICT). Le seul cas frontiere qui
 separe `>` de `>=` est le candidat LATERAL a distance EGALE (dist(caster, candidate) == dist(caster, target),
 delta 0 sur l'anneau R1 de la cible) : `>` l'EXCLUT (l'ancien offline `>=` le sur-incluait a tort).

@@ -27,7 +27,7 @@ ExecuteAtomic) :
   [3] AddEffect( 0x48a=1162 Stunned, AbilityStateReference, source=Owner@0x148,
                  UnitsWithTrait(<le MÊME Cache que [2]>, 4=Flying, 3), TurnsFromRounds(1) )
       → Stun 1 round des unités FLYING parmi les cibles attaquées (cache PARTAGÉ [2]<->[3] :
-        évalué à l'attaque, REJOUÉ tel quel pour le stun — mirror `IdunBattleLogic.Entities.DSLFactory$$Cache`).
+        évalué à l'attaque, REJOUÉ tel quel pour le stun — mirror `IdunBattleLogic.Entities.DSLSelectors$$Cache`).
 
 Le IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$.ctor ne fait que sur-flaguer les TargetingOptions (0x2_00000000) — ciblage
 DECISION-side, hors périmètre combat (la cible vient du message).

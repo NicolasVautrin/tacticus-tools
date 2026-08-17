@@ -1,7 +1,7 @@
 """Gen-stealer G1 (FONDATION decoy) -- MECANISME sur substrat runner LIVE.
 
 Deux primitives partagees du chantier gen-stealer (cf. docs/rl/genestealer-cults.md) :
-  1. `spawn_decoy` = `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$Spawn(genesSmnDecoy, ForSteppable)` -> `AddUnitOperation.Execute`
+  1. `spawn_decoy` = `DSLFactory$$IdunBattleLogic.IdunBattleLogic.Entities.DSLBehaviors$$Spawn(genesSmnDecoy, ForSteppable)` -> `AddUnitOperation.Execute`
      (socle spawn.py). Options `SpawnUnitOptions$$IdunBattle.Entities.Behaviours.SpawnUnitOptions$$ForSteppable` : level 1, owner=caster,
      `ai_controlled=False`, AUCUNE on-appearance -> token INERTE (traits Steppable+Decoy, aucune arme).
   2. crush-on-step = `MoveUnitOperation$$IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` : un occupant Steppable de la tuile

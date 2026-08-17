@@ -6,7 +6,7 @@ Port = `MortisRoundAbility.execute_behaviour` (arbre `mortis_round_tree`, ultram
                        PushUnit(caster, target) ) )                                        # recul 1 hex
 
 RE : `MortisRoundAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour` (callback `b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) = AtomicGroup(0x3f,
-callback) ou le callback Execute(attack) PUIS Execute(push). Overload attaque = IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (famille ATTACK,
+callback) ou le callback Execute(attack) PUIS Execute(push). Overload attaque = IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (famille ATTACK,
 resolu par XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3). Profil HeavyRound (constants.damageProfile), ranged (range 3),
 nrOfHits ABSENT config -> hits=1 (i2 « 1x 3274-3638 ... pushed back 1 hex »).
 

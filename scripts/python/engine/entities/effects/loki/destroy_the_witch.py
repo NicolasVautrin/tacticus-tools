@@ -19,7 +19,7 @@ RE (decompile ghidra, build `gqfc5mff6c`) -- decompile = verite
                   AbilityStateReference, cible = Owner@0x148 )
 
 (`AbilityBehaviour.op_BitwiseAnd` des deux feuilles ; slots `AbilityEntities` de
-`IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x80 AllUnits · 0xc0 Direct(1) ·
+`IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` : `0x80 AllUnits · 0xc0 Direct(1) ·
 0x148 Owner · 0x178 Target`.)
 
 ## `CreateActiveCondition` -- UN SEUL CORPS NATIF POUR LES DEUX EFFETS (folding IL2CPP)
@@ -61,7 +61,7 @@ Helbrecht : `statMod = {StatType: 1, Amount: 1, IsDynamic: 0}`.
 
     Unique( SurroundingFriends(Owner@0x148, radius=1, 3)  op_Addition  Owner@0x148 )
 
-`IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(sel, r, ...)` =
+`IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(sel, r, ...)` =
 `Friends(sel, Units( SurroundingTiles(sel, r) - Tiles(sel) ))` -> ANNEAU-1, porteur EXCLU ; le
 `op_Addition Owner` le RE-AJOUTE. Beneficiaires = **Helbrecht + ses allies hex-adjacents**.
 

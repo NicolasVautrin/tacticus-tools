@@ -199,7 +199,7 @@ class _NormalLike:
             # R6 MATERIALISATION DES BORNES REDUITES = `Fix64$$Round(., AwayFromZero)`, PAS la
             # troncature -- MEME etage, MEME fonction native que l'attaque NORMALE (#131) et que
             # l'ability bounds-mode famille ATTACK (campagne HeavyGravCannon). Ce vecteur porte le
-            # mode `amount` de la feuille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+            # mode `amount` de la feuille `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
             # ET le `UseNormalAttackIfAble` on-appearance d'un summon : famille ATTACK dans les deux
             # cas -> `IdunBattle.Operations.AttackDamageOperation$$Execute` -> `ExecuteHits` ->
             # `ExecuteHit`, dont la cellule vient du slot 4
@@ -348,8 +348,8 @@ class _NormalLike:
     def execute_direct(state: State, source_id: int, target_id: int, base: int,
                        profile_pierce: int,
                        damage_profile: Optional[str] = None) -> Optional[dict]:
-        """Dégât DIRECT d'un nœud `Direct(...)` (mirror `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
-        + `AttackDamageBehaviour` sur nœud `Direct` — factory DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage). La `base` (déjà calculée par le dégât-node, ex. `PercentageOf(StatAmount(Health,
+        """Dégât DIRECT d'un nœud `Direct(...)` (mirror `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+        + `AttackDamageBehaviour` sur nœud `Direct` — factory DISTINCTE de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage). La `base` (déjà calculée par le dégât-node, ex. `PercentageOf(StatAmount(Health,
         Max), fireDmgPct)` du DoT feu) est routée par le SEUL perçage/armure (`apply_pierce_and_modifiers`,
         mods=None) — AUCUN crit / block / bouclier / spread / tirage RNG / after-hit (≠ l'attaque
         d'ability `execute_ability_attack`/`execute_normal_like`). Utilisé par le DoT de tuile `EnvFireTile`

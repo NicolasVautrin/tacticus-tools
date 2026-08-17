@@ -149,7 +149,7 @@ def test_the_IterateAdjacentTiles_mirror_must_NOT_gain_the_shortcircuit():
     """LE CONTRE-EXEMPLE, et il est aussi important que la propriete elle-meme.
 
     `battle_query.is_adjacent` mirrore `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles`
-    (les comptages `GetAdjacent*`, `DSLFactory$$AdjacentUnits`), dont le `MoveNext` parcourt la liste
+    (les comptages `GetAdjacent*`, `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits`), dont le `MoveNext` parcourt la liste
     d'adjacence STOCKEE sur la tuile : la source ne s'y trouve jamais. L'aligner sur la primitive de
     PORTEE << par coherence >> ferait compter chaque unite comme sa propre voisine -- une inflation
     silencieuse de toutes les utilites de voisinage. Les deux natifs sont distincts, le port aussi."""

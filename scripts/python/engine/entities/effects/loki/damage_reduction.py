@@ -141,10 +141,10 @@ class ChronometronExtraDamageEffect(BaseEffect):
     LES TROIS ENTREES, et d'ou elles viennent (residu transverse R9 — c'etait le trou : l'effet etait
     MATERIALISE mais INERTE faute de contexte) :
       1. `AreFriends(caster, EffectSource(Effect))` = l'attaquant est un ALLIE du Chronomancer.
-         `EffectSource(Effect@0x150)` = `IdunBattleLogic.Entities.DSLFactory$$EffectSource` sur l'entite-effet
+         `EffectSource(Effect@0x150)` = `IdunBattleLogic.Entities.DSLSelectors$$EffectSource` sur l'entite-effet
          COURANTE = `EffectComponent.SourceUnit @+0x10` = `self.source` cote port. On resout SON equipe via
          `attacker_ctx["team_by_id"]` (l'attaquant, lui, donne `attacker_ctx["team"]`).
-      2. `IsMechanical(caster)` = `IdunBattleLogic.Entities.DSLFactory$$IsMechanical`, qui construit
+      2. `IsMechanical(caster)` = `IdunBattleLogic.Entities.DSLTriggers$$IsMechanical`, qui construit
          `AmountIsEqualOrGreater(TraitAmountSelector(caster, Mechanical), Value(1))` — le `3` du 3e argument
          est le mode de recherche partage (`HasFaction(…, 0x14, 3)` le passe aussi), PAS un id de trait.
          => `HasTrait(caster, Mechanical)`, lu dans `attacker_ctx["traits"]`.

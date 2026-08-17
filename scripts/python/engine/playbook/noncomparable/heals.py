@@ -181,7 +181,7 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
                   and u.get("squadId") != ctx.uid and u.get("col") is not None]
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
-            # IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(caster@T, r=1) = AdjacentTiles + porte d'elevation |dElev|<2
+            # IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(caster@T, r=1) = AdjacentTiles + porte d'elevation |dElev|<2
             # d'IterateAdjacentTiles (#45/#76). bq.is_adjacent = MEME adjacence que les comptages
             # GetAdjacent* -> plus de fork raw-hexgeo qui sur-comptait des voisins hors-elevation.
             util = self_wound + sum(w for c, r, w in allies if bq.is_adjacent(T, (c, r), ctx.elev_by_pos, bq.neigh_map(ctx)))

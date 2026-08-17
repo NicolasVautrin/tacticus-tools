@@ -21,7 +21,7 @@ additionnel**.
 | `LetTheGalaxyBurnEffect$$.ctor`                     | `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$.ctor` |
 | `LetTheGalaxyBurnEffect$$CreateAdditionalHits`      | `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` |
 | `DSLTriggers$$IsPersistentData`                      | `IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData` |
-| `DSLFactory$$HasTileStatusEffect`                   | `IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect` |
+| `IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect`                   | `IdunBattleLogic.Entities.IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect` |
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` (conjonction `AbilityTrigger.op_BitwiseAnd`)
 ```
@@ -157,7 +157,7 @@ _ON_ATTACK = int(EventTriggerType.Attack)          # 9  — vecteur fin-d'attaqu
 
 
 def _target_tile_effects(state: State, target_id: Optional[int]) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect(Targets@0x190) cote runner : les status-effects DYNAMIQUES
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect(Targets@0x190) cote runner : les status-effects DYNAMIQUES
     portes par la TUILE de la cible (`state.effects.by_unit[tile_entity_id]`). MEME lecture que le
     contexte threade dans la formule de coups (`damage_model.tile_status_effects_by_pos`) -> le trigger
     de POSE et le gate du COUP voient exactement le meme etat. Board/effets/position absents -> []."""

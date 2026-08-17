@@ -66,7 +66,7 @@ hex is occupied - to the closest free hex to it. »
 
 TROIS lectures qui ne se devinent pas, toutes tranchees au decompile (jamais au nom) :
  1. `DSLSelectors$$First(source, amount, ignoreForcedTargets)` boxe son `amount` en `DirectAmount`
-    et construit un `PickFirstNSelector` = les N PREMIERS -- ce n'est PAS `DSLFactory$$First`, qui
+    et construit un `PickFirstNSelector` = les N PREMIERS -- ce n'est PAS `IdunBattleLogic.Entities.DSLSelectors$$First`, qui
     est un `PickAtIndexSelector` (un INDEX). D'ou `PickFirstN(..., 3)` ici, et `AtIndex(tiles, i)`
     pour le deroulage de la boucle (`DSLSelectors$$AtIndex`, lui, EST le PickAtIndex).
  2. `settings = NULL` n'est pas une absence : `TilesBehindInLineSelector$$.ctor` construit alors un

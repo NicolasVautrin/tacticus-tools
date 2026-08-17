@@ -20,7 +20,7 @@ ETAGES
      arbre DSL unique peut re-evaluer un predicat de position APRES une mutation intra-arbre.
   3. CONSTRUCTEURS de `DslContext` -- le chantier annonce << 11 constructeurs >>. Le compte se
      re-derive, et chacun est classe LIVE (il passe par le substrat runner) ou FIGE.
-  4. `Cache` -- le noeud natif `DSLFactory$$Cache`, qui fige l'IDENTITE (pas la position). Le
+  4. `Cache` -- le noeud natif `IdunBattleLogic.Entities.DSLSelectors$$Cache`, qui fige l'IDENTITE (pas la position). Le
      chantier le declarait absent puis present ; on regarde.
 
 Usage :
@@ -176,7 +176,7 @@ def etage3_constructeurs(detail: bool) -> int:
 
 
 def etage4_cache(detail: bool) -> int:
-    """Le noeud `Cache` (`IdunBattleLogic.Entities.DSLFactory$$Cache`) fige l'IDENTITE d'une
+    """Le noeud `Cache` (`IdunBattleLogic.Entities.DSLSelectors$$Cache`) fige l'IDENTITE d'une
     selection, JAMAIS sa position -- c'est la moitie << figee explicitement >> du modele a deux
     modes que le chantier decrit."""
     definitions, usages = [], []

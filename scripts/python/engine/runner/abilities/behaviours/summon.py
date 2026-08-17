@@ -79,7 +79,7 @@ def get_stats_to_override(entities, formulas) -> list:
 
 
 class Spawn(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$Spawn` -> `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` : itere son TILE-SELECTEUR
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Spawn` -> `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` : itere son TILE-SELECTEUR
     EN INTERNE (mirror natif -- le `Spawn` n'est PAS un `Foreach(tiles, SpawnUnit)` externe, il enumere ses
     tuiles lui-meme) et spawn UNE unite par tuile, stats `WithStatsFromConfig(summon_ability)`, owner =
     team+player du caster. Wrapper au-dessus de l'Operation portee `_spawn_config_grot` (mirror de l'inline natif

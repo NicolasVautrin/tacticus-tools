@@ -50,7 +50,7 @@ OVERWATCH_SOURCE_DISABLE = int(EffectType.Pinned)     # 1065 — overwatch désa
 # 1302 = `EffectType.IgnoreUsedAbilityInOverwatch` (0x516). ⚠ QUALIFICATION D'ENUM (case-127) : 1302 est
 # AUSSI `TriggeredAbilityType.VoltagheistField` — c'est CE second sens qu'on lit dans
 # `IdunBattle.Entities.Effects.Loki.VoltagheistField_ExtraHitEffect$$.ctor` (`AbilityOrEffect(0x516)` =
-# l'ability SOURCE de l'effet, dont l'EffectType est 1381). Ici le contexte est un `DSLFactory$$HasEffect`
+# l'ability SOURCE de l'effet, dont l'EffectType est 1381). Ici le contexte est un `IdunBattleLogic.Entities.DSLTriggers$$HasEffect`
 # -> le 1302 est bien un EffectType (meme famille que 0x429=Pinned / 0x418=Infiltrate juste au-dessus).
 OVERWATCH_IGNORE_ABILITY_USED = int(EffectType.IgnoreUsedAbilityInOverwatch)   # 1302 — branche OR du gate
 
@@ -259,7 +259,7 @@ class OverwatchAutoAttack(EffectTrigger):
 # `ArraySet` de TROIS `Triggered()` qui ne font qu'une chose : ecrire `EffectComponent.IsActive @+0x5c`
 # de l'instance (`effect@0x150`). Lus 1:1 au decompile :
 #
-#   (1) On(0x12 = TurnStart_EffectActivation)                        # BaseEffect$$On -> DSLFactory$$On(.., false)
+#   (1) On(0x12 = TurnStart_EffectActivation)                        # BaseEffect$$On -> IdunBattleLogic.Entities.DSLTriggers$$On(.., false)
 #         & NOT IsTurnOf(owner@0x148)                                # df@0xa0
 #         & ( HasEffect(owner, IgnoreUsedAbilityInOverwatch = 0x516)
 #             | DoesNotHaveFlag(owner, ActiveAbilityUsed = 2) )
@@ -276,9 +276,9 @@ class OverwatchAutoAttack(EffectTrigger):
 # RE-ACTIVER une instance desactivee (sinon l'overwatch s'eteindrait definitivement). Le port fait pareil :
 # `collect_effect_triggers` ne filtre PAS sur `e.active`.
 #
-# ⚠ CONJOINT NON QUALIFIE : le 2e argument de `DSLFactory$$On(ctx, evt, bool)` selectionne un trigger
+# ⚠ CONJOINT NON QUALIFIE : le 2e argument de `IdunBattleLogic.Entities.DSLTriggers$$On(ctx, evt, bool)` selectionne un trigger
 # pre-construit du contexte (`ctx@+0x128` si false, `ctx@+0x98` si true, cf.
-# `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`). `ctx@+0x128` est la classe qu'un `is`-test de
+# `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`). `ctx@+0x128` est la classe qu'un `is`-test de
 # `IdunBattle.Entities.Effects.BaseEffect$$NeedsRefreshing` traite comme trigger TRIVIAL (= toujours vrai) ;
 # `ctx@+0x98` (present sur (2) et (3), absent de (1)) n'est PAS qualifie — il est VRAI dans l'execution
 # reelle (ground truth live : le tir desactive bien l'overwatch), et le port ne le modelise pas.

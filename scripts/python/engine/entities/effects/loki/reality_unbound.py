@@ -2,7 +2,7 @@
 
 ARTEFACT NATIF : aucune classe d'effet dediee cote jeu — les trois entites-effet sont des
 `IdunBattle.Entities.Effects.StaticStatModifierEffect` GENERIQUES, instanciees par la feuille
-`IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect` des deux `CreateBehaviour` du
+`IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect` des deux `CreateBehaviour` du
 passif (cf. `runner/operations/triggers/loki/reality_unbound.py`, qui porte les arbres) :
 
     RealityUnboundAbility$$CreateBehaviour

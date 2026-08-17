@@ -855,7 +855,7 @@ def squig_launchas_tree(orks_min: int, friends_min: int):
       summon est FIGE sur l'etat **PRE-attaque**, puis `If(cond, spawn)` relit le CACHE. Consequence
       mecanique : meme si les 3 coups TUENT la cible, le Squig est invoque des lors que le critere etait
       rempli avant l'attaque.
-    - **native_factory = "ability"** : le decompile appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
+    - **native_factory = "ability"** : le decompile appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (PAS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`) -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
       (PiercingRatio 1), `nrOfHits`=3, `attackRangeType=Ranged` -> `is_melee=False`.
     - **SPAWN** : `AdjacentTiles(Cache(TargetTiles@0x190))` = tuiles hex-adjacentes a la tuile de la
       CIBLE ; `CanAddUnit` = libres+marchables ; `PickRandomly(..., 1)` FOLDE dans la feuille `Spawn`
@@ -1247,7 +1247,7 @@ def dakka_main_attack_tree(hits: int) -> AttackWithAttackDamage:
     """1er volet de `$$ExecuteBehaviour` : `AttackWithAttackDamage(caster@0x148, target@0x178,
     MinMaxDamage(minDmg/maxDmg[level]), Nullable(GetDamageProfile), numHits, AbilityOrEffect(+0x10))`.
     `attackRangeType = Ranged` (gameconfig 1171) -> `is_melee=False`. La factory native est
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (XREF de l'`ExecuteBehaviour`) ->
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (XREF de l'`ExecuteBehaviour`) ->
     famille **ATTACK** (`native_factory="attack"`, 2 tirages/coup a cc=0)."""
     return AttackWithAttackDamage(Target(), DDD_ID, "Projectile", is_melee=False,
                                   native_factory="attack", hits=None, hits_override=int(hits),
@@ -1590,7 +1590,7 @@ def explosive_presents_tree() -> AtomicGroup:
 
     FACTORY NATIVE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (le symbole est
     resolu tel quel dans le corps decompile) -> `native_factory="ability"` = `AbilityDamageOperation`
-    = **1 tirage/coup**, PAS les 2 tirages/coup de `DSLFactory$$AttackWithAttackDamage` (piege
+    = **1 tirage/coup**, PAS les 2 tirages/coup de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (piege
     rngcrit-1202). RANGED : la config 1170 n'a AUCUN `attackRangeType`, donc `AttackRangeType.None`
     (0) != `Melee` -> `is_melee=False` (convention du port, cf. `fury_of_the_ancients`).
 

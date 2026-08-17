@@ -121,7 +121,7 @@ class FireTileDoT(TileEffectTrigger):
     Health, variant=2=Maximum), fireDmgPct=20)` = 20% de sa PV MAX, porte en degat DIRECT.
 
     behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille de IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour ;
-    factory `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` = DIRECT, DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` =
+    factory `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` = DIRECT, DISTINCTE de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` =
     Psyker/ThunderousAssault). i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20%
     of their initial Health » = la BASE (20% PV max), PAS le net. Le natif route la base par le PERCAGE/ARMURE
     (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame) 25%, l'armure absorbant

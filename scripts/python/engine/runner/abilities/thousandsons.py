@@ -51,7 +51,7 @@ within 2 hexes. Adds +1 hit for each hex on the battlefield that is currently on
 cibles de la liste prennent `floor(N/C) + 1` coups, les autres `floor(N/C)` — et la CIBLE DU MESSAGE
 est en tete, donc prioritaire pour le coup supplementaire.
 
-⚠ FAMILLE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK — crit +
+⚠ FAMILLE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille ATTACK — crit +
 resolve slot-8, 2 tirages/coup a cc=0), CONTRASTE avec PlagueWind qui route
 `...$$AttackWithAbilityDamage`. Classification par la CALLEE du decompile, jamais au juge (rngcrit-1202).
 
@@ -135,7 +135,7 @@ if TYPE_CHECKING:
 
 DOOMBOLT_ID = "Doombolt"
 FIRE = int(EffectType.Fire)          # 5 — `EntitiesWithAnyEffect(AllTiles, 5, 6)` = les hexes EN FEU
-# `Get(9)` LITTERAL du decompile (`DSLFactory$$Get(int)` = noeud constante), PAS une constante de
+# `Get(9)` LITTERAL du decompile (`IdunBattleLogic.Entities.DSLFormulas$$Get(int)` = noeud constante), PAS une constante de
 # config : la valeur est codee dans `DoomboltAbility$$NrOfHitsFormula` / `$$ExecuteBehaviour`.
 # i2 concordant : « Cannot exceed 9 hits. »
 DOOMBOLT_MAX_HITS = 9
@@ -176,7 +176,7 @@ def doombolt_nr_of_hits_formula() -> Min:
                   Count( EntitiesWithAnyEffect(AllTiles@0x78, Fire = 5, sourceFlag = 6) ) ),
              Get(9) )
 
-    `AllTiles@0x78` = le slot partage `AllTilesSelector` de `DSLFactory$$InitializeShared` -> le
+    `AllTiles@0x78` = le slot partage `AllTilesSelector` de `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` -> le
     compte porte sur TOUT le plateau (pas seulement autour du caster), conforme a l'i2 (« each hex on
     the battlefield that is currently on Fire »). `EntitiesWithAnyEffect` route les entites-TUILE sur
     `ctx.tile_has_effect` (meme cle tile-id que la pose `AddEffectOperation`, cf. case-35 / Stormcaller
@@ -257,11 +257,11 @@ def doombolt_tree(targets: list, hits_per_target: list) -> AtomicGroup:
 
     - `owner@0x148` == le caster pour une active top-level (`AbilityEntities` Owner = Caster) ->
       `entities.caster` de la feuille, inchange.
-    - `Get(u)` = `IdunBattleLogic.Entities.DSLFactory$$Get(entity)` = selecteur d'UNE entite ->
+    - `Get(u)` = `IdunBattleLogic.Entities.DSLSelectors$$Get(entity)` = selecteur d'UNE entite ->
       `UnitSet([u])` cote port (meme role que `FixedTileIds` en domaine tuile).
     - Le `Nothing()` en tete de l'accumulateur natif est un behaviour NEUTRE (aucune mutation, aucun
       tirage) -> folde ici : la liste est non vide par construction (sortie anticipee en amont).
-    - `native_factory="attack"` (defaut) = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    - `native_factory="attack"` (defaut) = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
       LU au decompile -> `AttackDamageOperation` (crit + resolve slot-8). `is_melee=False`
       (`attackRangeType=Ranged`), profil `Psychic` (PiercingRatio 100, `NoBlocking`)."""
     leaves = [AttackWithAttackDamage(UnitSet([u]), DOOMBOLT_ID, "Psychic", is_melee=False,
@@ -411,7 +411,7 @@ def hellfyre_extra_targets_selector() -> Filter:
       `IdunBattle.Entities.Selectors.AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`) -- #514.
     * `NonSteppableOrObjectUnits` = la factory de composition (cf. son mirror dans
       `entities/selectors/units.py`) : `source & sans-Steppable & sans-Object`.
-    * `FromTrigger` = `Filter` cote port (`DSLFactory$$Filter` est le THUNK de `$$FromTrigger`) : il
+    * `FromTrigger` = `Filter` cote port (`IdunBattleLogic.Entities.DSLSelectors$$Filter` est le THUNK de `$$FromTrigger`) : il
       LIE chaque candidat au slot `+0x180` = `ActiveTarget`, exactement le slot que le predicat lit.
       `requireContinuous = 0` -> aucun court-circuit (le port ne porte pas ce flag ; `FilterContinuous`
       est une factory distincte).

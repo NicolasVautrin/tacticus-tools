@@ -12,7 +12,7 @@ RE (decompile ghidra, build `gqfc5mff6c`)
 
 ## `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtectorAbility$$CreateTrigger`
 (conjonction `AbilityTrigger.op_BitwiseAnd`, slots `AbilityEntities` de
-`IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x148 Owner · 0x158 Actor · 0x160 Caster ·
+`IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` : `0x148 Owner · 0x158 Actor · 0x160 Caster ·
 0x178 Target`, `0x130` = l'ability declenchante, `0xc0` = la constante `1` du `.ctor` du factory)
 
     On(0x2a = PreUnitAbility, 1)
@@ -173,7 +173,7 @@ def can_switch_position(state: State, unit_id: Optional[int]) -> bool:
 
 
 def _is_adjacent(state: State, a_id: Optional[int], b_id: Optional[int]) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$IsAdjacent(a, b, 3)` — adjacence hex via `board.neighbours`."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(a, b, 3)` — adjacence hex via `board.neighbours`."""
     board = getattr(state, "board", None)
     if board is None or a_id is None or b_id is None:
         return False
@@ -187,7 +187,7 @@ def _is_adjacent(state: State, a_id: Optional[int], b_id: Optional[int]) -> bool
 
 
 def switch_position(state: State, a_id: int, b_id: int) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$SwitchPosition(a, b)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$SwitchPosition(a, b)` ->
     `IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour..ctor(6, a, b, 0,0,0,0, 2)` : les deux unites
     ECHANGENT leur hexagone (mode de deplacement 6 = switch, priorite 2). Port : echange des
     `PositionComponent` (les positions sont exclusives, l'echange est toujours legal). False si une

@@ -116,7 +116,7 @@ def bio_minefield_alive_children():
     `Alive(Children(Owner@DSLSelectors+0x30))`.
 
     ⚠ **`DSLSelectors$$Children(parent)` EST `ChildrenOf`, PAS `Children`.** Deux primitives
-    natives homonymes coexistent : `DSLFactory$$Children` (SANS argument, l'accumulateur des summons
+    natives homonymes coexistent : `IdunBattleLogic.Entities.DSLSelectors$$Children` (SANS argument, l'accumulateur des summons
     produits par CE cast) et `DSLSelectors$$Children(this, parent)` (AVEC un argument, les unites
     dont `parent` est le parent). Le call-site passe `<selectors>+0x30` -- il a donc un argument.
     Brancher la premiere ici rendrait un ensemble TOUJOURS VIDE au premier cast (rien n'a encore ete

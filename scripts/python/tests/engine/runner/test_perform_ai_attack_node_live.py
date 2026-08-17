@@ -34,7 +34,7 @@ D+E. **La feuille `SpawnReplica` (ScarabSummon 1047) passe par le MEME corps.** 
    (E). Les deux proprietes sont gardees SEPAREMENT, pour qu'un echec dise LAQUELLE a saute :
      D = le double, spawne loin de tout ennemi, ne frappe PAS (arme de melee portee 1, ennemi >= 2) ;
      E = le double, spawne AU CONTACT de Judh, declenche sa reaction `On(9)`.
-   Le noeud natif de cette feuille est `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (et non
+   Le noeud natif de cette feuille est `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttack` (et non
    `...FromCurrentPosition`) : `+0x70 allowMoveAction = 1`, `+0x78 moveAmount = null` (i2 « which then
    immediately takes a turn »). Depuis #348 le port APPROCHE bel et bien le double
    (`GenerateActionTiles(null)` + `MovementActionGenerator` + apply du `MoveUnitMessage`), d'ou deux

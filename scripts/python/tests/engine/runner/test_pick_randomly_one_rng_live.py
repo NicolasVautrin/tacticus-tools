@@ -223,7 +223,7 @@ def test_port_consumption_is_bit_exact_at_every_regime(regimes):
     `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`, qui appelle
     `Next(v, v+1)` SANS gate largeur-1. #221 a porte ce resolve sur la branche reduce-then-roll de
     `_run_hits`, gate par la FAMILLE (`is_attack_damage_op`) -- et le smite EST de la famille ATTACK
-    (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`). Le residu est donc passe de 1 a
+    (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`). Le residu est donc passe de 1 a
     **0**, mesure sur les deux regimes.
 
     L'attente d'alors etait ecrite pour se faire remarquer (« s'il a bouge, le resolve slot-8 a ete

@@ -59,7 +59,7 @@ import probe_293_aura_predicate_comparator as P293      # noqa: E402  (Binary/_v
 # (`DSLFactory`) et `rnca9r7q6c` (`DSLTriggers` / `DSLFormulas`). On essaie les deux plutot que de
 # rendre le probe inutilisable au prochain renommage.
 SYMS_SUBJECT = ("IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed",
-                "IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed")
+                "IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed")
 SYMS_CONST_CTOR = ("IdunBattleLogic.Entities.DSLFormulas$$.ctor",
                    "IdunBattleLogic.Entities.DSLFactory$$.ctor")
 

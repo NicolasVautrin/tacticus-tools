@@ -258,7 +258,7 @@ def trigger_spawned_unit_finish_turn(state: State, unit_id: int) -> Optional[dic
 
 
 def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDecoy") -> Optional[int]:
-    """`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$Spawn(genesSmnDecoy, ForSteppable)` → `SpawnUnitBehaviour.Execute` →
+    """`DSLFactory$$IdunBattleLogic.IdunBattleLogic.Entities.DSLBehaviors$$Spawn(genesSmnDecoy, ForSteppable)` → `SpawnUnitBehaviour.Execute` →
     `AddUnitOperation.Execute` (MÊME socle que ScarabHive/`SpawnUnitOperation`, options DIFFÉRENTES) : pose UN
     token decoy sur `tile` (id de tuile). Options `SpawnUnitOptions$$IdunBattle.Entities.Behaviours.SpawnUnitOptions$$ForSteppable` :
       - owner = team+player du **caster** (hérité, comme `CopyOwner`) ;
@@ -352,14 +352,14 @@ def _free_tiles_adjacent(state: State, target_id: int, exclude: set,
 
 
 def _adjacent_tiles(board, tile_id: int) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentTiles(origin)` — voisins de `tile_id` dans
+    """`IdunBattleLogic.Entities.DSLSelectors$$AdjacentTiles(origin)` — voisins de `tile_id` dans
     l'ORDRE d'itération natif. FOYER UNIQUE = `Board.neighbours_native` (champ brut `neighbours`
     du `boardGraph`, cf. `_free_tiles_adjacent`) ; repli ids triés quand le champ brut manque."""
     return board.neighbours_native(tile_id)
 
 
 def _pick_randomly_one(state: State, tiles: list):
-    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, 1)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(source, 1)` ->
     `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` (`amount = 1`) : UNE tuile, et
     **UN tirage dès que le pool est non vide** — y compris pool de taille 1 (case-130 SS4 ; loi #130).
 
@@ -383,14 +383,14 @@ def _pick_randomly_one(state: State, tiles: list):
 
 
 def _first(tiles: list):
-    """`IdunBattleLogic.Entities.DSLFactory$$First(entities, 1, ignoreForcedTargets=false)` — le
+    """`IdunBattleLogic.Entities.DSLSelectors$$First(entities, 1, ignoreForcedTargets=false)` — le
     PREMIER élément de la liste résolue par le sélecteur source (None si vide). **ZÉRO tirage** :
     `First` construit un sélecteur de PRISE-EN-TÊTE, pas un `PickRandomAmountSelector`."""
     return tiles[0] if tiles else None
 
 
 def _first_n(tiles: list, count: int) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$First(entities, count, ignoreForcedTargets=false)` —
+    """`IdunBattleLogic.Entities.DSLSelectors$$First(entities, count, ignoreForcedTargets=false)` —
     le frère à COUNT de `_first`, rendu **min(count, len(source))** éléments en TÊTE. **ZÉRO
     tirage**, exactement pour la même raison (prise-en-tête, pas un `PickRandomAmountSelector`).
 
@@ -409,7 +409,7 @@ def _first_n(tiles: list, count: int) -> list:
 
 
 def _sort_by_distance(state: State, tiles: list, origin_id: int) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(entities, origin)` →
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortByDistance(entities, origin)` →
     `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select`, remis en C# :
 
         var list   = this.entities.Select(entities);
@@ -434,8 +434,8 @@ def _sort_by_distance(state: State, tiles: list, origin_id: int) -> list:
 
 
 def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`
-    = `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility(tiles, AllAliveMachinesSelector,
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`
+    = `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility(tiles, AllAliveMachinesSelector,
     UtilityDefinition(utilityType), parent)` -> `SortTilesByUtilitySelector$$Select`.
 
     Délègue au FOYER UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility` (mirror du `Select`,
@@ -450,7 +450,7 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     `IdunBattle.AI.Utilities.UtilityMovementCase` traite explicitement ce cas
     (`get_IsSpawning` = `unit == null && parent != null`, `get_UnitOrParent` = `unit ?? parent`).
     On passe donc `parent_id=caster_id` — le `parent` natif, 3ᵉ argument de
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` — et AUCUN `unit_id` : le foyer
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon` — et AUCUN `unit_id` : le foyer
     produit un ctx `{"is_spawning": True}`, que chaque feuille consomme selon SA propre dégradation
     (0 pour `TriggeredAbilities(2)` / `DespoiledGround(29)` / `HeroLikeDoorOpening(31)` ; flag summon
     pour `CapturePoint(25)` / `PowerUp(27)` / `SummonDislikeDoorOpening(30)`).
@@ -472,7 +472,7 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
 
 
 def _randomize(state: State, tiles: list) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$Randomize(entities)` =
+    """`IdunBattleLogic.Entities.DSLSelectors$$Randomize(entities)` =
     `IdunBattle.Entities.Selectors.PickRandomAmountSelector(state, source, amount = 0x7fffffff, rng,
     allowRepeat = false, maxRepeat = 0x7fffffff, ignoreForcedTargets = false)` — donc **PAS un tri** :
     un MÉLANGE COMPLET, qui consomme **`len(pool)` tirages** aux bornes DÉCROISSANTES
@@ -483,7 +483,7 @@ def _randomize(state: State, tiles: list) -> list:
 
 
 def _sort_by_formula_pilein(state: State, tiles: list) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$SortByFormula(entities, formula, ascending = false)` de
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortByFormula(entities, formula, ascending = false)` de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour`, avec
     `formula = If(HasTrait(@0x180, 0x1b), Direct(0), Direct(1))` (les deux `Direct` sont les
     constantes partagées `DSLFactory+0xb8`=0 et `+0xc0`=1, cf. `IdunBattleLogic.Entities.DSLFactory$$.ctor`).

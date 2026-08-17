@@ -13,7 +13,7 @@
 
 MECANIQUE (Melee, 4 coups Eviscerate PiercingRatio 50) : degat/coup = roll(minDmg,maxDmg) + extraDmg x
 count(tuiles adjacentes LIBRES du caster) ; self-heal de `hp` SI le HP du caster etait <= 50% de son MaxHealth
-AVANT l'attaque. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, 2 tirages/coup a cc=0 -- XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour+0x21b == template ArmoriumCherub IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d ; cas rngcrit-1202).
+AVANT l'attaque. `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, 2 tirages/coup a cc=0 -- XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour+0x21b == template ArmoriumCherub IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d ; cas rngcrit-1202).
 
 PORTEUR HORS POOL : `bloodTerminator` (Cezare) est absent du seed BC capture -> on l'INJECTE via
 `catalog_inject.write_augmented_seed_bc` (bloc `Units` + configs `Abilities`, `ActiveAbilities=[1230]` pour
@@ -49,10 +49,10 @@ VALIDATION (etat LIVE reel : board dumpe, positions drivees, stats/level/mult du
 ORACLES (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE, volet par volet, dans
 `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour` :
   - nb de coups = `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` =
-    `GetNumberConstant(cfg, 0x2f)` passe DIRECTEMENT a `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    `GetNumberConstant(cfg, 0x2f)` passe DIRECTEMENT a `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
     (aucune formule ; `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` = `GetStringConstant`
     + `System.Int32.Parse`) -> valeur BRUTE, oracle = `gameconfig.ability("SavageEchoes").constants.nrOfHits` ;
-  - seuil du self-heal = `DSLFactory$$ConfigConst(0x4f)` consomme par `DSLFactory$$HealthPctIsBelowOrEqual`
+  - seuil du self-heal = `IdunBattleLogic.Entities.DSLFormulas$$ConfigConst(0x4f)` consomme par `IdunBattleLogic.Entities.DSLTriggers$$HealthPctIsBelowOrEqual`
     (cf. aussi `SavageEchoesAbility$$GetRegenerateCondition`) -> BRUTE, oracle =
     `constants.healthPct` ;
   - le DEGAT, lui, est CALCULE (`Sum(MinMaxDamage, Multiply(Get(GetVariableForLevel(8)), Count(...)))`) : on

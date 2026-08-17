@@ -607,7 +607,7 @@ class Scene:
     def melee_defeats(self) -> int:
         """Compte de base de `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee` = `Count(NormalUnits(
         UnitsDefeatedByMeleeAttack(AllUnits)))` : unités NORMALES (kind-1 — `dv.units` = squads hors
-        MoW par construction, `IdunBattleLogic.Entities.DSLFactory$$NormalUnits` = `Units(set, kind=1)`) MORTES
+        MoW par construction, `IdunBattleLogic.Entities.DSLSelectors$$NormalUnits` = `Units(set, kind=1)`) MORTES
         tuées par une attaque de MÊLÉE. Flag = `UnitComponent.DefeatedByMeleeAttack @0x178` (écrit
         par `KillUnitOperation IdunBattle.Operations.KillUnitOperation$$Execute`, capté #185 dans decisionView.units) ; `isDead` requis en
         mirror du sélecteur `IdunBattle.Entities.Selectors.UnitsDefeatedByMeleeAttackSelector$$IsValidUnit` (une unité RESSUSCITÉE ne compte plus). GLOBAL

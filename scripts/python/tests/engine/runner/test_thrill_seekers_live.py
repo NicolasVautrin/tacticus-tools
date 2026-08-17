@@ -377,7 +377,7 @@ def test_thrill_seekers_seeded_stat_mod_reverts_on_expiry(rpc, build_runner, car
     `CAPTURED_SOURCE`), donc l'expiration offline gardait le +15 A VIE.
 
     Natif : `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` ecrit un
-    `IdunBattleLogic.Entities.DSLFactory$$ChangeStat(Entity(target), Position(stat, part 5|9), 4,
+    `IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat(Entity(target), Position(stat, part 5|9), 4,
     Direct(amount), Entity(<effectEntity>))` -- la SOURCE est l'entite-effet -- et
     `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` rejoue le MEME appel en
     `part 6` avec LA MEME entite -> `IdunBattle.Entities.Components.ValueModification$$ReverseModification`.

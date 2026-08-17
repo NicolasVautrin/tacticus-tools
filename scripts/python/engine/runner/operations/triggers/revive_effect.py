@@ -23,7 +23,7 @@ Artefacts natifs (build gqfc5mff6c, VA citees ; RVA = VA - 0x180000000 calculee 
                                sur `UnitComponent+0xa8` -- AUCUNE mutation) ; le mutateur
                                `IdunBattle.Operations.ReviveUnitOperation$$Execute` la DRAINE plus tard
                                (`Core.Services.OperationProcessor$$ReviveUnit`). Cf. `operations/revive.py`.
-    IdunBattleLogic.Entities.DSLFactory$$DeactivateEffect -> ActivateEffectBehaviour(effect, active=false)
+    IdunBattleLogic.Entities.DSLBehaviors$$DeactivateEffect -> ActivateEffectBehaviour(effect, active=false)
     IdunBattle.Core.Services.BattleQuery$$CanBeRevived
 
 ## Les virtuels de `ReviveEffect` -- LUS, pas deduits (case-89 volet B1)
@@ -46,7 +46,7 @@ DEUX chemins de lecture, croises :
       ⚠ PIEGE : `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` lit ces
       MEMES slots `+0x728/+0x738/+0x748` avec une tout autre semantique (portee de bond / adjacence /
       rupture) -- sur `ABondEffect` ils sont ABSTRAITS, c'est `ReviveEffect` qui les remplit. Ne pas
-      croiser les deux lectures. Ses trois branches produisent des `DSLFactory$$RemoveEffect`, jamais
+      croiser les deux lectures. Ses trois branches produisent des `IdunBattleLogic.Entities.DSLBehaviors$$RemoveEffect`, jamais
       un `DeactivateEffect`. cf. `docs/rl/case-229-1502-rites-of-morkai-live-confrontation.md` §5 ;
   (b) OFFLINE la table `methodPointers` d'IL2CPP, presente TELLE QUELLE dans `GameAssembly.dll` (les
       pointeurs sont stockes en VA image-base 0x180000000). Le bloc d'un `*_ReviveEffect` a la forme
@@ -256,7 +256,7 @@ def create_target_trigger_behaviour(chance: int, ability_id: str, hp_var: str = 
                                              : BaseEffect.GetRemoveEffectBehaviour(effect)
         Maybe(func{ revive ; second }, target@0x178, chance)
 
-    `IdunBattleLogic.Entities.DSLFactory$$Maybe -> IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute` fait UN tirage `next_bool(chance)` ; le func
+    `IdunBattleLogic.Entities.DSLBehaviors$$Maybe -> IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute` fait UN tirage `next_bool(chance)` ; le func
     ne s'execute QUE sur SUCCES -> un roll RATE ne consomme PAS le gate."""
     owner_sel = Caster() if owner_sel is None else owner_sel
     second = (RemoveReviveEffect(owner_sel, effect_type) if remove_effect
@@ -297,7 +297,7 @@ def is_affected_by_heal_type(has_trait, liveunit, heal_type: int) -> bool:
 def can_be_revived(entities, target_liveunit, target_id: int, state: State,
                    heal_type: int = 0) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$CanBeRevived` (mirror, appele par le noeud `CanBeRevived` du
-    `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` via `IdunBattleLogic.Entities.DSLFactory$$CanBeRevived -> CanBeRevivedTrigger
+    `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` via `IdunBattleLogic.Entities.DSLTriggers$$CanBeRevived -> CanBeRevivedTrigger
     IdunBattle.Entities.Triggers.CanBeRevivedTrigger$$ShouldTrigger`) : `GetStat(unit,Health,0) < 1` (mort) & `IsAffectedByHealType(healType)` &
     `NOT HasFlag(unit,0xd)` & `NOT HasTrait(PermaDeath=0x41a=1050)` & `NOT HasHealBlockers`.
 

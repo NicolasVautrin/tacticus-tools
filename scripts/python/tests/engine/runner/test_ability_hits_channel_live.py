@@ -1,7 +1,7 @@
 """#61 -- CANAL DE COUPS des attaques d'ABILITY : le COMBAT le traverse, la PREDICTION non.
 
 Chaine NATIVE (decompile ghidra, build gqfc5mff6c) :
-  - `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour` (le noeud
+  - `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AttackDamageBehaviour` (le noeud
     `hits` de l'ability est stocke en champ +0x80 ; `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`
     l'EVALUE et le range dans le `Nullable<int>` de l'AttackData) -> `IdunBattle.Operations.AttackDamageOperation$$Execute`
     -> `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` (slot d'interface 0xb5) ->
@@ -9,7 +9,7 @@ Chaine NATIVE (decompile ghidra, build gqfc5mff6c) :
     (IsMeleeAttack ? ExtraHitsMelee(0x17))`, `Math.Max(.,0)`, puis la boucle des effets (bonus
     `OwnerIsCaster` / malus `OwnerIsTarget` / clamps min). => MEME formule que l'attaque NORMALE, seule
     la BASE change (noeud `hits` de l'ability au lieu du nb de coups de l'arme).
-  - `IdunBattle.Operations.AbilityDamageOperation$$Execute` (famille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`)
+  - `IdunBattle.Operations.AbilityDamageOperation$$Execute` (famille `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`)
     N'APPELLE PAS `GetAttackHits` : il lit le `Nullable<int>` et l'utilise BRUT (defaut 1). => canal NON
     traverse pour cette famille, d'ou le gate `is_attack_damage_op` du port.
   - `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`

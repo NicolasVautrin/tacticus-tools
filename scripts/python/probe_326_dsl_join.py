@@ -270,7 +270,7 @@ Chaine de production (trois probes, trois tables machine dans `logs/`) :
 def stale_citations(build, rows, citations_path):
     """Citations du port qui nomment une primitive DSL RETIREE du build courant.
 
-    C'est le pendant « le port a vieilli » de la couverture : un `DSLFactory$$Difference` cite
+    C'est le pendant « le port a vieilli » de la couverture : un `IdunBattleLogic.Entities.DSLFormulas$$Difference` cite
     dans une docstring alors que le symbole n'existe plus se relit comme une verite, et un grep
     code <-> table ne rend rien.
 
@@ -488,7 +488,7 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
         L += ["", "Re-derive le 2026-07-31 : **aucun de ces %d n'est un nom invente** -- ce sont"
               % len(sans),
               "des slots de la factory (`Caster`, `CasterTile`, `Subject`, `Target`, `TargetTile`,",
-              "cf. `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`), des OPERATEURS",
+              "cf. `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`), des OPERATEURS",
               "(`And`/`TileIntersect` = `TargetsSelector.op_BitwiseAnd`), de l'infrastructure de",
               "port (`Emit`, `OperationResult`, `resolve_unit`) ou des vehicules de collapse",
               "declares comme tels (`FixedTiles`, `UnitSet`). Le compte, lui, doit rester",

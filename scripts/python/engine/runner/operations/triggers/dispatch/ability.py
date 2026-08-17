@@ -49,7 +49,7 @@ def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
     `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` quand les abilities d'une unite
     s'INITIALISENT (creation d'unite : roster de depart ET summon pose en cours de bataille).
 
-    C'est le trigger de base pre-cache `df@0xa8` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared` :
+    C'est le trigger de base pre-cache `df@0xa8` (`IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` :
     `On(0x21) & df@0x128 & OwnerIsActor(owner@0x148, actor@0x158)`), consomme tel quel par toute la
     famille des owner-effects poses a l'init (`LifewardsAddEffectAbility$$CreateTrigger` = `return df@0xa8`)
     et, AVEC un gate supplementaire, par `IdunBattleLogic.Entities.Abilities.Active.Loki.ListenUpMaggotsAbility$$CreateTrigger`
@@ -201,7 +201,7 @@ def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
                                  fire_of_absolution: bool = True) -> list[dict]:
     """Mirror `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`)
     : EVALUE les abilities DÉCLENCHÉES du CASTER pour l'`EventTriggerType` `event`, INLINE dans un behaviour-tree
-    (nœud DSL générique `IdunBattleLogic.Entities.DSLFactory$$EvaluateAbilities`). Callers natifs : NormalAttack
+    (nœud DSL générique `IdunBattleLogic.Entities.DSLBehaviors$$EvaluateAbilities`). Callers natifs : NormalAttack
     `EvaluateAbilities(0x26)` (`ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`) **et
     `EvaluateAbilities(0x4a, immediately: true)`** (`...$$ExecuteNormalAttack`, #521-r7), ArmoriumCherub
     `EvaluateAbilities(0x4a=AttackInAtomicGroup)`, ArmouredMight/TheQuickening (after-move).

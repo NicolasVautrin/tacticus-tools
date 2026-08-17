@@ -47,7 +47,7 @@ def attackable_enemies(unit: TargetsSelector = None,
 
 
 def adjacent_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
-    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(source, mode, mask)` — MIRROR TEXTUEL du
+    """`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(source, mode, mask)` — MIRROR TEXTUEL du
     decompile (la factory native n'alloue AUCUN selecteur dedie, elle COMPOSE) :
 
         AdjacentTiles(source) -> Units(<ces tuiles>, mode, mask) -> op_Subtraction(<ces unites>, source)

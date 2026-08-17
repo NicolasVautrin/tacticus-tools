@@ -103,7 +103,7 @@ class AllUnits(TargetsSelector):
 
 class AllTiles(TargetsSelector):
     """`IdunBattle.Entities.Selectors.AllTilesSelector` — le slot PARTAGE `factory+0x78` que
-    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` alloue (`AllTilesSelector..ctor(uVar2, ctx,
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` alloue (`AllTilesSelector..ctor(uVar2, ctx,
     0, 0)` -> `*(factory + 0x78) = uVar2`) : TOUTES les tuiles du plateau, en domaine ID.
 
     C'est la source des selecteurs board-wide de TUILES ; unique consommateur porte :
@@ -120,7 +120,7 @@ class AllTiles(TargetsSelector):
 
 
 class Children(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Children` = `Entities.Selectors.AllAliveMachinesSelector` (IdunBattle.Entities.Selectors.AllAliveMachinesSelector$$.ctor) SCOPÉ
+    """`IdunBattleLogic.Entities.DSLSelectors$$Children` = `Entities.Selectors.AllAliveMachinesSelector` (IdunBattle.Entities.Selectors.AllAliveMachinesSelector$$.ctor) SCOPÉ
     aux enfants (summons) produits par CE cast (natif `factory+0x148`). Port = l'accumulateur `ctx.children`
     (alimenté par la feuille `SpawnUnit`, `runner/abilities/behaviours.py`). ⚠ Le filtre `AllAlive` est un
     no-op offline pour l'on-appearance de CE cast (les summons survivent à leur apparition). cf.
@@ -130,7 +130,7 @@ class Children(TargetsSelector):
 
 
 class Parent(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Parent(source, mode)` -> `IdunBattle.Entities.Selectors.ParentSelector$$Select` :
+    """`IdunBattleLogic.Entities.DSLSelectors$$Parent(source, mode)` -> `IdunBattle.Entities.Selectors.ParentSelector$$Select` :
     pour CHAQUE entite du selecteur source, `IdunBattle.Entities.UnitExtensions$$GetParent(u, ..., mode)` ;
     les parents non nuls sont accumules dans un `OrderedSet` (donc DEDUPLIQUES, ordre d'apparition).
 
@@ -173,7 +173,7 @@ class ChildrenOf(TargetsSelector):
 
     ⚠ **CE N'EST PAS `Children` (`tiles.py`, plus haut dans ce module), ET LES CONFONDRE EST UNE
     FAUTE SILENCIEUSE.** Deux primitives natives HOMONYMES coexistent :
-      * `IdunBattleLogic.Entities.DSLFactory$$Children` -- SANS argument, `factory+0x148`, =
+      * `IdunBattleLogic.Entities.DSLSelectors$$Children` -- SANS argument, `factory+0x148`, =
         l'accumulateur des summons produits par CE cast. C'est la classe `Children` ci-dessus,
         alimentee par la feuille `SpawnUnit` (`ctx.children`).
       * `IdunBattleLogic.Entities.DSLSelectors$$Children(this, parent)` -- AVEC un argument, qui
@@ -208,7 +208,7 @@ class ChildrenOf(TargetsSelector):
 
 
 class LastUnitAttackedBy(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$LastUnitAttackedBy` = `Entities.Selectors.LastUnitAttackedBySelector`
+    """`IdunBattleLogic.Entities.DSLSelectors$$LastUnitAttackedBy` = `Entities.Selectors.LastUnitAttackedBySelector`
     (IdunBattle.Entities.Selectors.LastUnitAttackedBySelector$$Select) : dernière unité attaquée par `unit`. Port : le dict FRAIS (état POST-attaque, relu par la
     feuille `PerformAIAttack`) de la cible frappée → champ `_last_attacked` de l'unité (None si aucune). Ce
     dict porte `alive`/`hp` COURANTS → `IsAlive(LastUnitAttackedBy(child))` lit l'état vivant APRÈS l'attaque."""

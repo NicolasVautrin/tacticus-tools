@@ -10,7 +10,7 @@
               ChangeStat(caster, CRIT_DAMAGE=10, mode=3=Sub, mag) ) ) )                         # buff crit (retire)
 FINDINGS DECOMPILE (au-dela du verdict RE) :
   - SPLASH `Unobscured(Enemies(SurroundingUnits(target, radius, includeCenter=1)))` : le `includeCenter=1`
-    (IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits -> IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles disk INCLUANT la tuile cible) -> la CIBLE est
+    (IdunBattleLogic.Entities.DSLSelectors$$SurroundingUnits -> IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles disk INCLUANT la tuile cible) -> la CIBLE est
     dans l'ensemble (i2 « 6x ... to the target AND all other enemies surrounding it »). Le MOVE-ring passe
     `includeCenter=0` (exclut la cible). Porte = `Union(Target(), Alive(SurroundingEnemies(TargetTile(), 1)))`.
   - "surrounding radius" = DslContext @+0xc0 = 1 (adjacence, i2 « surrounding hex »), DISTINCT du `range`

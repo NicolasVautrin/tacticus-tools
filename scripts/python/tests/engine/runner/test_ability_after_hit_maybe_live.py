@@ -15,7 +15,7 @@ RE (decompile = verite, gqfc5mff6c) -- la chaine LUE, appelant par appelant :
     `ExecuteHit` et fait `+0x30 += 1` apres CHAQUE coup (mirror inline
     d'`IdunBattle.Operations.ADamageOperation$$UpdateCurrentAttackAfterHit`), exactement comme
     `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`.
-  * il DEMARRE A 0 par CIBLE : `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` et
+  * il DEMARRE A 0 par CIBLE : `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` et
     `$$AttackWithAbilityDamage` finissent tous deux par
     `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, targets, <behaviour>, options)`,
     et `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` emet

@@ -19,7 +19,7 @@ chance` au niveau PASSIF de Morvenn, 40-60% selon niveau) est assertee separemen
 
 On confronte le LIVE via l'etat seede (`load_state` de la bataille reelle : team/faction/kit/niveaux) puis
 on rejoue le behaviour MOTEUR (comme `test_act_of_faith_ability_reset_live`). Le behaviour est PUR stat-mod
-(pas de board requis). VA: IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour (behaviour), IdunBattleLogic.Entities.DSLFactory$$ConfigVar (ConfigVar), IdunBattleLogic.Entities.DSLFactory$$UnitNormalAttackType (UnitNormalAttackType).
+(pas de board requis). VA: IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour (behaviour), IdunBattleLogic.Entities.DSLFormulas$$ConfigVar (ConfigVar), IdunBattleLogic.Entities.DSLSelectors$$UnitNormalAttackType (UnitNormalAttackType).
 """
 from __future__ import annotations
 

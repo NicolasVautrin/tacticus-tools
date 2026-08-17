@@ -226,7 +226,7 @@ def run_case(sid, case: str, seed: int):
 
 
 def _offline_storm_per_hit(dec1, ob1, snap1, bg, s_cast, cid, eid):
-    """Rejoue l'arbre Stormcaller (famille ABILITY IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage) -> {target_id: per_hit}."""
+    """Rejoue l'arbre Stormcaller (famille ABILITY IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage) -> {target_id: per_hit}."""
     from engine.runner.abilities.loki.stormcaller import stormcaller_tree
     st = load_state(dec1, ob1, snap1)
     st.board = Board(bg["tiles"], adjacency="native_sym")

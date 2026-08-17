@@ -269,7 +269,7 @@ def test_squig_launchas_two_orks_summons_squig(host, live_session):
         "owner live != owner offline"
     assert lv["hp"] == off_hc.hp, f"hp live {lv['hp']} != offline {off_hc.hp}"
     # Le port pose l'id de CONFIG (`unitId`), le live rend l'id VISUEL (reduction documentee du
-    # noeud `IdunBattleLogic.Entities.DSLFactory$$VisualUnitIdFromUnitId`) -> on accepte les DEUX formes.
+    # noeud `IdunBattleLogic.Entities.DSLFormulas$$VisualUnitIdFromUnitId`) -> on accepte les DEUX formes.
     import gameconfig as GC
     uid = ((GC.ability("SquigLaunchas") or {}).get("constants") or {}).get("unitId")
     forms = {uid, (GC.unit(uid) or {}).get("visualId")}
@@ -585,7 +585,7 @@ def test_entropy_cannons_requires_contagion_aura_then_damages(host, live_session
         print(f"\n[ENTROPY] apres Typhus adjacent -> cibles {[t.get('targetId') for t in tg]}")
         assert any(t.get("targetId") == enemy["squadId"] for t in tg), \
             ("predicat de ciblage NON monte : l'ennemi adjacent a un porteur d'aura Contagion "
-             "alliee devrait etre legal (IdunBattleLogic.Entities.DSLFactory$$IsInTeamContagionsOfNurgleAura)")
+             "alliee devrait etre legal (IdunBattleLogic.Entities.DSLTriggers$$IsInTeamContagionsOfNurgleAura)")
 
         state, _board, _dec, ob0, _bg = _load(rpc, rid)
         off_before, live_before = _off_hp(state), _live_hp(ob0)

@@ -17,7 +17,7 @@ Le probe execute les TROIS scenarios et compare (A et B = revive, C = overkill b
 
 Chaine native prouvee : `Narthecium_ReviveEffect` (IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter) sur la base
 `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` + `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour`
--> `IdunBattleLogic.Entities.DSLFactory$$Revive` -> `IdunBattle.Operations.ReviveUnitOperation$$Execute`.
+-> `IdunBattleLogic.Entities.DSLBehaviors$$Revive` -> `IdunBattle.Operations.ReviveUnitOperation$$Execute`.
 
 Usage : python probe_79_narthecium_live.py   (ASCII only)
 """

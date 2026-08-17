@@ -148,7 +148,7 @@ class AddEffectOperation:
         `name` = nom d'EffectType (`decisionView.effects[].name`) pour l'enregistrement diffable ;
         `duration_override`/`value` = paramètres du builder du vecteur appelant (param_6 natif).
         `level` = niveau de STACK initial (`EffectComponent.Level @+0x68`) — posé par le seul vecteur
-        `IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` (branche AddEffect de son lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0`, qui passe
+        `IdunBattleLogic.Entities.DSLBehaviors$$AddEffectOrIncreaseLevel` (branche AddEffect de son lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0`, qui passe
         l'INCRÉMENT comme niveau de la 1re pose) ; None = niveau non porté (tous les autres vecteurs).
         `ability_level`/`active_ability_level`/`multiplier_pct` = paramètres de SCALING de l'effet
         matérialisé (§17.21 — l'équivalent de ce que `EffectsState.seed` fournit aux effets CAPTÉS) : sans

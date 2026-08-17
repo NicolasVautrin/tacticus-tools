@@ -14,7 +14,7 @@ Deux PRIMITIVES partagees, chacune avec son porteur :
     AVANT le pas) n'est pas chargee, donc c'est la branche NON-CHARGE qui tourne.
 
   * **`force_crit`** = l'octet **+5** du `Nullable<AttackOptions>` (8e argument de
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` ; le meme struct dont l'octet +4
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` ; le meme struct dont l'octet +4
     porte `force_overkill` de FlailSwing, ce qui CALE le mapping).
     `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` SAUTE alors `RollCritical` : le coup
     est critique SANS tirage, **meme a `CouldCrit` faux** (Titus a `CritChance = 0`).

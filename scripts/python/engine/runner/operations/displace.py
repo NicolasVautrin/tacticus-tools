@@ -55,7 +55,7 @@ distance (n'atteint pas FindTileToPush) -> le "push MULTI-hex slice-21b" est REF
 d'elevation au push REUSSI (branche `GetElevationDifference(dest, from) >= seuil-nullable(param_5)`
 d'Execute -> ApplyKnockbackTo ; seuil du behaviour PushUnit non RE'd), absorption par allie, arc arriere
 non-degenere (pousseur NON adjacent -> random-pick d'une tuile de l'arc distance-1 ; sans objet pour
-PushUnit melee, toujours axis-aligne). La feuille `PushUnit` (IdunBattleLogic.Entities.DSLFactory$$PushUnit ->
+PushUnit melee, toujours axis-aligne). La feuille `PushUnit` (IdunBattleLogic.Entities.DSLBehaviors$$PushUnit ->
 DisplaceUnitBehaviour IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$Execute) emet 1 DisplaceUnitOperation par unite poussee.
 """
 from __future__ import annotations
@@ -91,7 +91,7 @@ from .damage import AttackDamageOperation
 #    ⚠ `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPull` n'existe PAS sur ce build -- seul
 #    `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPullOnce` subsiste. => la destination est TOUJOURS a 1 hex.
 #  - Le champ +0x84=2 de `DisplaceUnitBehaviour` (pose par `.IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$.ctor` 9e arg via
-#    `IdunBattleLogic.Entities.DSLFactory$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce n'est
+#    `IdunBattleLogic.Entities.DSLBehaviors$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce n'est
 #    PAS la distance de push (c'est un parametre de la couche DSL du behaviour, hors selection de tuile).
 #    La seule source list >1 hex, `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind` (ligne, maxCount Nullable), sert aux AoE
 #    ligne/cone (`GetTilesBetweenInLine`/`GetTilesInConeShape`), PAS au push.

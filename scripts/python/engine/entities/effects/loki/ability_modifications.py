@@ -38,7 +38,7 @@ class ListenUpMaggotsEffect(BaseEffect):
     parent (Creed). C'est la subtilite du kit — le buff n'est pas sur le porteur.
 
     `CreateActiveCondition` = `df@0x98` (la condition de base pre-cachee du `DSLFactory`, cf.
-    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`) : AUCUNE condition propre -> l'effet est
+    `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`) : AUCUNE condition propre -> l'effet est
     actif tant qu'il existe. Son cycle de vie EST celui de Kell (l'effet disparait avec son porteur).
 
     `ApplyInternal(target)` (ordre du decompile, les DEUX appels vont a

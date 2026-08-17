@@ -15,7 +15,7 @@ natifs, lus un par un au decompile :
   * `PileInAbility$$CreateBehaviour` :
         First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))),
               If(HasTrait(@0x180, 0x1b), Direct(0), Direct(1)), ascending=false), 1)
-    -> `DSLFactory$$Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` = MELANGE COMPLET :
+    -> `IdunBattleLogic.Entities.DSLSelectors$$Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` = MELANGE COMPLET :
        **`len(pool)` tirages**, bornes DECROISSANTES (loi #130).
 
 MESURE DIRECTE, PAS UN FIT : on compte le nombre EXACT de `genrand_int32` consommes LIVE par une

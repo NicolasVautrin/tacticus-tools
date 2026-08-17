@@ -1,6 +1,6 @@
 """ArcaneShield (thousSorcerer/Thaumachus) — behaviour MIGRE en arbre DSL (#149 slice-23), confronte LIVE.
 
-Valide la feuille NEUVE `CreateShield` (`IdunBattleLogic.Entities.DSLFactory$$CreateShield` -> `IdunBattle.Entities.Behaviours.CreateShieldBehaviour$$Execute`) + la migration de `_arcaneshield_grant` en `CreateShield(Target(), ConfigVar(0x27=shieldHp),
+Valide la feuille NEUVE `CreateShield` (`IdunBattleLogic.Entities.DSLBehaviors$$CreateShield` -> `IdunBattle.Entities.Behaviours.CreateShieldBehaviour$$Execute`) + la migration de `_arcaneshield_grant` en `CreateShield(Target(), ConfigVar(0x27=shieldHp),
 self.Id, TurnsFromRounds(1))`. L'arbre natif (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour`) accorde un
 bouclier 1 round a l'ami prefere (SurroundingFriends sans trait 0x1b, priorite faction > distance > pas-soi)
 sinon soi. Le selecteur AI-target LOURD (S) reste imperatif (`_arcaneshield_target`) COLLAPSE en `Target()`,

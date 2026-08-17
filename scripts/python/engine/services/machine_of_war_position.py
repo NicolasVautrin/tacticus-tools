@@ -2,7 +2,7 @@
 
 Pourquoi ce module existe (RE #302 tranche 3, mesuree le 2026-07-30)
 --------------------------------------------------------------------
-Le predicat `IdunBattleLogic.Entities.DSLFactory$$IsPositionMachineForCurrentPlayer` ->
+Le predicat `IdunBattleLogic.Entities.DSLTriggers$$IsPositionMachineForCurrentPlayer` ->
 `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger` :
 
     turn   = state.GetMatchTurn()

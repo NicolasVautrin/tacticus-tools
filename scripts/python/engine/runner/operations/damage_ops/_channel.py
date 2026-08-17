@@ -32,7 +32,7 @@ def hits_channel_is_melee(state: State, attacker_id: int, target_id: int,
         (>3 -> NotImplementedException : la table est exhaustive)
 
     -> la nature du coup est **DECLAREE par l'ability**, sauf pour la seule valeur `Normal`. C'est le
-    MEME predicat que celui des triggers d'effet (`DSLFactory$$IsMeleeAttack`/`$$IsRangedAttack`), donc
+    MEME predicat que celui des triggers d'effet (`IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack`/`$$IsRangedAttack`), donc
     le meme resultat alimente le terme `ExtraHitsMelee` de la base ET les gates des effets — un seul
     point de calcul, comme le natif.
 

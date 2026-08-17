@@ -32,7 +32,7 @@ UNE FAUSSE ATTRIBUTION EVITEE, ET ELLE AURAIT ETE SILENCIEUSE. `entities/trigger
 `ctx.attack_ability_type == 1013`, et `1013` EST un membre valide d'`ActiveAbilityType`
 (`PrecisionShot_Attack`). L'y convertir aurait « resolu » sans rien casser -- et aurait ecrit le
 mauvais concept : le decompile nomme ce littéral `AbilityOrEffect 0x3f5`, argument du
-`DirectAbilitySelector` de la 2e branche d'`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`,
+`DirectAbilitySelector` de la 2e branche d'`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`,
 c'est-a-dire un marqueur de KIND. Le build ne publie aucun enum `AbilityOrEffect` ; le foyer nomme
 du depot est `runner/abilities/attack_type.NORMAL_ATTACK_KIND`. L'etage 6 mesure que la confusion
 aurait ete muette.

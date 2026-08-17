@@ -2,7 +2,7 @@
 """Probe #67b -- ORDRE `part bouclier` x `limites de degat` sur la voie ABILITY (residu case-67 SS5).
 
 ARTEFACT NATIF confronte : `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`
-(famille ABILITY = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` ->
+(famille ABILITY = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` ->
 `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) :
 
     dmg        = Math.Max(param_2, 0)
@@ -24,7 +24,7 @@ MONTAGE (confrontabilite, cf. case-67b) :
               ENNEMIE est accepte par `applyAction` hors de son tour (case-67 SS2.5) -> pose A LA DEMANDE,
               sans `endturn` intercalaire (donc sans decay `RemoveOneTurnOnShields`).
   - attaque : `tyranNeurothrope` / `SpiritLeech` (1104) -- famille ABILITY (`native_factory="ability"`,
-              XREF `SpiritLeechAbility$$ExecuteBehaviour` -> `DSLFactory$$AttackWithAbilityDamage`),
+              XREF `SpiritLeechAbility$$ExecuteBehaviour` -> `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`),
               RANGED range 3, `nrOfHits`=1, profil `Psychic` (PiercingRatio 100, `NoBlocking` -> aucun
               tirage de block, aucune armure residuelle : le coup isole l'etage conteste).
 

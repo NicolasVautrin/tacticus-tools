@@ -57,7 +57,7 @@ def test_l_instance_d_effet_porte_le_champ_bonded():
 
 
 def test_la_feuille_add_bond_effect_a_son_5e_argument():
-    """`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect(effectType, abilityState, source, targets,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect(effectType, abilityState, source, targets,
     **bondedEntity**, options)` : le 5e argument est un SELECTEUR, resolu a l'execution par
     `AddEffectBehaviour$$GetEffectBuilder`. La feuille portee doit l'exposer."""
     from engine.runner.abilities.behaviours.effects import AddBondEffect

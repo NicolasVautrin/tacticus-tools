@@ -1,10 +1,10 @@
-"""MINDIST -- `IdunBattleLogic.Entities.DSLFactory$$MinDistance` mesure une distance **HEX**, pas un
+"""MINDIST -- `IdunBattleLogic.Entities.DSLFormulas$$MinDistance` mesure une distance **HEX**, pas un
 chemin, et surement pas un Chebyshev sur coordonnees offset. Garde LIVE discriminante sur CETTE
 METRIQUE seule.
 
 RE (decompile = verite, gqfc5mff6c) -- la chaine LUE, appelant par appelant :
 
-  * `IdunBattleLogic.Entities.DSLFactory$$MinDistance(ctx, selA, selB)` construit une instance de la
+  * `IdunBattleLogic.Entities.DSLFormulas$$MinDistance(ctx, selA, selB)` construit une instance de la
     classe `DAT_18324e3c0` en lui passant les DEUX selecteurs. L'ANCRE fiable est le singleton de
     classe, PAS le nom du ctor (ghidra le folde/mislabelle en
     `HasUsedActiveAbilityThisTurnTrigger___ctor` -- meme piege que le comparateur du case #48).

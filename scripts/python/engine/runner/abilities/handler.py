@@ -637,7 +637,7 @@ class AbilityHandler:
         target = la cible du cast.
         `ability_type` = `df@0x130` (l'ability declenchante), lu par les gates `IsNormalAttack` /
         `AbilityHasAttackType` des consommateurs (cf. `abilities/attack_type.py`). `ranged` =
-        `DSLFactory$$IsRangedAttack` (position-based, `_is_ranged_position`) — False si la cible est
+        `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack` (position-based, `_is_ranged_position`) — False si la cible est
         une TUILE ou si les positions manquent, comme partout ailleurs dans le port."""
         # Forme MODULE : l'attribut est relu a l'appel, donc une substitution posee sur
         # `dispatch.ability` mord quelle que soit la forme finale de cet import. Ce differe-ci
@@ -682,7 +682,7 @@ class AbilityHandler:
             ability_type=int(msg.ability_type))
 
     def _ranged(self, msg) -> bool:
-        """`IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` = adjacence caster/cible (mirror
+        """`IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack` = adjacence caster/cible (mirror
         `_is_ranged_position`). Cible-TUILE / entite absente -> False (melee, le defaut conservateur
         deja retenu par le helper)."""
         if msg.target_id is None:

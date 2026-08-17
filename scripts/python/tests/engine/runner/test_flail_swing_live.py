@@ -7,8 +7,8 @@
                                GetDamageProfile=Power, nrOfHits=GetNumberConstant(0x2f),
                                alwaysOverkilled=Nullable(true)) ) )
 plain `Execute` (PAS `ExecuteAtomic` -- l'op_BitwiseAnd est passe DIRECTEMENT a `AActiveAbility.Execute`).
-`native_factory="attack"` (la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour = symbole `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`,
-JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`) = 2 tirages/coup a cc=0 (tip #2 / rngcrit-1202). PAS de splash,
+`native_factory="attack"` (la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour = symbole `DSLFactory$$IdunBattleLogic.IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`,
+JAMAIS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`) = 2 tirages/coup a cc=0 (tip #2 / rngcrit-1202). PAS de splash,
 PAS de move/gate, PAS de trigger interne (le declenchement `HazeOfCorruption` = passif SEPARE, hors scope).
 
 Ce que ces tests PROUVENT (drive les positions -- `applyAction move` ignore portee/propriete ; `--hp-target`
@@ -104,7 +104,7 @@ def _cfg_hits(key: str = "nrOfHits") -> int:
     """ORACLE du nb de coups = la CONSTANTE de config de FlailSwing, PAS un litteral.
     `IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour` passe
     `hits = IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` a
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
     l'oracle est `gameconfig.ability("FlailSwing").constants[<key>]`."""
     c = (GC.ability("FlailSwing") or {}).get("constants") or {}
     v = c.get(key)

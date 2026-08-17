@@ -11,7 +11,7 @@ NATIF (chaine mesuree, decompile = verite) :
       -> `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetDynamicInvalidTargetReason`
          = `Count( GetPossibleMovementTiles(target) ) > 0`, ou
            `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles` =
-           `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster, casterTile, target,
+           `IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, casterTile, target,
               UnitMovementRangeWithBonus(caster, 1099, Direct(extraMovement)), canReachOnly=0)`
          => cible LEGALE ssi il existe une tuile LIBRE adjacente a la cible, atteignable par le
             caster en (MOVEMENT + extraMovement) pas. Sinon `ExecuteInternal` rend 0 AVANT le

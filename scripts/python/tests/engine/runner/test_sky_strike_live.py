@@ -16,9 +16,9 @@ FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
   - dest = `CanAddUnit(AdjacentTiles(target))` SANS `MovableTilesInRange` (contraste VigilanceEternal
     `GetPossibleMovementTiles`) -> AUCUNE limite de portee (Celestine vole). Collapse = tuile libre ring-1 de
     la cible la PLUS PROCHE du caster.
-  - ATTACK = overload `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE list_xrefs : call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382 ; ABSENT
-    de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage) = MEME AttackDamageBehaviour, famille "attack". Node de degat = `Sum(
-    NormalAttackDamage(caster), Direct(extraDmg))` ou `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage`
+  - ATTACK = overload `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (VERIFIE list_xrefs : call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382 ; ABSENT
+    de IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage) = MEME AttackDamageBehaviour, famille "attack". Node de degat = `Sum(
+    NormalAttackDamage(caster), Direct(extraDmg))` ou `IdunBattleLogic.Entities.DSLFormulas$$NormalAttackDamage`
     est LA MEME factory que celle de l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.
     ALoki_NormalAttackAbility$$AttackAmount`, xrefs verifiees). **#226-r : LE COUP PORTE LE SPREAD +-20 %.**
     Le 8e argument natif (`Nullable<AttackDamageBehaviourOptions>`) est construit avec l'OCTET **+6 = 1**
@@ -522,7 +522,7 @@ def test_skystrike_cast_live(rpc):
 
     #226-r : la divergence « coups live INEGAUX vs port PLAT » est TRANCHEE. Le noeud
     `Sum(NormalAttackDamage(caster), Direct(extraDmg))` n'est pas degenere du point de vue du PIPELINE :
-    le 8e argument natif d'`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` pose l'OCTET +6
+    le 8e argument natif d'`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` pose l'OCTET +6
     du `Nullable<AttackDamageBehaviourOptions>` a **1** -- le meme octet que
     `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`
     renseigne depuis un getter de l'ability pour l'attaque NORMALE (drapeau « calcul de degat d'ARME ») ;

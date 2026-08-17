@@ -112,7 +112,7 @@ def bringer_of_despair_tree() -> AtomicGroup:
       `state.rng`). Evalue A L'EXECUTION du volet bonus = APRES les coups MAIN (op_BitwiseAnd = main puis bonus)
       -> l'ordre de conso `state.rng` (8 tirages main a cc=0, puis le pick, puis 8 tirages bonus) mirror le natif.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : les DEUX volets appellent
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE par les CALLEES de IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour, PAS au nom du
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (VERIFIE par les CALLEES de IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour, PAS au nom du
       commentaire — cf. rngcrit-1202/tip #2), famille attack, JAMAIS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`.
 
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
@@ -579,7 +579,7 @@ def daemonic_ordnance_tree(target_sel, extra_crit_dmg: int, extra_crit_chance: i
 
     - le buff/debuff ENCADRE l'attaque (meme patron NET-NUL que HeroicFusillade) : la feuille `ChangeStat`
       `mode="add"` puis `mode="revert"` sur la MEME cle de source -> revert EXACT par-source.
-    - l'attaque route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK :
+    - l'attaque route `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille ATTACK :
       crit/block, 2 tirages/coup) -> `native_factory="attack"` (DEFAUT) -- c'est justement pourquoi le
       bonus de CriticalDamage est encadre.
     - `Fire` (5) : options natives ZERO -> `DefaultAmountOfRounds(5) = 2` rounds, converti DANS
@@ -757,7 +757,7 @@ def frenzied_firing_tree(n_hits: int, max_hits: int) -> AtomicGroup:
       (occupation de tuile), que `_within` mirrore.
     - profil `HeavyRound` (`GetDamageProfile` config), `attackRangeType=Ranged` -> `is_melee=False` sur
       les DEUX volets ; `native_factory="attack"` (defaut) = la factory VERIFIEE au decompile
-      (`DSLFactory$$AttackWithAttackDamage`, 2 tirages/coup a cc=0), JAMAIS `AttackWithAbilityDamage`.
+      (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, 2 tirages/coup a cc=0), JAMAIS `AttackWithAbilityDamage`.
     - `ability_type=1036` (`AbilityOrEffect(this+0x10)`) threade sur les deux feuilles (payload after-hit).
     - ordre = ORIGINE puis AoE (`op_Addition` gauche->droite, cibles AoE triees par id = `OrderBy` natif)
       -> meme sequence `state.rng` que le natif ; `AtomicGroup` (tag 0x4e) inline (#201)."""
@@ -906,7 +906,7 @@ def drachnyen_tree(hp_amount: int):
     - `AddEffect(..., duration_rounds=None)` = les options natives ZERO (aucun `TurnsFromRounds`) ->
       `DefaultAmountOfRounds` ; live : `remaining=0` (permanent, « for the rest of the battle »).
       La cible de l'effet est `Owner@0x148` = Abaddon lui-meme (overload 5-args de
-      `IdunBattleLogic.Entities.DSLFactory$$AddEffect` : le selecteur SOURCE est null -> `AddEffectBehaviour
+      `IdunBattleLogic.Entities.DSLBehaviors$$AddEffect` : le selecteur SOURCE est null -> `AddEffectBehaviour
       $$Execute` retombe sur la cible, `lVar14 = lVar7; if (lVar8 != 0) lVar14 = lVar8;`).
     - `UseActiveAbility(Caster(), Target())` = la feuille deja portee, specialisee au dispatch d'ATTAQUE
       NORMALE (`UnitNormalAttackType(Caster)` -> `AttackDamageOperation.execute`, resolveur d'arme par
@@ -1037,7 +1037,7 @@ def herald_of_the_apocalypse_targets():
                                 op_Subtraction Target() )
 
     `First(SortByDistance(Tiles(Target), CasterTile), 1)` est un `First` sur un SINGLETON (la cible n'a
-    qu'une MainTile) -> IDENTITE ; on le mirror quand meme (`PickFirstN(..., 1)` = `DSLFactory$$First`
+    qu'une MainTile) -> IDENTITE ; on le mirror quand meme (`PickFirstN(..., 1)` = `IdunBattleLogic.Entities.DSLSelectors$$First`
     avec noeud-montant, cf. la classe) plutot que de le collapser silencieusement.
 
     `TilesBehindInLine(from=CasterTile, to=<tuile cible>, maxCount=2)` rend `[tuileCible, tuileDerriere]`
@@ -1062,7 +1062,7 @@ def herald_of_the_apocalypse_tree(range_: int):
                          TriggerAbility(BattleFatigue -> ennemis du disque rayon `range` autour de la cible) )
 
     - **native_factory = "attack"** (defaut) : le decompile appelle bien
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE sur les callees de
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (VERIFIE sur les callees de
       l'`ExecuteBehaviour`, pas au nom) -> famille ATTACK, crit/block, 2 tirages/coup a cc=0.
     - `multi=True` : le selecteur resout 1 ou 2 cibles -> `IdunBattle.Entities.Behaviours.AttackBehaviour
       $$Execute` attaque CHACUNE (`OrderBy` par-entite quand count > 1 ; port = tri par id, convention

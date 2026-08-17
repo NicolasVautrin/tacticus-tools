@@ -21,11 +21,11 @@ from ... import battle_query as _bq
 
 
 def min_distance(a, b) -> int:
-    """`IdunBattleLogic.Entities.DSLFactory$$MinDistance` restreint au cas UNE entite <-> UNE entite
+    """`IdunBattleLogic.Entities.DSLFormulas$$MinDistance` restreint au cas UNE entite <-> UNE entite
     (la forme qu'en prend le trigger `GetStuckIn`). **Distance HEX, PAS un pathfinding** — chaine LUE
     au decompile, appelant par appelant :
 
-        DSLFactory$$MinDistance(ctx, selA, selB)  construit `IdunBattle.Entities.Formulas.MinDistanceFormula`
+        IdunBattleLogic.Entities.DSLFormulas$$MinDistance(ctx, selA, selB)  construit `IdunBattle.Entities.Formulas.MinDistanceFormula`
         `MinDistanceFormula$$Calculate` : `Min` sur TOUTES les paires (a de selA, b de selB) de
             `IdunBattle.Entities.Components.PositionComponent$$Distance(pb, pa)`
         `PositionComponent$$Distance` : `IdunBattle.Utils.Hex.AxialCoordinate$$ToCubeCoordinate` sur

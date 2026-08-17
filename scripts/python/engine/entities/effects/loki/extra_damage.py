@@ -435,9 +435,9 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
                                               att_ctx=None) -> EffectBonus | None:
         if is_ranged:                       # get_IsMelee (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) -> melee uniquement
             return None
-        if is_normal_attack is False:       # IsNormalAttack (IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack)
+        if is_normal_attack is False:       # IsNormalAttack (IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack)
             return None
-        if is_not_charging(att_ctx):        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging)
+        if is_not_charging(att_ctx):        # IsCharging (IdunBattleLogic.Entities.DSLTriggers$$IsCharging -> BattleQuery$$IsCharging)
             return None
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
@@ -467,7 +467,7 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
       active_ability_level -> ability_level -> level, comme FeederTendrils). Multiplier = le GLOBAL de l'unite
       (`self.ability_variables_multiplier`) : AvalancheOfMuscle est un PASSIF (pas une triggered) -> a VALIDER
       live que le multiplier global est le bon (piege #68/#75 per-ability vs global).
-    - GATE `IsCharging` (case-r32, RETROFIT) : `IdunBattleLogic.Entities.DSLFactory$$IsCharging(caster@0x160,
+    - GATE `IsCharging` (case-r32, RETROFIT) : `IdunBattleLogic.Entities.DSLTriggers$$IsCharging(caster@0x160,
       target@0x178)` resout le slot `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` =
       `AreEntitiesAdjacent(caster, target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`,
       liste alimentee par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` (unites devenues
@@ -491,7 +491,7 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
                                               att_ctx=None) -> EffectBonus | None:
         if is_ranged:                       # melee-only (astraBullgryn ; calque FeederTendrils)
             return None
-        if is_not_charging(att_ctx):        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging)
+        if is_not_charging(att_ctx):        # IsCharging (IdunBattleLogic.Entities.DSLTriggers$$IsCharging -> BattleQuery$$IsCharging)
             return None
         # PAS de gate is_normal_attack : IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack n'a AUCUN noeud IsNormalAttack (RE decompile).
         lvl = (self.active_ability_level if self.active_ability_level is not None
@@ -919,7 +919,7 @@ class CondemnorStakeExtraDmgEffect(BaseEffect):
     AvalancheOfMuscle/SmashaEad IdunBattle.Entities.Effects.EffectBonus$$ForAddition) -> canal ADDITIF identique (IdunBattle.Core.Services.DamageModifiers$$Add,
     applique par coup, canal `attacker_additive_pre`).
 
-    - `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsActor` (owner@0x148 vs actor@0x158) vs `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsCaster`
+    - `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsActor` (owner@0x148 vs actor@0x158) vs `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster`
       (owner@0x148 vs caster@0x160) : trigger d'identite "l'owner est l'acteur/le caster". Ce chemin
       `CreateEffectDamageBonusForAttack` n'est appele QUE pour l'attaque du PORTEUR -> OwnerIsActor est
       implicitement TRUE (== traitement OwnerIsCaster/OwnerIsActor de DecoysAndMisdirection/SpotterReworked).
@@ -1090,7 +1090,7 @@ class FuelledByFuryExtraDamageEffect(BaseEffect):
       + `$$CreateBehaviour`). Le niveau abouti arrive TEL QUEL dans `decisionView.effects[].level`
       (comme BeaconOfRage / TerrifyingCrescendo) -> on lit `self.level` sans re-calcul offline.
       AUCUN cap : `IncreaseEffectLevel(Owner@0x148, 0x52b, amount=NULL, max=NULL)` -- l'amount NULL
-      retombe sur `df@0xc0 = Const(1)` (`IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel`) et
+      retombe sur `df@0xc0 = Const(1)` (`IdunBattleLogic.Entities.DSLBehaviors$$IncreaseEffectLevel`) et
       le `max` NULL desactive le clamp d'`IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute`.
     - niveau/level inconnu -> inerte (degradation fidele, meme regle que ses deux jumeaux).
 
@@ -1290,7 +1290,7 @@ class SpecialIssueCombiMeltaExtraDmgEffect(BaseEffect):
 
 
 # Traits CIBLE qualifiant `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` :
-# TROIS noeuds `DSLFactory$$HasTrait(factory, factory+0x178 = target, X)` fusionnes par
+# TROIS noeuds `IdunBattleLogic.Entities.DSLTriggers$$HasTrait(factory, factory+0x178 = target, X)` fusionnes par
 # `IdunBattle.DSL.AbilityTrigger$$op_BitwiseOr`. `IdunBattle.Entities.Enum.UnitTrait` (dump enums
 # gqfc5mff6c) : 5 = Mechanical, 0x3f5 = 1013 MkXGravis, 0x40f = 1039 TerminatorArmour. MEME triple que
 # `GravitonRifle_ExtraPierce` (loki/votann.py) -- deux armes anti-blindage du meme moule, sets ecrits

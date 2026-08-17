@@ -8,7 +8,7 @@ LE PIVOT : `UnitComponent + 0xa8` = `Nullable<ReviveData>` (case-89 volet C, RE 
 La feuille DSL `Revive` NE MUTE RIEN. Le sous-systeme est en DEUX TEMPS, articules autour du champ
 `Nullable<ReviveData>` @UnitComponent+0xa8 :
 
-  1. POSE      `IdunBattleLogic.Entities.DSLFactory$$Revive` -> `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` : pour chaque
+  1. POSE      `IdunBattleLogic.Entities.DSLBehaviors$$Revive` -> `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` : pour chaque
                cible du selecteur, `amount = Min(formule, IdunBattle.Entities.Behaviours.ReviveBehaviour$$GetMaxReviveAmount)`, construit la
                `ReviveData` puis, SI `IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive`, ECRIT les 9 qwords
                `unitComponent + 0xa8 .. +0xe8`. AUCUNE mutation de PV/flag/position ici.
@@ -118,7 +118,7 @@ def post_pending_revive(state: State, unit_id: int, amount, heal_type: int = 0,
 
     `revive_position` = le champ `Nullable<UnitPosition>` de la `ReviveData` (#213). Il est renseigne
     par `ReviveBehaviour$$Execute` UNIQUEMENT quand le 7e argument de `IdunBattleLogic.Entities.
-    DSLFactory$$Revive` (`targetsTile`) est NON NUL : le decompile evalue alors ce selecteur
+    IdunBattleLogic.Entities.DSLBehaviors$$Revive` (`targetsTile`) est NON NUL : le decompile evalue alors ce selecteur
     (`FUN_180024d10(10, …, param_2+0x90, entities)`), en prend l'element d'index de la CIBLE COURANTE
     (`IList.get_Item(i)`), le `ToList()` et l'enveloppe dans le `Nullable`. Tous les consommateurs
     portes AVANT #213 passent `targetsTile = 0` -> `None` = revive **IN-PLACE** (c'est le

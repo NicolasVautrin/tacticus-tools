@@ -89,7 +89,7 @@ def doom_siren_pool_selector():
         AdjacentEnemies(Owner@0x148, TargetTiles@0x190, unique=1)   # overload 3-arg
         |> Damageable(.)
 
-    L'overload 3-arg d'`IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(unit, unitTile, unique)` est,
+    L'overload 3-arg d'`IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies(unit, unitTile, unique)` est,
     au decompile, `Enemies(unit, Units(AdjacentTiles(unitTile), unique, 3) - unitTile)` : les unites
     posees sur les tuiles ADJACENTES aux tuiles de la CIBLE (`TargetTiles@0x190`), moins la cible
     elle-meme, filtrees « ennemi de l'OWNER » (= le caster pour un cast d'active). C'est exactement la
@@ -115,7 +115,7 @@ def doom_siren_attack(additional: list) -> AttackWithAttackDamage:
       = `GetNumberConstant(config, 0x2f)` = `nrOfHits` -> `hits_key="nrOfHits"` (defaut).
     - `attackRangeType = Melee` (gameconfig 1199) -> `is_melee=True`.
     - `native_factory="attack"` (defaut) : l'ExecuteBehaviour appelle
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (overload
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (overload
       `damageProfile:Nullable<DamageProfileType>, hits:System.Int32`), PAS `AttackWithAbilityDamage`
       -> 2 tirages/coup a cc=0 (rngcrit-1202).
 

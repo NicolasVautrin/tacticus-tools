@@ -35,7 +35,7 @@ Physical (pierce 1). Config 1131 : nrOfHits=4, hpPct=25 (constantes) ; minDmg/ma
 - MAIN = `AttackWithAttackDamage(Target(), ...)` (@0x178). AOE = MEME attaque (memes bornes minDmg/maxDmg,
   memes hits, meme profil : une seule config de degat) sur `aoeSel` (`multi=True`, tri par id = ordre de
   lecture natif). `native_factory="attack"` : l'`ExecuteBehaviour`/`GetAttackBehaviour` appelle
-  `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (XREF callees), PAS `AttackWithAbilityDamage` -> famille
+  `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (XREF callees), PAS `AttackWithAbilityDamage` -> famille
   ATTACK (2 tirages/coup a cc=0). Multi-coups (hits=4) -> classification factory OBLIGATOIRE (tip#2) :
   "attack". Profil Physical (pierce 1). `hits=4` lu de la config (nrOfHits, chemin par defaut).
 - `ExecuteAtomic(op_and(main, aoe), 0x2a)` -> `AtomicGroup(op_and(main, aoe))` (inline #201 ; tag 0x2a = id
@@ -91,7 +91,7 @@ i2 : « Deals 1x [dmg] Piercing Damage to all adjacent enemies. If only one enem
   (`entities.units` = vues LIVE-by-ref, cf. `entities_from_state`).
 - la CIBLE DU MESSAGE n'a AUCUN role dans l'arbre : le set est `AdjacentEnemies(caster)`, self-centre.
   Elle ne sert qu'au GATE de ciblage (`RANGE_ADJACENT` + `TargetIsEnemy`).
-- `native_factory="attack"` : l'`ExecuteBehaviour` appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+- `native_factory="attack"` : l'`ExecuteBehaviour` appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
   (famille ATTACK -> `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, 2 tirages/coup a cc=0),
   CLASSE PAR LE DECOMPILE.
 - confonds du PORTEUR, hors perimetre de ce port : `RapidAssault` (effet 1229, +25% sans gate) est porte
@@ -223,7 +223,7 @@ def jakhal_stimms_tree() -> AtomicGroup:
 
     MAIN = attaque MELEE 4x Physical (pierce 1) sur la cible du message (`hits=4` de la config nrOfHits, chemin
     par defaut). AOE = MEME attaque (memes bornes/hits/profil) sur les ennemis du caster adjacents a la fois au
-    caster ET a la cible (`And` = intersection ; caster/cible exclus). `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage,
+    caster ET a la cible (`And` = intersection ; caster/cible exclus). `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage,
     XREF ; 2 tirages/coup a cc=0). `multi=True` folde le selecteur multi-cible (tri par id = ordre natif).
     `ExecuteAtomic(., 0x2a)` -> `AtomicGroup`. Ordre main PUIS aoe -> meme `state.rng` -> bit-exact."""
     ability_type = int(ActiveAbilityType.JakhalStimms)              # AbilityOrEffect(this+0x10) threade after-hit
@@ -244,7 +244,7 @@ class JakhalStimmsAbility(ActiveAbility):
     (does not end turn, cable via base.py). Le behaviour = l'arbre DSL (`jakhal_stimms_tree`) : les feuilles
     `AttackWithAttackDamage` (mode bornes, hits=config nrOfHits) emettent la MEME Operation d'attaque d'ability
     que le pipeline combat porte -> bit-exact BY CONSTRUCTION vs une sequence directe sous meme rng.
-    `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF). Passif Skullsmasher + trait BlessingsOfKhorne (extra dmg)
+    `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, XREF). Passif Skullsmasher + trait BlessingsOfKhorne (extra dmg)
     NON portes = items separes -> valider sur un Macer PLEINE VIE (gate OFF, canal bit-exact propre)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.JakhalStimms)   # 1131
@@ -309,7 +309,7 @@ def murderous_swing_targets() -> AdjacentEnemies:
     `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$ExecuteBehaviour`, et AUSSI la
     source du `Count` du noeud de degat (le natif reutilise LE MEME noeud pour les deux).
 
-    Overload natif `IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(df, ref, ...)` =
+    Overload natif `IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies(df, ref, ...)` =
     `Enemies(ref, Units(AdjacentTiles(ref)) - ref)` : ennemis-du-caster sur son ring 1, caster exclu.
     Cote port c'est `AdjacentEnemies(CasterTile())` (radius 1 par defaut), qui filtre `team != caster`
     et dont `_within` exclut deja les cadavres (mirror `Units(tiles)` = DEBOUT)."""

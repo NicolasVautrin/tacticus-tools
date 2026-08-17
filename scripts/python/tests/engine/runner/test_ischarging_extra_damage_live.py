@@ -11,7 +11,7 @@ devenues **NOUVELLEMENT adjacentes** pendant le pas. Le proxy est donc stricteme
 un caster qui BOUGE vers une cible DEJA adjacente avant son pas a `Moved` VRAI et `IsCharging` FAUX.
 
 Effets concernes (les TROIS `CreateEffectDamageBonusForAttack` qui appellent
-`IdunBattleLogic.Entities.DSLFactory$$IsCharging`, xrefs relues) :
+`IdunBattleLogic.Entities.DSLTriggers$$IsCharging`, xrefs relues) :
   * `IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$...` (1025, `astraBullgryn`)
   * `IdunBattle.Entities.Effects.Loki.FeederTendrils_ExtraDamageEffect$$...` (1197, Deathleaper)
   * `IdunBattle.Entities.Effects.Loki.BlackRage_ExtraDamageEffect$$...` (1343, `bloodDeathCompany`)

@@ -14,7 +14,7 @@ Chaîne native RE'd (VA citées) :
                                                                    Not(HasBeenAttackedAmountThisTurn(owner)>=1))
     IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal   MinimalHealth@+0x1c = Min(Round(hp x hpPct/100), hp-1)
     IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal   MinimalHealth@+0x1c = null
-    (compteur) IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater  (source @+0x34)
+    (compteur) IdunBattleLogic.Entities.DSLTriggers$$HasBeenAttackedAmountThisTurnIsEqualOrGreater  (source @+0x34)
 
 Le natif ré-évalue la condition via le framework d'effet (Apply au FALSE->TRUE, Revert au TRUE->FALSE) ; les
 DEUX transitions fonctionnellement nécessaires = (1) début de tour (IsEnemyTurn bascule + reset du compteur)

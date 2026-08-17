@@ -3,7 +3,7 @@ discriminante). Jumeau de `test_normal_attack_bounds_rounding_live` (#131), sur 
 offline de la MEME operation native.
 
 RE (decompile = verite) : `execute_normal_like` porte le mode `amount` de la feuille
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` ET le `UseNormalAttackIfAble`
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` ET le `UseNormalAttackIfAble`
 on-appearance d'un summon -- famille ATTACK dans les deux cas, donc
 `IdunBattle.Operations.AttackDamageOperation$$Execute` -> `ExecuteHits` -> `ExecuteHit`. Ce
 per-coup resout sa cellule par le slot 4 `IdunBattle.Core.Services.DamagePrediction$$PredictAttack`

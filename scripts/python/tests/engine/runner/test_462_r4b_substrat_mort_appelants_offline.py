@@ -137,7 +137,7 @@ def test_aucun_verdict_ATTEIGNABLE_ne_reste_sans_gate():
 def test_chaque_balayage_porte_son_gate_de_vivacite(cle):
     """PROVENANCE, par AST. Un balayage de `state.entities` qui appelle `active_effects` sur chaque
     entite visitee DOIT ecarter les morts : le board natif est une OCCUPATION DE TUILE
-    (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `Units(AdjacentTiles(.)) - .`), un mort
+    (`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(.)) - .`), un mort
     n'y est plus.
 
     ⚠ POURQUOI UN CRITERE DE SOURCE ET PAS DE VALEUR : `defender_fixed_armor` etait SANS gate et

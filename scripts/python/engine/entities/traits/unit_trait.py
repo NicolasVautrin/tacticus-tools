@@ -342,7 +342,7 @@ def entity_trait_names(unit_ctx, visual_id: "str | None" = None) -> frozenset:
     `Scene.ctx(uid)` cote decision : c'est le MEME objet, cf. `Scene.from_state`). Sa liste
     `traits` porte (a) le kit gameconfig seede a la construction (`UnitContext.from_snapshot`,
     `build_summon_context`) ET (b) les traits ACCORDES EN BATAILLE, que le leaf DSL
-    `IdunBattleLogic.Entities.DSLFactory$$AddTrait` (-> `IdunBattle.Operations.AddTraitOperation$$
+    `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` (-> `IdunBattle.Operations.AddTraitOperation$$
     AddTrait`) y ajoute -- c'est la collection `BaseUnitComponent+0x48`/`+0x40` du natif.
 
     S'y ajoute le pseudo-trait de GRANDE-ALLIANCE (`grand_alliance_trait_name`), qui n'est dans

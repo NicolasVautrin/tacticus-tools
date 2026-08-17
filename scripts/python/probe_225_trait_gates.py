@@ -22,7 +22,7 @@ VOLET 1 -- ECRITURE : quels traits le natif peut-il accorder PENDANT la bataille
        `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` seede depuis la BC.
 
     Les sites d'ecriture sont EXHAUSTIFS : ce sont les 6 appelants de
-    `IdunBattleLogic.Entities.DSLFactory$$AddTrait` (releve xrefs ghidra, build gqfc5mff6c).
+    `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait` (releve xrefs ghidra, build gqfc5mff6c).
     Aucun `DSLFactory$$RemoveTrait` n'existe. En revanche `IdunBattle.Operations.RemoveTraitOperation$$Execute`
     EST atteint en jeu (`AddUnitOperation$$Execute` -> `...$$RemoveTraitsThatAreNotInheritedWhenCloned`
     -> slot `IOperationProcessor` -> `Core.Services.OperationProcessor$$RemoveTrait` -> lui) : la
@@ -54,7 +54,7 @@ ENGINE = _HERE / "engine"
 ROOT = _HERE.parents[1]
 
 # --------------------------------------------------------------------------------------------
-# VOLET 1 -- litteraux lus au decompile, un par appelant de `DSLFactory$$AddTrait`
+# VOLET 1 -- litteraux lus au decompile, un par appelant de `IdunBattleLogic.Entities.DSLBehaviors$$AddTrait`
 # --------------------------------------------------------------------------------------------
 # (traitId, isTemporary, symbole appelant, cible du selecteur)
 NATIVE_ADDTRAIT_SITES = [
@@ -242,7 +242,7 @@ def main() -> int:
     print("#225 -- INVENTAIRE des gates de TRAIT de la couche DECISION (build gqfc5mff6c)")
     print("=" * 96)
 
-    print("\n[1] ECRITURE -- traits accordables EN BATAILLE (6 appelants de DSLFactory$$AddTrait)")
+    print("\n[1] ECRITURE -- traits accordables EN BATAILLE (6 appelants de IdunBattleLogic.Entities.DSLBehaviors$$AddTrait)")
     for name, sites in sorted(ws["literal"].items()):
         tid = int(UnitTrait[name])
         n_static = ws["static"].get(name, 0)

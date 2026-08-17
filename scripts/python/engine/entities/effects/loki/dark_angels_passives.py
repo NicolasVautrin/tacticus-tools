@@ -121,7 +121,7 @@ def _lion_helm_range() -> int:
 
 def _surrounding_friends(ctx: Mapping, other_key: str, other_pos_key: str,
                          other_team_key: str) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(unit = Owner@0x148, range, unique = true,
+    """`IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(unit = Owner@0x148, range, unique = true,
     unitSelectionType = OnlyAliveAndTargetable)` — allies du porteur a <= range hexes, **self EXCLU**
     (`SurroundingTiles(range) - Tiles(self)`). Le volet « OnlyAliveAndTargetable » est assure par
     l'appelant (les agregateurs ne presentent que des unites vivantes)."""

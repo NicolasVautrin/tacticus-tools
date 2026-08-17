@@ -244,7 +244,7 @@ class _Normal:
         #
         # ⚠ #88 -- CE FLAG EST POSE PAR UNE VOIE DU PORT, ET SON ABSENCE RENDAIT `FinalJustice`
         # SILENCIEUSEMENT INERTE. `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute`
-        # (la feuille `DSLFactory$$UseActiveAbility`, seule voie du death-rattle FinalJustice) assemble
+        # (la feuille `IdunBattleLogic.Entities.DSLBehaviors$$UseActiveAbility`, seule voie du death-rattle FinalJustice) assemble
         # ses `AbilityOptions` en RECOPIANT champ par champ les siens (`behaviour+0x68..0xac`) -- SAUF
         # un octet, force au LITTERAL `1` (`uStack_210._0_2_ = CONCAT11(*(behaviour + 0xa8), 1)`).
         # MESURE LIVE qui tranche (probe_88_fuelled_by_fury_revive) : `ultraTitus` a `hp = 0` porte bel

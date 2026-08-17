@@ -8,7 +8,7 @@ turn, he deals 2x 1455-1601 Power Damage to the attacker before the enemy attack
 ================================================================================================
 RE (decompile ghidra, build `gqfc5mff6c`) -- decompile = verite
 ================================================================================================
-Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` /
+Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` /
 `$$.ctor` utilises ici : `0x90` ctx (non qualifie, cf. RESIDUS) · `0xa0` `IsTurnOf(Owner@0x148)` ·
 `0x130` CurrentAbility (`CurrentAbilityIs` la lit) · `0x140` ability PARENTE ·
 `0x148` Owner · `0x158` Actor · `0x178` Target.
@@ -31,7 +31,7 @@ predicat (`list_xrefs`) sont ce `CreateTrigger` et
 `IdunBattle.Entities.Effects.CounterAttackEffect$$GetDirectTargetAbilityTrigger`, qui batit le MEME
 idiome `IsDirectTargetAttack(@0x130) & !IsDirectTargetAttack(@0x140)`.
 
-`IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` (sans argument) construit un
+`IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack` (sans argument) construit un
 `IsMeleeAttackAbilityTrigger`, dont la nature est **POSITIONNELLE** (caster adjacent a la cible),
 cf. `triggers/base._is_ranged_position` -- c'est aussi ce qui porte le « from an ADJACENT enemy »
 du texte i2.
@@ -50,7 +50,7 @@ du texte i2.
                             nrOfHits  = GetNumberConstant(cfg, 0x2f)        = 2,
                             source    = AbilityOrEffect(this.Id = 1092) )
 
-FAMILLE « attack » : le behaviour appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+FAMILLE « attack » : le behaviour appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
 (PAS `AttackWithAbilityDamage`) -> `native_factory="attack"` (defaut). `attackRangeType = Melee` ->
 `is_melee=True`. La config d'un PASSIF est resolue au niveau passif -> `level_slot="passive"`.
 
@@ -89,7 +89,7 @@ RESIDUS EXPLICITES
    un splash appellent directement `AttackDamageOperation`). Le conjoint est donc VRAI par
    construction sur tous les vecteurs portes -> non materialise, et documente ici.
  * `ctx@0x90` : noeud-trigger SINGLETON du factory (classe instanciee UNIQUEMENT dans
-   `DSLFactory$$InitializeShared`, et lu UNIQUEMENT par ce `CreateTrigger` dans tout le binaire).
+   `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`, et lu UNIQUEMENT par ce `CreateTrigger` dans tout le binaire).
    Il ne recoit que le service `factory@0x28` -- aucun owner/cible -> il ne peut porter qu'une
    condition GLOBALE. Non qualifie, non porte (MEME traitement que le conjoint `ctx@0x98` des
    `Triggered()` d'overwatch, case-127 §8.3 : « vrai dans l'execution reelle, la mesure live

@@ -10,7 +10,7 @@ plusieurs tours finis.
 
 CHAINE NATIVE (decompile = verite)
   `IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger`
-    -> `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns(2)`
+    -> `IdunBattleLogic.Entities.DSLTriggers$$OwnerHasFinishedMinTurns(2)`
     -> `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger`
          = `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(Self@0x148) >= 2`
   ECRITURE du compteur : boucle de `IdunBattle.Operations.EndTurnOperation$$Execute` sur

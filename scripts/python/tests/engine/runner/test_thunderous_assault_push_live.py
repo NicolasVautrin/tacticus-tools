@@ -157,7 +157,7 @@ def test_thunderous_assault_push_distance_live(live_session, rpc, build_runner):
     tuiles TOUTES a distance 1 ; cas aligne melee = 1 seule tuile straight-back). Le pull symetrique
     (`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPull`) utilise le slot 0x4c = arc AVANT (`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`).
     Le champ +0x84=2 de `DisplaceUnitBehaviour` (`.IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$.ctor`, 9e arg pose par
-    `IdunBattleLogic.Entities.DSLFactory$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce
+    `IdunBattleLogic.Entities.DSLBehaviors$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce
     n'est PAS la distance de push. => push NATIF = 1 hex (la seule source list >1 hex, `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind`, sert aux AoE ligne/cone, pas au push).
 
     Le test place caster+cible sur une LIGNE de 4 tuiles collineaires LIBRES (C, T, B1, B2), caste LIVE

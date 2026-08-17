@@ -89,7 +89,7 @@ BUILD_FRAGILE = NO_NOISE + ["--hp-target", "600"]      # (C) : la cible MEURT ->
 #
 # LES DEUX GATES COINCIDENT DESORMAIS PARTOUT, et le montage n'a plus a se placer nulle part :
 #   * gate NATIF  = `GetStuckInAbility$$CreateTrigger` -> `!(MinDistance > 2)`, une distance **HEX**
-#     (`DSLFactory$$MinDistance` -> `MinDistanceFormula$$Calculate` -> `PositionComponent$$Distance`
+#     (`IdunBattleLogic.Entities.DSLFormulas$$MinDistance` -> `MinDistanceFormula$$Calculate` -> `PositionComponent$$Distance`
 #     = `AxialCoordinate$$ToCubeCoordinate` x2 + `CubeCoordinate$$Distance`) ;
 #   * gate PORTE  = `damage_model.getstuckin_combat_chance` et son jumeau PREDICTION
 #     `GetStuckInTrait.as_attacker_bonus_hits`, tous deux sur `entities.traits.combat.min_distance`

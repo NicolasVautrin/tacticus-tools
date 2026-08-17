@@ -9,7 +9,7 @@ par le trait LivingMetal ; DEUX arbres DSLFactory (mirror STRUCTURE, pas les nom
   * `On(TurnStart_Other=19)` = 2e des 5 events emis par `IdunBattle.Operations.StartTurnOperation$$Execute`
     (sequence FUN_1800280e0(..,0x12->0x13->0x14->0x15->0x16) ; 0x16=TurnStart_Actions). Le meme
     event 0x13 porte FirstAid (tiles.py). Vecteur porte = `turn_start_other_triggers` (dispatch.py).
-  * `@0xa0` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, ctor gshared) = scoping "le proprietaire est
+  * `@0xa0` (`IdunBattleLogic.Entities.DSLTriggers$$InitializeShared`, ctor gshared) = scoping "le proprietaire est
     le joueur ENTRANT" -- PROUVE live (probe_203) : la regen ne fire QU'AU tour du proprietaire
     (delta 0 au tour adverse). Porte ici = `ev.player_id == OwnerComponent.player`.
   * `IsDamaged(self)` (`IdunBattleLogic.Entities.DSLTriggers$$IsDamaged`) = `Not(UnitsWithStatEqualToTrigger(self,

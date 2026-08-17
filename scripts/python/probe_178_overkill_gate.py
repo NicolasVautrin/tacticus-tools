@@ -19,7 +19,7 @@ DEUX MONTAGES, DEUX OBSERVABLES INDEPENDANTS (aucun RPC ne lit `UnitFlag.Overkil
 
   A. CRESCENDO -- `TerrifyingCrescendo` (triggered 1435, passif d'`emperNoiseMarine` << Shiron >>),
      branche 1 = `On(UnitDeath=0) & OwnerIsActor & TargetIsOverkilled`, et
-     `IdunBattleLogic.Entities.DSLFactory$$TargetIsOverkilled` = `HasFlagAbilityTrigger(target, 8)`.
+     `IdunBattleLogic.Entities.DSLTriggers$$TargetIsOverkilled` = `HasFlagAbilityTrigger(target, 8)`.
      Chaque declenchement incremente `TerrifyingCrescendo_ExtraDmg` (1424) sur Shiron, dont le
      `level` est expose par `decisionView.units[].effects[]`.
      Regimes : `control` / `titus` (gates d'unite, #178) et `crit` / `nocrit` (#R33).

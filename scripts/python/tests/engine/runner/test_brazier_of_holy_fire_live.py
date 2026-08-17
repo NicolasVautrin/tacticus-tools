@@ -28,7 +28,7 @@ CE QUE CES TESTS PROUVENT (lisent l'etat LIVE ; drivent les positions ; state-fi
       CIBLE INCLUSE (`SurroundingUnits(..., includeCenter=1)`).
 
 ORACLES DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : les deux
-branches de coups partent de `IdunBattleLogic.Entities.DSLFactory$$ConfigConst`, le profil de
+branches de coups partent de `IdunBattleLogic.Entities.DSLFormulas$$ConfigConst`, le profil de
 `IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile`, le rayon d'un `ConfigConst` -- valeurs
 BRUTES (`GetNumberConstant` = `GetStringConstant` + `Int32.Parse`). L'oracle est donc la CONFIG :
 `gameconfig.ability("BrazierOfHolyFire").constants` (`nrOfHits`, `nrOfHits_2`, `range_2`,

@@ -3,7 +3,7 @@ PAS le degat direct.
 
 RE (decompile = verite) :
   `IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour` appelle
-  `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`, dont le corps construit
+  `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`, dont le corps construit
   `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.
   AttackBehaviour$$.ctor` -> famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation` ->
   `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`). Il n'y a AUCUN

@@ -2,7 +2,7 @@
 `operations/damage_ops.py` (scission du module >1000 lignes, tache #169 -- deplacement
 VERBATIM, zero changement de comportement).
 
-Mirror `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` /
+Mirror `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` /
 `$$AttackWithAbilityDamage` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`.
 
 PATCH-POINT (tests/probes) : `execute_ability_attack` resout `apply_all_modifiers` ET
@@ -105,7 +105,7 @@ class _AbilityAttack:
         (`IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault` -> slot 201
         `GetDefaultAttack`, corps `new OngoingAttack()`), et c'est le cas de TOUTE feuille que le
         natif emballe dans son PROPRE `IdunBattle.Entities.Behaviours.AttackBehaviour` -- donc de
-        `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, qui finit par
+        `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, qui finit par
         `AttackBehaviour$$.ctor` et fait donc pousser un `OngoingAttack` neuf par cible.
 
         ⚠ Ils existent parce que ce n'est PAS le cas de `IdunBattleLogic.Entities.DSLBehaviors$$
@@ -328,14 +328,14 @@ class _AbilityAttack:
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
         # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de
         # factory native (== `is_attack_damage_op`, cf. _one_hit) :
-        #   - ATTACK (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageOperation.ExecuteHit
+        #   - ATTACK (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AttackDamageOperation.ExecuteHit
         #     IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) : le per-coup construit les mods attaquant COMPLETS (slot +4, positional
         #     leaves incluses). MESURE (probe_45f_gfa_elevation, GreatFrostAxe, une variable = la
         #     relation d'elevation) : pre-fix high = live 1.5000x offline sur CHAQUE coup (DidCrit=0),
         #     flat/low = bit-exact ; post-fix 16/16 bit-exact. #47 (2e datapoint INDEPENDANT, vecteur
         #     ability-ATTACK ranged) : PlasmaCannon caster surplomb -> live = x1.25 (HeavyWeapon)
         #     x 1.5 (elevation) = x1.875 offline-avec-feuilles, a plat x1.25 seul.
-        #   - ABILITY (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `AbilityDamageOperation.ExecuteHit
+        #   - ABILITY (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> `AbilityDamageOperation.ExecuteHit
         #     IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) : `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` recoit des mods ATTAQUANT **VIDES**
         #     (struct zeroee) — seuls les mods DEFENSEUR (slot 0xf) s'appliquent. AUCUNE elevation.
         #     MESURE (probe_217_stormcaller A : Njal elev 2 > cibles elev 1) : live SANS elevation ;
@@ -588,7 +588,7 @@ class _AbilityAttack:
         # L'emetteur `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` a TROIS
         # appelants, tous en appel INCONDITIONNEL (xref) et tous en DERNIERE instruction de leur
         # `ExecuteHit` : `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (famille ATTACK
-        # = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, LA MEME fonction que
+        # = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, LA MEME fonction que
         # l'attaque normale), `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` (famille
         # ABILITY = `$$AttackWithAbilityDamage`) et `MachineDamageOperation$$ExecuteHit`.
         # => AUCUN gate de famille ici (contraste avec les mods attaquant / le crit / le canal
@@ -606,7 +606,7 @@ class _AbilityAttack:
         # `$$FinishAttack` (0x3b) apres -- donc un `IdunBattle.Operations.StartAttackOperation$$
         # Execute` (= `new OngoingAttack` + `MatchState$$StartAttack` = Push sur `MatchState+0x60`)
         # par cible. `hit_index0` vaut donc son DEFAUT 0 pour toute feuille montee par
-        # `DSLFactory$$AttackWithAttackDamage`, comme le vecteur normal.
+        # `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, comme le vecteur normal.
         # ⚠ #419-r3 : le defaut n'est JUSTE que parce que cette factory-la pousse son propre
         # `OngoingAttack`. Une feuille `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` NUE
         # (sans `AttackBehaviour`) composee dans le `Attack(...)` d'une autre attaque herite, elle,
@@ -720,7 +720,7 @@ class _AbilityAttack:
             pre_damage_taken=AttackDamageOperation.pre_damage_taken_of(_pdt_sink))
         # #179 SUR LE VECTEUR ABILITY (famille ATTACK) — le natif n'a QU'UNE Operation d'attaque :
         # `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntee par l'attaque NORMALE **et**
-        # par toute ability `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (case-61 §1.2 :
+        # par toute ability `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (case-61 §1.2 :
         # « MEME `Execute`, MEME `GetAttackHits` »). Or c'est CETTE `Execute` qui appelle
         # `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`
         # (son SEUL appelant, XREF) -> les coups additionnels HETEROGENES du canal #179 se greffent aussi
@@ -859,7 +859,7 @@ class _AbilityAttack:
             from ..triggers.dispatch.attack import attack_damage_attack_triggers
             from ..triggers.base import _is_ranged_position
             # `ranged` POSITION-based, comme le vecteur frere `after_hit_ability_attack` (mirror
-            # `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack`) — aucun consommateur d'`On(10)` ne
+            # `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack`) — aucun consommateur d'`On(10)` ne
             # le lit aujourd'hui, mais le payload reste coherent entre les deux events de cloture.
             attack_damage_attack_triggers(state, attacker_id, target_id,
                                           ranged=_is_ranged_position(state, attacker_id, target_id),

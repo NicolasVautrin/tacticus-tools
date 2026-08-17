@@ -38,7 +38,7 @@ declenche donc pour N'IMPORTE QUELLE ability du porteur (attaque normale, 1042 F
 resolu) : le tirage est donc paye a CHAQUE declenchement du trigger, avant tout coup.
 
 Chaines lues, verbatim :
-  * `IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(X, p3, p4)` (surcharge 4-args) =
+  * `IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies(X, p3, p4)` (surcharge 4-args) =
     `Enemies(reference = X, Units(AdjacentTiles(X), p3, p4) op_Subtraction X, p4)` ;
   * `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(X, p3, p4)` = idem avec `Friends`.
     **La reference d'equipe est X lui-meme** -> `AdjacentFriends(Target)` = les allies DE LA CIBLE,
@@ -112,7 +112,7 @@ relais suivant -- avec Maladus VIVANT. Les deux `On` supplementaires sont les vo
                              One@0xc0, AbilityOrEffect(0x435), <options par defaut> )
     return Attack(bonded, Owner@0x148, beh, <options par defaut>)
 
-`IdunBattleLogic.Entities.DSLFactory$$Attack` -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$
+`IdunBattleLogic.Entities.DSLBehaviors$$Attack` -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$
 .ctor(this, attacker@+0x50, target@+0x58, behaviour@+0x60, options)` : **l'attaquant est le BONDED
 (Maladus), la cible est le porteur de l'effet (le relais)**. Idem pour chaque `AttackDamage`
 (`IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$.ctor` : `+0x50` caster, `+0x58` cible,

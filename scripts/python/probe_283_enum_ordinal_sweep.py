@@ -190,7 +190,7 @@ DECLENCHEUR_PAR_ENTREE = {
 
 # Les quatre enums renumerotes, par leur nom PLEINEMENT QUALIFIE (= la cle de `enums.tsv`,
 # et le type du 1er argument du symbole natif correspondant).
-#   `IdunBattle.DSL.EventTriggerType`        -> `IdunBattleLogic.Entities.DSLFactory$$On`
+#   `IdunBattle.DSL.EventTriggerType`        -> `IdunBattleLogic.Entities.DSLTriggers$$On`
 #   `IdunBattle.Configuration.UtilityType`   -> `UtilitiesDatabase$$GetUtility`
 #   `IdunBattle.Streams.StepType`            -> `IdunBattle.Streams.StreamDispatcher$$Action`
 #   `IdunBattle.Operations.DisplaceDirection`-> `IdunBattle.Operations.DisplaceUnitOperation$$Execute`
@@ -1348,7 +1348,7 @@ def _paires_larges(txt: str, larges: "tuple | None", enum_nomme: bool,
             m, num = g.group(gm), g.group(gn)
             if m in ambigus and not enum_nomme:
                 continue
-            # Un nombre precede de `On(` est TYPE par le contrat natif `DSLFactory$$On(
+            # Un nombre precede de `On(` est TYPE par le contrat natif `IdunBattleLogic.Entities.DSLTriggers$$On(
             # EventTriggerType, ...)` : il ne peut pas etre l'ordinal d'un AUTRE enum. Sans ce
             # gate, `` `On(0x12)` -> ActivateEffect `` rougissait comme `StepType.ActivateEffect`
             # (dont 0x12 est l'ordinal archive) alors que 0x12 est un EventTriggerType JUSTE --
@@ -1627,7 +1627,7 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
     """`On(<n>)` NU en prose : l'ancre est sure, le verdict ne l'est PAS -- SAUF si l'auteur a
     pose l'annotation `On(<Membre>)` sur la ligne, et c'est alors un GATE (#420-r5).
 
-    L'ancre `On(` est le contrat natif `IdunBattleLogic.Entities.DSLFactory$$On(EventTriggerType,
+    L'ancre `On(` est le contrat natif `IdunBattleLogic.Entities.DSLTriggers$$On(EventTriggerType,
     ...)` : le nombre EST un `EventTriggerType`, sans ambiguite d'homonyme. Mais rien ne dit de
     QUEL build il vient, et c'est ce qui interdit la correction automatique :
 

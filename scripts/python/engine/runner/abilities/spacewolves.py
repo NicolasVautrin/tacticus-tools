@@ -142,16 +142,16 @@ def great_frost_axe_tree():
     - [1] `AddEffect(Ice)` : glace la tuile de la cible + son ring-1 (`great_frost_axe_ice_tiles()`). Duree =
       arg Nullable ZEROE -> `duration_rounds=None` -> `DefaultAmountOfRounds(0x11)=2` (== case-35/Stormcaller).
       Feuille `AddEffect` tile-domain (le selecteur rend des tuiles ; `AddEffectOperation` pose l'effet Ice).
-    - [2] `If(IsAlive(target), attack)` : garde LAZY `IdunBattleLogic.Entities.DSLFactory$$IsAlive(target@0x178)` (vivant &
+    - [2] `If(IsAlive(target), attack)` : garde LAZY `IdunBattleLogic.Entities.DSLTriggers$$IsAlive(target@0x178)` (vivant &
       hp>0) devant l'attaque -- la glace ne tue pas, donc la garde est vraie pour un cast normal (mirror
       fidele, meme idiome que VigilanceEternal/HeroicFusillade/genestealer `If(IsAlive(Target()), ...)`).
       Attaque MONO-cible melee 4 coups Piercing (pierce 80), bornes `MinMaxDamage(minDmg/maxDmg[level])`
       rarity-affected via `ability_attack_params`.
 
-    `native_factory="attack"` (defaut) = famille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    `native_factory="attack"` (defaut) = famille `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
     (AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit`) = 2 tirages/coup a cc=0 (valeur brute +
     resolve slot-8 GASPILLE, cf. cas fable rngcrit-1202 / tip #2). CLASSE PAR LES XREFS : `GreatFrostAxe
-    Ability$$ExecuteBehaviour` appelle IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (from_address 1811e367f, UNCONDITIONAL_CALL) -- l'ATTACK
+    Ability$$ExecuteBehaviour` appelle IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (from_address 1811e367f, UNCONDITIONAL_CALL) -- l'ATTACK
     family, PAS l'ability family (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage) qu'utilise Stormcaller. Multi-coups (4 hits) ->
     per-hit desync des le coup 2 si mal classe : ici c'est bien "attack" (verifie XREF).
 
@@ -161,7 +161,7 @@ def great_frost_axe_tree():
     ne depend pas de `ability_type`)."""
     ice = AddEffect(ICE_TILE, "Ice", great_frost_axe_ice_tiles(), duration_rounds=None)  # duree DEFAUT (Nullable zeroe)
     attack = AttackWithAttackDamage(Target(), "GreatFrostAxe", "Piercing", is_melee=True,   # 4x Piercing melee mono-cible
-                                    native_factory="attack",   # XREF IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour+0x17f -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (attack family, 2 tirages/coup)
+                                    native_factory="attack",   # XREF IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour+0x17f -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (attack family, 2 tirages/coup)
                                     ability_type=int(ActiveAbilityType.GreatFrostAxe))
     return op_and(ice, If(IsAlive(Target()), attack))
 
@@ -268,7 +268,7 @@ def foehammer_tree(damage_override):
     l'ordre `state.rng` de l'attaque est inchange, quel que soit le cote du `op_Addition`.
 
     `native_factory="attack"` : `FoehammerAbility$$ExecuteBehaviour` appelle
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK = `AttackDamageBehaviour`
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille ATTACK = `AttackDamageBehaviour`
     -> `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, 2 tirages/coup a cc=0), CLASSE PAR LE
     DECOMPILE et non au juge (contraste HammerOfWrath, qui appelle `AttackWithAbilityDamage`).
 
@@ -282,7 +282,7 @@ def foehammer_tree(damage_override):
     stun = AddEffect(STUNNED, "Stunned", Target(), duration_rounds=1)      # TurnsFromRounds(1)
     attack = AttackWithAttackDamage(Target(), "Foehammer", "Power", is_melee=False,   # Ranged (range 2)
                                     damage_override=damage_override,
-                                    native_factory="attack",   # `FoehammerAbility$$ExecuteBehaviour` -> `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+                                    native_factory="attack",   # `FoehammerAbility$$ExecuteBehaviour` -> `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
                                     ability_type=int(ActiveAbilityType.Foehammer))
     return op_add(stun, attack)
 

@@ -155,7 +155,7 @@ class PsykerPlaybook:
         `runner/operations/triggers/base.py::_adjacent_damageable_enemies`, ici sur Scene).
 
         ⚠ L'ADJACENCE N'EST PAS GÉOMÉTRIQUE, et la ligne qui l'affirmait ici était FAUSSE (#943-r7).
-        `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `Units(AdjacentTiles(target)) - target`,
+        `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(target)) - target`,
         et `AdjacentTiles` descend sur
         `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` : la liste
         STOCKÉE du `ConnectivityComponent`, puis la porte `|dElev| < 2`. La face COMBAT lit d'ailleurs

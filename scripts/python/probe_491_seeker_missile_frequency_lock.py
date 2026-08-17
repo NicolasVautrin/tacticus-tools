@@ -7,7 +7,7 @@ bien un intervalle de degat pour cette ability. Le decompile dit non :
 ne porte AUCUN noeud d'attaque -- il pose trois effets et les compose par
 `IdunBattle.DSL.AbilityBehaviour$$op_BitwiseAnd` :
 
-    turns = Sum(TurnsFromRounds(1), Direct(1))  == DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn
+    turns = Sum(TurnsFromRounds(1), Direct(1))  == IdunBattleLogic.Entities.DSLFormulas$$TurnsUntilEndOfCurrentPlayersNextTurn
       AddEffect(     1122 Markerlight, AbilityStateReference, source=Caster, targets=Target, turns)
     & AddBondEffect( 1123 SeekerMissileFrequencyLock_Target, CreateSnapshot(abilityState),
                      source=Caster, targets=Target, bonded=Caster, options=ZERO)

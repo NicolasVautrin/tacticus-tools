@@ -2,7 +2,7 @@
 consommateur SupremeCommander (1028, `astraCreed`).
 
 Mecanisme porte (VAs) :
-  `IdunBattleLogic.Entities.DSLFactory$$PerformAIAction` -> `IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute`
+  `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAction` -> `IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute`
   -> `Core.Services.OperationProcessor$$ComputerAction`/`Core.Services.OperationProcessor$$ComputerAction`
   -> `IdunBattle.Operations.ComputerActionOperation$$Execute` (mono) / `IdunBattle.Operations.ComputerActionOperation$$Execute` (groupe)
      [ `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags` -> `IdunBattle.Core.Services.AiControl$$ExecuteFor`/`IdunBattle.Core.Services.AiControl$$ExecuteFor`
@@ -388,7 +388,7 @@ def supreme_commander_ally(rpc, build_runner):
 
 def test_ally_outside_affected_ids_not_forced_to_act_live(supreme_commander_ally):
     """LIVE : l'allie a portee mais hors `affectedUnitIds` NE bouge PAS pendant le cast (le filtre
-    `IdunBattleLogic.Entities.DSLFactory$$UnitsWithIds le retire du set passe a `PerformAIAction`)."""
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithIds le retire du set passe a `PerformAIAction`)."""
     d = supreme_commander_ally
     assert d["ally_pos_after"] == d["ally_pos_before"], (
         f"live : l'allie {ALLY_VIS} a bouge {d['ally_pos_before']} -> {d['ally_pos_after']} pendant le "

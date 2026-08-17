@@ -5,7 +5,7 @@ DEUX effets mutuellement exclusifs poses sur le caster (via `AddDynamicStatModif
 `AddEffect`, cf. `runner/abilities/loki/imperative.py`) :
 
   - **ProtectorImperativeEffect** (0x4df=1247) : `DynamicStatModifierEffect` +extraArmor sur la stat
-    **FixedArmor(16)** (arg `stat=0x10` du helper IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffectToOwner = 16 ; GROUND-TRUTH live statModSources :
+    **FixedArmor(16)** (arg `stat=0x10` du helper IdunBattleLogic.Entities.DSLBehaviors$$AddDynamicStatModifierEffectToOwner = 16 ; GROUND-TRUTH live statModSources :
     +886 FixedArmor, residual 0). Aura self + Mechanical ADJACENTS dans le natif (selecteur de l'effet) ;
     ce port (increment A) materialise le stat-mod SELF (sur le caster) via `applied_stat_mods` — la PORTEE
     aux allies Mechanical adjacents (canal aura +FixedArmor neuf, re-evalue par adjacence) = increment B.

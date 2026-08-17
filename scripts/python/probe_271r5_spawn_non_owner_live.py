@@ -13,7 +13,7 @@ mirror-1:1 avec des tests offline reste une HYPOTHESE tant que le natif ne l'a p
 LE MONTAGE, ET POURQUOI CELUI-LA
 ---------------------------------
 `probe_130_placement_sort_rng.py --case controledict` pilote deja un spawn qui passe par
-`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` : `admecMarshall` attaque, son
+`IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon` : `admecMarshall` attaque, son
 passif `ControlEdict` fait apparaitre un `admecSmnVanguard` sur l'anneau-1 du CASTER. Il ne
 DISCRIMINE pas ce terme parce que son montage est un 1v1 : aucun des trois porteurs n'est sur le
 plateau.

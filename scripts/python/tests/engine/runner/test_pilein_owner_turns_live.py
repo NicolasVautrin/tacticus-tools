@@ -3,7 +3,7 @@
 Chaine native (decompile = verite) :
 
     IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger
-      -> IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns(2)
+      -> IdunBattleLogic.Entities.DSLTriggers$$OwnerHasFinishedMinTurns(2)
       -> IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$.ctor
              (selecteur = factory+0x148 = Self/Owner, amount = 2 @+0x18, selType = 3 @+0x28)
       -> IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger

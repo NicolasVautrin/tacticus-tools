@@ -14,7 +14,7 @@
 i2 : « takes 582-2183 Psychic Damage FOR EACH ROUND THAT HAS STARTED. If the target is eliminated, an
 adjacent enemy also takes 582-2183 for each round started. » Attaque RANGED Psychic (pierce 100, NoBlocking),
 `hits = RoundsStarted` (`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` = stat 12 `turnsStarted` du CASTER, plancher max(1,.)).
-`native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
+`native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
 
 Ce que ces tests PROUVENT :
   (a) CAST LIVE bit-exact : la MAIN frappe la cible `hits = RoundsStarted` fois, per-coup == le port offline

@@ -281,7 +281,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         Le test natif est `IsRegularAttack` sur l'`ActiveAbilityType` CONCRET de l'attaque normale
         (per-unite : 69, 1030, ...). Le port ne materialise PAS cet id sur la voie normale : il y
         thread le marqueur de KIND `0x3f5` (cf. `abilities/attack_type.py`, 2e branche de
-        `DSLFactory$$IsNormalAttack`). On teste donc la DISJONCTION `is_normal_attack` = « id concret
+        `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`). On teste donc la DISJONCTION `is_normal_attack` = « id concret
         d'attaque reguliere OU marqueur de kind » -- meme extension sur les deux voies du port."""
         from ..abilities.attack_type import is_normal_attack   # lazy : cycle damage<->abilities
         if current_ability is not None and is_normal_attack(current_ability) \
@@ -427,7 +427,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
         - `On(PreUnitDeath)` : accumulations ActOfFaith (allié Imperial qui meurt/tue), FinalJustice (riposte du
           mourant, gate overkill dans son BEHAVIOUR), TaintedNarthecium (revive).
-        - `On(PreUnitDeath_2)` : famille DEATH-NOVA (`Explodes` 1008->1021, `PutridExplosion` 2028->1074) — `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
+        - `On(PreUnitDeath_2)` : famille DEATH-NOVA (`Explodes` 1008->1021, `PutridExplosion` 2028->1074) — `IdunBattleLogic.Entities.DSLTriggers$$OnPreDeath2. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
         - `On(UnitDeath)` : TerrifyingCrescendo branche OVERKILL (`On(UnitDeath) & OwnerIsActor & TargetIsOverkilled`).
         - `On(UnitDefeated)` : Ambush_SummonAbility (mort -> decoy) + `turn_defeated`.
 
@@ -532,7 +532,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (`RecordKillOperation$$Execute` le recopie tel quel dans l'appel) : c'est lui que
         `IdunBattle.Operations.KillUnitOperation$$Execute` rejoue ensuite dans le champ
         `TriggeringAbility` (`AbilityEntities+0x98`) des evenements de mort, donc lui que comparent
-        `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs` / `$$TriggeringEffectIs`.
+        `IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs` / `$$TriggeringEffectIs`.
         Cote port on le CAPTURE ici depuis `state.triggering_ability` (le canal `+0x60` AMBIANT --
         approximation deja nommee par `case-292` : le natif lit le `KillUnitContext`, pas
         `CurrentAbility`, et les deux coincident dans tous les regimes portes), et `_verify_deaths`
@@ -1333,7 +1333,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         """Alimente la `List<BEntityId>` @`ActorStatisticsComponent + 0x48` de l'ATTAQUANT (« unites
         endommagees pendant CETTE phase ») -- la source du selecteur
         `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select`
-        (`IdunBattleLogic.Entities.DSLFactory$$UnitsDamagedThisPhase(attacker)`). Cote port la liste vit
+        (`IdunBattleLogic.Entities.DSLSelectors$$UnitsDamagedThisPhase(attacker)`). Cote port la liste vit
         sur le `UnitComponent` de l'attaquant (`damaged_units_this_phase`, meme residu structurel que
         `received_damage_this_turn`, case-202 §6) et se vide au boundary de phase
         (`State.reset_trigger_phases`, mirror `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase`

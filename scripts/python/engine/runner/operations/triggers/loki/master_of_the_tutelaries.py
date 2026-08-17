@@ -96,7 +96,7 @@ def _master_effect_is_carried_and_active(state: State, owner_id: int) -> bool:
 
     1. PRESENCE — le conjoint `HasEffect(owner@0x148, 0x4ad, onlyActive=0, relation=6)` de
        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$
-       CreateTrigger`. Le 4e argument de `IdunBattleLogic.Entities.DSLFactory$$HasEffect` est
+       CreateTrigger`. Le 4e argument de `IdunBattleLogic.Entities.DSLTriggers$$HasEffect` est
        `onlyActive`, et il vaut **0** ici : le noeud de l'arbre ne teste QUE la presence. (Semantique
        lue, pas deduite : `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` ne saute une
        entite-effet — `continue` sur `IsActive@0x5c == 0` — que si ce bool est vrai.) Le `6` est un
@@ -107,9 +107,9 @@ def _master_effect_is_carried_and_active(state: State, owner_id: int) -> bool:
     2. PORTAGE — la triggered 1173 n'est pas un effet-trigger du rail `CreateTargetTrigger` : c'est
        une triggered-ability portee par l'UNITE, ajoutee par
        `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal`
-       (`DSLFactory$$AddTriggeredAbility(Entity(target), 0x495)`) et RETIREE par
+       (`IdunBattleLogic.Entities.DSLBehaviors$$AddTriggeredAbility(Entity(target), 0x495)`) et RETIREE par
        `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal`
-       (`DSLFactory$$RemoveTriggeredAbility(Entity(target), 0x495)`). Or desactiver l'effet REVERTE
+       (`IdunBattleLogic.Entities.DSLBehaviors$$RemoveTriggeredAbility(Entity(target), 0x495)`). Or desactiver l'effet REVERTE
        ses cibles : `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` ecrit
        `EffectComponent.IsActive @+0x5c = 0` PUIS appelle
        `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` avec une liste de

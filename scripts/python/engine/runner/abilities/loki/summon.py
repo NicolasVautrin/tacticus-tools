@@ -136,7 +136,7 @@ def getemruntz_taunt_tree() -> If:
 
 def getemruntz_tree() -> Seq:
     """Arbre COMPLET de `IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$ExecuteBehaviour` (id 1045, MIRROR 1:1 du DECOMPILE) :
-        cache = Cache(IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$GetSpawnTileSelector)             # IdunBattleLogic.Entities.DSLFactory$$Cache -- PARTAGE Spawn/Attack (memoise)
+        cache = Cache(IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$GetSpawnTileSelector)             # IdunBattleLogic.Entities.DSLSelectors$$Cache -- PARTAGE Spawn/Attack (memoise)
         ExecuteAtomic( Spawn(cache) )                             # IdunBattle.Entities.Abilities.AActiveAbility$$ExecuteAtomic inline -> grots materialises
         Execute( op_Addition( PerformAIAttackFromCurrentPosition(cache),   # les grots (sur les tuiles cache) attaquent
                               Foreach(Children, Taunt) ) )        # + Taunt de la cible frappee
@@ -149,7 +149,7 @@ def getemruntz_tree() -> Seq:
     s'executent). Ordre = tous les spawns (inline dans l'AtomicGroup) PUIS toutes les attaques PUIS tous les
     Taunts (NATIF, prouve RE #200). CONFRONTE LIVE (tracer-v2 DSLFactory #200 : arbre natif capture == ce
     mirror) ; l'imperatif `SpawnUnitOperation.execute_getemruntz` a ete RETIRE (#199)."""
-    cache = Cache(get_spawn_tile_selector())                       # IdunBattleLogic.Entities.DSLFactory$$Cache -- PARTAGE (memoise pre-spawn)
+    cache = Cache(get_spawn_tile_selector())                       # IdunBattleLogic.Entities.DSLSelectors$$Cache -- PARTAGE (memoise pre-spawn)
     return Seq(
         AtomicGroup(Spawn(cache, "GetEmRuntz")),                   # ExecuteAtomic(Spawn(cache)) -- inline
         op_add(PerformAIAttack(cache),                             # Execute( op_Addition(

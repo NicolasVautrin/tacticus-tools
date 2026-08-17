@@ -2,7 +2,7 @@
 A DEUX RELAIS (`k = 2`).
 
 QUESTION (binaire) : le predicat de report compare-t-il l'entite REELLEMENT bondee -- celle que le
-5e argument d'`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect` transmet et que
+5e argument d'`IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect` transmet et que
 `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` ecrit dans le composant
 de bond de l'entite-effet (`+0x10`, relu par `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`)
 -- et le verdict tient-il quand le PREMIER relais MEURT du report ?

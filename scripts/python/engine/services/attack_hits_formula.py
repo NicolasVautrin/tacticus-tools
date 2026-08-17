@@ -14,13 +14,13 @@ port la partage aussi (un seul point de calcul, plusieurs facades).
 PERIMETRE EXACT DU CANAL (case-61, RE + mesure live) — trois vecteurs, TROIS verdicts DISTINCTS :
   1. COMBAT, attaque NORMALE : `IdunBattle.Operations.AttackDamageOperation$$Execute` appelle
      `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` -> formule. Base = nb de coups de l'arme.
-  2. COMBAT, attaque d'ABILITY **famille ATTACK** (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+  2. COMBAT, attaque d'ABILITY **famille ATTACK** (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
      -> `AttackDamageBehaviour` -> `AttackDamageOperation`) : MEME `Execute`, MEME `GetAttackHits` -> formule.
      La BASE change seulement : c'est le noeud `hits` du DSL (champ +0x80 du behaviour, evalue dans
      `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` en `Nullable<int>` de l'AttackData),
      pas le nb de coups de l'arme. GROUND TRUTH live (case-61) : FlailSwing (`nrOfHits`=3) rend **2** coups
      contre une cible `Parry_ReduceHits` et **3** contre le temoin -> le canal EST traverse.
-  3. COMBAT, attaque d'ABILITY **famille ABILITY** (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+  3. COMBAT, attaque d'ABILITY **famille ABILITY** (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
      -> `AbilityDamageOperation`) : `IdunBattle.Operations.AbilityDamageOperation$$Execute` N'APPELLE PAS
      `GetAttackHits` — il lit le `Nullable<int>` de l'AttackData et l'utilise BRUT (defaut 1 si absent).
      AUCUN ExtraHits, AUCUN effet. -> le port ne traverse PAS la formule pour cette famille.

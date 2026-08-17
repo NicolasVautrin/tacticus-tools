@@ -1,7 +1,7 @@
 """ORDRE `part bouclier` x `limites de degat` sur la voie ABILITY -- confronte LIVE (residu case-67 SS5).
 
 Artefact natif : `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` (famille ABILITY =
-`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) :
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) :
 
     dmg        = Math.Max(param_2, 0)
     shieldPart = Math.Min(dmg, UnitExtensions.GetShield(cible))          # `iVar20`

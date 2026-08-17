@@ -14,7 +14,7 @@
 i2 : « 3x HeavyRound + 1 extra hit if hasn't moved a un ennemi ET aux ennemis adjacents dans un rayon ».
 Attaque RANGED HeavyRound. Config 1067 LUE A LA REDACTION (les tests, eux, la relisent : cf. ORACLE en bas
 de cet en-tete) : nrOfHits=2, extraHit=1, range=3, PiercingRatio 55 ; minDmg_2/maxDmg_2 ==
-minDmg/maxDmg. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
+minDmg/maxDmg. `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
 Le natif B `Enemies(caster, AdjacentFriends(target,1))` = ennemis-du-caster ring-1 de la cible ; porte via
 `AdjacentEnemies(TargetTile(), Const(1))` (le runner `AdjacentFriends` filtre team==CASTER, PAS subject-relatif ->
 `Enemies(AdjacentFriends(target))` serait VIDE ; `AdjacentEnemies(TargetTile())` = l'equivalent CORRECT, convention #122).
@@ -310,7 +310,7 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
         # `DamageProfile.PiercingDamageRatio` tel quel) -> oracle = CONFIG, via `damage_profile_pierce`
         # qui ECHOUE sur cle absente. Le NOM du profil, lui, est un fait de STRUCTURE :
         # `HarvesterOfSoulsAbility$$ExecuteBehaviour` passe un litteral `Nullable<DamageProfileType>(0x13
-        # = HeavyRound)` a `DSLFactory$$AttackWithAttackDamage` -- il n'appelle PAS
+        # = HeavyRound)` a `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -- il n'appelle PAS
         # `AbilityConfiguration$$GetDamageProfile`, donc aucune constante damageProfile a lire ici.
         # Le percage EFFECTIF etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)` -- et
         # HeavyRound ne saturant PAS a 100 --, on exige d'abord des ExtraPierce nuls : sinon l'egalite

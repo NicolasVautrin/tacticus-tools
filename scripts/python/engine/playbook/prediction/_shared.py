@@ -1113,7 +1113,7 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # `damage_model._apply_ally_attack_damage_auras`.
            "att_traits": _entity_traits(scene, att_id),
            # UnitsWithRangedAttacks (selector SpotterReworked IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateTargetSelector) = UNION {arme ranged au kit}
-           # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
+           # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
            "board": scene.board,
            "is_melee": is_melee, "target_armor_reduced": tgt_armor_reduced,

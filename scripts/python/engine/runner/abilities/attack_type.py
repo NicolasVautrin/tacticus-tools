@@ -39,9 +39,9 @@ PAS ete lu est ABSENTE de la table -> `ability_has_attack_type` rend False, donc
 invente (le sens sur dans lequel se degrader : un trigger qui ne part pas laisse l'etat inchange,
 un trigger qui part a tort MUTE la bataille).
 
-`DSLFactory$$IsNormalAttack`
+`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`
 ---------------------------
-`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack(df)` = `IsNormalAttack(df, df@0x130)` (l'ability
+`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack(df)` = `IsNormalAttack(df, df@0x130)` (l'ability
 DECLENCHANTE), et l'overload a 2 arguments batit une DISJONCTION :
 
     AbilityIsNormalAttackTrigger(sel)                       # branche 1
@@ -927,7 +927,7 @@ def is_active_ability(ability_type: Optional[int]) -> bool:
 
 
 def is_normal_attack(ability_type: Optional[int]) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack(df)` -- la DISJONCTION des deux branches
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack(df)` -- la DISJONCTION des deux branches
     detaillees en tete de module :
 
         AbilityIsNormalAttackTrigger(@0x130)          -> `IsRegularAttack(ActiveAbilityType)`

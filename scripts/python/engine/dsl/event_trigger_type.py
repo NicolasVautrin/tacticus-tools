@@ -31,7 +31,7 @@ Annotations sur les membres CONSOMMES par le port (runner/operations/triggers.py
                         la branche est UnitBlocked ; param_6 = vraisemblablement le flag BLOCK,
                         a confirmer via le caller). Non consomme par le port.
   - UnitAfterMove (4) : after-move (`EvaluateAfterMoveTriggers`) -> Overwatch, RangedAutoAttack.
-  - PreUnitDeath (1)  : mort (OnPreDeath/OnDeath IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent) -> FinalJustice, TheBetrayer, ActOfFaith accum.
+  - PreUnitDeath (1)  : mort (OnPreDeath/OnDeath IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent) -> FinalJustice, TheBetrayer, ActOfFaith accum.
   - TurnStart_Actions (22)            : `On(0x16)`, debut de tour (StartTurnOperation IdunBattle.Operations.StartTurnOperation$$Execute).
   - TurnStart_EffectActivation (18)   : `On(0x12)` tick de tour -> Contaminated re-apply (IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal).
   - TurnStart_EnvironmentEffects (20) : `On(0x14)` tick de tour -> Fire DoT + DryBush spread (IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateTrigger).

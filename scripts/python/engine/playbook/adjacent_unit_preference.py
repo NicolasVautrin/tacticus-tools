@@ -323,8 +323,9 @@ def _has_ranged_weapon(unit: dict) -> bool:
     n'est pas `IsMelee` (le `minRange` nul court-circuite la comparaison de portée).
 
     DÉLÈGUE au foyer UNIQUE `engine.services.battle_query.has_ranged_weapon` (#601) : le sélecteur
-    DSL `UnitsWithoutRangedWeapons` (`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutRanged
-    Weapons`) consomme le MÊME prédicat natif, et deux implémentations du même corps auraient été un
+    DSL (`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutRangedWeapons` -- REPLIE SUR UNE SEULE
+    LIGNE : coupe en deux par le retour a la ligne, il etait INGREPABLE, #1032-r3)
+    consomme le MÊME prédicat natif, et deux implémentations du même corps auraient été un
     fork de port. Forme B (`import <module>` + accès attributaire) : un `monkeypatch.setattr` sur le
     foyer MORD toujours, ce qu'une liaison `from X import f` au niveau module gèlerait.
     L'adaptation de signature reste ici : ce site tient un DICT d'unité (`vis`), le foyer un

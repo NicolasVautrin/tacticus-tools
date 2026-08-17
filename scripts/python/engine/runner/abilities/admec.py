@@ -94,7 +94,7 @@ def sentinel_directives_tree() -> "op_add":
     - `nrOfHits` = `ConfigConst(config, 0x2f)` = `GetNumberConstant(0x2f)` = 1 (`constants.nrOfHits`="1",
       verifie gameconfig). La feuille lit `nrOfHits` (hits_key defaut) via `ability_attack_params`.
     - **native_factory = "attack"** (defaut) : le decompile appelle `DSLFactory.AttackWithAttackDamage`
-      (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour = symbole `DSLFactory$$AttackWithAttackDamage`,
+      (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour = symbole `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`,
       JAMAIS `AttackWithAbilityDamage`, contraste SpiritLeech "ability" ; tip #2). Attaque MONO-COUP (1x) ->
       non concernee par le desync per-hit de toute facon (le flag est correct par XREF ET no-op ici).
     - `InformWeapon` = `op_Addition` volet GAUCHE (execute EN PREMIER) : canal weapon-inform
@@ -239,7 +239,7 @@ def rad_bombardment_affected_tile_amount():
     (MIRROR 1:1) = `Sum( Get(1), RoundsStarted(<dsl>+0x48 = Caster),
     TotalRepairActionsAmount(UnitsWithTrait(Friends(<dsl>+0x48, <dsl>+0x20, 3), Mechanic, 3)) )`.
 
-    REDUCTION NOTEE : la factory native `IdunBattleLogic.Entities.DSLFactory$$Sum` a UNE seule classe
+    REDUCTION NOTEE : la factory native `IdunBattleLogic.Entities.DSLFormulas$$Sum` a UNE seule classe
     de noeud a 5 termes (les surcharges ne different que par le nombre de termes passes, les autres a 0) ;
     le port n'a qu'un `Sum` BINAIRE -> `Sum(Sum(a, b), c)`. Somme d'entiers, associative : identique.
 

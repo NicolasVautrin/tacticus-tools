@@ -86,7 +86,7 @@ def _ventiler(evs):
 
 def _tile_status_live(rpc, rid, pos):
     """Les status-effects DYNAMIQUES de la tuile `pos` cote NATIF -- l'entree du disjoint
-    `TargetHasTileEffect` (`IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect`). Lu par le RPC
+    `TargetHasTileEffect` (`IdunBattleLogic.Entities.DSLTriggers$$HasTileStatusEffect`). Lu par le RPC
     `tileMeta` si le host l'expose, sinon `None` (PAS mesure -- jamais rendu comme un vide)."""
     try:
         tm = rpc("tileMeta", {"runnerId": rid}, 60)

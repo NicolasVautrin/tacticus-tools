@@ -203,10 +203,10 @@ def plasma_cannon_tree():
        `hits_key`). Plage `MinMaxDamage(minDmg/maxDmg)` PARTAGEE main/splash (memes cles par defaut). Config 1150 :
        nrOfHits=3, range=3, damageProfile=Plasma.
 
-    3. **FACTORY NATIVE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `native_factory="attack"`** (PlasmaGrenade =
+    3. **FACTORY NATIVE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `native_factory="attack"`** (PlasmaGrenade =
        `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> "ability"). CLASSIFIE PAR XREFS de l'ExecuteBehaviour natif (piege
        rngcrit-1202 / tip #2), PAS au nom du template : les deux call-sites `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x1eb`/`IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x2a6` referencent
-       IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (verifie via `list_xrefs` -- PlasmaCannon ABSENT des xrefs de IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage). `native_factory=
+       IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (verifie via `list_xrefs` -- PlasmaCannon ABSENT des xrefs de IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage). `native_factory=
        "attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve slot-8 GASPILLE = **2 tirages/
        coup a cc=0** (le DEFAUT `is_attack_damage_op=True`). Un port copie a l'aveugle du template (native_factory=
        "ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
@@ -227,7 +227,7 @@ def plasma_cannon_tree():
     tgt = Target()
     # [MAIN] cible du message, 3 coups (nrOfHits), plage MinMaxDamage, profil Plasma, ranged.
     main = AttackWithAttackDamage(tgt, "PlasmaCannon", "Plasma", is_melee=False,
-                                  native_factory="attack")                       # IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (XREFS)
+                                  native_factory="attack")                       # IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (XREFS)
     # [SPLASH] jusqu'a 2 unites tirees derriere la cible ; MEME plage, MEME nb de coups (nrOfHits, defaut).
     splash = AttackWithAttackDamage(UnitsDirectlyBehind(), "PlasmaCannon", "Plasma", is_melee=False,
                                     multi=True, pick_n=2, native_factory="attack")  # PickRandomly(UnitsDirectlyBehind,2)
@@ -246,7 +246,7 @@ class PlasmaCannonAbility(ActiveAbility):
 
     `execute_behaviour` DELEGUE a `plasma_cannon_tree()` (mirror 1:1 du decompile). Le SPLASH est un SEUL
     `AttackWithAttackDamage(selecteur-multi, pick_n=2)` (== le natif, PAS un `Foreach`) : `AttackBehaviour.Execute`
-    resout la liste + `OrderBy` par id + `PickRandomly(2)`. FACTORY `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, prouve
+    resout la liste + `OrderBy` par id + `PickRandomly(2)`. FACTORY `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, prouve
     par XREFS -- CONTRASTE le template PlasmaGrenade "ability" IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/
     coup a cc=0. Passif porteur `Deathwing` [fable] non porte (no-op ; se declenche on-block, hors path degat)."""
     __slots__ = ()
@@ -837,7 +837,7 @@ def supercharge_tree(behind: list):
     donc les hits de Supercharge EUX-MEMES en beneficient (i2 : « ... all with +35% pierce ratio »).
     CONFIRME LIVE (#112, MC1_67 au contact) : les 3 groupes `Supercharge_ExtraPiercing` (cible +
     2 unites derriere, `Effect_RemainingTurns=2`) precedent les 2 groupes de degat dans la cascade.
-    Les DEUX volets d'attaque appellent `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    Les DEUX volets d'attaque appellent `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
     (LU au decompile, pas au juge du template) -> `native_factory="attack"` = 2 tirages/coup a cc=0
     (piege rngcrit-1202). Config 1103 : nrOfHits=1, nrOfHits_2=1, damageProfile=Plasma, range=3."""
     behind_sel = UnitSet(behind)
@@ -1206,7 +1206,7 @@ class ExemplarOfHateAbility(ActiveAbility):
             return None
         cap, pct = _exemplar_capped_attack_vars(state, caster_id)
         ranked = _exemplar_of_hate_attackers(state, caster_id, target_id, cap, pct)
-        attacker = ranked[:1]                              # `IdunBattleLogic.Entities.DSLFactory$$First(., 1)`
+        attacker = ranked[:1]                              # `IdunBattleLogic.Entities.DSLSelectors$$First(., 1)`
         ectx = ExecutionContext(state=state, rng=state.rng)
         ents = entities_from_state(state, caster_id, target_id)
         att_units = [u for u in ents.units if u.get("id") in attacker]
@@ -1251,7 +1251,7 @@ def calibanite_greatsword_tree():
     `ExecuteBehaviour` -- corps VERIFIE identique). `AddStrikeEffects` est AUSSI le corps de la triggered
     `CalibaniteGreatsword_SetStartAbility` -> Forcas demarre la bataille en posture STRIKE.
 
-    `activeOnly = 0` est LU au decompile (`DSLFactory$$HasEffect(dsl, unitSel, effectType, activeOnly,
+    `activeOnly = 0` est LU au decompile (`IdunBattleLogic.Entities.DSLTriggers$$HasEffect(dsl, unitSel, effectType, activeOnly,
     sourceFlags)` : les call-sites AnvilShield passent 1, celui-ci 0) -> `active_only=False` cote port.
 
     L'ability est un TOGGLE PUR : aucune attaque, aucun degat, aucun tirage RNG. Toute la mecanique
