@@ -52,9 +52,16 @@ Reste vrai, et c'etait deja la :
 
 Le reste releve de l'EFFICACITE, et se regle :
 
-  * l'ORDRE DE JEU : du plus RECENT au plus ANCIEN. Les codes recents sont les seuls a avoir
-    une vraie chance -- mesure : les 15 succes du 2026-08-16 vont du 10 au 15 aout, rien
-    au-dela ;
+  * l'ORDRE DE JEU : du plus RECENT au plus ANCIEN -- c'est l'ordre qui maximise le rendement
+    par tentative, et il reste juste.
+    ⚠ MAIS << les codes recents sont les SEULS a avoir une vraie chance >> etait FAUX, et cette
+    ligne l'a fait croire. Elle s'appuyait sur les 15 succes du 2026-08-16, qui vont du 10 au
+    15 aout, et concluait << rien au-dela >> -- une observation d'UN SEUL jour promue en loi.
+    REFUTE le 2026-08-17 : en balayant les codes ANCIENS jusqu'a epuisement du budget,
+    `TACTICUSMM` (2026-07-08, QUARANTE jours) a rendu `Success`. Rendement mesure du balayage :
+    1 succes sur 17 codes anciens (~6 %), pas zero.
+    ⇒ un balayage des vieux codes VAUT le coup une fois le neuf epuise. Il ne coute que des
+    tentatives, et celles-ci se regenerent a 0 h UTC ;
   * l'ARRET SUR `AlreadyUsed` : dans cet ordre, un code deja consomme prouve qu'on avait deja
     reclame jusque-la, donc tout ce qui est plus ancien l'est aussi -- on arrete par INUTILITE ;
   * `--echecs-max` : arret apres N echecs consecutifs. DESACTIVE par defaut (0), puisque sous
