@@ -2828,15 +2828,28 @@ def register_attack_made(state, attacker_id: int, target_id: int,
     et 3) + `triggers/base._attack_range_type` (domaine runner), poses par #951-r1 -- qui consomme
     la MEME fonction native pour l'`inMelee` du vecteur de mort.
 
-    **CE QUI RESTE, ET C'EST LA SEULE RAISON DE NE PAS PORTER** : aucun consommateur ne l'exige.
-    Les TROIS consommateurs natifs de `IdunBattleLogic.Entities.DSLFormulas$$TimesAttackMadeThisTurn`
-    passent un `Nullable` VIDE -- `IconOfObstinacy_AddArmourBuffAbility` (#919), `LegacyOfCombat`
-    (#928), et `LeadingTheChargeAbility$$ExecuteBehaviour`, dont les DEUX appels passent
-    litteralement `(void *)0x0` (relu 2026-08-15). Un canal sans lecteur n'est pas validable
-    (patron #419). Ce qu'il faudra trancher le jour venu : le natif appelle `RegisterAttack` depuis
-    `FinishAttackOperation` (une fois par CIBLE, a la cloture) alors que le port appelle cette
-    fonction-ci depuis `_apply_damage_pipeline` -- les deux rangs devront etre reconcilies, pas
-    seulement le `rangeType` threade.
+    **PORT REFUSE, ET LE VERDICT EST SOUS CLIQUET DEPUIS #508-r2 (2026-08-18)** : aucun consommateur
+    ne l'exige, et ce n'est plus une prose mais un test.
+    `IdunBattle.Entities.Formulas.AmountOfAttacksMadeThisTurnFormula$$.ctor` -- la SEULE porte par
+    laquelle son `Nullable<AttackRangeType>` (`@+0x18`) puisse recevoir une valeur -- n'a qu'**UN**
+    appelant, `IdunBattleLogic.Entities.DSLFormulas$$TimesAttackMadeThisTurn`, qui a lui-meme
+    **QUATRE** call-sites pour **TROIS** abilities : `IconOfObstinacy_AddArmourBuffAbility` (#919),
+    `LegacyOfCombat` (#928) et `LeadingTheChargeAbility$$ExecuteBehaviour` (x2). Les QUATRE passent
+    litteralement `(void *)0x0` -- relus un par un le 2026-08-18 sur le build `t6dpr4k06g`. Et
+    `ActorStatisticsComponent` n'expose AUCUN getter sur `@+0x28`/`@+0x2c` : hors de cette formule,
+    rien ne peut les lire. Les deux compteurs sont donc du natif ECRIT-MAIS-JAMAIS-LU, et les porter
+    serait un canal sans lecteur (patron #419) dont le premier test devrait FABRIQUER une demande
+    que le jeu ne produit pas.
+    Cote PORT, la bijection est exacte : `unit_attacks_made_this_turn` a **4** sites d'appel dans
+    **3** modules, tous a DEUX arguments -- c'est-a-dire le bras `rangeType = null`.
+    Garde : `tests/engine/runner/test_508r2_range_type_sans_lecteur_offline.py` (5 tests ; **3
+    mutations, 3 rouges** : un lecteur qui reclame une portee, un compteur par portee pose sans
+    lecteur, et le demenagement de l'ecrivain). Il ROUGIT le jour ou l'une de ces trois conditions
+    change -- le port devient alors exigible AVEC son vecteur.
+    Ce qu'il faudra trancher ce jour-la, et que le cliquet FIGE (etage 4) : le natif appelle
+    `RegisterAttack` depuis `FinishAttackOperation` (une fois par CIBLE, a la cloture) alors que le
+    port appelle cette fonction-ci depuis `_apply_damage_pipeline` -- les deux rangs devront etre
+    reconcilies, pas seulement le `rangeType` threade.
 
     SEUL appelant natif : `IdunBattle.Operations.RegisterAttackOperation$$Execute` -- le MEME que
     `...$$RegisterAttackReceived`, dont le port place deja le mirror (`record_attacked`) dans le
