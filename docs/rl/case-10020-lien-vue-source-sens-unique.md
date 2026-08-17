@@ -953,3 +953,111 @@ Les deux voies encore ouvertes sont donc celles qui ne dependent PAS d'un etat t
 
 ⚠ **NE PAS re-proposer la fenetre positionnee** : elle est refutee ici par mesure, pas ecartee par
 prudence.
+
+## 22. LE GATE EST NOMME : `SandboxPvpBattleConfig.UseAccountUnits` -- et il ne coute AUCUN jeton
+
+Cette section **corrige les SS19 et SS21**. Les deux concluaient que la sandbox etait murée
+et qu'il fallait un prêteur ; le décompilé dit autre chose.
+
+### Le corps réel de `SandboxGameModeSource$$GetUnitModel`
+
+Le repli `HotseatUnitModel` n'est PAS le comportement de la méthode : c'est sa **dernière
+branche**. Il y a trois sorties avant lui.
+
+```
+prog = this->_unitProgression                       (+0x20, IUnitProgression)
+si   prog.IsNpcConfig(unitId)                       -> prog.GetUnitOfAnyKind(unitId, stripLevel: true)
+sinon si prog.IsSummon(unitId)                      -> prog.GetUnitOfAnyKind(unitId, stripLevel: true)
+sinon si sandboxConfig est SandboxPvpBattleConfig
+         ET sandboxConfig.UseAccountUnits           -> prog.GetUnit(unitId)     <- LE VRAI MODELE DE COMPTE
+sinon                                               -> new HotseatUnitModel(unitId, prog, 2, 0, 0)
+```
+
+⇒ Sens réel : **les NPC et les summons reçoivent leur vrai modèle de config ; les unités de
+JOUEUR reçoivent le banc d'essai à stats figées** — sauf si la config dit explicitement
+d'utiliser les unités du compte. C'est la neutralité de stats d'une sandbox, pas une lacune.
+
+### Comment les quatre index d'interface ont été nommés
+
+Les appels du décompilé passent par les helpers d'invocation d'interface, avec un index
+**relatif au bloc d'interface**, pas à la vtable de la classe. Le bloc de `IUnitProgression`
+n'est **pas dupliqué** dans `IdunMetaLogic.UserProgress.UnitProgression` : il pointe dans les
+virtuelles de la classe, à partir du **slot 4** (après les 4 slots de `System.Object`).
+
+| index | méthode | signature (`frida/methods.tsv`) |
+|---|---|---|
+| `0x1a` | `UnitProgression$$GetUnitOfAnyKind` | `(unitId: String, stripLevel: Boolean) -> IUnitModel` |
+| `0x1c` | `UnitProgression$$GetUnit` | `(unitId: String) -> IUnitModel` |
+| `0x2b` | `UnitProgression$$IsNpcConfig` | `(unitId: String) -> Boolean` |
+| `0x2c` | `UnitProgression$$IsSummon` | `(unitId: String) -> Boolean` |
+
+Concordance **4/4** sur trois axes indépendants : arité, type de retour, et *lequel* des deux
+helpers est employé (celui à 1 argument sur les deux booléens, celui à 2 arguments sur
+`GetUnitOfAnyKind`, appelé avec le littéral `true` = `stripLevel`). Les signatures viennent de
+la table de symboles **hors ligne**, donc d'une source indépendante de la vtable vivante.
+
+⚠ **Ce qui reste DÉRIVÉ** : le début de bloc (slot 4) est déduit de la disposition IL2CPP, il
+n'a pas été lu dans `interfaceOffsets`. La contre-épreuve sur le second implémenteur
+(`idun.tests.TestUnitProgression`) est **NON CONCLUANTE** — 16 slots non nuls, classe jamais
+peuplée, ce qui est le tri-état correct de `il2cpp/class-init.ts` et **pas** une réfutation.
+
+### Le sous-type et le champ, établis des DEUX côtés
+
+Le test de type porte sur un `Il2CppClass*` statique. **Cinq** fonctions le consomment, et
+elles sont **toutes PVP** : `idun.ui.SandboxContainer$$GetSandboxPvpBattleConfig`,
+`Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetHotSeatGameModeSpecificConfig`,
+`Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetHotseatSyncPvpConfig`,
+`IdunBattle.ViewLogic.BattleSource.EndlessBattleConfig.EndlessPvpBattleConfig$$GenerateSandboxBattleConfig`,
+et notre site. Côté **écriture**, `GetSandboxPvpBattleConfig` alloue sur ce même statique puis
+appelle `SandboxPvpBattleConfig$$.ctor` — l'identité est donc directe, pas inférée.
+
+Balayage `classFields` des **11** configs de sandbox : deux seulement ont un champ à `+0x34`.
+
+```
+SandboxPvpBattleConfig            +0x28 BoardId String   +0x30 SpawnpointSet Int32
+                                  +0x34 UseAccountUnits Boolean     <- CELUI-CI
+                                  +0x38 Player1Type      +0x3c Player2Type   +0x40 PlayerUnits
+SandboxCampaignEventBattleConfig  +0x34 Player1Type (PlayerType)    <- ecarte : pas un Boolean,
+                                  et aucune de ses fonctions ne consomme le statique testé
+```
+
+Le décompilé lit un **octet** (`*(char *)(cfg + 0x34) != 0`) : `UseAccountUnits`, `Boolean`,
+correspond exactement. Dans l'écran de sandbox natif, l'argument vient d'un octet du
+`SandboxContainer` — c'est une **case à cocher du mode développeur**.
+
+### Ce que ça change pour nous
+
+1. **La bataille montée est `SandboxWavesBattleConfig`** — qui n'est pas un
+   `SandboxPvpBattleConfig` et **n'a aucun champ `UseAccountUnits`**. La troisième branche
+   est donc inatteignable pour elle, quel que soit le réglage. Ce n'est pas un prêteur qui
+   manquait : c'est le mauvais type de config.
+2. **Deux leviers, aucun ne coûte de jeton** :
+   * monter une sandbox **PVP** avec `UseAccountUnits = true` — voie nativement prévue ;
+   * substituer `prog.GetUnit(unitId)` au retour de `SandboxGameModeSource$$GetUnitModel` —
+     indépendant du mode, mais c'est du `frida/hooks/*`, donc une fenêtre de reinject.
+3. ⚠ **Asymétrie native relevée, NON CHASSÉE** : `SandboxCampaignEventBattleConfig` porte lui
+   aussi un `UseAccountUnits` (à `+0x30`), mais `GetUnitModel` ne teste **que** le type PVP.
+   Un sandbox d'événement de campagne rendrait donc des `HotseatUnitModel` malgré son drapeau.
+
+### Deux corrections de plus
+
+* **Le SS19 attribuait le roster vide au prêteur au repos. C'est structurel.**
+  `SandboxGameModeSource$$GetUnitsForDeploymentHUD` et `$$GetUnlockedUnitsPooled` ont un corps
+  **identique** : un `DictionaryPooler` vide, et ils **ne lisent jamais `this`**. Aucune
+  configuration de la sandbox ne leur fera rendre un roster — d'où le fait que l'injection
+  manuelle (SS10-SS11) soit la seule chose qui ait marché.
+* **La voie « vrai prêteur actif » (SS21, option 1) est ÉCARTÉE, et pour deux raisons.**
+  D'abord elle **coûte un jeton** : positionner un prêteur veut dire ouvrir une vraie bataille,
+  or la tentative est enregistrée **AU CHARGEMENT** — établi sur le boss de guilde
+  (`GuildBossGameModeSource$$SendLoadBattleGameEventInternal` ->
+  `TempBattleData$$GenerateNewBattleId` + game-event) — et l'abandonner ne décrémente aucun
+  compteur local. Sur un mode sans retraite, le montage brûlerait le jeton avant le premier
+  tour. Ensuite elle **n'apporte rien** : `CampaignGameModeSource$$GetUnitModel` est un relais
+  PUR vers exactement `prog.GetUnitOfAnyKind(unitId, true)`, sans lire aucun champ de position
+  (`_currentCampaignId`, `_currentLocationIndex`, `_currentMatch`). Emprunter rendait donc
+  l'appel que la sandbox fait déjà dans sa première branche.
+
+⚠ **Le vice commun aux SS12, SS15, SS17, SS19 et SS21 : ranger deux méthodes ensemble parce
+qu'elles portent le même préfixe et vivent sur la même interface.** `GetUnitsForDeploymentHUD`
+dépend de l'état du mode, `GetUnitModel` n'en dépend pas du tout. Lire le CORPS aurait coûté
+un appel.
