@@ -152,6 +152,13 @@ type Arg =
     | { genre: "texte"; valeur: string | null }
     | { genre: "unite"; id: string; voie?: "unit" | "npc" | "summon" }
     | { genre: "unites"; ids: string[]; voie?: "unit" | "npc" | "summon" }
+    // ⚠ UN `List`1` NE DIT PAS SA PROFONDEUR. `SandboxPvpBattleConfig..ctor` déclare
+    // `playerUnits : List<List<IUnitModel>>` (une liste PAR JOUEUR), et la classe inflatée
+    // s'affiche `List`1` exactement comme un `List<IUnitModel>`. Or `il2cpp_runtime_invoke`
+    // ne type-check pas : `unites` y ajouterait des `IUnitModel` sans rien lever, et la
+    // corruption ne se verrait qu'à l'itération côté jeu. D'où un genre SÉPARÉ.
+    | { genre: "unitesParJoueur";
+        joueurs: Array<{ ids: string[]; voie?: "unit" | "npc" | "summon" }> }
     | { genre: "json"; valeur: unknown }         // DTO, List<String>, Dictionary<...>
     | { genre: "nul" };
 
@@ -267,6 +274,15 @@ function lier(
             if (estRefus(l)) return l;
             const add = findMethodByParamCount(kParam, "Add", 1);
             if (!add) return refus("`Add` à 1 paramètre absent de " + nomDeClasse(kParam));
+            // GARDE : le paramètre attend-il des LISTES ? Le nom de classe ne le dit pas
+            // (`List`1` des deux côtés) -- l'élément, lui, le dit. Sans ce refus on écrirait
+            // des `IUnitModel` dans un `List<List<...>>` SANS que rien ne lève.
+            const kElem = methodParamClass(add.info, 0);
+            if (nomDeClasse(kElem) === "List`1") {
+                return refus("ce paramètre est une LISTE DE LISTES (" + nomDeClasse(kParam)
+                    + " d'éléments `List`1`) -- utilise `unitesParJoueur`, une entrée par "
+                    + "joueur. `unites` y écrirait des modèles à plat, sans rien lever.");
+            }
             for (const id of a.ids) {
                 const m = modeleUnite(prog, id, a.voie ?? "unit");
                 if (estRefus(m)) return m;
@@ -274,6 +290,44 @@ function lier(
                 catch (e) { return refus("Add(" + id + ") a levé : " + (e as Error).message); }
             }
             return l;
+        }
+        case "unitesParJoueur": {
+            if (!kParam) return refus("classe du paramètre illisible -- liste non constructible");
+            const ext = collectionVide(kParam);
+            if (estRefus(ext)) return ext;
+            const addExt = findMethodByParamCount(kParam, "Add", 1);
+            if (!addExt) return refus("`Add` à 1 paramètre absent de " + nomDeClasse(kParam));
+            // La classe de la liste INTERNE se lit sur le paramètre d'`Add`, jamais par nom :
+            // le nom d'un générique inflaté n'est pas indexé, et `List`1` ne distingue pas
+            // `List<IUnitModel>` de `List<List<IUnitModel>>`.
+            const kInt = methodParamClass(addExt.info, 0);
+            if (!kInt) return refus("classe de l'élément de " + nomDeClasse(kParam)
+                + " illisible -- on ne devine pas le type de la liste interne");
+            const addInt = findMethodByParamCount(kInt, "Add", 1);
+            if (!addInt) {
+                return refus("`Add` à 1 paramètre absent de l'élément `"
+                    + (nomDeClasse(kInt) ?? "?") + "` -- ce paramètre n'est PAS une liste de "
+                    + "listes ; c'est `unites` qu'il faut, pas `unitesParJoueur`");
+            }
+            for (let j = 0; j < a.joueurs.length; j++) {
+                const interne = collectionVide(kInt);
+                if (estRefus(interne)) return interne;
+                for (const id of a.joueurs[j].ids) {
+                    const m = modeleUnite(prog, id, a.joueurs[j].voie ?? "unit");
+                    if (estRefus(m)) return refus("joueur " + j + " : " + m.error);
+                    try { invokeMethod(addInt.info, interne, [m]); }
+                    catch (e) {
+                        return refus("joueur " + j + " : Add(" + id + ") a levé : "
+                            + (e as Error).message);
+                    }
+                }
+                try { invokeMethod(addExt.info, ext, [interne]); }
+                catch (e) {
+                    return refus("Add(liste du joueur " + j + ") a levé : "
+                        + (e as Error).message);
+                }
+            }
+            return ext;
         }
         case "json": {
             if (!kParam) return refus("classe du paramètre illisible -- JSON non liable");
