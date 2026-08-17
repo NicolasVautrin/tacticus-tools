@@ -630,3 +630,64 @@ une BC que le jeu ne fabriquerait jamais (12 heros poses pour un plafond de 5). 
 du jeu : c'est un piege de notre outillage, et il fabrique un specimen hors-spec sur lequel on
 diagnostique ensuite le HUD. Garde a poser : refuser (ou au moins NOMMER) un `--units` plus long que
 `MaxUnitsPossibleToStartBattle`.
+
+## 15. LE GARDE EST `IsUnlocked` -- et `Show` alimente le dictionnaire LUI-MEME
+
+Decompile de `idun.ui.UnitDeploymentHud$$Show(units, minUnitsPossible, maxUnitsPossible,
+gameModeSpecificOptions)`, le 2026-08-17. Il repond a toutes les questions ouvertes du SS13.
+
+```c
+this+0x228 = maxUnitsPossible      this+0x224 = minUnitsPossible
+this+0x230 = units                 this+0x22c = 0        // _disabledInput remis a FAUX ici meme
+foreach (u in units) {
+    Dictionary.Add(this+0x240, configId(u), u)                  // TOUS les modeles
+    if (IdunMetaLogic.UserProgress.Model.IUnitModelExtensions$$IsUnlocked(u))
+        Dictionary.Add(this+0x248, configId(u), u)              // _allUnlockedUnitModels
+}
+```
+
+**TROIS CHOSES TOMBENT.**
+
+1. **`_allUnlockedUnitModels` EST alimente par la liste qu'on injecte** -- via `Show`, donc via
+   `GetUnitsForDeploymentHUD` -> `MapAsList`. Le SS12 avait raison sur la CIBLE (c'est bien ce
+   dictionnaire que le garde interroge) et tort sur la SOURCE (ce n'est pas
+   `GetUnlockedUnitsPooled`, cf. SS13). Le mirror est donc inutile a ce blocage.
+
+2. **LE FILTRE EST `IsUnlocked(u)`.** Seuls les modeles DEBLOQUES entrent dans le dictionnaire que
+   `TryMarkUnitAsPlaced` consulte. C'est exactement l'ecart mesure : le roster S'AFFICHE (depuis
+   `_units`, `+0x230`, sans filtre) et la pose REFUSE (rien n'a passe `IsUnlocked`).
+   => La question n'est plus << pourquoi le dictionnaire est-il vide >> mais **<< pourquoi nos
+   modeles ne sont-ils pas DEBLOQUES >>**, ce qui porte sur le CONVERTISSEUR de `MapAsList`.
+
+3. **`_disabledInput` N'A JAMAIS ETE LE BLOCAGE** : `Show` le remet a `0` lui-meme. Le test
+   `UpdateDisableInput(false)` (garde inchange apres) etait donc juste, mais pour une raison que je
+   n'avais pas : le champ etait deja faux. Le setter, lui, ecrit bien `this+0x22c` -- verifie au
+   decompile, la conclusion n'etait pas vacante.
+
+⚠ **Et `Show` FILTRE ENCORE APRES** : `List.RemoveAll(units, predicate)` avant
+`ShowStandardUnitSelection`. Ce que le joueur voit n'est donc pas exactement ce qu'on a injecte.
+
+### Ce que ca laisse comme prochain geste
+
+Invoquer `IUnitModelExtensions$$IsUnlocked` sur un modele issu du convertisseur, et regarder
+pourquoi il rend faux. Deux directions, non departagees : le convertisseur fabrique un modele
+MINIMAL depuis la seule chaine d'id (donc sans etat de possession), ou il resout contre une
+progression qui n'est pas celle du compte.
+
+⚠ **NE PAS conclure de la reussite de l'AFFICHAGE que les modeles sont valides** : c'est
+precisement l'ecart que ce paragraphe explique, et c'est la troisieme fois dans ce dossier qu'un
+succes visible masque un contrat non rempli (apres << atteignable != appelee >> au SS6, et
+<< meme famille de nom => meme role >> au SS12).
+
+## 16. LE PLAFOND VARIE PAR NOEUD -- le SS14 ne vaut QUE pour la sandbox
+
+Precision apportee par l'utilisateur : **certains noeuds de campagne n'autorisent que 3 heros.**
+
+Le SS14 mesure `SandboxGameModeSource$$MaxUnitsPossibleToStartBattle`, qui lit
+`gameConfig->+0x10->+0x80` -- une valeur GLOBALE. Cette lecture est juste **pour la sandbox**, et
+le SS14 ne doit pas se lire comme << le plafond du jeu est 5 partout >>. Chaque source a SA
+methode ; celle de la campagne lit vraisemblablement le noeud, et le `Min = 3` releve au SS10 est
+coherent avec un plafond qui varie par bataille.
+
+=> Le garde a poser sur `sandbox_mode.py --units` compare a la valeur de **la source montee**,
+jamais a un 5 ecrit en dur.
