@@ -485,3 +485,29 @@ donc lisible sur un jeu figé) rendait `arme: false`, `ancrage: {relais: null, e
 callback d'armement attendait dans une file que le thread principal ne drainait plus. Le `500`
 qu'elle a rendu était un timeout de file, pas une faute de son code — **le lire comme une faute du
 dernier code écrit aurait envoyé chercher au mauvais endroit.**
+
+## 11. LE ROSTER NE S'INJECTE PAS LIBREMENT -- son vivier vient de la BC
+
+Mesure du 2026-08-17, session 30. Trois faits qui recadrent la tranche.
+
+**a. Le remplissage atteint l'ecran, mais SEULEMENT pour les unites DE LA BC.** Le lot de 5 --
+exactement les `--units` du montage -- a fait passer le roster de VIDE a 5 visibles (confirme a
+l'ecran par l'utilisateur). Les lots de 40 puis 18 ids **etrangers a la bataille** rendent
+`ajoutes: 40` / `18` sans erreur cote conteneur, **puis font LEVER la reconstruction** : `Enter()`
+rend `system error` en **0,2 s**. La duree est le discriminant : elle exclut l'hypothese
+<< reconstruction trop lente >> que le premier 500 avait suggeree, et que j'ai d'abord retenue.
+
+=> **Le << n >> de << 5 max parmi n >> vient de la BC, pas du hook.** Le levier est
+`sandbox_mode.py start --units <n ids>`. Injecter le roster reste utile pour OBSERVER le contrat du
+stub ; ce n'est pas la voie pour composer un vivier.
+
+**b. Un second `start` dans la MEME session est un NO-OP pour la scene.** Apres un montage reussi,
+tout `start` suivant rend de nouveaux pointeurs source/config et **n'appelle pas**
+`IdunBattle.View.Game.IdunGameViews$$Enable` -- `relaisFires` reste fige. Seul le PREMIER montage
+apres une session fraiche reconstruit. Le script l'annonce deja (<< l'appel est passe >> ne dit rien
+du montage) ; le compteur du hook en fait une **mesure** au lieu d'un avertissement.
+=> toute variation de `--units` exige un cycle propre.
+
+**c. `GetPlayerPower()` ne mesure RIEN dans ce regime** -- il rend 0 avant comme apres un `Clear`,
+avec ou sans unites au roster. Ne pas s'en servir pour conclure ici, contrairement a l'usage qu'en
+fait `case-596` sur une bataille de campagne. Un temoin valide ailleurs ne l'est pas partout.
