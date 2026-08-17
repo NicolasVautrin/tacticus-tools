@@ -76,7 +76,9 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 // qui rend `null` sur ce qu'il est censé identifier ne sert qu'à moitié.
 import { readIl2cppString } from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
-import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
+import {
+    getCampaignGameModeSourcePtr, getPvpGameModeSourcePtr, getUnitProgressionPtr,
+} from "./campaign-builder.js";
 import { Ctx } from "../controller.js";
 
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
@@ -677,6 +679,14 @@ function armerHud(): true | Refus {
                             ? null : self.hud.add(offInput).readU8() !== 0,
                     };
                 } catch (e) { hudEtat = { erreur: (e as Error).message }; }
+                // Le TÉMOIN D'ORDRE du capteur `StartMatch` : compter les affichages du HUD
+                // suffit à dire si `StartMatch` a tiré AVANT (donc au montage) ou APRÈS (donc
+                // au clic). Pas d'horloge à interpréter, pas de natif invoqué.
+                showFires++;
+                // ⛔ ON N'INVOQUE RIEN ICI — on ENFILE. Sans ce cran, une BC pré-remplie affiche
+                // un START gris : le HUD ne compte que ce que LUI a posé, et `UpdateButtons`
+                // n'a aucun appelant après le montage dans ce régime.
+                if (syncAuto) planifierSync(6);
             },
         });
     }
@@ -731,6 +741,17 @@ function armerHud(): true | Refus {
                     hudBoard.push({ unitId: self.uid, col: self.c, row: self.r,
                                     manuel: self.m, playerId: self.p,
                                     retour: retval.toInt32() & 0xff });
+                }
+                // ⛔ ON N'INVOQUE RIEN ICI — on ENFILE. Sans ce cran, la pose ne produit qu'un
+                // `PlaceholderUnitView` que rien ne convertit en sandbox : START démarre une
+                // bataille sans unité du joueur, qui se termine aussitôt.
+                //
+                // ⚠ Le retour n'est PAS un critère : mesuré, `AddPlaceholderUnit` rend `0`
+                // AUSSI en succès (sa dernière instruction est une émission d'événement). On
+                // enfile donc sur la pose, et c'est la RELECTURE DU PLATEAU qui tranche.
+                if (poseCommitAuto && self.uid !== null && self.uid !== "") {
+                    committerUnePose({ unitId: self.uid, playerId: self.p,
+                                       col: self.c, row: self.r });
                 }
             },
         });
@@ -1031,6 +1052,50 @@ const idsAvecPrefab: string[] = [];
 let dicoDeGet: NativePointer | null = null;     // le `this` du dernier `Get` -- l'AUTORITÉ
 let vuesDePose: NativePointer | null = null;    // le `this` d'`Enable` / `AddPlaceholderUnit`
 let listenerVue: InvocationListener | null = null;
+const listenersVue: InvocationListener[] = [];
+
+// --- CAPTEUR PUR sur `IdunBattle.Runner.IdunRunner$$StartMatch` -------------------------------
+// Deux questions d'un coup, et AUCUNE écriture :
+//   QUAND  -- `showsAvant` compte les affichages du HUD de déploiement déjà survenus. Tirer à
+//             `showsAvant == 0` = au MONTAGE ; à `showsAvant >= 1` = APRÈS l'écran, donc au clic.
+//             Un compteur d'ordre répond mieux qu'une horloge : rien à interpréter.
+//   SUR QUI -- `runner` est le `this` de l'appel, comparé au runner publié par le pump. Égaux
+//             ⇒ UN SEUL runner (chargé puis démarré). Différents ⇒ il y en a bien deux.
+let showFires = 0;
+let listenerRunnerStart: InvocationListener | null = null;
+const startMatchTrace: Array<Record<string, unknown>> = [];
+
+function armerRunnerStart(): true | Refus {
+    if (listenerRunnerStart) return true;
+    const kr = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
+    const mi = kr ? findMethodByParamCount(kr, "StartMatch", 0) : null;
+    if (!mi) return refus("`IdunBattle.Runner.IdunRunner$$StartMatch` INTROUVABLE (0 paramètre)");
+    const t = lireTete(mi.ptr);
+    if (t.erreur !== null) return refus(`tête de \`StartMatch\` ILLISIBLE (${t.erreur})`);
+    if (teteTriviale(t)) {
+        return refus("REFUS : `IdunRunner$$StartMatch` résout sur un corps TRIVIAL (ret à "
+            + `l'octet ${t.retA}) -- adresse PARTAGÉE par déduplication, s'y attacher `
+            + "basculerait N méthodes");
+    }
+    listenerRunnerStart = Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            // ⛔ Lecture pure : un `toString()` et des compteurs JS. Aucun natif invoqué.
+            if (startMatchTrace.length >= 16) return;
+            const vivant = state.liveRunner;
+            startMatchTrace.push({
+                ordre: startMatchTrace.length + 1,
+                showsAvant: showFires,
+                quand: showFires === 0 ? "AU MONTAGE (avant tout écran de déploiement)"
+                                       : "APRES l'écran de déploiement (donc au clic START)",
+                runner: args[0].toString(),
+                runnerVivantDuPump: vivant === null ? null : vivant.toString(),
+                memeRunner: vivant === null ? null : vivant.equals(args[0]),
+            });
+        },
+    });
+    Interceptor.flush();
+    return true;
+}
 /** Ce qu'a donné chaque tentative de capture de la vue. Publié — jamais avalé. */
 const captureVue: string[] = [];
 
@@ -1098,18 +1163,36 @@ function armerPrefab(): true | Refus {
     // capteur qui échoue en silence coûte plus cher que pas de capteur du tout.
     const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
     if (!listenerVue && kv) {
-        for (const [nom, np] of [["Enable", 1], ["Continue", 0], ["Clear", 0]] as const) {
+        // ⚠ DEUX CORRECTIFS ICI, ET LE SECOND EST CELUI QUI COMPTE.
+        //
+        // (1) L'affectation était CONDITIONNELLE (`if (vuesDePose === null)`) : un verrou. Une
+        //     fois posée, elle ne suivait plus jamais.
+        // (2) L'armement s'ARRÊTAIT AU PREMIER trouvé — `Continue` — qui ne tire PAS d'une
+        //     bataille à l'autre. Corriger (1) seul ne changeait donc RIEN : mesuré, second
+        //     montage encore à `total=0` avec le pointeur figé pendant 12 s.
+        //
+        // On en arme donc PLUSIEURS. `Initialize` tire à chaque mise en place de plateau ;
+        // `AddUnit` est l'autorité absolue, puisque l'objet qui la reçoit EST celui qui porte
+        // les vues qu'on compte ensuite.
+        //
+        // ⚠ Le symptôme était MUET et TROMPEUR : `0 unité` se lit « plateau vide » alors que
+        // l'écran montrait les unités. C'est l'observation de l'utilisateur qui a tranché,
+        // pas mes chiffres.
+        for (const [nom, np] of
+             [["Initialize", 2], ["AddUnit", 7], ["Continue", 0], ["Enable", 1]] as const) {
             const mv = findMethodByParamCount(kv, nom, np);
             if (!mv) { captureVue.push(`${nom}(${np}) : INTROUVABLE`); continue; }
             const tv = lireTete(mv.ptr);
             if (tv.erreur !== null) { captureVue.push(`${nom} : tête ILLISIBLE`); continue; }
             if (teteTriviale(tv)) { captureVue.push(`${nom} : corps TRIVIAL, refusé`); continue; }
-            listenerVue = Interceptor.attach(mv.ptr, {
-                onEnter(args) { if (vuesDePose === null) vuesDePose = args[0]; },
-            });
+            listenersVue.push(Interceptor.attach(mv.ptr, {
+                onEnter(args) { if (!args[0].isNull()) vuesDePose = args[0]; },
+            }));
             captureVue.push(`${nom} : ARMÉ`);
-            break;
         }
+        listenerVue = listenersVue.length > 0 ? listenersVue[0] : null;
+        if (listenersVue.length === 0) captureVue.push("AUCUN capteur de vue armé -- `vuesDePose` "
+            + "ne suivra PAS les changements de bataille");
     }
     listenerAdd = Interceptor.attach(mi.ptr, {
         onEnter(args) {
@@ -1782,15 +1865,37 @@ function compterSurLePlateau(): Record<string, number | string> {
     return out;
 }
 
+/** Une unité RÉELLE du plateau, telle que sa vue la déclare. */
+interface UniteDuPlateau {
+    unitId: string | null;
+    /** `AUnitView.<Id>` — l'entité DE L'UNITÉ. C'est ce qu'attend `RemoveUnitMessage`. */
+    entityId: number;
+    /** `AUnitView.<PlayerId>` — ce qu'attend `AddUnitMessage`. */
+    playerId: number | null;
+    /** `AUnitView.<PlayerEntityId>` — l'entité DU JOUEUR, ce qui apparie l'unité à son camp. */
+    playerEntityId: number;
+    /** `AUnitView$$get_LogicalPosition` — la tuile RÉELLEMENT occupée. `null` = non lue.
+     *  ⚠ Sans elle on ne peut pas dire si une pose échoue par la TUILE ou par le CATALOGUE :
+     *  mesuré, `ultraApothecary` (dans la BC ET dans le lineup) n'apparaît pas en (0,0), tandis
+     *  qu'`admecMarshall` (hors BC native) apparaît en (4,1) et (4,2). */
+    col: number | null;
+    row: number | null;
+    duJoueur: boolean;
+}
+
 /**
- * Les `unitId` des unités du JOUEUR HUMAIN actuellement sur le plateau.
+ * L'inventaire des unités RÉELLEMENT présentes sur le plateau, une entrée par vue.
  *
  * ⚠ LE JOUEUR SE DEMANDE PAR `FirstPlayerEntityIdOfHumanOnThisDevice`, PAS PAR
  * `get_CurrentPlayerEntityId` : le second désigne le joueur DU TOUR COURANT, et pendant le
  * déploiement il ne désigne pas le propriétaire de l'appareil. Mesuré : le premier apparie 5
  * unités sur 8, le second en appariait **0**.
+ *
+ * ⚠ TROIS NUMÉROTATIONS COEXISTENT sur une vue, et les confondre ne lève RIEN — on les publie
+ * donc toutes les trois plutôt que d'en élire une (c'est ainsi qu'on a vu que le `playerId 11`
+ * de l'écran était JUSTE, après l'avoir soupçonné à tort).
  */
-function idsDesUnitesDuJoueur(): string[] | string {
+function unitesDuPlateau(): UniteDuPlateau[] | string {
     const vues = vuesDePose;
     if (vues === null || vues.isNull()) return "aucune `IdunGameViews` observée";
     return (() => {
@@ -1833,10 +1938,14 @@ function idsDesUnitesDuJoueur(): string[] | string {
             if (tailleElem <= 0 || tailleElem > 128) {
                 return `taille d'element derivee invraisemblable (${tailleElem})`;
             }
-            const trouves: string[] = [];
+            const trouves: UniteDuPlateau[] = [];
             let offJoueur = -1;
             let offUnitId = -1;
             let offPlayerId = -1;
+            let offId = -1;
+            // `undefined` = pas encore cherché ; `null` = cherché et ABSENT. Les distinguer évite
+            // de relancer la résolution à chaque vue.
+            let mPos: ReturnType<typeof findMethodByParamCount> | undefined;
             let lus = 0;
             const vus: number[] = [];
             const couples: string[] = [];
@@ -1851,8 +1960,12 @@ function idsDesUnitesDuJoueur(): string[] | string {
                                                "<PlayerEntityId>k__BackingField");
                     offPlayerId = getFieldOffset(uv.readPointer(), "<PlayerId>k__BackingField");
                     offUnitId = getFieldOffset(uv.readPointer(), "<UnitId>k__BackingField");
+                    // `AUnitView.<Id>` : l'entité de l'UNITÉ, distincte des deux ids de JOUEUR
+                    // lus juste au-dessus. Sans elle, aucun retrait n'est adressable.
+                    offId = getFieldOffset(uv.readPointer(), "<Id>k__BackingField");
                     if (offJoueur < 0) return "champ `<PlayerEntityId>k__BackingField` ABSENT";
                     if (offUnitId < 0) return "champ `<UnitId>k__BackingField` ABSENT";
+                    if (offId < 0) return "champ `<Id>k__BackingField` ABSENT";
                 }
                 lus++;
                 const idVue = uv.add(offJoueur).readS32();
@@ -1866,9 +1979,36 @@ function idsDesUnitesDuJoueur(): string[] | string {
                     const c = `${uv.add(offPlayerId).readS32()}/${idVue}`;
                     if (couples.indexOf(c) < 0) couples.push(c);
                 }
-                if (idVue !== idCourant) continue;
-                const nom = readIl2cppString(uv.add(offUnitId).readPointer());
-                if (nom !== null && nom !== "") trouves.push(nom);
+                // On enregistre les DEUX camps : c'est le seul moyen de dire « 0 unité du joueur
+                // sur 8 vues lues » plutôt qu'un zéro muet qui ne distingue pas le plateau vide
+                // de l'appariement faux.
+                let nom: string | null = null;
+                try { nom = readIl2cppString(uv.add(offUnitId).readPointer()); } catch { nom = null; }
+                // La TUILE. `get_LogicalPosition` rend un `AxialCoordinate` — un TYPE VALEUR,
+                // donc `runtime_invoke` le BOXE : `Column` est à +0x10, `Row` à +0x14. Lire le
+                // pointeur lui-même rendrait n'importe quoi (même piège que `boolBoxe`).
+                let col: number | null = null;
+                let row: number | null = null;
+                try {
+                    if (mPos === undefined) {
+                        mPos = findMethodByParamCount(uv.readPointer(), "get_LogicalPosition", 0);
+                    }
+                    if (mPos) {
+                        const boite = invokeMethod(mPos.info, uv, null);
+                        if (!boite.isNull()) {
+                            col = boite.add(0x10).readS32();
+                            row = boite.add(0x14).readS32();
+                        }
+                    }
+                } catch { col = null; row = null; }
+                trouves.push({
+                    unitId: nom === "" ? null : nom,
+                    entityId: uv.add(offId).readS32(),
+                    playerId: offPlayerId >= 0 ? uv.add(offPlayerId).readS32() : null,
+                    playerEntityId: idVue,
+                    col, row,
+                    duJoueur: idVue === idCourant,
+                });
             }
             // Le parcours se CONTROLE : si on n'a pas lu autant de vues que le dictionnaire en
             // annonce, la disposition supposee est fausse et le compte ne vaut RIEN.
@@ -1881,6 +2021,306 @@ function idsDesUnitesDuJoueur(): string[] | string {
             return trouves;
         } catch (e) { return "LEVÉ : " + (e as Error).message; }
     })();
+}
+
+/** Les `unitId` des unités du JOUEUR HUMAIN sur le plateau — la vue « noms » de l'inventaire.
+ *  UN SEUL parcours existe (`unitesDuPlateau`), avec UN SEUL contrôle de cohérence : deux
+ *  lecteurs indépendants du même dictionnaire finiraient par diverger en silence. */
+function idsDesUnitesDuJoueur(): string[] | string {
+    const u = unitesDuPlateau();
+    if (!Array.isArray(u)) return u;
+    return u.filter((x) => x.duJoueur && x.unitId !== null).map((x) => x.unitId as string);
+}
+
+// ---------------------------------------------------------------------------------------------
+// LE RETRAIT — le symétrique exact de `deploymentCommit`.
+//
+// Le déploiement natif ne sait ôter que des `PlaceholderUnitView` : quand les unités viennent de
+// `bc.Units`, le runner les a créées AU MONTAGE, elles sont RÉELLES, et le clear du HUD n'a
+// aucune prise sur elles. Il vide sa liste (donc grise START) et laisse le plateau intact.
+//
+// Le chemin qui les ôte pour de vrai est le même que pour la pose : un message d'entrée appliqué
+// au runner VIVANT. `IdunBattle.Messages.InputMessageProcessor$$Visit` en a une surcharge dédiée.
+// ---------------------------------------------------------------------------------------------
+
+const NS_MESSAGES = "IdunBattle.Messages";
+
+/**
+ * Le message que le jeu emploie lui-même pour ôter une unité — construit, jamais deviné.
+ *
+ * `RemoveUnitMessage` porte UN SEUL champ (`UnitId : BEntityId`), et
+ * `IdunBattle.Messages.InputMessageProcessor$$Visit` ne lit que celui-là (4 octets) avant de
+ * résoudre l'entité et d'appeler `IdunBattle.Operations.RemoveUnitOperation$$Execute` avec
+ * `removeEffects: true, keepActive: false` — les deux littéraux sont dans le décompilé.
+ *
+ * ⚠ AUCUN `.ctor` n'est invoqué, et c'est un choix MESURÉ, pas une facilité : la classe n'en
+ * publie pas dans `frida/methods.tsv` — ce qui ne prouve rien (IL2CPP déduplique les corps
+ * triviaux) — mais son unique champ est un entier et le lecteur natif ne lit que lui. L'écrire
+ * EST donc la construction complète.
+ *
+ * ⚠ L'offset est DÉRIVÉ par `getFieldOffset`, jamais le `+0x10` qu'on a mesuré : un offset
+ * recopié devient faux au prochain build, en silence.
+ *
+ * ⚠ Rendu PINNÉ, comme `buildAddUnitMessage` : l'appelant DOIT `gcRoot.remove(msg)` après
+ * l'`Apply`, sinon la racine GC s'accumule à chaque retrait.
+ */
+function buildRemoveUnitMessage(entityId: number): NativePointer {
+    const k = findClassAnywhere(NS_MESSAGES, "RemoveUnitMessage");
+    if (!k) throw new Error("`IdunBattle.Messages.RemoveUnitMessage` INTROUVABLE sur ce build");
+    const off = getFieldOffset(k, "UnitId");
+    if (off < 0) throw new Error("champ `UnitId` ABSENT de `RemoveUnitMessage` -- chemin PÉRIMÉ");
+    const msg = il2cpp_object_new(k) as NativePointer;
+    if (msg.isNull()) throw new Error("`il2cpp_object_new(RemoveUnitMessage)` a rendu NUL");
+    gcRoot.add(msg);
+    msg.add(off).writeS32(entityId);
+    return msg;
+}
+
+/** Applique un `RemoveUnitMessage` par cible. `cibles === null` ⇒ toutes les unités du joueur.
+ *  ⚠ À APPELER DEPUIS LA FILE DU THREAD PRINCIPAL, jamais d'un callback d'interception. */
+function retirerDuRunner(cibles: number[] | null): Record<string, unknown> | Refus {
+    const avant = unitesDuPlateau();
+    if (!Array.isArray(avant)) return refus("plateau non lisible : " + avant);
+    const ids = cibles ?? avant.filter((u) => u.duJoueur).map((u) => u.entityId);
+    if (ids.length === 0) {
+        // ⚠ Un zéro DÉSIGNE SON SUSPECT. Ce refus a déjà menti une fois : le plateau portait
+        // bien ses unités, c'est `vuesDePose` qui pointait sur la vue d'une bataille morte.
+        return refus("aucune unité du joueur sur le plateau -- rien à retirer. Vue interrogée : "
+            + `${vuesDePose === null ? "AUCUNE" : vuesDePose.toString()}, ${avant.length} vue(s) `
+            + "lue(s) tous camps confondus. Si la bataille est bien montée, c'est cette "
+            + "vue-là qui est PÉRIMÉE, pas le plateau qui est vide.");
+    }
+    const runner = state.liveRunner;
+    if (runner === null || runner.isNull()) {
+        return refus("aucun runner vivant publié par le pump -- `state.liveRunner` est NUL, "
+            + "ce qui n'est PAS « zéro unité »");
+    }
+    const kr = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
+    const mApply = kr ? findMethodByParamCount(kr, "Apply", 1) : null;
+    if (!mApply) return refus("`IdunBattle.Runner.IdunRunner$$Apply` INTROUVABLE");
+    const nomDe = new Map<number, string | null>(avant.map((u) => [u.entityId, u.unitId]));
+    const faits: Array<{ entityId: number; unitId: string | null;
+                         ok: boolean; detail: string }> = [];
+    for (const id of ids) {
+        let msg: NativePointer | null = null;
+        try {
+            msg = buildRemoveUnitMessage(id);
+            invokeMethod(mApply.info, runner, [msg]);
+            faits.push({ entityId: id, unitId: nomDe.get(id) ?? null, ok: true,
+                         detail: "`Apply` passé" });
+        } catch (e) {
+            faits.push({ entityId: id, unitId: nomDe.get(id) ?? null, ok: false,
+                         detail: "LEVÉ : " + (e as Error).message });
+        } finally {
+            if (msg !== null) { try { gcRoot.remove(msg); } catch { /* best effort */ } }
+        }
+    }
+    // ⚠ READ-AFTER-WRITE. Une observation prise AVANT la mutation ne dit rien de ce qu'elle a
+    // fait, et « `Apply` n'a pas levé » n'est PAS « l'unité a disparu » : mesuré sur
+    // `AddUnitMessage`, l'appel passe sans erreur et rien n'apparaît quand la configuration
+    // manque à la BC. On relit donc, et on publie les deux comptes.
+    const apres = unitesDuPlateau();
+    return {
+        ok: true, faits,
+        retirees: faits.filter((f) => f.ok).length, visees: ids.length,
+        surPlateauAvant: avant.filter((u) => u.duJoueur).length,
+        surPlateauApres: Array.isArray(apres)
+            ? apres.filter((u) => u.duJoueur).length : apres,
+        note: "le retrait de la VUE passe par le flux de bataille "
+            + "(`IdunBattle.View.BattleStream.StepHandlers.RemoveUnitStepHandler`), qui peut "
+            + "traîner d'une frame ou deux : `surPlateauApres` est un instantané, pas un verdict",
+    };
+}
+
+/** Déclare au HUD les unités DÉJÀ présentes sur le plateau, puis provoque le rafraîchissement
+ *  du bouton. C'est ce qui rend START actif quand les unités viennent de `bc.Units` : le HUD ne
+ *  compte que ce que LUI a posé, or sur une BC pré-remplie il n'a rien posé.
+ *  ⚠ À APPELER DEPUIS LA FILE DU THREAD PRINCIPAL. */
+function marquerLesUnitesDuPlateau(): Record<string, unknown> | Refus {
+    const ids = idsDesUnitesDuJoueur();
+    if (!Array.isArray(ids)) return refus("plateau non lisible : " + ids);
+    if (ids.length === 0) return refus("aucune unité du joueur sur le plateau");
+    if (hudInstance === null || hudInstance.isNull()) {
+        return refus("aucune instance de HUD captée");
+    }
+    const c = classeDerriere(hudInstance);
+    if (c.classe !== CLS_HUD) {
+        return refus(`le pointeur de HUD ne porte plus \`${CLS_HUD}\` mais `
+            + `\`${c.classe ?? c.erreur}\` -- PÉRIMÉ`);
+    }
+    const kh = findClassAnywhere(NS_HUD, CLS_HUD);
+    const mMark = kh ? findMethodByParamCount(kh, "TryMarkUnitAsPlaced", 2) : null;
+    const mUp = kh ? findMethodByParamCount(kh, "UpdateButtons", 0) : null;
+    if (!mMark) return refus("`TryMarkUnitAsPlaced` INTROUVABLE (2 paramètres)");
+    const faits: Array<{ unitId: string; accepte: boolean | string }> = [];
+    const faux = Memory.alloc(1); faux.writeU8(0);   // `isMachineOfWar: false`
+    for (const id of ids) {
+        try {
+            const r = invokeMethod(mMark.info, hudInstance, [createManagedString(id), faux]);
+            // ⚠ retour BOXÉ : le booléen est à +0x10, pas dans le pointeur.
+            faits.push({ unitId: id, accepte: boolBoxe(r) });
+        } catch (e) {
+            faits.push({ unitId: id, accepte: "LEVÉ : " + (e as Error).message });
+        }
+    }
+    if (mUp) { try { invokeMethod(mUp.info, hudInstance, null); } catch { /* best effort */ } }
+    const b = etatDuBouton();
+    return { ok: true, faits, marquees: faits.filter((f) => f.accepte === true).length,
+             placeesApres: typeof b.placees !== "undefined" ? b.placees : "non relu" };
+}
+
+let listenerClear: InvocationListener | null = null;
+let clearAuto = false;
+let clearFires = 0;
+let clearDernier: unknown = null;
+
+/** Relais sur le clear natif. Il LAISSE le corps natif faire son travail (vider
+ *  `_currentlyPlacedUnits`, ôter les placeholders) et ENFILE le retrait des unités RÉELLES. */
+function armerClear(): true | Refus {
+    if (listenerClear) return true;
+    const k = findClassAnywhere(NS_HUD, CLS_HUD);
+    const mi = k ? findMethodByParamCount(k, "HandleOnRemoveAllHeroesPressed", 0) : null;
+    if (!mi) {
+        return refus("`UnitDeploymentHud$$HandleOnRemoveAllHeroesPressed` INTROUVABLE "
+            + "(0 paramètre)");
+    }
+    const t = lireTete(mi.ptr);
+    if (t.erreur !== null) return refus(`tête du clear ILLISIBLE (${t.erreur})`);
+    if (teteTriviale(t)) {
+        return refus("REFUS : `UnitDeploymentHud$$HandleOnRemoveAllHeroesPressed` résout sur un "
+            + `corps TRIVIAL (ret à l'octet ${t.retA}) -- adresse probablement PARTAGÉE`);
+    }
+    listenerClear = Interceptor.attach(mi.ptr, {
+        onLeave() {
+            clearFires++;
+            if (!clearAuto) return;
+            // ⛔ CE CALLBACK N'INVOQUE RIEN, ET C'EST LA LEÇON DE DEUX GELS. Il ne fait
+            // qu'ENFILER : la file est drainée par le pump, sur le thread principal, hors de
+            // toute interception. Invoquer ici gèle le jeu.
+            queueOnMainThread(() => retirerDuRunner(null)).then(
+                (r) => { clearDernier = r; },
+                (e) => { clearDernier = { ok: false, error: String(e) }; });
+        },
+    });
+    return true;
+}
+
+let syncAuto = false;
+let syncDernier: unknown = null;
+
+/** Enfile la synchronisation HUD, avec un nombre BORNÉ de reprises : quand `Show` tire, le
+ *  plateau peut n'être pas encore peuplé, et un unique essai rendrait « 0 marquée » sans que
+ *  rien soit en défaut. */
+function planifierSync(reste: number): void {
+    queueOnMainThread(() => marquerLesUnitesDuPlateau()).then((r) => {
+        syncDernier = r;
+        const n = (r as { marquees?: number }).marquees ?? 0;
+        if (n === 0 && reste > 0) planifierSync(reste - 1);
+    }, (e) => { syncDernier = { ok: false, error: String(e) }; });
+}
+
+// ---------------------------------------------------------------------------------------------
+// COMMITTER À LA POSE — le chaînon manquant entre l'écran et la bataille.
+//
+// La pose native ne crée qu'un `PlaceholderUnitView`. Ce qui le convertit en unité RÉELLE est
+// `IGameModeSource.HandleStartMatch`, que `SandboxGameModeSource` N'IMPLÉMENTE PAS (absent de la
+// table, retombe sur `AGameModeSource`) : la bataille démarre alors sans aucune unité du joueur
+// et se termine AUSSITÔT. C'est la sortie immédiate observée à chaque START.
+//
+// ⛔ ET ON NE PORTE PAS L'IMPLÉMENTATION DE RÉFÉRENCE. `CampaignGameModeSource$$HandleStartMatch`
+// appelle `GenerateNewBattleId` puis émet l'événement de chargement : c'est le chemin qui
+// CONSOMME UN JETON sur le compte réel. Son absence côté sandbox est PROTECTRICE.
+//
+// On convertit donc soi-même, À LA POSE plutôt qu'au START : le START est un callback
+// d'interception, et y invoquer des natifs est exactement ce qui a gelé le jeu deux fois.
+// Poser produit ainsi directement une unité réelle, et tout le reste (clear, marquage, START)
+// retombe dans le régime déjà éprouvé des BC pré-remplies.
+// ---------------------------------------------------------------------------------------------
+
+let poseCommitAuto = false;
+const poseCommitTrace: Array<Record<string, unknown>> = [];
+
+function tracerCommit(r: unknown): void {
+    if (poseCommitTrace.length < 32) poseCommitTrace.push(r as Record<string, unknown>);
+}
+
+/** Le compte d'unités RÉELLES du joueur, ou `null` si le plateau n'est pas lisible.
+ *  ⚠ `null` = PAS MESURÉ, jamais à lire comme un zéro. */
+function compteJoueur(): number | null {
+    const u = unitesDuPlateau();
+    return Array.isArray(u) ? u.filter((x) => x.duJoueur).length : null;
+}
+
+interface Pose { unitId: string; playerId: number; col: number; row: number }
+
+/** Deuxième temps : le plateau a-t-il VRAIMENT grossi ? Tant que non, on repasse — l'ajout
+ *  transite par le flux de bataille et ne se voit pas dans la frame de l'`Apply` (mesuré sur le
+ *  retrait : instantané à 5, réel à 4 une seconde plus tard). */
+function verifierPuisNettoyer(p: Pose, avant: number | null, reste: number): void {
+    queueOnMainThread((): Record<string, unknown> => {
+        const apres = compteJoueur();
+        if (avant !== null && apres !== null && apres > avant) {
+            // L'unité est RÉELLE : le placeholder ferait doublon à l'écran.
+            const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+            const mRem = kv ? findMethodByParamCount(kv, "RemovePlaceholderUnit", 1) : null;
+            let ote: boolean | string = "`IdunGameViews$$RemovePlaceholderUnit` INTROUVABLE";
+            if (mRem && vuesDePose !== null && !vuesDePose.isNull()) {
+                try {
+                    invokeMethod(mRem.info, vuesDePose, [createManagedString(p.unitId)]);
+                    ote = true;
+                } catch (e) { ote = "LEVÉ : " + (e as Error).message; }
+            }
+            return { ok: true, unitId: p.unitId, avant, apres, placeholderOte: ote };
+        }
+        if (reste > 0) return { attendre: true };
+        return { ok: false, unitId: p.unitId, avant, apres,
+                 error: "`Apply` est passé mais AUCUNE unité n'est apparue. Le runner ne "
+                     + "construit que ce dont la CONFIGURATION est dans la BC -- mesuré : "
+                     + "`spaceBlackmane` (hors BC) passe sans erreur et rien n'apparaît, "
+                     + "`ultraInceptorSgt` (dans la BC) crée l'unité. Il faut enrichir la BC "
+                     + "(`catalog_inject` / `--p-units`), donc un remontage.",
+                 placeholderOte: "LAISSÉ EN PLACE -- c'est la seule trace visible de ta pose" };
+    }).then((r) => {
+        if ((r as { attendre?: boolean }).attendre === true) {
+            verifierPuisNettoyer(p, avant, reste - 1);
+            return;
+        }
+        tracerCommit(r);
+    }, (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
+}
+
+/** Premier temps : appliquer l'`AddUnitMessage` — le MÊME message que le harnais RL emploie. */
+function committerUnePose(p: Pose): void {
+    queueOnMainThread((): Record<string, unknown> => {
+        const avant = compteJoueur();
+        const runner = state.liveRunner;
+        if (runner === null || runner.isNull()) {
+            return { ok: false, unitId: p.unitId,
+                     error: "aucun runner vivant publié par le pump -- `state.liveRunner` est "
+                         + "NUL, ce qui n'est PAS « zéro unité »" };
+        }
+        const kr = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
+        const mApply = kr ? findMethodByParamCount(kr, "Apply", 1) : null;
+        if (!mApply) {
+            return { ok: false, unitId: p.unitId, error: "`IdunRunner$$Apply` INTROUVABLE" };
+        }
+        let msg: NativePointer | null = null;
+        try {
+            // `buildAddUnitMessage` écrit déjà `SpawnSource = Deployment (5)` au champ +0x28.
+            msg = buildAddUnitMessage(p.unitId, p.playerId, p.col, p.row);
+            invokeMethod(mApply.info, runner, [msg]);
+        } catch (e) {
+            return { ok: false, unitId: p.unitId, error: "LEVÉ : " + (e as Error).message };
+        } finally {
+            if (msg !== null) { try { gcRoot.remove(msg); } catch { /* best effort */ } }
+        }
+        return { applique: true, avant: avant as unknown as number };
+    }).then((r) => {
+        const rr = r as { applique?: boolean; avant?: number | null };
+        if (rr.applique !== true) { tracerCommit(r); return; }
+        // ~90 passes de pump, soit environ une seconde à 60 images/s.
+        verifierPuisNettoyer(p, rr.avant ?? null, 90);
+    }, (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
 }
 
 function armerBouton(): true | Refus {
@@ -2209,41 +2649,126 @@ export function register(ctx: Ctx): void {
             return refus("`confirmer: true` exigé : ce RPC APPELLE `TryMarkUnitAsPlaced` sur le "
                 + "HUD vivant, une fois par unité du joueur présente sur le plateau");
         }
-        return queueOnMainThread(() => {
-            const ids = idsDesUnitesDuJoueur();
-            if (!Array.isArray(ids)) return refus("plateau non lisible : " + ids);
-            if (ids.length === 0) return refus("aucune unité du joueur sur le plateau");
-            if (hudInstance === null || hudInstance.isNull()) {
-                return refus("aucune instance de HUD captée");
-            }
-            const c = classeDerriere(hudInstance);
-            if (c.classe !== CLS_HUD) {
-                return refus(`le pointeur de HUD ne porte plus \`${CLS_HUD}\` mais `
-                    + `\`${c.classe ?? c.erreur}\` -- PÉRIMÉ`);
-            }
-            const kh = findClassAnywhere(NS_HUD, CLS_HUD);
-            const mMark = kh ? findMethodByParamCount(kh, "TryMarkUnitAsPlaced", 2) : null;
-            const mUp = kh ? findMethodByParamCount(kh, "UpdateButtons", 0) : null;
-            if (!mMark) return refus("`TryMarkUnitAsPlaced` INTROUVABLE (2 paramètres)");
-            const faits: Array<{ unitId: string; accepte: boolean | string }> = [];
-            const faux = Memory.alloc(1); faux.writeU8(0);   // `isMachineOfWar: false`
-            for (const id of ids) {
-                try {
-                    const r = invokeMethod(mMark.info, hudInstance,
-                                           [createManagedString(id), faux]);
-                    // ⚠ retour BOXÉ : le booléen est à +0x10, pas dans le pointeur.
-                    faits.push({ unitId: id, accepte: boolBoxe(r) });
-                } catch (e) {
-                    faits.push({ unitId: id, accepte: "LEVÉ : " + (e as Error).message });
-                }
-            }
-            let placees: number | string = "non relu";
-            if (mUp) { try { invokeMethod(mUp.info, hudInstance, null); } catch { /* best effort */ } }
-            const b = etatDuBouton();
-            if (typeof b.placees !== "undefined") placees = b.placees as number | string;
-            return { ok: true, faits, marquees: faits.filter((f) => f.accepte === true).length,
-                     placeesApres: placees };
+        return queueOnMainThread(() => marquerLesUnitesDuPlateau());
+    };
+
+    /** L'inventaire du plateau, les DEUX camps — lecture pure, aucune écriture. */
+    ctx.rpc.deploymentPlateau = (): Promise<unknown> | unknown =>
+        queueOnMainThread(() => {
+            const u = unitesDuPlateau();
+            if (!Array.isArray(u)) return refus("plateau non lisible : " + u);
+            return { ok: true, lecture: true, unites: u,
+                     duJoueur: u.filter((x) => x.duJoueur).length, total: u.length };
         });
+
+    /** LE CLEAR QUI ÔTE POUR DE VRAI. Applique un `RemoveUnitMessage` par unité au runner
+     *  VIVANT — le seul chemin qui atteigne une unité RÉELLE, celle que le clear natif ne sait
+     *  pas voir parce qu'il ne connaît que les `PlaceholderUnitView`. */
+    ctx.rpc.deploymentRetirer = (body?: {
+        confirmer?: boolean; entityIds?: number[];
+    }): Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return queueOnMainThread(() => {
+                const u = unitesDuPlateau();
+                if (!Array.isArray(u)) return refus("plateau non lisible : " + u);
+                const cibles = body?.entityIds ?? u.filter((x) => x.duJoueur)
+                    .map((x) => x.entityId);
+                return { ok: true, lecture: true, aRetirer: cibles,
+                         unites: u.filter((x) => cibles.indexOf(x.entityId) >= 0),
+                         note: "`confirmer: true` exigé : ce RPC APPLIQUE des "
+                             + "`RemoveUnitMessage` au runner VIVANT -- il modifie la bataille "
+                             + "en cours" };
+            });
+        }
+        return queueOnMainThread(() => retirerDuRunner(body.entityIds ?? null));
+    };
+
+    /** Relais sur le bouton CLEAR de l'écran. Armé, un appui ôte AUSSI les unités réelles. */
+    ctx.rpc.deploymentClearArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): unknown => {
+        const etat = () => ({ arme: listenerClear !== null, actif: clearAuto,
+                              fires: clearFires, dernier: clearDernier });
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`armer: true` + `confirmer: true` : le clair de l'écran APPLIQUERA "
+                         + "des `RemoveUnitMessage` sur la bataille en cours" };
+        }
+        if (body.armer === false) {
+            if (listenerClear) { try { listenerClear.detach(); } catch { /* best effort */ } }
+            listenerClear = null; clearAuto = false;
+            return { ok: true, ...etat() };
+        }
+        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
+        const r = armerClear();
+        if (r !== true) return r;
+        clearAuto = true;
+        return { ok: true, ...etat() };
+    };
+
+    /** CAPTEUR PUR sur `IdunBattle.Runner.IdunRunner$$StartMatch` — n'écrit RIEN.
+     *  À armer AVANT le montage : c'est tout l'intérêt de savoir s'il tire à ce moment-là. */
+    ctx.rpc.deploymentRunnerStartArmer = (body?: { armer?: boolean }): unknown => {
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, arme: listenerRunnerStart !== null,
+                     showsDuHud: showFires, passages: startMatchTrace };
+        }
+        if (body.armer === false) {
+            if (listenerRunnerStart) {
+                try { listenerRunnerStart.detach(); } catch { /* best effort */ }
+            }
+            listenerRunnerStart = null;
+            return { ok: true, arme: false };
+        }
+        const r = armerRunnerStart();
+        if (r !== true) return r;
+        return { ok: true, arme: true,
+                 note: "monter la bataille, drafter, appuyer START, puis relire sans argument" };
+    };
+
+    /** Fait de chaque pose une unité RÉELLE, immédiatement : `AddUnitMessage` sur le runner
+     *  vivant, puis retrait du placeholder devenu doublon. C'est ce qui rend START opérant —
+     *  sans lui la bataille démarre vide et se termine aussitôt. */
+    ctx.rpc.deploymentPoseCommitArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): unknown => {
+        const etat = () => ({ actif: poseCommitAuto, faits: poseCommitTrace.slice(-8) });
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`armer: true` + `confirmer: true` : chaque pose APPLIQUERA un "
+                         + "`AddUnitMessage` au runner VIVANT -- elle modifie la bataille en "
+                         + "cours" };
+        }
+        if (body.armer === false) { poseCommitAuto = false; return { ok: true, ...etat() }; }
+        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
+        // Le relais vit dans `UnitDeployment_PlaceUnitOnBoard`, ancré par `armerHud`.
+        const r = armerHud();
+        if (r !== true) return r;
+        poseCommitAuto = true;
+        return { ok: true, ...etat() };
+    };
+
+    /** Rend START vivant SANS geste manuel sur une BC pré-remplie : à chaque `Show`, les unités
+     *  déjà présentes sont déclarées au HUD et le bouton est rafraîchi. */
+    ctx.rpc.deploymentSyncArmer = (body?: {
+        armer?: boolean; confirmer?: boolean; maintenant?: boolean;
+    }): Promise<unknown> | unknown => {
+        if (body?.maintenant === true) {
+            return queueOnMainThread(() => marquerLesUnitesDuPlateau());
+        }
+        const etat = () => ({ actif: syncAuto, dernier: syncDernier });
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`armer: true` + `confirmer: true` : chaque `Show` déclarera au HUD "
+                         + "les unités déjà sur le plateau (invoque `TryMarkUnitAsPlaced`)" };
+        }
+        if (body.armer === false) { syncAuto = false; return { ok: true, ...etat() }; }
+        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
+        // Le relais vit dans `Show`, qui est ancré par `armerHud` : sans lui, rien ne tirera.
+        const r = armerHud();
+        if (r !== true) return r;
+        syncAuto = true;
+        return { ok: true, ...etat() };
     };
 
     ctx.rpc.deploymentBoutonArmer = (body?: {
@@ -2778,28 +3303,131 @@ export function register(ctx: Ctx): void {
      *   2. **RACINE GC.** Entre l'emprunt et la substitution il peut s'écouler un montage
      *      entier. Sans `gcRoot`, la valeur est ramassable.
      */
-    ctx.rpc.deploymentPoolPreEmprunt = (body?: { confirmer?: boolean; oublier?: boolean }):
-        Promise<unknown> | unknown => {
+    /**
+     * INITIALISER UNE SOURCE DE MODE SANS RIEN DÉPENSER — en lui CÂBLANT ses dépendances.
+     *
+     * LE FAIT MESURÉ (décompilé, build `t6dpr4k06g`). Les deux méthodes de roster de
+     * `PvpGameModeSource` ont la MÊME et UNIQUE garde :
+     *
+     *     if (this->_unitProgression != null) { ... }   // sinon : levée
+     *
+     *   `GetUnitsForDeploymentHUD` -> slot d'interface 0xe3 sur `_unitProgression`
+     *   `GetUnlockedUnitsPooled`   -> slot d'interface 0xc  sur `_unitProgression`
+     *
+     * Puis, dans les deux cas, `ShortLivedPool$$GetListConverted`. Il n'y a AUCUNE donnée de
+     * match dans ce chemin : ni adversaire, ni `_currentEncounter`, ni `_currentBattle`.
+     *
+     * ⇒ Une source « vide » ne l'est pas faute de combat : elle l'est faute de CÂBLAGE. Le
+     * service manquant est celui que le warmup capte déjà (`IdunNavigation._unitProgression`),
+     * donc l'écrire ne fabrique rien — on branche l'instance que le jeu emploie partout.
+     *
+     * ⚠ C'EST UNE ÉCRITURE SUR UN OBJET VIVANT, donc `confirmer: true`, et on RELIT après.
+     * Sans corps : lecture pure, on dit ce qui est branché et ce qui manque.
+     *
+     * ⚠ On n'écrit JAMAIS par-dessus un champ déjà rempli : si le jeu a câblé lui-même, il n'y
+     * a rien à faire, et écraser reviendrait à parier que notre instance vaut la sienne.
+     */
+    ctx.rpc.modeSourceCabler = (body?: {
+        mode?: "pvp" | "campagne"; confirmer?: boolean;
+    }): Promise<unknown> | unknown => queueOnMainThread(() => {
+        const mode = body?.mode ?? "pvp";
+        const nomClasse = mode === "pvp" ? "PvpGameModeSource" : "CampaignGameModeSource";
+        const src = mode === "pvp" ? getPvpGameModeSourcePtr() : getCampaignGameModeSourcePtr();
+        if (!src || src.isNull()) {
+            return refus(`aucune \`${nomClasse}\` captée -- \`discoverSources\` la trouve si le `
+                + "jeu en a une vivante en mémoire");
+        }
+        const k = findClassAnywhere(NS_SRC, nomClasse);
+        if (!k) return refus(`\`${nomClasse}\` INTROUVABLE sur ce build`);
+        // PAR NOM. `getFieldOffset` rend -1 sur un nom absent, et -1 est *truthy* : tester `< 0`.
+        const off = getFieldOffset(k, "_unitProgression");
+        if (off < 0) {
+            return refus(`champ \`_unitProgression\` ABSENT de \`${nomClasse}\` sur ce build `
+                + "-- chemin PÉRIMÉ, pas de repli sur un offset");
+        }
+        const avant = src.add(off).readPointer();
+        const prog = getUnitProgressionPtr();
+        const etat = {
+            mode, instance: src.toString(), champ: `_unitProgression@+0x${off.toString(16)}`,
+            avant: avant.isNull() ? null : avant.toString(),
+            progressionCaptee: prog === null || prog.isNull() ? null : prog.toString(),
+        };
+        if (!avant.isNull()) {
+            return { ok: true, ...etat, action: "RIEN",
+                     note: "déjà câblé par le jeu -- on n'écrase pas ce qu'on n'a pas posé" };
+        }
+        if (prog === null || prog.isNull()) {
+            return refus("aucune `IUnitProgression` captée -- le warmup ne l'a pas posée. "
+                + "Sans elle on n'a rien à câbler, et on n'en fabrique pas.");
+        }
+        if (body?.confirmer !== true) {
+            return { ok: true, lecture: true, ...etat, action: "AUCUNE",
+                     note: "`confirmer: true` exigé : ce RPC ÉCRIT un champ d'une source de mode "
+                         + "VIVANTE. Il ne dépense rien -- il branche un service déjà capté." };
+        }
+        src.add(off).writePointer(prog);
+        // RELECTURE : une écriture non vérifiée est ce qui a produit, ailleurs dans ce module,
+        // deux unités affichant le même modèle sans la moindre erreur.
+        const apres = src.add(off).readPointer();
+        return { ok: true, ...etat, action: "CABLE",
+                 apres: apres.isNull() ? null : apres.toString(),
+                 confirme: apres.equals(prog) };
+    });
+
+    /**
+     * ⚠ `source` — LE PRÊTEUR EST CELUI DU MODE, ET C'EST UNE RÈGLE, PAS UNE OPTION.
+     *
+     * Le roster affiché doit venir de la source du mode qu'on monte, sinon on importe les
+     * PERMISSIONS d'un autre mode. Mesuré le 2026-08-17 : emprunté à la campagne sur un
+     * montage PvP, l'écran n'offrait que les Impériaux — parce que
+     * `CampaignGameModeSource$$GetUnitsForDeploymentHUD` rend
+     * `_campaignProgression.GetDeployableUnits(locationIndex, onlyUnlocked: false)`, soit la
+     * liste déployable de CETTE campagne.
+     *
+     * `PvpGameModeSource$$GetUnitsForDeploymentHUD` est, lui, une LECTURE PURE d'un champ déjà
+     * rempli (`this+0x88`, converti en liste poolée) — vérifié au décompilé : aucun appel
+     * serveur, aucun matchmaking.
+     *
+     * ⚠ Le défaut reste `campagne` et la source RETENUE est publiée : un choix implicite entre
+     * deux prêteurs se lirait comme « ça marche » alors qu'on offrirait le mauvais roster.
+     */
+    ctx.rpc.deploymentPoolPreEmprunt = (body?: {
+        confirmer?: boolean; oublier?: boolean; source?: "campagne" | "pvp";
+    }): Promise<unknown> | unknown => {
         if (body?.oublier === true) {
             preEmprunt = null; preEmpruntInfo = null;
             return { ok: true, action: "oublie" };
         }
         if (!body || body.confirmer === undefined) {
-            return { ok: true, lecture: true, pret: preEmprunt !== null, info: preEmpruntInfo };
+            return { ok: true, lecture: true, pret: preEmprunt !== null, info: preEmpruntInfo,
+                     sources: {
+                         campagne: getCampaignGameModeSourcePtr()?.toString() ?? null,
+                         pvp: getPvpGameModeSourcePtr()?.toString() ?? null,
+                     },
+                     note: "`source: \"pvp\"` emprunte le roster à la source PvP -- c'est ce "
+                         + "qu'il faut pour un montage PvP ; la campagne n'offrirait que sa "
+                         + "propre liste déployable" };
         }
         if (body.confirmer !== true) {
             return { ok: false, error: "`confirmer: true` exigé : ce RPC INVOQUE la méthode de "
-                + "la source campagne vivante." };
+                + "la source de mode vivante." };
         }
+        const quelle = body.source ?? "campagne";
         return queueOnMainThread(() => {
-            const src = getCampaignGameModeSourcePtr();
+            const pvp = quelle === "pvp";
+            const nomClasse = pvp ? "PvpGameModeSource" : "CampaignGameModeSource";
+            const src = pvp ? getPvpGameModeSourcePtr() : getCampaignGameModeSourcePtr();
             if (!src || src.isNull()) {
-                return { ok: false, error: "aucune `CampaignGameModeSource` captée" };
+                return { ok: false, source: quelle,
+                         error: `aucune \`${nomClasse}\` captée -- pour le PvP, `
+                             + "`discoverSources` la trouve si le jeu en a une vivante" };
             }
-            const kc = findClassAnywhere(NS_SRC, "CampaignGameModeSource");
-            if (!kc) return { ok: false, error: "`CampaignGameModeSource` INTROUVABLE" };
+            const kc = findClassAnywhere(NS_SRC, nomClasse);
+            if (!kc) return { ok: false, source: quelle,
+                              error: `\`${nomClasse}\` INTROUVABLE` };
             const mc = findMethodByParamCount(kc, METHODE, 0);
-            if (!mc) return { ok: false, error: `\`${METHODE}\` INTROUVABLE (0 paramètre)` };
+            if (!mc) return { ok: false, source: quelle,
+                              error: `\`${nomClasse}$$${METHODE}\` INTROUVABLE (0 paramètre)` };
             const avant = firesDeployable;
             let boite: NativePointer;
             // Même fenêtre que la délégation, mais ICI elle est observable : c'est tout
@@ -2829,12 +3457,17 @@ export function register(ctx: Ctx): void {
             gcRoot.add(deboxe);
             preEmprunt = deboxe;
             preEmpruntInfo = {
+                // QUI a prêté. Sans ce champ, un roster impérial sur un montage PvP est
+                // indiscernable d'un roster correct -- c'est exactement ce qui s'est produit.
+                source: quelle, instance: src.toString(),
                 boite: boite.toString(), classeBoite: cBoite.classe, erreurBoite: cBoite.erreur,
                 deboxe: deboxe.toString(), classeDeboxee: cDeboxe.classe,
                 erreurDeboxee: cDeboxe.erreur,
                 // Le témoin que l'appel a VRAIMENT traversé `GetDeployableUnits`, et que le
                 // masque a pu agir : sans lui, « ok » ne dirait rien.
-                deltaGetDeployableUnits: firesDeployable - avant,
+                // ⚠ Ce témoin ne vaut QUE pour le prêteur campagne : la source PvP ne passe
+                // pas par `GetDeployableUnits`, donc un delta nul y est NORMAL, pas un échec.
+                deltaGetDeployableUnits: pvp ? null : firesDeployable - avant,
                 masqueArme: sansFiltreArme && sansFiltreEcrit,
             };
             return { ok: true, ...preEmpruntInfo };

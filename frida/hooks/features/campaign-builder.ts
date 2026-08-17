@@ -70,25 +70,48 @@ export function getPvpGameModeSourcePtr(): NativePointer | null {
     return pvpGameModeSourcePtr;
 }
 
+/**
+ * ⚠ `lastGameConfig` NE CONTIENT QUE DU `GameConfigDto`, ou RIEN.
+ *
+ * La version précédente, quand l'unwrap échouait, stockait le pointeur BRUT :
+ *
+ *     } else { lastGameConfig = p; }        // <- repli qui FABRIQUE un succès
+ *
+ * `campaignBuilderStatus` répondait alors `hasGameConfig: true` sur un objet qui n'est pas un
+ * DTO, et TOUS les consommateurs (`buildCampaignConfig`, `dumpCampaignCatalog`,
+ * `dump-pvp-boards`, `mow-builder`) échouaient en aval sur « chain resolution failed » —
+ * un message qui accuse la chaîne alors que la faute est ICI, à la capture. Mesuré le
+ * 2026-08-17 : les deux RPC de catalogue refusaient, en bataille comme hors bataille, avec
+ * les trois pointeurs annoncés présents.
+ *
+ * Ne rien stocker est STRICTEMENT MEILLEUR que stocker un pointeur inexploitable : le repli
+ * de `buildCampaignConfig` (unwrap depuis `CampaignGameModeSource._gameConfig`) ne s'arme
+ * QUE si `lastGameConfig` est nul. Le faux vert désarmait donc la seule voie de secours.
+ *
+ * Le brut est conservé à part, pour le diagnostic — jamais pour l'usage.
+ */
 export function setLastGameConfig(p: NativePointer): void {
     if (p.isNull()) return;
+    lastGameConfigBrut = p;
     const dto = unwrapGameConfig(p);
     if (dto && !dto.isNull()) {
-        const wasNull = lastGameConfig === null;
         lastGameConfig = dto;
+        raisonUnwrap = null;
         log(`[campaign-builder] setLastGameConfig: unwrapped GameConfigDto captured @ ${dto}`);
-        if (wasNull) {
-            try { send({ t: "builder_ready", via: "auto-boot-unwrapped" }); }
-            catch { /* */ }
-        }
     } else {
-        const wasNull = lastGameConfig === null;
-        lastGameConfig = p;
-        log(`[campaign-builder] setLastGameConfig: set lastGameConfig to raw pointer @ ${p}`);
-        if (wasNull) {
-            try { send({ t: "builder_ready", via: "auto-boot-raw" }); }
-            catch { /* */ }
-        }
+        log(`[campaign-builder] setLastGameConfig: REFUS -- @ ${p} n'est pas exploitable `
+            + `(${raisonUnwrap ?? "raison non renseignée"}). \`lastGameConfig\` reste NUL pour `
+            + "que le repli par `CampaignGameModeSource._gameConfig` puisse s'armer.");
+    }
+    // Le signal de boot part une seule fois, et il DIT s'il porte une config exploitable —
+    // l'ancien `via: "auto-boot-raw"` se lisait comme un succès.
+    if (!_readyEnvoye) {
+        _readyEnvoye = true;
+        try {
+            send({ t: "builder_ready",
+                   via: dto ? "auto-boot-unwrapped" : "auto-boot-brut",
+                   exploitable: dto !== null && !dto.isNull() });
+        } catch { /* */ }
     }
 }
 
@@ -163,6 +186,12 @@ let pvpGameModeSourcePtr: NativePointer | null = null;
 // which lets the catalog endpoint work without forcing the user to enter a
 // campaign first. Build still needs `campaignGameModeSourcePtr`.
 let lastGameConfig: NativePointer | null = null;
+// Le pointeur BRUT tel que la capture l'a lu, et POURQUOI il n'a pas pu être déballé.
+// Conservés pour le diagnostic UNIQUEMENT : aucun consommateur ne doit les lire comme une
+// config. `null` = pas de tentative, jamais « tout va bien ».
+let lastGameConfigBrut: NativePointer | null = null;
+let raisonUnwrap: string | null = null;
+let _readyEnvoye = false;
 
 // UnitProgression instance — captured at the first natural
 // UnitProgression.GetUnit(string) call. Used by the per-faction warmup
@@ -239,10 +268,16 @@ function klassName(p: NativePointer): string | null {
  * `get_gameConfigDto` getter. Resolves the getter once and unwraps. */
 let _gameConfigDataGetterMi: MethodRef | null = null;
 function unwrapGameConfig(p: NativePointer): NativePointer | null {
-    if (p.isNull()) return null;
+    // ⚠ CHAQUE SORTIE NULLE RENSEIGNE `raisonUnwrap`. Sans ça, l'échec ne se lisait que dans
+    // la console Frida, et l'appelant ne pouvait rendre qu'un « chain resolution failed » qui
+    // accuse le mauvais étage.
+    raisonUnwrap = null;
+    if (p.isNull()) { raisonUnwrap = "pointeur NUL"; return null; }
     const name = klassName(p);
     if (name === "GameConfigDto") return p;
     if (name !== "GameConfigData") {
+        raisonUnwrap = `classe INATTENDUE derrière le pointeur : '${name ?? "illisible"}' `
+            + "-- attendu `GameConfigDto` ou `GameConfigData`";
         if (!_gameConfigKlassLogged) {
             _gameConfigKlassLogged = true;
             log("[campaign-builder] _gameConfig field holds unexpected class '"
@@ -256,6 +291,9 @@ function unwrapGameConfig(p: NativePointer): NativePointer | null {
             "IdunMetaLogic.Client.DTO.Config", "GameConfigData");
         const m = klass ? findMethod(klass, "get_gameConfigDto") : null;
         if (!m || m.ptr.isNull()) {
+            raisonUnwrap = klass === null
+                ? "`IdunMetaLogic.Client.DTO.Config.GameConfigData` INTROUVABLE sur ce build"
+                : "`GameConfigData$$get_gameConfigDto` INTROUVABLE sur ce build";
             log("[campaign-builder] GameConfigData.get_gameConfigDto not found");
             return null;
         }
@@ -263,9 +301,17 @@ function unwrapGameConfig(p: NativePointer): NativePointer | null {
     }
     try {
         const dto = invokeMethod(_gameConfigDataGetterMi.info, p, null);
-        if (dto.isNull()) return null;
-        return klassName(dto) === "GameConfigDto" ? dto : null;
+        if (dto.isNull()) {
+            raisonUnwrap = "`get_gameConfigDto` a rendu NUL";
+            return null;
+        }
+        const nomDto = klassName(dto);
+        if (nomDto === "GameConfigDto") return dto;
+        raisonUnwrap = `\`get_gameConfigDto\` a rendu un '${nomDto ?? "illisible"}', `
+            + "pas un `GameConfigDto`";
+        return null;
     } catch (e) {
+        raisonUnwrap = "`get_gameConfigDto` a LEVÉ : " + (e as Error).message;
         log("[campaign-builder] unwrapGameConfig invoke threw: "
             + (e as Error).message);
         return null;
@@ -1236,12 +1282,19 @@ export function register(ctx: Ctx): void {
      * Build needs `hasInstance` (campaignGameModeSourcePtr captured = user clicked a battle
      * once in-game). The frontend polls this every 5 s. Cheap by design —
      * never triggers heap scans. */
+    /** ⚠ `hasGameConfig` signifie « un vrai `GameConfigDto` est capté », rien d'autre. Il a
+     *  déjà rendu `true` sur un pointeur inexploitable, et ce vert-là a fait chercher la panne
+     *  dans la chaîne alors qu'elle était à la capture. Le brut et la RAISON sont publiés à
+     *  part, pour que l'échec se lise sans ouvrir la console Frida. */
     ctx.rpc.campaignBuilderStatus = () => ({
         hasGameConfig: lastGameConfig !== null,
         hasUnitProgression: unitProgressionPtr !== null,
         hasInstance: campaignGameModeSourcePtr !== null,
         instance: campaignGameModeSourcePtr ? campaignGameModeSourcePtr.toString() : null,
         gameConfig: lastGameConfig ? lastGameConfig.toString() : null,
+        gameConfigBrut: lastGameConfigBrut ? lastGameConfigBrut.toString() : null,
+        classeBrute: lastGameConfigBrut ? klassName(lastGameConfigBrut) : null,
+        raisonUnwrap,
     });
 
     /** POURQUOI un nœud de campagne est INJOUABLE — la CAUSE, pas le symptôme (#599-r1).
