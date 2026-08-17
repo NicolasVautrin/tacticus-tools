@@ -55,6 +55,45 @@ from engine.entities.effects.loki.hits import (MasterAnnihilatorAdditionalHitEff
 from engine.entities.effects.magnitude import ability_var  # noqa: E402
 from engine.services.attack_hits_formula import attack_hits_with_modifiers  # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Pris LARGE a dessein : trop etroit serait un FAUX VERT (le fichier ne se rejouerait pas sous
+#: `--since` alors que ce qu'il garde a bouge), et les quatre chemins ci-dessous sont exactement
+#: ceux dont ce fichier LIT le comportement -- la formule, la classe d'effet, l'agregateur du
+#: canal defenseur, et la facade de PREDICTION qui est la seule a poser `is_prediction=True`.
+DECLENCHEUR = {
+    "chemins": (
+        # LA FORMULE : elle porte `is_prediction`, l'axe de FACE que ce fichier confronte.
+        "scripts/python/engine/services/attack_hits_formula.py",
+        # LA CLASSE : `MasterAnnihilatorAdditionalHitEffect` et ses deux canaux (prediction ici,
+        # groupe #179 pour le combat) -- c'est elle que les cinq etages interrogent.
+        "scripts/python/engine/entities/effects/loki/hits.py",
+        # L'AGREGATEUR du canal DEFENSEUR : c'est lui qui somme la contribution et applique le tri
+        # natif par SIGNE (`_hits_contribution`). Un changement de tri deplacerait le resultat sans
+        # toucher ni la formule ni la classe.
+        "scripts/python/engine/entities/effects/__init__.py",
+        # LA FACADE de prediction de l'attaque normale : SEUL appelant qui passe `is_prediction=
+        # True`. Si elle cesse de le passer, les cinq etages restent verts (ils appellent la
+        # formule en direct) et la face prediction du moteur redevient FAUSSE -- c'est precisement
+        # le faux vert que ce chemin-la ferme.
+        "scripts/python/engine/playbook/prediction/normal_attack.py",
+    ),
+    # Aucune lecture du binaire ni de `data/symbols/**` : les cinq etages appellent la formule en
+    # Python pur. La magnitude vient du gameconfig via `ability_var`, pas d'une table de symboles.
+    "build": False,
+    "toujours": False,
+    "raison": ("Les DEUX faces du canal #179 pour `MasterAnnihilator_extraHit` : la formule de "
+               "coups ne doit RIEN compter cote COMBAT (mesure #204, evenement CONSTANT) et doit "
+               "compter `nrOfHits` cote PREDICTION (mesure #10019, rapports entiers `(h+1)/h` sur "
+               "les deux bornes, trois paires, temoin negatif u83). "
+               "POURQUOI CES CHEMINS ET PAS D'AUTRES : les trois premiers sont la fermeture reelle "
+               "de ce fichier (formule, classe d'effet, agregateur qui trie par SIGNE). Le "
+               "quatrieme, `normal_attack.py`, N'EST PAS dans cette fermeture et c'est justement "
+               "pour cela qu'il est declare : les cinq etages appellent la formule EN DIRECT, donc "
+               "ils resteraient VERTS si la facade de prediction cessait de passer "
+               "`is_prediction=True` -- le moteur redeviendrait faux sans qu'aucun etage bouge. "
+               "C'est le seul faux vert que ce fichier ne peut pas fermer par lui-meme."),
+}
+
 MARQUE = "MasterAnnihilator_extraHit"
 MARQUE_TYPE = 1249
 
