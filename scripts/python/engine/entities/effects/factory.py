@@ -184,7 +184,9 @@ from .loki.mind_control import (
 from .loki.icon_of_obstinacy import (      # #919 (passif astarLysander)
     IconOfObstinacyExtraArmorEffect, IconOfObstinacyExtraDmgEffect
 )
-from .loki.inescapable_death import InescapableDeathEffect   # #924 (passif necroDestroyer)
+from .loki.inescapable_death import (      # #924 (passif necroDestroyer) + #924-r1 (actif tauCrisis)
+    EarlyWarningOverrideReactivateOverwatchEffect, InescapableDeathEffect
+)
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.twisted_science import TwistedScienceExtraHpEffect   # #931 (passif genesBiophagus)
 from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
@@ -559,6 +561,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `runner/operations/triggers/dispatch/registry.py::EFFECT_TRIGGERS[1018]`, et la POSE de l'effet
     # dans `ABILITY_INIT_OWNER_EFFECTS` plus bas. RE complete en tete de `loki/inescapable_death.py`.
     "InescapableDeath_Effect": InescapableDeathEffect,
+    "EarlyWarningOverride_ReactivateOverwatch": EarlyWarningOverrideReactivateOverwatchEffect,
+    # #924-r1 -- la SOEUR de forme, `EarlyWarningOverride_ReactivateOverwatch` (0x479 = 1145), posee
+    # par l'ACTIVE 1077 de `tauCrisis` << Re'vas >> sur le caster lui-meme. MEME base native
+    # (`AReactivateOverwatchEffect`), donc MEME face DEGAT -- son bloc `methodPointers`, relu aux
+    # octets sur `t6dpr4k06g`, porte QUATRE entrees dont le corps PARTAGE de `GetOverwatchExtraDamage`
+    # (ICF : `frida/methods.tsv`, indexe par ADRESSE, n'en garde qu'UN proprietaire, d'ou l'ancienne
+    # lecture << 1145 n'override pas >>). Le 3e conjoint de son declencheur est celui de la BASE
+    # (`YesTrigger`), PAS l'`IsOverwatchAttack()` de sa soeur : les deux classes sont des MIROIRS
+    # CROISES (1145 override `LegitDeathReasons`, 1018 override `GetAdditionalExtraDamageTrigger`).
     # #1048 (residu #1018-r1) -- `AdrenalGlands_Effect` (0x419 = 1049), passif du summon
     # `tyranSmnHormagaunt` et des CINQ npc Hormagaunt. SEUL implementeur du hook
     # `CreateRangeBonusForMovement` de tout le build : il n'a ni stat-mod ni `EffectBonus`, il
