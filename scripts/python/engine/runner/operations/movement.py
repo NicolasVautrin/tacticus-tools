@@ -704,7 +704,8 @@ def _movement_start_position(state: State, mover_id: int) -> list:
 
 
 def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
-                    pathfinder_type_override=None, num_tiles_moved: "int | None" = None) -> int:
+                    pathfinder_type_override=None, num_tiles_moved: "int | None" = None,
+                    path: "list | None" = None) -> int:
     """Le `movementSteps` que `IdunBattle.Operations.MoveUnitOperation$$Execute` passe a
     `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` -- l'entree UNIQUE de la
     formule `IdunBattleLogic.Entities.DSLFormulas$$MovementSteps()`
@@ -782,21 +783,41 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
     fournie », et la fonction retombe sur son propre appel -- c'est ce que font les probes qui
     l'invoquent hors `Execute`.
 
-    ⚠ CE `movementSteps` RESTE DERIVE de `_num_tiles_moved`, PAS de `_calculate_path`, et c'est
-    VOULU. Les deux listes natives sont distinctes (`path` = 8e out-param, `connectedPath` = 9e),
-    et la valeur rendue ici est CONFRONTEE LIVE (#448-r1-r1-r1 : 70 vols, la greffe de
-    `FullThrottle` sur 5 volants). Les rebrancher sur `_calculate_path` ne changerait aucune valeur
-    -- les deux passent par le meme `_dijkstra_by_pos` sur un chemin de marche -- mais ferait
-    reposer une mesure validee sur un etage neuf, sans rien gagner. RESIDU herite, inchange : le
-    port ne materialise pas la DENSIFICATION de
+    ⚠ **`path` -- LA LISTE ELLE-MEME, QUAND L'APPELANT L'A MESUREE (#448-r1-r1-r3-r1).** Le natif ne
+    lit PAS un compte, il lit `path.First()`, `path.Last()` et `path.Count` : cette liste est le 8e
+    out-param de `CalculatePaths`, `connectedPath` est le 9e, et **elles DIVERGENT** des que le
+    pathfinder de l'une n'est pas celui de l'autre. La note qui vivait ici (« les rebrancher ne
+    changerait aucune valeur -- les deux passent par le meme `_dijkstra_by_pos` ») etait vraie du
+    seul regime alors atteignable, et FAUSSE en general : `path` porte les DEUX forceurs `Fly`
+    (l'override `options.<+0x8>` et `IsEmpty(previousPosition)`), tandis que `connectedPath` vient
+    de `GetConnectedPathTo(entity, from, to)` -- TROIS arguments, ni options ni pathfinderType --
+    qui re-resout `GetPathfinderTypeForUnit(unit)` tout seul. MESURE (`C4_09`, unite hors plateau
+    revenant d'une AUTRE composante de marche) : `path` de vol = 2 noeuds, donc `movementSteps = 2`
+    cote natif ; le compte de marche, lui, vaut `0` (destination injoignable A PIED) et le port
+    rendait donc **0**. L'ecart n'etait invisible que parce que ce regime n'etait pas atteint.
+    ⚠ TRI-ETAT : `path=None` = « l'appelant n'a pas de mesure » -> on retombe sur `num_tiles_moved`,
+    strictement le comportement d'avant (c'est le cas de tous les probes et tests qui invoquent
+    cette fonction hors `Execute`). `MoveUnitOperation.execute` ne le fournit que si le port a un
+    board : sans lui, `_calculate_path` rend son repli PERMISSIF `[from, to]`, et en tirer `2` serait
+    fabriquer un pas depuis une NON-MESURE.
+    RESIDU herite, inchange : le port ne materialise pas la DENSIFICATION de
     `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo`, la ou les deux listes divergent
     (teleporteurs/sauts)."""
     e = state.get_entity(int(mover_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
     if _is_like_flying(traits, pathfinder_type_override):
+        if path:
+            # `GetDistance(path.First(), path.Last())` -- LITTERALEMENT les deux extremites de la
+            # liste, pas les arguments de l'appelant. Ils coincident sur tout chemin non degenere ;
+            # sur la branche `[endTile, endTile]` la distance vaut 0, ce que `from_pos`/`to_pos` ne
+            # rendraient PAS (ils valent `None` et la destination).
+            d = hex_distance(path[0], path[-1])
+            return int(d) if d is not None else 0
         d = hex_distance(from_pos, to_pos) if (from_pos is not None and to_pos is not None) else None
         return int(d) if d is not None else 0
+    if path:
+        return len(path)                             # `path.Count`, LU
     n = (_num_tiles_moved(state, mover_id, from_pos, to_pos) if num_tiles_moved is None
          else int(num_tiles_moved))
     # `path.Count` : `_num_tiles_moved` rend deja `Count - 1`. Destination injoignable / pas de
@@ -1564,9 +1585,12 @@ class MoveUnitOperation(Operation):
         # branche volante y rend `GetDistance(endTile, endTile) = 0` (le port : `hex_distance` sur
         # un `from_pos` absent -> 0) et la branche marche `path.Count = 2` (le port : `n + 1` sur
         # `num_tiles = 1`). Les deux valeurs natives sortent donc du mirror, sans cas particulier.
-        self.last_movement_steps = _movement_steps(state, self.unit_id, start_tile, self.to,
-                                                   self.pathfinder_type_override,
-                                                   num_tiles_moved=num_tiles)
+        # `path` n'est fourni que si le port a un BOARD : sans lui `_calculate_path` rend son repli
+        # PERMISSIF `[from, to]`, et en tirer `2` transformerait une NON-MESURE en pas parcouru.
+        self.last_movement_steps = _movement_steps(
+            state, self.unit_id, start_tile, self.to, self.pathfinder_type_override,
+            num_tiles_moved=num_tiles,
+            path=(self.last_path if getattr(state, "board", None) is not None else None))
         if pc is None:
             # Unite SANS position : soit un spawn, soit -- depuis #448-r1 -- une unite qui REVIENT
             # sur le plateau (`RemoveUnitFromItsTiles` lui avait pose `feet = []`, cf.
