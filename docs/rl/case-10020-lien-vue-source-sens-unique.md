@@ -851,3 +851,56 @@ donc le wrapper : il fait IMPERSONNER UN NOEUD PARTICULIER, ce qui n'est pas la 
 **La suite, et elle est nommee** : rendre le preteur ACTIF sur un noeud CHOISI -- ecrire
 `_currentCampaignId` / `_currentLocationIndex` et faire re-resoudre `_currentMatch`. **NON MESURE**,
 et un DTO deja resolu deviendrait perime : c'est une tranche a part entiere, pas un reglage.
+
+## 20. POSITIONNER LE PRETEUR : la recette EXISTE, et elle interdit qu'on la TIENNE OUVERTE
+
+Le SS19 laissait comme suite << rendre le preteur actif sur un noeud choisi >>. Mesure : **c'est
+deja ecrit**, dans `frida/hooks/features/campaign-builder.ts`, et la forme de ce qui est ecrit est
+elle-meme la reponse.
+
+### La recette, telle qu'elle est deja livree
+
+`buildCampaignConfig({campaignType, campaignId, locationIndex})` positionne la source vivante puis
+la RESTAURE :
+
+```
+SOURCE        _currentCampaignId  _currentLocationIndex  _currentMatch  _currentBattle
+PROGRESSION   +0x18 _campaignType   +0x28 _campaignId   +0x88 _battlesConfigCampaigns
+   (source+0x20)
+  -> LoadBattle(true)  ->  restauration dans un `finally`
+```
+
+Il n'y a donc **aucun setter natif** a chercher : le noeud est un parametre du **CONSTRUCTEUR**
+(`CampaignGameModeSource$$.ctor(..., campaignId: String, initialLocationIndex: Int32, ...)`), et le
+depot contourne ca par un ECHANGE TEMPORAIRE.
+
+### ⛔ ET C'EST POURQUOI ON NE TIENT PAS LE SWAP OUVERT
+
+Le module le dit deux fois, et ce sont des contraintes, pas des precautions :
+
+> *The swap window is a single synchronous queueOnMainThread invocation -- no other code observes
+> the swapped state.*
+> *Restore progression -- critical to avoid leaving the live progression in a corrupted state for
+> the rest of the game.*
+
+La progression echangee (`source+0x20`) est **celle du compte reel, partagee et vivante**. La tenir
+echangee pour la duree d'une session ferait lire a tout le jeu -- meta comprise -- un chapitre et
+une liste de batailles qui ne sont pas les siens. **Le gain serait de la plomberie, le risque porte
+sur le profil de l'utilisateur.** Cette voie est donc REFUSEE, pas << a faire plus tard >>.
+
+### LA FORME CORRECTE, et elle decoule de la contrainte
+
+Ne pas positionner le preteur DURABLEMENT, mais **deleguer DANS une fenetre positionnee** : le
+`onLeave` de chaque delegation ferait, en une seule sequence synchrone, `swap -> invoke -> restore`
+-- exactement la discipline de `buildCampaignConfig`, appliquee a l'appel emprunte au lieu de
+`LoadBattle`.
+
+Ce qu'il faut en plus, et qui existe deja dans `campaign-builder.ts` : le `CampaignConfigDto`
+resolu du noeud vise (`targetMatch`) et la `List<CampaignConfigDto>` (`battlesList`), tous deux
+derives du catalogue. La tranche consiste a **extraire cette preparation** pour la rendre
+reutilisable, pas a la reecrire.
+
+⚠ **NON MESURE** : que `GetUnitModel` / `GetUnitsForDeploymentHUD` se contentent d'un swap aussi
+court. `LoadBattle` lit `_currentMatch` pendant l'appel ; rien ne dit que les methodes de
+deploiement n'ont pas besoin d'un etat coherent AU-DELA de leur propre retour (les modeles rendus
+survivent a la fenetre, eux). A confronter avant de s'engager.
