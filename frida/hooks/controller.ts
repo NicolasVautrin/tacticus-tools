@@ -71,6 +71,13 @@ import * as replayOutputStream from "./features/replay-output-stream.js";
 // suivant (`DeserializeReplay` -> `+0x10` -> `StartUserReplayMatch`), ce qu'`invoquerCommande`
 // refuse volontairement de faire : `argIl2cpp` n'accepte aucun argument de type objet.
 import * as replayLaunch from "./features/replay-launch.js";
+// deployment-draft = rendre l'ecran de deploiement natif utilisable sur une bataille SANDBOX.
+// `SandboxGameModeSource$$GetUnitsForDeploymentHUD` est un STUB : il rend un conteneur poole
+// VIDE sans lire un champ de `this`, la ou `CampaignGameModeSource` lit sa progression. Le
+// module OBSERVE d'abord (regime par defaut, ecrit RIEN) et ne remplit qu'apres avoir IDENTIFIE
+// au runtime la classe du retour -- `PooledList` est un TYPE VALEUR, sa disposition se mesure.
+// N'arme AUCUN hook au register : il faut `deploymentDraftArmer { armer: true }`.
+import * as deploymentDraft from "./features/deployment-draft.js";
 import * as aiStep from "./features/ai-step/index.js";
 // modifier-observe = diagnostic PERMANENT on-demand (decompo par etage prediction+combat — l'outil
 // doctrine « divergence de degat = decomposition, jamais fit », promu au build standard par #98).
@@ -486,7 +493,7 @@ export function wireRpc(ctx: Ctx): void {
      aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
-     replayOutputStream, replayLaunch,
+     replayOutputStream, replayLaunch, deploymentDraft,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }
