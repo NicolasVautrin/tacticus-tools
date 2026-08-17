@@ -24,8 +24,8 @@ Rien de fondu DEDANS pour ni l'une ni l'autre.
 
 `GetCustomUnitOrderUtility` (1213) N'EST PAS portee, et c'est deliberé : elle repond a « dans quel
 ORDRE activer mes unites », pas a « quelle action prendre ». Son corps est
-`Fix64(vtable[+0x1a8](this, unit) ? -99 : 0)`. Le moteur ne mirrore pas la selection d'unite
-(`toActivate` vient du natif), donc la porter n'aurait aucun consommateur -> residu `#967-r1`.
+`Fix64(vtable[+0x1a8](this, unit) ? -99 : 0)`. Le moteur ne mirrore pas la selection d'unite,
+donc la porter n'aurait aucun consommateur -> residu `#967-r1`.
 
 ⚠ **CE « aucun consommateur » etait imprecis, et #984 l'a RE-MESURE au decompile** : le
 consommateur natif EXISTE et se NOMME. C'est
@@ -34,9 +34,19 @@ active de l'unite fait `IdunBattle.AI.PlaybookDatabase$$LoadPlaybook(abilityType
 `playbook.GetCustomUnitOrderUtility(unit)` a un score de PRIORITE D'ORDRE, agrege avec des
 `IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue` clefs par unitId, par abilityType et par
 trait. Ce qui manque au port n'est donc pas un lecteur pour une valeur -- c'est l'ETAGE
-`UnitPicker` tout entier, que le natif nous fournit deja (`toActivate`). Ecrire « aucun
-consommateur » laissait croire a du code natif mort ; c'est faux, il est vivant et nous le
-consommons DEJA, cote natif.
+`UnitPicker` tout entier. Ecrire « aucun consommateur » laissait croire a du code natif mort ;
+c'est faux, il est vivant.
+
+⚠ **ET « que le natif nous fournit deja (`toActivate`) » etait FAUX -- MESURE par #10022.**
+`decisionView.toActivate` n'est PAS l'ordre choisi par le picker : `toActivateSquads`
+(`frida/hooks/features/ai-step/internals.ts`) rend l'ENSEMBLE des unites
+`IsControlledByCurrent && IsAlive && HasActionLeft`, dans l'ordre d'iteration du conteneur
+d'entites de l'ECS. C'est, a un cran pres, l'ENTREE du picker
+(`IdunBattle.AI.OperationalDeciders.AnAiGroupOperator$$GetValidUnits`), pas sa sortie -- et le
+natif ne nous fournit donc AUCUNE information d'ordonnancement par ce canal. Le seul consommateur
+Python de l'etage est aujourd'hui `engine/runner/operations/summon_ai.py::ai_control_execute_for_group`,
+qui prend `valid[0]` (ordre du selecteur) la ou le natif fait un argmax d'utilite sur huit buckets.
+Inventaire complet des dix utilites et decoupe : `docs/rl/case-10022-unitpicker-inventaire.md`.
 
 ⚠ **Et ce terme-ci ne se neutralise PAS par un poids absent** -- contrairement a son homologue
 `...Loki.TitanhammerSquadPlaybook$$GetCustomUnitOrderUtility`, qui MULTIPLIE par un
