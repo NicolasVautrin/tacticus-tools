@@ -45,6 +45,45 @@ from engine.runner.operations.triggers import base as TB              # noqa: E4
 from engine.runner.operations.triggers.dispatch import core as CORE   # noqa: E402
 
 
+#: Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`, garde #486-r15). Pris
+#: LARGE a dessein : un declencheur trop etroit est un FAUX VERT -- le fichier ne se rejouerait
+#: pas sous `--since` quand ce qu'il garde a bouge.
+DECLENCHEUR = {
+    "chemins": (
+        # LE GATE LUI-MEME (`dispatch/core.py`, bloc `CanGetAbilityTrigger`) ET LE REGISTRE
+        # (`dispatch/registry.py`, ou ce fichier resout ses neuf classes PAR LEUR NOM -- une entree
+        # retiree doit rougir ici avec << l'etalon est PERIME >>, pas passer inapercue).
+        # ⚠ LE GLOB PORTE SUR TOUT `dispatch/`, ET CE N'EST PAS DU CONFORT : nommer les deux
+        # fichiers un par un a laisse `dispatch/phase.py` dehors, que `probe_486r15` a trouve en
+        # fermant les imports. Un declencheur ecrit A LA MAIN sous-estime sa propre fermeture.
+        "scripts/python/engine/runner/operations/triggers/dispatch/*.py",
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        # LES PORTEUSES de l'attribut. Le glob couvre les neuf de l'etalon ET toute classe qui
+        # rejoindrait le bras negatif -- ce dernier CHOISIT son temoin dans le registre, donc son
+        # verdict depend de l'ensemble du repertoire, pas d'un fichier nomme.
+        "scripts/python/engine/runner/operations/triggers/loki/*.py",
+        "scripts/python/engine/runner/operations/triggers/*.py",
+        # LE SUBSTRAT du montage (owner PRESENT, portant un `UnitComponent`, NON VIVANT).
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/state.py",
+        # LE CLIQUET FRERE : ce fichier lui emprunte `classes_du_registre`, et surtout les deux se
+        # CONTREDISENT si l'un derive -- l'un re-derive la valeur du build, l'autre fige ce que la
+        # tranche a mesure.
+        "scripts/python/probe_10015_allow_for_dead_owner.py",
+        # L'ENTREE VERSIONNEE dont l'etalon ci-dessous est la transcription. Si le build change de
+        # verdict sur une de ces neuf classes, ce fichier DOIT etre rejoue.
+        "data/symbols/*/metadata/allow_for_dead_owner.tsv",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le gate d'owner, le registre qui nomme les neuf classes de l'etalon, les modules "
+              "qui portent `fire_on_death`, le substrat ECS du montage, le cliquet frere et "
+              "l'entree versionnee du build. Le bras negatif DERIVE son temoin du registre "
+              "entier, d'ou les deux globs plutot qu'une liste de fichiers -- une classe qui "
+              "gagne ou perd l'attribut change le temoin choisi.",
+}
+
+
 #: Les CINQ classes portees par #10015-r3, plus les quatre deja alignees avant lui. Chacune est
 #: nommee avec le symbole natif dont la valeur a ete LUE (`metadata/allow_for_dead_owner.tsv`,
 #: corps `b0 01 c3` = `mov al,1 ; ret`). La liste est un ETALON : elle fige ce que la tranche a
