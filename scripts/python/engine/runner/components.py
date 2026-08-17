@@ -2502,14 +2502,22 @@ def unit_extensions_can_move(state, unit_id: int) -> Optional[bool]:
     `EffectsState.active_effects`, qui reevalue `is_active` (= la `CreateActiveCondition`) a chaque
     lecture.
 
-    ⚠ CE QUI RESTE HORS DU REGISTRE, ET LA DIRECTION : `BLOCK_UNIT_MOVEMENT_EFFECT_TYPES`
-    (`entities/effects/loki/instinctive_behaviour.py`) n'inscrit que `1235
-    InstinctiveBehaviour_BlockMovement`, seul type dont l'appariement `EffectType -> classe` soit
-    LU. `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement`
-    (1016) restent dehors (residu `#1015-r2`) : le port croit leurs porteurs MOBILES la ou le
-    natif les bloquerait -> `has_tiles_to_move_to` sur-estime -> le flag `NoActionAvailable` est
-    RETIRE un peu plus souvent que par le natif (PERMISSIF), jamais POSE a tort. MEME direction que
-    le residu nomme par `entities/selectors/tiles.MovableTilesInRange`.
+    ⚠ LE REGISTRE EST COMPLET DEPUIS #1015-r2, ET SON EXHAUSTIVITE EST MESUREE SUR DEUX AXES.
+    `BLOCK_UNIT_MOVEMENT_EFFECT_TYPES` (`entities/effects/loki/instinctive_behaviour.py`) inscrit
+    les QUATRE : `25 Taunted_BlockMovement`, `91 Vines_BlockMovement`,
+    `1016 PrecisionShot_BlockMovement`, `1235 InstinctiveBehaviour_BlockMovement`.
+      * EN AVAL, le `MethodInfo*` du `Dictionary<..>$$Add` de `MovementComponent+0x50` n'a que DEUX
+        lecteurs dans TOUT le binaire (`BlockUnitMovementBondEffect$$ApplyInternal` et
+        `BlockUnitMovementEffect$$ApplyInternal`) : aucun troisieme ecrivain n'existe.
+      * EN AMONT, `probe_1015r2_effectsdb_slot_de_classe.py` lit le SLOT `Il2CppClass*` des 607
+        fabriques d'`EffectsDatabase$$InitializeEffects` : `1235` est un groupe SINGLETON, et
+        `25`/`91`/`1016` forment un groupe de taille EXACTEMENT 3.
+    L'ecart PERMISSIF que ce paragraphe decrivait (le port croyait ces porteurs MOBILES, donc
+    `has_tiles_to_move_to` sur-estimait et `NoActionAvailable` etait retire trop souvent) est donc
+    FERME. Confronte live sur le taunt : `probe_1015r2_taunt_block_movement.py` (natif 17 tuiles ->
+    0, port `True` -> `False`, temoin non taunte mobile des deux cotes).
+    Reste ouvert et de MEME direction : le residu nomme par
+    `entities/selectors/tiles.MovableTilesInRange`.
 
     ⚠ **IL VIT ICI, ET PAS DANS `operations/turnflow.py`, PARCE QUE LA MESURE LE DEMANDE**
     (#590-r6-r2). `turnflow` importe `..abilities.handler` en tete, donc tout lecteur situe sous

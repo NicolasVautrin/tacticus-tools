@@ -45,6 +45,21 @@ _MEASURED = {
     int(EffectType.TunnelingHorror_PendingSummon): (
         "IdunBattle.Entities.Effects.Loki.TunnelingHorror_PendingSummonEffect",
         False, None, False, None),
+    # #890-r3 -- le JUMEAU du precedent, MEMES trois valeurs. Mesure de premiere main, `--step
+    # declared` sur le build COURANT : `CallRipperSwarms_PendingSummonEffect  OWN=none | OWN=false |
+    # OWN=false`. Comme son jumeau, il n'entre donc PAS dans `EFFECT_TRIGGERS` par cette voie -- ses
+    # deux triggers reels sont ceux que sa classe AJOUTE (`triggers/loki/call_ripper_swarms.py`).
+    int(EffectType.CallRipperSwarms_PendingSummon): (
+        "IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect",
+        False, None, False, None),
+    # ⚠ ENTREE DE RATTRAPAGE, ET LE ROUGE ETAIT ANTERIEUR A #890-r3. `1060` est entre dans
+    # `BOND_REMOVAL_GATES` avec `e7023e8b` (#1109) SANS entrer ici : ce cliquet echouait donc deja
+    # sur `master` (`Extra items in the left set: 1060`), et il a ete constate en jouant les tests
+    # de non-regression de cette tranche-ci -- pas introduit par elle. La valeur n'est pas recopiee
+    # de la table qu'elle est censee garder : elle vient de la MEME passe `--step declared` que
+    # l'entree ci-dessus, ou `LifewardsBondEffect` rend `OWN=none | OWN=false | OWN=true`.
+    int(EffectType.Lifewards_BondEffect): (
+        "IdunBattle.Entities.Effects.Loki.LifewardsBondEffect", True, None, False, None),
     int(EffectType.HazeOfCorruption_DamageTransfer): (
         "IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect",
         True, None, False, None),
