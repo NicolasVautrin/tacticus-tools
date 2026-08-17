@@ -1205,3 +1205,43 @@ Son zero ne distingue pas << jamais appelee >> de << appelee la ou je ne vois pa
 dossier a produit les deux lectures fausses de suite : d'abord une refutation d'appariement de
 slot (fausse, cf. SS23), puis une accusation contre `invokeMethod` (fausse aussi). Le controle
 coute un warmup.
+
+## 25. LE ROSTER S'AFFICHE -- pre-emprunt + deboxage + masque, confirme A L'ECRAN
+
+Chaine complete jouee en session 45, **confirmee par l'utilisateur a l'ecran** apres quatre
+sections d'echecs :
+
+```
+1. deploymentPoolSansFiltre {armer, ecrire, confirmer}   -> masque arme
+2. deploymentPoolPreEmprunt {confirmer}                  -> appel HORS hook :
+      boite   PooledList`1          (runtime_invoke BOXE les types valeur)
+      deboxe  PooledListElement`1   (+0x10) <- le type que le stub sandbox rend nativement
+      deltaGetDeployableUnits = 1   <- l'appel a VRAIMENT traverse la methode filtrante
+      ecrit: true                   <- hasValue efface, donc AUCUN filtre de noeud
+3. deploymentPhaseArmer {forcer} + sandboxModeGameViews + deploymentPoolArmer {only: roster}
+4. sandboxModeStart mode=pvp, useAccountUnits=true
+   -> "PRE-EMPRUNT substitue", relais 1/1, jeu vivant
+```
+
+### LES TROIS CAUSES QUI SE MASQUAIENT L'UNE L'AUTRE
+
+Le roster vide n'avait pas UNE cause mais trois, empilees -- et chacune rendait les deux autres
+invisibles :
+
+1. **Le filtre de noeud.** `GetDeployableUnits(Nullable(74), false)` rend vide a ce noeud. Tout
+   le filtrage est sous `HasValue` (SS23).
+2. **L'`Interceptor` aveugle aux appels imbriques.** Le masque ne pouvait donc pas agir depuis
+   la delegation, quelle que soit sa justesse (SS24). D'ou le pre-emprunt.
+3. **LE DEBOXAGE MANQUANT.** `runtime_invoke` boxe les types valeur ; la delegation substituait
+   la BOITE (`PooledList`1`) la ou l'appelant attend la VALEUR (`PooledListElement`1`). Type
+   faux, silencieux, et suffisant a lui seul pour un roster vide **meme avec un emprunt
+   parfaitement reussi**.
+
+⇒ Corriger l'un des trois n'aurait rien change a l'ecran. C'est pourquoi quatre tentatives
+successives ont toutes rendu << vide >> en accusant chaque fois un etage different.
+
+### CE QUI RESTE A CONFRONTER
+
+La POSE. `useAccountUnits: true` doit faire rendre `GetUnit(unitId)` -- un vrai modele de
+compte -- donc faire passer `IsUnlocked` et peupler `_allUnlockedUnitModels` (SS22). Non
+confronte : afficher n'est pas poser.
