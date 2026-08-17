@@ -599,6 +599,104 @@ export function register(ctx: Ctx): void {
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
 
     /**
+     * LE PRÊTEUR, LU ET POSITIONNÉ — sans bataille, sans `StartMatch`, sans swap.
+     *
+     * Sans corps : LECTURE PURE. Avec `{ locationIndex, confirmer: true }` : écrit le seul
+     * entier dont dépende le roster.
+     *
+     * ⚠ POURQUOI CET ENTIER SUFFIT, ET POURQUOI CE N'EST PAS LA MÊME CHOSE QUE POSITIONNER
+     * UNE SOURCE. Le décompilé de `CampaignGameModeSource$$GetUnitsForDeploymentHUD` ne lit
+     * QUE deux champs :
+     *
+     *     _campaignProgression.GetDeployableUnits(
+     *         locationIndex: Nullable<Int32>(this->_currentLocationIndex),
+     *         onlyUnlocked : false)
+     *
+     * Ni `_currentMatch`, ni `_currentCampaignId`, ni la progression de compte. La crainte
+     * écrite plus haut (« un DTO déjà résolu deviendrait périmé ») vaut pour `LoadBattle`,
+     * PAS pour le roster : il n'y a aucun DTO dans ce chemin. Et l'identité de la campagne
+     * est portée par l'INSTANCE de `_campaignProgression` (`get_CampaignType` est son premier
+     * slot d'interface), donc elle ne se règle pas ici.
+     *
+     * ⚠ `_currentLocationIndex` est restauré par personne : ce qu'on écrit reste écrit. On le
+     * publie donc AVANT et APRÈS, pour que l'appelant puisse le remettre.
+     */
+    ctx.rpc.deploymentPoolPreteur = (body?: {
+        locationIndex?: number; confirmer?: boolean;
+    }): Promise<unknown> | unknown => queueOnMainThread(() => {
+        const src = getCampaignGameModeSourcePtr();
+        if (!src || src.isNull()) {
+            return { ok: false, error: "aucune `CampaignGameModeSource` captée -- le warmup ne "
+                + "l'a pas posée, ou la session a été réinjectée depuis" };
+        }
+        const kSrc = findClassAnywhere("IdunBattle.ViewLogic.BattleSource",
+                                       "CampaignGameModeSource");
+        if (!kSrc) return { ok: false, error: "classe `CampaignGameModeSource` introuvable" };
+        // PAR NOM, jamais par les +0x68/+0x70 mesurés : `getFieldOffset` rend -1 sur un nom
+        // absent, et -1 est *truthy* -- tester `< 0`, jamais `||`.
+        const offId = getFieldOffset(kSrc, "_currentCampaignId");
+        const offIdx = getFieldOffset(kSrc, "_currentLocationIndex");
+        const offProg = getFieldOffset(kSrc, "_campaignProgression");
+        if (offId < 0 || offIdx < 0 || offProg < 0) {
+            return { ok: false, error: "champ(s) absent(s) de `CampaignGameModeSource` sur ce "
+                + `build : _currentCampaignId=${offId} _currentLocationIndex=${offIdx} `
+                + `_campaignProgression=${offProg} -- chemin PÉRIMÉ, pas de repli sur un offset` };
+        }
+
+        const lire = (): Record<string, unknown> => {
+            const idx = src.add(offIdx).readS32();
+            // ⛔ ON NE DÉRÉFÉRENCE RIEN DE CE QUE CES CHAMPS CONTIENNENT. Deux gels du jeu
+            // le 2026-08-17 (sessions 35 et 36, `Responding=False`, delta CPU nul,
+            // `__loadingStep = 12`) : la première version lisait la CLASSE de
+            // `_campaignProgression` et le CONTENU de `_currentCampaignId`. `isNull()` ne
+            // protège que du zéro -- un pointeur STALE le passe, et `class_get_name` /
+            // la lecture d'un `System.String` partent alors dans le vide, sur le thread
+            // principal, où un `try/catch` JS n'attrape pas une faute native.
+            //
+            // Ce lecteur ne rend donc que des SCALAIRES et des ADRESSES, sans jamais suivre
+            // un pointeur. C'est assez pour le diagnostic visé (`_currentLocationIndex`), et
+            // c'est le seul régime qui ne puisse pas figer.
+            const progBrut = src.add(offProg).readPointer();
+            const idBrut = src.add(offId).readPointer();
+            // ⛔ CE LECTEUR N'INVOQUE RIEN, ET C'EST UNE CICATRICE, PAS UN PRINCIPE.
+            //
+            // La première version appelait `CampaignProgression$$IsDeploymentUnlocked(idx)`
+            // « pour avoir un tri-état » distinguant « mauvais index » de « index bon, roster
+            // vide ». Mesuré le 2026-08-17 (session 35) : l'appel n'est JAMAIS revenu, et le
+            // jeu a GELÉ -- `Responding=False`, delta CPU 0,03 s sur 8 s,
+            // `thor.Loader.__loadingStep = 12`. Relance manuelle exigée.
+            //
+            // Le natif n'avait jamais été OBSERVÉ : on ne savait pas ce qu'il touche, s'il
+            // charge quoi que ce soit, ni s'il est appelable hors de son contexte d'écran.
+            // Une commodité de diagnostic ne justifie pas d'invoquer à l'aveugle sur le
+            // thread principal. Si ce tri-état est voulu, il se prend par un `Interceptor`
+            // sur l'appel que le JEU fait lui-même -- jamais en le provoquant.
+            return {
+                source: src.toString(), locationIndex: idx,
+                campaignProgression: progBrut.isNull() ? null : progBrut.toString(),
+                currentCampaignIdPtr: idBrut.isNull() ? null : idBrut.toString(),
+                note: "SCALAIRES ET ADRESSES SEULEMENT -- aucun pointeur n'est suivi, aucun "
+                    + "natif invoqué (deux gels du jeu le 2026-08-17). Le NOM de la campagne "
+                    + "et la CLASSE de la progression exigeraient de déréférencer : les "
+                    + "prendre en OBSERVANT un appel du jeu, jamais en le provoquant.",
+            };
+        };
+
+        const avant = lire();
+        if (body?.locationIndex === undefined) {
+            return { ok: true, lecture: true, ...avant,
+                     note: "passer { locationIndex, confirmer: true } pour positionner le "
+                         + "prêteur. Rien d'autre n'est écrit, et rien ne le restaure." };
+        }
+        if (body.confirmer !== true) {
+            return { ok: false, error: "`confirmer: true` exigé : on écrit dans une source "
+                + "VIVANTE du jeu, et personne ne la restaure.", ...avant };
+        }
+        src.add(offIdx).writeS32(body.locationIndex | 0);
+        return { ok: true, action: "positionne", avant, apres: lire() };
+    });
+
+    /**
      * LA SANDBOX EN **WRAPPER** D'UNE VRAIE SOURCE — on ne patche plus stub par stub, on DÉLÈGUE.
      *
      *   { armer: true, confirmer: true }            -> délègue TOUTE la table
