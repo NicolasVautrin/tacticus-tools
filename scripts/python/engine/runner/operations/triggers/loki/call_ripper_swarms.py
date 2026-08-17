@@ -109,6 +109,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import If
 from .....entities.effect_type import EffectType
 from .....entities.selectors.accessors import ActiveTarget, Owner, Target
+from .....entities.selectors.units import Tiles
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import IsCanAddUnit
 from ....abilities.behaviours.context import entities_from_state
@@ -286,7 +287,14 @@ class CallRipperSwarmsSpawnOnBondedTurnStart(_CallRipperSwarmsPendingSummon):
                                        None if bonded is None else int(bonded))
         ectx = ExecutionContext(state=state, rng=state.rng)
         aid = spawn_ability_type(state, bonded)
-        If(IsCanAddUnit(Owner()), TriggerAbility(Target(), aid)).execute(entities, ectx)
+        # `IsCanAddUnit(Owner@<DSLSelectors+0x30>)` : le natif passe l'ENTITE-tuile directement, et
+        # son `CanAddUnit` la consomme en enchainant `GetMainTile(element)` puis `get_Id` (la meme
+        # paire d'appels que documente `Spawn`). Cote port, `CanAddUnit` attend des IDS et `Owner()`
+        # rend un DICT : sans normalisation, la boucle itere les CLES du dict et lève `KeyError:
+        # 'id'` (mesure du premier jet). `Tiles(<sel>, as_ids=True)` EST le mirror de cette paire --
+        # DOMAINE MIXTE, donc identite sur un id de tuile -- ce n'est pas un noeud ajoute a l'arbre.
+        If(IsCanAddUnit(Tiles(Owner(), as_ids=True)),
+           TriggerAbility(Target(), aid)).execute(entities, ectx)
         trig = next((p for (n, p) in ectx.emitted if n == "TriggerAbility"), None)
         # SECOND terme de l'`op_BitwiseAnd` : le retrait, INCONDITIONNEL. Il ne depend pas du `If`
         # -- c'est ce qui realise le « unless their hex is occupied » sans laisser la marque.
