@@ -254,14 +254,38 @@ d'octets chaînée ou par un `set_function_prototype` sur l'`op_Implicit` concer
 
 ## 5. Ce qui n'est PAS couvert par cette tranche
 
-* **`#1019-r1`** — la pénétration d'armure de 1499 (`ConfigVar(0x40 = armorIgnored)`) est **exposée
-  et non branchée** : `BaseEffect.get_armor_penetration` n'est appelé que par
-  `_attacker_effect_bonuses` (les effets de l'ATTAQUANT), or cet effet vit sur Farsight et n'entre
-  que par les agrégateurs d'AURA, qui n'ont aucun canal armure côté attaquant. Même étage que
-  `#1008-r2`, pris par l'autre face. `get_armor_penetration` **n'est délibérément pas surchargé** :
-  le trou reste visible au lieu d'être un no-op qui se lit comme « porté ». Conséquence
-  arithmétique réelle : le port rend le `+extraDmgPct %` mais pas les `armorIgnored` points de
-  perçage.
+* ~~**`#1019-r1`**~~ — **RÉSOLU (#924-r3, 2026-08-17). Prémisse VRAIE, `BLOCAGE: etage` FAUX : il
+  n'y avait RIEN à construire.** Ce qui manquait n'était pas un étage mais une **lecture** :
+  `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` — le corps du slot `0x16`, celui
+  que la boucle attaquant invoque — appelle `this.IgnoreArmor()` (`<vtable +0x718>`) **SOUS le test
+  du trigger de son `EffectBonus`** (tout le corps vit dans la branche `trigger == true`, lu au
+  décompilé) et range l'entier évalué dans `DamageBonus+0x38`, que
+  `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` accumule
+  dans `DamageModifiers+0x28`. La réparation est la **même forme** que `#1008-r2` côté défenseur :
+  `aura_attack_damage_bonus_from_allies` lit le canal armure **dans le bloc du bonus**, sans
+  dupliquer la gate.
+
+  ⚠ **Le slot de port est DISTINCT de `get_armor_penetration`, et c'est une MESURE qui l'exige.**
+  Le natif n'a qu'un slot (`IgnoreArmor`), mais il l'évalue une fois par *(effet, cible du
+  sélecteur)* en écrivant `AbilityEntities+0x18 (Owner) ← la cible courante`. Le port, lui, découpe
+  par LISTE. Or le sélecteur de 1499 **EXCLUT son porteur** (`SurroundingFriends` sans `+ Owner`) :
+  brancher sur `get_armor_penetration` — lu par la boucle des effets de l'attaquant — donnerait les
+  `armorIgnored` points à **Farsight lui-même**, que le natif ferme par `get_OwnerIsCaster`. D'où
+  `aura_armor_penetration_for_ally`, exactement comme `create_aura_attack_damage_bonus_for_ally`
+  coexiste avec `create_effect_damage_bonus_for_attack` pour le **même** slot natif `0x16`.
+
+  **CONFRONTATION** (`tests/engine/runner/test_1019r1_way_of_the_short_blade_armour_live.py`) —
+  géométrie EXACTE par `--place`/`--a-place` sur `MC1_67`, et le test **assertionne** les trois
+  distances avant de conclure : `tauFarsight` (3,3) **adjacent** à la cible (3,4), `tauCrisis` (3,2)
+  à distance 2 de la cible (donc l'attaque est RANGED) et à distance 1 du porteur (≤ `range` = 2).
+  Cible 60000 → **live 54379, offline 54379, écart 0**. Contre-épreuve **jouée dans le fichier**
+  (canal ARMURE seul neutralisé) : 54921 — **542 points d'écart**, donc le régime est DISCRIMINANT
+  (sous la branche PERÇAGE de `GetDamageWithPiercing`, `armor_eff` ne servirait à rien et le test
+  serait vert sans rien mesurer).
+
+  **Résidu ouvert** : `#1019-r4` — le défaut `aura_armor_penetration_for_ally(ctx) -> None` vit au
+  site d'appel par `getattr`, parce que `entities/effects/base.py` était le foyer d'une tranche
+  concurrente. Simple hissage, sans changement de comportement.
 * **`#1019-r2`** — 1500 + `WayOfTheShortBlade_AttackAbility` (§3).
 * **`#1019-r3`** — `SaviorProtocols` face COMBAT (§4).
 * **La CONFRONTATION LIVE de la valeur de dégât de 1499 n'a PAS été jouée** — voir §6.
