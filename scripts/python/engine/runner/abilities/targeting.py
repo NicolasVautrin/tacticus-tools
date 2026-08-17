@@ -1558,11 +1558,10 @@ class _NormalAttackTargeting:
         ailleurs -- parce que c'est ce porteur-la que `get_valid_targets_in_steps` interroge sur une
         position hypothetique ; les ~35 autres regles dynamiques gardent leur contrat a trois
         arguments et ne recoivent rien (cf. `_invoque_regle_dynamique`).
-        ⚠ **LE RELAIS VERS LE TYPE CONCRET NE LE TRANSMET PAS**, et c'est deliberé : aucune des
-        surcharges par type (une seule existe, `1076 MV71SniperDroneSquadAttack`) ne le declare
-        aujourd'hui. Le transmettre a l'aveugle leverait `TypeError` ; le threading passe donc par
-        `_invoque_regle_dynamique`, qui teste la signature -- residu `#590-r6-r3` si une surcharge
-        de type doit un jour lire la position interrogee.
+        ⚠ **LE RELAIS VERS LE TYPE CONCRET LE TRANSMET DEPUIS #590-r6-r3** : l'unique surcharge par
+        type (`1076 MV71SniperDroneSquadAttack`) le DECLARE desormais, donc
+        `_invoque_regle_dynamique` le lui passe. Le threading reste PAR SIGNATURE, jamais a
+        l'aveugle -- un porteur qui ne declare rien garde son contrat a trois arguments.
 
         Elle n'est CONSULTEE que si le masque du TYPE porte le bit : la cascade
         (`get_invalid_target_reason`) teste `options.has(TR.TargetMatchesDynamicRule)` avant

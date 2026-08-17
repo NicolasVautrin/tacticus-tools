@@ -83,7 +83,11 @@ import hexgeo
 from ..base import ActiveAbility, convert_rounds_to_turns
 from ..behaviours.context import entities_from_state
 from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_CASTER,
-                         TargetingOptions, has_steppable_unit, is_targetable)
+                         TargetingOptions, has_steppable_unit, is_targetable,
+                         # `UnitPosition$$get_MainTile` (#590-r6-r3) -- FOYER UNIQUE, pas une
+                         # re-ecriture locale de `caster_tiles[0]`. Aucune arete d'import neuve :
+                         # ce module importe deja `..targeting` en tete.
+                         _first_tile)
 from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                            HealthComponent, UnitFlagsComponent, get_unit_feet)
@@ -662,7 +666,8 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     return _filter_can_attack_target_tile_from(state, caster_id, target_id, int(tid))
 
 
-def _is_melee_attack(state: "State", caster_id: int, target_id: Optional[int]) -> bool:
+def _is_melee_attack(state: "State", caster_id: int, target_id: Optional[int],
+                     caster_tiles=None) -> bool:
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$IsMeleeAttack(entities)`
     (mirror), FOYER UNIQUE des DEUX consommateurs natifs — le dispatch de `ExecuteBehaviour` et le
     gate de `GetDynamicInvalidTargetReason`, qui appellent tous deux CETTE methode-la.
@@ -684,6 +689,29 @@ def _is_melee_attack(state: "State", caster_id: int, target_id: Optional[int]) -
     ICI et pas deux fois : le natif appelle la MEME methode aux deux endroits, donc le port ne doit
     pas pouvoir les faire diverger.
 
+    `caster_tiles` (#590-r6-r3) -- LA POSITION INTERROGEE, `None` = celle du caster sur le plateau.
+    **C'EST LE SEUL ETAGE DE CE CORPS QUI LISE `casterTiles`, ET LE RESIDU NOMMAIT L'AUTRE.**
+    #590-r6-r3 imputait l'ecart a `PickTile` / `_filter_can_attack_target_tile_from` ; les DEUX
+    decompiles disent le contraire, et c'est une lecture, pas une preference :
+
+      * `MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason` ecrit `casterTiles` dans
+        `entities+0x48` -- rien d'autre : le memset couvre 0x128 octets, puis seuls `+0x08 caster`,
+        `+0x10 target`, `+0x18 caster` et `+0x48 casterTiles` sont poses (`targetTiles`, lui,
+        n'est ECRIT NULLE PART) ;
+      * `IdunBattle.Entities.Abilities.AbilityEntities$$get_CasterPosition` rend precisement
+        `this+0x48` quand il est non nul, sinon un `UnitPosition` bati sur `this+0x40` ; et
+        `$$get_HasCasterPosition` est `+0x48 != 0 || +0x40 != 0` ;
+      * `IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger` -- le trigger que
+        `DSLTriggers$$IsMeleeAttack` construit -- fait exactement
+        `pos = HasCasterPosition ? CasterPosition : EntityExtensions$$GetUnitPosition(caster, state)`
+        avant son appel final. La position INTERROGEE gagne donc sur la position REELLE ;
+      * `PickTile`, lui, ne touche jamais `+0x48` : il lit `Target` (`entities+0x10`) pour l'anneau
+        et la ligne de vue, et passe le caster en tant qu'**ENTITE** a
+        `BattleQuery$$IsTargetInAttackRangeForSummon` (slot 0xc4) comme a
+        `FilterTilesIfCanAttackTargetTileFromSelector$$Select`, qui resout ses deux selecteurs en
+        une ENTITE et une TUILE. Propager `caster_tiles` jusque-la aurait ecrit un etage que le
+        natif n'a pas.
+
     Positions non resolues -> `False` : le port ne fabrique pas un dispatch melee faute de mesure
     (c'est la branche PERMISSIVE du gate, cf. `mv71_dynamic_invalid_target_reason`)."""
     if target_id is None:
@@ -692,12 +720,19 @@ def _is_melee_attack(state: "State", caster_id: int, target_id: Optional[int]) -
     te = state.get_entity(target_id)
     cp = ce.get_component(PositionComponent) if ce is not None else None
     tp = te.get_component(PositionComponent) if te is not None else None
-    if cp is None or tp is None:
+    # `CasterPosition` = la position interrogee si elle existe, sinon `GetUnitPosition(caster)`.
+    # `_first_tile` est `UnitPosition$$get_MainTile` (la PREMIERE tuile), la meme convention que
+    # le collapse historique, qui prend la main tile du `PositionComponent`.
+    src = (cp.col, cp.row) if cp is not None else None
+    if caster_tiles is not None:
+        src = _first_tile(caster_tiles)
+    if src is None or tp is None:
         return False
-    return are_tiles_adjacent((cp.col, cp.row), (tp.col, tp.row), state.board)
+    return are_tiles_adjacent(src, (tp.col, tp.row), state.board)
 
 
-def mv71_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id) -> int:
+def mv71_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id,
+                                       caster_tiles=None) -> int:
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason`
     (MIRROR 1:1 du decompile, 4 parametres `caster, casterTiles, target, targetTiles`) :
 
@@ -724,9 +759,15 @@ def mv71_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id
     L'ORDRE d'enumeration de `GetSurroundingTiles` n'a aucune incidence ici : le gate ne teste que
     la NULLITE du retour, jamais QUELLE tuile est rendue.
 
+    `caster_tiles` (#590-r6-r3) -- la POSITION INTERROGEE, `None` = celle du caster. Elle va a
+    `_is_melee_attack` et **A LUI SEUL** : c'est le seul etage du corps natif qui lise
+    `entities+0x48` (`AbilityEntities.CasterPosition`). `PickTile` recoit la meme struct mais n'y
+    touche pas -- il lit `Target` et le caster en tant qu'ENTITE. La demonstration, decompile par
+    decompile, est dans `_is_melee_attack` ci-dessus.
+
     Substrat non mesure (`unitId` absent du gameconfig) -> `0` : convention permissive du module,
     jamais un refus invente."""
-    if _is_melee_attack(state, caster_id, target_id):
+    if _is_melee_attack(state, caster_id, target_id, caster_tiles):
         return 0
     if target_id is None:
         return 0
@@ -928,7 +969,7 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
                                          force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
-                                          target_id: Optional[int]) -> int:
+                                          target_id: Optional[int], caster_tiles=None) -> int:
         """La regle-delegue du bit `TargetMatchesDynamicRule` pose ci-dessus (#287-r11-r2) —
         `MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason`, mirror dans
         `mv71_dynamic_invalid_target_reason`.
@@ -937,8 +978,14 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` (le test d'arme). 1076 EST
         l'attaque normale de `tauMarksman`, donc le porteur consulte est
         `targeting._NormalAttackTargeting`, qui aiguille desormais vers CETTE surcharge — mirror du
-        fait que le delegue `options+0x38` est lie au slot vtable `+0x480` de l'INSTANCE."""
-        return mv71_dynamic_invalid_target_reason(state, caster_id, target_id)
+        fait que le delegue `options+0x38` est lie au slot vtable `+0x480` de l'INSTANCE.
+
+        `caster_tiles` (#590-r6-r3) : DECLARE, donc `targeting._invoque_regle_dynamique` le
+        transmet -- c'est le threading que ce residu tenait ouvert. Le natif le passe en DEUXIEME
+        argument du delegue (`d.Invoke(caster, casterTiles, cible, targetTiles)`) et cette surcharge
+        l'ecrit dans `entities+0x48`, ou `IsMeleeAttack` va le lire. `None` = la position REELLE,
+        octet pour octet le comportement d'avant."""
+        return mv71_dynamic_invalid_target_reason(state, caster_id, target_id, caster_tiles)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
