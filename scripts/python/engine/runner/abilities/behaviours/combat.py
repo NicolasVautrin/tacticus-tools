@@ -672,7 +672,7 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
     def _left_over_hits(atk: dict, extra: int) -> int:
         """`IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$GetLeftOverHits` —
         `count` = nb d'entrees `LeftOverDamages` (composant de la CIBLE, champ +0x90) dont le FLAG
-        (`IdunBattle.Core.LeftOverDamage$$.ctor` param_4 -> champ +0x7c) est vrai ET dont
+        (`IdunBattle.Core.LeftOverDamage$$.ctor` param_4 -> champ +0x78) est vrai ET dont
         l'`AbilityOrEffect` (+0x18) egale la notre (+0x70) ; `+ extraHits` (noeud +0x90) des que
         `list.Count > 0` — donc des qu'il existe AU MOINS UNE entree, quel que soit son flag.
 
@@ -682,49 +682,67 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             tuee au coup k                  -> max(0, H - k - 1) + extraHits
             deja morte a l'entree           -> H + extraHits          (modelise, non confronte)
 
-        ⚠⚠ **CETTE FORME EST INCOMPLETE ET C'EST MESURE -- MAIS LES DEUX CORRECTIFS << EVIDENTS >>
-        SONT REFUTES, EUX AUSSI PAR MESURE LIVE (#489-r1, 2026-08-15).** Ne pas la changer sans
-        rejouer les DEUX montages ci-dessous ; le residu ouvert est `#489-r2`.
+        D'OU VIENNENT LES ENTREES -- les TROIS call-sites d'`IdunBattle.Operations.
+        ApplyDamageOperation$$AddLeftoverHit`, RELUS au build courant (#489-r2, 2026-08-18) :
 
-          * `max(0, H - k) + extraHits`, que la lecture des trois call-sites d'`AddLeftoverHit`
-            semble dicter (« les coups joues apres la mort »), est **REFUTEE LIVE** : elle rend
-            `test_523_heavy_warp_flamer_live.py` TROIS fois rouge (dont `test_r3` : chaine offline
-            `[79, 83, 81]` contre live `[79, 83]` -- un maillon ENTIER en trop) et
-            `test_chain_leftover_hits_live.py` DEUX fois (maillon `u81` : port `[1970, 1030, 0]`
-            contre live `[1946]`), la ou `master` est vert 13/13 sur les deux fichiers.
-          * `(H-k) - (1 si overkill) + extraHits`, que propose la fiche #489-r1, est refutee par
-            #505 : sur `1129` (coup fatal qui ECRASE, donc `IsOverkill` VRAI) elle rend `3-1 = 2`
-            la ou le live rend **3**.
+          (a) en TETE d'`ApplyDamageOperation$$Execute`, `UnitExtensions.HasFlag(target,
+              UnitFlag.Overkilled = 8)` -> entree flag LITTERAL **1**, puis `return` (ce coup
+              n'emet AUCUN event et ne mute rien) ;
+          (b) sous le gate `0 < DamageAppliedResult.get_Damage(result)`, si `HealthComponent$$IsDead`
+              AVANT la mutation -> entree, flag = ce meme `IsDead` d'avant, donc **VRAI** ;
+          (c) sous le gate `0 < <reduction REELLEMENT appliquee>` (retour de
+              `FillUpStatComponent$$Reduce`) ET `IsDead` APRES la mutation -> entree, flag =
+              l'`IsDead` d'AVANT, donc **FAUX** sur le coup qui tue.
 
-        CE QUE LA LECTURE ETABLIT MALGRE TOUT, et qui reste le fil a tirer : le gate du call-site
-        (a) -- le SEUL des trois a pousser un flag LITTERAL `1`, donc le seul que `GetLeftOverHits`
-        compte -- est `UnitExtensions.HasFlag(target, UnitFlag.Overkilled = 8)`, **PAS** `IsDead`.
-        Le compte se lit donc sur l'index d'OVERKILL, pas sur celui de la MORT, et
-        `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` etant un SEUIL, cet index vaut `k`
-        ou `k+1` selon la MAGNITUDE du coup fatal :
+        ⚠⚠ **LA PREMISSE DE `#489-r2` EST REFUTEE : LA LOI NE SE LIT PAS SUR L'INDEX D'OVERKILL.**
+        La fiche posait que le compte se lit sur `o` (l'index du coup qui pose `UnitFlag.Overkilled`)
+        parce que le site (a) est le seul a pousser un flag LITTERAL. C'est vrai du site (a) et FAUX
+        du compte : le site (b) pousse lui aussi un flag VRAI (c'est l'`IsDead` d'avant mutation, et
+        ce gate ne s'ouvre qu'apres la mort). Les deux voies sont donc INTERCHANGEABLES, et `o` ne
+        decide que de LAQUELLE, pas de COMBIEN. MESURE qui le montre sans detour : sur `1129` a
+        PV 9000 et 12000, `o == H` -- donc **ZERO** coup gate par le site (a) -- et le report ne
+        vaut pas 0 pour autant. Les deux formes `H - o` et `H - o + 1` que la fiche voulait separer
+        sont mortes ensemble ; il n'y avait pas un point de mesure a ajouter, il y avait un etage a
+        relire.
 
-            if (!allowOverkill) return false
-            if (minimumHealth.HasValue && minimumHealth.Value > 0) return false
-            if (healthDamage >= targetInitialHealth && isForceOverkill) return true
-            if (!isPreventOverkill && healthDamage >= targetInitialHealth) {
-                pct = (healthDamage - targetInitialHealth) / targetInitialHealth * 100   # Fix64
-                return (pct < overkillDmgPctOfHealth) ? isCritical : true
-            }
-            return false
+        ⚠ **ET LE MONTAGE QUE LA FICHE PRESCRIVAIT NE POUVAIT PAS TRANCHER** : « ajouter la lecture
+        de `overkill_at_hit` du 1er maillon » confronte la loi du port a un index que le PORT
+        calcule -- la meme tautologie que le VERDICT-4 de `probe_489_fragstorm_grenade_launcher.py`,
+        que `#489-r1` reprochait deja. Le canal NATIF existe et ne demande aucun capteur neuf : le
+        nombre d'events de degat d'un maillon MOURANT **EST** `o` (le site (a) sort avant toute
+        emission), le dernier index a `Amount != 0` **EST** `k`, le nombre d'events d'un maillon
+        SURVIVANT **EST** son nombre de coups appliques. Fixture : `probe_489r2_leftover_law.py`,
+        trois regimes (`bf` = 1129, `mte` = 1006, `chain3` = le montage du test live avec le bras
+        TEMOIN qu'il n'a pas).
 
-        ⚠ **CE QUI A CHANGE LE 2026-08-15, ET QUI ETAIT LE BLOQUANT DECLARE** : `#489-r1` disait
-        « le retour d'`execute_ability_attack` n'expose AUCUN flag d'overkill ». L'ETAGE existait
-        deja (`damage_hits.overkill_flag_posted_by_hit`, mirror d'`IsOverkill`, porte par
-        #462-r4e-o-r1) ; seul le CABLAGE manquait. `overkilled` / `overkill_at_hit` /
-        `hits_executed` sont desormais REMONTES par `execute_ability_attack` **et repris dans
-        chaque maillon de `chain`** -- donc lisibles par un probe.
-        ⚠ ET LA PREMIERE MESURE QU'ILS PERMETTENT CONTREDIT LE MODELE SIMPLE : sur `1006` /
-        maillon `u79` (H = 6, k = 2, report NATIF = 4 avec extra = 1), le port mesure
-        `overkill_at_hit = 3`, donc un index d'overkill 1-based `o = 4`. `H - o + extra` rendrait
-        **3**, `H - o + 1 + extra` rendrait **4**. Aucune des deux ne peut etre retenue sur un
-        seul point : `#489-r2` porte le montage qui separe (lire `overkill_at_hit` sur `1129`,
-        dont #505 predit un `o` DIFFERENT de celui de 1006 -- c'est le seul couple ou les formes
-        divergent).
+        ⚠⚠ **CETTE FORME EST CONTREDITE PAR QUATRE POINTS NATIFS SUR `1129`, ET ELLE N'EST PAS
+        REMPLACEE ICI** (residu `#489-r2`, re-enonce). `1129 BloodyFury` passe
+        `extraHitsAfterTargetKilled` = **null** -- LU VERBATIM : le 9e argument de
+        `DSLBehaviors$$ChainLeftOverHitsAttackDamage` dans
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$ExecuteBehaviour` est
+        `(void *)0x0` -- donc son report EST le compte d'entrees, sans terme additif :
+
+            porteur                     extra  H   k   o   report LIVE   ce port rend
+            1129 BloodyFury (PV 1800)     0    4   1   1        3             2
+            1129 BloodyFury (PV 5200)     0    4   1   1        3             2
+            1129 BloodyFury (PV 9000)     0    4   2   4        2             1
+            1129 BloodyFury (PV 12000)    0    4   2   4        2             1
+
+        `H` y est lu NATIVEMENT par un bras TEMOIN (cible immortelle -> 4 events), `k` et `o` sortent
+        du MEME bras et du MEME tick. Le port rend donc **un coup de trop peu** sur ce porteur.
+
+        ⚠ CE QUI EMPECHE DE CONCLURE, ET C'EST LE RESIDU : aucune forme unique ne passe les trois
+        porteurs avec les grandeurs mesurables. `max(0, H - k) + extra` explique `1129` (4/4) et
+        `1006` en regime a malus de coups (3/3) mais casse `1227 HeavyWarpFlamer`
+        (`test_523_heavy_warp_flamer_live.py`, dont le relais SURVIT -- son compte d'events EST le
+        report) ; la forme portee ci-dessus explique `1227` et `1006` sans malus, et casse `1129`.
+        La grandeur qui separe toutes les paires est la meme : le rapport entre coups **DEMANDES** et
+        coups **APPLIQUES**, c'est-a-dire le modele de malus de coups. Il a ete confronte au natif
+        6 fois SUR UNE CIBLE ISOLEE (cible immortelle, 6 coups demandes, on compte les events) et il
+        est JUSTE 6/6 ; il ne l'a PAS ete avec une unite INTERPOSEE entre le caster et la cible --
+        et cette configuration-la est justement celle de tous les maillons `>= 2`. Elle n'est pas
+        atteignable par un tir direct (`abilityTargets.fromHere` refuse la tuile lointaine quand une
+        unite s'interpose) : c'est le prochain montage a inventer.
 
         MESURE LIVE (`probe_125_leftover_hits.py --mode sweep`, seed 4242, board MC1_67, chaine
         MultiThreatEliminator ; le report est FORCE maillon par maillon et le tuple est confronte au
@@ -738,20 +756,6 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             4000         | 3 | {1,2,3} (LightCover ecrase) | 1..3 (H = 3..5)
             10000        | 6 | >= 1 (le 2e maillon EST frappe) | 1  (H = 6)
 
-        Les regimes 2500 et 3000 ont le MEME k et un index d'overkill DIFFERENT (3 vs 4, lisible au nb
-        d'events : `ApplyDamageOperation$$Execute` retourne des l'entree sur
-        `UnitExtensions.HasFlag(target, UnitFlag.Overkilled = 8)` -> les coups suivants n'emettent plus
-        rien) et donnent le MEME report 4 : le report depend de **k**, pas de l'index d'overkill. Le
-        regime 10000 (k = H, AUCUN coup gaspille) rend >= 1 : c'est lui qui pin le terme `+ extraHits`
-        (`extraHit` = 1 en gameconfig pour 1006).
-
-        LES TROIS CALL-SITES d'`ApplyDamageOperation$$AddLeftoverHit`, relus au build courant --
-        (a) `HasFlag(target, UnitFlag.Overkilled = 8)` -> entree flag LITTERAL 1 puis `return` ;
-        (b) cible DEJA morte a l'entree -> entree, flag = cet `IsDead` d'AVANT ; (c) le coup qui TUE
-        -> entree du reste d'overkill (`requested - applied`), flag = l'`IsDead` d'AVANT, donc FAUX.
-        `HealthComponent$$IsDead` est `CurrentValue < 1 && CurrentMaximumValue > 0`, sans differe.
-        => **`H - k` entrees flag-vrai**, et c'est bien ce que rend la loi ci-dessus.
-
         AVANT ce port, la branche « tuee » rendait `1 + extraHits` en dur (mesure #116 lue sur un SEUL
         regime, PV 8000 -> k=5, H=6, ou le malus `LightCover` du maillon suivant ecrase 1 et 2 sur la
         MEME valeur appliquee) : d'ou le bit-exact trompeur de #116 et la divergence de #122 des que
@@ -761,12 +765,8 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         une : le seul regime ou `probe_125` sait LIRE le report est celui du maillon SUIVANT, dont le
         nombre d'events depend AUSSI des modificateurs de coups de SA cible (`LightCover`, `Parry`,
         `Camouflage` -- le tableau ci-dessus le note explicitement pour PV 4000). H n'y etait donc
-        pas OBSERVE mais SUPPOSE, et `max(0,H-k-1)+1` s'y ajuste avec un H majore de 1. Le regime qui
-        tranche est celui de `#505`, ou `extra = 0` et ou H est CONNU (4 coups d'attaque forces) :
-        la ils divergent, et c'est `max(0,H-k)` qui passe 4/4.
-        ⚠ Et `probe_489_fragstorm_grenade_launcher.py` VERDICT-4 ne pouvait rien voir : il compare
-        `off_chain[1]["hits"]` a la formule qui l'a produit -- une TAUTOLOGIE, pas une confrontation.
-        Le verdict qui mord est celui qui lit le report DANS LE LIVE, sur un maillon SURVIVANT.
+        pas OBSERVE mais SUPPOSE. C'est exactement ce que le bras TEMOIN de
+        `probe_489r2_leftover_law.py` retire du modele.
 
         ⚠ CE QUI RESTE OUVERT (residu `#505-r1`) : l'INDEX du premier coup « deja overkill ».
         `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` est un SEUIL, pas un index --
@@ -781,13 +781,13 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             return false
 
         -- donc le coup FATAL pose lui-meme `UnitFlag.Overkilled` quand son excedent depasse
-        `overkillDmgPctOfHealth` (ou qu'il est CRITIQUE), sinon c'est le coup SUIVANT. Cet index
-        **ne change PAS ce compte-ci** (sites (a) et (b) poussent tous deux un flag VRAI, cf.
-        `record_left_over_damages`), mais il decide du MONTANT reporte par `HazeOfCorruption` et de
-        l'emission des events. `IsOverkill` EST porte (`damage_hits.overkill_flag_posted_by_hit`,
-        #462-r4e-o-r1) et son index est desormais EXPOSE (`overkill_at_hit` dans le retour
-        d'`execute_ability_attack`, #489-r1) : ce qui manque n'est plus l'etage, c'est un montage
-        qui SEPARE les deux paliers."""
+        `overkillDmgPctOfHealth` (ou qu'il est CRITIQUE), sinon c'est un coup SUIVANT. Cet index ne
+        change PAS ce compte-ci (cf. la refutation de la premisse ci-dessus), mais il decide du
+        MONTANT reporte par `HazeOfCorruption` et de l'emission des events. Le port le calcule
+        (`damage_hits.overkill_flag_posted_by_hit`, #462-r4e-o-r1) et il est desormais CONFRONTE au
+        natif par `probe_489r2_leftover_law.py` (etage OVERKILL) : **6 accords sur 7 points**, le 7e
+        etant un `None` du port la ou `o == H` -- regime ou « pose au dernier coup » et « jamais
+        pose » sont indistinguables du dehors."""
         per_hit = list(atk.get("per_hit_health") or [])
         if not per_hit:
             return 0
@@ -799,7 +799,6 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             hp -= int(h)
             if hp <= 0:
                 return max(0, H - (i + 1) - 1) + int(extra)
-        return 0                          # cible SURVIVANTE -> AUCUNE entree -> pas de `+ extraHits`
         return 0                          # cible SURVIVANTE -> AUCUNE entree -> pas de `+ extraHits`
 
     def execute(self, entities, ectx):
@@ -859,6 +858,13 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
                 is_attack_damage_op=(self.native_factory != "ability"))
             if atk is None:                              # rng non cale : degradation fidele (cf. #217)
                 break
+            # #489-r2 : la BORNE DE BOUCLE d'`AttackDamageOperation$$ExecuteHits` (les coups
+            # DEMANDES), que le retour de l'Operation ne porte pas -- il n'expose que l'APPLIQUE
+            # (`atk["hits"]`). C'est la SEULE grandeur qui separe les deux lois encore en lice (cf.
+            # `_left_over_hits`), donc elle est PUBLIEE ici. Semee dans le dict plutot qu'ajoutee a
+            # la signature : `_left_over_hits` est SUBSTITUE par `test_chain_leftover_hits_live.py`
+            # (contre-cas de la formule d'avant #125), et changer son arite desarmerait ce test.
+            atk["hits_requested"] = int(hits)
             # `hits` = la BASE passee a l'Operation ; `applied_hits`/`per_hit` = ce que la FORMULE de
             # coups partagee (`AttackHitsWithModifiersFormula$$Calculate`, traversee par la famille
             # ATTACK) a REELLEMENT applique -- les deux different des que la cible porte un malus de

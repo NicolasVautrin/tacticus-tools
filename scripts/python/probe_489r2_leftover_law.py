@@ -306,10 +306,269 @@ def confronter(temoin: dict, mortels: list, extra: int = EXTRA_HITS_1129) -> int
     return 0
 
 
+# ------------------------------------------------------------------ regime MTE (1006, extraHit = 1)
+#
+# POURQUOI CE SECOND PORTEUR EST INDISPENSABLE, et ce qu'il separe (l'autre ne le peut pas) :
+# `1129 BloodyFury` passe `extraHitsAfterTargetKilled = null` (LU), donc son report EST le compte
+# d'entrees flag-vraies -- il mesure ce compte, et RIEN du terme `+ extraHits`. Or les deux formes
+# `max(0,H-k-1) + extra` et `max(0,H-k) + 0` sont IDENTIQUES des que `extra == 1` : sur un porteur a
+# `extraHit = 1` elles ne se distinguent pas, et sur un porteur a `extra = 0` c'est le terme lui-meme
+# qui disparait. Il faut donc les DEUX porteurs, et le second sert a decider si `+ extraHits`
+# contribue -- ET a confronter `H` (le nombre de coups REELLEMENT executes) au natif, ce qu'aucune
+# mesure de #489/#505 n'avait fait pour 1006.
+#
+# GEOMETRIE (verifiee sur `data/boards/global/MC1_67.json`, colonnes x lignes) : le selecteur de cible
+# suivante est `Unobscured(Enemies(SurroundingUnits(casterTile, range = 2))) & AdjacentUnits(Last)`.
+# La colonne 3 donne une chaine droite : caster (3,4), 1er maillon (3,3) -- adjacent --, 2e maillon
+# (3,2) -- adjacent au 1er ET a distance 2 du caster. Les trois tuiles sont jouables.
+MTE = int(ActiveAbilityType.MultiThreatEliminator)      # 1006
+MTE_CASTER_TILE = (3, 4)
+MTE_LINK_TILES = ((3, 3), (3, 2))
+
+
+def _tiles_de(args):
+    """(tuile du caster, tuiles des maillons) -- parametrable, parce que le MALUS DE COUPS depend de
+    la TUILE (`LightCover` est porte par le terrain) : mesurer `H` d'une unite sur une tuile ne dit
+    RIEN de la meme unite sur une autre."""
+    def p(s):
+        c, r = s.split(",")
+        return (int(c), int(r))
+    ct = p(args.mte_caster_tile) if args.mte_caster_tile else MTE_CASTER_TILE
+    lt = tuple(p(x) for x in args.mte_link_tiles.split(";")) if args.mte_link_tiles \
+        else MTE_LINK_TILES
+    return ct, lt
+
+
+def bras_mte(args, main_hp, label: str) -> dict:
+    """UN bras du regime MTE. `main_hp = None` => bras TEMOIN (1er maillon IMMORTEL -> il survit,
+    donc ses 6 coups emettent tous et `len(events) == H`, ce qui CONFRONTE le nombre de coups du
+    port au natif). Sinon le 1er maillon a `main_hp` PV et le 2e est immortel."""
+    st_file = Path(args.state_file or (ROOT / "logs" / "runners" / ("_489r2_mte_%s.json" % label)))
+    st_file.parent.mkdir(parents=True, exist_ok=True)
+    sid = _resolve_session()
+    ct, lt = _tiles_de(args)
+    a_units = [x for x in args.mte_a_units.split(",") if x][:len(lt)]
+    placement = ["--place", "necroDestroyer:%d,%d" % ct]
+    for uid, tile in zip(a_units, lt):
+        placement += ["--a-place", "%s:%d,%d" % (uid, tile[0], tile[1])]
+    hp_main = _IMMORTEL if main_hp is None else int(main_hp)
+    placement += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (a_units[0], hp_main, hp_main)]
+    tag = "[489r2/mte/%s]" % label
+    rid = _build(st_file, ["--seed", str(args.seed), "--board", args.board, "--rank", "17",
+                           "--p-units", "necroDestroyer", "--a-units", ",".join(a_units),
+                           "--no-ai", "--hp-player", "900000",
+                           # `--crit 0,0` : le crit est un conjoint d'`IsOverkill` (`pct < seuil ?
+                           # isCritical : true`). L'eteindre retire une variable du modele d'`o`
+                           # SANS toucher au compte d'entrees, qui est ce qu'on mesure.
+                           "--crit", "0,0",
+                           "--hp-target", str(_IMMORTEL)] + placement)
+    out = {"label": label, "main_hp": main_hp, "ok": False}
+    print("%s runner=%s main_hp=%s" % (tag, rid, hp_main))
+    try:
+        dec = _dec(sid, rid)
+        c = _unit_of(dec, "necroDestroyer")
+        if c is None:
+            print("%s necroDestroyer ABSENT du deploiement" % tag)
+            return out
+        cid = int(c["id"])
+        fh, tg = _from_here(sid, rid, cid, MTE)
+        legal = [t for t in (_tid(x) for x in fh) if t is not None]
+        pos = {int(u["id"]): _pos_of(dec, int(u["id"])) for u in _alive_units(dec)}
+        cible = [t for t in legal if pos.get(t) == lt[0]]
+        if not cible:
+            print("%s le 1er maillon (%s) n'est pas une cible legale fromHere (legal=%s pos=%s)"
+                  % (tag, MTE_LINK_TILES[0], legal, pos))
+            return out
+        tid = cible[0]
+        mkstate, dec, board = _capture(sid, rid)
+        diag = _offline_cast(mkstate(), cid, tid, MTE)
+        chain = diag.get("chain") or []
+        res = _cast_live(sid, rid, cid, tid, MTE, capture_events=True)
+        live = _live_per_hit(res, MTE)
+        ordre = list(live.keys())
+        print("%s LIVE per-coup par cible : %s"
+              % (tag, json.dumps({str(a): b for a, b in live.items()})))
+        print("%s PORT chaine : %s"
+              % (tag, [{"target": c2.get("target"), "hits": c2.get("hits"),
+                        "applied_hits": c2.get("applied_hits"),
+                        "overkill_at_hit": c2.get("overkill_at_hit")} for c2 in chain]))
+        out.update(ok=True, target=int(tid), ordre=ordre, live=live,
+                   port_hits=(int(chain[0].get("hits")) if chain else None),
+                   port_applied=(int(chain[0].get("applied_hits") or 0) if chain else None),
+                   port_ovk_at=(chain[0].get("overkill_at_hit") if chain else None),
+                   port_report=(int(chain[1].get("hits")) if len(chain) > 1 else 0),
+                   port_report_applied=(int(chain[1].get("applied_hits") or 0)
+                                        if len(chain) > 1 else 0))
+        if ordre:
+            ph = live.get(ordre[0]) or []
+            out["live_maillon1"] = ph
+            out["o_live"] = index_de_pose_du_flag(ph)
+            out["k_live"] = index_du_coup_fatal(ph)
+            out["report_live"] = len(live.get(ordre[1]) or []) if len(ordre) > 1 else 0
+    finally:
+        if not args.keep:
+            _dispose(st_file)
+    return out
+
+
+def confronter_mte(temoin: dict, mortels: list) -> int:
+    """Meme table que `confronter`, avec `extra = 1` (`GetNumberConstant(0x2b)` de
+    `MultiThreatEliminator`), plus la confrontation de `H` -- qui est ici le point NEUF : si le port
+    n'execute pas le meme nombre de coups que le natif, tout ecart de report lui est impute a tort."""
+    import gameconfig as GC
+    extra = int(((GC.ability("MultiThreatEliminator") or {}).get("constants") or {})["extraHit"])
+    if not temoin.get("ok") or not temoin.get("live"):
+        print("[489r2/mte] TEMOIN indisponible -- H non lisible, aucun verdict")
+        return 1
+    H_live = len(temoin["live"].get(temoin["ordre"][0]) or [])
+    print("[489r2/mte] H NATIF (bras TEMOIN) = %d ; H port (applied_hits) = %s -> %s ; extraHit = %d"
+          % (H_live, temoin.get("port_applied"),
+             "ACCORD" if temoin.get("port_applied") == H_live else "ECART",
+             extra))
+    if temoin.get("port_applied") != H_live:
+        print("[489r2/mte] Le nombre de coups DIVERGE : l'etage AMONT est en cause, pas la loi.")
+        return 1
+    H = H_live
+    survivantes, n_pts = None, 0
+    for m in mortels:
+        if not m.get("ok") or not m.get("live_maillon1") or len(m.get("ordre") or []) < 2:
+            print("[489r2/mte] PV=%s : point NON PORTANT (pas de 2e maillon live)" % m.get("main_hp"))
+            continue
+        if m.get("port_report") != m.get("port_report_applied"):
+            print("[489r2/mte] PV=%s : le 2e maillon subit un MALUS DE COUPS (port hits=%s "
+                  "applied=%s) -> `len(events)` n'est pas le report, point ECARTE"
+                  % (m["main_hp"], m.get("port_report"), m.get("port_report_applied")))
+            continue
+        k, o, rep = m["k_live"], m["o_live"], m["report_live"]
+        if k == 0:
+            print("[489r2/mte] PV=%-6s cible NON tombee -- point NON PORTANT" % m["main_hp"])
+            continue
+        lois = dict(lois_candidates(H, k, o, extra))
+        lois["H2 max(0,H-k) SANS extra"] = max(0, H - k)
+        ok = {n for n, v in lois.items() if v == rep}
+        n_pts += 1
+        survivantes = ok if survivantes is None else (survivantes & ok)
+        print("[489r2/mte] PV=%-6s H=%d k=%d o=%d live1=%s report=%d -> %s"
+              % (m["main_hp"], H, k, o, m["live_maillon1"], rep,
+                 " ".join("%s=%d%s" % (n, v, "*" if v == rep else "") for n, v in lois.items())))
+    if not n_pts or not survivantes:
+        print("[489r2/mte] AUCUNE loi ne passe les %d points" % n_pts)
+        return 1
+    print("[489r2/mte] lois survivantes sur %d points : %s" % (n_pts, sorted(survivantes)))
+    return 0
+
+
+# ------------------------------------------------ regime CHAIN3 : le montage du test live, AVEC temoin
+#
+# POURQUOI CE TROISIEME REGIME EXISTE. `tests/engine/runner/test_chain_leftover_hits_live.py` monte
+# une chaine de TROIS maillons dont les DEUX premiers meurent, et ne confronte que le per-coup du
+# maillon SURVIVANT. Il ne mesure donc JAMAIS `H` (le nombre de coups REELLEMENT executes) des deux
+# premiers maillons : ceux-la sont tronques par le SITE (A). Un bilan vert y est compatible avec une
+# loi de report fausse COMPENSEE par un modele de malus de coups faux -- c'est exactement le bug
+# compensatoire que la doctrine interdit de laisser sans mesure.
+#
+# Ce regime REJOUE la MEME geometrie (il reutilise `_drive_chain` du fichier de test, charge par
+# chemin -- pas de duplication) et ajoute le bras que le test n'a pas : tous les ennemis IMMORTELS,
+# donc chaque maillon survit et `len(events) == H` maillon par maillon.
+_CHAIN3_TEST = (PYDIR / "tests" / "engine" / "runner" / "test_chain_leftover_hits_live.py")
+
+
+def _charger_module_de_test(path: Path):
+    """Charge le module de test par CHEMIN (il n'est pas importable comme paquet). On n'en tire que
+    des fonctions de MONTAGE de niveau module (`_drive_chain`, `_my_turn`), qui prennent leur `rpc`
+    en argument -- aucune fixture pytest n'est touchee."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_t_chain3", str(path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def bras_chain3(args, hp_target: int, label: str) -> dict:
+    """UN bras du montage a TROIS maillons. `hp_target` ENORME = bras TEMOIN (tous survivent -> H de
+    CHAQUE maillon est lisible) ; `hp_target` bas = le regime du test."""
+    st_file = Path(args.state_file or (ROOT / "logs" / "runners" / ("_489r2_c3_%s.json" % label)))
+    st_file.parent.mkdir(parents=True, exist_ok=True)
+    sid = _resolve_session()
+    tag = "[489r2/chain3/%s]" % label
+    T = _charger_module_de_test(_CHAIN3_TEST)
+    rid = _build(st_file, ["--seed", str(args.seed), "--board", args.board, "--rank", "17",
+                           "--p-units", T.CASTER_VIS, "--a-units", T.A_UNITS,
+                           "--no-ai", "--hp-target", str(hp_target), "--hp-player", "60000",
+                           "--crit", "0,0"])
+    out = {"label": label, "hp_target": hp_target, "ok": False}
+    print("%s runner=%s hp_target=%s" % (tag, rid, hp_target))
+    try:
+        from engine.entities.pathfinding.board import Board
+
+        def rpc(m, b, t=90):
+            return _r(sid, m, b, t)
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        if not (isinstance(bg, dict) and bg.get("tiles")):
+            print("%s boardGraph indispo" % tag)
+            return out
+        c, dv = T._my_turn(rpc, rid)
+        if c is None:
+            print("%s tour du caster inatteignable" % tag)
+            return out
+        got = T._drive_chain(rpc, rid, Board(bg["tiles"], adjacency="evenq"), c, dv)
+        if got is None:
+            print("%s geometrie de chaine non realisable" % tag)
+            return out
+        cid, tid = got
+        mkstate, dec, board = _capture(sid, rid)
+        diag = _offline_cast(mkstate(), cid, tid, T.ABILITY)
+        chain = diag.get("chain") or []
+        res = _cast_live(sid, rid, cid, tid, T.ABILITY, capture_events=True)
+        live = _live_per_hit(res, T.ABILITY)
+        print("%s LIVE per-coup par cible : %s"
+              % (tag, json.dumps({str(a): b for a, b in live.items()})))
+        print("%s PORT chaine : %s"
+              % (tag, [{"target": c2.get("target"), "hits": c2.get("hits"),
+                        "applied_hits": c2.get("applied_hits"),
+                        "hp_before": c2.get("hp_before"),
+                        "per_hit_health": c2.get("per_hit_health")} for c2 in chain]))
+        out.update(ok=True, live=live, ordre=list(live.keys()),
+                   chain=[{kk: vv for kk, vv in c2.items() if kk != "attack"} for c2 in chain])
+    finally:
+        if not args.keep:
+            _dispose(st_file)
+    return out
+
+
+def confronter_chain3(temoin: dict, reel: dict) -> int:
+    """Confronte MAILLON PAR MAILLON le `H` du port au `H` natif du bras TEMOIN. C'est le seul etage
+    que le test live ne mesure pas, et c'est celui qui decide si son bilan vert est une CONFIRMATION
+    ou une COMPENSATION."""
+    if not temoin.get("ok"):
+        print("[489r2/chain3] TEMOIN indisponible -- aucun verdict")
+        return 1
+    print("[489r2/chain3] --- H par maillon : port (applied_hits) contre natif (nb d'events) ---")
+    rc = 0
+    for c in (temoin.get("chain") or []):
+        t = int(c.get("target"))
+        n_live = len(temoin["live"].get(t) or [])
+        ap = int(c.get("applied_hits") or 0)
+        etat = "ACCORD" if ap == n_live else "ECART"
+        if ap != n_live:
+            rc = 1
+        print("[489r2/chain3] maillon u%-4s hits=%-3s applied_hits(port)=%-3s events(natif)=%-3s -> %s"
+              % (t, c.get("hits"), ap, n_live, etat))
+    if reel.get("ok"):
+        print("[489r2/chain3] regime REEL (hp_target bas) : live=%s"
+              % json.dumps({str(a): b for a, b in reel["live"].items()}))
+    return rc
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=4242)
     ap.add_argument("--board", default="MC1_67")
+    ap.add_argument("--regime", choices=("bf", "mte", "chain3", "tout"), default="tout")
+    ap.add_argument("--mte-a-units", default="astraBullgryn,necroWarden")
+    ap.add_argument("--mte-caster-tile", default=None, help="ex. 3,3")
+    ap.add_argument("--mte-link-tiles", default=None, help="ex. \"3,2\" ou \"3,3;3,2\"")
+    ap.add_argument("--mte-main-hp", default="1500,3000,5000,9000")
     ap.add_argument("--attacks", type=int, default=3)
     ap.add_argument("--a-units", default="eldarRanger,astraBullgryn,tauCrisis,necroWarden")
     ap.add_argument("--attackers", default="0,1,3",
@@ -320,10 +579,21 @@ def main(argv):
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args(argv)
-    temoin = bras(args, None, "TEMOIN")
-    mortels = [bras(args, hp, "MORTEL-%d" % hp)
-               for hp in [int(x) for x in str(args.main_hp).split(",")]]
-    rc = confronter(temoin, mortels)
+    rc = 0
+    if args.regime in ("bf", "tout"):
+        temoin = bras(args, None, "TEMOIN")
+        mortels = [bras(args, hp, "MORTEL-%d" % hp)
+                   for hp in [int(x) for x in str(args.main_hp).split(",")]]
+        rc |= confronter(temoin, mortels)
+    if args.regime in ("mte", "tout"):
+        t2 = bras_mte(args, None, "TEMOIN")
+        m2 = [bras_mte(args, hp, "MORTEL-%d" % hp)
+              for hp in [int(x) for x in str(args.mte_main_hp).split(",")]]
+        rc |= confronter_mte(t2, m2)
+    if args.regime in ("chain3", "tout"):
+        t3 = bras_chain3(args, _IMMORTEL, "TEMOIN")
+        r3 = bras_chain3(args, 3000, "REEL")
+        rc |= confronter_chain3(t3, r3)
     print("[489r2] rc=%s" % rc)
     return rc
 
