@@ -55,6 +55,9 @@ import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, il2cppBase, s,
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
+// Une valeur pré-empruntée doit SURVIVRE jusqu'à sa substitution : sans racine, le GC IL2CPP
+// peut la ramasser entre l'emprunt et le `retval.replace`.
+import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
 import { Ctx } from "../controller.js";
@@ -470,6 +473,9 @@ let listenerDeployable: InvocationListener | null = null;
 // ancrée est la mauvaise) de « elle est appelée hors fenêtre » (donc c'est ma fenêtre qui est
 // fausse). Les deux rendent zéro observation, et ce zéro-là ne désigne rien.
 let firesDeployable = 0;
+// La valeur PRÉ-EMPRUNTÉE, déjà déboxée, prête à être substituée par la délégation.
+let preEmprunt: NativePointer | null = null;
+let preEmpruntInfo: Record<string, unknown> | null = null;
 const observationsNullable: Array<{
     brut: string; basse: string; haute: string; dansEmprunt: boolean; ecrit: boolean;
 }> = [];
@@ -569,6 +575,16 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
             if (src === null || src.isNull()) {
                 d.dernier = { ok: false, detail: "aucune CampaignGameModeSource capturée -- le "
                     + "warmup ne l'a pas prise, ou la session est froide. RIEN SUBSTITUÉ." };
+                return;
+            }
+            // PRÉ-EMPRUNT : la valeur a été calculée HORS de tout hook, donc l'ancrage sur
+            // `GetDeployableUnits` a pu la voir — et le masque `sansFiltre` a pu agir. Ici on
+            // ne fait plus que la poser. C'est la seule forme qui permette de modifier
+            // l'appel emprunté (cf. §24 : un `Interceptor` est aveugle aux appels imbriqués).
+            if (preEmprunt !== null && spec.nom === METHODE) {
+                retval.replace(preEmprunt);
+                d.emprunts++;
+                d.dernier = { ok: true, detail: `PRÉ-EMPRUNT substitué -> ${preEmprunt}` };
                 return;
             }
             try {
@@ -711,6 +727,87 @@ export function register(ctx: Ctx): void {
      * `GetUnitsForDeploymentHUD`, on ancre `GetDeployableUnits`. Deux méthodes distinctes.
      * Et c'est un appel que le JEU fait lui-même — pas un natif jamais observé.
      */
+    /**
+     * PRÉ-EMPRUNT — calcule la valeur empruntée HORS de tout hook, la déboxe, la garde.
+     *
+     * C'est la forme imposée par le §24 : pendant la délégation, l'`Interceptor` est aveugle,
+     * donc `sansFiltre` ne peut pas y agir. En pré-empruntant ici, l'appel est visible, le
+     * masque s'applique, et il ne reste au `onLeave` de la délégation qu'un `retval.replace`.
+     *
+     * ⚠ DEUX CRANS QUE LA VERSION NAÏVE N'AVAIT PAS :
+     *
+     *   1. **DÉBOXAGE.** `il2cpp_runtime_invoke` BOXE les types valeur, et
+     *      `PooledList<System.String>` en est un (`classes.tsv` : `isValueType=1`). Rendre la
+     *      BOÎTE là où l'appelant attend la valeur lui fait lire l'en-tête d'objet comme si
+     *      c'était le conteneur. La valeur utile est à `+0x10`. Les deux classes sont
+     *      PUBLIÉES : c'est le seul moyen de voir qu'on a bien déboxé, plutôt que de
+     *      supposer.
+     *   2. **RACINE GC.** Entre l'emprunt et la substitution il peut s'écouler un montage
+     *      entier. Sans `gcRoot`, la valeur est ramassable.
+     */
+    ctx.rpc.deploymentPoolPreEmprunt = (body?: { confirmer?: boolean; oublier?: boolean }):
+        Promise<unknown> | unknown => {
+        if (body?.oublier === true) {
+            preEmprunt = null; preEmpruntInfo = null;
+            return { ok: true, action: "oublie" };
+        }
+        if (!body || body.confirmer === undefined) {
+            return { ok: true, lecture: true, pret: preEmprunt !== null, info: preEmpruntInfo };
+        }
+        if (body.confirmer !== true) {
+            return { ok: false, error: "`confirmer: true` exigé : ce RPC INVOQUE la méthode de "
+                + "la source campagne vivante." };
+        }
+        return queueOnMainThread(() => {
+            const src = getCampaignGameModeSourcePtr();
+            if (!src || src.isNull()) {
+                return { ok: false, error: "aucune `CampaignGameModeSource` captée" };
+            }
+            const kc = findClassAnywhere(NS_SRC, "CampaignGameModeSource");
+            if (!kc) return { ok: false, error: "`CampaignGameModeSource` INTROUVABLE" };
+            const mc = findMethodByParamCount(kc, METHODE, 0);
+            if (!mc) return { ok: false, error: `\`${METHODE}\` INTROUVABLE (0 paramètre)` };
+            const avant = firesDeployable;
+            let boite: NativePointer;
+            // Même fenêtre que la délégation, mais ICI elle est observable : c'est tout
+            // l'intérêt du pré-emprunt.
+            dansEmprunt = true;
+            try { boite = invokeMethod(mc.info, src, null); }
+            catch (e) {
+                dansEmprunt = false;
+                return { ok: false, error: "l'emprunt a levé : " + (e as Error).message };
+            }
+            dansEmprunt = false;
+            if (boite.isNull()) return { ok: false, error: "l'emprunt a rendu NUL" };
+            gcRoot.add(boite);
+            const cBoite = classeDerriere(boite);
+            let deboxe: NativePointer | null = null;
+            let cDeboxe: { classe: string | null; erreur: string | null } =
+                { classe: null, erreur: "non lu" };
+            try {
+                deboxe = boite.add(0x10).readPointer();
+                cDeboxe = classeDerriere(deboxe);
+            } catch (e) { cDeboxe = { classe: null, erreur: (e as Error).message }; }
+            if (deboxe === null || deboxe.isNull()) {
+                return { ok: false, error: "déboxage -> NUL : la valeur à +0x10 est vide, on ne "
+                    + "substitue RIEN plutôt que de poser un pointeur douteux",
+                         boite: boite.toString(), classeBoite: cBoite.classe };
+            }
+            gcRoot.add(deboxe);
+            preEmprunt = deboxe;
+            preEmpruntInfo = {
+                boite: boite.toString(), classeBoite: cBoite.classe, erreurBoite: cBoite.erreur,
+                deboxe: deboxe.toString(), classeDeboxee: cDeboxe.classe,
+                erreurDeboxee: cDeboxe.erreur,
+                // Le témoin que l'appel a VRAIMENT traversé `GetDeployableUnits`, et que le
+                // masque a pu agir : sans lui, « ok » ne dirait rien.
+                deltaGetDeployableUnits: firesDeployable - avant,
+                masqueArme: sansFiltreArme && sansFiltreEcrit,
+            };
+            return { ok: true, ...preEmpruntInfo };
+        });
+    };
+
     ctx.rpc.deploymentPoolEmprunterUneFois = (body?: { confirmer?: boolean }):
         Promise<unknown> | unknown => {
         if (body?.confirmer !== true) {
