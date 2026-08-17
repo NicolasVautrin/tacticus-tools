@@ -136,9 +136,10 @@ from .....entities.formulas import GetPersistentData
 from .....entities.selectors.accessors import ActiveTarget, Owner
 from .....entities.selectors.geometry import (Entity, PickFirstN, Randomize, TilesBehindInLine)
 from .....entities.selectors.tiles import AdjacentTiles, AllTiles, CanAddUnit, TileUnion
-from .....entities.selectors.units import Filter, UnitsDamagedThisPhase
+from .....entities.selectors.units import Filter, Units, UnitsDamagedThisPhase
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import AreEnemies, HasUnit, Not, TriggerAnd, has_adjacent_enemies
+from .....entities.unit_selection_type import UnitSelectionType
 from .....entities.unit_team_selection_type import UnitTeamSelectionType
 from .....streams.group_type import GroupType
 
@@ -171,6 +172,9 @@ IOV_INFORM_TAG = 0xc1
 #: 3e argument LU de `DSLTriggers$$AreEnemies(unit1, unit2, selectionType)` -- un
 #: `UnitTeamSelectionType`, pas un `UnitSelectionType`.
 IOV_TEAM_SELECTION = int(UnitTeamSelectionType.ByCurrentTeam)                  # 0
+#: `UnitSelectionType` de la resolution d'occupant (cf. le collapse nomme dans
+#: `instruments_of_vengeance_attack_tile_behavior`) -- le MEME que la phase 1 emploie.
+IOV_UNIT_SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)             # 3
 
 
 def _persistent_tile(key: str, index: int):
@@ -193,8 +197,23 @@ def instruments_of_vengeance_attack_tile_behavior():
     inform = Inform(IOV_INFORM_TAG)
     # `HasUnit(ActiveTarget@+0x68, 3)` : le port n'a pas de parametre de mode sur ce noeud (il lit
     # les occupants VIVANTS, ce qu'est `UnitSelectionType.OnlyAliveAndTargetable` sur une tuile).
+    #
+    # ⚠ **COLLAPSE ASSUME ET NOMME sur le second operande d'`AreEnemies`** : le natif passe
+    # `ActiveTarget@+0x68` BRUT, c'est-a-dire une entite TUILE (l'element courant du `Foreach`).
+    # `IdunBattle.Entities.Triggers.AreFriendsAbilityTrigger$$ShouldTrigger` en fait
+    # `SelectSingle(entities, 8)` puis `BattleQuery$$AreFriends` ->
+    # `IdunBattle.Entities.UnitExtensions$$IsFriend`, dont le corps compare
+    # `EntityExtensions$$GetCurrentPlayer(x).<+0x20>.<+0x24>` des deux cotes -- une lecture qui n'a
+    # de sens que sur une UNITE. Le port resout donc l'occupant, exactement comme la PHASE 1 le fait
+    # deja (`Units(TileUnion(behind, ActiveTarget()), 3)`) : sans cette normalisation le noeud leve
+    # (`_units_of` sur un id de tuile). Le collapse est du cote CONSERVATEUR -- il refuse de frapper
+    # un ALLIE, la ou une equipe nulle rendrait `AreEnemies` VRAI pour tout occupant.
+    # RESIDU NOMME : ce que `SelectSingle(entities, 8)` fait d'une entite TUILE n'est pas lu
+    # (residu `#889-r10`) ; le `HasUnit` juste avant garantit qu'il y a un occupant, donc les deux
+    # lectures ne peuvent differer que sur le CAMP de cet occupant.
     cond = TriggerAnd(HasUnit(ActiveTarget()),
-                      AreEnemies(Owner(), ActiveTarget(), selection_type=IOV_TEAM_SELECTION))
+                      AreEnemies(Owner(), Units(ActiveTarget(), selection_type=IOV_UNIT_SELECTION),
+                                 selection_type=IOV_TEAM_SELECTION))
     atk = AttackWithAttackDamage(
         ActiveTarget(),                       # `target = ActiveTarget@+0x68`
         IOV_ACTIVE_ID,                        # cf. point 3 : la config de l'ACTIVE
