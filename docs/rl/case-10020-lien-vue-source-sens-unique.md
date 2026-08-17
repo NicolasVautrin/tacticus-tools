@@ -242,3 +242,75 @@ contrôleur, dans le bundle) : re-confronté ce jour sur `t6dpr4k06g`, `fsmStatu
 `classeTrouvee: true`, `captures: 2`, `pret: true`, et le `fsmMatchState` **égale** le match state
 vivant. La ligne `#596` du backlog qui le présente encore comme une tranche à faire (`BLOCAGE:
 capteur`) est **périmée** — vérifier le code avant de dispatcher, comme le `CLAUDE.md` le demande.
+
+## 8. LE CORPS EST UNE CONSTANTE — et l'ancrer serait une CATASTROPHE, parce qu'il est PARTAGÉ
+
+Suite directe du §7, même jour. Le corps dédupliqué a été lu par la voie propre : **résolution au
+RUNTIME**, jamais une RVA de table.
+
+```
+resolveMethodPtr({targets: [{ns: "IdunBattle.ViewLogic.BattleSource",
+                             cls: "SandboxGameModeSource", method: "ShouldShowUnitDeployment"}]})
+```
+
+| méthode | `ghidraVA` résolue au runtime |
+|---|---|
+| `SandboxGameModeSource$$ShouldShowUnitDeployment` | `0x1802b45a0` |
+| `CampaignGameModeSource$$ShouldShowUnitDeployment` | `0x180515740` |
+
+**Contrôle de la chaîne de résolution** : la campagne tombe sur `0x180515740`, soit exactement la
+RVA `515740` que porte `frida/methods.tsv`. La conversion base runtime → base Ghidra est donc
+vérifiée par un témoin indépendant, et pas seulement supposée.
+
+### Le corps
+
+```c
+undefined1 Stash_Native_StashNative__get_IsPurchaseProcessing(void)
+{
+  return 0;
+}
+```
+
+⇒ **C'est une CONSTANTE.** `SandboxGameModeSource$$ShouldShowUnitDeployment` ne lit aucun champ,
+aucune option, aucun DTO. **Aucun réglage de BC, de gameconfig ou de `Sandbox*BattleConfig` ne le
+fera jamais rendre `true`.** La question laissée ouverte au §7 — « paramétrable ou hook ? » — est
+tranchée : **hook**.
+
+Le nom qu'affiche Ghidra est celui d'une classe sans aucun rapport (`Stash.Native.StashNative`) :
+c'est le propriétaire arbitraire que l'outil a retenu pour un corps mis en commun. Lire ce nom
+comme celui de la fonction appelée serait un contresens complet.
+
+### ⚠ ET C'EST ICI QUE LE REMÈDE ÉVIDENT EST UN PIÈGE
+
+`Interceptor.attach(0x1802b45a0, { onLeave(r) { r.replace(1) } })` est **exactement ce qu'il ne
+faut pas faire**. Xrefs de cette adresse, mesurées :
+
+| type | compte | ce que c'est |
+|---|---|---|
+| `DATA` | **745** | autant de `MethodInfo` pointant sur CE corps |
+| `UNCONDITIONAL_CALL` | 122 | appels directs |
+
+⇒ **~745 méthodes du binaire partagent ce `return 0`.** Les coiffer ferait basculer à `true`
+tout ce qui rend « faux constant » dans le jeu — `Stash.get_IsPurchaseProcessing` compris.
+
+**LA RÈGLE, et elle généralise au-delà de ce dossier : un corps trivial DÉDUPLIQUÉ n'est pas
+seulement ILLISIBLE en table, il est INHOOKABLE PAR ADRESSE.** Le dépôt savait que l'absence en
+table ne prouve rien — c'était énoncé pour la LECTURE. Le versant ÉCRITURE est pire : l'adresse
+résolue est juste, le hook s'installe sans erreur, et le dégât est massif et silencieux.
+**Le témoin qui l'attrape est le COMPTE D'XREFS de l'adresse résolue** — deux chiffres, avant tout
+`attach`.
+
+### Le point d'ancrage correct est le relais, un étage au-dessus
+
+`IdunBattle.View.FSM.VisualBattleQuery$$ShouldShowUnitDeploymentHud` — résolu au runtime sur
+`0x18057fbc0`, ce qui concorde avec la table (`57fbc0`) — porte un **vrai corps** (le relais du §7)
+et **2 xrefs DATA seulement** (son propre `MethodInfo` + son entrée de vtable). Il est donc
+**spécifique** : le coiffer ne touche que la décision de déploiement.
+
+`IdunBattle.View.Game.IdunGameViews$$Enable` (`0x1805a2840`, 1 paramètre) est le second candidat,
+un cran plus haut encore.
+
+⚠ **Ce que ça ne dit pas** : `VisualBattleQuery` sert **tous** les modes, pas seulement la sandbox.
+Un hook qui force `true` doit donc être **armé explicitement** et se désarmer, sous peine de faire
+apparaître une phase de déploiement là où le jeu n'en veut pas. Et rien n'a encore été posé —
+ceci reste **NON CONFRONTÉ** : on sait où ancrer, on ne l'a pas fait.
