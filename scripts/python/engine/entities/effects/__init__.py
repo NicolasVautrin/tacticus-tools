@@ -483,8 +483,15 @@ def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
     ex. LightCover IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack : -2 ranged ; Parry IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack : -1 mêlée ;
     Camouflage/Diminutive). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
     `OwnerIsTarget` ; plancher min=1 appliqué chez le consommateur (`max(1, …)`).
-    #204 — `MasterAnnihilator_AdditionalHitEffect` N'EST PLUS ici : son artefact natif est
-    `CreateAdditionalHits` (canal #179), pas `CreateEffectHitsBonusForAttack`.
+    #204 / #10019 — `MasterAnnihilator_AdditionalHitEffect` est ici sur la SEULE face PREDICTION.
+    Son artefact natif est bien `CreateAdditionalHits` (canal #179) et non
+    `CreateEffectHitsBonusForAttack`, ce qui reste VRAI et gouverne le COMBAT : #204 y a mesure une
+    valeur CONSTANTE (stat ATTACK a l'unite, 4617 sur 5/5) contre 8 valeurs distinctes sur 8 pour
+    les coups d'arme, donc un GROUPE. Mais cette face-la n'avait jamais ete confrontee, et #10019
+    l'a mesuree : le natif PREDIT un coup de plus au degat EXACT d'un coup d'arme (trois paires,
+    six nombres, rapports entiers `(h+1)/h` sur les DEUX bornes). La classe rend donc sa
+    contribution UNIQUEMENT quand `att_ctx["is_prediction"]` -- cf. sa docstring pour la voie
+    native, qui reste non tranchee (`#10019-r1`).
     `defender_on_cover` = gate compute-time des effets de TUILE (LightCover `AreEqual(coverPatch,target)`,
     #113) : None=applique-sur-présence (prédiction), True/False=cible sur/hors sa tuile de cover (combat).
     `block_reduction` = le flag `BaseEffect$$BlockHitsReduction` de l'attaque : ce canal ne produit

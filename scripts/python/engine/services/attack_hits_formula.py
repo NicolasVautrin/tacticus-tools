@@ -100,7 +100,8 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                include_bonus_hit_behaviours: bool = False,
                                defender_on_cover: bool | None = None,
                                is_normal_attack: bool = True,
-                               hit_group_index: int = 0) -> int:
+                               hit_group_index: int = 0,
+                               is_prediction: bool = False) -> int:
     """`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
     `aura_sources` = [(owner_id, pos, team, effets)] des unites != cible. Ordre = base (APRES PowerTrip) ->
@@ -210,7 +211,30 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
              "hit_group_index": (None if hit_group_index is None else int(hit_group_index)),
              # nature du VECTEUR, deja threadee aux canaux ATTAQUANT et DEFENSEUR : le canal AURA en
              # a besoin lui aussi depuis `LegendaryCommander_ExtraHits` (`!IsNormalAttack`).
-             "is_normal_attack": bool(is_normal_attack)}
+             "is_normal_attack": bool(is_normal_attack),
+             # `is_prediction` -- la FACE, et c'est un axe DISTINCT de tous les autres du board.
+             #
+             # Pourquoi il faut le porter : le canal #179 (`EffectAdditionalHits`) n'a PAS le meme
+             # rendu sur les deux faces, et les deux rendus sont MESURES, pas deduits :
+             #   * COMBAT (#204) -- l'evenement supplementaire de `MasterAnnihilator` vaut la
+             #     CONSTANTE `reduce(base)` (stat ATTACK a l'unite, 4617 sur 5/5) quand les coups
+             #     d'ARME de la meme campagne prennent 8 valeurs distinctes sur 8. C'est un GROUPE,
+             #     et la formule de coups ne doit RIEN ajouter ;
+             #   * PREDICTION (#10019) -- le natif rend UN COUP DE PLUS au degat EXACT d'un coup
+             #     d'arme : trois paires vers la meme cible, six nombres, tous en rapports ENTIERS
+             #     `(h+1)/h` sur les DEUX bornes (4->5, 2->3, 6->7). Un groupe a degat CONSTANT ne
+             #     peut pas produire ce profil (il ajouterait le meme entier aux deux bornes).
+             #
+             # C'est la MEME forme que `include_bonus_hit_behaviours` (GetStuckIn : deterministe
+             # dans la formule cote prediction, chance-gate a l'execution cote combat), et c'est un
+             # parametre SEPARE a dessein -- les deux axes ne commandent pas les memes termes, et
+             # les confondre rendrait vacant le cliquet qui garde le verdict #204
+             # (`test_ah_master_annihilator_astartes_banner_live.py`, monte en regime COMBAT mais
+             # avec `include_bonus_hit_behaviours=True`).
+             #
+             # Defaut `False` = COMBAT : tout appelant qui ne le passe pas garde EXACTEMENT le
+             # comportement d'avant, y compris les quatre facades de combat et les probes.
+             "is_prediction": bool(is_prediction)}
     # (2) GetStuckIn = behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`) :
     # DETERMINISTE en prediction (fold ICI), chance-roll a l'EXECUTION en combat (porte #62c dans
     # `_run_hits`, PAS dans cette formule -> gate False). Seul GetStuckInTrait override `as_attacker_bonus_

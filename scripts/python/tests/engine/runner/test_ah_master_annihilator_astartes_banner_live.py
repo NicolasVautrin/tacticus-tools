@@ -321,6 +321,48 @@ def test_both_descriptors_are_channel_179_groups_not_hits_bonuses(rpc, banner_ru
         (f"la formule de coups rend {hits} != base d'arme {expected} -> un terme AstartesBanner ou "
          f"MasterAnnihilator y subsiste (les deux doivent vivre dans le canal #179)")
 
+    # --- (a-bis) #10019 : la MEME formule, face PREDICTION, DOIT bouger -- et d'exactement `n_mark`
+    #
+    # Ce cliquet gardait un contrat formule sans FACE, alors que l'appel ci-dessus est monte en
+    # regime COMBAT (`build_hits_board`, ECS) tout en passant `include_bonus_hit_behaviours=True`.
+    # Laisse tel quel apres #10019 il serait devenu VACANT sur la face prediction : vert quel que
+    # soit ce que le port y fait. Les deux faces sont donc gardees ICI, cote a cote, parce qu'elles
+    # ne rendent PAS la meme chose et que les deux rendus sont MESURES --
+    #   * COMBAT (#204)     : evenement CONSTANT (stat ATTACK a l'unite, 4617 sur 5/5) => GROUPE,
+    #                         la formule ne compte RIEN  (assertion ci-dessus) ;
+    #   * PREDICTION (#10019) : un coup de plus au degat EXACT d'un coup d'arme (trois paires vers
+    #                         la meme cible, six nombres, rapports entiers `(h+1)/h` sur les DEUX
+    #                         bornes) => la formule compte `nrOfHits`.
+    # Un correctif qui ferait bouger la premiere, ou qui laisserait la seconde immobile, rougit.
+    n_mark_face = int(ability_var("MasterAnnihilator", "nrOfHits", is_constant=True) or 0)
+    assert n_mark_face > 0, "ConfigConst 0x2f introuvable -- l'assertion de face serait VACANTE"
+    hits_pred = attack_hits_with_modifiers(
+        weapon_hits=whits, extra_hits=sc.ctx.stat(StatType.EXTRA_HITS),
+        extra_hits_melee=sc.ctx.extra_hits_melee,
+        attacker_effects=st.effects.active_effects(aid, {"hp": None}),
+        trait_objects=sc.ctx.trait_objects(),
+        target_effects=list(tgt_eff) + [mark], aura_sources=auras, board=hb,
+        is_melee=True, damage_profile="Piercing", include_bonus_hit_behaviours=True,
+        is_prediction=True)
+    print(f"[#10019] formule PREDICTION={hits_pred} (attendu {hits + n_mark_face})")
+    assert hits_pred == hits + n_mark_face, (
+        f"face PREDICTION : la formule rend {hits_pred}, attendu {hits + n_mark_face} "
+        f"(= COMBAT {hits} + nrOfHits {n_mark_face}). Le natif predit un coup de plus des que la "
+        f"cible porte la marque 1249 ; sans lui l'IA DECIDE sur un compte trop bas.")
+    # TEMOIN de la meme face : sans la marque, la prediction ne doit RIEN gagner. Sans cette ligne
+    # l'assertion ci-dessus passerait aussi pour un +1 inconditionnel, qui serait faux.
+    hits_pred_nu = attack_hits_with_modifiers(
+        weapon_hits=whits, extra_hits=sc.ctx.stat(StatType.EXTRA_HITS),
+        extra_hits_melee=sc.ctx.extra_hits_melee,
+        attacker_effects=st.effects.active_effects(aid, {"hp": None}),
+        trait_objects=sc.ctx.trait_objects(),
+        target_effects=list(tgt_eff), aura_sources=auras, board=hb,
+        is_melee=True, damage_profile="Piercing", include_bonus_hit_behaviours=True,
+        is_prediction=True)
+    assert hits_pred_nu == hits, (
+        f"face PREDICTION SANS la marque : {hits_pred_nu} != {hits} -- le gain n'est pas attribue "
+        f"a la marque, donc il mord pour la mauvaise raison")
+
     # --- (b) le CANAL #179 : gate x contexte ---
     n_banner = int(ability_var("AstartesBanner", "extraHits", is_constant=True) or 0)
     n_mark = int(ability_var("MasterAnnihilator", "nrOfHits", is_constant=True) or 0)

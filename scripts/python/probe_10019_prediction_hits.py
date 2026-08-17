@@ -140,9 +140,24 @@ class _Traceur:
         def _trace(**kw):
             out = self._orig(**kw)
             b = kw.get("board") or {}
+            def _noms(effets):
+                return sorted({n for n in (getattr(e, "name", None) for e in (effets or [])) if n})
+
+            vid = b.get("vid_by_id") or {}
             rec = {"att_id": b.get("att_id"), "tgt_id": b.get("tgt_id"),
                    "attack_pos": b.get("attack_pos"), "t_pos": b.get("t_pos"),
-                   "hits": out}
+                   "hits": out,
+                   # IDENTITE et SUBSTRAT du couple -- sans eux, une divergence de COMPTE ne peut
+                   # etre attribuee ni a un porteur ni a un gate : on ne saurait pas QUI diverge.
+                   "att_vid": vid.get(b.get("att_id")), "tgt_vid": vid.get(b.get("tgt_id")),
+                   "att_team": (b.get("team_by_id") or {}).get(b.get("att_id")),
+                   "tgt_team": b.get("tgt_team"),
+                   "att_faction": b.get("att_faction"),
+                   "att_traits": sorted(b.get("att_traits") or ()),
+                   "att_effets": _noms(kw.get("attacker_effects")),
+                   "tgt_effets": _noms(kw.get("target_effects")),
+                   "auras": [{"uid": u, "vid": vid.get(u), "team": t, "effets": _noms(ef)}
+                             for (u, _p, t, ef) in (kw.get("aura_sources") or []) if _noms(ef)]}
             try:
                 rec["etages"] = _decompose(kw)
                 rec["coherent"] = (rec["etages"]["total"] == out)
@@ -182,6 +197,11 @@ def _resume(appels: list, uids) -> None:
         print("        weapon={} extra={} extraMelee={} is_melee={} dist={} block_red={}".format(
             e["weapon_hits"], e["extra_hits"], e["extra_hits_melee"], e["is_melee"],
             e["dist"], e["block_reduction"]))
+        print("        att={} (team {}, faction {}) tgt={} (team {})".format(
+            rec.get("att_vid"), rec.get("att_team"), rec.get("att_faction"),
+            rec.get("tgt_vid"), rec.get("tgt_team")))
+        print("        att_effets={} tgt_effets={}".format(rec.get("att_effets"),
+                                                          rec.get("tgt_effets")))
 
 
 def main(argv: list) -> int:
