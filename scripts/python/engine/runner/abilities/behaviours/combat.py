@@ -120,6 +120,65 @@ def _get_unit(entity, entities, state=None):
     return _occupants_by_tile(entities.units or ()).get((int(p[0]), int(p[1])))
 
 
+def _emettre_finish_attack_de_noeud(state, actor_id: int, target_id: int, ectx, marque: int,
+                                    ability_type=None, is_attack_damage_op: bool = True,
+                                    profils=None):
+    """`processor.FinishAttack` (slot **59**) -> `IdunBattle.Operations.FinishAttackOperation$$
+    Execute` -> `On(Attack = 9)`, EMIS PAR LE NOEUD (#512-r4).
+
+    POURQUOI CE FOYER EXISTE. Le port emettait `On(9)` depuis les OPERATIONS de degat
+    (`damage_ops/ability.py`, `damage_ops/normal_like.py`), donc une fois par FEUILLE. Le natif ne
+    le fait nulle part la : le slot 59 est pousse par les noeuds de l'arbre -- `AttackBehaviour$$
+    Execute` sous `if (next == null || next != cur)`, `SortedAttackSeriesBehaviour$$Execute` a
+    chaque changement de cle, `ChainLeftOverHitsAttackDamageBehaviour$$Execute` autour de chaque
+    maillon, `FinishAttackBehaviour$$Execute`, plus la voie MESSAGE -- donc UNE FOIS PAR CIBLE
+    DISTINCTE. Deux feuilles sur la MEME cible n'en produisent qu'UN.
+
+    LE PAYLOAD SE LIT SUR L'ATTAQUE EN COURS, PAS SUR UNE FEUILLE : `FinishAttackOperation$$Execute`
+    commence par `GetCurrentAttack()` et lit ses champs (`+0x20`, `+0x24`, `+0x2c`, `+0x38`,
+    `+0x3c`, `+0x50`, `+0x58`, `+0x60`) -- c'est-a-dire l'etat ACCUMULE sur TOUTES les feuilles de
+    cette cible. On agrege donc les attaques que les feuilles viennent d'emettre dans le journal
+    `ectx.emitted` (depuis `marque`) : profils reunis, degat SANTE somme, crit/block par OU logique.
+    Le journal est la SEULE voie disponible -- une feuille rend `OperationResult.ok()`, pas son
+    dict d'attaque -- et il n'y a rien a inventer : c'est le meme contenu, deja publie.
+
+    `is_attack_damage_op` = `currentAttack@+0x2c`, pose par la SEULE
+    `IdunBattle.Operations.AttackDamageOperation$$Execute` : un noeud dont les feuilles sont de la
+    famille ABILITY ne le pose pas. Il pilote `AttackUsedAttackDamage` (`AbilityEntities+0xf9`).
+
+    Aucune feuille n'a rien emis -> le payload est VIDE mais l'evenement PART quand meme : le natif
+    pousse le slot 59 inconditionnellement (le `Dictionary` de `SortedAttackSeries` ne contient que
+    des cibles qui ont recu au moins un behaviour)."""
+    from ...operations.triggers.dispatch.attack import finish_attack_triggers
+    from ...operations.triggers.base import _is_ranged_position
+    # `profils` vient des FEUILLES (leur champ `profile`), pas du journal : le dict rendu par
+    # `execute_ability_attack` ne porte pas le profil du coup. C'est le SET complet des profils de
+    # l'attaque, ce que lit `CurrentAttackDamageProfilesContain*`.
+    profils = set(p for p in (profils or ()) if p)
+    total, crit, block = 0, False, False
+    for _nom, payload in list(getattr(ectx, "emitted", ()) or ())[marque:]:
+        if not isinstance(payload, dict) or payload.get("target") != target_id:
+            continue
+        atk = payload.get("attack")
+        if not isinstance(atk, dict):
+            continue
+        total += int(atk.get("total") or 0)
+        crit = crit or bool(atk.get("did_crit"))
+        block = block or bool(atk.get("did_block"))
+        profils |= set(x for x in ((atk.get("additional_hits") or {}).get("profiles") or ()) if x)
+    profil = sorted(profils)[0] if profils else None
+    return finish_attack_triggers(
+        state, int(actor_id), int(target_id),
+        ranged=_is_ranged_position(state, int(actor_id), int(target_id)),
+        profile=profil, is_crit=crit, profiles=profils, health_damage=int(total),
+        was_block=block, ability_type=ability_type,
+        # `IsNormalAttack(CurrentAbility@0x88)` : un noeud d'ability n'est jamais l'attaque normale.
+        # `False` (et non `None`) parce que le fait EST connu ici -- cf. `MischiefMakersAbility`,
+        # seul consommateur de ce canal.
+        is_normal_attack=False,
+        attack_used_attack_damage=bool(is_attack_damage_op))
+
+
 class AttackWithAttackDamage(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
     l'attaque d'une ability (bornes `MinMaxDamage(minDmg/maxDmg[level])`, profil `GetDamageProfile`, nb de
@@ -568,8 +627,26 @@ class SortedAttackSeries(AbilityBehaviour):
                 # l'etat d'avant #512-r2 pour ce noeud (aucune emission).
                 pre_attack_triggers(state, int(actor), int(uid), ranged=False,
                                     ability_type=self.ability_type)
+            marque = len(ectx.emitted)
             for beh in behs:
                 beh.execute(ents, ectx)
+            # slot 59 `FinishAttack` -> `IdunBattle.Operations.FinishAttackOperation$$Execute` ->
+            # `On(Attack = 9)`. LE MEME `if (unit != prevUnit)` qui pousse `StartAttack` pousse le
+            # `FinishAttack` de la cible PRECEDENTE, et la boucle en pousse un dernier a la sortie :
+            # au total UN par cible DISTINCTE, et rien ne s'intercale entre le dernier behaviour
+            # d'une cible et sa cloture -> l'emettre ici est l'ordre natif (Finish(T) puis
+            # Start(T+1)). #512-r4 : les feuilles, elles, sont NUES (`is_outside_attack = False`
+            # pose par le `__init__`) et n'emettent plus rien -- sans quoi `1088
+            # HellfyreMissileRack` (deux feuilles sur la MEME cible) emettrait DEUX `On(9)`.
+            if state is not None and actor is not None:
+                _emettre_finish_attack_de_noeud(
+                    state, int(actor), int(uid), ectx, marque,
+                    ability_type=self.ability_type,
+                    # `currentAttack@+0x2c` : pose par la SEULE `AttackDamageOperation$$Execute`,
+                    # donc VRAI des qu'UNE des feuilles de cette cible est de la famille ATTACK.
+                    is_attack_damage_op=any(
+                        getattr(b, "native_factory", "attack") != "ability" for b in behs),
+                    profils=[getattr(b, "profile", None) for b in behs])
         ectx.emit("SortedAttackSeries", order=list(order))
         return OperationResult.ok()
 

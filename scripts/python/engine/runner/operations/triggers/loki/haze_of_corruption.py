@@ -513,6 +513,10 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
             pre_attack_triggers(state, int(bonded), int(self.owner_id), ranged=False,
                                 ability_type=None)
         done = []
+        # #512-r4 : chaque feuille se voit donner un `ExecutionContext` NEUF (cf. la boucle), donc
+        # aucun journal ne survit d'une feuille a l'autre. On les CONCATENE pour que la cloture du
+        # noeud puisse agreger l'attaque comme le fait `GetCurrentAttack()` cote natif.
+        journal: list = []
         for i, d in enumerate(dmgs):
             amount = int(d.get("amount") or 0)
             if amount < 0:
@@ -547,7 +551,26 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
                                    # le natif en emet 1.
                                    is_outside_attack=False,
                                    is_first_hit=(i == 0)).execute(entities, ectx)
+            journal.extend(ectx.emitted or ())
             done.append(amount)
+        # `On(Attack = 9)` -- **UNE SEULE FOIS, ICI**, exact pendant de l'`On(PreAttack = 5)`
+        # ci-dessus et pour la MEME lecture (#512-r4). Le `$$Attack(bonded, Owner@0x148, beh)` qui
+        # englobe les N feuilles est UN SEUL `AttackBehaviour` : il pousse UN `StartAttack` (slot 58)
+        # avant, et UN `FinishAttack` (slot 59) apres -> `FinishAttackOperation$$Execute` ->
+        # `On(9)`. Les feuilles, elles, portent `is_outside_attack=False` et n'emettent plus rien
+        # (avant #512-r4 elles en emettaient **N**, sur les classes-triggers a l'ecoute).
+        # `ability_type=None` : MEME lecture aux octets que pour `On(5)` -- le 5e argument du
+        # `$$Attack` englobant est un `AbilityOrEffect` MIS A ZERO juste avant l'appel.
+        if dmgs and done:
+            from types import SimpleNamespace
+            from ....abilities.behaviours.combat import _emettre_finish_attack_de_noeud
+            _emettre_finish_attack_de_noeud(
+                state, int(bonded), int(self.owner_id), SimpleNamespace(emitted=journal), 0,
+                ability_type=None,
+                # les feuilles sont des `DSLBehaviors$$AttackDamage` -> famille ATTACK, donc
+                # `AttackDamageOperation$$Execute` pose bien `currentAttack@+0x2c`.
+                is_attack_damage_op=True,
+                profils=[d.get("profile") or HAZE_BONUS_PROFILE for d in dmgs])
         return {"ability": HAZE_OF_CORRUPTION_ABILITY, "volet": "damage_transfer",
                 "unit": self.owner_id, "source": ev.dying_id, "bonded": bonded,
                 "killer": ev.killer_id, "transferred": done}
