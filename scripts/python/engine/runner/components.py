@@ -104,13 +104,25 @@ class UnitComponent(Component):
     `c7 87 7c 01 00 00 ff ff ff ff` = `mov dword ptr [rdi+0x17c], 0xffffffff`. Une unité jamais
     RETIRÉE ne peut donc satisfaire aucun `Difference(CurrentPlayerTurnsStarted, TurnDefeated) == 1`.
 
-    ⚠ **ET POURTANT LA POSE CÔTÉ PORT RESTE UNE COMPENSATION** : `KillUnitOperation$$Execute`
-    n'appelle **jamais** `IOperationProcessor` slot 6 = `RemoveUnit` (ses appels sur cette interface
-    sont les slots 77, 80, 85, 99, 130, 143 — relus un par un), donc **une unité TUÉE ne passe pas
-    par l'écrivain**. Le port pose `turn_defeated` sur `On(UnitDefeated)` dans
-    `triggers/genestealer.py` : c'est ce qui fait vivre la résurrection Ambush offline, et c'est un
-    ÉCART NOMMÉ, pas un mirror. Ce qui reste ouvert est la chaîne native qui retire une unité
-    tuée (résidu `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`, ré-énoncé).
+    ⚠ **CE PARAGRAPHE AFFIRMAIT L'INVERSE, ET IL EST RÉFUTÉ (#10015-r2, 2026-08-18).** Il écrivait
+    que `IdunBattle.Operations.KillUnitOperation$$Execute` n'appelle **jamais**
+    `IOperationProcessor` slot 6 = `RemoveUnit`, donc qu'une unité TUÉE ne passe pas par l'écrivain,
+    donc que la pose côté port était une COMPENSATION. **Elle l'appelle** — à `+0xd34`,
+    `(killed, removeEffects: 0, keepActive: 1)`, dans la branche non-revive.
+
+    ⚠ **LA CAUSE DE L'ANGLE MORT SE RÉUTILISE** : un appel d'interface IL2CPP a **DEUX formes** dans
+    le pseudo-C. La forme DISPATCHER porte le slot en **1ᵉʳ** argument — c'est elle que le
+    recensement fautif balayait (il avait relu les slots 77, 80, 85, 99, 130, 143 « un par un »). La
+    forme **WALK D'ITABLE INLINE** porte le slot en **3ᵉ** argument d'un helper, et son call-site
+    final est anonyme : elle est invisible à un grep par slot. `FleeOperation` emploie les deux, donc
+    le binaire fournit lui-même le contre-exemple. Un recensement qui ne visite qu'une forme ne peut
+    pas rendre zéro sur l'autre.
+
+    ⚠ Le dépôt portait DÉJÀ les deux affirmations contradictoires : `operations/damage.py` écrivait
+    `+0xd34 processor.<slot 6>` (build précédent, même offset) pendant que ce paragraphe-ci écrivait
+    « jamais ». La pose de `turn_defeated` n'est donc plus un ÉCART NOMMÉ — elle est sur le chemin
+    natif. **Conséquence qui dépasse `turn_defeated`** : `On(0x25 = UnitRemoved)` est publié à CHAQUE
+    mort, et il ne l'était sur aucune mort du port.
 
     `killed_this_turn` = mirror EXACT du BOOLÉEN `UnitComponent + 0x17a`, et il n'a rien à voir avec
     son voisin `turn_defeated` ci-dessus :
