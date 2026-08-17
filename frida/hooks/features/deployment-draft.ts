@@ -2824,6 +2824,8 @@ export function register(ctx: Ctx): void {
      */
     ctx.rpc.deploymentMemoire = (body?: {
         armer?: boolean; oublier?: boolean; rejouer?: boolean; confirmer?: boolean;
+        poser?: { poses?: Array<{ unitId: string; playerId: number; col: number; row: number }>;
+                  mow?: { unitId: string; playerId: number; position: number } | null };
     }): unknown => {
         const etat = () => ({
             arme: memoireAuto, poses: memoirePoses.map((p) => ({
@@ -2838,6 +2840,24 @@ export function register(ctx: Ctx): void {
         if (body?.oublier === true) {
             memoirePoses.length = 0; memoireMoW = null; memoireDernier = "mémoire vidée";
             return { ok: true, action: "oubliee", ...etat() };
+        }
+        // POSER une mémoire venue du DEHORS.
+        //
+        // ⚠ CE QUI SURVIT À QUOI, MESURÉ le 2026-08-17 -- et je l'avais écrit à l'envers.
+        // La mémoire vit dans des variables de CE script : elle survit donc parfaitement à un
+        // REMONTAGE (retraite + forge + BC + `sandboxModeStart`), et c'est vérifié
+        // (`rejeux` 2 -> 3, les cinq unités reposées aux mêmes cases, MoW comprise).
+        // Ce qu'elle NE survit PAS, c'est un REINJECT : recharger le bundle repart de zéro.
+        // D'où cette entrée -- l'appelant relit avant, repose après, et rien n'est perdu.
+        if (body?.poser !== undefined) {
+            memoirePoses.length = 0;
+            for (const p of body.poser.poses ?? []) {
+                if (typeof p?.unitId === "string" && p.unitId !== "") memoriser(p as Pose);
+            }
+            memoireMoW = body.poser.mow ?? null;
+            memoireDernier = `mémoire POSÉE depuis l'extérieur : ${memoirePoses.length} pose(s)`
+                + (memoireMoW ? ` + MoW ${memoireMoW.unitId}` : " (aucune MoW)");
+            return { ok: true, action: "posee", ...etat() };
         }
         if (body?.rejouer === true) {
             if (body.confirmer !== true) {
