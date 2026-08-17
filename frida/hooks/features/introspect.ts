@@ -97,6 +97,74 @@ export function register(ctx: Ctx): void {
      * mesure, et un lecteur qui voit `forcedInit: true` sait que l'état vient du capteur et non
      * du jeu. Foyer unique de cette discipline : `il2cpp/class-init.ts`, partagé avec
      * `probes/static-field-probe.ts` — les deux ne peuvent donc pas diverger. */
+    /**
+     * LES BLOCS D'INTERFACE D'UNE CLASSE — `interfaceOffsets`, LU, pas dérivé.
+     *
+     * Un appel d'interface compilé par IL2CPP porte un index RELATIF au bloc de son interface
+     * (`InterfaceFuncInvoker<N>(index, itfClass, obj, ...)`). Pour le nommer, il faut le
+     * DÉCALAGE du bloc dans la vtable de la classe concrète. Ce décalage se lit ici :
+     *
+     *     klass+0xb0   -> tableau de paires 16 o { Il2CppClass* itf, int32 offset }
+     *     klass+0x12e  -> u16, nombre de paires
+     *     klass+0x138  -> vtable, entrées 16 o { codePtr, MethodInfo* }
+     *
+     * ⚠ POURQUOI CE RPC EXISTE — UNE HEURISTIQUE A MENTI, ET ELLE MENTAIT BIEN. On dérivait le
+     * décalage en supposant « bloc à partir du slot 4 » (après les 4 slots de `System.Object`).
+     * Sur `CampaignProgression` ça donnait `GetBattleRestrictions` / `GetDeployableUnits` /
+     * `IsDeploymentUnlocked` en 0x14/0x15/0x16 — un groupe sémantique parfait pour un roster de
+     * déploiement — et le corps ainsi nommé avait EXACTEMENT la forme du site d'appel. Deux
+     * concordances indépendantes, et un compteur de passages les a démenties : la méthode
+     * ancrée n'est JAMAIS entrée (`fires: 0`), ancrage pourtant vérifié à l'adresse près.
+     * Une concordance de FORME n'est pas une mesure. Cf. case-10020.
+     */
+    ctx.rpc.classInterfaceSlots = (args: {
+        ns: string; cls: string; itf?: string; indices?: number[]; forceInit?: boolean;
+    }) => {
+        const klass = findClassAnywhere(args.ns, args.cls);
+        if (!klass) return { ok: false, error: `class not found: ${args.ns}.${args.cls}` };
+        // Même cran que `resolveVtableSlot` : une classe FROIDE rend des slots nuls, ce qui se
+        // lirait « pas d'implémentation » au lieu de « pas mesurée ».
+        const init = classInitState(LIVE_CLASS_INIT_PROBE, klass, args.forceInit === true);
+        let n = 0;
+        try { n = klass.add(0x12e).readU16(); }
+        catch (e) { return { ok: false, error: "count d'interfaces illisible : "
+            + (e as Error).message }; }
+        let pairs: NativePointer;
+        try { pairs = klass.add(0xb0).readPointer(); }
+        catch (e) { return { ok: false, error: "`interfaceOffsets` illisible : "
+            + (e as Error).message }; }
+        const indices = args.indices ?? [];
+        const interfaces: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < n; i++) {
+            let nom: string | null = null; let off = -1;
+            try {
+                const itf = pairs.add(i * 0x10).readPointer();
+                off = pairs.add(i * 0x10 + 8).readS32();
+                if (!itf.isNull()) nom = cstr(class_get_name(itf) as NativePointer);
+            } catch { /* paire illisible — publiée telle quelle plutôt que sautée */ }
+            const garde = args.itf === undefined
+                || (nom !== null && nom.indexOf(args.itf) >= 0);
+            const slots: Array<Record<string, unknown>> = [];
+            if (garde && off >= 0) {
+                for (const k of indices) {
+                    let methode: string | null = null; let erreur: string | null = null;
+                    try {
+                        const mi = klass.add(0x138 + (off + k) * 0x10 + 8).readPointer();
+                        if (mi.isNull()) erreur = "slot VIDE";
+                        else methode = cstr(method_get_name(mi) as NativePointer);
+                    } catch (e) { erreur = (e as Error).message; }
+                    slots.push({ index: "0x" + k.toString(16), slot: off + k, methode, erreur });
+                }
+            }
+            interfaces.push({ i, itf: nom, offset: off, retenue: garde, slots });
+        }
+        return { ok: true, ns: args.ns, cls: args.cls, klass: klass.toString(),
+                 initialized: init.initialized, initializedBefore: init.initializedBefore,
+                 forcedInit: init.forcedInit, nbInterfaces: n,
+                 interfaces: args.itf === undefined
+                     ? interfaces : interfaces.filter((x) => x.retenue) };
+    };
+
     ctx.rpc.resolveVtableSlot = (args: {
         ns: string; cls: string; start?: number; end?: number; forceInit?: boolean;
     }) => {
