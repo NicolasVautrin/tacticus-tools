@@ -63,6 +63,10 @@ import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/
 // écriture JS PAR FRAME dans le hot path le plus sensible du dépôt : un coût permanent payé par
 // toutes les batailles pour un besoin qui n'existe que le temps d'un RPC.
 import { premiereInstance } from "./view-command.js";
+// Le runner VIVANT, publié par le pump — lecture seule ici.
+import { state } from "../game/state.js";
+// Le MÊME message que le harnais RL applique pour chaque pose de joueur.
+import { buildAddUnitMessage } from "./launch.js";
 // Une valeur pré-empruntée doit SURVIVRE jusqu'à sa substitution : sans racine, le GC IL2CPP
 // peut la ramasser entre l'emprunt et le `retval.replace`.
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -1719,6 +1723,9 @@ let compteCacheDetail: Record<string, number | string> | null = null;
 /** L'entité du joueur humain, retenue au dernier parcours — publiée pour rendre un appariement
  *  raté LISIBLE (un compte à zéro ne dit pas s'il n'y a pas d'unité ou si l'appariement ment). */
 let dernierIdJoueurHumain: number | null = null;
+/** Les couples `PlayerId/PlayerEntityId` observés — deux numérotations distinctes, et c'est la
+ *  PREMIÈRE qu'attend `AddUnitMessage`. */
+let derniersCouples: string | null = null;
 const boutonObs: Array<{
     recu: number; impose: number; min: number; max: number;
     source: string; plateau: Record<string, number | string>;
@@ -1758,6 +1765,7 @@ function compterSurLePlateau(): Record<string, number | string> {
     out.unitesDuJoueurHumain = Array.isArray(ids) ? ids.length : ids;
     if (Array.isArray(ids)) out.idsSurLePlateau = ids.join(",");
     if (dernierIdJoueurHumain !== null) out.idJoueurHumain = dernierIdJoueurHumain;
+    if (derniersCouples !== null) out.couplesPlayerIdSurEntityId = derniersCouples;
     try {
         const k = vues.readPointer();
         for (const [cle, champ, genre] of [
@@ -1828,8 +1836,10 @@ function idsDesUnitesDuJoueur(): string[] | string {
             const trouves: string[] = [];
             let offJoueur = -1;
             let offUnitId = -1;
+            let offPlayerId = -1;
             let lus = 0;
             const vus: number[] = [];
+            const couples: string[] = [];
             for (let i = 0; i < nEntries; i++) {
                 // `{ hashCode, next, cle, valeur }` : la valeur est une REFERENCE, donc en fin
                 // d'entree apres alignement.
@@ -1839,6 +1849,7 @@ function idsDesUnitesDuJoueur(): string[] | string {
                 if (offJoueur < 0) {
                     offJoueur = getFieldOffset(uv.readPointer(),
                                                "<PlayerEntityId>k__BackingField");
+                    offPlayerId = getFieldOffset(uv.readPointer(), "<PlayerId>k__BackingField");
                     offUnitId = getFieldOffset(uv.readPointer(), "<UnitId>k__BackingField");
                     if (offJoueur < 0) return "champ `<PlayerEntityId>k__BackingField` ABSENT";
                     if (offUnitId < 0) return "champ `<UnitId>k__BackingField` ABSENT";
@@ -1848,12 +1859,20 @@ function idsDesUnitesDuJoueur(): string[] | string {
                 // Les ids OBSERVES sont publies : un compte a zero ne dit pas s'il n'y a pas
                 // d'unite du joueur ou si c'est l'appariement qui est faux.
                 if (vus.indexOf(idVue) < 0 && vus.length < 12) vus.push(idVue);
+                // ⚠ `PlayerId` et `PlayerEntityId` sont DEUX numerotations distinctes. Celle
+                // qu'attend `AddUnitMessage` est `PlayerId` -- la lire sur une unite REELLE est
+                // le seul moyen de ne pas la deviner.
+                if (offPlayerId >= 0 && couples.length < 12) {
+                    const c = `${uv.add(offPlayerId).readS32()}/${idVue}`;
+                    if (couples.indexOf(c) < 0) couples.push(c);
+                }
                 if (idVue !== idCourant) continue;
                 const nom = readIl2cppString(uv.add(offUnitId).readPointer());
                 if (nom !== null && nom !== "") trouves.push(nom);
             }
             // Le parcours se CONTROLE : si on n'a pas lu autant de vues que le dictionnaire en
             // annonce, la disposition supposee est fausse et le compte ne vaut RIEN.
+            derniersCouples = couples.join(" ");
             const attendu = compteDict(dico);
             if (typeof attendu === "number" && lus !== attendu) {
                 return `parcours INCOHERENT : ${lus} vues lues pour ${attendu} annoncees `
@@ -1904,6 +1923,83 @@ function armerBouton(): true | Refus {
                                      : surPlateau !== null ? "plateau" : "HUD (non dérivé)",
                                  plateau });
             }
+        },
+    });
+    Interceptor.flush();
+    return true;
+}
+
+// ============================================================================
+// LE DÉMARRAGE — le capteur qui tranche entre « composer par l'écran » et « inventer ».
+//
+// `UnitDeploymentHud$$HandleOnStartBattleTapped` relaie les unités posées à
+// `_callbacksDelegate` (`UnitDeploymentState`, mesuré) dont le slot 3 est :
+//
+//     UnitDeploymentState$$StartBattle(units) :
+//         ok = source.<slot 0x31>(units.<champ +0x18>)
+//         si ok  : source.<slot 0x59>(units, &resultat)
+//                  si echec : <slot 0x1d>(1)        <- CHEMIN D'ECHEC
+//         sinon  : fabrique un objet de repli
+//         this.<slot 0x69>(resultat)                <- demarrage reel
+//
+// ⚠ DEUX SLOTS PORTÉS PAR LA SOURCE DE MODE DE JEU — exactement l'endroit où la sandbox nous a
+// déjà stubbés deux fois (`GetUnitsForDeploymentHUD` rendait un conteneur vide,
+// `AmountOfUnlockedUnits` un `return 0` dédupliqué). Savoir si elle les implémente décide du
+// design : si oui, on compose entièrement par l'écran (clear et start natifs, cohérents) ; si
+// non, il faut écrire la conversion placeholder -> unité réelle, et ce chemin-là n'a AUCUN
+// précédent dans le binaire.
+//
+// ⛔ Le callback ne fait que des LECTURES DE MÉMOIRE : pas une invocation. C'est la leçon des
+// deux gels de ce soir. La résolution des noms se fait après coup, par RPC.
+
+const NS_ETAT = "IdunBattle.View.FSM.UnitDeployment";
+const CLS_ETAT = "UnitDeploymentState";
+let listenerStart: InvocationListener | null = null;
+const startTrace: Array<Record<string, unknown>> = [];
+
+function armerStart(): true | Refus {
+    if (listenerStart) return true;
+    const k = findClassAnywhere(NS_ETAT, CLS_ETAT);
+    if (!k) return refus(`\`${NS_ETAT}.${CLS_ETAT}\` INTROUVABLE sur ce build`);
+    const mi = findMethodByParamCount(k, "StartBattle", 1);
+    if (!mi) return refus(`\`${CLS_ETAT}$$StartBattle\` INTROUVABLE (1 paramètre)`);
+    const t = lireTete(mi.ptr);
+    if (t.erreur !== null) return refus(`tête de \`StartBattle\` ILLISIBLE (${t.erreur})`);
+    if (teteTriviale(t)) {
+        return refus(`REFUS : \`${CLS_ETAT}$$StartBattle\` résout sur un corps TRIVIAL `
+            + `(ret à l'octet ${t.retA}) -- adresse PARTAGÉE. Cf. §8.`);
+    }
+    // Les offsets viennent du décompilé et sont des positions de CHAMP, pas des adresses :
+    // `this+0x28` = la source interrogée, `this+0x18` = le relais de démarrage.
+    listenerStart = Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            const self = this as unknown as { e: Record<string, unknown> };
+            self.e = {};
+            try {
+                const ceci = args[0];
+                const units = args[1];
+                self.e.units = units.toString();
+                self.e.unitsNul = units.isNull();
+                if (!units.isNull()) {
+                    self.e.classeUnits = classeDerriere(units).classe;
+                    self.e.tailleUnits = tailleListe(units);
+                }
+                const src = ceci.add(0x28).readPointer();
+                self.e.source = src.toString();
+                self.e.classeSource = src.isNull() ? null : classeDerriere(src).classe;
+                const relais = ceci.add(0x18).readPointer();
+                self.e.classeRelais = relais.isNull() ? null : classeDerriere(relais).classe;
+            } catch (e) { self.e.erreur = (e as Error).message; }
+        },
+        onLeave(retval) {
+            const self = this as unknown as { e: Record<string, unknown> };
+            self.e.retour = retval.toInt32() & 0xff;
+            // ⚠ `1` est le retour du CHEMIN D'ECHEC (`<slot 0x1d>(1)` puis `return true`) :
+            // un « true » ici ne veut donc PAS dire que la bataille a démarré.
+            self.e.lecture = (self.e.retour === 1)
+                ? "retour 1 -- c'est la valeur du CHEMIN D'ECHEC du décompilé, pas un succès"
+                : "retour 0 -- passé par le démarrage réel (slot 0x69)";
+            if (startTrace.length < 16) startTrace.push(self.e);
         },
     });
     Interceptor.flush();
@@ -2018,6 +2114,95 @@ export function register(ctx: Ctx): void {
      * ⚠ `TryMarkUnitAsPlaced` est ANCRÉ par `deploymentHudArmer` : on l'invoque depuis la file du
      * thread principal, jamais depuis un callback — c'est cette distinction qui a gelé le jeu.
      */
+    /**
+     * LE COMMIT DE DÉPLOIEMENT : rejoue les poses de l'écran en `AddUnitMessage` sur le runner
+     * VIVANT. Les placeholders deviennent des unités RÉELLES, à leur place, sans remontage.
+     *
+     * ⚠ POURQUOI CE CHEMIN, ET PAS CELUI DU JEU. Dans TOUS les chemins natifs (pose manuelle
+     * comme `DeployBattleLineup`), le déploiement ne manipule que des `PlaceholderUnitView` ; la
+     * conversion en unités réelles est faite par `IGameModeSource.HandleStartMatch`. Or
+     * `SandboxGameModeSource` **ne l'implémente pas** (mesuré : absent de la table, retombe sur
+     * `AGameModeSource`), d'où la sortie immédiate -- le combat démarrait sans unité joueur.
+     *
+     * ⛔ ET ON NE PORTE PAS L'IMPLÉMENTATION DE RÉFÉRENCE. `CampaignGameModeSource$$HandleStartMatch`
+     * appelle `GenerateNewBattleId` puis émet l'événement de chargement : c'est le chemin qui
+     * CONSOMME UN JETON sur le compte réel. L'absence côté sandbox est donc PROTECTRICE, et la
+     * copier ferait payer chaque essai de draft.
+     *
+     * La voie retenue est celle que le harnais RL emploie déjà : `AddUnitMessage` appliqué au
+     * runner (`launch.ts` : « apply AddUnitMessages for each player placement, then StartMatch »).
+     * `SpawnSource = Deployment (5)` par défaut, écrit au champ +0x28 comme `applyAddUnitSrc`.
+     */
+    ctx.rpc.deploymentCommit = (body?: {
+        confirmer?: boolean; spawnSource?: number; poses?: Array<{
+            unitId: string; playerId: number; col: number; row: number;
+        }>;
+    }): Promise<unknown> | unknown => {
+        // Ce qui SERA applique : les poses reussies, dedupliquees par unite (la derniere gagne).
+        const retenues = new Map<string, { unitId: string; playerId: number;
+                                          col: number; row: number }>();
+        for (const p of (body?.poses ?? hudBoard.map((h) => ({
+            unitId: h.unitId ?? "", playerId: h.playerId, col: h.col, row: h.row,
+        })))) {
+            if (p.unitId !== "") retenues.set(p.unitId, p);
+        }
+        const liste = Array.from(retenues.values());
+        if (body?.confirmer !== true) {
+            return { ok: true, lecture: true, aAppliquer: liste,
+                     note: "`confirmer: true` exigé : ce RPC APPLIQUE des `AddUnitMessage` au "
+                         + "runner VIVANT -- il modifie la bataille en cours" };
+        }
+        if (liste.length === 0) return refus("aucune pose enregistrée : rien à appliquer");
+        return queueOnMainThread(() => {
+            const runner = state.liveRunner;
+            if (runner === null || runner.isNull()) {
+                return refus("aucun runner vivant publié par le pump -- `state.liveRunner` est "
+                    + "NUL, ce qui n'est PAS « zéro unité »");
+            }
+            const kr = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
+            const mApply = kr ? findMethodByParamCount(kr, "Apply", 1) : null;
+            if (!mApply) return refus("`IdunBattle.Runner.IdunRunner$$Apply` INTROUVABLE");
+            const src = body.spawnSource ?? 5;   // Deployment
+            const faits: Array<{ unitId: string; ok: boolean; detail: string }> = [];
+            for (const p of liste) {
+                let msg: NativePointer | null = null;
+                try {
+                    msg = buildAddUnitMessage(p.unitId, p.playerId, p.col, p.row);
+                    msg.add(0x28).writeS32(src);          // SpawnSource, comme `applyAddUnitSrc`
+                    invokeMethod(mApply.info, runner, [msg]);
+                    faits.push({ unitId: p.unitId, ok: true,
+                                 detail: `appliqué en (${p.col},${p.row}) joueur ${p.playerId}` });
+                } catch (e) {
+                    faits.push({ unitId: p.unitId, ok: false,
+                                 detail: "LEVÉ : " + (e as Error).message });
+                } finally {
+                    // ⚠ `buildAddUnitMessage` rend le message PINNÉ : le dépinner est à la charge
+                    // de l'appelant, sinon la racine GC s'accumule à chaque pose.
+                    if (msg !== null) { try { gcRoot.remove(msg); } catch { /* best effort */ } }
+                }
+            }
+            return { ok: true, faits, appliquees: faits.filter((f) => f.ok).length,
+                     total: liste.length, spawnSource: src };
+        });
+    };
+
+    /** Capteur PUR sur `UnitDeploymentState$$StartBattle` — le relais du bouton START. */
+    ctx.rpc.deploymentStartArmer = (body?: { armer?: boolean }): unknown => {
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, arme: listenerStart !== null,
+                     passages: startTrace.slice(-8) };
+        }
+        if (body.armer === false) {
+            if (listenerStart) { try { listenerStart.detach(); } catch { /* best effort */ } }
+            listenerStart = null;
+            return { ok: true, arme: false };
+        }
+        const r = armerStart();
+        if (r !== true) return r;
+        return { ok: true, arme: true,
+                 note: "appuyer sur START, puis relire ce RPC sans argument" };
+    };
+
     ctx.rpc.deploymentBoutonMarquer = (body?: { confirmer?: boolean }):
         Promise<unknown> | unknown => {
         if (body?.confirmer !== true) {

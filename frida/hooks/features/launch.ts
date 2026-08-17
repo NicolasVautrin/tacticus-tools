@@ -85,7 +85,10 @@ function buildAddMachineMessage(
     return msg;
 }
 
-function buildAddUnitMessage(
+/** ⚠ Rendu PINNÉ : l'appelant DOIT faire `gcRoot.remove(msg)` juste après l'`Apply`.
+ *  Exporté pour le commit de déploiement (`deployment-draft`), qui rejoue les poses de l'écran
+ *  en `AddUnitMessage` sur le runner VIVANT -- le meme message que le jeu emploie lui-meme. */
+export function buildAddUnitMessage(
     unitId: string, playerId: number, col: number, row: number,
 ): NativePointer {
     if (!addUnitMsgClass) throw new Error("AddUnitMessage class not found");
