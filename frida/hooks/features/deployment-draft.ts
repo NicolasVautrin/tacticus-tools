@@ -58,6 +58,8 @@ import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 // Une valeur pré-empruntée doit SURVIVRE jusqu'à sa substitution : sans racine, le GC IL2CPP
 // peut la ramasser entre l'emprunt et le `retval.replace`.
 import { gcRoot } from "../il2cpp/gc-root.js";
+// `s()` convertit un `char*` natif ; un `System.String` MANAGÉ a sa propre disposition.
+import { stringAt } from "../il2cpp/read.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
 import { Ctx } from "../controller.js";
@@ -530,6 +532,178 @@ function armerSansFiltre(ecrire: boolean): true | Refus {
     return true;
 }
 
+// ============================================================================
+// LE HUD LUI-MÊME — mesurer le REFUS DE POSE plutôt que le déduire.
+//
+// `idun.ui.UnitDeploymentHud$$Show(units, minUnitsPossible, maxUnitsPossible, options)`
+// remplit DEUX dictionnaires : `_allUnitModels` pour tous, et `_allUnlockedUnitModels`
+// **seulement si `IUnitModelExtensions$$IsUnlocked(u)`**. C'est le SECOND que
+// `TryMarkUnitAsPlaced(unitId, isMachineOfWar)` interroge.
+//
+// ⇒ « je sélectionne mais je ne pose pas » est exactement la signature d'un premier
+// dictionnaire plein et d'un second vide. On ne le DÉDUIT pas : on lit les deux comptes au
+// moment du remplissage, et on capture le VERDICT de chaque clic.
+//
+// OBSERVATION PURE : aucun de ces deux ancrages n'écrit, et on n'invoque ni l'un ni l'autre.
+const NS_HUD = "idun.ui";
+const CLS_HUD = "UnitDeploymentHud";
+let listenerShow: InvocationListener | null = null;
+let listenerPose: InvocationListener | null = null;
+let hudEtat: Record<string, unknown> | null = null;
+const hudPoses: Array<{ unitId: string | null; mow: boolean; accepte: boolean }> = [];
+
+/** Compte d'un `Dictionary<K,V>` : `_count - _freeCount`, les deux résolus PAR NOM. */
+function compteDict(dico: NativePointer): number | string {
+    try {
+        if (dico.isNull()) return "NUL";
+        const k = dico.readPointer();
+        const oc = getFieldOffset(k, "_count");
+        const of = getFieldOffset(k, "_freeCount");
+        if (oc < 0) return "champ `_count` absent de " + (s(class_get_name(k) as NativePointer));
+        const c = dico.add(oc).readS32();
+        const f = of < 0 ? 0 : dico.add(of).readS32();
+        return c - f;
+    } catch (e) { return "ILLISIBLE : " + (e as Error).message; }
+}
+
+function armerHud(): true | Refus {
+    if (listenerShow && listenerPose) return true;
+    const k = findClassAnywhere(NS_HUD, CLS_HUD);
+    if (!k) return refus(`\`${NS_HUD}.${CLS_HUD}\` INTROUVABLE sur ce build`);
+    const miShow = findMethodByParamCount(k, "Show", 4);
+    const miPose = findMethodByParamCount(k, "TryMarkUnitAsPlaced", 2);
+    if (!miShow) return refus("`UnitDeploymentHud$$Show` INTROUVABLE (4 paramètres)");
+    if (!miPose) {
+        return refus("`UnitDeploymentHud$$TryMarkUnitAsPlaced` INTROUVABLE (2 paramètres)");
+    }
+    for (const [nom, mi] of [["Show", miShow], ["TryMarkUnitAsPlaced", miPose]] as const) {
+        const t = lireTete(mi.ptr);
+        if (t.erreur !== null) return refus(`tête de \`${nom}\` ILLISIBLE (${t.erreur})`);
+        if (teteTriviale(t)) {
+            return refus(`REFUS : \`${CLS_HUD}$$${nom}\` résout sur un corps TRIVIAL `
+                + `(ret à l'octet ${t.retA}) -- adresse probablement PARTAGÉE. Cf. §8.`);
+        }
+    }
+    const offTous = getFieldOffset(k, "_allUnitModels");
+    const offDebl = getFieldOffset(k, "_allUnlockedUnitModels");
+    const offInput = getFieldOffset(k, "_disabledInput");
+    if (offTous < 0 || offDebl < 0) {
+        return refus("champ(s) absent(s) de `UnitDeploymentHud` sur ce build : "
+            + `_allUnitModels=${offTous} _allUnlockedUnitModels=${offDebl} `
+            + "-- chemin PÉRIMÉ, pas de repli sur un offset");
+    }
+    if (!listenerShow) {
+        listenerShow = Interceptor.attach(miShow.ptr, {
+            onEnter(args) {
+                // `Show` remplit les dictionnaires : on lit APRÈS, pas avant.
+                (this as unknown as { hud: NativePointer; mn: number; mx: number }).hud = args[0];
+                (this as unknown as { mn: number }).mn = args[2].toInt32();
+                (this as unknown as { mx: number }).mx = args[3].toInt32();
+            },
+            onLeave() {
+                const self = this as unknown as { hud: NativePointer; mn: number; mx: number };
+                try {
+                    hudEtat = {
+                        hud: self.hud.toString(),
+                        minUnitsPossible: self.mn, maxUnitsPossible: self.mx,
+                        allUnitModels: compteDict(self.hud.add(offTous).readPointer()),
+                        allUnlockedUnitModels: compteDict(self.hud.add(offDebl).readPointer()),
+                        disabledInput: offInput < 0
+                            ? null : self.hud.add(offInput).readU8() !== 0,
+                    };
+                } catch (e) { hudEtat = { erreur: (e as Error).message }; }
+            },
+        });
+    }
+    if (!listenerPose) {
+        listenerPose = Interceptor.attach(miPose.ptr, {
+            onEnter(args) {
+                const self = this as unknown as { uid: string | null; mow: boolean };
+                self.uid = null;
+                try { self.uid = stringAt(args[1]); } catch { /* best effort */ }
+                self.mow = args[2].toInt32() !== 0;
+            },
+            onLeave(retval) {
+                const self = this as unknown as { uid: string | null; mow: boolean };
+                if (hudPoses.length < 32) {
+                    hudPoses.push({ unitId: self.uid, mow: self.mow,
+                                    accepte: (retval.toInt32() & 0xff) !== 0 });
+                }
+            },
+        });
+    }
+    Interceptor.flush();
+    return true;
+}
+
+// ============================================================================
+// LE PLAFOND DE POSE — pourquoi « je sélectionne mais je ne pose pas ».
+//
+// Mesuré sur le HUD vivant : `allUnitModels = 55`, `allUnlockedUnitModels = 49`,
+// `disabledInput = false`, mais **`maxUnitsPossible = 0`**. Le verrou n'est donc PAS
+// `IsUnlocked` (49 unités sont posables) : le HUD a reçu l'autorisation de poser ZÉRO unité.
+//
+// `IdunBattle.View.FSM.VisualBattleQuery$$MaxUnitsPossibleToStartBattle` calcule :
+//
+//     min( source.AmountOfUnlockedUnits(),
+//          GetSpawnPointCoordinatedForHumanPlayer(this).Count,
+//          source.MaxUnitsPossibleToStartBattle() )
+//
+// (slots d'interface 0x31 et 0x33, NOMMÉS par `classInterfaceSlots` — lus, pas dérivés.)
+//
+// Et `SandboxGameModeSource$$AmountOfUnlockedUnits` résout sur un corps `return 0;`
+// **DÉDUPLIQUÉ, 1233 xrefs**, que Ghidra nomme `UnityAdsIdentifier$$get_UserId`. D'où
+// `min(0, ...) = 0`.
+//
+// ⛔ ON N'ANCRE PAS CE CORPS. 1233 consommateurs basculeraient — c'est exactement le piège du
+// §8. On ancre le RELAIS, qui est un vrai corps, et on remplace SON retour. Même forme que le
+// forçage de phase, qui marche par la même raison.
+// ⚠ LES DEUX BORNES, PAS SEULEMENT LE PLAFOND. `Show(units, min, max, options)` en reçoit
+// DEUX, et `VisualBattleQuery` porte un relais pour chacune
+// (`MaxUnitsPossibleToStartBattle`, `MinUnitsNeededToStartBattle`). Ne forcer que le max
+// laisserait le HUD sur un intervalle décidé à moitié par la sandbox — et un `min` qui vaut
+// autre chose que ce qu'on croit se lirait comme un refus de poser, exactement le symptôme
+// qu'on vient de passer une heure à attribuer.
+interface Borne {
+    methode: string;
+    listener: InvocationListener | null;
+    impose: number | null;
+    fires: number;
+    obs: Array<{ rendu: number; impose: number | null }>;
+}
+const BORNES: Record<"max" | "min", Borne> = {
+    max: { methode: "MaxUnitsPossibleToStartBattle",
+           listener: null, impose: null, fires: 0, obs: [] },
+    min: { methode: "MinUnitsNeededToStartBattle",
+           listener: null, impose: null, fires: 0, obs: [] },
+};
+
+function armerBorne(b: Borne): true | Refus {
+    if (b.listener) return true;
+    const k = findClassAnywhere(NS_VBQ, CLS_VBQ);
+    if (!k) return refus(`\`${NS_VBQ}.${CLS_VBQ}\` INTROUVABLE sur ce build`);
+    const mi = findMethodByParamCount(k, b.methode, 0);
+    if (!mi) return refus(`\`${CLS_VBQ}$$${b.methode}\` INTROUVABLE (0 paramètre)`);
+    const t = lireTete(mi.ptr);
+    if (t.erreur !== null) return refus(`tête de \`${b.methode}\` ILLISIBLE (${t.erreur})`);
+    if (teteTriviale(t)) {
+        return refus(`REFUS : \`${CLS_VBQ}$$${b.methode}\` résout sur un corps TRIVIAL `
+            + `(ret à l'octet ${t.retA} ; tête = ${t.hex}) -- adresse PARTAGÉE par `
+            + "déduplication. C'est précisément ce qu'on évite en visant le relais plutôt "
+            + "que `AmountOfUnlockedUnits`. Cf. §8.");
+    }
+    b.listener = Interceptor.attach(mi.ptr, {
+        onLeave(retval) {
+            b.fires++;
+            const rendu = retval.toInt32();
+            if (b.impose !== null) retval.replace(ptr(b.impose));
+            if (b.obs.length < 32) b.obs.push({ rendu, impose: b.impose });
+        },
+    });
+    Interceptor.flush();
+    return true;
+}
+
 /** Arme UNE délégation. Rend un refus NOMMÉ plutôt qu'un silence. */
 function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }): true | Refus {
     if (d.listener) return true;
@@ -705,6 +879,78 @@ export function register(ctx: Ctx): void {
 
     /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
+
+    /**
+     * LE PLAFOND DE POSE — observe, et sur demande IMPOSE.
+     *
+     *   { armer: true }                                  -> observe ce que le relais rend
+     *   { armer: true, valeur: N, confirmer: true }       -> impose N
+     *
+     * ⚠ On agit sur le RELAIS `VisualBattleQuery`, jamais sur
+     * `SandboxGameModeSource$$AmountOfUnlockedUnits` : ce dernier résout sur un `return 0;`
+     * DÉDUPLIQUÉ à 1233 xrefs. L'ancrer basculerait un millier de prédicats sans rapport.
+     */
+    ctx.rpc.deploymentPlafondArmer = (body?: {
+        armer?: boolean; max?: number; min?: number; confirmer?: boolean;
+    }): unknown => {
+        const etat = () => ({
+            max: { arme: BORNES.max.listener !== null, impose: BORNES.max.impose,
+                   fires: BORNES.max.fires, observations: BORNES.max.obs },
+            min: { arme: BORNES.min.listener !== null, impose: BORNES.min.impose,
+                   fires: BORNES.min.fires, observations: BORNES.min.obs },
+        });
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat() };
+        }
+        if (body.armer === false) {
+            for (const b of [BORNES.max, BORNES.min]) {
+                if (b.listener) b.listener.detach();
+                b.listener = null; b.impose = null;
+            }
+            Interceptor.flush();
+            return { ok: true, action: "retire", ...etat() };
+        }
+        if ((body.max !== undefined || body.min !== undefined) && body.confirmer !== true) {
+            return { ok: false, error: "`confirmer: true` exigé pour IMPOSER une borne : on "
+                + "écrit dans la décision de `VisualBattleQuery`, que TOUS les modes de jeu "
+                + "partagent. Observer d'abord (`{ armer: true }`)." };
+        }
+        // On arme les DEUX relais même si une seule valeur est imposée : observer la borne
+        // qu'on ne force pas est ce qui dit si elle valait déjà ce qu'on croit.
+        for (const b of [BORNES.max, BORNES.min]) {
+            const r = armerBorne(b);
+            if (r !== true) return r;
+        }
+        if (body.max !== undefined) BORNES.max.impose = body.max | 0;
+        if (body.min !== undefined) BORNES.min.impose = body.min | 0;
+        return { ok: true, ...etat() };
+    };
+
+    /**
+     * LE HUD — les DEUX dictionnaires, et le VERDICT de chaque clic. Observation pure.
+     *
+     * `{ armer: true }` ancre `Show` (lit les comptes après remplissage) et
+     * `TryMarkUnitAsPlaced` (capture unitId + retour). Sans corps : lecture.
+     */
+    ctx.rpc.deploymentHudArmer = (body?: { armer?: boolean }): unknown => {
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true,
+                     arme: listenerShow !== null && listenerPose !== null,
+                     etat: hudEtat, poses: hudPoses };
+        }
+        if (body.armer === false) {
+            if (listenerShow) { listenerShow.detach(); listenerShow = null; }
+            if (listenerPose) { listenerPose.detach(); listenerPose = null; }
+            Interceptor.flush();
+            return { ok: true, arme: false, action: "retire" };
+        }
+        const r = armerHud();
+        if (r !== true) return r;
+        return { ok: true, arme: true, etat: hudEtat, poses: hudPoses,
+                 note: "`Show` publie les deux comptes ; `TryMarkUnitAsPlaced` publie le "
+                     + "verdict de chaque clic. Un premier dictionnaire plein et un second "
+                     + "vide EST la signature de « je sélectionne mais je ne pose pas »." };
+    };
 
     /**
      * EMPRUNT ISOLÉ — invoque la méthode campagne HORS de tout callback d'interception.
