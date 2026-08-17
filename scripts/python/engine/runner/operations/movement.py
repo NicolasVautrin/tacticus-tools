@@ -1098,13 +1098,25 @@ class MoveUnitOperation(Operation):
     le natif n'appelle ni le slot `MoveUnit` ni le slot `SetUnitPosition`. Les armer la
     inventerait un refus.
 
-    ⚠ **CE N'EST PAS REDONDANT AVEC LE GATE `alive` DE TETE des Operations de `displace.py`**, et
-    c'est le RANG qui fait la difference. Ces gates-la sont lus une fois, EN TETE ; le natif, lui,
-    re-teste `HasFlag(unit, 6)` au moment de l'ECRITURE de la position. Entre les deux, le port joue
-    des choses qui TUENT : le knockback de denivele (`ApplyKnockbackTo`, pull et Direct), le crush du
-    steppable, et -- pour `SwitchPosition` -- le vecteur `On(UnitDisplaced)` de la PREMIERE moitie,
-    qui peut tuer le caster avant la SECONDE. Dans cette fenetre, le port deplacait un cadavre que le
-    natif refuse de bouger."""
+    ⚠ **LE GATE `alive` DE TETE DES OPERATIONS DE `displace.py` A DISPARU (#550-r4-r1).** Il n'etait
+    pas << redondant >> avec S2, il etait au MAUVAIS RANG, et le paragraphe qui vivait ici ne voyait
+    que la moitie de l'ecart : il decrivait la FENETRE (entre le test de tete et l'ecriture, le port
+    joue des choses qui TUENT -- knockback de denivele, crush du steppable, vecteur
+    `On(UnitDisplaced)` de la premiere moitie du switch), sans dire que le `return` sec de tete
+    ABANDONNAIT AUSSI TOUTE LA QUEUE. `IdunBattle.Operations.DisplaceUnitOperation$$Execute` ne teste
+    la mort NULLE PART -- relu verbatim : `IsDisplaceable`, `IsSteppable`, le `switch(direction)`,
+    puis la partie commune. Sur une cible morte le natif cherche donc sa tuile, ecrase l'occupant
+    steppable, se fait REFUSER l'ecriture par S2, **et joue quand meme `$$AddTilesMoved` puis
+    `$$EventAndAbilitiesAndEffects`** -- soit les TROIS vecteurs `0x24` / `0x23` / `0x1d` et le
+    refresh `0x2f(7)`. Le port n'en emettait aucun.
+    Le regime est ATTEIGNABLE, et structurellement : `DisplaceUnitBehaviour` resout ses cibles avec
+    `targetSelectionType = 2 = OnlyTargetable`, et `MatchesUnitSelectionType` n'appelle **PAS**
+    `IsAlive` a ce selectionType (#433-r3-r2) -- un cadavre reste donc selectionnable. Il suffit que
+    le knockback de collision du push precedent ait tue une unite encore dans la liste du `Foreach`.
+
+    LE BLOC (a)/(b)/(c) ET LA RESERVATION SONT DESORMAIS ETEINTS PAR CE MEME DRAPEAU, pour la meme
+    raison de fond : ils appartiennent a `MoveUnitOperation`, pas a `SetUnitPositionOperation`. Cf. le
+    commentaire au site. Le bras `IsDead` de (c) DOUBLAIT S2 et rendait son ajout inobservable."""
     __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
                  "last_movement_steps", "pathfinder_type_override", "is_interim_step",
                  "arrive_at_final_tile", "emit_after_move", "last_after_move",
@@ -1200,7 +1212,16 @@ class MoveUnitOperation(Operation):
              `Nullable<AbilityOrEffect>` et AVANT le calcul de `movementSteps`.
 
         Le port a bien ses cinq sites (les quatre abandons + le nominal) : c'etait l'ENONCE qui
-        etait faux, pas le code."""
+        etait faux, pas le code.
+
+        ⚠ NO-OP SOUS `set_unit_position_gates` (#550-r4-r1) : ce call-site-la mirroite
+        `SetUnitPositionOperation$$Execute`, qui ne pose AUCUNE reservation -- donc il n'y en a
+        aucune a liberer. Et ce n'est pas gratuit : `RemoveReserveForUnit` a un gate d'IDENTITE, pas
+        de PROVENANCE, donc sans ce refus le stand-in libererait une reservation posee par un AUTRE
+        chemin sur la meme unite -- typiquement le noeud DSL `Reserve(Owner, targetTiles)` que
+        `ItItches` place AVANT son `Foreach(CanAddUnit(...))` (#550-r1), et qui est LOAD-BEARING."""
+        if self.set_unit_position_gates:
+            return
         for t in position:
             tile_reservation.remove_reserve_for_unit(state, t, self.unit_id)
 
@@ -1295,13 +1316,37 @@ class MoveUnitOperation(Operation):
         # empreinte vide » par le tuple VIDE et « aucun override » (le `Nullable` vide, que seule la
         # consommation en (c) produit) par `None`. Les confondre ferait retomber tout LIFT-OFF sur le
         # bras `ovr is None` -> `return`, c'est-a-dire un refus silencieux.
-        uc0 = e.get_component(UnitComponent)
-        if uc0 is not None:
-            uc0.movement_target_override = (() if self.to is None
-                                            else (int(self.to[0]), int(self.to[1])))   # (a)
-        for _t in position:                                                            # SetReservation
-            tile_reservation.reserve_for_unit(state, _t, self.unit_id)
-        if not self.skip_pre_move_triggers:
+        # ── LE BLOC (a)/(b)/(c) + LA RESERVATION APPARTIENNENT A `MoveUnitOperation`, PAS AU
+        #    STAND-IN DE `SetUnitPositionOperation` (#550-r4-r1) ────────────────────────────────
+        # `IdunBattle.Operations.SetUnitPositionOperation$$Execute` a ete relu VERBATIM sur
+        # `t6dpr4k06g` : son corps entier est `GetUnitFeet` -> S1 -> S2 -> `GetUnitPosition` -> la
+        # boucle d'ecriture par pied (`ResetPreviousTile` sous l'octet d'options, puis
+        # `PositionComponent.tileId` et `TileContentComponent.unitId`) -> `SavePreviousPosition` ->
+        # `VerifyTerritoryCapture`. **Il ne contient AUCUN appel au publieur d'evenements**
+        # (`processor.<slot 0x50>` n'y apparait pas une seule fois) et **aucune reservation** --
+        # `$$SetReservation` / `$$RemoveReservation` sont des methodes de `MoveUnitOperation`.
+        # Les cinq stand-ins de `displace.py` jouaient donc, a chaque push / pull / switch / Direct :
+        #   * `SetReservation` sur la destination, que le natif ne pose jamais par cette voie ;
+        #   * `On(PreUnitMove = 0x1f)` -- un vecteur FANTOME. Son consommateur le plus visible est
+        #     `HatefulAssaultAbility$$CreateTrigger` (l'attaque d'opportunite) : le port la
+        #     declenchait sur un DEPLACEMENT FORCE, la ou le natif ne l'arme que sur un vrai
+        #     `MoveUnitOperation` ;
+        #   * le bloc d'override (a)/(b)/(c), dont le bras `IsDead` DOUBLAIT S2 -- c'est lui qui
+        #     rendait l'ajout de S2 (#550-r4) inobservable.
+        # Les quatre morceaux sont SOLIDAIRES : (c) CONSOMME ce que (b) a pu ecrire, donc couper (c)
+        # seul laisserait un override pendant sur le composant. On les eteint ensemble, sous le
+        # MEME discriminant que S1/S2 -- « ce call-site mirroite `SetUnitPositionOperation` ».
+        if not self.set_unit_position_gates:
+            uc0 = e.get_component(UnitComponent)
+            if uc0 is not None:
+                uc0.movement_target_override = (() if self.to is None
+                                                else (int(self.to[0]), int(self.to[1])))   # (a)
+            for _t in position:                                                        # SetReservation
+                tile_reservation.reserve_for_unit(state, _t, self.unit_id)
+        else:
+            uc0 = None      # ni override a consommer, ni reservation a retirer : le bloc (c) et les
+                            # `_remove_reservation` en aval deviennent des no-op par construction.
+        if (not self.skip_pre_move_triggers) and not self.set_unit_position_gates:
             # PORTEUR (cycle `operations` <-> `triggers`) ET forme MODULE : l'attribut est relu
             # a l'appel, donc une substitution posee sur `move_death` mord quelle que soit la
             # forme finale de cet import. Cf. `probe_485r1r1_formes_dimport.py` -- un
@@ -1328,6 +1373,11 @@ class MoveUnitOperation(Operation):
             # peut TUER le mover (`...StormboyzStrike_MissAbility` -> `TriggerAbility(FullThrottle)`
             # -> `If(Maybe(chance), Kill(Caster))`), et le natif annule alors le mouvement.
             if ovr is None or not uc0.alive:
+                # RAISON publiee (#550-r4-r1) : ce bras d'abandon etait le SEUL des huit a rester
+                # muet, donc `last_abandoned` y restait a `None` et un lecteur qui teste
+                # `not last_abandoned` concluait << mouvement effectue >>.
+                self.last_abandoned = ("override-consumed-empty" if ovr is None
+                                       else "override-unit-dead")
                 self._remove_reservation(state, position)
                 return
             # `if (ToUnitPosition(ovr) != position)` -- comparaison d'EMPREINTES, pas de tuiles :

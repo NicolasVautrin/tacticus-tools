@@ -483,17 +483,16 @@ def test_it_itches_pose_bien_son_parent_et_son_Reserve_amont():
 def test_S2_refuse_de_deplacer_un_CADAVRE_et_NOMME_sa_raison(state):
     """`if (UnitExtensions.HasFlag(unit, 6 = Dead)) { log; return; }`.
 
-    ⚠ **S2 EST AUJOURD'HUI DOUBLE, ET IL FAUT LE DIRE : il ne change PAS l'observable.** Le port
-    joue deja, INCONDITIONNELLEMENT, le second bras du gate (c) du bloc override d'
+    ⚠ **S2 N'EST PLUS DOUBLE (#550-r4-r1), ET CETTE DOCSTRING A ETE MISE A JOUR PARCE QUE LE TEST
+    L'A DEMANDE LUI-MEME** (son dernier message d'assertion disait : << le gate (c) du bloc override
+    a change -- S2 n'est donc PLUS double, et c'est desormais LUI qui porte le refus. Mettre a jour
+    cette docstring. >>). Le gate (c) du bloc override d'
     `IdunBattle.Operations.MoveUnitOperation$$Execute` (`if (!ovr.HasValue || IsDead(unit))
-    { RemoveReservation; return; }`) -- lequel appartient a `MoveUnitOperation` et **PAS** a
-    `SetUnitPositionOperation`, que ces call-sites mirroitent. Le refus existait donc deja ; ce qu'il
-    n'avait pas, c'est une RAISON (`last_abandoned` restait `None`) ni le bon proprietaire.
-
-    Pourquoi le porter quand meme : le gate (c) est un gate de `MoveUnitOperation` applique a des
-    stand-ins qui ne mirroitent pas cette Operation-la. Le jour ou il sera range a sa place, le refus
-    resterait porte par S2 -- sans lui, cette correction rendrait les quatre stand-ins PERMISSIFS,
-    en silence. C'est ce que ce test empeche."""
+    { RemoveReservation; return; }`) appartient a `MoveUnitOperation` et **PAS** a
+    `SetUnitPositionOperation` : il est desormais ETEINT sous `set_unit_position_gates`, avec la
+    reservation et le vecteur `On(PreUnitMove)` du meme bloc. S2 est donc SEUL a porter le refus
+    pour les stand-ins, et le second volet de ce test le verifie encore -- mais sur l'autre face :
+    hors stand-in, c'est bien le gate (c) qui refuse, et il NOMME desormais sa raison."""
     e = state.get_entity(VICTIME)
     e.get_component(UnitComponent).alive = False
     dest = (5, 4)
@@ -507,14 +506,17 @@ def test_S2_refuse_de_deplacer_un_CADAVRE_et_NOMME_sa_raison(state):
     from engine.runner.components import PositionComponent
     pc = e.get_component(PositionComponent)
     assert (pc.col, pc.row) == (5, 5), "le cadavre a bouge malgre l'abandon"
-    # LE DOUBLON, MESURE : sans le flag, le port refuse AUSSI -- mais sans nommer sa raison.
+    # L'AUTRE FACE (#550-r4-r1) : HORS stand-in, le bloc override est joue et c'est son gate (c)
+    # qui refuse -- avec, depuis cette tranche, une RAISON. Les deux refus existent donc toujours,
+    # mais chacun chez son proprietaire, et ils ne se recouvrent plus.
     op2 = MoveUnitOperation(VICTIME, dest, emit_after_move=False, enforce_native_gates=False)
     op2.execute(state, EventBus())
     pc = e.get_component(PositionComponent)
-    assert (pc.col, pc.row) == (5, 5) and op2.last_abandoned is None, (
-        f"sans `set_unit_position_gates` le port a bouge le cadavre (pos={(pc.col, pc.row)}, "
-        f"abandon={op2.last_abandoned!r}) : le gate (c) du bloc override a change -- S2 n'est donc "
-        "PLUS double, et c'est desormais LUI qui porte le refus. Mettre a jour cette docstring.")
+    assert (pc.col, pc.row) == (5, 5) and op2.last_abandoned == "override-unit-dead", (
+        f"hors stand-in le port a bouge le cadavre (pos={(pc.col, pc.row)}, "
+        f"abandon={op2.last_abandoned!r}) : le gate (c) du bloc override d'"
+        "`MoveUnitOperation$$Execute` ne refuse plus -- or c'est LUI le proprietaire de ce "
+        "refus-la, S2 ne couvre que les stand-ins de `SetUnitPositionOperation`")
 
 
 def test_S1_refuse_une_empreinte_de_CARDINALITE_differente(state):

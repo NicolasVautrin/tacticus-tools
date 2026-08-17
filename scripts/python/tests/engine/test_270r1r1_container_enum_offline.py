@@ -152,8 +152,12 @@ SNAP_TUPLES = {
         MQ.SPECIAL_MOVEMENT_EFFECT_TYPES, EffectType, (1035, 1140, 1238, 1573)),
     "runner/components._TELEPORT_MOVE_EFFECTS": (
         RC._TELEPORT_MOVE_EFFECTS, EffectType, (1036, 1035, 1241, 1238)),
+    # 3 -> 5 : `1061 GeminaeSuperia_JustSummonedEffect` (#1074) et `1044 Untargetable`
+    # (#433-r3-r2-r1). ⚠ Le premier des deux etait un ROUGE PREEXISTANT : #1074 a inscrit `1061`
+    # au domaine sans mettre a jour CE snapshot, et l'etage 2 rougissait deja sur `master` avant
+    # la presente tranche (mesure : meme test joue sur un `git archive` de l'arbre de depart).
     "entities/effects/aura_selectors.UNTARGETABLE_EFFECT_TYPES": (
-        ASel.UNTARGETABLE_EFFECT_TYPES, EffectType, (1035, 1140, 1238)),
+        ASel.UNTARGETABLE_EFFECT_TYPES, EffectType, (1035, 1140, 1238, 1061, 1044)),
     "services/spawn_tile_shape.DIRECTION_ORDER": (
         STS.DIRECTION_ORDER, Corner, (1, 0, 5, 4, 3, 2)),
     "runner/abilities/sisterhood.SHAPE_DIRECTIONS_MACHINE": (
@@ -295,9 +299,10 @@ def test_etage2b_cardinalites():
         + sum(len(s) for _v, _e, s in SNAP_DICTS.values())
     # 157 -> 158 : `UNTARGETABLE_EFFECT_TYPES` gagne `1238 FearOfTheUnseen_TeleportingIn`
     # (#448-r2b-r1). 158 -> 159 : `_FILLUP_STATS` gagne `20 NumberOfMembers` (#572-r3, case LUE
-    # dans le switch d'`ApplyStatModifier`). Le compte MONTE quand une inscription est
-    # confrontee ; il ne doit jamais baisser en silence.
-    assert total == 159, "le perimetre de la tranche a change de taille : %d" % total
+    # dans le switch d'`ApplyStatModifier`). 159 -> 161 : le MEME conteneur gagne `1061` (#1074,
+    # snapshot non mis a jour a l'epoque -- rouge PREEXISTANT) et `1044` (#433-r3-r2-r1). Le compte
+    # MONTE quand une inscription est confrontee ; il ne doit jamais baisser en silence.
+    assert total == 161, "le perimetre de la tranche a change de taille : %d" % total
     for nom, (vivant, _e, snap) in {**SNAP_SETS, **SNAP_TUPLES}.items():
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

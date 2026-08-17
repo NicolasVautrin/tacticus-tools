@@ -102,6 +102,15 @@ def test_the_carrier_under_1140_is_untargetable_and_uncastable(stormboyz_telepor
     raison pour laquelle T2 (`On(0x2a PreUnitAbility)`) n'est PAS exercable par un geste."""
     for c in stormboyz_teleporting_cases:
         assert c["start"]["untargetable"] is True, _tag(c)
+        # #433-r3-r2-r1 -- LE CANAL FLAG, ET SA GARDE DE NON-DEGENERESCENCE. `cmp_terms` compare
+        # desormais `flagUntargetable` terme a terme entre le port et l'etat RECONSTRUIT du natif
+        # (dont le `UnitFlagsComponent` est seede par `combatSnapshot.units[].unitFlags`, donc par
+        # le jeu). Un accord sur deux `False` ne prouverait RIEN : cette assertion exige que le
+        # canal soit VRAI ici, c'est-a-dire que la comparaison porte sur un temoin non nul.
+        assert c["start"]["flagUntargetable"] is True, (
+            "%s le canal FLAG du port ne voit pas `UnitFlag.Untargetable` sur un porteur de 1140 "
+            "-- `AddEffectOperation._apply_untargetable_flag` ne mord pas en live, et l'accord de "
+            "`cmp_terms` sur cette cle serait un accord en regime DEGENERE" % _tag(c))
         assert c["fromHere"] == [], (
             "%s le natif propose des cibles a une unite hors plateau : %r" % (_tag(c),
                                                                              c["fromHere"]))

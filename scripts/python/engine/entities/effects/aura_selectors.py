@@ -31,6 +31,16 @@ from ... import battle_query as _bq
 #: Le flag ne vient PAS de l'effet feuille : `UntargetableEffect$$ApplyInternal` fait
 #: `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE et `$$RevertInternal`
 #: le retire. C'est donc un DOMAINE, pas une constante.
+#: ⚠ **ET CE DOMAINE NE COUVRE PAS TOUTE LA NON-CIBLABILITE NATIVE (#433-r3-r2-r1-r1).** Mesure
+#: exhaustive sur `t6dpr4k06g` (tous les `call` ET `jmp` rel32 vers `UnitFlagsComponent$$Add`/
+#: `$$Remove` a immediat `edx == 0x11`) : **TROIS poseurs, TROIS retireurs**. Les deux autres sont
+#: `IdunBattle.Operations.ResurrectUnitOperation$$Execute` et
+#: `IdunBattle.Operations.AddUnitOperation$$Execute`, qui encadrent chacune leur propre corps --
+#: fenetre TRANSITOIRE intra-operation, HORS de tout effet. Elles sont PORTEES
+#: (`operations/resurrect.py`, `operations/spawn.py`) mais elles sont, par construction, invisibles
+#: de ce domaine-ci : un lecteur qui n'interroge que les EFFETS ne les verra jamais. Le canal qui
+#: les voit est le FLAG (`abilities/targeting.py::is_targetable`,
+#: `entities/unit_selection_type.py::selection_ok_from_ctx`).
 #: ⚠ **PAS << pour TOUTE sous-classe >>, ET C'EST LU (#433-r3-r2-r1, build `t6dpr4k06g`)** : la pose
 #: est GARDEE, le retrait ne l'est pas. `UntargetableEffect$$ApplyInternal` ouvre sur
 #: `if (!this.IsUntargetableEnabled(owner, target, effect)) return;` -- un VIRTUEL declare par
@@ -126,10 +136,34 @@ from ... import battle_query as _bq
 # (iii) son RETRAIT est porte dans ce commit (`EFFECT_TRIGGERS[1061]`, trois vecteurs), ce qui BORNE
 # la fenetre au message top-level courant. L'ecart ferme est PERMISSIF (Celestine restait enumerable
 # comme cible pendant la fenetre ou le natif l'exclut) ; le sens du correctif est RESTRICTIF.
+#
+# `1044` INSCRIT par #433-r3-r2-r1, avec les MEMES trois criteres que `1238` et `1061` ci-dessus,
+# les trois LUS : (i) `IdunBattle.Entities.Effects.Common.UntargetableEffect` **EST** la classe de
+# ce type -- c'est la BASE elle-meme, concrete (`frida/classes.tsv` : parent `BaseEffect`) -- et
+# elle ne peut evidemment pas surcharger son propre `IsUntargetableEnabled` : le seul surchargeur du
+# build est `TitanhammerSquad_TeleportingInEffect` ; (ii) l'effet est REELLEMENT POSE par le port,
+# a DEUX sites, et (iii) RETIRE dans LE MEME ARBRE DSL aux deux :
+#   * `runner/abilities/aeldari.py::kiss_of_death_tree` -- `AddEffect(1044, Caster)` &
+#     `ChainAttackDamage(...)` & `FlyUnit(...)` & `RemoveEffect(1044, Caster)` ;
+#   * `runner/abilities/loki/wall_of_mirrors.py::wall_of_mirrors_tree` -- `AddEffect(1044, Caster)`
+#     & `FlyUnit(Caster, tiles)` & `RemoveEffect(1044, Owner@+0x30)`.
+# L'OBSERVABILITE -- la seule chose qui manquait, et que la fiche exigeait de MESURER -- est
+# etablie par le NATIF LUI-MEME, sans montage : `WallOfMirrorsAbility$$ExecuteBehaviour` place
+# entre le vol et l'attaque un `If(<DSLTriggers+0x20> = OwnerIsAlive, hit)`. Le natif TESTE que le
+# caster a survecu au `FlyUnit` : la fenetre d'intouchabilite contient donc, par construction, du
+# code de jeu capable de le TUER (overwatch, piege, attaque d'opportunite). Elle n'est pas << deux
+# noeuds qui s'annulent >>. Cote `KissOfDeath` c'est plus net encore : le `ChainAttackDamage`
+# ENTIER -- jusqu'a `maxAdjacentTargets` coups, donc autant de vecteurs de degat et de riposte --
+# s'execute DANS la fenetre.
+# Ecart ferme = PERMISSIF (le caster restait ciblable pendant son vol) ; sens du correctif =
+# RESTRICTIF. Les DEUX porteurs sont hors pool (npc + summon a spawner d'ENVIRONNEMENT), donc la
+# confrontation live passe par la GREFFE (`case-92` §5bis), dont la condition est etablie dans les
+# deux modules cites.
 UNTARGETABLE_EFFECT_TYPES = (EffectType.TeleportStrike_TeleportingIn,      # 1035
                              EffectType.StormboyzStrike_TeleportingIn,    # 1140
                              EffectType.FearOfTheUnseen_TeleportingIn,    # 1238
-                             EffectType.GeminaeSuperia_JustSummonedEffect)  # 1061
+                             EffectType.GeminaeSuperia_JustSummonedEffect,  # 1061
+                             EffectType.Untargetable)                     # 1044 -- la BASE concrete
 
 
 def hex_distance(a, b) -> "int | None":

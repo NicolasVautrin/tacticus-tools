@@ -254,6 +254,7 @@ def terms(st, uid: int) -> dict:
     (type + remaining) : un effet qui apparaitrait EN TROP -- p.ex. un `*_Moving` qu'un port fautif
     poserait -- se verrait."""
     from engine.ai.state_bridge import _is_untargetable
+    from engine.runner.abilities.targeting import is_targetable as _flag_targetable
     from engine.runner.components import PositionComponent, UnitComponent, get_unit_feet
     e = st.get_entity(int(uid))
     pc = e.get_component(PositionComponent) if e is not None else None
@@ -266,10 +267,18 @@ def terms(st, uid: int) -> dict:
             "feet": sorted(get_unit_feet(st, int(uid)) or []),
             "alive": None if uc is None else bool(uc.alive),
             "effects": [list(r) for r in rows],
-            "untargetable": bool(_is_untargetable(st, int(uid)))}
+            "untargetable": bool(_is_untargetable(st, int(uid))),
+            # #433-r3-r2-r1 -- LE CANAL FLAG, et c'est la SEULE confrontation directe du fix.
+            # Cote NATIF cet etat est RECONSTRUIT d'une capture, donc son `UnitFlagsComponent` est
+            # SEEDE par `combatSnapshot.units[].unitFlags` -- c'est-a-dire par le jeu lui-meme.
+            # Cote PORT il est pose par `AddEffectOperation._apply_untargetable_flag`. Comparer les
+            # deux, c'est donc confronter MON `UnitFlagsComponent$$Add(0x11)` a celui du natif, la
+            # ou la cle `untargetable` ci-dessus n'interroge que les EFFETS des deux cotes.
+            "flagUntargetable": (None if e is None else not _flag_targetable(st, int(uid)))}
 
 
-def cmp_terms(label, port, native, fails, keys=("pos", "feet", "alive", "effects", "untargetable")):
+def cmp_terms(label, port, native, fails,
+              keys=("pos", "feet", "alive", "effects", "untargetable", "flagUntargetable")):
     for k in keys:
         if port[k] != native[k]:
             fails.append("%s %s : port=%r != natif=%r" % (label, k, port[k], native[k]))

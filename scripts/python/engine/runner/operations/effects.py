@@ -60,6 +60,9 @@ from ...entities.effects.loki.status import (TILE_ACTIVE_CONDITION_EFFECT_TYPES,
                                              tile_status_effect_is_active)
 from ...entities.stats import StatType
 from ..components import ForcedAttackTargetsComponent
+# #433-r3-r2-r1 -- le composant que `UntargetableEffect$$ApplyInternal` ECRIT
+# (`UnitFlagsComponent$$Add(0x11)`), cf. `AddEffectOperation._apply_untargetable_flag`.
+from ..components import UnitFlagsComponent
 from .stat_ops import apply_change_stat
 from .stat_ops import apply_stat_override
 from .stat_ops import remove_stat_override
@@ -333,6 +336,12 @@ class AddEffectOperation:
         # state.Get(BondedEntityId(effet)))` -- rien avant, rien apres). Le rang relatif aux autres
         # parts est donc INOBSERVABLE ici, et ce commentaire le dit plutot que de le taire.
         AddEffectOperation._apply_owner_override(state, target, eff)
+        # `<Effect>.ApplyInternal` part NON-CIBLABILITE (#433-r3-r2-r1) -- MIRROR de
+        # `IdunBattle.Entities.Effects.Common.UntargetableEffect$$ApplyInternal`, dont le corps
+        # ENTIER est ce gate + cet `Add` (relu verbatim sur `t6dpr4k06g`). Comme pour l'owner-swap
+        # juste au-dessus, la classe native n'a AUCUNE autre part : le rang relatif aux autres parts
+        # est donc INOBSERVABLE ici, et ce commentaire le dit plutot que de le taire.
+        AddEffectOperation._apply_untargetable_flag(state, target, eff)
         # `On(EffectAdded = 0x3e = 62)` -- le SECOND des trois events de
         # `IdunBattle.Operations.AddEffectOperation$$Execute`, publie **apres** `RemoveExistingEffect`
         # (+0xc25) et `AddNewEffect` (+0xc4e) : `AddEffectOperation$$Execute+0xd0b` (`mov ecx, 0x50` /
@@ -406,6 +415,59 @@ class AddEffectOperation:
         if not eff.overrides_unit_owner():
             return
         ChangeUnitOwnerOperation.execute(state, int(target), eff.bonded)
+
+    @staticmethod
+    def _apply_untargetable_flag(state: State, target: int, eff: BaseEffect) -> None:
+        """Part NON-CIBLABILITE de `<Effect>.ApplyInternal` (#433-r3-r2-r1) -- MIRROR de
+        `IdunBattle.Entities.Effects.Common.UntargetableEffect$$ApplyInternal`, corps ENTIER :
+
+            if (!this.<vslot +0x728>(owner, target, effect)) return;   // `IsUntargetableEnabled`
+            target.GetComponent<UnitFlagsComponent>().Add(0x11);       // `UnitFlag.Untargetable`
+
+        POURQUOI CETTE PART N'EXISTAIT PAS, ET CE QU'ELLE DEBLOQUE. Le port modelisait TOUTE la
+        non-ciblabilite par le DOMAINE `UNTARGETABLE_EFFECT_TYPES` -- ce qui marche pour les
+        lecteurs qui interrogent les EFFETS (`aura_selectors.is_targetable`,
+        `ai.state_bridge._is_untargetable`, `playbook.adjacency.is_targetable`), et **PAS DU TOUT**
+        pour ceux qui interrogent le FLAG, c'est-a-dire le canal COMBAT :
+        `abilities/targeting.py::is_targetable` (`= !HasFlag(unit, 0x11)`) et ses consommateurs --
+        la regle `TargetIsTargetable` d'`ActiveAbilityOperation$$IsInvalidTarget`, le gate melee
+        d'`AttackQuery`, `HatefulAssault`, `SavageKiller`, `MV71`. Sa docstring l'ecrivait :
+        << le flag 0x11 n'est pose par AUCUN chemin du port -> le predicat est constamment vrai >>.
+        Ces cinq lecteurs etaient donc MORTS. Cette part les arme, et le sens est RESTRICTIF.
+
+        LE GATE `IsUntargetableEnabled` EST HONORE PAR LE DOMAINE LUI-MEME, pas par un predicat de
+        plus : la SEULE classe du build qui surcharge ce virtuel est
+        `TitanhammerSquad_TeleportingInEffect` (corps `32 c0 c3` = `xor al,al ; ret` = **false**),
+        et son `EffectType 1573` est precisement celui que `UNTARGETABLE_EFFECT_TYPES` EXCLUT --
+        refus PROUVE, pas un manque. Toute autre derivee herite du corps de la base, dont la valeur
+        `true` est etablie par MESURE et non par lecture (le corps est deduplique, absent des deux
+        tables) : `1035 TeleportStrike_TeleportingIn` est dans le domaine ET confronte live
+        (`darkaTerminator` en teleport-in ne recoit RIEN de `LionHelm`), ce qui serait impossible si
+        le defaut rendait faux.
+
+        AUCUN COMPTAGE DE REFERENCES, et c'est LU : `$$RevertInternal` est un tail call NU vers
+        `UnitFlagsComponent$$Remove(0x11)`. Deux effets untargetable simultanes partagent UN seul
+        element d'`OrderedSet` -> le premier retrait rend l'unite ciblable alors que le second effet
+        vit encore. Le port reproduit ce quirk (`remove_effect_instance` retire NU lui aussi) plutot
+        que de le << reparer >>. Residu `#433-r5` : dans ce regime le canal EFFET et le canal FLAG
+        divergent, et `entities/unit_selection_type.py::selection_ok_from_ctx` les lit en OU."""
+        from ...entities.effects import aura_selectors as _aura   # forme B (#485-r1-r1) : le
+        # domaine reste substituable par un `monkeypatch.setattr` sur son foyer. PORTEUR : charger
+        # `aura_selectors` seul ne charge pas ce module, mais l'inverse est vrai par la cascade
+        # `operations` -> `entities.effects` (meme classement que l'import du meme domaine dans
+        # `remove_effects.py`, qui le fait au niveau module parce que sa cascade le permet).
+        if int(eff.effect_type or 0) not in {int(t) for t in _aura.UNTARGETABLE_EFFECT_TYPES}:
+            return
+        ent = state.get_entity(int(target))
+        if ent is None:
+            return
+        fl = ent.get_component(UnitFlagsComponent)
+        if fl is None:
+            # `GetComponent<UnitFlagsComponent>()` nul -> le natif JETTE (`FUN_1801f5460`). Le port
+            # ne fabrique pas ce chemin : une entite sans ce composant n'est pas une unite du
+            # plateau (tuile, entite-effet), et lui en poser un inventerait un etat.
+            return
+        fl.add(UnitFlagsComponent.UNTARGETABLE)
 
     @staticmethod
     def _apply_stat_mods(state: State, target: int, eff: BaseEffect) -> None:

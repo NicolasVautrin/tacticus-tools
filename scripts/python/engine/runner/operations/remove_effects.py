@@ -120,6 +120,9 @@ from ...entities.effects import effect_stat_mod_key
 # domaine vit dans son foyer UNIQUE, il n'est pas re-liste ici. Import de MODULE (forme B) pour que
 # le domaine reste substituable par un `monkeypatch.setattr` sur le foyer.
 from ...entities.effects import aura_selectors as _aura
+# #433-r3-r2-r1 -- le composant que `UntargetableEffect$$RevertInternal` ECRIT
+# (`UnitFlagsComponent$$Remove(0x11)`), symetrique exact de la part d'apply.
+from ..components import UnitFlagsComponent
 from .effects import unregister_name, AddEffectOperation
 from .stat_ops import revert_change_stat
 from .traits import revert_traits_of_effect
@@ -180,6 +183,21 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     if eff.overrides_unit_owner():
         from .change_unit_owner import ResetUnitOwnerOperation
         ResetUnitOwnerOperation.execute(state, tgt)
+    # part NON-CIBLABILITE de `<Effect>.RevertInternal` (#433-r3-r2-r1) -- MIRROR de
+    # `IdunBattle.Entities.Effects.Common.UntargetableEffect$$RevertInternal`, dont le corps ENTIER
+    # est un TAIL CALL NU vers `UnitFlagsComponent$$Remove(0x11)` : **aucun gate** (contrairement a
+    # `$$ApplyInternal`, qui ouvre sur `IsUntargetableEnabled`) et **aucun comptage de references**.
+    # Le retrait est donc INCONDITIONNEL des que l'instance qui part appartient au domaine -- deux
+    # effets untargetable simultanes se partageant UN element d'`OrderedSet`, le premier retrait
+    # rend l'unite ciblable. Quirk NATIF, porte tel quel (residu `#433-r5`).
+    # RANG : `RevertInternal` est appele par `DeactivateEffect`, donc AVANT `ActiveEffectIds.Remove`
+    # (le `consumed` ci-dessous) et AVANT `On(0x40)` / `On(0x3b)`. C'est LOAD-BEARING : le vecteur
+    # `UnitBecameTargetable` publie plus bas doit voir l'unite DEJA ciblable.
+    if int(eff.effect_type) in {int(t) for t in _aura.UNTARGETABLE_EFFECT_TYPES}:
+        _ent = state.get_entity(int(tgt)) if tgt is not None else None
+        _fl = _ent.get_component(UnitFlagsComponent) if _ent is not None else None
+        if _fl is not None:
+            _fl.remove(UnitFlagsComponent.UNTARGETABLE)
     eff.consumed = True
     # `ActiveEffectIds.Remove(effectId)` -> le canal des NOMS (lu par la couche decision) suit.
     unregister_name(state, tgt, eff.name)
