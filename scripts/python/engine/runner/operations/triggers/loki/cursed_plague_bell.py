@@ -423,8 +423,21 @@ class CursedPlagueBellAttackAbility(TriggeredAbility):
 
     Meme placement que la classe MOUVEMENT : parent direct `BaseTriggeredAbility` (`classes.tsv`),
     donc `ABILITY_TRIGGERS` et NI `TARGETING_OPTIONS` NI `ABILITY_ATTACK_TYPE` (elles ne concernent que
-    `ABILITY_CLASSES`, le registre des ACTIVES)."""
+    `ABILITY_CLASSES`, le registre des ACTIVES).
+
+    ⚠ **`fire_on_death` = VRAI (#10015), ET C'EST CE QUI REND LA DISJONCTION `OwnerIsTarget |
+    OwnerIsAlive` DE `matches` ATTEIGNABLE.** `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    CursedPlagueBellAttackAbility` surcharge `IdunBattle.Entities.Abilities.ITriggeredAbility`
+    slot 8 = `get_AllowForDeadOwner` et son corps rend VRAI (`b0 01 c3`, LU --
+    `metadata/allow_for_dead_owner.tsv`). Le port le laissait au defaut FAUX de
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility` : `IdunBattle.Operations.
+    EvaluateTriggerOperation$$CanGetAbilityTrigger` coupait alors AVANT `matches` sur tout porteur
+    mort, si bien que le membre `OwnerIsTarget` -- ecrit plus bas et qui vise precisement le porteur
+    FRAPPE -- n'avait plus aucun regime ou etre vrai sans que `OwnerIsAlive` le soit deja. La
+    disjonction native etait degradee en son membre droit, en silence."""
     event_id = int(EventTriggerType.Attack)                  # On(9), ownerNeedsToBeAlive = 0
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -> VRAI (cf. la docstring).
+    fire_on_death = True
     # Les trois classes du passif partagent l'id `TriggeredAbilityType.CursedPlagueBell` (0x42f=1071),
     # que `BaseTriggeredAbility$$Execute` ecrit avant le behaviour.
     TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.CursedPlagueBell)
@@ -446,8 +459,10 @@ class CursedPlagueBellAttackAbility(TriggeredAbility):
             return False
         # --- ( OwnerIsTarget | OwnerIsAlive ) -------------------------------------------------------
         # `OwnerIsAliveAbilityTrigger$$ShouldTrigger` : `IsUnit(owner) ? IsAlive(owner, state) : true`.
-        # Vrai par construction sur ce vecteur (le dispatch a deja ecarte un owner mort, `CanGet*
-        # Trigger`), mais porte explicitement pour ne pas maquiller la disjonction du decompile.
+        # ⚠ CE N'EST PLUS << vrai par construction >> : depuis #10015 la classe porte
+        # `fire_on_death = True` (mirror LU de `get_AllowForDeadOwner`), donc `CanGetAbilityTrigger`
+        # laisse passer un porteur MORT et c'est ici que la disjonction tranche pour de bon --
+        # `OwnerIsTarget` devient le seul membre vrai quand le porteur vient d'etre tue par le coup.
         ouc = owner.get_component(UnitComponent)
         owner_is_alive = ouc is None or bool(ouc.alive)
         if not (owner_is_alive or (target is not None and int(target) == int(self.owner_id))):

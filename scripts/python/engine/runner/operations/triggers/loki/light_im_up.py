@@ -322,8 +322,21 @@ class LightImUpAbility(TriggeredAbility):
         `On(0x26 = NormalAttack, 0) & get_OwnerIsActor`
         -> `If(IsInAttackRange(Caster, Target), Attack(3x Projectile sur la cible))
             & If(IsDead(Target),                Attack(coups restants sur 1 ennemi du disque r=3))`
+
+    ⚠ **`fire_on_death` = VRAI (#10015) -- DEUX gates distincts, et le port n'en avait qu'un.**
+    Le litteral `ownerNeedsToBeAlive: 0` de `On(0x26, 0)` (ci-dessus) vit dans le PREDICAT DSL ;
+    `get_AllowForDeadOwner` est un gate SEPARE, en AMONT, applique par
+    `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` avant toute evaluation de
+    predicat. Les deux se lisent independamment, et ils sont ici tous les deux ouverts :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LightImUpAbility` surcharge
+    `IdunBattle.Entities.Abilities.ITriggeredAbility` slot 8 et son corps rend VRAI (`b0 01 c3`,
+    LU -- `metadata/allow_for_dead_owner.tsv`). Laisser `fire_on_death` au defaut FAUX referme donc
+    en amont ce que le `0` du noeud `On` ouvre en aval : le Warboss tue par la riposte de sa propre
+    attaque normale ne tirait plus.
     """
     event_id = _ON_NORMAL_ATTACK
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -> VRAI (cf. la docstring).
+    fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # `get_OwnerIsActor` = `AreEqual(Owner@0x148, Actor@0x158)` -- le porteur EST l'attaquant.

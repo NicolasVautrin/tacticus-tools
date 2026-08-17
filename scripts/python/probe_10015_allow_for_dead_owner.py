@@ -98,12 +98,21 @@ CORPS = {"b001c3": "TRUE", "32c0c3": "FALSE"}
 
 TSV_REL = "metadata/allow_for_dead_owner.tsv"
 
-#: LE PORT -> LE NATIF, declare A LA MAIN et seulement pour ce qui a ete LU au decompile. Un
-#: appariement automatique par le symbole cite en docstring existe (`--croiser`) mais il n'entre PAS
-#: dans le cliquet : mesure du 2026-08-15, il apparie `FuelledByFuryReviveAbility` a
-#: `FuelledByFury_ExtraDamageAbility` et les TROIS classes Haywire du port a la MEME native, donc il
-#: fabrique des desaccords qui n'en sont pas. Un cliquet nourri d'un appariement devinable se ferait
-#: desarmer a la premiere fausse alerte.
+#: LE PORT -> LE NATIF, declare A LA MAIN et seulement pour ce qui a ete LU au decompile.
+#:
+#: ⚠ **CE DICTIONNAIRE N'EST PLUS LA SOURCE DE L'ETAGE 2 -- IL EN EST LE TEMOIN (#10015-r3).**
+#: L'appariement effectif est MECANIQUE (`apparier_mecaniquement`, plus bas) : nom court NORMALISE
+#: et BIJECTIF DANS LES DEUX SENS. Ces neuf lignes restent parce qu'elles ont ete LUES au decompile
+#: une par une : l'etage 2 exige que le critere mecanique les REPRODUISE toutes les neuf, a
+#: l'identique. C'est ce controle -- et pas une intuition -- qui autorise a etendre la confrontation
+#: de 9 classes a ~130.
+#:
+#: ⚠ **ET IL NE FAUT PAS LE CONFONDRE AVEC L'AUTRE APPARIEMENT AUTOMATIQUE, QUI RESTE REFUSE.**
+#: `--croiser` apparie par le symbole CITE EN DOCSTRING ; mesure du 2026-08-15, il apparie
+#: `FuelledByFuryReviveAbility` a `FuelledByFury_ExtraDamageAbility` et les TROIS classes Haywire du
+#: port a la MEME native, donc il fabrique des desaccords qui n'en sont pas. Le critere du NOM, lui,
+#: ECARTE ces cinq-la (aucune native ne porte leur nom -> ils sortent en `SANS NATIF`) au lieu de les
+#: deviner : c'est la difference entre un appariement qui se tait et un qui invente.
 NATIF_DU_PORT: dict[str, str] = {
     "SynapticLinchpinAbility":
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility",
@@ -132,21 +141,23 @@ NATIF_DU_PORT: dict[str, str] = {
 #: ete relue -- les inscrire d'office fabriquerait deux desaccords non instruits. Ils entrent dans
 #: le residu `#10015`, pas dans le cliquet.
 
-#: LA DETTE, MESUREE le 2026-08-15 sur `t6dpr4k06g`. Chaque entree est un desaccord CONSTATE, avec
-#: la valeur du port ; le cliquet exige qu'il soit TOUJOURS la et TOUJOURS dans ce sens. Il ne peut
-#: donc que retrecir -- et un desaccord NEUF, lui, fait rougir. Residu `#10015`.
+#: LA DETTE. Chaque entree est un desaccord CONSTATE, avec la valeur du port ; le cliquet exige
+#: qu'il soit TOUJOURS la et TOUJOURS dans ce sens. Il ne peut donc que retrecir -- et un desaccord
+#: NEUF, lui, fait rougir.
+#:
+#: ⚠ **ELLE VALAIT 4 SUR NEUF CLASSES CONFRONTEES ; ELLE VAUT 1 SUR ~130 (#10015-r3).** Les trois
+#: sorties (`ControlEdictAbility`, `LightImUpAbility`, `LordOfTempestsAddIceAbility`) sont PORTEES,
+#: pas radiees. Et l'elargissement du perimetre en a fait apparaitre DEUX que personne n'avait
+#: comptees -- `CursedPlagueBellAttackAbility` et `LifewardsAbility`, toutes deux natif VRAI / port
+#: FAUX, toutes deux portees dans le meme commit : la fiche annoncait << au moins 4 abilities >>,
+#: c'etait 6. Un cliquet qui ne confronte que ce qu'on lui a nomme ne peut pas montrer ce qu'on a
+#: oublie de nommer.
 DESACCORDS_CONNUS: dict[str, bool] = {
-    #: `ControlEdictAbility` : natif VRAI, port FAUX. Non tranche -- la face n'a pas ete relue.
-    "ControlEdictAbility": False,
     #: `EnvAmbushResurrectAbility` : natif FAUX (herite de `BaseTriggeredAbility`), port VRAI.
     #: GARDE volontairement -- cf. la docstring de la classe (`triggers/genestealer.py`) : l'owner
     #: natif d'une `Env*Ability` n'est peut-etre pas une unite, auquel cas `IsUnit(owner)` est faux
     #: et les deux gates sont sautes. Residu `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1`.
     "EnvAmbushResurrectAbility": True,
-    #: `LightImUpAbility` : natif VRAI, port FAUX. Non tranche.
-    "LightImUpAbility": False,
-    #: `LordOfTempestsAddIceAbility` : natif VRAI, port FAUX. Non tranche.
-    "LordOfTempestsAddIceAbility": False,
 }
 
 
@@ -334,6 +345,90 @@ def valeur_heritee(tsv: dict, parents: dict, plein: str, meth: str) -> tuple[str
     return "NON DECLARE DANS LA CHAINE", "->".join(chaine)
 
 
+def types_natifs_du_build() -> set[str]:
+    """Tout type d'ability du build, DERIVE des DEUX entrees VERSIONNEES.
+
+    `ghidra/functions.tsv` seul ne suffit pas : il est indexe par ADRESSE, donc une classe dont
+    TOUS les corps sont dedupliques n'y a aucun proprietaire (c'est le fait meme qui a rendu ce cas
+    necessaire). `frida/classes.tsv` liste les TYPES, y compris ceux-la. L'union est donc le
+    perimetre honnete -- et elle se lit sans le jeu installe, ce qui rend l'etage 2 jouable dans un
+    worktree nu."""
+    out: set[str] = set()
+    fn = build_dir() / "ghidra" / "functions.tsv"
+    if fn.exists():
+        with fn.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                c = line.rstrip("\n").split("\t")
+                if len(c) < 2 or "$$" not in c[1]:
+                    continue
+                p = c[1].split("$$", 1)[0]
+                if p.startswith(PREFIXES) and "u003C" not in p:
+                    out.add(p)
+    cl = build_dir() / "frida" / "classes.tsv"
+    if cl.exists():
+        with cl.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("#!"):
+                    continue
+                c = line.rstrip("\n").split("\t")
+                if c and c[0].startswith(PREFIXES) and "u003C" not in c[0]:
+                    out.add(c[0])
+    return out
+
+
+def _norm(nom: str) -> str:
+    """Nom court CANONIQUE. Le seul ecart de forme mesure entre les deux cotes est le SOULIGNE que
+    le natif place aux jointures (`LordOfTempests_AddIceAbility` / `LordOfTempestsAddIceAbility`,
+    `Ambush_SummonAbility` / `AmbushSummonAbility`) ; la casse est normalisee par prudence, elle ne
+    departage rien aujourd'hui."""
+    return nom.replace("_", "").lower()
+
+
+def apparier_mecaniquement(abilites: dict) -> tuple[dict[str, str], dict[str, list[str]], list[str]]:
+    """`(bijectifs, ambigus, sans_natif)` -- appariement port -> natif par NOM COURT NORMALISE.
+
+    LE CRITERE, ET POURQUOI IL N'EST PAS UNE DEVINETTE. Un appariement n'est retenu que s'il est
+    BIJECTIF DANS LES DEUX SENS : exactement UN type natif porte ce nom normalise, ET exactement une
+    classe du port. Tout le reste sort en `ambigus` ou en `sans_natif` -- jamais rabattu sur un
+    << plus probable >>. C'est la difference de nature avec `--croiser`, qui CHOISIT (`(pref or
+    cands or [None])[0]`) et fabrique ainsi cinq faux appariements mesures.
+
+    ⚠ **ET LE CRITERE EST LUI-MEME CONTROLE**, ce qui est la seule raison de lui faire confiance :
+    l'etage 2 exige qu'il reproduise les NEUF appariements de `NATIF_DU_PORT`, lus au decompile un
+    par un. Mesure du 2026-08-17 sur `t6dpr4k06g` : 9/9 reproduits, 0 ambiguite d'aucun cote,
+    130 appariements retenus sur 196 classes de registre. Si un renommage futur casse un des neuf,
+    l'etage 2 ROUGIT au lieu de se degrader en silence.
+
+    ⚠ **CE QU'IL NE COUVRE PAS EST STRUCTUREL, PAS UN RESIDU A FINIR** : le port SCINDE souvent une
+    native en plusieurs classes (les trois `HaywireMine*` du port viennent toutes de
+    `HaywireMineSteppableAbility`, les sept `PowerUpSummonSpawn*` d'une seule fabrique). Aucun
+    critere de NOM ne peut apparier ces cas-la -- il faut les LIRE. Ils sortent en `sans_natif`,
+    comptes a chaque run."""
+    natifs = types_natifs_du_build()
+    par_natif: dict[str, list[str]] = {}
+    for t in natifs:
+        par_natif.setdefault(_norm(t.rsplit(".", 1)[-1]), []).append(t)
+    par_port: dict[str, list[str]] = {}
+    for nom in abilites:
+        par_port.setdefault(_norm(nom), []).append(nom)
+
+    bijectifs: dict[str, str] = {}
+    ambigus: dict[str, list[str]] = {}
+    sans_natif: list[str] = []
+    for nom in sorted(abilites):
+        cle = _norm(nom)
+        cands = sorted(par_natif.get(cle, []))
+        if len(par_port.get(cle, [])) > 1:
+            ambigus[nom] = ["<%d classes du PORT portent ce nom>" % len(par_port[cle])] + cands
+        elif not cands:
+            sans_natif.append(nom)
+        elif len(cands) > 1:
+            ambigus[nom] = cands
+        else:
+            bijectifs[nom] = cands[0]
+    return bijectifs, ambigus, sans_natif
+
+
 def classes_du_registre():
     from engine.runner.operations.triggers.dispatch import registry as REG
     abilites, effets = {}, {}
@@ -361,14 +456,40 @@ def confronter_port(tsv: dict) -> int:
         print("  PAS MESURE : `frida/classes.tsv` absent -- la chaine d'heritage est illisible")
         return 99
 
-    rc, vus = 0, 0
+    bijectifs, ambigus, sans_natif = apparier_mecaniquement(abilites)
+    rc = 0
+
+    # --- 2a : LE CRITERE EST-IL DIGNE DE CONFIANCE ? ------------------------------------------
+    #: On ne le suppose pas, on le CONFRONTE au seul etalon qui existe : les appariements LUS au
+    #: decompile. Ce controle precede la confrontation -- si le critere a derive, tout ce qu'il rend
+    #: ensuite est suspect, et un desaccord de plus ne serait pas lisible.
+    if not NATIF_DU_PORT:
+        print("  PAS MESURE : le TEMOIN `NATIF_DU_PORT` est VIDE -- le controle 2a serait vacant")
+        return 99
+    ecarts_temoin = 0
     for nom, plein in sorted(NATIF_DU_PORT.items()):
-        cls = abilites.get(nom)
-        if cls is None:
-            print("  ABSENT DU REGISTRE : %s (l'appariement est PERIME)" % nom)
-            rc = 1
-            continue
-        vus += 1
+        obtenu = bijectifs.get(nom)
+        if obtenu is None:
+            print("  TEMOIN PERDU : %-34s le critere du NOM ne l'apparie plus (%s)"
+                  % (nom, "ambigu" if nom in ambigus else
+                     ("sans natif" if nom in sans_natif else "absent du registre")))
+            ecarts_temoin += 1
+        elif obtenu != plein:
+            print("  TEMOIN DIVERGENT : %-30s lu=%s / critere=%s" % (nom, plein, obtenu))
+            ecarts_temoin += 1
+    if ecarts_temoin:
+        print("  ROUGE : %d/%d appariement(s) LU(S) au decompile non reproduit(s) par le critere du"
+              " NOM -- l'etage 2b ne vaut plus rien tant que ce n'est pas relu"
+              % (ecarts_temoin, len(NATIF_DU_PORT)))
+        rc = 1
+    else:
+        print("  2a : le critere du NOM reproduit les %d appariement(s) LU(S) au decompile (%d/%d)"
+              % (len(NATIF_DU_PORT), len(NATIF_DU_PORT), len(NATIF_DU_PORT)))
+
+    # --- 2b : LA CONFRONTATION, sur TOUT ce que le critere apparie ----------------------------
+    accord = 0
+    for nom, plein in sorted(bijectifs.items()):
+        cls = abilites[nom]
         port = bool(getattr(cls, "fire_on_death", False))
         val, chaine = valeur_heritee(tsv, parents, plein, "get_AllowForDeadOwner")
         if val not in ("TRUE", "FALSE"):
@@ -377,6 +498,7 @@ def confronter_port(tsv: dict) -> int:
             continue
         natif = (val == "TRUE")
         if natif == port:
+            accord += 1
             if nom in DESACCORDS_CONNUS:
                 print("  DETTE RESORBEE, RETIRE-LA DE `DESACCORDS_CONNUS` : %s" % nom)
                 rc = 1
@@ -388,12 +510,14 @@ def confronter_port(tsv: dict) -> int:
         elif attendu != port:
             print("  DETTE DEPLACEE : %-29s port=%s, la dette disait %s" % (nom, port, attendu))
             rc = 1
-    print("  %d classe(s) appariee(s) explicitement, dette declaree = %d"
-          % (vus, len(DESACCORDS_CONNUS)))
+    print("  2b : %d classe(s) confrontee(s) -- ACCORD %d, dette declaree %d"
+          % (len(bijectifs), accord, len(DESACCORDS_CONNUS)))
     #: PORTEE -- ce que cet etage NE couvre PAS, imprime a chaque run : un cliquet qui tait son
-    #: perimetre se lit comme une couverture totale.
-    print("  NON COUVERT : %d classe(s) ABILITY du registre sans appariement natif declare"
-          % (len(abilites) - vus))
+    #: perimetre se lit comme une couverture totale. Les deux causes sont DISTINCTES et le restent.
+    print("  NON COUVERT : %d sans natif de meme nom (le port SCINDE une native en N classes),"
+          " %d nom(s) ambigu(s)" % (len(sans_natif), len(ambigus)))
+    for nom in sorted(ambigus):
+        print("      AMBIGU %-38s -> %s" % (nom, ambigus[nom]))
     return rc
 
 
@@ -494,6 +618,125 @@ def _ev_bidon(inst):
     return TriggerEvent(inst.event_id, 1, 2, ranged=False, profile=None)
 
 
+# ------------------------------------- etage 4 : le gate ATOMIQUE et sa FILE, indissociables
+
+#: Les marqueurs du GATE cote port, et ceux de la FILE. Les deux listes sont deliberement LARGES
+#: (tout ce qu'un porteur raisonnable ecrirait) : ce cliquet doit se declencher sur une tentative,
+#: pas seulement sur le nom exact qu'on aurait prevu.
+_MARQUEURS_GATE = ("allow_in_atomic_mode", "in_atomic_mode", "atomic_mode_counter",
+                   "increase_atomic_mode", "decrease_atomic_mode")
+_MARQUEURS_FILE = ("battle_event", "battleevent", "add_battle_event", "try_dequeue_battle_event")
+#: Le PERIMETRE balaye. `core.py` porte le gate, `behaviours.py` le groupe, `state.py` le compteur
+#: -- ce sont les trois seuls endroits ou l'un ou l'autre peut naitre.
+_FICHIERS_ATOMIQUE = (
+    "engine/runner/operations/triggers/dispatch/core.py",
+    "engine/entities/behaviours.py",
+    "engine/runner/state.py",
+)
+
+
+def atomique(tsv: dict) -> int:
+    """`get_AllowInAtomicMode` : le GATE et la FILE entrent ENSEMBLE, ou aucun des deux.
+
+    POURQUOI CE CLIQUET EXISTE. Le gate n'est pas un filtre, c'est la moitie d'un aiguillage :
+    `IdunBattle.Operations.EvaluateTriggerOperation$$Execute` ENFILE (`IMatchState` slot 9 =
+    `AddBattleEvent`) au lieu d'evaluer quand `get_InAtomicMode`, et
+    `IdunBattle.Operations.AtomicGroupOperation$$Execute` DRAINE (slot 10 =
+    `TryDequeueBattleEvent`) apres `DecreaseAtomicModeCounter`. Ecrire le seul predicat
+    SUPPRIMERAIT les triggers que le natif DIFFERE -- et comme FAUX est le defaut de
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility`, la perte porterait sur la quasi-totalite
+    du registre. Le detail vit dans `_owner_gate_applies` (`triggers/dispatch/core.py`).
+
+    Ce n'est donc PAS un cliquet << ne portez pas ce gate >> : c'est un cliquet << ne le portez pas
+    A MOITIE >>. Il reste MUET tant que ni l'un ni l'autre n'existe (l'etat courant), rougit si l'un
+    apparait sans l'autre, et redevient muet quand les deux sont la."""
+    #: TEMOIN NON VIDE -- sans declarants a TRUE, le gate ne discriminerait rien et ce controle
+    #: serait vacant. On l'exige AVANT de juger le port (meme discipline que l'etage 2a).
+    vrais = sorted(t for t, v in tsv.items()
+                   if "get_AllowInAtomicMode" in v and v["get_AllowInAtomicMode"][3] == "TRUE")
+    if not vrais:
+        print("  PAS MESURE : 0 declarant `get_AllowInAtomicMode` a TRUE -- le controle serait"
+              " VACANT (le gate ne pourrait discriminer aucune ability)")
+        return 99
+    print("  temoin : %d type(s) declarent `get_AllowInAtomicMode = TRUE` -- le gate DISCRIMINE"
+          % len(vrais))
+
+    gate, file = {}, {}
+    for rel in _FICHIERS_ATOMIQUE:
+        p = REPO / "scripts" / "python" / rel
+        if not p.exists():
+            print("  PAS MESURE : %s absent -- perimetre incomplet, aucun verdict" % rel)
+            return 99
+        #: On ne lit QUE le code : un commentaire ou une docstring qui EXPLIQUE le mecanisme (comme
+        #: celle de `_owner_gate_applies`, qui le cite en entier) n'est pas une implementation. Sans
+        #: ce filtre, ce cliquet rougirait sur sa propre documentation -- le vice qu'il doit eviter.
+        src = _code_nu(p.read_text(encoding="utf-8"))
+        bas = src.lower()
+        for m in _MARQUEURS_GATE:
+            if m in bas:
+                gate.setdefault(m, []).append(rel)
+        for m in _MARQUEURS_FILE:
+            if m in bas:
+                file.setdefault(m, []).append(rel)
+
+    print("  marqueurs GATE trouves : %s" % (sorted(gate) or "(aucun)"))
+    print("  marqueurs FILE trouves : %s" % (sorted(file) or "(aucun)"))
+    if bool(gate) == bool(file):
+        print("  OK : %s -- les deux faces sont dans le meme etat"
+              % ("gate ET file portes" if gate else "ni gate ni file (etat courant, #10015-r1)"))
+        return 0
+    if gate and not file:
+        print("  ROUGE : le GATE atomique est ecrit SANS la file de `BattleEvent`. En l'etat, tout"
+              " trigger a `get_AllowInAtomicMode = FALSE` declenche sous un `AtomicGroup` est"
+              " SUPPRIME au lieu d'etre DIFFERE -- et FALSE est le DEFAUT.")
+        for m, ou in sorted(gate.items()):
+            print("      %-24s -> %s" % (m, ou))
+        return 1
+    print("  ROUGE : la file de `BattleEvent` est ecrite SANS le gate atomique -- elle n'a alors"
+          " aucun producteur, donc elle ne peut que rester vide (inerte silencieuse).")
+    for m, ou in sorted(file.items()):
+        print("      %-24s -> %s" % (m, ou))
+    return 1
+
+
+def _code_nu(src: str) -> str:
+    """`src` prive de ses COMMENTAIRES et de ses DOCSTRINGS -- rien d'autre.
+
+    ⚠ **CE FILTRE A ETE ECRIT << commentaires ET CHAINES >>, ET LA MUTATION ADVERSARIALE L'A PRIS
+    EN DEFAUT AVANT QU'IL NE SERVE.** Le bras A (poser un gate sans file) rendait VERT sur
+    `getattr(state, 'atomic_mode_counter', 0)` : le marqueur y vit dans une CHAINE, que le filtre
+    jetait avec les docstrings. Or c'est exactement l'ecriture qu'un porteur emploierait -- le
+    fichier garde vient de le faire pour `getattr(entry, "fire_on_death", False)`. Un cliquet
+    aveugle a la forme meme que son gisement prend est pire qu'absent : il rassure.
+
+    Le decoupage correct n'est pas token-a-token mais SYNTAXIQUE : une docstring est une chaine en
+    position d'INSTRUCTION (premier `Expr` d'un module, d'une classe ou d'une fonction) ; un
+    litteral d'argument est une EXPRESSION. `ast` separe les deux ; `tokenize` ne le peut pas, et
+    les commentaires disparaissent gratuitement puisqu'ils n'entrent pas dans l'arbre."""
+    import ast
+    try:
+        arbre = ast.parse(src)
+    except SyntaxError:
+        return src                                          # source illisible -> on ne filtre rien
+    for noeud in ast.walk(arbre):
+        corps = getattr(noeud, "body", None)
+        if not isinstance(corps, list) or not corps:
+            continue
+        if not isinstance(noeud, (ast.Module, ast.ClassDef,
+                                  ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        tete = corps[0]
+        if (isinstance(tete, ast.Expr) and isinstance(tete.value, ast.Constant)
+                and isinstance(tete.value.value, str)):
+            corps.pop(0)
+            if not corps:                                   # un corps vide ne se recompile pas
+                corps.append(ast.Pass())
+    try:
+        return ast.unparse(arbre)
+    except Exception:                                       # noqa: BLE001
+        return src
+
+
 # ------------------------------------------------------------------------------- pilotage
 
 
@@ -504,11 +747,18 @@ def main() -> int:
     ap.add_argument("--croiser", action="store_true",
                     help="appariement HEURISTIQUE par le symbole cite en docstring (JAMAIS bloquant)")
     ap.add_argument("--inertie", action="store_true", help="etage 3 seul (morsure)")
+    ap.add_argument("--atomique", action="store_true",
+                    help="etage 4 seul (gate atomique <-> file de BattleEvent)")
     a = ap.parse_args()
 
     print("=== #10015 -- `fire_on_death` = `ITriggeredAbility` slot 8 `get_AllowForDeadOwner` ===")
     if a.inertie:
         return morsure()
+    if a.atomique:
+        #: L'etage 4 ne lit que l'entree VERSIONNEE et l'arbre Python -- il ne charge NI la DLL NI
+        #: le global-metadata, d'ou ce raccourci : il coute quelques millisecondes, la passe
+        #: complete quelques secondes. C'est ce qui le rend jouable en boucle de mutation.
+        return atomique(charger_tsv())
 
     tsv = charger_tsv()
     rc = 0
@@ -560,6 +810,10 @@ def main() -> int:
     print("")
     print("etage 2 -- confrontation du port")
     rc = confronter_port(tsv) or rc
+
+    print("")
+    print("etage 4 -- le gate ATOMIQUE et sa FILE, indissociables (#10015-r1)")
+    rc = atomique(tsv) or rc
 
     if a.croiser:
         print("")

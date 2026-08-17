@@ -270,8 +270,22 @@ class LifewardsAbility(TriggeredAbility):
     -> `If(...) AddBondEffect(1060) & If(...) AddBondEffect(1240) & TransferDamage(source, Celestine,
        la Geminae)`.
 
-    OBSERVABLE : un coup destine a Celestine est DEPLACE sur la Geminae adjacente."""
+    OBSERVABLE : un coup destine a Celestine est DEPLACE sur la Geminae adjacente.
+
+    ⚠ **`fire_on_death` = VRAI, ET SANS LUI LA MOITIE DU TRIGGER EST INATTEIGNABLE (#10015).**
+    `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAbility` surcharge
+    `IdunBattle.Entities.Abilities.ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` et son corps
+    rend VRAI (`b0 01 c3`, LU -- entree versionnee `metadata/allow_for_dead_owner.tsv`), la ou
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility` rend FAUX. Le port le laissait au defaut :
+    `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` coupait donc AVANT
+    `matches` des que la Geminae etait morte, et le second membre de son propre premier conjoint --
+    `HasEffect(Owner, 1240)`, LU dans `...LifewardsAbility$$CreateTrigger` a cote d'`IsAlive(Owner)`
+    -- n'avait plus AUCUN regime ou etre vrai sans que le premier le soit deja. Autrement dit le
+    `|` du natif etait degrade en son membre gauche, en silence. C'est exactement la << protection
+    posthume d'une Geminae morte >> que `LifewardsProtectingRemove` (plus bas) borne a UN coup."""
     event_id = _ON_PRE_DAMAGE_TAKEN
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -> VRAI (cf. la docstring).
+    fire_on_death = True
     TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.Lifewards)        # 0x419 = 1049
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

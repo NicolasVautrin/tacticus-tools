@@ -815,12 +815,33 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         out = (out or []) + move_death.pre_unit_death_2_triggers(state, target_id, attacker_id,
                                                             overkill=overkill)
         # `RemoveEffects(killed, PreUnitRemove)` puis `RemoveEffects(killed, AfterUnitRemove)` — les
-        # deux premiers des TROIS appels natifs, tous deux AVANT `On(UnitDeath)`. Le natif intercale
-        # entre eux le retrait de l'unite du plateau (`processor.<slot 6>` + `matchState.<slot 0x31>`),
-        # que le port collapse deja dans `uc.alive = False` (pose en amont, `_fire_death_if_killed`).
+        # deux premiers des TROIS appels natifs, tous deux AVANT `On(UnitDeath)`.
         out = out + [{"kill_remove_effects": {
             "step": int(KillUnitStep.PreUnitRemove),
             "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.PreUnitRemove)}}]
+        # ⚠ **LE RETRAIT DU PLATEAU S'INTERCALE ICI, ET IL EST DESORMAIS APPELE (#10015-r3).** Cette
+        # ligne disait « que le port collapse deja dans `uc.alive = False` » -- le collapse tenait
+        # sur les TUILES mais perdait tout le RESTE de l'Operation. Offsets MESURES dans
+        # `IdunBattle.Operations.KillUnitOperation$$Execute` : `RemoveEffects(PreUnitRemove)` @+0x9be,
+        # `IOperationProcessor` slot 6 = `RemoveUnit(killed, removeEffects: 0, keepActive: 1)`
+        # @+0xd34, `MatchState` slot 0x31 @+0xd88, `RemoveEffects(AfterUnitRemove)` @+0xd9c. L'appel
+        # est DANS la branche non-revive (profondeur d'accolades jamais < 9 depuis le
+        # `KilledThisTurn@+0x17a = 1`), donc une mort ANNULEE par un revive ne retire rien --
+        # `kill_unit_revive_gate` ci-dessus a deja rendu la main dans ce cas.
+        # Ce que le collapse perdait, et que ce raccord rend : le flag `Removed`, l'ecriture de
+        # `TurnDefeated@+0x17c` par SON ecrivain natif, et surtout la publication d'
+        # `On(0x25 = UnitRemoved)` -- un vecteur ENTIER qui n'existait sur AUCUNE mort du port.
+        # `remove_effects=False` MIRRORE le `removeEffects: 0` du call-site : sur la voie MORT, la
+        # consommation des effets appartient aux trois `KillUnitOperation$$RemoveEffects` qui
+        # encadrent ce retrait, jamais a l'Operation elle-meme.
+        # La chaine native etait annoncee « non identifiee » (#10015-r2) ; elle etait invisible d'un
+        # recensement qui ne lisait que la forme DISPATCHER de l'appel d'interface -- detail et
+        # mesure dans l'en-tete de `runner/operations/remove_unit.py`.
+        from .remove_unit import RemoveUnitOperation           # noqa: PLC0415
+        _retrait = RemoveUnitOperation.execute(state, int(target_id), remove_effects=False,
+                                               allow_already_dead=True)
+        if _retrait is not None:
+            out = out + [{"kill_remove_unit": _retrait}]
         out = out + [{"kill_remove_effects": {
             "step": int(KillUnitStep.AfterUnitRemove),
             "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AfterUnitRemove)}}]
