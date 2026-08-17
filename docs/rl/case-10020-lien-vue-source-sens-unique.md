@@ -792,3 +792,62 @@ ce que la couche deploiement lui demande.
 ⇒ Rendre le deploiement utilisable en sandbox = **faire repondre la SOURCE comme une vraie
 source**, methode par methode. Le mirror du SS13 en visait une (la mauvaise) ; `GetUnitModel` est
 celle qui commande la pose.
+
+## 19. LE WRAPPER MARCHE -- mais on n'emprunte pas des REGLES, on emprunte un ETAT
+
+Livre le 2026-08-17 (session 33) : `deploymentPoolArmer` n'est plus un mirror ponctuel mais une
+**table de delegation**. Chaque methode d'`IGameModeSource` que la sandbox stubbe est ancree, et
+son retour est remplace par celui de la MEME methode invoquee sur la source CAMPAGNE vivante.
+Direction donnee par l'utilisateur : << il faut que la sandbox soit un wrapper sur une vraie
+source >>.
+
+### La table, et ce que chaque entree apporte
+
+| methode | role | ancrage sandbox / campagne |
+|---|---|---|
+| `GetUnitModel` | commande la POSE | `0x18053ca00` / `0x180511f80` |
+| `GetGameModeSpecificDeploymentHudOptions` | apporte les RESTRICTIONS | `0x18053c8e0` / `0x180511370` |
+| `GetUnitsForDeploymentHUD` | apporte le ROSTER | `0x18053cb90` / `0x180511fe0` |
+| `GetUnlockedUnitsPooled` | dictionnaire des debloques | `0x18053cc10` / `0x1805121c0` |
+
+⚠ `CampaignGameModeSource$$GetUnitModel` est **ABSENTE de `methods.tsv`** et existe pourtant
+(resolue au runtime a `0x180511f80`, arite 2, depth 0). **CINQUIEME** occurrence du piege de
+deduplication dans ce seul dossier.
+
+### Mesure : le mecanisme est bon, le preteur est VIDE
+
+```
+GetGameModeSpecificDeploymentHudOptions   fires 1  emprunts 1   -> substitue
+GetUnitsForDeploymentHUD                  fires 1  emprunts 1   -> substitue
+GetUnitModel                              fires 0
+```
+
+La delegation TIRE et SUBSTITUE : le mecanisme est demontre. Mais `GetUnitModel` n'est jamais
+appele, donc le **convertisseur n'a pas tourne**, donc la liste empruntee etait **VIDE**.
+
+**CAUSE : le preteur est INACTIF.** La `CampaignGameModeSource` capturee a ete **retiree de sa
+bataille par le warmup** (cf. SS9 : le cycle de warmup ouvre une bataille de campagne, capture, puis
+se retire). Elle prete donc l'etat d'une source au repos.
+
+### CE QUE CA ETABLIT, ET C'EST L'OBJECTION DE L'UTILISATEUR, VERIFIEE
+
+<< C'est bizarre que des conditions specifiques a un noeud soient fournies par la source. >>
+Reponse mesuree : **la source ne STOCKE pas les regles, elle porte l'IDENTITE du noeud et les
+RESOUT.** `classFields` sur `CampaignGameModeSource` :
+
+```
++0x68  _currentCampaignId      String
++0x70  _currentLocationIndex   Int32
++0x78  _currentMatch           CampaignConfigDto      <- la config RESOLUE du noeud
+```
+
+C'est un **RESOLVEUR lie a une selection courante**, pas un magasin de regles. Donc :
+
+⇒ **DELEGUER IMPORTE UN ETAT, PAS DES REGLES.** On n'obtient pas << les vraies regles >> mais
+<< celles du noeud ou le preteur pointe >> -- et s'il ne pointe nulle part, on emprunte du vide.
+Mon argumentaire de la veille (<< faire repondre la source comme une vraie source >>) surestimait
+donc le wrapper : il fait IMPERSONNER UN NOEUD PARTICULIER, ce qui n'est pas la meme chose.
+
+**La suite, et elle est nommee** : rendre le preteur ACTIF sur un noeud CHOISI -- ecrire
+`_currentCampaignId` / `_currentLocationIndex` et faire re-resoudre `_currentMatch`. **NON MESURE**,
+et un DTO deja resolu deviendrait perime : c'est une tranche a part entiere, pas un reglage.

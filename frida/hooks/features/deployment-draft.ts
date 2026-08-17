@@ -396,76 +396,123 @@ function armerPhase(): true | Refus {
 //   * `Interceptor.attach` + substitution du retour, JAMAIS `replace`.
 
 const CLS_CAMP = "CampaignGameModeSource";
-const METH_POOL = "GetUnlockedUnitsPooled";
+const CLS_SANDBOX = "SandboxGameModeSource";
 
-let poolListener: InvocationListener | null = null;
-let poolFires = 0;
-let poolEmprunts = 0;
-/** Dernier incident RÉEL de l'emprunt — jamais avalé, jamais résumé en booléen. */
-let poolDernier: { ok: boolean; detail: string } | null = null;
-let poolAncrage: { sandbox: string; campagne: string; tete: Tete } | null = null;
+/**
+ * LA TABLE DE DÉLÉGATION — ce que la sandbox n'est pas capable de répondre, et qu'on va lui faire
+ * demander à une VRAIE source.
+ *
+ * Chaque entrée est une méthode d'`IGameModeSource` que la couche déploiement interroge et que
+ * `SandboxGameModeSource` STUBBE. `params` est vérifié à la résolution (arité), jamais supposé.
+ *
+ * ⚠ L'ORDRE N'EST PAS ARBITRAIRE : `GetUnitModel` est celui qui commande la POSE (il décide si le
+ * modèle est un `HotseatUnitModel` ou un modèle de compte, donc si `IsUnlocked` passe) ;
+ * `GetGameModeSpecificDeploymentHudOptions` est celui qui apporte les RESTRICTIONS (faction,
+ * unité obligatoire, objectifs) — sans lui le déploiement reste permissif, ce qui n'est PAS le
+ * déploiement du jeu.
+ */
+const DELEGUEES: Array<{ nom: string; params: number; role: string }> = [
+    { nom: "GetUnitModel", params: 2,
+      role: "commande la POSE -- sandbox rend un `HotseatUnitModel`, qui échoue à `IsUnlocked`" },
+    { nom: "GetGameModeSpecificDeploymentHudOptions", params: 0,
+      role: "apporte les RESTRICTIONS -- sandbox rend des options par défaut, donc AUCUNE règle" },
+    { nom: "GetUnitsForDeploymentHUD", params: 0,
+      role: "apporte le ROSTER réel -- sandbox rend une liste vide" },
+    { nom: "GetUnlockedUnitsPooled", params: 0,
+      role: "dictionnaire des débloqués -- MESURÉ jamais appelé sur ce chemin (cf. §13)" },
+];
 
-function armerPool(): true | Refus {
-    if (poolListener) return true;
+interface Delegation {
+    nom: string; role: string;
+    listener: InvocationListener | null;
+    miCampagne: { ptr: NativePointer; info: NativePointer } | null;
+    ancrage: { sandbox: string; campagne: string; tete: Tete } | null;
+    fires: number; emprunts: number;
+    /** Dernier incident RÉEL — jamais avalé, jamais résumé en booléen. */
+    dernier: { ok: boolean; detail: string } | null;
+}
 
-    const ks = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
-    if (!ks) return refus(`${NS_SRC}.SandboxGameModeSource INTROUVABLE`);
-    const ms = findMethodByParamCount(ks, METH_POOL, 0);
-    if (!ms) return refus(`\`SandboxGameModeSource$$${METH_POOL}\` INTROUVABLE (0 param)`);
+const delegations: Delegation[] = DELEGUEES.map((d) => ({
+    nom: d.nom, role: d.role, listener: null, miCampagne: null, ancrage: null,
+    fires: 0, emprunts: 0, dernier: null,
+}));
 
-    const teteS = lireTete(ms.ptr);
-    if (teteS.erreur !== null) {
-        return refus(`tête du corps de \`${METH_POOL}\` ILLISIBLE (${teteS.erreur})`);
+/** Arme UNE délégation. Rend un refus NOMMÉ plutôt qu'un silence. */
+function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }): true | Refus {
+    if (d.listener) return true;
+
+    const ks = findClassAnywhere(NS_SRC, CLS_SANDBOX);
+    if (!ks) return refus(`${NS_SRC}.${CLS_SANDBOX} INTROUVABLE`);
+    const ms = findMethodByParamCount(ks, spec.nom, spec.params);
+    if (!ms) return refus(`\`${CLS_SANDBOX}$$${spec.nom}\` INTROUVABLE (${spec.params} param)`);
+
+    // MÊME GARDE QUE PARTOUT AILLEURS DANS CE MODULE : un corps trivial est probablement
+    // DÉDUPLIQUÉ, donc son adresse est PARTAGÉE, et s'y attacher basculerait N méthodes. Cf. §8.
+    const tete = lireTete(ms.ptr);
+    if (tete.erreur !== null) {
+        return refus(`tête du corps de \`${spec.nom}\` ILLISIBLE (${tete.erreur})`);
     }
-    if (teteTriviale(teteS)) {
-        return refus(`REFUS : \`SandboxGameModeSource$$${METH_POOL}\` résout sur un corps TRIVIAL `
-            + `(ret à l'octet ${teteS.retA} ; tête = ${teteS.hex}) -- adresse probablement PARTAGÉE `
+    if (teteTriviale(tete)) {
+        return refus(`REFUS : \`${CLS_SANDBOX}$$${spec.nom}\` résout sur un corps TRIVIAL `
+            + `(ret à l'octet ${tete.retA} ; tête = ${tete.hex}) -- adresse probablement PARTAGÉE `
             + "par déduplication IL2CPP. Cf. case-10020 §8.");
     }
 
     const kc = findClassAnywhere(NS_SRC, CLS_CAMP);
     if (!kc) return refus(`${NS_SRC}.${CLS_CAMP} INTROUVABLE`);
-    const mc = findMethodByParamCount(kc, METH_POOL, 0);
-    if (!mc) return refus(`\`${CLS_CAMP}$$${METH_POOL}\` INTROUVABLE (0 param)`);
+    const mc = findMethodByParamCount(kc, spec.nom, spec.params);
+    if (!mc) {
+        return refus(`\`${CLS_CAMP}$$${spec.nom}\` INTROUVABLE (${spec.params} param) -- la vraie `
+            + "source ne porte pas cette méthode, donc il n'y a rien à quoi déléguer");
+    }
+    d.miCampagne = mc;
 
-    poolListener = Interceptor.attach(ms.ptr, {
+    const nParams = spec.params;
+    d.listener = Interceptor.attach(ms.ptr, {
+        // Les arguments sont capturés à l'ENTRÉE : au `onLeave` ils ne sont plus lisibles.
+        // `args[0]` est le `this` sandbox — on ne le transmet PAS, c'est tout l'objet de la
+        // délégation : la vraie source répond avec SON état.
+        onEnter(args) {
+            (this as unknown as { argv: NativePointer[] }).argv =
+                nParams >= 1 ? [args[1], args[2]].slice(0, nParams) : [];
+        },
         onLeave(retval) {
-            poolFires++;
+            d.fires++;
             const src = getCampaignGameModeSourcePtr();
             if (src === null || src.isNull()) {
-                poolDernier = { ok: false, detail: "aucune CampaignGameModeSource capturée -- "
-                    + "le warmup ne l'a pas prise, ou la session est froide. RIEN SUBSTITUÉ." };
+                d.dernier = { ok: false, detail: "aucune CampaignGameModeSource capturée -- le "
+                    + "warmup ne l'a pas prise, ou la session est froide. RIEN SUBSTITUÉ." };
                 return;
             }
             try {
-                const dico = invokeMethod(mc.info, src, []) as NativePointer;
-                if (dico === null || dico.isNull()) {
-                    poolDernier = { ok: false, detail: "l'emprunt a rendu NUL -- rien substitué" };
+                const argv = (this as unknown as { argv: NativePointer[] }).argv ?? [];
+                const r = invokeMethod(mc.info, src, argv) as NativePointer;
+                if (r === null || r.isNull()) {
+                    d.dernier = { ok: false,
+                        detail: "la vraie source a rendu NUL -- rien substitué" };
                     return;
                 }
-                retval.replace(dico);
-                poolEmprunts++;
-                poolDernier = { ok: true, detail: `emprunté à ${src} -> ${dico}` };
+                retval.replace(r);
+                d.emprunts++;
+                d.dernier = { ok: true, detail: `délégué à ${src} -> ${r}` };
             } catch (e) {
-                poolDernier = { ok: false, detail: "l'emprunt a levé : " + (e as Error).message };
+                d.dernier = { ok: false, detail: "la délégation a levé : " + (e as Error).message };
             }
         },
     });
-    Interceptor.flush();
-    poolAncrage = {
-        sandbox: ghidraVA(ms.ptr), campagne: ghidraVA(mc.ptr), tete: teteS,
-    };
+    d.ancrage = { sandbox: ghidraVA(ms.ptr), campagne: ghidraVA(mc.ptr), tete };
     return true;
 }
 
 function etatPool(): Record<string, unknown> {
     const src = getCampaignGameModeSourcePtr();
     return {
-        arme: poolListener !== null,
-        fires: poolFires, emprunts: poolEmprunts, dernier: poolDernier,
-        ancrage: poolAncrage,
-        // TRI-ÉTAT : `null` = pas de source capturée, ce qui n'est PAS « dictionnaire vide ».
+        // TRI-ÉTAT : `null` = pas de source capturée, ce qui n'est PAS « rien à déléguer ».
         sourceCampagne: src && !src.isNull() ? src.toString() : null,
+        delegations: delegations.map((d) => ({
+            nom: d.nom, role: d.role, arme: d.listener !== null,
+            fires: d.fires, emprunts: d.emprunts, dernier: d.dernier, ancrage: d.ancrage,
+        })),
     };
 }
 
@@ -552,41 +599,71 @@ export function register(ctx: Ctx): void {
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
 
     /**
-     * ARMER / DÉSARMER le mirror de `GetUnlockedUnitsPooled` — le stub qui bloque LA POSE.
+     * LA SANDBOX EN **WRAPPER** D'UNE VRAIE SOURCE — on ne patche plus stub par stub, on DÉLÈGUE.
      *
-     *   { armer: true, confirmer: true }   -> emprunte le dictionnaire à la source CAMPAGNE vivante
-     *   { armer: false }                   -> retire
+     *   { armer: true, confirmer: true }            -> délègue TOUTE la table
+     *   { armer: true, confirmer: true, only: [...] } -> délègue seulement ces méthodes
+     *   { armer: false }                            -> retire tout
      *
-     * `confirmer` est exigé parce que ce hook SUBSTITUE un retour dès qu'il est armé : il n'a pas
-     * de régime transparent, contrairement à celui de la phase. Le rendre observable d'abord
-     * n'aurait rien appris — on sait déjà, par le décompilé, que le stub rend un dictionnaire vide.
+     * `confirmer` est exigé : chaque délégation SUBSTITUE un retour dès l'armement, il n'y a pas
+     * de régime transparent (contrairement à la phase). L'observer d'abord n'apprendrait rien —
+     * le décompilé dit déjà ce que la sandbox rend.
+     *
+     * ⚠ CE QUE CE WRAPPER EST, ET CE QU'IL N'EST PAS — mesuré, pas supposé.
+     * `CampaignGameModeSource` ne STOCKE pas les règles d'un nœud : elle porte son IDENTITÉ
+     * (`_currentCampaignId` `+0x68`, `_currentLocationIndex` `+0x70`) et RÉSOUT sa config
+     * (`_currentMatch : CampaignConfigDto` `+0x78`). C'est un RÉSOLVEUR lié à une sélection
+     * courante. Déléguer lui importe donc **les règles du nœud où elle pointe** — celui que le
+     * warmup a ouvert — et **pas** des règles « génériques » ni celles d'un nœud choisi.
+     * Dire « la sandbox devient fidèle » serait faux : elle IMPERSONNE UN NŒUD PARTICULIER.
+     * Choisir ce nœud voudrait dire écrire `_currentCampaignId`/`_currentLocationIndex` et
+     * re-résoudre `_currentMatch` — NON MESURÉ, et un DTO déjà résolu deviendrait périmé.
      */
     ctx.rpc.deploymentPoolArmer = (body?: {
-        armer?: boolean; confirmer?: boolean;
+        armer?: boolean; confirmer?: boolean; only?: string[];
     }): Promise<unknown> | unknown => {
         if (!body || body.armer === undefined) {
             return { ok: true, lecture: true, ...etatPool(),
-                     note: "{ armer: true, confirmer: true } pour emprunter à la source campagne" };
+                     note: "{ armer: true, confirmer: true } pour déléguer à la source campagne ; "
+                         + "`only: [\"GetUnitModel\"]` pour n'en déléguer qu'une" };
         }
         return queueOnMainThread(() => {
             if (body.armer === false) {
-                if (poolListener) { poolListener.detach(); poolListener = null; Interceptor.flush(); }
+                for (const d of delegations) {
+                    if (d.listener) { d.listener.detach(); d.listener = null; }
+                }
+                Interceptor.flush();
                 return { ok: true, action: "retire", ...etatPool() };
             }
             if (body.confirmer !== true) {
-                return refus("`confirmer: true` exigé : ce hook SUBSTITUE le retour dès l'armement "
-                    + "(pas de régime transparent). Il fait lire au HUD les unités débloquées "
-                    + "SELON LA CAMPAGNE, pas selon la sandbox -- écart non mesuré.");
+                return refus("`confirmer: true` exigé : chaque délégation SUBSTITUE le retour dès "
+                    + "l'armement. Et le wrapper fait répondre la sandbox comme LE NŒUD DE CAMPAGNE "
+                    + "où pointe la source capturée -- pas comme une source générique.");
             }
             const src = getCampaignGameModeSourcePtr();
             if (src === null || src.isNull()) {
                 return refus("aucune `CampaignGameModeSource` capturée : le warmup ne l'a pas prise, "
-                    + "ou la session est froide. On ne fabrique PAS de dictionnaire vide pour "
-                    + "faire joli -- rejouer le warmup, puis réarmer.");
+                    + "ou la session est froide. On ne délègue PAS à rien -- rejouer le warmup.");
             }
-            const r = armerPool();
-            if (r !== true) return r;
-            return { ok: true, action: "arme", ...etatPool() };
+            if (body.only !== undefined) {
+                const connus = DELEGUEES.map((x) => x.nom);
+                const inconnus = body.only.filter((n) => !connus.includes(n));
+                if (inconnus.length) {
+                    return refus(`méthode(s) hors table : ${inconnus.join(", ")}. Table = `
+                        + connus.join(", "));
+                }
+            }
+            const rapport: Array<{ nom: string; ok: boolean; detail: string | null }> = [];
+            for (let i = 0; i < delegations.length; i++) {
+                const spec = DELEGUEES[i];
+                if (body.only && !body.only.includes(spec.nom)) continue;
+                const r = armerUneDelegation(delegations[i], spec);
+                rapport.push(r === true
+                    ? { nom: spec.nom, ok: true, detail: null }
+                    : { nom: spec.nom, ok: false, detail: r.error });
+            }
+            Interceptor.flush();
+            return { ok: true, action: "arme", rapport, ...etatPool() };
         });
     };
 
