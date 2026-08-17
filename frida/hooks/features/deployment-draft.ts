@@ -66,7 +66,7 @@ import { premiereInstance } from "./view-command.js";
 // Le prêteur GUILD BOSS. Résolu dans SON module (qui porte le RE de la règle de filtrage),
 // pas re-marché ici : `deployment-draft` consomme un roster, il n'a pas à connaître la chaîne
 // qui mène à `GuildBossProgression`.
-import { rosterPooledGuildBoss } from "./guild-boss-config.js";
+import { rosterPooledGuildBoss, sourceGuildBossForgee } from "./guild-boss-config.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // Le MÊME message que le harnais RL applique pour chaque pose de joueur.
@@ -463,6 +463,38 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
     fires: 0, emprunts: 0, dernier: null,
 }));
 
+/**
+ * QUI PRÊTE À LA DÉLÉGATION — et ce n'est pas toujours la campagne.
+ *
+ * ⚠ MESURÉ le 2026-08-17, et c'est la cause d'un défaut que l'écran montrait depuis longtemps :
+ * l'emplacement Machine of War ne proposait RIEN, ni en guild boss ni en PvP.
+ * `SandboxGameModeSource$$GetGameModeSpecificDeploymentHudOptions` s'écrit en entier :
+ *
+ *     options = new GameModeSpecificUnitDeploymentHudOptions()   // ctor NU
+ *     options[0x86] = 0                                          // isOnlineOnly = false
+ *     return options
+ *
+ * Elle ne touche JAMAIS `+0x85 supportsMachinesOfWar`, qui reste donc au zéro de l'allocation.
+ * Et elle ne consulte même pas `GameModeExtensions$$SupportsMachinesOfWar`, la règle qui dit
+ * quels modes acceptent les MoW. Le défaut est donc dans la SANDBOX, pas dans le mode — d'où
+ * son universalité.
+ *
+ * ⚠ EMPRUNTER À LA CAMPAGNE SUFFIRAIT À RALLUMER LES MoW, ET SERAIT FAUX : le même objet porte
+ * les restrictions, la quantité déployable et les objectifs du mode. On prendrait les règles de
+ * la campagne pour une bataille de guild boss — exactement le vice déjà payé sur le roster
+ * (impérial sur un montage PvP). Le prêteur DOIT être la source du mode monté.
+ */
+type Preteur = "campagne" | "guildBoss";
+let preteurDelegation: Preteur = "campagne";
+
+/** La source qui prête, et la CLASSE sur laquelle résoudre la méthode déléguée. */
+function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteur } {
+    if (preteurDelegation === "guildBoss") {
+        return { ptr: sourceGuildBossForgee(), cls: "GuildBossGameModeSource", nom: "guildBoss" };
+    }
+    return { ptr: getCampaignGameModeSourcePtr(), cls: CLS_CAMP, nom: "campagne" };
+}
+
 // ============================================================================
 // ROSTER NON FILTRÉ — lever le filtre de NŒUD, sans toucher au nœud.
 //
@@ -853,12 +885,14 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
             + "par déduplication IL2CPP. Cf. case-10020 §8.");
     }
 
-    const kc = findClassAnywhere(NS_SRC, CLS_CAMP);
-    if (!kc) return refus(`${NS_SRC}.${CLS_CAMP} INTROUVABLE`);
+    // La méthode est résolue sur la classe du PRÊTEUR retenu, pas sur la campagne par défaut.
+    const preteur = sourcePreteuse();
+    const kc = findClassAnywhere(NS_SRC, preteur.cls);
+    if (!kc) return refus(`${NS_SRC}.${preteur.cls} INTROUVABLE`);
     const mc = findMethodByParamCount(kc, spec.nom, spec.params);
     if (!mc) {
-        return refus(`\`${CLS_CAMP}$$${spec.nom}\` INTROUVABLE (${spec.params} param) -- la vraie `
-            + "source ne porte pas cette méthode, donc il n'y a rien à quoi déléguer");
+        return refus(`\`${preteur.cls}$$${spec.nom}\` INTROUVABLE (${spec.params} param) -- ce `
+            + "prêteur ne porte pas cette méthode, donc il n'y a rien à quoi déléguer");
     }
     d.miCampagne = mc;
 
@@ -873,10 +907,13 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
         },
         onLeave(retval) {
             d.fires++;
-            const src = getCampaignGameModeSourcePtr();
+            const p = sourcePreteuse();
+            const src = p.ptr;
             if (src === null || src.isNull()) {
-                d.dernier = { ok: false, detail: "aucune CampaignGameModeSource capturée -- le "
-                    + "warmup ne l'a pas prise, ou la session est froide. RIEN SUBSTITUÉ." };
+                d.dernier = { ok: false, detail: `aucune source \`${p.cls}\` (prêteur `
+                    + `${p.nom}) -- pour la campagne : warmup non joué ou session froide ; pour `
+                    + "le guild boss : `guildBossSourceForger` n'a pas été appelé. "
+                    + "RIEN SUBSTITUÉ." };
                 return;
             }
             // PRÉ-EMPRUNT : la valeur a été calculée HORS de tout hook, donc l'ancrage sur
@@ -3741,13 +3778,19 @@ export function register(ctx: Ctx): void {
      * re-résoudre `_currentMatch` — NON MESURÉ, et un DTO déjà résolu deviendrait périmé.
      */
     ctx.rpc.deploymentPoolArmer = (body?: {
-        armer?: boolean; confirmer?: boolean; only?: string[];
+        armer?: boolean; confirmer?: boolean; only?: string[]; source?: Preteur;
     }): Promise<unknown> | unknown => {
         if (!body || body.armer === undefined) {
-            return { ok: true, lecture: true, ...etatPool(),
-                     note: "{ armer: true, confirmer: true } pour déléguer à la source campagne ; "
-                         + "`only: [\"GetUnitModel\"]` pour n'en déléguer qu'une" };
+            return { ok: true, lecture: true, ...etatPool(), preteur: preteurDelegation,
+                     note: "{ armer: true, confirmer: true } pour déléguer ; `only` restreint la "
+                         + "liste ; `source: \"guildBoss\"` emprunte à la source du MODE plutôt "
+                         + "qu'à la campagne -- indispensable pour "
+                         + "`GetGameModeSpecificDeploymentHudOptions`, qui porte "
+                         + "`supportsMachinesOfWar` ET les restrictions du mode." };
         }
+        // Le prêteur est fixé AVANT l'armement : `armerUneDelegation` résout la méthode sur SA
+        // classe, donc en changer après coup laisserait des ancrages incohérents.
+        if (body.source !== undefined) preteurDelegation = body.source;
         return queueOnMainThread(() => {
             if (body.armer === false) {
                 for (const d of delegations) {

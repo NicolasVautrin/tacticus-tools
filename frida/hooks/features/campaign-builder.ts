@@ -70,6 +70,10 @@ export function getPvpGameModeSourcePtr(): NativePointer | null {
     return pvpGameModeSourcePtr;
 }
 
+export function getGuildBossGameModeSourcePtr(): NativePointer | null {
+    return guildBossGameModeSourcePtr;
+}
+
 /**
  * ⚠ `lastGameConfig` NE CONTIENT QUE DU `GameConfigDto`, ou RIEN.
  *
@@ -180,6 +184,7 @@ let mowEventGameModeSourcePtr: NativePointer | null = null;
 // PvP devrait avoir RuleSet set, MachineOfWarAmmo>0, et templates :pvp
 // init correctement.
 let pvpGameModeSourcePtr: NativePointer | null = null;
+let guildBossGameModeSourcePtr: NativePointer | null = null;
 
 // GameConfigDto* — captured independently from any DI consumer that takes it
 // as a ctor parameter. Available very early (game boot, before any battle),
@@ -943,6 +948,100 @@ export function register(ctx: Ctx): void {
             }
         } else {
             log("[campaign-builder] PvpGameModeSource class not found");
+        }
+
+        // GuildBossGameModeSource — MEME PATRON que Pvp, et pour la meme raison : c'est la
+        // SOURCE DU MODE qui sait produire sa propre `BattleConfiguration`.
+        //
+        // ⚠ POURQUOI CAPTER PLUTOT QUE FABRIQUER. `LoadBattleInternal` ne lit que 6 champs, et
+        // on saurait tous les cabler -- mais il appelle `ApplyEnvironmentAbilitiesFromProgression`,
+        // qui en exige 2 de plus (`ModifierProgression` +0x10, `Logger` +0x18) ET fait un appel
+        // VIRTUEL sur `this` (vtable a +0x178). Une instance FABRIQUEE ferait dependre ce
+        // dernier d'une vtable qu'on n'a pas verifiee ; une instance du JEU l'a par
+        // construction. On capte.
+        //
+        // ⚠ On n'ancre AUCUNE des methodes qu'on invoquera (`LoadBattleInternal`) : ce serait
+        // le gel garanti. Les portes ci-dessous sont des getters et des relais d'UI.
+        const guildBossClass = findClass(ASM_BATTLE, NS_BATTLE_SOURCE, "GuildBossGameModeSource");
+        if (guildBossClass) {
+            const gbCtor = findMethod(guildBossClass, ".ctor");
+            if (gbCtor && !gbCtor.ptr.isNull()) {
+                try {
+                    Interceptor.attach(gbCtor.ptr, {
+                        onEnter(args) { this.selfPtr = ptr(args[0].toString()); },
+                        onLeave() {
+                            const self = this.selfPtr as NativePointer;
+                            if (!self || self.isNull()) return;
+                            // Meme controle qu'aux portes passives : un `.ctor` resolu sur la
+                            // classe peut etre celui d'un PARENT si elle n'en declare pas.
+                            try {
+                                const k = self.readPointer();
+                                if (k.isNull()) return;
+                                if (s(class_get_name(k) as NativePointer)
+                                    !== "GuildBossGameModeSource") return;
+                            } catch { return; }
+                            const wasNull = guildBossGameModeSourcePtr === null;
+                            guildBossGameModeSourcePtr = self;
+                            log("[campaign-builder] GuildBoss captured (ctor) @ " + self);
+                            if (wasNull) {
+                                try { send({ t: "guildboss_builder_ready", via: "ctor" }); }
+                                catch { /* */ }
+                            }
+                        },
+                    });
+                    log("[+] GuildBossGameModeSource..ctor (instance capture)");
+                } catch (e) {
+                    log("[campaign-builder] GuildBoss ctor hook failed: " + (e as Error).message);
+                }
+            }
+            // Captures passives : `this` au passage, cout nul, aucun heap scan.
+            //
+            // ⛔ LA CLASSE EST CONFRONTEE AVANT DE RETENIR, ET CE N'EST PAS UNE PRECAUTION DE
+            // STYLE. Mesure le 2026-08-17 : sans ce controle, la capture retenait un pointeur
+            // dont AUCUN des huit champs attendus n'etait lisible -- parce que ces getters sont
+            // HERITES et qu'IL2CPP partage UN SEUL corps entre toutes les sources. Le hook
+            // attrapait donc le `this` d'une autre `*GameModeSource`, et le probe repondait
+            // `pret: true` dessus. Invoquer `LoadBattleInternal` sur cet objet aurait execute
+            // du natif sur une disposition memoire etrangere.
+            const nomAttendu = "GuildBossGameModeSource";
+            for (const methodName of ["get_BattleGameMode", "get_Name", "HandleTurnStarted",
+                                      "GetBattleLineup", "IsUnitDeployable",
+                                      "get_ControlsRunner"]) {
+                const mi = findMethod(guildBossClass, methodName);
+                if (!mi || mi.ptr.isNull()) continue;
+                try {
+                    Interceptor.attach(mi.ptr, {
+                        onEnter(args) {
+                            const self = ptr(args[0].toString());
+                            if (self.isNull()) return;
+                            if (guildBossGameModeSourcePtr !== null
+                                && guildBossGameModeSourcePtr.equals(self)) return;
+                            // Corps PARTAGE : confronter la classe reelle, sinon on retient
+                            // la source d'un autre mode.
+                            let nom: string | null = null;
+                            try {
+                                const k = self.readPointer();
+                                if (!k.isNull()) nom = s(class_get_name(k) as NativePointer);
+                            } catch { return; }
+                            if (nom !== nomAttendu) return;
+                            const wasNull = guildBossGameModeSourcePtr === null;
+                            guildBossGameModeSourcePtr = self;
+                            if (wasNull) {
+                                log(`[campaign-builder] GuildBoss captured (${methodName}) @ `
+                                    + self);
+                                try { send({ t: "guildboss_builder_ready", via: methodName }); }
+                                catch { /* */ }
+                            }
+                        },
+                    });
+                    log(`[+] GuildBossGameModeSource.${methodName} (passive capture)`);
+                } catch (e) {
+                    log(`[campaign-builder] GuildBoss ${methodName} hook failed: `
+                        + (e as Error).message);
+                }
+            }
+        } else {
+            log("[campaign-builder] GuildBossGameModeSource class not found");
         }
 
         const loadBattle = findMethod(ctorClass, "LoadBattle");
