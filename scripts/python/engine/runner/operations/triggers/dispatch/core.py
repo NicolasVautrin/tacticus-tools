@@ -205,6 +205,47 @@ def _owner_gate_applies(entry) -> bool:
     Confondre les deux, c'est lire la mauvaise propriete SANS AUCUNE ERREUR.
     Ce second gate n'est PAS porte : residu `#10015-r1`.
 
+    ⚠ **ET IL NE DOIT PAS L'ETRE SEUL -- LE GATE N'EST PAS UN FILTRE, C'EST LA MOITIE D'UN
+    AIGUILLAGE VERS UNE FILE (#10015-r3).** Le residu `#10015-r1` proposait d'<< etablir quels
+    vecteurs du port courent sous `AtomicGroup` avant d'ecrire le moindre gate >>. Les vecteurs
+    EXISTENT (`entities/behaviours.py::AtomicGroup`, utilise par `ExplosivePresents`,
+    `VexillaMagnifica`, `FrenziedFiring`, `MortisRound`, `StormOfWrath`, `IncendiaryShells`,
+    `HarvesterOfSouls`, ...), donc ce n'est pas la le blocage. Le blocage est que **poser le seul
+    predicat PERDRAIT les triggers que le natif DIFFERE**. Chaine LUE de bout en bout sur
+    `t6dpr4k06g`, tous les slots nommes par les entrees versionnees
+    (`metadata/interface_slots.tsv`, `metadata/ioperationprocessor_slots.tsv`) :
+
+      * `IdunBattle.Operations.AtomicGroupOperation$$Execute` ouvre par `IMatchState` slot 20 =
+        `IncreaseAtomicModeCounter`, execute le behaviour INLINE, ferme par slot 21 =
+        `DecreaseAtomicModeCounter`, **puis DRAINE** : `while (slot 10 = TryDequeueBattleEvent(&ev))`
+        -> `ev.kind == 0` : `IOperationProcessor` slot 78 = `EvaluateAbilities(ev)` ;
+           `ev.kind == 1` : `IMatchState` slot 41 = `Get(entityId)` puis `IOperationProcessor`
+           slot 85 = `UnregisterEntityFromTriggers`.
+      * `IdunBattle.Core.MatchState$$get_InAtomicMode` = `MatchState+0x54 > 0` -- un COMPTEUR, donc
+        les groupes s'imbriquent.
+      * `IdunBattle.Operations.EvaluateTriggerOperation$$Execute` : `if (!InAtomicMode)
+        ExecuteInternal(..., onlyNonAtomic: 0)` **sinon** `AddBattleEvent(new BattleEvent(trigger,
+        entities, onlyNonAtomic: 0))` -- en mode atomique elle **n'evalue RIEN**, elle ENFILE.
+      * `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteImmediately` : `if (InAtomicMode)
+        AddBattleEvent(new BattleEvent(trigger, entities, **onlyNonAtomic: 1**))` PUIS, dans tous
+        les cas, `ExecuteInternal(..., onlyNonAtomic: 0)`.
+
+    **La partition est EXACTE et SANS PERTE**, et c'est ce qui rend le gate lisible : sous
+    `ExecuteImmediately` en mode atomique, le premier test (`if (InAtomicMode) { if
+    (!AllowInAtomicMode) return false; }`) ne laisse passer TOUT DE SUITE que les
+    `AllowInAtomicMode == TRUE` ; le rejeu enfile porte `onlyNonAtomic: 1`, dont le second test
+    (`if (onlyNonAtomic) { if (AllowInAtomicMode) return false; }`) ne laisse passer que les
+    `AllowInAtomicMode == FALSE` -- exactement le complement. Aucune ability n'est perdue, aucune
+    n'est jouee deux fois. Un port qui ecrirait le premier test sans la file inverserait ce
+    resultat : les **24** declarants a TRUE joueraient, et TOUS LES AUTRES seraient SUPPRIMES au
+    lieu d'etre differes -- une regression d'autant plus large que FAUX est le defaut de
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility`.
+
+    L'ETAGE MANQUANT SE NOMME DONC, et ce n'est ni le compteur ni le predicat (tous deux triviaux) :
+    c'est la **file de `BattleEvent` du `MatchState`** (slots 9 / 10), son **drain en fin
+    d'`AtomicGroup`**, et la **distinction `Execute` / `ExecuteImmediately` chez les publieurs** --
+    que le port fond aujourd'hui en un unique `evaluate_trigger_operation`. Residu re-enonce.
+
     ⚠ **ET LA VALEUR SE LIT, MEME QUAND LA TABLE NE LA MONTRE PAS.** `get_AllowForDeadOwner` a un
     corps TRIVIAL, donc DEDUPLIQUE : `<Classe>$$get_AllowForDeadOwner` n'apparait ni dans
     `frida/methods.tsv` ni dans `ghidra/functions.tsv` (0 proprietaire sur les 44 declarants). La RVA

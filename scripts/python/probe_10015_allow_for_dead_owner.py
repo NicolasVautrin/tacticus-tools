@@ -618,6 +618,125 @@ def _ev_bidon(inst):
     return TriggerEvent(inst.event_id, 1, 2, ranged=False, profile=None)
 
 
+# ------------------------------------- etage 4 : le gate ATOMIQUE et sa FILE, indissociables
+
+#: Les marqueurs du GATE cote port, et ceux de la FILE. Les deux listes sont deliberement LARGES
+#: (tout ce qu'un porteur raisonnable ecrirait) : ce cliquet doit se declencher sur une tentative,
+#: pas seulement sur le nom exact qu'on aurait prevu.
+_MARQUEURS_GATE = ("allow_in_atomic_mode", "in_atomic_mode", "atomic_mode_counter",
+                   "increase_atomic_mode", "decrease_atomic_mode")
+_MARQUEURS_FILE = ("battle_event", "battleevent", "add_battle_event", "try_dequeue_battle_event")
+#: Le PERIMETRE balaye. `core.py` porte le gate, `behaviours.py` le groupe, `state.py` le compteur
+#: -- ce sont les trois seuls endroits ou l'un ou l'autre peut naitre.
+_FICHIERS_ATOMIQUE = (
+    "engine/runner/operations/triggers/dispatch/core.py",
+    "engine/entities/behaviours.py",
+    "engine/runner/state.py",
+)
+
+
+def atomique(tsv: dict) -> int:
+    """`get_AllowInAtomicMode` : le GATE et la FILE entrent ENSEMBLE, ou aucun des deux.
+
+    POURQUOI CE CLIQUET EXISTE. Le gate n'est pas un filtre, c'est la moitie d'un aiguillage :
+    `IdunBattle.Operations.EvaluateTriggerOperation$$Execute` ENFILE (`IMatchState` slot 9 =
+    `AddBattleEvent`) au lieu d'evaluer quand `get_InAtomicMode`, et
+    `IdunBattle.Operations.AtomicGroupOperation$$Execute` DRAINE (slot 10 =
+    `TryDequeueBattleEvent`) apres `DecreaseAtomicModeCounter`. Ecrire le seul predicat
+    SUPPRIMERAIT les triggers que le natif DIFFERE -- et comme FAUX est le defaut de
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility`, la perte porterait sur la quasi-totalite
+    du registre. Le detail vit dans `_owner_gate_applies` (`triggers/dispatch/core.py`).
+
+    Ce n'est donc PAS un cliquet << ne portez pas ce gate >> : c'est un cliquet << ne le portez pas
+    A MOITIE >>. Il reste MUET tant que ni l'un ni l'autre n'existe (l'etat courant), rougit si l'un
+    apparait sans l'autre, et redevient muet quand les deux sont la."""
+    #: TEMOIN NON VIDE -- sans declarants a TRUE, le gate ne discriminerait rien et ce controle
+    #: serait vacant. On l'exige AVANT de juger le port (meme discipline que l'etage 2a).
+    vrais = sorted(t for t, v in tsv.items()
+                   if "get_AllowInAtomicMode" in v and v["get_AllowInAtomicMode"][3] == "TRUE")
+    if not vrais:
+        print("  PAS MESURE : 0 declarant `get_AllowInAtomicMode` a TRUE -- le controle serait"
+              " VACANT (le gate ne pourrait discriminer aucune ability)")
+        return 99
+    print("  temoin : %d type(s) declarent `get_AllowInAtomicMode = TRUE` -- le gate DISCRIMINE"
+          % len(vrais))
+
+    gate, file = {}, {}
+    for rel in _FICHIERS_ATOMIQUE:
+        p = REPO / "scripts" / "python" / rel
+        if not p.exists():
+            print("  PAS MESURE : %s absent -- perimetre incomplet, aucun verdict" % rel)
+            return 99
+        #: On ne lit QUE le code : un commentaire ou une docstring qui EXPLIQUE le mecanisme (comme
+        #: celle de `_owner_gate_applies`, qui le cite en entier) n'est pas une implementation. Sans
+        #: ce filtre, ce cliquet rougirait sur sa propre documentation -- le vice qu'il doit eviter.
+        src = _code_nu(p.read_text(encoding="utf-8"))
+        bas = src.lower()
+        for m in _MARQUEURS_GATE:
+            if m in bas:
+                gate.setdefault(m, []).append(rel)
+        for m in _MARQUEURS_FILE:
+            if m in bas:
+                file.setdefault(m, []).append(rel)
+
+    print("  marqueurs GATE trouves : %s" % (sorted(gate) or "(aucun)"))
+    print("  marqueurs FILE trouves : %s" % (sorted(file) or "(aucun)"))
+    if bool(gate) == bool(file):
+        print("  OK : %s -- les deux faces sont dans le meme etat"
+              % ("gate ET file portes" if gate else "ni gate ni file (etat courant, #10015-r1)"))
+        return 0
+    if gate and not file:
+        print("  ROUGE : le GATE atomique est ecrit SANS la file de `BattleEvent`. En l'etat, tout"
+              " trigger a `get_AllowInAtomicMode = FALSE` declenche sous un `AtomicGroup` est"
+              " SUPPRIME au lieu d'etre DIFFERE -- et FALSE est le DEFAUT.")
+        for m, ou in sorted(gate.items()):
+            print("      %-24s -> %s" % (m, ou))
+        return 1
+    print("  ROUGE : la file de `BattleEvent` est ecrite SANS le gate atomique -- elle n'a alors"
+          " aucun producteur, donc elle ne peut que rester vide (inerte silencieuse).")
+    for m, ou in sorted(file.items()):
+        print("      %-24s -> %s" % (m, ou))
+    return 1
+
+
+def _code_nu(src: str) -> str:
+    """`src` prive de ses COMMENTAIRES et de ses DOCSTRINGS -- rien d'autre.
+
+    ⚠ **CE FILTRE A ETE ECRIT << commentaires ET CHAINES >>, ET LA MUTATION ADVERSARIALE L'A PRIS
+    EN DEFAUT AVANT QU'IL NE SERVE.** Le bras A (poser un gate sans file) rendait VERT sur
+    `getattr(state, 'atomic_mode_counter', 0)` : le marqueur y vit dans une CHAINE, que le filtre
+    jetait avec les docstrings. Or c'est exactement l'ecriture qu'un porteur emploierait -- le
+    fichier garde vient de le faire pour `getattr(entry, "fire_on_death", False)`. Un cliquet
+    aveugle a la forme meme que son gisement prend est pire qu'absent : il rassure.
+
+    Le decoupage correct n'est pas token-a-token mais SYNTAXIQUE : une docstring est une chaine en
+    position d'INSTRUCTION (premier `Expr` d'un module, d'une classe ou d'une fonction) ; un
+    litteral d'argument est une EXPRESSION. `ast` separe les deux ; `tokenize` ne le peut pas, et
+    les commentaires disparaissent gratuitement puisqu'ils n'entrent pas dans l'arbre."""
+    import ast
+    try:
+        arbre = ast.parse(src)
+    except SyntaxError:
+        return src                                          # source illisible -> on ne filtre rien
+    for noeud in ast.walk(arbre):
+        corps = getattr(noeud, "body", None)
+        if not isinstance(corps, list) or not corps:
+            continue
+        if not isinstance(noeud, (ast.Module, ast.ClassDef,
+                                  ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        tete = corps[0]
+        if (isinstance(tete, ast.Expr) and isinstance(tete.value, ast.Constant)
+                and isinstance(tete.value.value, str)):
+            corps.pop(0)
+            if not corps:                                   # un corps vide ne se recompile pas
+                corps.append(ast.Pass())
+    try:
+        return ast.unparse(arbre)
+    except Exception:                                       # noqa: BLE001
+        return src
+
+
 # ------------------------------------------------------------------------------- pilotage
 
 
@@ -628,11 +747,18 @@ def main() -> int:
     ap.add_argument("--croiser", action="store_true",
                     help="appariement HEURISTIQUE par le symbole cite en docstring (JAMAIS bloquant)")
     ap.add_argument("--inertie", action="store_true", help="etage 3 seul (morsure)")
+    ap.add_argument("--atomique", action="store_true",
+                    help="etage 4 seul (gate atomique <-> file de BattleEvent)")
     a = ap.parse_args()
 
     print("=== #10015 -- `fire_on_death` = `ITriggeredAbility` slot 8 `get_AllowForDeadOwner` ===")
     if a.inertie:
         return morsure()
+    if a.atomique:
+        #: L'etage 4 ne lit que l'entree VERSIONNEE et l'arbre Python -- il ne charge NI la DLL NI
+        #: le global-metadata, d'ou ce raccourci : il coute quelques millisecondes, la passe
+        #: complete quelques secondes. C'est ce qui le rend jouable en boucle de mutation.
+        return atomique(charger_tsv())
 
     tsv = charger_tsv()
     rc = 0
@@ -684,6 +810,10 @@ def main() -> int:
     print("")
     print("etage 2 -- confrontation du port")
     rc = confronter_port(tsv) or rc
+
+    print("")
+    print("etage 4 -- le gate ATOMIQUE et sa FILE, indissociables (#10015-r1)")
+    rc = atomique(tsv) or rc
 
     if a.croiser:
         print("")
