@@ -1558,11 +1558,10 @@ class _NormalAttackTargeting:
         ailleurs -- parce que c'est ce porteur-la que `get_valid_targets_in_steps` interroge sur une
         position hypothetique ; les ~35 autres regles dynamiques gardent leur contrat a trois
         arguments et ne recoivent rien (cf. `_invoque_regle_dynamique`).
-        ⚠ **LE RELAIS VERS LE TYPE CONCRET NE LE TRANSMET PAS**, et c'est deliberé : aucune des
-        surcharges par type (une seule existe, `1076 MV71SniperDroneSquadAttack`) ne le declare
-        aujourd'hui. Le transmettre a l'aveugle leverait `TypeError` ; le threading passe donc par
-        `_invoque_regle_dynamique`, qui teste la signature -- residu `#590-r6-r3` si une surcharge
-        de type doit un jour lire la position interrogee.
+        ⚠ **LE RELAIS VERS LE TYPE CONCRET LE TRANSMET DEPUIS #590-r6-r3** : l'unique surcharge par
+        type (`1076 MV71SniperDroneSquadAttack`) le DECLARE desormais, donc
+        `_invoque_regle_dynamique` le lui passe. Le threading reste PAR SIGNATURE, jamais a
+        l'aveugle -- un porteur qui ne declare rien garde son contrat a trois arguments.
 
         Elle n'est CONSULTEE que si le masque du TYPE porte le bit : la cascade
         (`get_invalid_target_reason`) teste `options.has(TR.TargetMatchesDynamicRule)` avant
@@ -3013,20 +3012,33 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int, caster_tiles=No
     (`internals.ts::unitFlagValues`), et `snapshot._load_unit_flags` seede tout ce qu'il recoit --
     donc ce gate MORD des qu'un etat charge porte le drapeau, sans capteur neuf.
 
-    ⚠ RESIDU NOMME (#590-r6-r1, INCHANGE PAR CETTE TRANCHE) : le natif fait
-    `foreach (tile in casterTiles) foreach (adj in <voisins de tile>)`, le port ne regarde que la
-    MAIN TILE. Les deux coincident sur toute unite a 1 pied ; sur une multi-hex le port sous-estime
-    le clamp (ecart PERMISSIF sur la portee). Le parametre `caster_tiles` ci-dessus reprend la MEME
-    convention -- sa premiere tuile -- pour rester value-preservant : le corriger est une reparation
-    a part entiere, pas un effet de bord de ce port-ci."""
+    ⚠ **LA DOUBLE BOUCLE EST PORTEE DEPUIS #590-r6-r1, ET ELLE FERMAIT DEUX ECARTS, PAS UN.** Le
+    residu ne nommait que le premier ; le second est sorti en portant le premier, parce que le natif
+    ne parle QU'EN TUILES aux deux bouts. Tous deux etaient PERMISSIFS (le port sous-estimait le
+    clamp, donc laissait une portee que le natif rabat a 1), et tous deux sont bornes au MULTI-HEX :
+
+      1. **CASTER** -- le natif fait `foreach (attackerTile in attackerTiles)` ; le port prenait
+         `_tile_of` (la MAIN TILE), et le parametre `caster_tiles` reprenait la meme convention
+         (`_first_tile`). Un ennemi au contact d'un pied NON-PRINCIPAL etait invisible.
+      2. **CIBLE** -- le natif resout l'occupant par `UnitExtensions$$GetUnit(adj, state)`, qui
+         suit `TileContentComponent -> UnitFootComponent -> unite parente` (decompile des trois
+         surcharges LU) : **n'importe quel pied resout en son unite**. Le port, lui, comparait la
+         `PositionComponent` de chaque entite (sa MAIN TILE) a l'ensemble des voisins -- donc une
+         cible multi-hex dont seul un pied non-principal touche le caster etait ratee elle aussi.
+         C'est aussi l'ELEVATION qui changeait : `CanMeleeAttackOverElevationDifference(tile, adj)`
+         prend la tuile ADJACENTE, pas la main tile de la cible.
+
+    Le port itere donc desormais comme le natif -- tuile de caster, puis voisins -- et resout
+    l'occupant par `_occupants_by_tile_id`, qui est `GetUnit(tile, state)` materialise en une passe
+    (meme convention que `state.unit_at` : VIVANTS seulement, donc `IsAlive(u, state)` est absorbe
+    par l'index). Sur toute unite a 1 pied des DEUX cotes, les deux formes coincident exactement."""
     board = state.board
     if board is None:
         return False
-    src = _tile_of(state, caster_id) if caster_tiles is None else _first_tile(caster_tiles)
-    if src is None:
-        return False
-    src_tid = board.id_at(src[0], src[1])
-    if src_tid is None:
+    # `if (attackerTiles == null || attackerTiles.Count == 0) return false;` -- l'EMPREINTE, ou la
+    # position interrogee. `caster_tiles_of` est le foyer unique du repli (#590-r6).
+    src_feet = caster_tiles_of(state, caster_id, caster_tiles)
+    if not src_feet:
         return False
     caster = state.get_entity(int(caster_id))
     c_owner = caster.get_component(OwnerComponent) if caster is not None else None
@@ -3037,31 +3049,57 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int, caster_tiles=No
     c_flags = caster.get_component(UnitFlagsComponent) if caster is not None else None
     if c_flags is not None and c_flags.has(UnitFlag.IngoreRangedInMelee):
         return False
-    src_elev = board.elevation(src_tid)
-    neigh = set(board.neighbours(src_tid))
-    for uid, ent in state.entities.items():
-        if int(uid) == int(caster_id):
+    occupants = _occupants_by_tile_id(state, board)
+    for src in src_feet:                               # `foreach (attackerTile in attackerTiles)`
+        src_tid = board.id_at(src[0], src[1])
+        if src_tid is None:
             continue
-        uc = ent.get_component(UnitComponent)
-        oc = ent.get_component(OwnerComponent)
-        pc = ent.get_component(PositionComponent)
-        if uc is None or oc is None or pc is None:
-            continue                                   # `IsUnit(u)`
-        if oc.team == c_owner.team:
-            continue                                   # `!IsFriend(caster, u)`
-        if not uc.alive:
-            continue                                   # `IsAlive(u, state)`
-        tid = board.id_at(pc.col, pc.row)
-        if tid is None or tid not in neigh:
-            continue
-        if UnitTrait.Steppable.name in (_unit_traits(state, uid) or ()):
-            continue                                   # `!HasSteppableUnit(adj, state)`
-        if abs(src_elev - board.elevation(tid)) >= 2:
-            continue                                   # `CanMeleeAttackOverElevationDifference`
-        if not is_targetable(state, uid):
-            continue
-        return True
+        src_elev = board.elevation(src_tid)
+        for tid in board.neighbours(src_tid):          # `foreach (adj in <voisins de attackerTile>)`
+            ent = occupants.get(int(tid))
+            if ent is None:
+                continue                               # `GetUnit(adj, state) == null` / `IsUnit(u)`
+            uid = int(ent.id)
+            if uid == int(caster_id):
+                continue                               # soi-meme : `IsFriend(caster, caster)` est vrai
+            oc = ent.get_component(OwnerComponent)
+            if oc is None or oc.team == c_owner.team:
+                continue                               # `!IsFriend(caster, u, state)`
+            if UnitTrait.Steppable.name in (_unit_traits(state, uid) or ()):
+                continue                               # `!HasSteppableUnit(adj, state)`
+            if abs(src_elev - board.elevation(tid)) >= 2:
+                continue                               # `CanMeleeAttackOverElevationDifference`
+            if not is_targetable(state, uid):
+                continue
+            return True
     return False
+
+
+def _occupants_by_tile_id(state: "State", board) -> dict:
+    """`IdunBattle.Entities.UnitExtensions$$GetUnit(tile, state)` materialise pour TOUT le plateau :
+    `{id de tuile: entite UNITE}`, **tous les pieds**, VIVANTS seulement.
+
+    Les trois surcharges natives de `GetUnit` ont ete lues : celle qui prend une entite quelconque
+    rend l'entite si elle porte deja `UnitComponent`, sinon suit `TileContentComponent+0x38` ->
+    `EntityId` -> recursion, et un `UnitFootComponent` remonte a son unite PARENTE. Un pied non
+    principal resout donc en son unite -- ce que la seule `PositionComponent` (main tile) ne dit pas.
+
+    Une passe unique sur les entites, la ou `state.unit_at` en fait une PAR tuile interrogee : la
+    boucle ci-dessus interroge jusqu'a 7x6 voisins. Meme convention de vie que `state.unit_at`
+    (`alive_only=True`, cf. `decisionview_keeps_dead`) et meme depart de conflit (premier dans
+    l'ordre d'insertion) -- l'ECS natif n'a qu'un contenu par tuile, le cas ne se produit pas."""
+    out: dict = {}
+    if board is None:
+        return out
+    for _eid, ent in state.entities.items():
+        uc = ent.get_component(UnitComponent)
+        if uc is None or not uc.alive:
+            continue
+        for pos in get_unit_feet(state, ent):          # `EntityExtensions$$IterateTiles`
+            tid = board.id_at(int(pos[0]), int(pos[1]))
+            if tid is not None:
+                out.setdefault(int(tid), ent)
+    return out
 
 
 def _ability_config_range(ability) -> Optional[int]:

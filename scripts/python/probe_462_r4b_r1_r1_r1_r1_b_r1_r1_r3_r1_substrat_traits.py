@@ -344,8 +344,18 @@ VENTILATION = {
     ("runner/operations/summon_ai.py", "is_automatic", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "`collect_ai_controlled` evalue `not uc.alive or not is_automatic(...)` "
                           "-- le court-circuit Python garantit un sujet vivant"),
-    ("runner/operations/turnflow.py", "_can_move", "getattr(sc.ctx)", "R"):
-        ("INERTE-VIVANT", "chaine d'appel FERMEE (`_can_move` est prive, son unique appelant est "
+    # #590-r6-r2 : le site a DEMENAGE (`operations/turnflow.py` -> `runner/components.py`) et le
+    # mirror est desormais PUBLIC (`unit_extensions_can_move`), pour supprimer l'arete d'import qui
+    # imposait un differe a `abilities/loki/attempted_possession.py`. La cle change donc de FICHIER
+    # et de NOM ; le classement, lui, tient toujours -- mais sa justification portait deja une
+    # premisse fausse AVANT ce deplacement (« son unique appelant est `has_tiles_to_move_to` » :
+    # `operations/movement.py::_is_unit_allowed_to_move` et `attempted_possession` l'appellent
+    # aussi). Ces deux appelants-la n'ouvrent PAS le gate : le premier lit un `is False` strict et
+    # n'agit que sur un refus CERTAIN, le second n'entre en branche mobile que sur un `is True`
+    # MESURE -- dans les deux cas un `traits is None` sur un cadavre rendrait la branche PERMISSIVE
+    # deja nommee ci-dessous, jamais un refus invente.
+    ("runner/components.py", "unit_extensions_can_move", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "chaine d'appel fermee cote `turnflow` : l'appelant y est "
                           "`has_tiles_to_move_to`, lui-meme appele par `_can_act` et par "
                           "`has_action_available`, tous deux sous "
                           "`VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended`). Le gate "
@@ -356,8 +366,8 @@ VENTILATION = {
                           "return` ; et `$$Execute` n'itere que "
                           "`PlayerComponent$$get_CurrentlyOwnedUnitIds`, dont le `RemoveAll(<defait>)` "
                           "est porte en `if uc is None or not uc.alive: continue`. Le cas `uc is "
-                          "None` (seul a franchir le 1er gate) sort de `_can_move` par `return None` "
-                          "DEUX lignes avant la lecture. Direction si le gate sautait : `traits is "
+                          "None` (seul a franchir le 1er gate) sort du mirror par `return None` "
+                          "TROIS lignes avant la lecture. Direction si le gate sautait : `traits is "
                           "None` -> le test `Stationary` ne mord pas -> `return True`, soit la MEME "
                           "sur-estimation permissive que le residu `MovementComponent$$IsAllowedToMove` "
                           "deja nomme dans la docstring du site"),

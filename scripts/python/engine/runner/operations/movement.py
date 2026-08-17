@@ -57,6 +57,7 @@ from ..components import set_unit_feet
 # `HasFlag(unit, 9)` d'`UnitExtensions$$HasFled`) et l'empreinte courante (`GetUnitFeet`).
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
+from .. import components as _components   # FORME B (#590-r6-r2) : cf. `_is_unit_allowed_to_move`
 # Branche `allowNullTargetPosition` (E8) : le slot 7 de l'`IOperationProcessor`.
 from .remove_unit_from_tiles import RemoveUnitFromTilesOperation
 from . import tile_reservation
@@ -407,11 +408,11 @@ def _is_allowed_to_move(state: State, mover_id: int, ignore_unit_movement_blocke
     `ignoreUnitMovementBlockers` = l'octet `MoveUnitOptions+0x13`, `False` a tous les call-sites du
     port (options nulles). Les trois etages sont portes :
 
-      * `UnitExtensions$$CanMove` -> le FOYER existant `turnflow._can_move` (mirror deja ecrit et
-        deja TRI-ETAT : son 4e etage, `MovementComponent$$IsAllowedToMove`, n'a aucun canal de seed
-        et est declare NON PORTE, direction PERMISSIVE). Un `None` (etage non lisible) est traite
-        comme « pas de refus » -- on n'ABANDONNE jamais un mouvement faute d'avoir su mesurer, meme
-        parti que le tri-etat de `_calculate_path` ;
+      * `UnitExtensions$$CanMove` -> le FOYER existant `components.unit_extensions_can_move`
+        (mirror deja ecrit et deja TRI-ETAT ; il vivait dans `turnflow` jusqu'a #590-r6-r2, ou il a
+        demenage pour supprimer une arete d'import, cf. sa docstring). Un `None` (etage non lisible)
+        est traite comme « pas de refus » -- on n'ABANDONNE jamais un mouvement faute d'avoir su
+        mesurer, meme parti que le tri-etat de `_calculate_path` ;
       * `UnitExtensions$$IsDead(unit, state)` -> `UnitComponent.alive`, le collapse habituel ;
       * `UnitExtensions$$HasFled(unit)` = `HasFlag(unit, 9 = UnitFlag.Fled)`, LU au decompile (le
         corps entier de `HasFled` est ce seul appel) -> `UnitFlagsComponent.FLED`, que
@@ -421,12 +422,11 @@ def _is_allowed_to_move(state: State, mover_id: int, ignore_unit_movement_blocke
     if e is None:
         return False
     if not ignore_unit_movement_blockers:
-        # PORTEUR, et c'est MESURE : `import engine.runner.operations.turnflow` en process FRAIS
-        # fait atterrir `engine.runner.operations.movement` dans `sys.modules` (via
-        # `..abilities.handler`) -- hisser cet import fermerait donc un cycle. Forme MODULE (B) :
-        # l'attribut est relu a l'appel, donc une substitution posee sur `turnflow` mord.
-        from . import turnflow
-        if turnflow._can_move(state, int(mover_id)) is False:
+        # #590-r6-r2 : le differe qui vivait ici etait PORTEUR **envers `turnflow`** (`turnflow` ->
+        # `abilities.handler` -> ... -> ce module). Le foyer ayant demenage vers `components`, il
+        # devient GRATUIT et est HISSE en tete -- forme B (`from .. import components as
+        # _components`), donc une substitution posee sur `components` mord toujours.
+        if _components.unit_extensions_can_move(state, int(mover_id)) is False:
             return False                                  # `!UnitExtensions.CanMove(unit)`
     uc = e.get_component(UnitComponent)
     if uc is not None and not uc.alive:

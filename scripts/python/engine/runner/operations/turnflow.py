@@ -66,6 +66,11 @@ from ..state import State
 from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsComponent,
                           UnitFlagsComponent, PositionComponent, reset_tiles_moved_this_turn,
                           is_machine_of_war, ActiveAbilitiesComponent)
+# FORME B (#590-r6-r2) : `unit_extensions_can_move` a demenage ici, et les tests le SUBSTITUENT
+# (`monkeypatch.setattr("engine.runner.components.unit_extensions_can_move", ...)`). Une liaison
+# `from ..components import unit_extensions_can_move` gelerait le symbole -> le patch NE MORDRAIT
+# PAS. C'est le meme piege que celui deja documente 15 lignes plus bas pour `battle_query`.
+from .. import components as _components
 from ...entities.stats import StatType
 from .triggers.dispatch.turn import (
     delayed_attack_triggers, start_turn_triggers, tile_tick_triggers, turn_start_other_triggers
@@ -928,91 +933,14 @@ class EndTurnOperation:
 # ================================================================================================ #
 
 
-def _can_move(state: State, unit_id: int) -> Optional[bool]:
-    """`IdunBattle.Entities.UnitExtensions$$CanMove(unit)` — MIRROR du decompile :
-
-        if (unit == null)                                          return false
-        if (EntityExtensions.GetEntityType(unit) != EntityType.Unit) return false
-        base = UnitExtensions.GetBaseUnitComponent(unit)
-        if (base != null && base.HasTrait(UnitTrait.Stationary)) return false
-        if (!unit.TryGetComponent<MovementComponent>(out mc))    return false
-        return mc.IsAllowedToMove()
-
-    LES QUATRE ETAGES SONT DESORMAIS LUS SUR LE SUBSTRAT DU RUNNER (#1015-r1).
-
-    `IdunBattle.Entities.Components.MovementComponent$$IsAllowedToMove` est
-    `this.<+0x50 : Dictionary>.Count == 0` -- un registre de BLOQUEURS par instance d'effet. Ce
-    module ecrivait qu'il n'etait pas portable, « aucun ecrivain n'[etant] une methode NOMMEE du
-    binaire : les ecritures sont inline ». **C'EST FAUX, et c'est mesure** : le dictionnaire a
-    exactement DEUX ecrivains, tous deux nommes et tous deux LUS --
-
-        IdunBattle.Entities.Effects.BlockUnitMovementEffect$$ApplyInternal
-            mc = target.GetComponent<MovementComponent>() ; mc.<+0x50>.Add(effect.Id, effect.Id)
-        IdunBattle.Entities.Effects.BlockUnitMovementEffect$$RevertInternal
-            mc.<+0x50>.Remove(effect.Id)
-
-    (et leurs jumeaux `...BlockUnitMovementBondEffect$$ApplyInternal/RevertInternal`, qui ecrivent
-    le MEME champ, avec en plus l'`OwnerComponent.CurrentPlayerEntityId` dans la CLE). L'entree
-    existe donc exactement tant qu'une instance de block-movement est ACTIVE sur la cible -- le
-    seul chemin de pose/retrait etant `RefreshEffectsOperation$$ActivateEffect` /
-    `$$DeactivateEffect`. Le port n'a pas de dictionnaire materialise : il pose la MEME question a
-    `EffectsState.active_effects`, qui reevalue `is_active` (= la `CreateActiveCondition`) a chaque
-    lecture. La prescription « on ne le fabrique PAS depuis les effets `*_BlockMovement` » tombe
-    avec sa premisse.
-
-    ⚠ CE QUI RESTE HORS DU REGISTRE, ET LA DIRECTION : `BLOCK_UNIT_MOVEMENT_EFFECT_TYPES`
-    (`entities/effects/loki/instinctive_behaviour.py`) n'inscrit que `1235
-    InstinctiveBehaviour_BlockMovement`, seul type dont l'appariement `EffectType -> classe` soit
-    LU. `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement`
-    (1016) restent dehors (residu `#1015-r2`) : le port croit leurs porteurs MOBILES la ou le
-    natif les bloquerait -> `has_tiles_to_move_to` sur-estime -> le flag `NoActionAvailable` est
-    RETIRE un peu plus souvent que par le natif (PERMISSIF), jamais POSE a tort. C'est exactement
-    l'ecart d'avant cette tranche, inchange pour ces trois-la. MEME direction que le residu nomme
-    par `entities/selectors/tiles.MovableTilesInRange`.
-
-    Rend `False` (certain), `True` (aux quatre etages lus), ou `None` si l'entite n'est pas lisible.
-    """
-    e = state.get_entity(int(unit_id))
-    if e is None:
-        return False                      # `unit == null` -> false
-    uc = e.get_component(UnitComponent)
-    if uc is None:
-        return None                       # entite sans `UnitComponent` : type d'entite non lisible
-    # `GetEntityType(unit) != EntityType.Unit(1)` — une MACHINE OF WAR (`EntityType.Machine` = 6) ne
-    # passe JAMAIS ce gate. C'est ce qui rend `HasTilesToMoveTo` faux pour elle cote natif, et c'est
-    # aussi pourquoi `VerifyMachineTurnEnded` ne l'appelle pas du tout.
-    if is_machine_of_war(e):
-        return False
-    sc = e.get_component(StatsComponent)
-    traits = (getattr(sc.ctx, "traits", None) if (sc is not None and getattr(sc, "ctx", None)
-                                                  is not None) else None)
-    if traits is not None and has_trait(traits, UnitTrait.Stationary):
-        return False                      # `BaseUnitComponent$$HasTrait(unit, UnitTrait.Stationary)`
-    # 4e etage : `MovementComponent$$IsAllowedToMove` = `<+0x50>.Count == 0` (cf. la docstring).
-    # Le port pose la MEME question a la liste des effets ACTIFS du porteur.
-    return not _has_active_movement_blocker(state, int(unit_id))
-
-
-def _has_active_movement_blocker(state: State, unit_id: int) -> bool:
-    """`MovementComponent+0x50` non vide -- c.-a-d. « une instance de block-movement est ACTIVE sur
-    l'unite ». Les deux ecrivains natifs du dictionnaire (`BlockUnitMovementEffect$$ApplyInternal`
-    et `...BondEffect$$ApplyInternal`) y mettent l'id de l'effet a son ACTIVATION et l'en retirent
-    a sa DESACTIVATION ; l'appartenance est donc exactement cette question-la.
-
-    `state.effects` absent -> `False` (aucun bloqueur mesurable). `active_effects` reevalue la
-    `CreateActiveCondition` de chaque instance -- pour `1235`, l'arbre de
-    `entities/effects/loki/instinctive_behaviour.py`."""
-    from ...entities.effects.loki.instinctive_behaviour import BLOCK_UNIT_MOVEMENT_EFFECT_TYPES
-    eff = getattr(state, "effects", None)
-    if eff is None:
-        return False
-    wanted = set(int(t) for t in BLOCK_UNIT_MOVEMENT_EFFECT_TYPES)
-    if not wanted:
-        return False
-    from ..components import unit_state_for_effects
-    ustate = unit_state_for_effects(state, int(unit_id))
-    return any(int(getattr(e, "effect_type", -1)) in wanted
-               for e in eff.active_effects(int(unit_id), ustate))
+# `UnitExtensions$$CanMove` A DEMENAGE (#590-r6-r2) -> `runner/components.py::
+# unit_extensions_can_move`, avec `_has_active_movement_blocker`. La raison est une MESURE, pas un
+# rangement : ce module importe `..abilities.handler` en tete, donc tout lecteur situe sous
+# `abilities/` devait passer par un import DIFFERE (`attempted_possession` en portait un, classe
+# PORTEUSE). Depuis `components.py`, l'arete n'existe plus -- `import engine.runner.components` dans
+# un process frais ne tire ni `abilities.handler`, ni `abilities.loki.attempted_possession`, ni ce
+# module-ci. ⚠ AUCUN RE-EXPORT ICI, deliberement : ce serait un baril (#485-r1-r1). Les lecteurs
+# visent le foyer par son chemin PLEIN.
 
 
 def has_tiles_to_move_to(state: State, unit_id: int) -> Optional[bool]:
@@ -1056,7 +984,7 @@ def has_tiles_to_move_to(state: State, unit_id: int) -> Optional[bool]:
         return None                        # `unitFlags == null` -> le natif LEVE ; offline = non mesure
     if fl.has(UnitFlagsComponent.MOVED):
         return False                       # `Has(UnitFlag.Moved) && ignoreUnitFlags == 0`
-    cm = _can_move(state, int(unit_id))
+    cm = _components.unit_extensions_can_move(state, int(unit_id))
     if cm is not True:
         return False if cm is False else None
     if state.board is None:

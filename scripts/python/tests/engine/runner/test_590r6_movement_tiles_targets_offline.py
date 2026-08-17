@@ -190,18 +190,20 @@ def test_la_garde_canMove_ET_isSummon_est_BILATERALE(monkeypatch):
 
     _, st = _montage()
     # `canMove` FAUX -> branche statique, meme si le trait est la. On substitue le FOYER
-    # (`turnflow._can_move`), par le chemin PLEIN : c'est ce que la forme C du differe rend possible.
-    monkeypatch.setattr("engine.runner.operations.turnflow._can_move",
+    # (`components.unit_extensions_can_move` depuis #590-r6-r2 -- il vivait dans `turnflow`), par le
+    # chemin PLEIN : c'est ce que la FORME B de l'import hisse rend possible.
+    monkeypatch.setattr("engine.runner.components.unit_extensions_can_move",
                         lambda state, unit_id: False)
     assert AP.attempted_possession_preferred_target(st, 1, 2) is None, \
         "canMove faux => branche STATIQUE, quel que soit le trait"
 
 
 def test_le_tri_etat_de_canMove_ne_bascule_que_sur_un_True_MESURE(monkeypatch):
-    """`turnflow._can_move` rend `None` quand le substrat n'est pas lisible. Rabattre ce `None` sur
-    `True` prendrait la branche la plus PERMISSIVE (plus de cibles) sur une NON-MESURE."""
+    """`components.unit_extensions_can_move` rend `None` quand le substrat n'est pas lisible.
+    Rabattre ce `None` sur `True` prendrait la branche la plus PERMISSIVE (plus de cibles) sur une
+    NON-MESURE."""
     _, st = _montage()
-    monkeypatch.setattr("engine.runner.operations.turnflow._can_move",
+    monkeypatch.setattr("engine.runner.components.unit_extensions_can_move",
                         lambda state, unit_id: None)
     assert AP.attempted_possession_preferred_target(st, 1, 2) is None
 
