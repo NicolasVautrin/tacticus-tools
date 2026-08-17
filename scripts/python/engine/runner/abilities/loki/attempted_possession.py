@@ -137,6 +137,10 @@ from ...components import HealthComponent, UnitComponent
 from ...components import PositionComponent
 from ...components import StatsComponent, UnitComponent
 from ...components import UnitComponent
+# FORME B (#590-r6-r2) : `UnitExtensions$$CanMove` a demenage de `operations/turnflow.py` vers
+# `runner/components.py`, ce qui a SUPPRIME l'arete d'import qui obligeait au differe. Le module
+# est lie, pas le symbole, donc une substitution posee sur le foyer mord.
+from ... import components as _components
 from ...operations.change_unit_owner import (ChangeUnitOwnerOperation, ResetUnitOwnerOperation)
 
 if TYPE_CHECKING:
@@ -394,8 +398,10 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
     perdait la PREFERENCE (<< closest >>, << unpossessed >>), pas l'attaque : l'ecart etait
     CONSERVATIF, ce qui est exactement pourquoi il a pu vivre.
 
-    ⚠ **`CanMove` EST LE FOYER EXISTANT** `runner.operations.turnflow._can_move` (mirror des quatre
-    etages d'`UnitExtensions$$CanMove`), TRI-ETAT : `None` = substrat non lisible. Le port ne prend
+    ⚠ **`CanMove` EST LE FOYER EXISTANT** `runner.components.unit_extensions_can_move` (mirror des
+    quatre etages d'`UnitExtensions$$CanMove` ; il vivait dans `operations/turnflow.py` jusqu'a
+    #590-r6-r2, ou il a demenage pour supprimer l'arete qui imposait un import differe a ce
+    module-ci), TRI-ETAT : `None` = substrat non lisible. Le port ne prend
     la branche mobile que sur un `True` MESURE -- un `None` rabattu sur `True` prendrait une branche
     plus PERMISSIVE (plus de cibles) sur une non-mesure.
 
@@ -435,23 +441,20 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
     # `SimulateEffects(0x4b9)` -- l'owner-swap, applique le temps de la question.
     simule = ChangeUnitOwnerOperation.execute(state, int(possessed_id), int(caster_id))
     try:
-        # DIFFERE **PORTEUR**, et la classe est MESUREE (pas supposee) : `import
-        # engine.runner.operations.turnflow` dans un process FRAIS fait atterrir CE module-ci dans
-        # `sys.modules` (`turnflow` -> `abilities.handler` -> `abilities.loki` -> nous), donc le
-        # hisser refermerait le cycle -- `ImportError: cannot import name 'MindControlAbility' from
-        # partially initialized module`, joue. Les DEUX leviers d'avant lui ont ete regardes et
-        # ecartes pour cause de PERIMETRE, pas d'impossibilite : (1) DEPLACER `_can_move` /
-        # `_has_active_movement_blocker` vers `runner/components.py` -- ou leurs deux dependances non
-        # triviales (`is_machine_of_war`, `unit_state_for_effects`) vivent DEJA -- supprimerait
-        # l'arete pour de bon, et c'est la vraie reparation (residu `#590-r6-r2`) ; (2) alleger
-        # `abilities/loki/__init__.py`, la cause racine, est un baril a part entiere.
-        # FORME C assumee : l'instruction est re-executee a chaque appel, donc un
-        # `monkeypatch.setattr("engine.runner.operations.turnflow._can_move", ...)` MORD.
-        from ...operations import turnflow as _turnflow
+        # #590-r6-r2 : **LE DIFFERE A DISPARU, ET PAS EN ETANT CONTOURNE.** Il etait PORTEUR envers
+        # `turnflow` (`turnflow` -> `abilities.handler` -> `abilities.loki` -> nous), et le levier 1
+        # de la doctrine -- DEPLACER le code partage -- a ete joue : `UnitExtensions$$CanMove` vit
+        # desormais dans `runner/components.py`, ou ses deux dependances non triviales
+        # (`is_machine_of_war`, `unit_state_for_effects`) vivaient DEJA. Mesure qui l'autorise :
+        # `import engine.runner.components` dans un process FRAIS ne fait atterrir dans
+        # `sys.modules` ni `abilities.handler`, ni CE module-ci, ni `operations.turnflow`.
+        # L'import est donc HISSE en tete du module, en FORME B (`from ...` `import components as
+        # _components`), donc un `monkeypatch.setattr(
+        # "engine.runner.components.unit_extensions_can_move", ...)` MORD toujours.
         # `if (canMove && isSummon)` -- LES DEUX BRANCHES, dans l'ordre natif. Le predicat combine
         # `UnitExtensions$$CanMove(unit)` et `HasTrait(unit, 0x2 Summon)`, et il est evalue SOUS la
         # simulation de l'owner-swap comme tout le reste de `b__0`.
-        mobile = (_turnflow._can_move(state, int(possessed_id)) is True
+        mobile = (_components.unit_extensions_can_move(state, int(possessed_id)) is True
                   and _has_trait(state, int(possessed_id), int(UnitTrait.Summon)))
         if mobile:
             # `<IBattleQuery 69 GetAllValidTargetsFromAllPossibleMovementTiles>(unit,

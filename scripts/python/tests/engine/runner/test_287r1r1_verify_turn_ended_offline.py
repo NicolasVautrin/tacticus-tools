@@ -41,8 +41,11 @@ from engine.runner.components import (ActiveAbilitiesComponent, MachineComponent
                                       PositionComponent, UnitComponent, UnitFlagsComponent)
 from engine.runner.operations import turnflow as TF
 from engine.runner.operations.turnflow import (VerifyUnitsTurnFinishedOperation, _can_act,
-                                               _can_move, has_action_available,
+                                               has_action_available,
                                                has_tiles_to_move_to, verify_units_turn_finished)
+# #590-r6-r2 : `UnitExtensions$$CanMove` a demenage vers `runner/components.py` (suppression de
+# l'arete d'import qui imposait un differe a `abilities/loki/attempted_possession.py`).
+from engine.runner.components import unit_extensions_can_move as _can_move
 
 
 def _mk_state(current_player: int = 3) -> State:

@@ -75,7 +75,7 @@ from engine.entities.pathfinding.board import Board                  # noqa: E40
 from engine.entities.traits.unit_trait import UnitTrait              # noqa: E402
 from engine.runner.abilities.targeting import get_only_targets       # noqa: E402
 from engine.runner.abilities.targeting_rule import TargetingRule as TR   # noqa: E402
-from engine.runner.operations import turnflow                        # noqa: E402
+from engine.runner import components as _components                  # noqa: E402
 from engine.runner.operations.triggers.base import TriggerEvent      # noqa: E402
 from engine.runner.operations.triggers.dispatch.core import (        # noqa: E402
     collect_triggered_abilities, evaluate_trigger_operation)
@@ -150,7 +150,8 @@ def _fire_port(st, uid: int) -> dict:
             and int(r.get("owner", -1)) == int(uid)]
     return {"inscrite": bool(inscrites), "resultats": mine,
             "only_targets": [int(x) for x in (get_only_targets(st, int(uid)) or ())],
-            "can_move": turnflow._can_move(st, int(uid)),
+            # #590-r6-r2 : le foyer a demenage de `operations/turnflow.py` vers `runner/components.py`
+            "can_move": _components.unit_extensions_can_move(st, int(uid)),
             "effets_actifs": sorted({int(e.effect_type) for e in
                                      (st.effects.active_effects(
                                          int(uid),
