@@ -20,10 +20,24 @@ valaient 3 et les echecs CUMULES 21. Un SUCCES remet le consecutif a zero mais P
 donc CUMULATIF, autour de 20.
 
 D'ou le garde actuel, `--budget-echecs` (defaut 12) : on compte les echecs DEJA INSCRITS AU
-REGISTRE dans les dernieres 24 h et on s'arrete avant le seuil mesure. La fenetre de remise a
-zero du serveur n'est PAS connue -- 24 h glissantes est une approximation prudente, pas une
-mesure ; si elle etait quotidienne (minuit UTC, comme le rafraichissement d'Operations), ce
-garde serait simplement un peu plus strict que necessaire.
+REGISTRE dans les dernieres 24 h et on s'arrete avant le seuil mesure.
+
+⚠ MAIS LA FENETRE N'EST **PAS** GLISSANTE SUR 24 H -- MESURE LE 2026-08-17, ET CE GARDE BLOQUE
+DONC A TORT TOUS LES MATINS. Le texte precedent disait << 24 h glissantes est une approximation
+prudente, pas une mesure ; si elle etait quotidienne, ce garde serait un peu plus strict que
+necessaire >>. C'est le << un peu >> qui etait faux. Mesure : le 2026-08-17 a 07:26 UTC, le
+registre portait 21 echecs dans les 24 h glissantes (les 39 tentatives du 16/08 tiennent dans
+DIX MINUTES, 10:24:55 -> 10:34:27 UTC), donc le garde refusait de jouer. Une SONDE payee avec un
+code PERIME (`WEEK2WAAAGH`, 07/07) a rendu `OutOfTimeFrame` -- pas `MaxFailsReached`. Le compteur
+serveur etait OUVERT, et les trois codes du 16/08 sont passes dans la foulee. La remise a zero
+est donc QUOTIDIENNE (vraisemblablement minuit UTC, comme le rafraichissement d'Operations), pas
+glissante -- le garde par defaut aurait fait attendre ~3 h pour RIEN.
+
+  * COMMENT TRANCHER SANS RIEN RISQUER, et c'est la seule methode qui ne coute pas un code
+    frais : jouer UN code notoirement PERIME. `MaxFailsReached` => compteur ferme, on attend ;
+    tout autre verdict => compteur ouvert, on enchaine. Un code deja mort ne perd rien.
+  * Ce qui reste NON MESURE : l'heure exacte de la bascule. On sait qu'a 07:26 UTC c'etait
+    ouvert alors que le glissant disait ferme ; on n'a pas borne l'instant.
 
 Reste vrai, et c'etait deja la :
 
@@ -47,6 +61,20 @@ Le reste releve de l'EFFICACITE, et se regle :
 sonde `promoLire` jusqu'a ce que l'ardoise du delegue-capteur bouge. Un code dont la reponse
 n'arrive pas est rendu `SANS REPONSE`, jamais rabattu sur un echec -- la tentative, elle, est
 consommee quand meme.
+
+⚠ ET `SANS REPONSE` PEUT MASQUER UN **SUCCES** -- MESURE LE 2026-08-17. `BUZZKILLSAUG` est sorti
+`SANS REPONSE` a l'attente par defaut (12 s) ; retire du registre et REJOUE a 45 s, il a rendu
+`AlreadyUsed`. La reclamation avait donc ABOUTI du premier coup, et c'est la LECTURE du verdict
+qui avait manque. Consequences, les deux comptent :
+
+  * l'inscription `SANS REPONSE` fige comme irresolu un code qui est en fait ENCAISSE -- le
+    registre ne le represente plus jamais, donc on ne le sait jamais. La seule sortie est de
+    retirer l'entree et de rejouer : `AlreadyUsed` = c'etait passe, tout autre verdict = ca ne
+    l'etait pas. Ca coute UNE tentative, et ca ne se tente que compteur OUVERT ;
+  * `--attente` a 12 s est trop court AU MOINS PARFOIS. ⚠ Ne pas conclure que 12 s EST la cause :
+    entre l'echec et la sonde reussie, DEUX choses ont change -- l'attente ET la sortie d'une
+    bataille sandbox montee a l'ecran. Temoin confondu, cause NON ETABLIE. Ce qui est etabli,
+    lui, ne depend pas de la cause : la reclamation passe meme quand le verdict ne revient pas.
 
 ⚠ Les recompenses vont dans la BOITE DE RECEPTION, pas dans l'inventaire.
 
