@@ -45,11 +45,27 @@ COLLAPSES ET RESIDUS NOMMES du port :
     (cf. `operations/remove_unit.py`), et il n'appelle pas cette Operation.
   * etape 1 (STEP de vue) et etape 7 (event de match) : le port n'a ni flux de vue ni journal de
     match -- non portes, comme partout ailleurs dans `operations/`.
-  * etape 6 (les deux `Nullable<UnitPositionId>`) : **NON PORTEE, faute de lecteur**. Aucun
-    consommateur porte ne lit une « derniere position connue » ; le seul candidat natif serait le
-    repli `MoveUnit(Owner, <repli>)` de
-    `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorror_AppearAbility$$ExecuteBehaviour`
-    (active 1060), hors perimetre de ce foyer. A porter EN MEME TEMPS que 1060, pas avant.
+  * etape 6 : **`@+0x98` EST DESORMAIS PORTE (#448-r1-r1-r3-r1) -- LE LECTEUR EXISTAIT.** La note qui
+    vivait ici (« NON PORTEE, faute de lecteur ; aucun consommateur porte ne lit une derniere
+    position connue ») a ete rendue FAUSSE par #1082 sans que personne ne la relise :
+    `movement._movement_start_position` LIT exactement ce slot (`GetPreviousPositionThisTurn`), pour
+    le `movementStartPosition` de `MoveUnitOperation$$Execute`. Le canal etait complet des deux
+    bouts SAUF ici -- l'ecrivain manquait, et c'est ce qui rendait le second bras inatteignable en
+    simulation pure (il ne survivait que par le SEEDING live, `snapshot._load_units` ->
+    `movement.previousPositionThisTurn`). Sans cette ecriture, une unite retiree du plateau repart
+    avec la position d'AVANT SON DERNIER MOUVEMENT -- ou `None` -- au lieu de la tuile qu'elle vient
+    de quitter.
+    ⚠ Le natif ecrit **DEUX** slots avec la MEME valeur (`@+0x88` puis `@+0x98`, deux
+    `Nullable<UnitPositionId>` du `MovementComponent`, qui SURVIT au retrait). Cote port, seul
+    `@+0x98` est representable : son jumeau `@+0x88` est loge sur la `PositionComponent`, que
+    `set_unit_feet(uid, [])` SUPPRIME. `PreviousTileSelector` (`components.previous_tiles`, qui lit
+    `@+0x88`) rend donc `[]` apres un retrait de plateau la ou le natif rend la tuile quittee.
+    RESIDU **#448-r7** -- il demande de deloger `previous` de la `PositionComponent`, ce qui est un
+    changement de FOYER, pas une ligne.
+  * etape 6 (le gate `cVar2 == '\0'`) : l'ecriture, le STEP de vue et l'event de match partagent le
+    MEME predicat (slot `0xb` du `MatchState`, celui qui commute aussi la branche courte de
+    `MoveUnitOperation$$Execute`). Le port n'a pas ce mode -- il porte le regime NORMAL, qui est
+    celui ou le gate est faux.
   * etape 3 : le natif LEVE une NRE quand l'entite n'est pas une unite (`GetUnitFeet` rend `null`).
     Le port rend `None` -- un refus TRACE, aligne sur les autres Operations portees
     (`RemoveUnitOperation` rend `None` sur chacun de ses gates) plutot qu'une exception qui ferait
@@ -94,5 +110,19 @@ class RemoveUnitFromTilesOperation:
             return {"unit": int(unit_id), "tiles": list(before), "applied": False,
                     "remove_tile_from_unit": False}
         set_unit_feet(state, int(unit_id), [])          # boucles 4 + 5 (arete unique cote port)
+        # etape 6 -- `@+0x98`, ECRIT APRES les boucles comme le natif (il capture `before`, pris en
+        # etape 2 AVANT elles). L'ordre importe : `set_unit_feet(uid, [])` retire la
+        # `PositionComponent`, et `@+0x98` vit sur le `UnitComponent` PRECISEMENT pour y survivre.
+        # ⚠ L'ECRITURE EST INCONDITIONNELLE, y compris sur une empreinte VIDE, et ce n'est pas un
+        # detail : le natif construit `new UnitPositionId(pos)` sans gate (contrairement a
+        # `SetUnitPositionOperation$$SavePreviousPosition`, qui lui REFUSE `Count < 1`). Retirer
+        # deux fois de suite une entite deja hors plateau doit donc EFFACER la position gardee, pas
+        # la conserver -- sinon `_movement_start_position` prendrait son second bras sur une tuile
+        # que l'unite a quittee il y a longtemps. Cote natif la valeur ecrite est un `Nullable`
+        # PORTEUR d'une empreinte vide, que `UnitPosition.IsEmpty` rejette ensuite : le `[]` du port
+        # est le meme comportement observable.
+        uc = e.get_component(UnitComponent)
+        if uc is not None:
+            uc.previous_position_this_turn = [(int(c), int(r)) for c, r in before]
         return {"unit": int(unit_id), "tiles": list(before), "applied": True,
                 "remove_tile_from_unit": True}

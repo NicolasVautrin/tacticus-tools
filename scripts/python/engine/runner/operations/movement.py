@@ -236,7 +236,8 @@ def _is_like_flying(traits, pathfinder_type_override) -> bool:
 
 
 def _calculate_path(state: State, mover_id: int, from_pos, to_pos,
-                    pathfinder_type_override=None) -> "list | None":
+                    pathfinder_type_override=None,
+                    previous_position_is_empty: bool = False) -> "list | None":
     """`IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` -- son **8e** out-param, `path`
     (#448-r1-r1-r2-r2). Le 9e, `connectedPath`, reste porte a part par `_num_tiles_moved` : ce sont
     DEUX listes distinctes, et le §5 de `docs/rl/case-448-r1-r1-r2-second-bras-islikeflying.md`
@@ -267,6 +268,21 @@ def _calculate_path(state: State, mover_id: int, from_pos, to_pos,
     ⚠ L'ORDRE DES DEUX ECRASEMENTS EST LU, PAS DEDUIT : le forcage `Fly` de la position vide vient
     AVANT l'override, donc **l'override GAGNE** quand les deux s'appliquent.
 
+    ⚠ **`previous_position_is_empty` PORTE LE TROISIEME FORCEUR (#448-r1-r1-r3-r1)**, celui de
+    `if (UnitPosition.IsEmpty(previousPosition)) pathfinderType = PathfinderType.Fly`. Le
+    `previousPosition` du natif est le **4e** argument de `CalculatePaths`, et `MoveUnitOperation$$
+    Execute` y passe la position **COURANTE** (`GetUnitPosition(unit, state)`), PAS le
+    `movementStartPosition` -- ce sont deux arguments DISTINCTS de la meme signature, et les
+    confondre est precisement ce que #448-r1-r1-r3-r1 corrige. Il ne mord donc QUE dans le regime
+    ou les deux different : unite HORS PLATEAU (position courante vide) mais ayant QUITTE une tuile
+    ce tour (`movementStartPosition = previousPositionThisTurn`, non vide). Quand
+    `movementStartPosition` est vide AUSSI, la branche degeneree ci-dessus court-circuite le
+    pathfinder et ce forceur n'a aucun effet observable -- c'est ce qui le rendait invisible.
+    ⚠ Il ne touche QUE `path` : `IsLikeFlying` ne le lit pas (elle ne lit que les TRAITS et
+    l'override), donc `movementSteps` reste sur sa branche MARCHE, et `connectedPath`
+    (`GetConnectedPathTo`, trois arguments) re-resout `GetPathfinderTypeForUnit` sans le voir.
+    Defaut `False` = « l'appelant n'a pas mesure la position courante » -> comportement d'avant.
+
     ⚠ `useTeleporter` : argument MORT sur les deux routes lues (`#448-r1-r1-r1-r1` §4), non
     re-verifie sur les autres pathfinders -- residu PREEXISTANT, inchange ici.
 
@@ -295,6 +311,8 @@ def _calculate_path(state: State, mover_id: int, from_pos, to_pos,
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
     ptype = _mq.get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits or [])
+    if previous_position_is_empty:
+        ptype = int(_pf.PathfinderType.Fly)       # `if (IsEmpty(previousPosition)) ptype = 3`
     if pathfinder_type_override is not None:
         ptype = int(pathfinder_type_override)    # `options.<+0x8>` ECRASE, y compris un forcage Fly
     if ptype != int(_pf.PathfinderType.Walk):
@@ -1448,6 +1466,38 @@ class MoveUnitOperation(Operation):
             return
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
+        # ── E1 : `movementStartPosition`, ENFIN CABLE (#448-r1-r1-r3-r1) ───────────────────────
+        # `MoveUnitOperation$$Execute` calcule TROIS valeurs distinctes avant `CalculatePaths`, et
+        # le port n'en avait qu'UNE (`old_pos`) qu'il passait aux trois places :
+        #
+        #     currentPosition       = GetUnitPosition(unit, state);            // le 4e argument
+        #     movementStartPosition = currentPosition;                         // le 3e argument
+        #     if (IsEmpty(currentPosition) && prevThisTurn.HasValue
+        #         && !IsEmpty(prevThisTurn.Value))
+        #         movementStartPosition = prevThisTurn.Value;
+        #     startTile = endTile;                                             // le 5e argument
+        #     if (movementStartPosition != null && movementStartPosition.Count > 0)
+        #         startTile = movementStartPosition[0];
+        #
+        # `_movement_start_position` porte ce bloc depuis #1082 et N'AVAIT AUCUN APPELANT -- c'est
+        # tout le residu. VALUE-PRESERVING dans le regime NOMINAL, et ce n'est pas un espoir :
+        # l'unite SUR le plateau a `get_unit_feet` non vide, `feet[0]` est sa main tile, et
+        # `set_unit_feet` est l'ECRIVAIN UNIQUE qui recale `pc.col,pc.row = tiles[0]` -- donc
+        # `start_tile == old_pos`, terme a terme. L'ecart n'existe QUE hors plateau.
+        movement_start = _movement_start_position(state, self.unit_id)
+        start_tile = (int(movement_start[0][0]), int(movement_start[0][1])) if movement_start else None
+        # ── E2 : la branche DEGENEREE de `CalculatePaths`, qui produit LES DEUX listes ──────────
+        # `if (movementStartPosition.Count == 0) { path = connectedPath = [endTile, endTile]; }`
+        # Le port ne la portait QUE pour `path` (`_calculate_path(from_pos=None) -> [to, to]`) ;
+        # `connectedPath` restait sur `_num_tiles_moved`, qui court-circuite a `0` sur
+        # `from_pos is None`. Le natif y rend `GetNumTilesMoved([end, end]) = 1`, et
+        # `movementSteps = path.Count = 2` (branche marche) ou `GetDistance(end, end) = 0`
+        # (branche volante). C'est l'ecart CHIFFRE par la fiche du residu.
+        # ⚠ Le `0` de `_num_tiles_moved(from_pos=None)` reste CORRECT et n'est pas touche : cette
+        # fonction porte `GetNumTilesMoved(GetConnectedPathTo(unit, startTile, endTile))`, et le
+        # natif n'appelle JAMAIS `GetConnectedPathTo` dans ce regime -- la branche degeneree
+        # court-circuite AVANT. Le defaut appartient donc a `CalculatePaths`, donc a CE rang-ci.
+        degenere = start_tile is None
         # `CalculatePaths(...)` puis le GATE D'ABANDON, au RANG NATIF : le natif les place APRES le
         # bloc override et AVANT `processor.SetUnitPosition` -- donc avant toute mutation. Lu
         # verbatim (`IdunBattle.Operations.MoveUnitOperation$$Execute`) :
@@ -1463,8 +1513,9 @@ class MoveUnitOperation(Operation):
         # Le log natif (`AOperation.get_Logger` + un `StackDict` a trois entrees) n'est pas porte :
         # le runner n'a pas de canal de journal, comme partout ailleurs dans `operations/`. La
         # RAISON est publiee a la place (`last_abandoned`).
-        self.last_path = _calculate_path(state, self.unit_id, old_pos, self.to,
-                                         self.pathfinder_type_override)
+        self.last_path = _calculate_path(state, self.unit_id, start_tile, self.to,
+                                         self.pathfinder_type_override,
+                                         previous_position_is_empty=(old_pos is None))
         if self.enforce_native_gates and not self.last_path:
             self.last_abandoned = "path-empty"
             self._remove_reservation(state, position)
@@ -1499,12 +1550,21 @@ class MoveUnitOperation(Operation):
         _traits_ms = getattr(_sc_ms.ctx, "traits", None) if _sc_ms is not None else None
         _lit_le_compte = self.record_tiles or not _is_like_flying(_traits_ms,
                                                                   self.pathfinder_type_override)
-        num_tiles = (_num_tiles_moved(state, self.unit_id, old_pos, self.to)
-                     if _lit_le_compte else 0)
-        # `movementSteps` -- calcule AVANT la mutation de position (`old_pos` est son entree), comme
-        # le natif qui derive `path` de `CalculatePaths(startTile = position.MainTile, ...)` avant
-        # de bouger l'unite.
-        self.last_movement_steps = _movement_steps(state, self.unit_id, old_pos, self.to,
+        if degenere:
+            # `connectedPath == [endTile, endTile]` -> `GetNumTilesMoved = Count - 1 = 1`. Aucun
+            # parcours a faire, donc pas de `_lit_le_compte` a consulter : le natif materialise
+            # cette liste INCONDITIONNELLEMENT, et elle ne coute rien.
+            num_tiles = 1
+        else:
+            num_tiles = (_num_tiles_moved(state, self.unit_id, start_tile, self.to)
+                         if _lit_le_compte else 0)
+        # `movementSteps` -- calcule AVANT la mutation de position (`start_tile` est son entree),
+        # comme le natif qui derive `path` de `CalculatePaths(startTile = movementStartPosition[0],
+        # ...)` avant de bouger l'unite. Dans la branche DEGENEREE, `start_tile` vaut `None` : la
+        # branche volante y rend `GetDistance(endTile, endTile) = 0` (le port : `hex_distance` sur
+        # un `from_pos` absent -> 0) et la branche marche `path.Count = 2` (le port : `n + 1` sur
+        # `num_tiles = 1`). Les deux valeurs natives sortent donc du mirror, sans cas particulier.
+        self.last_movement_steps = _movement_steps(state, self.unit_id, start_tile, self.to,
                                                    self.pathfinder_type_override,
                                                    num_tiles_moved=num_tiles)
         if pc is None:
@@ -1555,8 +1615,16 @@ class MoveUnitOperation(Operation):
         # d'`IdunBattle.Operations.MoveUnitOperation$$Execute` l'appelle entre `KillSteppableUnits` et
         # `SetMovedFlag`). Enregistre sur le mover les unites NOUVELLEMENT adjacentes apres ce pas :
         # c'est la moitie runtime du predicat `BattleQuery$$IsCharging` (TacticalPrecision, case-231).
-        # `old_pos is None` (unite sans position avant : spawn) -> mirror du `MainTile == null` natif.
-        update_charging(state, self.unit_id, old_pos, self.to)
+        # ⚠ SON 4e ARGUMENT EST `movementStartPosition`, PAS la position courante (#448-r1-r1-r3-r1).
+        # La signature ghidra le NOMME : `UpdateCharging(this, unit, position, movementStartPosition,
+        # unitComponent)`, et les DEUX call-sites de `Execute` lui passent la meme variable que
+        # `CalculatePaths` recoit en 3e position. Le port passait `old_pos` -- identique dans le
+        # regime nominal, divergent des que l'unite bouge SANS position courante : le natif compare
+        # alors les adjacences a la tuile QUITTEE ce tour, le port a un `before` VIDE (donc TOUTE
+        # unite adjacente a l'arrivee compte comme « chargee »).
+        # `start_tile is None` (unite sans position ni passe : spawn) -> `before` vide, mirror du
+        # `MainTile == null` natif.
+        update_charging(state, self.unit_id, start_tile, self.to)
         # #101 : `SetMovedFlag(unit)` — le natif pose ici le `UnitFlag.Moved` (+ `Teleported` si le move
         # est un teleport-strike). POSITION NATIVE lue au decompile d'`IdunBattle.Operations.
         # MoveUnitOperation$$Execute` : AddMoveEvent(s) -> KillSteppableUnits -> UpdateCharging ->
