@@ -180,9 +180,12 @@ def kimm_case(live_session, rpc, build_runner, kimm_seed_bc):
     pytest.skip("attaquant jamais amene a portee en 30 tours")
 
 
-def _rejouer(case, neutraliser: bool, monkeypatch=None):
-    """Rejoue l'attaque OFFLINE depuis l'etat capture, MT cale. `neutraliser` = contre-epreuve :
-    le slot 25 rend `None`, comme AVANT ce port."""
+def _rejouer(case):
+    """Rejoue l'attaque OFFLINE depuis l'etat capture, MT cale.
+
+    La CONTRE-EPREUVE ne passe pas par un parametre : elle substitue le slot 25 lui-meme
+    (`monkeypatch` sur la classe), pour que le bras mutant traverse EXACTEMENT le meme chemin que
+    le bras nominal -- un `if` local ne le garantirait pas."""
     state = load_state(case["dec"], case["ob"], case["snap"], board=case["board"])
     state.rng = _seed_rng(case["rng"])
     runner = Runner(state).install_default_handlers()
@@ -207,7 +210,7 @@ def test_10007r1_leffet_1543_est_bien_porte_par_kimm(kimm_case):
 
 def test_10007r1_le_degat_offline_reproduit_le_live_a_lunite(kimm_case):
     """CONFRONTATION : meme etat, meme MT, meme attaque -- les PV de Kimm doivent coincider."""
-    hp, last = _rejouer(kimm_case, neutraliser=False)
+    hp, last = _rejouer(kimm_case)
     print("\n[10007-r1] Kimm hp %s -> live %s | offline %s | pierce=%s armor=%s per_hit=%s"
           % (kimm_case["hp_before"], kimm_case["hp_after"], hp,
              (last or {}).get("pierce"), (last or {}).get("armor"), (last or {}).get("per_hit")))
@@ -225,11 +228,11 @@ def test_10007r1_le_regime_est_DISCRIMINANT_contre_epreuve_jouee(kimm_case, monk
 
     On rejoue la MEME salve avec le slot 25 neutralise : le degat DOIT differer."""
     from engine.entities.effects.loki import damage_reduction as DR
-    nominal, last = _rejouer(kimm_case, neutraliser=False)
+    nominal, last = _rejouer(kimm_case)
     monkeypatch.setattr(DR.ModifiedExoarmourPierceReductionEffect,
                         "create_piercing_malus_for_defense",
                         lambda self, damage_profile=None, is_melee=None, attacker_ctx=None: None)
-    mutant, last_m = _rejouer(kimm_case, neutraliser=True)
+    mutant, last_m = _rejouer(kimm_case)
     print("[10007-r1] contre-epreuve : nominal hp=%s (pierce=%s) | mutant hp=%s (pierce=%s)"
           % (nominal, (last or {}).get("pierce"), mutant, (last_m or {}).get("pierce")))
     assert nominal != mutant, (
