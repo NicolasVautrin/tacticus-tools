@@ -633,6 +633,27 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                                 ability_level=(level if passive_level is None else passive_level))
     _maybe_seed_ignore_battle_fatigue(state, e.id, team, mult)   # aura SquigHound -> grots amis immunisés
     e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    # ── LA FENETRE D'INTOUCHABILITE DU SPAWN (#433-r3-r2-r1-r1) ──────────────────────────────────
+    # `IdunBattle.Operations.AddUnitOperation$$Execute` encadre son propre corps d'un
+    # `UnitFlagsComponent$$Add(0x11)` ... `$$Remove(0x11)`, HORS de tout effet -- MEME structure que
+    # `ResurrectUnitOperation$$Execute` (cf. `operations/resurrect.py`). Le bloc encadre a ete lu
+    # sur `t6dpr4k06g` par extraction des appels entre les deux instructions : `HasTrait(0x1b)` +
+    # log, `UnitComponent$$ClearFeet`, la boucle `MatchComponent$$NextId` / `Blueprints$$UnitFoot` /
+    # `UnitComponent$$AddFoot`, `StateExtensions$$GetMatch`,
+    # **`AddUnitOperation$$KillSteppableUnits`**, puis `get_StreamHelper` /
+    # `RemoveTraitsThatAreNotInheritedWhenCloned` / `GetFullStateUpdateTags`.
+    # C'est donc la MEME nature de fenetre que la resurrection, et elle n'est pas morte :
+    # `KillSteppableUnits` passe par `KillUnitOperation$$Execute` en entier (cinq evenements de
+    # mort, trois `RemoveEffects`), donc du code de jeu s'execute dedans.
+    # PORTEE BORNEE A CE QUI EST PROUVE : la pose ouvre avant l'ecriture des pieds, le retrait ferme
+    # apres le crush et AVANT `on_unit_added` -- le decompile ne montre aucune emission d'evenement
+    # entre le crush et le `Remove(0x11)`, et rien n'autorise a etendre la fenetre au vecteur
+    # `On(UnitAdded)` sans l'avoir lu.
+    _fl = e.get_component(UnitFlagsComponent)
+    if _fl is None:
+        _fl = UnitFlagsComponent()
+        e.add_component(_fl)
+    _fl.add(UnitFlagsComponent.UNTARGETABLE)                # `flags.Add(0x11)`
     if feet_tiles and board is not None:
         # `AddUnitOperation$$Execute` : `ClearFeet` puis un `AddFoot` PAR tuile recue, dans l'ordre.
         # `set_unit_feet` est l'ECRIVAIN UNIQUE de l'empreinte (il recale la `PositionComponent` sur
@@ -659,7 +680,13 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     # `TileExtensions$$IsFreeTile` a `allowSteppable = 0` exige `content.IsEmpty()`. Le seul
     # call-site porte qui pose SUR un occupant est `MightFromBelow` (#501), dont le selecteur est
     # `Tiles(<decoys adjacents>)` sans aucun `CanAddUnit`.
-    _kill_steppable_units(state, (tinfo["col"], tinfo["row"]), e.id)
+    try:
+        _kill_steppable_units(state, (tinfo["col"], tinfo["row"]), e.id)
+    finally:
+        # `flags.Remove(0x11)` -- cf. le bloc « FENETRE D'INTOUCHABILITE DU SPAWN » ci-dessus. Le
+        # `finally` n'est pas un ornement : sans lui, une exception dans la sequence de mort du
+        # steppable laisserait l'unite POSEE non ciblable pour le reste de la bataille.
+        _fl.remove(UnitFlagsComponent.UNTARGETABLE)
     # `On(UnitAdded)` — APRES la pose ET apres le recalage multi-hex (`set_unit_feet` deplace la
     # `PositionComponent` sur la main tile, et les gates de PORTEE du vecteur la lisent).
     on_unit_added(state, e.id)

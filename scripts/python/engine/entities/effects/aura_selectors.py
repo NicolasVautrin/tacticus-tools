@@ -31,6 +31,16 @@ from ... import battle_query as _bq
 #: Le flag ne vient PAS de l'effet feuille : `UntargetableEffect$$ApplyInternal` fait
 #: `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE et `$$RevertInternal`
 #: le retire. C'est donc un DOMAINE, pas une constante.
+#: ⚠ **ET CE DOMAINE NE COUVRE PAS TOUTE LA NON-CIBLABILITE NATIVE (#433-r3-r2-r1-r1).** Mesure
+#: exhaustive sur `t6dpr4k06g` (tous les `call` ET `jmp` rel32 vers `UnitFlagsComponent$$Add`/
+#: `$$Remove` a immediat `edx == 0x11`) : **TROIS poseurs, TROIS retireurs**. Les deux autres sont
+#: `IdunBattle.Operations.ResurrectUnitOperation$$Execute` et
+#: `IdunBattle.Operations.AddUnitOperation$$Execute`, qui encadrent chacune leur propre corps --
+#: fenetre TRANSITOIRE intra-operation, HORS de tout effet. Elles sont PORTEES
+#: (`operations/resurrect.py`, `operations/spawn.py`) mais elles sont, par construction, invisibles
+#: de ce domaine-ci : un lecteur qui n'interroge que les EFFETS ne les verra jamais. Le canal qui
+#: les voit est le FLAG (`abilities/targeting.py::is_targetable`,
+#: `entities/unit_selection_type.py::selection_ok_from_ctx`).
 #: ⚠ **PAS << pour TOUTE sous-classe >>, ET C'EST LU (#433-r3-r2-r1, build `t6dpr4k06g`)** : la pose
 #: est GARDEE, le retrait ne l'est pas. `UntargetableEffect$$ApplyInternal` ouvre sur
 #: `if (!this.IsUntargetableEnabled(owner, target, effect)) return;` -- un VIRTUEL declare par

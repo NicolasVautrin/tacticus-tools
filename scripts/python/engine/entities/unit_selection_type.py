@@ -142,19 +142,37 @@ def selection_ok_from_ctx(unit, selection_type, ctx) -> bool:
     un fork >> ; le noeud `entities/triggers.py::IsAdjacent` en avait pourtant ecrit un TROISIEME --
     un filtre `IsAlive` a la main, aveugle au volet `Untargetable`.
 
-    ⚠ **`ctx.has_unit_flag` SEUL EST INERTE, et c'est mesure.** Le canal existe et repond, mais
-    **aucun chemin du port n'inscrit `0x11` dans `UnitFlagsComponent`** : le flag natif est pose par
-    `IdunBattle.Entities.Effects.Common.UntargetableEffect$$ApplyInternal` et retire par
-    `$$RevertInternal`, et le port modelise cette base par le DOMAINE de ses `EffectType` derives
-    (`UNTARGETABLE_EFFECT_TYPES`, foyer unique) plutot que par le flag. Un dérivateur qui n'aurait
-    lu que `has_unit_flag` aurait donc rendu `targetable = True` **partout**, c'est-a-dire une
-    MESURE AFFIRMEE A TORT -- pire qu'une non-mesure, puisqu'elle ferme le tri-etat. Les deux canaux
-    sont donc lus, dans cet ordre :
+    ⚠ **`ctx.has_unit_flag` N'EST PLUS INERTE (#433-r3-r2-r1), et la description qui vivait ici
+    n'etait pas seulement perimee -- elle etait INCOMPLETE.** Deux corrections :
 
-      1. `ctx.has_unit_flag(unit, Untargetable)` -- le canal DIRECT. Il fait autorite s'il rend
-         VRAI (le jour ou le port posera le flag, rien ne changera ici) ;
-      2. `ctx.has_effect(unit, <type>)` sur `UNTARGETABLE_EFFECT_TYPES` -- le canal PORTE
-         aujourd'hui, le MEME que lit `playbook/adjacency.py::is_targetable` cote DECISION.
+    (1) Le port INSCRIT desormais `0x11` : `AddEffectOperation._apply_untargetable_flag` (mirror
+        `UntargetableEffect$$ApplyInternal`) et `remove_effects.remove_effect_instance` (mirror
+        `$$RevertInternal`). Le canal DIRECT repond donc pour de vrai sur le domaine
+        `UNTARGETABLE_EFFECT_TYPES`.
+
+    (2) **`UntargetableEffect` n'est PAS le seul poseur du flag cote natif** (#433-r3-r2-r1-r1), et
+        la phrase precedente laissait croire le contraire -- donc qu'un domaine d'`EffectType`
+        pouvait couvrir TOUTE la non-ciblabilite. Mesure exhaustive sur `t6dpr4k06g` (tous les
+        `call` ET `jmp` rel32 vers `UnitFlagsComponent$$Add`/`$$Remove` a immediat `edx == 0x11`) :
+        **TROIS poseurs et TROIS retireurs**. Outre l'effet, ce sont
+        `IdunBattle.Operations.ResurrectUnitOperation$$Execute` et
+        `IdunBattle.Operations.AddUnitOperation$$Execute`, qui encadrent chacune leur propre corps
+        d'un `Add(0x11)` ... `Remove(0x11)` -- fenetre TRANSITOIRE intra-operation, HORS de tout
+        effet, donc invisible de `has_effect`. Les deux sont desormais PORTEES
+        (`operations/resurrect.py`, `operations/spawn.py`), et c'est le canal FLAG qui les rend
+        visibles ici : le canal EFFET, lui, ne les verra jamais.
+
+    Les deux canaux sont lus, dans cet ordre :
+
+      1. `ctx.has_unit_flag(unit, Untargetable)` -- le canal DIRECT, et le SEUL qui voie les
+         fenetres de resurrection et de spawn ;
+      2. `ctx.has_effect(unit, <type>)` sur `UNTARGETABLE_EFFECT_TYPES` -- le canal EFFET, le MEME
+         que lit `playbook/adjacency.py::is_targetable` cote DECISION.
+      Ils ne sont donc PAS redondants, et la disjonction n'est pas une ceinture-bretelles : chacun
+      voit ce que l'autre ne peut pas voir. Le seul regime ou ils DIVERGENT en sens inverse est le
+      MULTI-EFFETS simultane -- `$$RevertInternal` retire le flag NU, sans comptage de references,
+      donc le natif redevient ciblable alors qu'un second effet du domaine vit encore, et le canal
+      EFFET dit le contraire. Le OU choisit alors le canal EFFET. Residu `#433-r5`.
 
     TRI-ETAT preserve : AUCUN des deux canaux branche -> `targetable = None` = **PAS MESURE**, et
     `matches_unit_selection_type` degrade alors la clause en VRAI. Un `False` invente ecarterait une

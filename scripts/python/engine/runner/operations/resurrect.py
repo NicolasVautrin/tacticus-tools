@@ -259,40 +259,70 @@ class ResurrectUnitOperation:
         # `SetHealth`, comme le natif : l'unite revient sans son sac de donnees persistantes ni ses
         # compteurs de phase-triggers.
         persistent_cleared = reset_persistent_data(state, int(unit_id))
-        # IdunBattle.Operations.ResurrectUnitOperation$$KillSteppableUnits : crushe le decoy de la tuile d'arrivée (mover = l'unité ressuscitée,
-        # non tuée elle-même). Le decoy MORT co-localisé -> source de G2 BuffFriends.
-        crushed = []
-        if dest_coord is not None:
-            crushed = _kill_steppable_units(state, (int(dest_coord[0]), int(dest_coord[1])), unit_id)
-        # revive : alive + PV pleins + flag one-shot 0xe (Ambush consommé)
-        uc.alive = True
-        hc = e.get_component(HealthComponent)
-        if hc is not None and hp is not None:
-            # `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth` -> la mutation PV est un
-            # `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` (RELATIF : `current +=
-            # Min(amount, max - current)`), pas une ecriture absolue. Sur une unite morte `current`
-            # vaut 0, donc les deux formes coincident -- mais seul `FillUp` purge l'accumulateur de
-            # sur-reduction `+0x24` en queue (#462-r4e-o-r2), ce qui EMPECHE qu'une unite
-            # RESSUSCITEE herite du compteur de sa vie precedente et soit marquee `UnitFlag.Overkilled`
-            # des son premier coup recu. Foyer unique : `HealthComponent.fill_up`.
-            # (Le REVIVE, lui, ne purge rien : quirk natif mirrore dans `revive.py`.)
-            hc.fill_up(int(hp))
-            # #60 : bras `On(UnitRevived=45) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
-            # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
-            on_group_unit_hp_changed(state, unit_id)
+        # ── LA FENETRE D'INTOUCHABILITE DE LA RESURRECTION (#433-r3-r2-r1-r1) ────────────────────
+        # `IdunBattle.Operations.ResurrectUnitOperation$$Execute` encadre son propre corps d'un
+        # `UnitFlagsComponent$$Add(0x11)` ... `$$Remove(0x11)`, HORS de tout effet. Lu verbatim sur
+        # `t6dpr4k06g`, entre les deux :
+        #     SetHealth(unit, health)
+        #     flags.Add(0x11)                                   <- POSE
+        #     KillSteppableUnits(this, unit, tilesResolved)
+        #     if (options) UnitFlagsComponent.RemoveTurnFlags(flags, 1)
+        #     SendStreamEvents(this, unit, unitFeetTiles, abilityType)
+        #     flags.Remove(0x11)                                <- RETRAIT
+        #     ... On(0x2e = UnitResurrected), FinishUnitTurn, ...
+        # **L'unite ressuscitee n'est donc PAS ciblable pendant les triggers de sa propre
+        # resurrection.** Ce n'est pas une fenetre morte : `KillSteppableUnits` passe par
+        # `KillUnitOperation$$Execute` en entier -- cinq evenements de mort, trois `RemoveEffects` --
+        # donc du code de jeu s'execute dedans et peut enumerer des cibles.
+        # Le RETRAIT est place AVANT `unit_resurrected_triggers` (`On(0x2e)`), comme le natif :
+        # l'unite est deja ciblable quand ce vecteur-la part.
+        # ⚠ ECART D'ORDRE PREEXISTANT, non introduit ici : le port joue `_kill_steppable_units`
+        # AVANT `SetHealth`, le natif APRES. La fenetre ci-dessous couvre donc AUSSI le `fill_up`
+        # et `on_group_unit_hp_changed` -- un sur-ensemble, dans le sens RESTRICTIF.
+        # ⚠ `try/finally` : sans lui, un `return` ou une exception entre les deux laisserait
+        # l'unite non ciblable POUR LE RESTE DE LA BATAILLE (le flag ne part que par ce retrait) --
+        # exactement le mode de defaillance que #1074 a nomme pour `JustSummonedEffect`.
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
-        # `IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags` — rafale de RETRAITS complete
-        # (foyer/point de mutation : `update_flags_on_resurrect`, cf. sa docstring).
-        update_flags_on_resurrect(fl)
-        fl.add(UnitFlagsComponent.AMBUSH_CONSUMED)      # Add(0xe) — one-shot
-        # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction +
-        # turn-flags, dont l'`ActiveAbilityUsed` que `update_flags_on_resurrect` vient de poser).
         no_action = None
         finish_turn = None
-        if immediate_turn:
-            fl.remove_turn_flags(include_no_action=True, new_activation=True)
+        crushed = []
+        fl.add(UnitFlagsComponent.UNTARGETABLE)                 # `flags.Add(0x11)`
+        try:
+            # IdunBattle.Operations.ResurrectUnitOperation$$KillSteppableUnits : crushe le decoy de la tuile d'arrivée (mover = l'unité ressuscitée,
+            # non tuée elle-même). Le decoy MORT co-localisé -> source de G2 BuffFriends.
+            if dest_coord is not None:
+                crushed = _kill_steppable_units(state, (int(dest_coord[0]), int(dest_coord[1])),
+                                                unit_id)
+            # revive : alive + PV pleins + flag one-shot 0xe (Ambush consommé)
+            uc.alive = True
+            hc = e.get_component(HealthComponent)
+            if hc is not None and hp is not None:
+                # `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth` -> la mutation PV est un
+                # `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` (RELATIF : `current +=
+                # Min(amount, max - current)`), pas une ecriture absolue. Sur une unite morte `current`
+                # vaut 0, donc les deux formes coincident -- mais seul `FillUp` purge l'accumulateur de
+                # sur-reduction `+0x24` en queue (#462-r4e-o-r2), ce qui EMPECHE qu'une unite
+                # RESSUSCITEE herite du compteur de sa vie precedente et soit marquee `UnitFlag.Overkilled`
+                # des son premier coup recu. Foyer unique : `HealthComponent.fill_up`.
+                # (Le REVIVE, lui, ne purge rien : quirk natif mirrore dans `revive.py`.)
+                hc.fill_up(int(hp))
+                # #60 : bras `On(UnitRevived=45) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
+                # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
+                on_group_unit_hp_changed(state, unit_id)
+            # `IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags` — rafale de RETRAITS complete
+            # (foyer/point de mutation : `update_flags_on_resurrect`, cf. sa docstring).
+            update_flags_on_resurrect(fl)
+            fl.add(UnitFlagsComponent.AMBUSH_CONSUMED)      # Add(0xe) — one-shot
+            # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction +
+            # turn-flags, dont l'`ActiveAbilityUsed` que `update_flags_on_resurrect` vient de poser).
+            # RANG NATIF : ce `RemoveTurnFlags` est DANS la fenetre d'intouchabilite (cf. le bloc
+            # de commentaire ci-dessus), le vecteur `On(0x2e)` en dehors.
+            if immediate_turn:
+                fl.remove_turn_flags(include_no_action=True, new_activation=True)
+        finally:
+            fl.remove(UnitFlagsComponent.UNTARGETABLE)          # `flags.Remove(0x11)`
         # émet On(UnitResurrected=46) -> G2 BuffFriends (+582 + decoy si GS Cult) + G5 ré-arme HeroicFusillade
         downstream = unit_resurrected_triggers(state, unit_id)
         if not immediate_turn:
