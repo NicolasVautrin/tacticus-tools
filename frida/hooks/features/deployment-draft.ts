@@ -561,6 +561,46 @@ let listenerShow: InvocationListener | null = null;
 let listenerPose: InvocationListener | null = null;
 let listenerBoard: InvocationListener | null = null;
 let hudEtat: Record<string, unknown> | null = null;
+/** L'instance du HUD, gardée pour pouvoir la relire APRÈS `Show` (l'état bouge à chaque pose). */
+let hudInstance: NativePointer | null = null;
+
+/**
+ * Les deux champs qui expliquent le bouton START.
+ *
+ * ⚠ MESURÉ : la comptabilité du HUD et la composition RÉELLE de la bataille sont DEUX choses
+ * séparées, et en sandbox aucune ne nourrit l'autre. Unités déclarées dans `bc.Units` -> elles
+ * apparaissent sur le plateau mais `_currentlyPlacedUnits` reste VIDE, donc START est grisé.
+ * Unités posées par le HUD -> START s'active, mais le combat démarre sans unité joueur réelle
+ * et se termine aussitôt. `HandleOnStartBattleTapped` relaie les posées à
+ * `_callbacksDelegate` (`IDeploymentHudCallbacks`, slot 3) : c'est LÀ que se fait le raccord,
+ * et savoir QUI l'implémente est le préalable.
+ */
+function etatDuBouton(): Record<string, unknown> {
+    if (hudInstance === null || hudInstance.isNull()) {
+        return { mesure: false, raison: "aucune instance de HUD captée (`Show` n'a pas tiré)" };
+    }
+    const out: Record<string, unknown> = { mesure: true, hud: hudInstance.toString() };
+    try {
+        const k = hudInstance.readPointer();
+        const offCb = getFieldOffset(k, "_callbacksDelegate");
+        const offPl = getFieldOffset(k, "_currentlyPlacedUnits");
+        if (offCb >= 0) {
+            const cb = hudInstance.add(offCb).readPointer();
+            out.callbacks = cb.toString();
+            out.classeCallbacks = cb.isNull() ? null : classeDerriere(cb).classe;
+        } else { out.callbacks = "champ `_callbacksDelegate` ABSENT"; }
+        if (offPl >= 0) {
+            const lst = hudInstance.add(offPl).readPointer();
+            if (lst.isNull()) { out.placees = "liste NULLE"; }
+            else {
+                const kl = lst.readPointer();
+                const offSize = getFieldOffset(kl, "_size");
+                out.placees = offSize < 0 ? "champ `_size` ABSENT" : lst.add(offSize).readS32();
+            }
+        } else { out.placees = "champ `_currentlyPlacedUnits` ABSENT"; }
+    } catch (e) { out.erreur = (e as Error).message; }
+    return out;
+}
 const hudPoses: Array<{ unitId: string | null; mow: boolean; accepte: boolean }> = [];
 // ⚠ L'ÉTAGE QUI POSE VRAIMENT. `TryMarkUnitAsPlaced` n'est que la comptabilité du roster —
 // mesuré : il rend `true` (l'unité se grise) alors que le plateau ne bouge pas.
@@ -616,6 +656,7 @@ function armerHud(): true | Refus {
             onEnter(args) {
                 // `Show` remplit les dictionnaires : on lit APRÈS, pas avant.
                 (this as unknown as { hud: NativePointer; mn: number; mx: number }).hud = args[0];
+                hudInstance = args[0];
                 (this as unknown as { mn: number }).mn = args[2].toInt32();
                 (this as unknown as { mx: number }).mx = args[3].toInt32();
             },
@@ -1644,6 +1685,160 @@ function armerPoseDiag(): true | Refus {
     return true;
 }
 
+// ============================================================================
+// LE BOUTON START — pourquoi il reste GRIS quand les unités sont PRÉ-POSITIONNÉES.
+//
+// `idun.ui.UnitDeploymentHud$$UpdateButtons` compte les unités de `_currentlyPlacedUnits`
+// (+0x1b8) et relaie à `idun.ui.UnitDeploymentHudButtons$$UpdateState(gameMode, count, mowCount,
+// min, max)`, dont le corps décide :
+//
+//     count <  min  ->  Animator.SetInteger(<etat>, 0)   // BOUTON DÉSACTIVÉ
+//     count >= max  ->  ... SetInteger(<etat>, 2)        // plein
+//     sinon         ->  ... SetInteger(<etat>, 1)        // actif
+//
+// ⚠ MESURÉ : la comptabilité du HUD et la composition RÉELLE de la bataille sont DEUX choses
+// SÉPARÉES, et en sandbox aucune ne nourrit l'autre. Déclarer les unités dans `bc.Units` les
+// fait bien APPARAÎTRE sur le plateau, mais `_currentlyPlacedUnits` reste VIDE — donc
+// `count = 0 < min` et le bouton est gris. Symétriquement, les poser par le HUD active le
+// bouton mais ne crée que des `PlaceholderUnitView`.
+//
+// On force donc le COMPTE que le relais reçoit, pas la liste : c'est le même patron que le
+// forçage de phase et celui des bornes, tous deux éprouvés. Défaut = le `min` que le relais
+// reçoit lui-même, pour rendre le bouton ACTIF sans le déclarer PLEIN.
+
+const NS_BOUTONS = "idun.ui";
+const CLS_BOUTONS = "UnitDeploymentHudButtons";
+let listenerBouton: InvocationListener | null = null;
+let boutonImpose: number | null = null;
+let boutonFires = 0;
+const boutonObs: Array<{
+    recu: number; impose: number; min: number; max: number;
+    source: string; plateau: Record<string, number | string>;
+}> = [];
+
+/** Taille d'un `List\`1`, champ `_size` résolu PAR SON NOM. */
+function tailleListe(lst: NativePointer): number | string {
+    try {
+        if (lst.isNull()) return "NULLE";
+        const o = getFieldOffset(lst.readPointer(), "_size");
+        return o < 0 ? "champ `_size` ABSENT" : lst.add(o).readS32();
+    } catch (e) { return "ILLISIBLE : " + (e as Error).message; }
+}
+
+/**
+ * LE COMPTE DÉRIVÉ DU PLATEAU — les trois candidats, tous publiés.
+ *
+ * Forcer une CONSTANTE dans le relais du bouton ne contourne pas seulement la comptabilité
+ * fausse du HUD : ça supprime la contrainte « assez d'unités posées ». En dérivant le compte des
+ * unités RÉELLEMENT présentes, la contrainte est de nouveau ÉVALUÉE — c'est la comptabilité du
+ * HUD qui est fausse (il ignore ce qui vient de `bc.Units`), pas la borne.
+ *
+ * Les trois sont rendus ensemble parce qu'un seul chiffre ne se vérifie pas : sur un montage à
+ * 5 unités joueur et 3 adverses, seul le bon candidat vaut 5.
+ */
+function compterSurLePlateau(): Record<string, number | string> {
+    const out: Record<string, number | string> = {};
+    const vues = vuesDePose;
+    if (vues === null || vues.isNull()) {
+        return { erreur: "aucune `IdunGameViews` observée -- rien n'est compté" };
+    }
+    // LE COMPTE JUSTE : les vues d'unité dont le joueur EST le joueur humain.
+    // ⚠ `_humanPlayerEntityIds` compte les JOUEURS (mesuré : 1) et `_unitViews` compte LES DEUX
+    // CAMPS (mesuré : 8 pour 5+3). Ni l'un ni l'autre ne repond a la question ; c'est en les
+    // publiant tous les deux qu'on l'a vu, plutot qu'en en elisant un.
+    out.unitesDuJoueurHumain = (() => {
+        try {
+            const k = vues.readPointer();
+            const mAll = findMethodByParamCount(k, "GetAllUnitViews", 0);
+            const mCur = findMethodByParamCount(k, "get_CurrentPlayerEntityId", 0);
+            if (!mAll || !mCur) return "`GetAllUnitViews`/`get_CurrentPlayerEntityId` INTROUVABLES";
+            // ⚠ `BEntityId` est un TYPE VALEUR : `runtime_invoke` le BOXE, la valeur est a +0x10.
+            const boite = invokeMethod(mCur.info, vues, null);
+            if (boite.isNull()) return "joueur courant NUL";
+            const idCourant = boite.add(0x10).readS32();
+            const liste = invokeMethod(mAll.info, vues, null);
+            if (liste.isNull()) return "`GetAllUnitViews` rend NUL";
+            const kl = liste.readPointer();
+            const offSize = getFieldOffset(kl, "_size");
+            const offItems = getFieldOffset(kl, "_items");
+            if (offSize < 0 || offItems < 0) {
+                return `retour \`${s(class_get_name(kl) as NativePointer)}\` non parcourable `
+                    + "(`_size`/`_items` absents)";
+            }
+            const n = liste.add(offSize).readS32();
+            const items = liste.add(offItems).readPointer();
+            if (items.isNull() || n < 0 || n > 512) return `taille invraisemblable (${n})`;
+            let compte = 0;
+            let offJoueur = -1;
+            for (let i = 0; i < n; i++) {
+                const uv = items.add(0x20 + i * Process.pointerSize).readPointer();
+                if (uv.isNull()) continue;
+                if (offJoueur < 0) {
+                    offJoueur = getFieldOffset(uv.readPointer(),
+                                               "<PlayerEntityId>k__BackingField");
+                    if (offJoueur < 0) return "champ `<PlayerEntityId>k__BackingField` ABSENT";
+                }
+                if (uv.add(offJoueur).readS32() === idCourant) compte++;
+            }
+            return compte;
+        } catch (e) { return "LEVÉ : " + (e as Error).message; }
+    })();
+    try {
+        const k = vues.readPointer();
+        for (const [cle, champ, genre] of [
+            ["unitesDuJoueur", "_humanPlayerEntityIds", "liste"],
+            ["toutesLesVues", "_unitViews", "dico"],
+            ["placeholders", "_placeholderUnitViews", "dico"],
+        ] as const) {
+            const o = getFieldOffset(k, champ);
+            if (o < 0) { out[cle] = `champ \`${champ}\` ABSENT`; continue; }
+            const p = vues.add(o).readPointer();
+            out[cle] = genre === "liste" ? tailleListe(p) : compteDict(p);
+        }
+    } catch (e) { out.erreur = (e as Error).message; }
+    return out;
+}
+
+function armerBouton(): true | Refus {
+    if (listenerBouton) return true;
+    const k = findClassAnywhere(NS_BOUTONS, CLS_BOUTONS);
+    if (!k) return refus(`\`${NS_BOUTONS}.${CLS_BOUTONS}\` INTROUVABLE sur ce build`);
+    const mi = findMethodByParamCount(k, "UpdateState", 5);
+    if (!mi) return refus(`\`${CLS_BOUTONS}$$UpdateState\` INTROUVABLE (5 paramètres)`);
+    const t = lireTete(mi.ptr);
+    if (t.erreur !== null) return refus(`tête de \`UpdateState\` ILLISIBLE (${t.erreur})`);
+    if (teteTriviale(t)) {
+        return refus(`REFUS : \`${CLS_BOUTONS}$$UpdateState\` résout sur un corps TRIVIAL `
+            + `(ret à l'octet ${t.retA}) -- adresse PARTAGÉE. Cf. §8.`);
+    }
+    listenerBouton = Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            boutonFires++;
+            const recu = args[2].toInt32();
+            const mn = args[4].toInt32();
+            const mx = args[5].toInt32();
+            // LE COMPTE VIENT DU PLATEAU, pas d'une constante : la contrainte reste ÉVALUÉE.
+            const plateau = compterSurLePlateau();
+            const surPlateau = typeof plateau.unitesDuJoueurHumain === "number"
+                ? plateau.unitesDuJoueurHumain : null;
+            // Ordre : consigne explicite > compte dérivé du plateau > ce que le HUD croit.
+            // ⚠ On ne descend JAMAIS sous `recu` : le HUD sait ce qu'il a posé lui-même, et une
+            // dérivation ratée ne doit pas RETIRER des unités qu'il a comptées.
+            const derive = surPlateau !== null ? Math.max(recu, surPlateau) : recu;
+            const impose = boutonImpose !== null ? boutonImpose : derive;
+            if (impose !== recu) args[2] = ptr(impose);
+            if (boutonObs.length < 32) {
+                boutonObs.push({ recu, impose, min: mn, max: mx,
+                                 source: boutonImpose !== null ? "consigne"
+                                     : surPlateau !== null ? "plateau" : "HUD (non dérivé)",
+                                 plateau });
+            }
+        },
+    });
+    Interceptor.flush();
+    return true;
+}
+
 function etatPool(): Record<string, unknown> {
     const src = getCampaignGameModeSourcePtr();
     return {
@@ -1734,6 +1929,32 @@ export function register(ctx: Ctx): void {
 
     /** ÉTAT du hook de phase de déploiement. Lecture pure. */
     ctx.rpc.deploymentPhaseStatus = (): unknown => ({ ok: true, lecture: true, ...etatPhase() });
+
+    /** Débloque le bouton START quand les unités sont PRÉ-POSITIONNÉES (venues de `bc.Units`,
+     *  donc invisibles de `_currentlyPlacedUnits`). Force le COMPTE reçu par le relais. */
+    ctx.rpc.deploymentBoutonArmer = (body?: {
+        armer?: boolean; compte?: number; confirmer?: boolean;
+    }): unknown => {
+        const etat = () => ({
+            arme: listenerBouton !== null, impose: boutonImpose, fires: boutonFires,
+            obs: boutonObs.slice(-8), bouton: etatDuBouton(),
+        });
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`armer: true` + `confirmer: true` : ce relais RÉÉCRIT le compte "
+                         + "d'unités posées que le HUD utilise pour activer START" };
+        }
+        if (body.armer === false) {
+            if (listenerBouton) { try { listenerBouton.detach(); } catch { /* best effort */ } }
+            listenerBouton = null; boutonImpose = null;
+            return { ok: true, arme: false };
+        }
+        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
+        if (body.compte !== undefined) boutonImpose = body.compte;
+        const r = armerBouton();
+        if (r !== true) return r;
+        return { ok: true, ...etat() };
+    };
 
     /** Arme la CAPTURE du patron sur `UnitIdToPrefabDictionary$$Add`. Observation PURE.
      *  À armer AVANT `sandboxModeStart` : c'est `StartBattle` qui fait tirer `Add`. */
