@@ -109,24 +109,43 @@ développement laissé incomplet dans le build livré.
 - **Rien n'a été joué sur le jeu.** Lecture pure ; aucun montage Draft n'a été tenté (il partirait
   sur le throw, et un throw natif remonte en « system error » qui ne nomme rien).
 
-## 6. Ce qui change pour la suite — le lot de consolation vaut mieux que le lot principal
+## 6. Ce qui change pour la suite — et la CONSOLATION annoncée ici a été RÉFUTÉE le même jour
 
 La voie « remplir `+0x48` » est **fermée** par la poule-et-l'œuf du §3. La voie ouverte serait
 d'**ancrer `HandleStartGame`** pour neutraliser la branche Draft — mais on ne sait pas ce qu'on
 neutraliserait (§5).
 
-**En revanche, la surface de DÉPLOIEMENT n'est PAS derrière cette branche.** Six méthodes vivent
-sur `SandboxGameModeSource` et ne dépendent d'aucun champ de vue :
+⚠ **Ce paragraphe promettait un lot de consolation qui n'existe pas, et la correction est le seul
+enseignement qui vaille ici.** Il déclarait la surface de déploiement « atteignable » et le choix
+d'équipe « probablement à portée ». **Mesuré quelques heures plus tard, et négatif** :
+`SandboxGameModeSource$$GetUnitsForDeploymentHUD`, ancrée sur une bataille RÉELLEMENT montée
+(`sandboxModeStart`, stage 1 `Running`, 11 unités), rend **`fires: 0`** — elle n'est **JAMAIS
+APPELÉE**. Le sandbox pré-place l'équipe et démarre directement : il n'y a pas de HUD vide à
+remplir, **il n'y a pas de HUD**. Le stub n'était donc pas le bloqueur.
 
-```
-GetUnitsForDeploymentHUD          GetGameModeSpecificDeploymentHudOptions
-GetUnlockedUnitsPooled            GetBattleLineup
-MinUnitsNeededToStartBattle       MaxUnitsPossibleToStartBattle
-```
+Six méthodes vivent bien sur `SandboxGameModeSource` sans dépendre d'aucun champ de vue —
+`GetUnitsForDeploymentHUD`, `GetGameModeSpecificDeploymentHudOptions`, `GetUnlockedUnitsPooled`,
+`GetBattleLineup`, `MinUnitsNeededToStartBattle`, `MaxUnitsPossibleToStartBattle`. Mais
+**« ATTEIGNABLE » N'IMPLIQUE PAS « APPELÉE »**, et c'est exactement le pas que ce paragraphe avait
+franchi sans le mesurer. Non-bloqueur vérifié au passage :
+`IdunBattle.View.FSM.UnitDeployment.UnitDeploymentHudGameModeFactory$$Create` dispatche sur la
+NON-NULLITÉ de champs d'options, pas sur un enum de mode, et retombe sur
+`UnitDeploymentHudGameModeDefault` — ce n'est pas lui qui ferme la voie.
 
-Elles sont donc atteignables **sur un mode non-Draft** — c'est-à-dire sur l'onslaught qu'on sait
-déjà monter (`sandboxModeStart`) et dont on sait déjà **sortir** (retraite éprouvée le 2026-08-16).
-Choisir son équipe et la déployer dans une sandbox est probablement à portée ; c'est le draft à
-deux joueurs qui ne l'est pas.
+**LA QUESTION OUVERTE, qui est la vraie suite** : qu'est-ce qui fait entrer une bataille en
+**PHASE** de déploiement au lieu de sauter en `Running` ? Pistes non explorées :
+`MinUnitsNeededToStartBattle` / `MaxUnitsPossibleToStartBattle`, et le banc natif dédié
+`battle_unit_deployment_test`.
 
-**NON CONFRONTÉ** : aucune de ces six méthodes n'a été appelée. C'est le prochain montage.
+**Et la voie qui reste ouverte est NOMMÉE ailleurs — c'est la face VUE, pas la face SOURCE.**
+`#596` du backlog établit que le raycast est **HORS** du FSM (`IdunBattle.View.Game.InputEntityAdapter`
+résout l'entité et la tuile, puis appelle le FSM avec elles), donc qu'on peut désigner la tuile
+soi-même sans un pixel — et nomme l'étage :
+`IdunBattle.View.FSM.UnitDeployment.UnitDeploymentState`, qui porte `OnUnitInHand(unitId,
+isMachineOfWar)`, `OnFingerDownThisFrameInternal(mousePosition, entityHit)`,
+`RemoveAllDeployedUnits` et `StartBattle(units)`. `BLOCAGE: capteur`.
+
+Le module d'observation écrit pour la mesure ci-dessus vit dans
+`frida/hooks/features/deployment-draft.ts`. Il est en régime **OBSERVER-d'abord** : il refuse de
+remplir tant qu'aucune observation n'a établi la classe derrière le retour — c'est ce qui a évité
+d'écrire dans un conteneur que rien ne lit.
