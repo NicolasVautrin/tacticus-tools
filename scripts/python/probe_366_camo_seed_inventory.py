@@ -186,6 +186,35 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         " (AddEffect(0x5b8 = 1464, targets = Caster))",
         "AmountIsGreaterThanZero(<le MEME compteur que 1465>) -- corps FONDU : condition et "
         "magnitude partagent le compteur, elles ne peuvent pas diverger"),
+    # #547-r11 -- `1060 Lifewards_BondEffect`, entree au registre avec #963-r3 sans verdict de pose.
+    # `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateBehaviour`
+    # RELU VERBATIM (build `t6dpr4k06g`) : corps ENTIER =
+    #     If( op_LogicalNot(HasEffect(Owner@<DSLSelectors+0x30>, 0x424, onlyActive: 0,
+    #                                 effectTargetType: 6)),
+    #         AddBondEffect(0x424, get_AbilityStateReference(this), source = Owner@+0x30,
+    #                       targets = Owner@+0x30, bondedEntity = Parent(Owner@+0x30, root: 0),
+    #                       options = <ZEROEES>) )
+    # Le seul gate est `NOT HasEffect(<lui-meme>)`, c.-a-d. un gate d'IDEMPOTENCE, pas une condition
+    # metier : a la premiere evaluation l'instance n'existe pas, donc la pose est INCONDITIONNELLE.
+    # Son trigger est le corps ICF-deduplique `...Active.Loki.SummaryExecutionAddBaseEffectAbility$$
+    # CreateTrigger`, RELU AUSSI : `return <DSLTriggers+0x30>` = `On(0x21 = AbilityInit) &
+    # <+0x70 = YesTrigger> & get_OwnerIsActor` -> pose d'INIT. MEME vecteur qu'`AllIsDust`,
+    # `SynapticInsight` et `LegendaryCommander`, qui partagent ce corps de trigger.
+    # `flip: sim` -- `IdunBattle.Entities.Effects.Loki.LifewardsBondEffect$$CreateActiveCondition`,
+    # RELUE VERBATIM, a pour corps ENTIER `IsAdjacent(Owner@<DSLSelectors+0x30>, Parent(Owner),
+    # UnitSelectionType.OnlyAliveAndTargetable = 3)` : GEOMETRIQUE, donc elle rebascule des qu'une
+    # unite bouge -- meme famille qu'`AmuletOfTheVoidwyrm` et `SupaCyborkBody`.
+    # -> verdict `COUVERT-SEED` : le rail existe, mais par le canal BOND
+    # (`ABILITY_INIT_OWNER_BOND_EFFECTS["Lifewards"]`, #963-r5), que l'inventaire ne visitait pas
+    # avant cette tranche -- cf. `canaux_de_seed`.
+    "Lifewards_BondEffect": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateBehaviour"
+        " (trigger `<DSLTriggers+0x30>` = On(0x21 AbilityInit), corps ICF de"
+        " SummaryExecutionAddBaseEffectAbility$$CreateTrigger)",
+        "IsAdjacent(Owner@<DSLSelectors+0x30>, Parent(Owner@+0x30), "
+        "UnitSelectionType.OnlyAliveAndTargetable = 3) -- geometrique, donc elle bascule des "
+        "qu'une des deux unites bouge"),
     "DestroyTheWitch_ExtraDamage": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.DestroyTheWitchAbility$$CreateBehaviour",
@@ -469,13 +498,99 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
 }
 
 
+def canaux_de_seed() -> dict:
+    """{table de `factory`: set(noms d'effet)} -- **DERIVE DU CONSOMMATEUR**, jamais enumere.
+
+    ⚠ POURQUOI CETTE FONCTION EXISTE (#547-r11). `scan()` calculait `seeded` sur DEUX tables
+    ECRITES A LA MAIN (`ABILITY_INIT_OWNER_EFFECTS`, `ABILITY_OWNER_EFFECTS`). Le seed en consomme
+    QUATRE : `#963-r5` a ajoute `ABILITY_INIT_OWNER_BOND_EFFECTS` (le canal qui ecrit `bonded`, sans
+    lequel la pose d'init de `Lifewards` restait refusee) et `TRAIT_OWNER_EFFECTS` n'y avait jamais
+    ete. Consequence MESUREE : `Lifewards_BondEffect`, seede par le canal BOND, sortait en `EXPOSE`
+    -- c.-a-d. << le natif porte l'instance et le port ne la materialise pas >> -- alors que le port
+    la materialise. Un inventaire ecrit a la main ne peut pas montrer la table qu'il a oubliee ;
+    c'est le vice recense par le CLAUDE.md (<< un recenseur ne peut pas rendre zero sur ce qu'il ne
+    visite pas >>), ici dans sa variante << une LISTE DE TABLES au lieu des REGISTRES >>.
+
+    LA DERIVATION, en trois crans, tous mecaniques :
+      1. le CONSOMMATEUR (`runner/operations/spawn.py`, le seul foyer des `_seed_*_owner_effects`)
+         est parse a l'AST -- on prend tout nom qu'il importe de `entities/effects/factory.py`,
+         **imports DIFFERES compris** (`get_owner_bond_effects_added_on_ability_init` est importe
+         DANS une fonction : un balayage des seuls imports de tete l'aurait rate) ;
+      2. chaque nom est resolu contre `factory` -- un accesseur `def get_x(k): return <TABLE>.get(k)`
+         rend `<TABLE>` (appariement par l'AST du `return`, pas par le nom), un `dict` de module se
+         rend lui-meme, tout le reste est ECARTE et COMPTE ;
+      3. les valeurs sont aplaties (un element `tuple` porte le nom d'effet en position 0, forme du
+         canal BOND) et filtrees par appartenance a `EFFECT_CLASSES`.
+
+    ⚠ CE QUE LE CRAN 3 FILTRE, et c'est MESURE, pas suppose : `TRAIT_DERIVED_ABILITIES` est
+    consommee par `_seed_derived_ability_owner_effects` mais ses valeurs sont des noms d'ABILITY,
+    pas d'effet -- elle RE-ENTRE dans `get_owner_effects_added_on_ability_init`, donc son apport
+    reel est deja compte. L'intersection de ses valeurs avec `EFFECT_CLASSES` est **VIDE**, donc le
+    filtre ne perd rien et n'ajoute rien ; `--csv`/la sortie l'IMPRIMENT (`ecartes`), pour qu'une
+    collision de nom future soit visible au lieu d'etre silencieuse.
+    """
+    import ast as _ast
+    import inspect as _inspect
+    from engine.entities.effects import factory as _factory
+    from engine.runner.operations import spawn as _spawn
+
+    # -- cran 1 : ce que le CONSOMMATEUR importe de `factory` (imports differes compris) ----------
+    importes: set[str] = set()
+    for n in _ast.walk(_ast.parse(_inspect.getsource(_spawn))):
+        if isinstance(n, _ast.ImportFrom) and (n.module or "").endswith("entities.effects.factory"):
+            importes |= {a.name for a in n.names}
+
+    # -- cran 2 : accesseur -> table, par l'AST du `return <TABLE>.get(...)` ----------------------
+    table_de: dict[str, str] = {}
+    dicts_de_module: set[str] = set()
+    arbre_f = _ast.parse(_inspect.getsource(_factory))
+    for n in arbre_f.body:
+        if isinstance(n, _ast.FunctionDef):
+            for st in n.body:
+                if not (isinstance(st, _ast.Return) and isinstance(st.value, _ast.Call)):
+                    continue
+                f = st.value.func
+                if (isinstance(f, _ast.Attribute) and f.attr == "get"
+                        and isinstance(f.value, _ast.Name)):
+                    table_de[n.name] = f.value.id
+        elif isinstance(n, (_ast.Assign, _ast.AnnAssign)):
+            cibles = (n.targets if isinstance(n, _ast.Assign) else [n.target])
+            for c in cibles:
+                if isinstance(c, _ast.Name) and isinstance(n.value, _ast.Dict):
+                    dicts_de_module.add(c.id)
+
+    tables, ecartes = {}, []
+    for nom in sorted(importes):
+        t = table_de.get(nom) or (nom if nom in dicts_de_module else None)
+        if t is None:
+            ecartes.append(nom)                       # `EffectFactory`, une constante, ... : COMPTE
+            continue
+        tables[t] = getattr(_factory, t, None)
+
+    # -- cran 3 : aplatir, puis filtrer par appartenance a `EFFECT_CLASSES` -----------------------
+    connus = set(_factory.EFFECT_CLASSES)
+    par_table, hors_registre = {}, {}
+    for t, d in tables.items():
+        plat = set()
+        for v in (d or {}).values():
+            for x in (v or ()):
+                plat.add(x[0] if isinstance(x, tuple) else x)
+        par_table[t] = {n for n in plat if isinstance(n, str) and n in connus}
+        # `ABILITY_INIT_OWNER_FLAGS` porte des ENTIERS (des `UnitFlag`, pas des effets) : le tri par
+        # `str` evite de comparer int et str, et l'affichage les rend tels quels -- ce qui EST
+        # l'information (ce canal ne materialise aucune instance d'effet).
+        reste = {n for n in plat if not (isinstance(n, str) and n in connus)}
+        if reste:
+            hors_registre[t] = sorted(reste, key=str)
+    return {"tables": par_table, "ecartes": sorted(ecartes), "hors_registre": hors_registre}
+
+
 def scan() -> dict:
     """RE-DERIVE tout ce qui est mecanique depuis le code (jamais un compte recopie)."""
     from engine.entities.effects.base import BaseEffect
-    from engine.entities.effects.factory import (EFFECT_CLASSES, ABILITY_INIT_OWNER_EFFECTS,
-                                                 ABILITY_OWNER_EFFECTS)
-    seeded = {n for names in ABILITY_INIT_OWNER_EFFECTS.values() for n in names}
-    seeded |= {n for names in ABILITY_OWNER_EFFECTS.values() for n in names}
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    canaux = canaux_de_seed()
+    seeded = set().union(*canaux["tables"].values()) if canaux["tables"] else set()
     rows = []
     for name in sorted(EFFECT_CLASSES):
         klass = EFFECT_CLASSES[name]
@@ -496,7 +611,8 @@ def scan() -> dict:
                      "witness": getattr(klass, "seed_witness_effect", None),
                      "verdict": verdict, "symbol": symbol, "condition": cond})
     return {"n_effect_classes": len(EFFECT_CLASSES), "rows": rows,
-            "unknown": [r["effect"] for r in rows if r["verdict"] == "INCONNU"]}
+            "unknown": [r["effect"] for r in rows if r["verdict"] == "INCONNU"],
+            "canaux": canaux}
 
 
 def main(argv=None) -> int:
@@ -522,6 +638,19 @@ def main(argv=None) -> int:
             print("%-38s %-8s %-8s %-6s %s"
                   % (x["effect"], x["pose"], x["flip"], "oui" if x["seeded"] else "-",
                      x["verdict"]))
+        print("")
+        # LES CANAUX SONT DERIVES : on les IMPRIME, avec ce qu'ils ECARTENT (#547-r11). Un
+        # inventaire qui ne dit pas ce qu'il filtre ne peut pas montrer ce qu'il a oublie.
+        c = r["canaux"]
+        print("CANAUX DE SEED derives de `runner/operations/spawn.py` (le CONSOMMATEUR) : %d"
+              % len(c["tables"]))
+        for t in sorted(c["tables"]):
+            print("  %-36s %d effet(s)" % (t, len(c["tables"][t])))
+        print("  importes de `factory` mais SANS table (ecartes) : %s"
+              % (", ".join(c["ecartes"]) or "(aucun)"))
+        for t, noms in sorted(c["hors_registre"].items()):
+            print("  ECARTES PAR LE FILTRE `in EFFECT_CLASSES` -- %s : %s"
+                  % (t, ", ".join(str(x) for x in noms)))
         print("")
         for v in ("COUVERT-SEED", "NON-EXPOSE", "EXPOSE", "INCONNU"):
             n = sum(1 for x in rows if x["verdict"] == v)

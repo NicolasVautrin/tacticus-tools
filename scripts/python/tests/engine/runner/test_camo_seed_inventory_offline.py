@@ -48,6 +48,44 @@ def test_every_condition_gated_class_has_a_pose_verdict():
         "(l'absence est FIDELE) ?" % (len(r["unknown"]), r["unknown"]))
 
 
+def test_les_canaux_de_seed_sont_derives_du_consommateur():
+    """CLIQUET 1bis (#547-r11) -- LA DERIVATION DES CANAUX, ET SON PROPRE NON-VIDE.
+
+    `scan()` classait en `COUVERT-SEED` d'apres DEUX tables ECRITES A LA MAIN, quand le seed en
+    consomme davantage. Mesure qui l'a montre : `Lifewards_BondEffect` est seede par
+    `ABILITY_INIT_OWNER_BOND_EFFECTS` (#963-r5) et sortait en `EXPOSE` -- un TROU annonce la ou le
+    port materialise l'instance. Le remede n'est pas d'allonger la liste (elle re-vieillirait au
+    canal suivant) mais de la DERIVER du CONSOMMATEUR (`runner/operations/spawn.py`).
+
+    ⚠ CE TEST ASSERTIONNE SON PROPRE NON-VIDE, et ce n'est pas une precaution de style : si l'AST
+    ne trouvait plus aucun import (module deplace, `factory` renomme, imports refactores), `seeded`
+    deviendrait VIDE -- tout basculerait de `COUVERT-SEED` vers `EXPOSE`/`NON-EXPOSE` sans qu'AUCUNE
+    assertion existante ne rougisse, parce que le cliquet de `POSE_VECTOR`, lui, ne regarde que
+    `unknown`. Un recensement qui ne trouve rien passe pour vert.
+
+    Il NE FIGE PAS la liste des canaux (ce serait la liste blanche qu'on vient de retirer) : il
+    exige que la derivation MORDE -- au moins deux tables, un volume d'effets non trivial, et le
+    canal BOND present, qui est celui dont l'absence a produit le defaut."""
+    c = INV.canaux_de_seed()
+    print("\n[camo-seed canaux] %s | ecartes=%s"
+          % ({t: len(n) for t, n in sorted(c["tables"].items())}, c["ecartes"]))
+
+    assert len(c["tables"]) >= 2, (
+        "la derivation des canaux de seed depuis `runner/operations/spawn.py` rend %d table(s) : "
+        "elle est CASSEE (module deplace ? imports refactores ?), pas le registre -- et un `seeded` "
+        "vide ferait passer TOUT le gisement en `EXPOSE` sans qu'aucune autre assertion ne rougisse"
+        % len(c["tables"]))
+    total = set().union(*c["tables"].values()) if c["tables"] else set()
+    assert len(total) >= 10, (
+        "seulement %d nom(s) d'effet seedes derives, tous canaux confondus : la derivation ne mord "
+        "plus (le filtre `in EFFECT_CLASSES` ecarte-t-il tout ?). Noms vus : %s"
+        % (len(total), sorted(total)))
+    assert "ABILITY_INIT_OWNER_BOND_EFFECTS" in c["tables"], (
+        "le canal BOND (`ABILITY_INIT_OWNER_BOND_EFFECTS`, #963-r5) n'est plus derive depuis "
+        "`spawn.py` : c'est EXACTEMENT le canal dont l'absence classait `Lifewards_BondEffect` en "
+        "`EXPOSE` a tort. Tables vues : %s" % sorted(c["tables"]))
+
+
 def test_camo_cloak_owner_effect_is_seeded():
     """CLIQUET 2 -- `1014` doit rester materialisable depuis le canal de capture par DEFAUT.
     Sa pose native (`CamoCloakAbility$$CreateBehaviour`) est un `AddEffect` NU : l'instance existe
