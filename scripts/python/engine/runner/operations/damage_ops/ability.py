@@ -809,7 +809,11 @@ class _AbilityAttack:
                 failed_block0=r["failed_block"],
                 # #963-r2 : TROISIEME etat de portee ATTAQUE (`isFirstDamagingHit`), cf.
                 # `damage_ops/normal.py`. A ZERO, le flag revient au premier groupe qui damage.
-                damaging_done0=int(r["total"] or 0) > 0)
+                damaging_done0=int(r["total"] or 0) > 0,
+                # #1020-r6 : la MEME `DamageSource` que la phase d'arme de CE cast -- un groupe
+                # additionnel HERITE de l'`AbilityOrEffect` de son attaque (cf.
+                # `AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`).
+                source_ability=_src_ability)
         # DE-FORK — la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` 1016,
         # `OnToxicDamageAbility` 1203) N'EST PLUS appelee ici. Leur vecteur natif est
         # `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`

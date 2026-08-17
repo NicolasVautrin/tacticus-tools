@@ -228,3 +228,37 @@ et le port lit désormais `EffectComponent.IsActive` comme le fait
   Ce qui reste ouvert est sa **confrontation live** sur le régime propre (`#419-r1-tr9-r4-r1-r2-r1b-r2`).
 * **Une seule magnitude** : `nrOfHits[L50] = 2`, lue, jamais codée en dur — mais une seule valeur a
   été confrontée.
+
+## 9. `#419-r1-tr9-r4-r1-r2-r1a-r1` — le canal du PREMIER conjoint, LOCALISÉ (2026-08-17)
+
+**La prémisse tient**, re-vérifiée sur le code courant : `damage_ops/normal.py` passe
+`trigger_ability_type=triggering_ability` à `build_hits_board` mais pas `ability_type` ;
+`damage_ops/ability.py` fait l'**inverse** (`ability_type=ability_type`, pas de
+`trigger_ability_type`). Sur la seule face où l'effet reste ouvert, le premier conjoint lit donc
+`None` et la conjonction ne peut pas mordre.
+
+**Ce que la RE ajoute** — et qui déplace le travail restant. Dans
+`IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`, l'`AbilityEntities` est construit avec
+(paramètres nommés LUS dans `data/symbols/<build>/frida/methods.tsv`) :
+
+| paramètre | source |
+|---|---|
+| p13 `currentAbilityOrEffect` (`+0x60`) | `context+0x10..0x28` |
+| p14 `parentAbilityOrEffect` | **VIDE** |
+| p15 `triggerAbilityOrEffect` (`+0x98`) | `context+0x2c..0x44` |
+
+et `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` remplit ces deux blocs depuis des
+**sources différentes** : `+0x10..0x28` ← son 5ᵉ argument `abilityOrEffect` (ce que le port pose
+déjà en `ability_type`), `+0x2c..0x44` ← **`AttackDamageOptions+0x54..0x6c`**.
+
+Le premier conjoint ne se répare donc **ni** en recopiant `ability_type` — ce que la fiche
+craignait à juste titre — **ni** en recopiant `state.trigger_ability_type` sans preuve : il faut
+d'abord établir ce que porte ce champ d'options.
+
+**Ce qui bloque.** `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` est
+l'étage qui remplit les options, et son décompilé Ghidra ne montre qu'**un seul**
+`Nullable<AbilityOrEffect>` construit alors que le struct en porte deux — le remplissage de `+0x54`
+doit être lu **à l'assembleur**, comme les deux `HashSet` de `#419-r1-tr9-r4-r1-r2-r1a` l'ont été.
+Le risque nommé par la fiche d'origine reste entier : `PurgeResponse` (1538,
+`TriggeringAbilityIs(EffectType 1009 Overwatch_AutoAttack)`) lit le **même** canal, donc une valeur
+fausse y ferait firer un second consommateur à tort. `BLOCAGE: etage`. **NON CONFRONTÉ.**

@@ -267,7 +267,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             hit_index0: int = 0, crit_allowed0: bool = True,
                             attack_profile: "Optional[str]" = None,
                             hit_interceptor=None, failed_block0=None,
-                            damaging_done0: bool = False) -> "Optional[dict]":
+                            damaging_done0: bool = False,
+                            source_ability: "Optional[int]" = None) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
@@ -485,7 +486,11 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         _first_damaging = (not _damaging_done)
         _pdt_sink = AttackDamageOperation.make_pre_damage_taken_sink(
             state, attacker_id, target_id, thc, g_profile,
-            is_first_damaging_hit=_first_damaging)
+            is_first_damaging_hit=_first_damaging,
+            # #1020-r6 : le groupe HERITE de l'`AbilityOrEffect` de son attaque parente. MEME
+            # valeur que celle donnee au chokepoint ci-dessous, pour les memes raisons que dans
+            # les trois autres vecteurs (`damage_ops/*.py`) : un seul point de resolution.
+            source_ability=source_ability)
         r = AttackDamageOperation._run_hits(
             state.rng, hd, hd, 0, False, max(0, int(g.get("count") or 0)), g_block,
             shield=shield_total, pending_sink=_pdt_sink,
@@ -527,17 +532,26 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         d = AttackDamageOperation._apply_damage_pipeline(
             state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
             r["shield_dmg"], r["armor_dmg"], is_attack=False,
-            # ⚠ `source_ability` N'EST PAS THREADE ICI -- residu `#1020-r6`, et c'est le SEUL des
-            # quatre vecteurs de degat dans ce cas (les trois autres le posent depuis
-            # `_damage_source_ability`). Ce canal alimente `AbilityEntities+0x98`, donc les
-            # `TriggeringAbilityIs` du vecteur `On(0x39 = PreDamageTaken)` ET le gate `HasValue`
-            # d'`IdunBattle.Entities.Behaviours.TransferDamageBehaviour$$Execute` (#1020-r2).
-            # Consequence : un transfert declenche par un groupe de coups ADDITIONNELS est REFUSE
-            # cote port alors que le natif l'accepterait -- son `ExecuteHit` remplit toujours la
-            # `DamageSource`. C'est une divergence RESTRICTIVE, l'inverse de celle que #1020-r2
-            # ferme, et elle est NOMMEE plutot que masquee : rendre le gate permissif « au cas ou »
-            # re-ouvrirait le trou qu'on vient de fermer. Ce qui manque : l'`AbilityOrEffect` du
-            # groupe, que cette fonction ne recoit pas de son appelant.
+            # #1020-r6 (FERME) : `source_ability` est desormais THREADE, et sa valeur n'est pas
+            # devinee au site -- elle DESCEND de l'appelant, exactement comme le natif la fait
+            # descendre. LU dans `IdunBattle.Operations.AttackDamageOperation$$
+            # ExecuteAdditionalHitsWithoutDamageProfileType` : la fonction batit l'`AbilityEntities`
+            # des groupes en construisant DEUX `Nullable<AbilityOrEffect>` a partir du MEME
+            # `abilityOrEffect` recu de l'attaque parente, et les pose en `+0x60`
+            # (`CurrentAbility`) ET en `+0x98` (`TriggeringAbility`) -- deux `Nullable$$.ctor`
+            # consecutifs sur le meme bloc de 0x18 octets. La voie A PROFIL fait de meme :
+            # `Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`
+            # RECOPIE son bloc d'options (0x18) et l'`AbilityEntities` (0x128) tels quels vers
+            # `IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute`,
+            # qui les repasse au slot `0x3c` sans les reconstruire. Un groupe additionnel ne porte
+            # donc JAMAIS d'`AbilityOrEffect` propre : il porte celui de son attaque.
+            # Ce canal alimente `AbilityEntities+0x98`, donc les `TriggeringAbilityIs` du vecteur
+            # `On(0x39 = PreDamageTaken)` ET le gate `HasValue` d'`IdunBattle.Entities.Behaviours.
+            # TransferDamageBehaviour$$Execute` (#1020-r2, qui `return` SANS RIEN FAIRE si l'un des
+            # deux `Nullable<AbilityOrEffect>` est vide). Avant ce correctif, un transfert declenche
+            # par un groupe de coups ADDITIONNELS etait REFUSE cote port alors que le natif
+            # l'accepte -- divergence RESTRICTIVE, l'inverse de celle que #1020-r2 ferme.
+            source_ability=source_ability,
             # `On(0x10)` : un groupe de coups ADDITIONNELS partage l'`OngoingAttack` de l'attaque (donc
             # son compteur `+0x30`, threade par `hit_index0`). Il ne contient le coup d'index 0 que si
             # la phase d'arme n'a rien emis avant lui -> `IsFirstHitInSeries` FAUX dans le cas usuel,

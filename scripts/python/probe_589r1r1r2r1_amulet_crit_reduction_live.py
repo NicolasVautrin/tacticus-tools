@@ -585,6 +585,21 @@ def strike(h, rec):
     return hits, None
 
 
+def _etat_passif(state, unit_id: int) -> tuple:
+    """La branche de REPLI de `runner/operations/triggers/base.py::triggered_ability_state` :
+    `(ctx.passive_ability_level, ctx.ability_variables_multiplier)`. C'est ce que le port lirait si
+    le discriminant TERTIAIRE (#357) n'existait pas -- la lecture que le bras `PASSIF` doit refuter.
+    Le couple est LU du meme `UnitContext` que le foyer, jamais fabrique."""
+    from engine.runner.components import StatsComponent
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    if ctx is None:
+        return (None, 100)
+    return (getattr(ctx, "passive_ability_level", None),
+            int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
+
+
 def replay(h, rec, mutate=None):
     """Rejeu OFFLINE de la MEME attaque, RNG neutralise par le dump pris apres le montage.
 
@@ -592,8 +607,23 @@ def replay(h, rec, mutate=None):
     retomber sur `BaseEffect`, dont `create_effect_crit_damage_bonus_for_attack` rend `None`. C'est
     la vue « d'AVANT ce port ».
 
-    `PASSIF` : le callable `tertiary_ability_state_of` retire du contexte du canal -- le port
-    retombe sur `ability_level` (le niveau des PASSIFS). C'est la vue « sans le canal #357 ».
+    `PASSIF` : la LECTURE FAUSSE « le port lit le slot PASSIF du porteur » -- c'est-a-dire la
+    branche de REPLI de `runner/operations/triggers/base.py::triggered_ability_state`
+    (`(ctx.passive_ability_level, ctx.ability_variables_multiplier)`, 50 en runner normalise ->
+    dernier palier), SUBSTITUEE au callable. C'est la vue « sans le canal #357 ».
+
+    ⚠ CE MUTANT ETAIT DEVENU INERTE, ET LE TEST QUI L'EXERCE ROUGISSAIT SUR `master` (mesure
+    2026-08-17 : `test_amulet_voidwyrm_crit_reduction_live.py::test_le_niveau_lu_est_celui_de_la_
+    relique_pas_du_passif[1]`, `passif == off == [2739, 2727, 3062, 2767]`, avant comme apres le
+    correctif #922-r5). Il RETIRAIT le callable, en supposant que l'effet retomberait sur « le
+    niveau des PASSIFS ». Ce n'est plus vrai : depuis la reparation du seeding tertiaire
+    (#1005/#1081), `_seed_ability_owner_effects` bake le couple TERTIAIRE sur l'INSTANCE, donc le
+    repli d'instance rend DEJA le bon niveau -- les deux voies coincidaient. C'est le patron « un
+    changement de harnais perime la premisse d'un test » : ce n'est pas le PORT qui a regresse
+    (l'assertion `ability_state[0] == level` passe des deux cotes), c'est le TEMOIN qui avait cesse
+    de discriminer. MEME cause et MEME correctif que dans
+    `probe_922_intoxicating_elixir_live.py` -- deux fichiers, un seul vice.
+
     Les deux mutations sont restaurees en `finally`."""
     from engine.entities.effects.factory import EFFECT_CLASSES
     from engine.runner.operations import damage as D
@@ -603,11 +633,12 @@ def replay(h, rec, mutate=None):
         if mutate == "NOCHANNEL":
             EFFECT_CLASSES.pop(EFFECT_NAME, None)
         if mutate == "PASSIF":
-            def _sans_tertiaire(state, att_id, tgt_id):
+            def _slot_passif(state, att_id, tgt_id):
                 d = dict(orig(state, att_id, tgt_id))
-                d.pop("tertiary_ability_state_of", None)
+                d["tertiary_ability_state_of"] = (
+                    lambda oid, ability, _st=state: _etat_passif(_st, int(oid)))
                 return d
-            D.AttackDamageOperation._crit_board = staticmethod(_sans_tertiaire)
+            D.AttackDamageOperation._crit_board = staticmethod(_slot_passif)
         return h.replay_offline(rec)["per_hit"]
     finally:
         if saved is not None:

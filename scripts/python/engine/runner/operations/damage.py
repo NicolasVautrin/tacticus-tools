@@ -1771,9 +1771,32 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         VIVANTS seulement (#57m -- un mort n'est plus sur le board), cible conservee (vivante par
         construction d'une attaque), attaquant et cible en TETE, dedup par `owner_id`.
 
-        ⚠ NON COUVERT, comme sur l'axe COUPS : les effets portes par une TUILE."""
+        ⚠ NON COUVERT, comme sur l'axe COUPS : les effets portes par une TUILE.
+
+        #922-r5 -- L'ATTAQUANT EST LA SEULE UNITE DONT LES EFFETS ARRIVAIENT FIGES, et c'est ce qui
+        eteignait l'axe TEMPOREL de la crit-DEGAT. Toutes les autres unites voient leurs effets
+        RELUS de `state` ci-dessous ; l'attaquant, lui, recevait la liste que son vecteur avait
+        capturee AVANT `On(PreAttackHit = 6)` (`damage_model.attacker_modifiers` la calcule au tout
+        debut de l'operation). Un effet du PORTEUR qui devient ACTIF pendant l'event etait donc
+        invisible du canal CRIT, meme apres le correctif #919 (`crit_damage = crit_apres[1]`), qui
+        relit bien la facade APRES l'event mais avec cette entree-la peremee -- mesure : le bras
+        `CRITDMG_AVANT` de `probe_922_intoxicating_elixir_live.py` rendait EXACTEMENT `OFFLINE`,
+        c'est-a-dire que le correctif etait un NO-OP dans son propre regime de motivation.
+
+        LU, pas deduit : `IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses` **ne
+        prend AUCUN argument** -- ni unite, ni liste pre-calculee. Elle enumere la collection
+        globale des entites-effet, appelle le slot `0x29` du service sur chacune (RAFRAICHISSEMENT)
+        **avant** de tester `EffectComponent+0x5c`, et rend `(effet, cibles)`. Il n'existe donc
+        aucune place, cote natif, ou la liste de l'attaquant serait plus vieille que celle des
+        autres : les deux canaux crit la relisent A L'INSTANT DE L'APPEL.
+        `attacker_effects` reste le repli des appelants SANS `state` (probes, `_crit_params` a
+        `state=None`), et ce que la relecture rend est bit-identique tant que rien n'a mute entre la
+        capture et l'appel -- c'est pourquoi `crit_avant`, mesure avant l'event, est inchange."""
         others: list = []
         target_effects: list = []
+        if state.effects is not None and att_id is not None:
+            attacker_effects = state.effects.active_effects(
+                att_id, unit_state_for_effects(state, att_id))
         for uid, e in state.entities.items():
             if uid == att_id:
                 continue
