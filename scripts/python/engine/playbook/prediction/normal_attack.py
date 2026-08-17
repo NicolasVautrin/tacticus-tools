@@ -912,6 +912,19 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                     target_effects=tgt_effects, aura_sources=aura_sources, board=board,
                     is_melee=is_melee, damage_profile=prof_name,
                     include_bonus_hit_behaviours=True,  # prediction folde GetStuckIn (deterministe)
+                    # #10019 -- la FACE, axe DISTINCT d'`include_bonus_hit_behaviours` : le canal
+                    # #179 (`EffectAdditionalHits`) ne rend PAS la meme chose des deux cotes, et
+                    # les deux rendus sont MESURES. Cote COMBAT (#204) l'evenement supplementaire
+                    # de `MasterAnnihilator_extraHit` vaut une CONSTANTE (stat ATTACK a l'unite) --
+                    # un groupe, que la formule de coups ne doit pas compter. Cote PREDICTION le
+                    # natif rend UN COUP DE PLUS au degat exact d'un coup d'arme : trois paires
+                    # vers la meme cible 93, six nombres, tous en rapports ENTIERS `(h+1)/h` sur
+                    # les DEUX bornes (`engine_agreement_stages --build --seeds 777 --steps 20`,
+                    # board MC1_67). Cette cle est ce qui fait la difference, et le TEMOIN qui la
+                    # rend falsifiable est `u83` (`admecDominus`, le poseur), qui attaque la MEME
+                    # cible avec la MEME ability au pas 5 et CONCORDE -- la marque n'y est pas
+                    # encore posee.
+                    is_prediction=True,
                     # #227 : `LetTheGalaxyBurn` a QUITTE cette formule (son
                     # artefact natif est un descripteur `EffectAdditionalHits`,
                     # canal #179). Cote PREDICTION il ne contribue RIEN :

@@ -1415,6 +1415,68 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
     **strictement no-op**. Non porte, pour ne pas figer une semantique non lue ; a rouvrir si un
     regime ou `reduce(base) > cap` devient atteignable."""
 
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None,
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> "EffectBonus | None":
+        """FACE PREDICTION SEULEMENT (#10019) -- un coup d'ARME de plus, MESURE.
+
+        Ce canal a ete RETIRE par #204 parce que la mesure du COMBAT l'exigeait, et ce retrait
+        reste juste POUR LE COMBAT : l'evenement supplementaire y vaut la constante `reduce(base)`
+        (stat ATTACK a l'unite, 4617 sur 5/5 attaques armees), donc un GROUPE du canal #179, pas un
+        coup d'arme. Ce que #204 n'a pas mesure, c'est la face PREDICTION -- son verdict s'appuyait
+        sur la deduction de `case-227` Sect. 2.5 (`GetAdditionalHitsFromEffectsForPrediction` tourne
+        hors `OngoingAttack` -> `FirstHitInCurrentAttackDamageRange` rend 0 -> coup a 0 degat).
+
+        MESURE #10019 (`engine_agreement_stages --build --seeds 777 --steps 20`, board `MC1_67`) --
+        la deduction est REFUTEE pour ce porteur. Trois paires independantes vers la MEME cible 93
+        (`templChampion`), toutes en `ability 69` = attaque normale, six nombres, tous en rapports
+        ENTIERS `(h+1)/h` sur les DEUX bornes :
+
+            u85 `orksKillaKan`   1108 -> 1385  |  3052 -> 3815   (5/4)
+            u79 `tauDarkstrider`   60 ->   90  |  3004 -> 4506   (3/2, `kill` BASCULE)
+            u77 `eldarMauganRa`  2394 -> 2793  |  3588 -> 4186   (7/6)
+
+        Le degat PAR COUP est IDENTIQUE des deux cotes (277, 30, 399) : seul le COMPTE differe,
+        d'exactement un. Un groupe a degat CONSTANT est ARITHMETIQUEMENT exclu -- il ajouterait le
+        MEME entier aux deux bornes, or u77 exigerait +399 et +598 a la fois.
+
+        TEMOIN NEGATIF : `u83` = `admecDominus`, le POSEUR de la marque, attaque la MEME cible avec
+        la MEME ability au pas 5 et CONCORDE -- la marque n'y est pas encore posee, elle est le
+        fruit de son attaque. C'est le seul effet present chez les trois divergents et absent chez
+        lui, ce qui rend l'attribution falsifiable.
+
+        VOIE NON TRANCHEE (residu `#10019-r1`) -- on porte l'EFFET mesure, pas la voie, et le site
+        le dit : cette classe ne declare AUCUN `CreateEffectHitsBonusForAttack` natif (absent de
+        `ghidra/functions.tsv` ET de `frida/methods.tsv` ; un corps NON trivial n'aurait pas ete
+        deduplique), donc `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` ne le compte
+        pas -- le coup vient de `IdunBattle.Entities.Abilities.AActiveAbility$$
+        AddAdditionalHitsToPrediction`, qui appelle le MEME slot `PredictAttack` (0x27) que les
+        coups d'arme et somme par `IdunBattle.Core.Services.DamagePredictionResult$$Add`. Le port
+        n'a pas d'etage ou loger cette somme cote prediction ; l'ecrire comme un coup d'arme y est
+        NUMERIQUEMENT EXACT, et c'est exactement la forme deja retenue pour `GetStuckIn` (fold
+        deterministe dans la formule cote prediction, behaviour chance-gate cote combat).
+
+        Gates portes, tous deux LUS dans `MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` :
+          * `get_OwnerIsTarget` -- STRUCTUREL ici : ce canal n'agrege que les effets de la CIBLE
+            (`hits_malus_from_defender_effects`), donc le porteur EST la cible ;
+          * `!AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)`.
+        Le SIGNE est POSITIF, donc `block_hits_reduction` ne l'eteint pas (`_hits_contribution` ne
+        neutralise que les contributions negatives) -- fidele au tri natif, qui porte sur le signe.
+        """
+        # FACE : hors prediction, ce canal n'existe pas -- le combat garde le groupe #179 de #204.
+        # `att_ctx` absent (appelant anterieur a #10019) -> False -> no-op strict.
+        if not (att_ctx or {}).get("is_prediction"):
+            return None
+        # `!AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)`. Profil INCONNU (None) -> le noeud
+        # `AreEqual` ne peut pas etre VRAI -> pas d'exclusion (meme degradation que la face #179).
+        if damage_profile == "Psychic":
+            return None
+        n = ability_var("MasterAnnihilator", "nrOfHits", is_constant=True)   # ConfigConst 0x2f (=1)
+        return for_addition(True, int(n)) if n else None
+
     def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
         c = ctx or {}
         # `get_OwnerIsTarget` : le porteur du marqueur EST la cible de l'attaque courante.
