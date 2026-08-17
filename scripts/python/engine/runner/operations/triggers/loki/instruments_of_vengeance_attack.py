@@ -215,7 +215,18 @@ def instruments_of_vengeance_attack_tile_behavior():
                       AreEnemies(Owner(), Units(ActiveTarget(), selection_type=IOV_UNIT_SELECTION),
                                  selection_type=IOV_TEAM_SELECTION))
     atk = AttackWithAttackDamage(
-        ActiveTarget(),                       # `target = ActiveTarget@+0x68`
+        # ⚠ **MEME COLLAPSE, MEME CAUSE que sur `AreEnemies` ci-dessus** : le natif passe
+        # `ActiveTarget@+0x68` BRUT (une TUILE) et c'est
+        # `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$Execute` qui la resout par
+        # `UnitExtensions.GetUnit(entity, state)`. Cote port, la branche MULTI de
+        # `AttackWithAttackDamage` porte deja cette resolution (`_get_unit`, « une TUILE resout en
+        # son occupant ») -- mais le collapse MONO-cible, lui, appelle `resolve_unit` qui rend
+        # `None` sur un id de tuile. MESURE (2026-08-17) : sans cette normalisation, `emis` ne
+        # contient AUCUN `AttackWithAttackDamage` alors que le gate est VRAI sur la tuile occupee
+        # (`t46 {HasUnit: True, Units: 1, AreEnemies: True}`) -- un no-op TOTALEMENT silencieux.
+        # Residu `#889-r10` : le vrai foyer est le collapse mono-cible, qui devrait resoudre le
+        # domaine TUILE comme sa branche multi le fait deja.
+        Units(ActiveTarget(), selection_type=IOV_UNIT_SELECTION),   # `target = ActiveTarget@+0x68`
         IOV_ACTIVE_ID,                        # cf. point 3 : la config de l'ACTIVE
         _damage_profile(),                    # `GetDamageProfile()` -- PREMIER jeu (point 2)
         is_melee=False,                       # cf. point 4 : `attackRangeType = "Ranged"`
@@ -349,7 +360,11 @@ def _instruments_of_vengeance_attack_behaviour(state: "State", unit_id: int, ent
     spawned = [p for n, p in ectx.emitted if n == "Spawn"]
     cleared = [p for n, p in ectx.emitted if n == "ClearAllPersistentData"]
     return {"ability": "InstrumentsOfVengeance_PendingAttack", "phase": 2, "attacker": int(unit_id),
-            "damage": dmg, "removed": removed, "spawned": spawned, "cleared": cleared}
+            "damage": dmg, "removed": removed, "spawned": spawned, "cleared": cleared,
+            # LA VENTILATION BRUTE des noms emis : un `damage: []` ne dit pas si rien n'a frappe ou
+            # si ce lecteur cherche le mauvais nom. Ce compte-ci tranche (meme role que
+            # `_types_events` cote natif).
+            "emis": sorted({n for n, _ in ectx.emitted})}
 
 
 TRIGGERED_ABILITY_BEHAVIOURS[IOV_ATTACK] = _instruments_of_vengeance_attack_behaviour

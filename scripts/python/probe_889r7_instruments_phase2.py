@@ -166,20 +166,136 @@ def _dhp(avant: dict, apres: dict) -> dict:
             for k in avant if int(apres.get(k, avant[k])) != int(avant[k])}
 
 
+def _coups_natifs(act: dict) -> dict:
+    """`{targetId: [Amount, ...]}` -- les coups NATIFS du pas, dans l'ORDRE d'emission. C'est ce qui
+    DECOMPOSE un ecart de degat par ETAGE au lieu de le laisser en total (doctrine slice-18/19)."""
+    out = {}
+    for a in (act.get("actions") or []):
+        for e in (a.get("events") or []):
+            td = e.get("tags")
+            if not td:
+                continue
+            try:
+                tags = json.loads(td) if isinstance(td, str) else td
+            except Exception:
+                continue
+            amt = tags.get("Amount") if isinstance(tags, dict) else None
+            if amt is None:
+                continue
+            tid = tags.get("Target_Id") or tags.get("TargetId") or tags.get("Damage_Target_Id")
+            out.setdefault(int(tid) if tid is not None else -1, []).append(int(amt))
+    return out
+
+
+def _gate_par_tuile(state, caster_id: int, lignes: dict) -> dict:
+    """`{tuile: {HasUnit, Units, AreEnemies}}` -- le `cond` d'`AttackTileBehavior` DECOMPOSE.
+
+    C'est la decomposition par ETAGE de la doctrine, appliquee a un PREDICAT : un total de degat
+    nul ne dit pas si c'est le `HasUnit` ou l'`AreEnemies` qui a refuse, ni si la resolution
+    d'occupant a rendu vide."""
+    from dataclasses import replace as _replace
+    from engine.entities.selectors.accessors import ActiveTarget, Owner
+    from engine.entities.selectors.units import Units
+    from engine.entities.triggers import AreEnemies, HasUnit
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.operations.triggers.loki import instruments_of_vengeance_attack as M
+
+    ents = entities_from_state(state, int(caster_id), int(caster_id), actor_id=int(caster_id))
+    out = {}
+    for i in (0, 1):
+        for tid in (lignes.get("ligne_%d" % i) or []):
+            if not isinstance(tid, int) or tid in out:
+                continue
+            sub = _replace(ents, subject=tid, active_target=tid)
+            row = {}
+            for nom, noeud in (("HasUnit", HasUnit(ActiveTarget())),
+                               ("Units", Units(ActiveTarget(),
+                                               selection_type=M.IOV_UNIT_SELECTION)),
+                               ("AreEnemies", AreEnemies(
+                                   Owner(),
+                                   Units(ActiveTarget(), selection_type=M.IOV_UNIT_SELECTION),
+                                   selection_type=M.IOV_TEAM_SELECTION))):
+                try:
+                    v = noeud.evaluate(sub)
+                except Exception as exc:
+                    v = "ERREUR %s" % exc
+                row[nom] = (len(v) if isinstance(v, list) else v)
+            out[tid] = row
+    return out
+
+
+def _types_events(act: dict) -> dict:
+    """`{type: n}` -- la VENTILATION des events natifs du pas. Un `_coups_natifs` VIDE ne dit pas
+    si le natif n'a pas frappe ou si ce lecteur-la ne sait pas lire ses events : ce compte-ci
+    tranche."""
+    out = {}
+    for a in (act.get("actions") or []):
+        for e in (a.get("events") or []):
+            k = str(e.get("type") or e.get("name") or e.get("eventType") or "?")
+            out[k] = out.get(k, 0) + 1
+    return out
+
+
+def _lignes_port(state, board) -> dict:
+    """Les DEUX lignes que la phase 2 relit, resolues DEPUIS les cles persistantes -- l'etage
+    juste au-dessus du degat. Sans lui, un ecart de degat ne dit pas s'il vient des TUILES ou du
+    coup."""
+    from engine.dsl.effects import ExecutionContext
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.operations.triggers.loki import instruments_of_vengeance_attack as M
+    from engine.entities.selectors.tiles import TileUnion
+    from engine.entities.selectors.geometry import TilesBehindInLine
+    out = {}
+    for i in (0, 1):
+        edge = M._persistent_tile(M.IOV_KEY_TARGET_TILE, i)
+        direction = M._persistent_tile(M.IOV_KEY_DIRECTION_TILE, i)
+        sel = TileUnion(edge, TilesBehindInLine(edge, direction))
+        for uid in list(state.entities):
+            ents = entities_from_state(state, int(uid), int(uid), actor_id=int(uid))
+            ectx = ExecutionContext(state=state, rng=state.rng)
+            try:
+                tuiles = [int(t) for t in sel.evaluate(ents)]
+            except Exception as exc:                       # pragma: no cover
+                tuiles = ["ERREUR: %s" % exc]
+            out["ligne_%d" % i] = tuiles
+            # LES COORDONNEES, pas seulement les ids : c'est ce qui permet de REPLACER une cible
+            # SUR la ligne au run suivant (le montage n'est confrontable que si un occupant y est).
+            out["ligne_%d_pos" % i] = [
+                (lambda c: None if c is None else (int(c["col"]), int(c["row"])))(
+                    board.by_id.get(int(t)) if isinstance(t, int) else None)
+                for t in tuiles]
+            break
+    return out
+
+
 # ---------------------------------------------------------------- LA FIXTURE, nommee et reutilisable
 
+#: Le roster ADVERSE par defaut. ⚠ Plus qu'un decor : les deux lignes de la phase 2 traversent le
+#: plateau de bord a bord, et le coup differe n'est OBSERVABLE que si un ennemi se tient DESSUS. Un
+#: duel a deux ennemis colles au Lion ne discrimine RIEN -- mesure du 2026-08-17, `port emis` sans
+#: aucun `AttackWithAttackDamage` et `dhp` explique en entier par les summons.
+A_UNITS = "custoVexilusPraetor,orksBigMek,orksNob,tauCrisis,ultraEliminator"
+
+
 def monter_scenario(sid: int, *, seed: str = "777", board: str = BOARD,
-                    hp_target: str | None = "400000", tag: str = "x"):
-    """Monte le duel du Lion sur SA carte, DEUX ennemis au contact.
+                    hp_target: str | None = "400000", tag: str = "x",
+                    a_units: str = A_UNITS, a_place: list | None = None):
+    """Monte le duel du Lion sur SA carte.
 
     `hp_target` gonfle les PV de la cible : sans lui les coups de la phase 1 puis de la phase 2
-    tuent, et les deltas des DEUX phases se confondent en un seul kill non comparable."""
+    tuent, et les deltas des DEUX phases se confondent en un seul kill non comparable.
+
+    `a_place` = les placements ADVERSES, `["<unitId>:<col>,<row>", ...]`. Le montage se joue en DEUX
+    passes : une de RECONNAISSANCE qui lit les deux lignes (`--reco`), puis une seconde ou les
+    ennemis sont poses DESSUS. C'est le << DEPLACE les unites pour forcer la configuration >> de la
+    doctrine, et non un montage bloque par la geometrie de spawn."""
     state_path = LOGS / ("probe_889r7_%s.json" % tag)
     args = ["--seed", seed, "--board", board,
             "--explicit-stats", BOSS, "--p-units", BOSS,
-            "--a-units", "custoVexilusPraetor,orksBigMek",
-            "--place", "%s:3,3" % BOSS,
-            "--a-place", "custoVexilusPraetor:3,4", "--a-place", "orksBigMek:2,2"]
+            "--a-units", a_units,
+            "--place", "%s:3,3" % BOSS]
+    for p in (a_place or ["custoVexilusPraetor:3,4", "orksBigMek:2,2"]):
+        args += ["--a-place", p]
     if hp_target:
         args += ["--hp-target", str(hp_target)]
     rid = build(state_path, args)
@@ -216,6 +332,19 @@ def _mesure(sid: int, rid: int) -> dict:
     marques_apres_cast = marques_off(state)
     hp_l0, hp_o0 = hp_live(sid, rid), hp_off(state)
     unites_l0, unites_o0 = unites_live(sid, rid), unites_off(state)
+    # LES DEUX LIGNES, resolues AVANT la phase 2 (apres, le `ClearAllPersistentData` les a vidées).
+    from engine.entities.pathfinding.board import Board
+    bg = rpc(sid, "boardGraph", {"runnerId": rid}, 60)
+    lignes = _lignes_port(state, Board(bg["tiles"], adjacency="evenq"))
+    occupants = {}
+    for u in (dec1.get("units") or []):
+        p = u.get("pos") or {}
+        occupants[int(u["id"])] = (u.get("visualId"), p.get("col"), p.get("row"),
+                                   u.get("team"), u.get("owner"))
+    # LE GATE, TUILE PAR TUILE. Un `AttackWithAttackDamage` absent du flux d'emissions ne dit pas
+    # LEQUEL des deux predicats a refuse : ce releve-ci le dit, et il est pris sur les MEMES
+    # entites que celles du `Foreach`.
+    gate = _gate_par_tuile(state, caster_id, lignes)
 
     # ---- [B]/[C] LA BASCULE : le natif rouvre le tour du Lion -------------------------------
     # ⚠ Le RNG se re-seede AVANT la bascule (#889-r4) : sinon le port tire ses rolls depuis un etat
@@ -238,6 +367,17 @@ def _mesure(sid: int, rid: int) -> dict:
         "cast_port": {k: diag_cast.get(k) for k in ("marked", "armed", "activated", "persisted")},
         "marques_apres_cast": marques_apres_cast,
         "off_phase2": off_phase2,
+        "lignes_port": lignes,
+        "occupants": occupants,
+        "gate_par_tuile": gate,
+        "coups_natifs_phase2": _coups_natifs(act2),
+        # DUMP BRUT : un `{}` de `_coups_natifs` peut vouloir dire « le natif n'a pas frappe » OU
+        # « ce lecteur ne sait pas lire ces events ». On imprime donc la VENTILATION des types.
+        "events_natifs_types": _types_events(act2),
+        "emis_port": sorted({n for r in (off_phase2 or [])
+                             for f in ((r or {}).get("fired") or [])
+                             for res in (f.get("results") or []) if isinstance(res, dict)
+                             for n in (res.get("emis") or [])}),
         "dhp_natif": _dhp(hp_l0, hp_l1),
         "dhp_port": _dhp(hp_o0, hp_o1),
         "spawn_natif": {str(k): v for k, v in unites_l1.items() if k not in unites_l0},
@@ -253,11 +393,16 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--hp-target", default="400000")
     ap.add_argument("--tag", default=str(os.getpid()))
+    ap.add_argument("--a-units", default=A_UNITS)
+    ap.add_argument("--a-place", action="append", default=None,
+                    help="placement adverse `<unitId>:<col>,<row>` (repetable). Passe DEUX FOIS : "
+                         "une passe de reconnaissance lit les lignes, la seconde y pose les cibles.")
     a = ap.parse_args()
 
     sid = _session()
     rid, dispose = monter_scenario(sid, seed=a.seed, board=a.board,
-                                   hp_target=a.hp_target, tag=a.tag)
+                                   hp_target=a.hp_target, tag=a.tag,
+                                   a_units=a.a_units, a_place=a.a_place)
     try:
         m = _mesure(sid, rid)
     finally:
@@ -272,9 +417,21 @@ def main() -> int:
           % (len(m["cast_port"].get("marked") or []), len(m["cast_port"].get("armed") or []),
              len(m["cast_port"].get("activated") or []),
              [p.get("key") for p in (m["cast_port"].get("persisted") or [])]))
+    for i in (0, 1):
+        print("[889r7] ligne_%d ids=%s" % (i, m["lignes_port"].get("ligne_%d" % i)))
+        print("[889r7] ligne_%d pos=%s" % (i, m["lignes_port"].get("ligne_%d_pos" % i)))
+    print("[889r7] OCCUPANTS (id -> visualId, col, row, team, owner) :")
+    for uid, o in sorted(m["occupants"].items()):
+        print("        u%-4s %s" % (uid, o))
+    print("[889r7] GATE par tuile (HasUnit / Units / AreEnemies) :")
+    for tid, g in sorted(m["gate_par_tuile"].items(), key=lambda kv: int(kv[0])):
+        print("        t%-4s %s" % (tid, g))
     print("[889r7] [B] COUP DIFFERE")
-    print("        natif dhp = %s" % json.dumps(m["dhp_natif"], sort_keys=True))
-    print("        port  dhp = %s" % json.dumps(m["dhp_port"], sort_keys=True))
+    print("        natif dhp   = %s" % json.dumps(m["dhp_natif"], sort_keys=True))
+    print("        natif coups = %s" % json.dumps(m["coups_natifs_phase2"], sort_keys=True))
+    print("        natif events= %s" % json.dumps(m["events_natifs_types"], sort_keys=True))
+    print("        port  dhp   = %s" % json.dumps(m["dhp_port"], sort_keys=True))
+    print("        port  emis  = %s" % m["emis_port"])
     print("        port  phase2 = %s" % json.dumps(m["off_phase2"], default=str)[:1200])
     print("[889r7] [C] SPAWN")
     print("        natif = %s" % json.dumps(m["spawn_natif"], sort_keys=True))
@@ -287,7 +444,39 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(m, indent=2, default=str), encoding="utf-8")
     print("[889r7] -> %s" % out)
-    return 0
+
+    # ------------------------------------------------------------------ VERDICT, pas une lecture
+    ok = True
+    # NON-DEGENERESCENCE d'abord : un accord sur `{}` contre `{}` ne prouve RIEN.
+    frappes = [n for n, _ in [(1, 1)] if m["dhp_natif"]]
+    if not m["dhp_natif"]:
+        print("[889r7] REGIME DEGENERE : le natif n'a inflige AUCUN degat -- aucune tuile des deux "
+              "lignes ne portait d'ennemi. Replacer une cible SUR une ligne (cf. `ligne_i pos`).")
+        ok = False
+    elif m["dhp_natif"] != m["dhp_port"]:
+        print("[889r7] [B] ECART : natif %s != port %s"
+              % (json.dumps(m["dhp_natif"], sort_keys=True),
+                 json.dumps(m["dhp_port"], sort_keys=True)))
+        ok = False
+    else:
+        print("[889r7] [B] ACCORD BIT-EXACT sur le delta de PV : %s"
+              % json.dumps(m["dhp_natif"], sort_keys=True))
+    if "AttackWithAttackDamage" not in (m["emis_port"] or []):
+        print("[889r7] [B] LE PORT N'A EMIS AUCUN `AttackWithAttackDamage` -- l'accord de PV "
+              "ci-dessus viendrait alors des SUMMONS seuls, pas du coup differe.")
+        ok = False
+    n_nat, n_port = len(m["spawn_natif"] or {}), len(m["spawn_port"] or [])
+    print("[889r7] [C] SPAWN : natif %d / port %d -> %s"
+          % (n_nat, n_port, "ACCORD" if n_nat == n_port else "ECART"))
+    ok = ok and (n_nat == n_port) and n_nat > 0
+    restantes = sum(1 for v in m["marques_apres_phase2"].values() if IOV_LOCATION_TARGET in v)
+    posees = sum(1 for v in m["marques_apres_cast"].values() if IOV_LOCATION_TARGET in v)
+    print("[889r7] MARQUES 1518 : %d posees -> %d restantes -> %s"
+          % (posees, restantes, "CONSOMMEES" if (posees > 0 and restantes == 0) else "ECART"))
+    ok = ok and posees > 0 and restantes == 0
+    print("[889r7] VERDICT : %s" % ("OK" if ok else "KO"))
+    _ = frappes
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
