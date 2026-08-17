@@ -337,16 +337,26 @@ def test_etage5_le_foyer_ne_teste_AUCUNE_liveness():
     assert unit_extensions_is_displaceable(e) is True
 
 
-def test_etage5_les_trois_execute_gardent_leur_gate_alive_et_le_switch_non():
-    """Le gate `alive` des trois `execute()` est ABSENT du natif : il est CONSERVE, hors foyer, et
-    sa direction est RESTRICTIVE. `SwitchPositionOperation` ne l'a PAS -- le natif y traite la mort
-    explicitement (`HasFlag(u, UnitFlag.Dead)`), moitie par moitie, et c'est deja porte."""
+def test_etage5_le_gate_alive_a_MIGRE_au_rang_natif_et_le_switch_ne_l_a_toujours_pas():
+    """⚠ **CET ETAGE A CHANGE DE VERDICT (#550-r4-r1), ET C'EST LE POINT.** Il gardait << le gate
+    `alive` des trois `execute()` est ABSENT du natif ; il est CONSERVE >>. La premiere moitie
+    etait juste, la seconde etait le defaut : ce `return` sec abandonnait TOUTE l'operation la ou
+    `IdunBattle.Operations.DisplaceUnitOperation$$Execute` -- qui ne teste la mort NULLE PART --
+    ne saute QUE l'ecriture de position (le 2e gate de `SetUnitPositionOperation$$Execute`) et joue
+    quand meme `$$AddTilesMoved` puis `$$EventAndAbilitiesAndEffects`.
+
+    Le refus existe donc toujours, mais il est desormais IMPUTE a son gate natif -- d'ou
+    `set-position-unit-dead` et non plus `dead`. La queue, elle, est jouee : c'est
+    `test_433r3r2r1_550r4r1_untargetable_et_rang_offline.py` etage 8 qui la garde.
+
+    `SwitchPositionOperation` ne l'avait deja pas -- le natif y traite la mort explicitement
+    (`HasFlag(u, UnitFlag.Dead)`), moitie par moitie, et c'est deja porte."""
     st = State()
     st.board = _strip_board()
     _unit(st, 1, (0, 1), 10)
     mort = _unit(st, 2, (0, 2), 20)
     mort.get_component(UnitComponent).alive = False
-    assert DisplaceUnitOperation(1, 2).execute(st, EventBus())["reason"] == "dead"
+    assert DisplaceUnitOperation(1, 2).execute(st, EventBus())["reason"] == "set-position-unit-dead"
 
     st2 = State()
     _unit(st2, 1, (0, 1), 10)

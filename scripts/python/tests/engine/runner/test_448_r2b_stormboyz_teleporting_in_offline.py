@@ -276,22 +276,34 @@ def test_1140_makes_its_carrier_untargetable(state):
 
 
 def test_the_untargetable_domain_holds_only_the_confronted_slices():
-    """CLIQUET. Fermeture NATIVE de `UntargetableEffect` = les 4 `ATeleportingEffect` +
-    `JustSummonedEffect`. Le port n'inscrit que ce qu'il a CONFRONTE SUR CE CANAL : 1035 (#448-r2),
-    1140 (#448-r2b), 1238 (#448-r2b-r1) et **1061 (#1074)**.
+    """CLIQUET. Fermeture NATIVE de `UntargetableEffect` = la BASE CONCRETE (`1044`), les 4
+    `ATeleportingEffect` et `JustSummonedEffect`. Le port n'inscrit que ce qu'il a CONFRONTE SUR CE
+    CANAL : 1035 (#448-r2), 1140 (#448-r2b), 1238 (#448-r2b-r1), **1061 (#1074)** et
+    **1044 (#433-r3-r2-r1)**.
 
-    ⚠ `1573` reste DEHORS -- il arrive avec #448-r2d et son poseur n'est pas porte.
+    ⚠ `1573` reste DEHORS, et sa raison a CHANGE DE NATURE (#433-r3-r2-r1) : ce n'est plus
+    << son poseur n'est pas porte >> mais un REFUS PROUVE --
+    `TitanhammerSquad_TeleportingInEffect` surcharge `IsUntargetableEnabled` avec `32 c0 c3`
+    (`xor al,al ; ret`) = **false**, donc `$$ApplyInternal` sort AVANT le `UnitFlagsComponent$$Add`.
+    L'inscrire produirait une divergence RESTRICTIVE. C'est la SEULE classe du build a surcharger
+    ce virtuel.
     ⚠ `1061` est entre avec #1074, DANS LE MEME COMMIT que son RETIREUR
     (`JustSummonedEffect$$CreateRemoveEffectTrigger`, trois vecteurs dans `EFFECT_TRIGGERS[1061]`) --
     c'est la regle des DEUX FACES, exercee juste en dessous.
+    ⚠ `1044` est entre avec #433-r3-r2-r1 par la MEME regle : ses deux faces sont portees DANS LE
+    MEME ARBRE DSL, a deux sites (`kiss_of_death_tree`, `wall_of_mirrors_tree`), et son
+    OBSERVABILITE est etablie par le natif lui-meme -- `WallOfMirrorsAbility$$ExecuteBehaviour`
+    place un `If(OwnerIsAlive, hit)` ENTRE le vol et l'attaque, donc il TESTE que le caster a
+    survecu au `FlyUnit`.
     Ce test tombe des qu'une inscription se fait sans sa confrontation."""
     assert sorted(UNTARGETABLE_EFFECT_TYPES) == [TELEPORT_STRIKE_TELEPORTING_IN,
+                                                 int(EffectType.Untargetable),
                                                  int(EffectType.GeminaeSuperia_JustSummonedEffect),
                                                  STORMBOYZ_STRIKE_TELEPORTING_IN,
                                                  int(EffectType.FearOfTheUnseen_TeleportingIn)]
     assert int(EffectType.TitanhammerSquad_TeleportingIn) not in UNTARGETABLE_EFFECT_TYPES, (
-        "TitanhammerSquad_TeleportingIn inscrite au domaine sans que la face DECISION soit "
-        "CONFRONTEE (le port de ses triggers ne suffit pas -- cf. #448-r2d)")
+        "TitanhammerSquad_TeleportingIn inscrite au domaine alors que sa classe REFUSE de poser le "
+        "flag (`IsUntargetableEnabled` surchargee a false) -- divergence RESTRICTIVE, cf. #433-r3-r2-r1")
 
 
 #: Les QUATRE `EffectType` que materialise `IdunBattle.Entities.Effects.Loki.JustSummonedEffect`.
