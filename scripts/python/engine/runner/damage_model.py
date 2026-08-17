@@ -1050,6 +1050,22 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # natif frais. ⚠ Le contexte est PER-COUP : il porte la position ET le compteur, exactement
     # comme l'`AbilityEntities` natif que `BaseEffect$$DamageBonusForAttack` recoit.
     att_ctx = dict(att_ctx or {})
+    # #924-r2 -- CE COUP EST-IL L'AUTO-ATTAQUE D'UN OVERWATCH ? Le natif ne pose pas de booleen : il
+    # lit `AbilityEntities+0x98` (l'`AbilityOrEffect` DECLENCHANTE) et le compare a
+    # `AbilityOrEffect{Effect = EffectType.Overwatch_AutoAttack}` -- c'est ce que font, a
+    # l'identique, `IdunBattleLogic.Entities.DSLFactory$$TriggeringEffectIs` et
+    # `IdunBattleLogic.Entities.DSLTriggers$$IsOverwatchAttack` (memes trois indirections
+    # `DSLTriggers+0x10 -> +0x90 -> +0x90`, meme `DSLSelectors.Direct`). Le port a DEJA ce fait sous
+    # la main : `is_overwatch`, pose par le SEUL producteur du vecteur
+    # (`triggers/effect_triggers.py::OverwatchAutoAttack`, qui passe conjointement
+    # `triggering_ability = OVERWATCH_AUTO_ATTACK`). Il etait threade vers le canal AURA
+    # (`_apply_ally_attack_damage_auras`, gate `IsOverwatchAttack` de `LionHelm_ExtraDmg`) et PAS
+    # vers la boucle des effets de l'attaquant : c'est ce trou-la qui laissait
+    # `AReactivateOverwatchEffect$$CreateDamageModifier` sans substrat.
+    # THREADE INCONDITIONNELLEMENT, comme `tiles_moved_this_turn` : cote COMBAT la valeur est
+    # MESUREE (le vecteur la connait), donc la cle est toujours posee. Un appelant HORS runner qui
+    # ne la pose pas laisse le gate FERME -- << present != applique >>, jamais un `True` devine.
+    att_ctx["is_overwatch"] = bool(is_overwatch)
     # #943-r7 -- le BOARD, d'ou se derivent les DEUX canaux du substrat d'adjacence NATIF. Pose
     # INCONDITIONNELLEMENT ici (et non dans `_positional_att_ctx`, qui rend `None` des que le board
     # manque, donc ne pourrait pas porter la cle). MEME cle et MEME semantique que partout ailleurs ;

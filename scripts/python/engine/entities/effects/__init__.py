@@ -694,6 +694,42 @@ def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
             if eb is not None:
                 eb.native_face = e.AURA_ATTACK_BONUS_NATIVE_FACE     # #437-r1-r1-r1
                 out.append(eb)
+                # #1019-r1 -- LA PENETRATION D'ARMURE PORTEE PAR UN EFFET D'AURA.
+                # `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` (le corps du slot
+                # 0x16, celui que cette boucle-ci mirroire) ne se contente pas d'evaluer les
+                # formules de l'`EffectBonus` : apres le test du trigger elle appelle AUSSI
+                # `this.IgnoreArmor()` (slot virtuel `+0x718`), evalue le noeud rendu et range
+                # l'entier dans `DamageBonus+0x38` -- que la boucle attaquant accumule dans
+                # `DamageModifiers+0x28`, le MEME axe armure que les deux autres canaux.
+                # ⚠ DANS CE BLOC, ET C'EST LA FIDELITE MEME : le natif lit `IgnoreArmor()` APRES le
+                # test du trigger et SOUS ce test (lecture du decompile : tout le corps, y compris
+                # l'appel `+0x718`, vit dans la branche `trigger == true`). La gate n'est donc pas
+                # dupliquee ici -- c'est celle du bonus d'aura, une seule fois, comme dans le natif.
+                # C'est la MEME structure que le canal DEFENSEUR (#1008-r2,
+                # `build_defender_modifiers_from_effects`), pris ici par la face AURA.
+                # ⚠ POURQUOI UN SLOT DE PORT DISTINCT de `get_armor_penetration` : le natif n'a
+                # qu'UN slot (`IgnoreArmor`), mais il l'evalue une fois PAR (effet, cible du
+                # selecteur) en ecrivant `AbilityEntities+0x18 (Owner) <- la cible courante`. Le
+                # port, lui, decoupe par LISTE : `_attacker_effect_bonuses` ne voit que les effets
+                # de l'attaquant, cette boucle-ci que ceux de ses ALLIES porteurs. Un effet d'aura
+                # dont le selecteur EXCLUT son porteur (`SurroundingFriends` sans `+ Owner`, cas de
+                # `WayOfTheShortBladeEffect`) ne doit RIEN donner quand son porteur attaque : le
+                # brancher sur `get_armor_penetration` l'accorderait a Farsight lui-meme, que le
+                # natif exclut par `get_OwnerIsCaster`. Meme raison exactement qui fait coexister
+                # `create_effect_damage_bonus_for_attack` et `create_aura_attack_damage_bonus_for_ally`.
+                # ⚠ `getattr` et pas un defaut sur `BaseEffect` : `entities/effects/base.py` est le
+                # foyer d'une tranche CONCURRENTE au moment de ce commit. Le defaut
+                # `aura_armor_penetration_for_ally(ctx) -> None` a sa place sur `BaseEffect` et doit
+                # y monter des que le fichier est libre -- residu #924-r3 ne le couvre PAS, c'est un
+                # simple hissage sans changement de comportement.
+                pen_fn = getattr(e, "aura_armor_penetration_for_ally", None)
+                pen = pen_fn(octx) if callable(pen_fn) else None
+                if pen:
+                    # `for_armor_penetration` -> kind "ArmorPenetration" -> `DamageModifiers.
+                    # armor_penetration` (@0x28). Le natif SOMME `@0x28` des DEUX accumulateurs
+                    # avant `GetBaseDamageWithFixedPiercedArmor` : la face est sans consequence
+                    # arithmetique sur cet axe (meme note que `_attacker_effect_bonuses`).
+                    out.append(for_armor_penetration(True, int(pen)))
     return out
 
 

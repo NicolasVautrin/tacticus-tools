@@ -65,6 +65,25 @@ gameconfig `ModifiedExoarmour` : `damageProfile = Psychic`, `damageProfile_2 = D
 **Non livré** : la classe `1543` elle-même — son inscription passe par `effects/factory.py`, foyer
 tenu par une autre tranche. Résidu **`#10007-r1`**.
 
+> **MAJ #924-r3, 2026-08-17 — `#10007-r1` RÉSOLU, prémisse confirmée mot pour mot.**
+> `ModifiedExoarmourPierceReductionEffect` (`effects/loki/damage_reduction.py`) + son entrée
+> `EFFECT_CLASSES` : le slot 25 a enfin son emprunteur.
+>
+> * **SIGNE** — `for_piercing(..., −v)`, jamais `for_subtraction` : le corps commun du slot NIE le
+>   montant d'un `ForSubtraction`, et `add_modifier` route le kind `Subtraction` vers le **scalaire
+>   dégât** (`flat_reductions`), pas vers l'axe perçage `@+0x20`.
+> * **PAS d'entrée de seed d'owner-effects** — 1543 n'a **aucun** `CreateActiveCondition` (ses seuls
+>   membres natifs sont `.ctor` et `CreatePiercingMalusForDefense`), donc il est toujours actif et
+>   toujours capté ; il est d'ailleurs déjà le TÉMOIN d'entité de son jumeau 1544
+>   (`ModifiedExoarmourExtraDmgEffect.seed_witness_effect`).
+> * **CONFRONTATION**
+>   (`tests/engine/runner/test_10007r1_modified_exoarmour_pierce_reduction_live.py`) —
+>   `votanChampion` est **hors pool**, donc injecté par `catalog_inject.write_augmented_seed_bc` ;
+>   `necroDestroyer` (Gauss, `PiercingRatio = 60`) l'attaque. Kimm 10038 → **live 8309, offline
+>   8309, écart 0**. **Contre-épreuve JOUÉE dans le fichier** (slot 25 neutralisé) : **7060**, soit
+>   **1249 points d'écart** — sans elle, le fichier serait vert dans un régime où la branche ARMURE
+>   de `GetDamageWithPiercing` domine et où le ratio de perçage ne change rien.
+
 ---
 
 ## 2. `#175-r3` — `get_CanBeImmuneTo` sur CHAMP D'INSTANCE — **PRÉMISSE CONFIRMÉE, ÉNONCÉ RÉFUTÉ**
@@ -220,9 +239,10 @@ taunté. Résidu **`#911-r2`**.
 
 ## Ce qui n'est PAS couvert
 
-* **`#10007`** — la classe `1543 ModifiedExoarmour_PierceReduction` n'est pas portée (`#10007-r1`) :
-  le canal est posé, mais aucun effet ne l'emprunte encore, donc le slot 25 reste **exercé
-  uniquement par les gardes**, pas par une confrontation live.
+* ~~**`#10007`**~~ — **COUVERT depuis #924-r3 (2026-08-17)** : la classe
+  `1543 ModifiedExoarmour_PierceReduction` est portée, inscrite, et le slot 25 est **confronté
+  live** avec contre-épreuve jouée (cf. l'encadré du § 1). Il n'est plus « exercé uniquement par
+  les gardes ».
 * **`#175-r3`** — 16 indéterminées, et les volets 2/3 (`BlockUnitMovementBondEffect`, les cinq
   feuilles de tuile qui héritent `true` sans classe Python) : `#175-r4`. Aucune confrontation live
   du nouveau `true` de `ChampionOfTheFeast_ReduceArmor` (le gate ne mord que sur une cible

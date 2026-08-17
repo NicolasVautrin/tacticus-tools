@@ -149,27 +149,37 @@ def test_924_le_pilotage_du_test_mord_vraiment():
     assert _effet(level=7).ability_level == 7
 
 
-def test_924_r2_la_face_degat_reste_DESARMEE_tant_que_letage_nest_pas_traite():
-    """CLIQUET INVERSE (#924-r2). La face DEGAT est RE-solue (gate + magnitude etablis) et le natif
-    l'applique bel et bien -- mesure live, meme run, meme cible, armure 0 :
+def test_924_r2_la_face_degat_est_ARMEE_et_son_gate_est_le_declencheur_du_coup():
+    """#924-r2 **RESOLU** (#924-r3, 2026-08-17) -- le cliquet INVERSE qui vivait ici est remplace
+    par ce qu'il exigeait lui-meme pour etre leve : une MESURE du couple (normale, overwatch).
+    Elle est faite, et bit-exact :
+    `tests/engine/runner/test_924r2_inescapable_death_overwatch_live.py`.
 
-        attaque NORMALE  moyenne  628,7 / coup
-        tir  OVERWATCH   moyenne 1246,0 / coup      (1,98x)
+    CE QUI ETAIT FAUX DANS L'ENONCE, et pourquoi aucun raisonnement ne pouvait le voir. #924 SS5
+    ecrivait << armure 0 des deux cotes >> et en tirait que `GetDamageWithPiercing` etait
+    l'IDENTITE. Deux faits LUS le refutent :
+      * le montage de #924-r2 monte `astraBullgryn` en cible, et `combatSnapshot` y rend
+        `fixedArmor = 4821` (attaquant `extraPierce = 0`, `Gauss` a `PiercingRatio = 60`) : pour
+        tout `d < 12052`, `max(0, d - 4821, 0,60 d) = 0,60 d`. Le regime est PERCE ;
+      * le drapeau `--hp-target` cite par cette fiche **MET Armor/FixedArmor a 0** sur les a-units
+        (son aide le dit : << piege de mesure : cela SUPPRIME l'etage armure >>).
+    Les deux bras n'etaient donc pas dans le meme regime, et le port le reproduit exactement :
+    `apply_pierce_and_modifiers(base, pierce=60, armure=4821, additif=898, pre=True)` rend
+    `delta = 538` par coup, la meme chose a `armure=0` rend **898,0 EXACTEMENT** -- le nombre que la
+    fiche attribuait au port. L'ecart etait un artefact de montage, pas une divergence de magnitude.
 
-    Mais l'ecart que le PORT produirait vaut 898,0/coup EXACTEMENT (mesure par mutant), quand le
-    natif en produit 617,3. `617,3/898 = 0,687`, et le rapport `degat normal / stat Attack` vaut
-    `628,7/906 = 0,694` -- MESURE INDEPENDAMMENT : le bonus subit la meme transformation que la
-    base, donc le natif l'ajoute AVANT la resolution des bornes et le port APRES. Livrer a cet
-    etage-la, c'est +45 % de degat sur chaque tir d'overwatch d'Imospekh.
-
-    Ce test rougit si quelqu'un re-arme la face sans traiter l'etage. Le lever demande de MESURER
-    a nouveau le couple (normale, overwatch), pas de supprimer ce test."""
-    assert "create_effect_damage_bonus_for_attack" not in InescapableDeathEffect.__dict__, \
-        ("la face DEGAT a ete re-armee. Si l'etage d'injection a ete corrige (#924-r2), remplace ce "
-         "cliquet par la confrontation live du couple (attaque normale, tir d'overwatch) -- ne le "
-         "supprime pas sans cette mesure.")
-    e = _effet()
-    assert e.create_effect_damage_bonus_for_attack(att_ctx={"trigger_ability_type": 1009}) is None
+    Ce test-ci fige ce que la face EST : un additif `ForAddition` gate par le SEUL declencheur du
+    coup."""
+    assert "create_effect_damage_bonus_for_attack" in InescapableDeathEffect.__dict__, \
+        "la face DEGAT a ete DESARMEE -- elle est confrontee bit-exact, ne pas la retirer"
+    e = _effet(mult=180)
+    for cle in ({"trigger_ability_type": 1009}, {"is_overwatch": True}):
+        eb = e.create_effect_damage_bonus_for_attack(att_ctx=cle)
+        assert eb is not None and eb.kind == "Addition" and eb.value == 898, (cle, eb)
+    # ... et RIEN d'autre ne l'ouvre : le declencheur est le seul gate (aucun `IsRangedAttack`,
+    # aucun `IsNormalAttack`, aucun `has_moved` au decompile).
+    for cle in ({}, {"is_overwatch": False}, {"trigger_ability_type": 1004}):
+        assert e.create_effect_damage_bonus_for_attack(att_ctx=cle) is None, cle
 
 
 def test_924_r2_la_magnitude_reste_LISIBLE_pour_le_futur_fix():
@@ -183,20 +193,32 @@ def test_924_r2_la_magnitude_reste_LISIBLE_pour_le_futur_fix():
     assert base == 499 and scale == 898, (base, scale)
 
 
-def test_924_le_trigger_ability_type_nest_PAS_threade_sur_laxe_DEGAT():
-    """Etat MESURE du substrat, et premiere etape du fix #924-r2. Le vecteur ATTAQUE NORMALE ne
-    passe pas `trigger_ability_type` a `attacker_modifiers` -- seul l'axe COUPS le recoit
-    (`build_hits_board`, consomme par `PurgeResponse`). Un futur fix devra le threader ; ce test
-    documente qu'il ne l'est pas encore, pour qu'on ne croie pas le substrat deja pret."""
+def test_924_le_substrat_du_gate_est_is_overwatch_pas_trigger_ability_type():
+    """Etat MESURE du substrat (#924-r3). Le vecteur ATTAQUE NORMALE ne passe TOUJOURS PAS
+    `trigger_ability_type` a `attacker_modifiers` -- seul l'axe COUPS le recoit (`build_hits_board`,
+    consomme par `PurgeResponse`). Ce n'est plus une etape manquante : le MEME fait natif
+    (`AbilityEntities+0x98` == `AbilityOrEffect{Effect = 1009}`) arrive par l'autre cle,
+    `is_overwatch`, que le SEUL producteur du vecteur pose conjointement
+    (`triggers/effect_triggers.py::OverwatchAutoAttack` passe `is_overwatch=True` ET
+    `triggering_ability=OVERWATCH_AUTO_ATTACK`) et que `damage_model.attacker_modifiers` threade
+    desormais dans `att_ctx`.
+
+    Les DEUX cles sont servies par `is_overwatch_triggered` : le jour ou quelqu'un threade
+    `trigger_ability_type` sur cet axe, la face continue de marcher, et ce test se met a jour sans
+    rien casser. Il garde ici que le substrat EXISTE -- pas qu'il manque."""
     import inspect
     from engine.runner.operations.damage_ops import normal as N
+    from engine.runner import damage_model as DM
     src = inspect.getsource(N)
     i = src.find("mods, active = attacker_modifiers(")
     assert i > 0, "site d'appel introuvable -- ce test ne mesure plus rien"
     appel = src[i:i + 900]
-    assert "trigger_ability_type=" not in appel, \
-        ("`trigger_ability_type` est desormais threade sur l'axe DEGAT : c'est l'etape 1 de "
-         "#924-r2 -- reprends la confrontation live de la face DEGAT et mets ce test a jour")
+    assert "is_overwatch=" in appel, \
+        "le vecteur normale ne passe plus `is_overwatch` a `attacker_modifiers` : le gate de la face DEGAT est MUET"
+    dm_src = inspect.getsource(DM.attacker_modifiers)
+    assert 'att_ctx["is_overwatch"]' in dm_src, \
+        ("`attacker_modifiers` ne threade plus `is_overwatch` dans `att_ctx` : la face DEGAT "
+         "d'`InescapableDeath` et celle d'`EarlyWarningOverride` deviennent INERTES en silence")
 
 
 # ------------------------------------------- 4. la DIVERGENCE d'avec le voisin de forme (1145)

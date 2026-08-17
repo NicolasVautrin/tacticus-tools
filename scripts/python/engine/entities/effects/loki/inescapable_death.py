@@ -198,13 +198,24 @@ registre porte l'effet, et le residu **#924-r2** porte le point ouvert. Deux cli
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from ....services.effect_bonus import EffectBonus, for_addition
 from ..base import BaseEffect
+from ..magnitude import ability_var
 from ...ability_variable_type import AbilityVariableType
 from ...effect_type import EffectType
 
 #: `InescapableDeathEffect$$.ctor` = `AReactivateOverwatchEffect..ctor(this, 0x3ed)` -- l'ability
 #: dont l'effet lit la config (`config@0x60`), donc la source de `extraDmg` ET de `hitsReduction`.
 INESCAPABLE_DEATH = "InescapableDeath"
+
+#: `EarlyWarningOverride_ReactivateOverwatchEffect$$.ctor` =
+#: `AReactivateOverwatchEffect..ctor(this, 0x435)` -- LU au decompile (`t6dpr4k06g`). `0x435 = 1077`
+#: est un **`ActiveAbilityType`** (`EarlyWarningOverride`, l'active de `tauCrisis` << Re'vas >>),
+#: pas un `TriggeredAbilityType` : c'est le pendant exact du `0x3ed` de sa soeur, mais sur l'autre
+#: hierarchie d'ability -- d'ou la cascade de niveau `active_ability_level` D'ABORD ci-dessous.
+EARLY_WARNING_OVERRIDE = "EarlyWarningOverride"
 
 #: `GetOverwatchExtraDamage` = `ConfigVar(..., 8, ...)`. Membre NOMME (regle ENUM) : l'ordinal 8 est
 #: aussi un membre valide d'`AbilityConstantType`, ou il nomme autre chose.
@@ -217,6 +228,36 @@ EXTRA_DMG_VAR = AbilityVariableType.extraDmg.name
 TRIGGERING_EFFECT_TYPE = int(EffectType.Overwatch_AutoAttack)          # 0x3f1 = 1009
 
 
+def is_overwatch_triggered(ctx: Mapping | None) -> bool:
+    """`TriggeringEffectIs(0x3f1) & IsOverwatchAttack()` -- **UN SEUL** predicat, pas deux.
+
+    Les deux termes du declencheur natif lisent le MEME champ (`AbilityEntities+0x98`, atteint par
+    `DSLTriggers+0x10 -> +0x90 -> +0x90` dans les deux decompiles) et construisent le MEME
+    `AbilityOrEffect{Effect = EffectType.Overwatch_AutoAttack}` : la conjonction est strictement
+    redondante (`X & X = X`), et c'est la mesure de l'en-tete SS3 qui autorise a ne l'evaluer
+    qu'une fois.
+
+    DEUX cles du port servent ce meme fait, et l'ordre n'est pas arbitraire :
+      * `trigger_ability_type` -- le mirror LITTERAL du champ `+0x98`, deja threade sur l'axe COUPS
+        (`build_hits_board` -> `PurgeResponse`). S'il est present, il TRANCHE : une valeur autre
+        que 1009 ferme le gate ;
+      * `is_overwatch` -- le booleen que le SEUL producteur du vecteur pose conjointement
+        (`triggers/effect_triggers.py::OverwatchAutoAttack` passe `is_overwatch=True` ET
+        `triggering_ability=OVERWATCH_AUTO_ATTACK`). C'est lui que l'axe DEGAT recoit aujourd'hui.
+    Aucune des deux -> gate FERME (<< non mesure >> n'est pas << faux >>, mais on n'invente pas un
+    declencheur).
+
+    ⚠ Ce predicat qualifie un **EffectType**. L'ordinal 1009 est aussi un `ActiveAbilityType`
+    (`ResurrectionOrb`) et un `TriggeredAbilityType` (`WhipcoilBody`), qui n'ont rien a voir : la
+    surcharge `AbilityOrEffect$$op_Implicit` appelee par `IsOverwatchAttack()` a pour corps
+    `set_Effect`, lu aux octets."""
+    c = ctx or {}
+    tat = c.get("trigger_ability_type")
+    if tat is not None:
+        return int(tat) == TRIGGERING_EFFECT_TYPE
+    return c.get("is_overwatch") is True
+
+
 class InescapableDeathEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.InescapableDeathEffect` (EffectType 0x3fa = 1018).
 
@@ -224,12 +265,144 @@ class InescapableDeathEffect(BaseEffect):
     un kill, et sa reduction de coups 1019 -- sont portees, et enregistrees sur le MEME effet 1018
     dans `runner/operations/triggers/loki/reactivate_overwatch.py`.
 
-    ⚠ **La face DEGAT n'est volontairement PAS surchargee ici** : `create_effect_damage_bonus_for_attack`
-    reste celle de `BaseEffect` (aucun bonus). Ce n'est ni un oubli ni du dead-code -- le natif
-    APPLIQUE bien ce bonus (mesure : le tir d'overwatch fait 1,98x l'attaque normale du meme
-    porteur), mais l'ETAGE ou le port sait l'injager donne +45 % de trop. Toute la mesure, et le
-    seul point qui reste ouvert, sont en §6 de l'en-tete du module -> residu **#924-r2**.
+    La face DEGAT est PORTEE depuis #924-r3 (cf. §6 de l'en-tete pour la mesure qui a leve
+    #924-r2) : `create_effect_damage_bonus_for_attack` ci-dessous est le mirror de
+    `AReactivateOverwatchEffect$$CreateDamageModifier` allume par l'override
+    `InescapableDeathEffect$$GetOverwatchExtraDamage`."""
 
-    La classe reste inscrite a `EFFECT_CLASSES` pour que l'effet ait un porteur NOMME : c'est ce qui
-    rend le residu visible depuis le registre, au lieu d'un `BaseEffect` anonyme qui se lirait comme
-    « rien a porter ici »."""
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        """`IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateDamageModifier`, mirror
+        1:1 (le corps entier, §3 de l'en-tete) :
+
+            abilityOrEffect = GetOverwatchExtraDamage()             # <vtable +0x778>
+            if (abilityOrEffect == null) return default             # la BASE s'eteint ici
+            trigger = get_OwnerIsCaster
+                      & TriggeringEffectIs(0x3f1)                   # 1009 Overwatch_AutoAttack
+                      & GetAdditionalExtraDamageTrigger()           # <vtable +0x768>
+            return EffectBonus.ForAddition(trigger, abilityOrEffect)
+
+        Les TROIS conjoints, et rien d'autre :
+          * `get_OwnerIsCaster` -- STRUCTUREL sur ce canal : `_attacker_effect_bonuses` n'itere que
+            les effets de l'ATTAQUANT du coup courant ;
+          * `TriggeringEffectIs(0x3f1)` et `GetAdditionalExtraDamageTrigger()` -- pour CETTE
+            sous-classe, l'override rend `IsOverwatchAttack()`, qui EST le meme predicat (§3) :
+            `is_overwatch_triggered` les evalue donc UNE fois.
+
+        ⚠ **AUCUN `IsRangedAttack`** au decompile, alors que l'i2 anglais dit « **ranged** attacks
+        now deal +extraDmg … » : la restriction au tir tient au FAIT que l'overwatch est un tir
+        (`Overwatch_AutoAttackEffect$$GetAttackBehaviour` = `UseActiveAbility(NormalAttack)` a
+        distance), pas a un noeud du trigger. L'ecrire serait une invention -- et elle serait
+        INVISIBLE tant qu'on ne teste que l'overwatch. Meme chose pour `IsNormalAttack`,
+        `has_moved`, et tout filtre `Immune` : aucun n'existe ici.
+
+        ⚠ **`ForAddition` -> `DamageModifiers.Addition@+0x10`**, consomme par le canal deja porte
+        `attacker_additive_pre=True` : l'additif entre AVANT le percage et AVANT les %-mods.
+        `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` somme lui-meme ce `+0x10` au
+        `baseDamage` (borne MIN et borne MAX), et
+        `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` ne le lit
+        JAMAIS -- il ne consomme que `+0x20`/`+0x28`/`+0x18`/`+0x30`. Rien a re-ordonnancer.
+
+        MAGNITUDE -- `GetOverwatchExtraDamage()` = `ConfigVar(AbilityVariableType.extraDmg = 8,
+        GetAbilityState(this), config@+0x60)`, ou `config@+0x60` est la config d'`InescapableDeath`
+        (l'argument du `.ctor`), PAS celle du porteur. `extraDmg` EST dans
+        `variablesAffectedByRarityBonus` -> `ability_var` applique le multiplicateur de rarete.
+        Couple MESURE live par `probe_924r2_ability_state_overwatch.py` (`unitAbilityStates`) :
+        `level = 50, mult = 180` -> 898."""
+        if not is_overwatch_triggered(att_ctx):
+            return None
+        # `GetAbilityState(this)` -- `InescapableDeath` est une `passiveAbilities` : meme cascade
+        # que les autres effets de passif (`active_ability_level -> ability_level -> level`).
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        if lvl is None:                      # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        v = ability_var(INESCAPABLE_DEATH, EXTRA_DMG_VAR, lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, int(v)) if v else None
+
+
+class EarlyWarningOverrideReactivateOverwatchEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.EarlyWarningOverride_ReactivateOverwatchEffect`
+    (`EffectType` 0x479 = **1145**) -- la SOEUR de forme de 1018, meme base native
+    `AReactivateOverwatchEffect`. Residu **#924-r1**.
+
+    Elle est posee par `IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility$$
+    ExecuteBehaviour` sur le CASTER lui-meme, en meme temps que `0x3f1 = 1009 Overwatch_AutoAttack`,
+    `0x478 = 1144 SuppressCloseCombatWeakness` et `0x47d = 1149 EarlyWarningOverride_Visual`, pour
+    `TurnsFromRounds(1)` -- QUATRE `AddEffect` qui partagent le MEME
+    `DSLSelectors.CreateSnapshot(abilityState)` (lu au decompile ; d'ou le `scale_from_source=True`
+    de `runner/abilities/tau.py`). Porteur `tauCrisis` << Re'vas >>, HERO, AU POOL : le montage est
+    immediat, sans injection ni greffe.
+
+    ## LE BLOC `methodPointers`, RE-LU AUX OCTETS SUR `t6dpr4k06g` -- QUATRE entrees
+
+        slot 0  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$.ctor
+        slot 1  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$GetHitReductionEffectType
+        slot 2  ->  <le corps PARTAGE de GetOverwatchExtraDamage>   (ICF, 2 proprietaires)
+        slot 3  ->  EarlyWarningOverride_ReactivateOverwatchEffect$$LegitDeathReasons
+        (l'entree suivante appartient a la classe SUIVANTE -> le bloc fait EXACTEMENT quatre)
+
+    ⇒ **1145 OVERRIDE `GetOverwatchExtraDamage`** : sa face DEGAT est VIVANTE, et
+    `extraDmg` est non nul dans le gameconfig (`[26, 31, 36, ..., 1440]`, dans
+    `variablesAffectedByRarityBonus`). C'est ce que `frida/methods.tsv` ne pouvait PAS montrer :
+    indexe par ADRESSE, il ne garde qu'UN proprietaire par corps ICF.
+
+    ## LES DEUX SOEURS SONT DES MIROIRS CROISES -- le piege du voisin de forme
+
+        InescapableDeathEffect   : override GetAdditionalExtraDamageTrigger, PAS LegitDeathReasons
+        EarlyWarningOverride_... : override LegitDeathReasons, PAS GetAdditionalExtraDamageTrigger
+
+    Le `<vtable +0x768>` (`GetAdditionalExtraDamageTrigger`) de 1145 est donc celui de la BASE.
+    Recopier le 3e conjoint d'`InescapableDeath` (`IsOverwatchAttack()`) serait le piege --
+    et le voisin est litteralement la classe soeur.
+
+    ⚠ **CE QUE REND LA BASE, ET COMMENT ON LE SAIT.** Son `GetAdditionalExtraDamageTrigger` n'a
+    aucun symbole propre (corps trivial, deduplique par ICF). Il a ete retrouve dans le bloc
+    `methodPointers` de `AReactivateOverwatchEffect`, entre `CreateDamageModifier` et le corps
+    `xor eax,eax ; ret` de `GetOverwatchExtraDamage` (celui qui rend la BASE inerte) : son corps est
+    `return <DSLTriggers+0x70>`, la constante que le port a deja identifiee ailleurs comme le
+    **`YesTrigger`** (constante VRAIE ; memes octets que les `CreateActiveCondition` de
+    `KardiocoreGalvanus_ExtraCritDmg` et de `WisdomOfTheAncients_DamageReduction`, tous deux
+    documentes << TOUJOURS ACTIF >>).
+    ⇒ le declencheur EFFECTIF de 1145 est `get_OwnerIsCaster & TriggeringEffectIs(0x3f1)` -- soit
+    EXACTEMENT le meme predicat que 1018, dont le 3e conjoint est une redite. Les deux classes
+    partagent donc le gate ET diffèrent par la CONFIG lue, et par rien d'autre sur cet axe.
+    L'attribution est CONFRONTEE : `tests/engine/runner/test_924r1_early_warning_override_
+    overwatch_live.py` rejoue le tir bit-exact ; un 3e conjoint qui ne serait pas `YesTrigger`
+    ferait diverger la salve.
+
+    ## MAGNITUDE
+
+    `GetOverwatchExtraDamage()` = `ConfigVar(AbilityVariableType.extraDmg = 8, GetAbilityState(this),
+    config@+0x60)` avec `config@+0x60` = la config d'**`EarlyWarningOverride`** (l'argument `0x435`
+    du `.ctor`), pas celle du porteur ni celle d'`InescapableDeath`. `extraDmg` EST dans
+    `variablesAffectedByRarityBonus` -> scale par le multiplicateur de rarete.
+
+    ⚠ NIVEAU -- `EarlyWarningOverride` est une ability **ACTIVE** (1077), la ou `InescapableDeath`
+    est une passive : la cascade commence donc par `active_ability_level`, que
+    `scale_from_source=True` renseigne a la pose depuis l'`AbilityStateReference` du caster."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        """MEME corps natif que sa soeur (`AReactivateOverwatchEffect$$CreateDamageModifier`), MEME
+        gate effectif (le 3e conjoint de la BASE est le `YesTrigger`), AUTRE config."""
+        if not is_overwatch_triggered(att_ctx):
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        if lvl is None:                      # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        v = ability_var(EARLY_WARNING_OVERRIDE, EXTRA_DMG_VAR, lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, int(v)) if v else None

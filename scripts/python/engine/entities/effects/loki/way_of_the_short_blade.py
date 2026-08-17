@@ -99,14 +99,15 @@ rien a la lecture.
 CE QUE CE MODULE NE PORTE PAS -- residus NOMMES, pas des oublis
 ===================================================================================================
 
-* **`#1019-r1` -- la PENETRATION D'ARMURE n'atteint pas le calcul.** `ignore_armor()` est expose et
-  LU (ci-dessous) mais n'est PAS branche : cote port, `BaseEffect.get_armor_penetration` n'est
-  appele que par `_attacker_effect_bonuses` (`entities/effects/__init__.py`), la boucle des effets
-  de l'ATTAQUANT -- or cet effet-ci vit sur FARSIGHT, et n'entre que par les agregateurs d'AURA,
-  qui n'ont AUCUN canal armure cote attaquant. C'est le MEME etage que `#1008-r2`, pris par l'autre
-  face (defenseur la-bas, aura ici). Le brancher sur le canal attaquant serait un no-op silencieux.
-  Consequence arithmetique reelle : le port rend le `+extraDmgPct%` mais pas les `armorIgnored`
-  points de percage.
+* ~~`#1019-r1`~~ **RESOLU** -- la penetration d'armure ATTEINT desormais le calcul.
+  `aura_attack_damage_bonus_from_allies` (`entities/effects/__init__.py`) lit
+  `aura_armor_penetration_for_ally` **dans le bloc du bonus d'aura**, exactement comme
+  `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` appelle `this.IgnoreArmor()`
+  (`<vtable +0x718>`) SOUS le test du trigger de son `EffectBonus`, et range le resultat dans
+  `DamageBonus+0x38` -> `DamageModifiers+0x28`. La premisse du residu etait JUSTE (le canal AURA
+  n'avait aucun axe armure), mais son ETAGE annonce (`BLOCAGE: etage`) etait FAUX : rien n'etait a
+  construire, la lecture native place la penetration dans le MEME bloc que le bonus. Detail :
+  `docs/rl/case-1019-way-of-the-short-blade.md` SS5.
 * **`#1019-r2` -- l'effet 1500 `WayOfTheShortBlade_AdditionalAttackMarker` et son
   `WayOfTheShortBlade_AttackAbility`.** RE complete dans `docs/rl/case-1019-way-of-the-short-blade.md`
   §3 ; ce module porte la classe d'effet (pour que la couverture voie l'effet et que son selecteur
@@ -148,8 +149,9 @@ class WayOfTheShortBladeDamageBuffEffect(BaseEffect):
     FARSIGHT a l'init de son passif et PROJETE sur ses amis par `CreateTargetSelector` (canal AURA
     cote SOURCE, meme patron que `DefenderOfTheGreaterGoodExtraDmgEffect`).
 
-    Le port porte le canal POURCENT (`create_aura_attack_damage_bonus_for_ally`) et EXPOSE la
-    magnitude de percage sans la brancher -- residu `#1019-r1`, cf. l'en-tete."""
+    Le port porte les DEUX canaux, tous deux gardes par le MEME trigger, comme le natif : le
+    POURCENT (`create_aura_attack_damage_bonus_for_ally`) et la PENETRATION D'ARMURE
+    (`aura_armor_penetration_for_ally`, #1019-r1)."""
 
     def _range(self) -> int:
         """`GetNumberConstant(cfg, 0x16 = range)` -- CONSTANTE du gameconfig (aucun niveau, aucun
@@ -230,13 +232,40 @@ class WayOfTheShortBladeDamageBuffEffect(BaseEffect):
         """`WayOfTheShortBladeEffect$$IgnoreArmor` =
         `ConfigVar(0x40 = armorIgnored, BaseEffect.GetAbilityState(this), cfg@this+0x60)`.
 
-        EXPOSE, PAS BRANCHE -- residu `#1019-r1` (l'en-tete dit pourquoi : le seul lecteur porte de
-        `get_armor_penetration` est la boucle des effets de l'ATTAQUANT, et cet effet-ci vit sur
-        Farsight). `get_armor_penetration` n'est deliberement PAS surcharge : le trou reste VISIBLE
-        au lieu d'etre un no-op qui se lit comme « porte »."""
+        La MAGNITUDE seule -- aucun gate : le natif n'en met aucun sur ce corps, la gate est celle
+        de l'`EffectBonus` sous lequel `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`
+        l'evalue (cf. `aura_armor_penetration_for_ally` ci-dessous)."""
         lvl = self.ability_level if self.ability_level is not None else self.level
         return ability_var(ABILITY_ID, ARMOR_IGNORED_KEY, lvl,
                            multiplier_pct=self.ability_variables_multiplier)
+
+    def aura_armor_penetration_for_ally(self, ctx: Mapping | None = None) -> int | None:
+        """Le MEME slot natif que `ignore_armor` (`<Effect>.IgnoreArmor`, vtable `+0x718`), lu
+        depuis la boucle d'AURA -- c'est-a-dire l'iteration ou `AbilityEntities+0x18 (Owner)` vaut
+        le BENEFICIAIRE du selecteur, pas le porteur (#1019-r1).
+
+        `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` (corps du slot 0x16) evalue,
+        SOUS le test du trigger de l'`EffectBonus` :
+
+            bonus = <formules de l'EffectBonus>            # additif / pourcent
+            pen   = this.IgnoreArmor()                     # appel virtuel <vtable +0x718>
+            if (pen != null) DamageBonus[+0x38] = pen.Calculate(entities)
+
+        et `CalculateAttackerModifiersForPrediction` accumule ce `+0x38` dans
+        `DamageModifiers+0x28` -- l'axe ARMURE (`armor_eff = max(FixedArmor - penetration, 0)`).
+        Le gate est donc STRICTEMENT celui du bonus de degat : l'agregateur
+        `aura_attack_damage_bonus_from_allies` n'appelle cette methode que lorsque
+        `create_aura_attack_damage_bonus_for_ally` a rendu un bonus -- on ne re-teste RIEN ici, comme
+        le natif ne re-teste rien.
+
+        ⚠ **Ce canal n'est PAS `get_armor_penetration`, et le confondre serait un sur-degat.**
+        `get_armor_penetration` est lu par `_attacker_effect_bonuses`, la boucle des effets de
+        l'ATTAQUANT : le surcharger ici accorderait les `armorIgnored` points a FARSIGHT lui-meme,
+        alors que `WayOfTheShortBladeEffect$$CreateTargetSelector` l'EXCLUT (`SurroundingFriends`
+        sans `+ Owner` -- l'i2 dit « of **other** friendly Characters ») et que le natif ferme la
+        porte par `get_OwnerIsCaster` (Owner = la cible du selecteur, jamais le porteur).
+        `get_armor_penetration` reste donc volontairement NON surcharge."""
+        return self.ignore_armor(ctx)
 
 
 class WayOfTheShortBladeAdditionalAttackMarkerEffect(BaseEffect):

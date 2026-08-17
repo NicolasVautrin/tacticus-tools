@@ -51,7 +51,9 @@ from .loki.damage_reduction import (
     FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect,
     HeraldOfTheApocalypseExtraDamageEffect,
     LightOfSanguiniusDmgReductionEffect, MarkerlightEffect,
-    MartialKatahDmgReductionEffect, NeuroparasiteEffect, NightshroudDmgReductionEffect,
+    MartialKatahDmgReductionEffect,
+    ModifiedExoarmourPierceReductionEffect,             # 1543, slot 25 (#10007-r1)
+    NeuroparasiteEffect, NightshroudDmgReductionEffect,
     TimesplinterMantleDamageReductionEffect,
     OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
     PsychicFortressDmgReductionEffect, SereneUnifierSenseOfStoneEffect,
@@ -182,7 +184,9 @@ from .loki.mind_control import (
 from .loki.icon_of_obstinacy import (      # #919 (passif astarLysander)
     IconOfObstinacyExtraArmorEffect, IconOfObstinacyExtraDmgEffect
 )
-from .loki.inescapable_death import InescapableDeathEffect   # #924 (passif necroDestroyer)
+from .loki.inescapable_death import (      # #924 (passif necroDestroyer) + #924-r1 (actif tauCrisis)
+    EarlyWarningOverrideReactivateOverwatchEffect, InescapableDeathEffect
+)
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.twisted_science import TwistedScienceExtraHpEffect   # #931 (passif genesBiophagus)
 from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
@@ -557,6 +561,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `runner/operations/triggers/dispatch/registry.py::EFFECT_TRIGGERS[1018]`, et la POSE de l'effet
     # dans `ABILITY_INIT_OWNER_EFFECTS` plus bas. RE complete en tete de `loki/inescapable_death.py`.
     "InescapableDeath_Effect": InescapableDeathEffect,
+    "EarlyWarningOverride_ReactivateOverwatch": EarlyWarningOverrideReactivateOverwatchEffect,
+    # #924-r1 -- la SOEUR de forme, `EarlyWarningOverride_ReactivateOverwatch` (0x479 = 1145), posee
+    # par l'ACTIVE 1077 de `tauCrisis` << Re'vas >> sur le caster lui-meme. MEME base native
+    # (`AReactivateOverwatchEffect`), donc MEME face DEGAT -- son bloc `methodPointers`, relu aux
+    # octets sur `t6dpr4k06g`, porte QUATRE entrees dont le corps PARTAGE de `GetOverwatchExtraDamage`
+    # (ICF : `frida/methods.tsv`, indexe par ADRESSE, n'en garde qu'UN proprietaire, d'ou l'ancienne
+    # lecture << 1145 n'override pas >>). Le 3e conjoint de son declencheur est celui de la BASE
+    # (`YesTrigger`), PAS l'`IsOverwatchAttack()` de sa soeur : les deux classes sont des MIROIRS
+    # CROISES (1145 override `LegitDeathReasons`, 1018 override `GetAdditionalExtraDamageTrigger`).
     # #1048 (residu #1018-r1) -- `AdrenalGlands_Effect` (0x419 = 1049), passif du summon
     # `tyranSmnHormagaunt` et des CINQ npc Hormagaunt. SEUL implementeur du hook
     # `CreateRangeBonusForMovement` de tout le build : il n'a ni stat-mod ni `EffectBonus`, il
@@ -1202,6 +1215,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EffectType 0x608=1544 (case-322 ; l'ecart mesure par #312 valait 44.395 vs 17.8 en utilite).
     # MEME forme que FuelledByFury (Multiply(ConfigVar, <compteur>)), le compteur en moins.
     "ModifiedExoarmour_ExtraDmg": ModifiedExoarmourExtraDmgEffect,
+    # ModifiedExoarmour, volet DEFENSIF (#10007-r1) -- EffectType 0x607=1543, pose par le MEME
+    # `ModifiedExoarmourAbility$$CreateBehaviour` (`AddEffect(0x607) & AddEffect(0x608)`, UNE seule
+    # expression). SEULE surchargeante native du slot d'interface **25 (`0x19`
+    # `CreatePiercingMalusForDefense`)** sur le build : jusqu'ici le canal porte par #10007 n'avait
+    # AUCUN emprunteur. `EffectBonus.ForSubtraction(get_OwnerIsTarget & !DamageProfileIs(Psychic)
+    # & !DamageProfileIs(DirectDamage), ConfigVar(0x3f=extraPierceRatio))` -> percage de l'attaquant
+    # reduit de 20 points au palier 50 (`for_piercing(-v)` : le corps commun du slot NIE le montant
+    # d'un `ForSubtraction`). Aucun `CreateActiveCondition` -> toujours actif, toujours capte, donc
+    # PAS d'entree de seed d'owner-effects (contrairement a son jumeau 1544).
+    "ModifiedExoarmour_PierceReduction": ModifiedExoarmourPierceReductionEffect,
     # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
     # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier ForPercentDecrease
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau

@@ -604,9 +604,13 @@ class FightingRetreatAbility(ActiveAbility):
 #  - `Overwatch_AutoAttack` (1009) est un EFFET-TRIGGER DEJA PORTE (`OverwatchAutoAttack`,
 #    `operations/triggers/effect_triggers.py`) : le poser rend Re'vas REELLEMENT overwatchante offline
 #    (auto-attaque `On(4)` = after-move d'un ennemi en portee).
-#  - 1144/1145/1149 n'ont PAS de classe d'effet portee -> `BaseEffect` inerte (presence fidele, semantique
-#    non modelisee) : 1145 = re-entree en overwatch apres un kill avec `hitsReduction=1` (phase 2, effet
-#    `EarlyWarningOverride_ReactivateOverwatchEffect`, HORS de ce port) ; 1149 = VISUEL pur.
+#  - 1144/1149 n'ont PAS de classe d'effet portee -> `BaseEffect` inerte (presence fidele, semantique
+#    non modelisee) ; 1149 = VISUEL pur. **1145 EST porte depuis #924-r1** : sa face DEGAT
+#    (`AReactivateOverwatchEffect$$CreateDamageModifier`, allumee par l'override
+#    `EarlyWarningOverride_ReactivateOverwatchEffect$$GetOverwatchExtraDamage`) vit dans
+#    `entities/effects/loki/inescapable_death.py`, avec sa soeur 1018. Ses deux `Triggered()`
+#    (re-entree en overwatch apres un kill, `hitsReduction=1`) sont, elles, portees de longue date
+#    dans `runner/operations/triggers/loki/reactivate_overwatch.py`.
 #  - `SetsActiveAbilityUsedFlag` overridee (#139, 1077 dans `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) ;
 #    `SetsEndTurnFlags` = defaut -> l'ability TERMINE le tour de Re'vas.
 
@@ -636,7 +640,19 @@ def early_warning_override_tree(state: "State", tiles: list):
     turns = convert_rounds_to_turns(state, 1)                  # noeud `TurnsFromRounds(1)`
     node = None
     for etype, name in EWO_EFFECTS:
-        leaf = AddEffect(etype, name, Caster(), duration_turns=turns)
+        # `scale_from_source=True` = le 2e argument natif des QUATRE `AddEffect` (#924-r1). LU au
+        # decompile : `...EarlyWarningOverrideAbility$$ExecuteBehaviour` construit UN SEUL
+        # `IdunBattleLogic.Entities.DSLSelectors$$CreateSnapshot(abilityState)` et le passe, TEL
+        # QUEL, aux quatre appels `AddEffect(0x3f1 / 0x478 / 0x479 / 0x47d, <snapshot>, Owner@+0x30,
+        # <TurnsFromRounds(1)>)`. Sans lui, l'instance materialisee nait sans `AbilityState` et tout
+        # `ConfigVar` qu'elle resout rend `None` : la face DEGAT de `1145 EarlyWarningOverride_
+        # ReactivateOverwatch` (`GetOverwatchExtraDamage` = `ConfigVar(extraDmg, GetAbilityState(this),
+        # config@+0x60)`) serait MATERIALISEE ET INERTE.
+        # ⚠ Le vecteur LIVE ne peut pas voir ce trou : quand l'etat est CAPTURE apres le cast,
+        # `load_state` seede les niveaux depuis l'`unitConfig` du PORTEUR -- et ici porteur == source.
+        # Le trou n'apparait que sur le chemin PUREMENT OFFLINE, ou c'est `AddEffectOperation` qui
+        # cree l'instance. D'ou le garde OFFLINE `test_924r1_early_warning_override_offline.py`.
+        leaf = AddEffect(etype, name, Caster(), duration_turns=turns, scale_from_source=True)
         node = leaf if node is None else op_add(node, leaf)
     return op_add(node, Spawn(FixedTileIds(tiles), EARLY_WARNING_OVERRIDE_ID,
                               on_appearance=PerformAIAttack(ActiveTarget())))
