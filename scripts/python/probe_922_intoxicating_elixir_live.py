@@ -543,6 +543,21 @@ def frappe(h, rec):
     return hits, None
 
 
+def _etat_passif(state, unit_id: int) -> tuple:
+    """La branche de REPLI de `runner/operations/triggers/base.py::triggered_ability_state` :
+    `(ctx.passive_ability_level, ctx.ability_variables_multiplier)`. C'est ce que le port lirait si
+    le discriminant TERTIAIRE n'existait pas -- la lecture que le bras `PASSIF` doit refuter. Le
+    couple est LU du meme `UnitContext` que le foyer, jamais fabrique."""
+    from engine.runner.components import StatsComponent
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    if ctx is None:
+        return (None, 100)
+    return (getattr(ctx, "passive_ability_level", None),
+            int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
+
+
 def rejeu(h, rec, mutate=None):
     """Rejeu OFFLINE de la MEME attaque, RNG neutralise par le dump pris apres le montage.
 
@@ -550,8 +565,22 @@ def rejeu(h, rec, mutate=None):
     retomber sur `BaseEffect`, dont `create_effect_crit_damage_bonus_for_attack` rend `None`.
     C'est la vue « d'AVANT ce port ».
 
-    `PASSIF` : le callable `tertiary_ability_state_of` retire du contexte -- le port retombe sur
-    `ability_level` (le niveau des PASSIFS, 50 en runner normalise -> dernier palier).
+    `PASSIF` : la LECTURE FAUSSE « le port lit le slot PASSIF du porteur » -- c'est-a-dire la
+    branche de REPLI de `runner/operations/triggers/base.py::triggered_ability_state`
+    (`(ctx.passive_ability_level, ctx.ability_variables_multiplier)`, 50 en runner normalise ->
+    dernier palier), substituee AU CALLABLE.
+
+    ⚠ CE MUTANT ETAIT DEVENU INERTE, ET LE TEST QUI L'EXERCE ROUGISSAIT SUR `master` (mesure
+    2026-08-17, meme rougeur avant et apres le correctif #922-r5 : `passif == off ==
+    [5991, 4889, 5149]`). Il RETIRAIT le callable du contexte, en supposant que l'effet retomberait
+    alors sur « le niveau des PASSIFS ». Ce n'est plus vrai : depuis la reparation du seeding
+    tertiaire (#1005/#1081), `_seed_ability_owner_effects` bake le couple TERTIAIRE sur l'INSTANCE,
+    donc le repli d'instance d'`IntoxicatingElixirExtraCritDmgEffect._ability_state`
+    (`self.ability_level`) rend DEJA le bon niveau -- les deux voies coincidaient, et le mutant
+    ne pouvait plus mordre. C'est le patron « un changement de harnais perime la premisse d'un
+    test » : ce n'est pas le PORT qui a regresse (l'assertion `ability_state[0] == 3` passe des
+    deux cotes), c'est le TEMOIN qui avait cesse de discriminer. `ability_level_instance` est
+    imprime par `etages()` pour que la cause soit LUE, jamais supposee.
 
     `SANSSANTE` : le callable `unit_health_of` retire -- le facteur `ConditionalAmount` retombe sur
     sa branche NON DOUBLEE. Ne peut mordre que si le porteur est REELLEMENT sous le seuil.
@@ -614,12 +643,20 @@ def rejeu(h, rec, mutate=None):
                 return d
             D.AttackDamageOperation._crit_board = staticmethod(_apres)
             C.debuffed_units_in_range_count = lambda _st, _uid, _v=n_apres: _v
-        if mutate in ("PASSIF", "SANSSANTE"):
-            cle = "tertiary_ability_state_of" if mutate == "PASSIF" else "unit_health_of"
-
-            def _sans(state, att_id, tgt_id, _c=cle, _o=orig):
+        if mutate == "PASSIF":
+            # SUBSTITUTION, pas retrait (cf. la docstring) : on donne au port le couple que rend la
+            # branche de REPLI de `triggered_ability_state`, celle du slot PASSIF. Retirer le
+            # callable ne mordait plus, l'instance portant desormais le couple TERTIAIRE bake.
+            def _passif(state, att_id, tgt_id, _o=orig):
                 d = dict(_o(state, att_id, tgt_id))
-                d.pop(_c, None)
+                d["tertiary_ability_state_of"] = lambda oid, ability, _st=state: _etat_passif(
+                    _st, int(oid))
+                return d
+            D.AttackDamageOperation._crit_board = staticmethod(_passif)
+        if mutate == "SANSSANTE":
+            def _sans(state, att_id, tgt_id, _o=orig):
+                d = dict(_o(state, att_id, tgt_id))
+                d.pop("unit_health_of", None)
                 return d
             D.AttackDamageOperation._crit_board = staticmethod(_sans)
         return h.replay_offline(rec)["per_hit"]
@@ -688,6 +725,12 @@ def etages(h, rec) -> dict:
     _bu = getattr(st.effects, "by_unit", None) if st.effects else None
     _inst = [e for e in ((_bu or {}).get(oid) or []) if getattr(e, "name", None) == EFFECT_NAME]
     out["instance_dans_by_unit"] = len(_inst)
+    # CE QUE PORTE L'INSTANCE elle-meme -- la voie de REPLI d'`_ability_state`. Depuis le seeding
+    # tertiaire (#1005/#1081) elle porte le couple TERTIAIRE, ce qui rend le bras « retirer le
+    # callable » INERTE : les deux voies coincident. Imprime pour que ce fait soit LU.
+    out["ability_level_instance"] = (None if not _inst
+                                     else getattr(_inst[0], "ability_level", None))
+    out["level_instance"] = None if not _inst else getattr(_inst[0], "level", None)
     ctx = dict(AttackDamageOperation._crit_board(st, aid, tid))
     ctx.update({"att_id": aid, "tgt_id": tid, "owner_id": oid})
     out["sante"] = ctx["unit_health_of"](oid)

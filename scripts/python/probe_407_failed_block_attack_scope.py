@@ -81,7 +81,11 @@ def no_thread_variant(port=None):
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
-              hit_interceptor=None, failed_block0=None, damaging_done0=False):
+              hit_interceptor=None, failed_block0=None, damaging_done0=False,
+              source_ability=None):
+        # #1020-r6 : `source_ability` (`AbilityEntities+0x60`/`+0x98`) fait partie de la
+        # signature du port. Cette variante ne fait varier que le chainage de `failed_block` --
+        # le parametre est donc accepte et NON LU, comme `damaging_done0` juste avant.
         # MEME ordre que le port : groupes sans profil d'abord (#227), tri STABLE.
         ordered = ([g for g in groups if g.get("profile") is None]
                    + [g for g in groups if g.get("profile") is not None])

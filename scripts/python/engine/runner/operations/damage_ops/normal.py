@@ -847,6 +847,11 @@ class _Normal:
             # +0x118`) -- la phase d'arme a-t-elle deja inflige du degat ? A ZERO (salve entierement
             # bloquee), le flag revient au PREMIER groupe additionnel qui damage, comme le natif.
             damaging_done0=int(r["total"] or 0) > 0,
+            # #1020-r6 : la MEME `DamageSource` que la phase d'arme -- un groupe additionnel
+            # HERITE de l'`AbilityOrEffect` de son attaque, il n'en a pas de propre (LU dans
+            # `AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`, qui pose
+            # le meme bloc en `AbilityEntities+0x60` ET `+0x98`).
+            source_ability=_src_ability,
             hit_interceptor=_hit_icept)      # #366-r1 : meme attaque -> meme intercepteur per-coup
         if _ah is not None:
             death = death or _ah.get("death")

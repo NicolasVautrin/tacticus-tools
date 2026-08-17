@@ -196,13 +196,16 @@ def _replay_trace(cap, board, paires):
     def _eah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
              block_sources, shc, spread_pct=None, extra_pierce=0, bonus_hit_chance=None,
              hit_index0=0, crit_allowed0=True, attack_profile=None, hit_interceptor=None,
-             failed_block0=None, damaging_done0=False):
+             failed_block0=None, damaging_done0=False, source_ability=None):
         # #963-r2 : `damaging_done0` (`isFirstDamagingHit`) est TRANSMIS tel quel -- cette
         # substitution est un OBSERVATEUR, elle ne fait varier aucun etage.
         r = o_exec_ah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor,
                       hit_mult, block_sources, shc, spread_pct, extra_pierce, bonus_hit_chance,
                       hit_index0, crit_allowed0, attack_profile, hit_interceptor, failed_block0,
-                      damaging_done0)
+                      # #1020-r6 : `source_ability` est TRANSMIS tel quel -- l'avaler desarmerait
+                      # le canal `AbilityEntities+0x98` dans le rejeu de ce probe, et pas dans le
+                      # port livre : l'ecart se lirait comme une regression du port.
+                      damaging_done0, source_ability)
         trace.setdefault("canal", []).append(
             {"groupes_recus": list(groups or []),
              "retour": (None if r is None else {"groups": r.get("groups"), "hits": r.get("hits"),
