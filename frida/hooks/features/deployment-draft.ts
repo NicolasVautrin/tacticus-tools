@@ -52,7 +52,7 @@
 //   * le régime REMPLIR exige `confirmer: true` ET une observation préalable réussie.
 
 import {
-    class_get_name, findClassAnywhere, findMethodByParamCount, il2cppBase, s,
+    class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, il2cppBase, s,
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -95,28 +95,73 @@ function classeDerriere(p: NativePointer): { classe: string | null; erreur: stri
     }
 }
 
-/** Ajoute nos ids à la liste rendue par le stub. `Add` résolu au RUNTIME sur la classe vue. */
-function remplir(retour: NativePointer): { ajoutes: number; erreur: string | null } {
+/**
+ * Ajoute nos ids à la liste rendue par le stub. `Add` résolu au RUNTIME sur la classe vue.
+ *
+ * ⚠ LE RETOUR EST UN **WRAPPER DE POOL**, PAS LA LISTE — mesuré le 2026-08-17, et c'est le
+ * refus de la première version qui l'a établi : `Add` (1 param) est INTROUVABLE sur
+ * `PooledListElement\`1`. `classFields` sur la classe VIVANTE donne la forme réelle :
+ *
+ *     Empty                       PooledListElement`1   (statique)
+ *     _object                     List`1                <- LE CONTENEUR, hérité de `PooledElement\`1`
+ *     <IsPooled>k__BackingField   Boolean
+ *
+ * On descend donc d'un cran quand `Add` manque au premier niveau — et le champ est résolu
+ * **PAR SON NOM** (`getFieldOffset`, qui remonte la chaîne de parents : `_object` est déclaré
+ * par le parent), jamais par un offset écrit ici. La voie empruntée est PUBLIÉE : « ça a marché »
+ * ne doit pas cacher « par où ».
+ */
+function remplir(retour: NativePointer): {
+    ajoutes: number; erreur: string | null; voie?: string;
+} {
     const { classe, erreur } = classeDerriere(retour);
     if (classe === null) {
         return { ajoutes: 0, erreur: erreur ?? "classe du retour non identifiée" };
     }
-    const klass = retour.readPointer();
-    const miAdd = findMethodByParamCount(klass, "Add", 1);
+
+    // Niveau 0 : le retour lui-même porte-t-il `Add` ?
+    let cible = retour;
+    let voie = classe;
+    let miAdd = findMethodByParamCount(retour.readPointer(), "Add", 1);
+
+    // Niveau 1 : sinon, descendre dans `_object` (le conteneur du wrapper de pool).
     if (!miAdd) {
-        return { ajoutes: 0, erreur: `\`Add\` (1 param) introuvable sur \`${classe}\` -- le retour `
-            + "n'est pas le conteneur attendu ; NE RIEN ÉCRIRE" };
+        let off: number;
+        try {
+            off = getFieldOffset(retour.readPointer(), "_object");
+        } catch (e) {
+            return { ajoutes: 0, erreur: `\`Add\` absent de \`${classe}\` et champ \`_object\` `
+                + "non résolu : " + (e as Error).message };
+        }
+        if (off <= 0) {
+            return { ajoutes: 0, erreur: `\`Add\` absent de \`${classe}\`, et \`_object\` n'a pas `
+                + "d'offset exploitable -- NE RIEN ÉCRIRE" };
+        }
+        const interne = retour.add(off).readPointer();
+        if (interne.isNull()) {
+            return { ajoutes: 0, erreur: `\`${classe}._object\` est NUL -- le wrapper de pool ne `
+                + "porte aucune liste ; NE RIEN ÉCRIRE" };
+        }
+        const nomInterne = classeDerriere(interne).classe;
+        miAdd = findMethodByParamCount(interne.readPointer(), "Add", 1);
+        if (!miAdd) {
+            return { ajoutes: 0, erreur: `\`Add\` (1 param) introuvable sur \`${classe}\` NI sur `
+                + `son \`_object\` (\`${nomInterne ?? "?"}\`) -- NE RIEN ÉCRIRE` };
+        }
+        cible = interne;
+        voie = `${classe}._object -> ${nomInterne ?? "?"}`;
     }
+
     let n = 0;
     for (const id of unites ?? []) {
         try {
-            invokeMethod(miAdd.info, retour, [createManagedString(id)]);
+            invokeMethod(miAdd.info, cible, [createManagedString(id)]);
             n++;
         } catch (e) {
-            return { ajoutes: n, erreur: `\`Add("${id}")\` a levé : ` + (e as Error).message };
+            return { ajoutes: n, voie, erreur: `\`Add("${id}")\` a levé : ` + (e as Error).message };
         }
     }
-    return { ajoutes: n, erreur: null };
+    return { ajoutes: n, erreur: null, voie };
 }
 
 function armer(): true | Refus {
