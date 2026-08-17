@@ -115,6 +115,16 @@ NEGATIF_RE = re.compile(
     r"n'existe|nexiste|inexistant|introuvable|ne porte que|FAUSSE|PERIMEE|N'EXISTE",
     re.IGNORECASE)
 
+#: ⚠ LA SECONDE FORME QU'UN MIGRATEUR NE PEUT PAS DEVINER : le REPLI DELIBERE. Un site peut porter
+#: l'ANCIENNE orthographe EXPRES -- pour rester lisible sur DEUX builds. Mesure du 2026-08-17 :
+#: `probe_295_active_ability_counted_as_used.py` porte les deux noms dans un meme tuple, avec la
+#: raison ecrite juste au-dessus ; la migration a << corrige >> le second et transforme le repli en
+#: DOUBLON, sans qu'aucun test ne puisse le voir (le probe passait toujours -- il avait juste perdu
+#: sa tolerance au build). La phrase n'affirmant AUCUNE absence, `NEGATIF_RE` ne la voit pas.
+#: Le marqueur est donc EXPLICITE, sur la LIGNE, et ce qu'il retient est COMPTE ET IMPRIME --
+#: jamais soustrait en silence.
+REPLI_RE = re.compile(r"REPLI DELIBERE")
+
 
 class Refus(RuntimeError):
     """Mesure IMPOSSIBLE. Jamais rabattue sur un verdict."""
@@ -289,6 +299,14 @@ def recenser(racines, decl, prop, par_methode, tous=False, exclure=()):
                         continue
                     proprios = sorted(d for d, s in decl.items() if meth in s)
                     if len(proprios) == 1:
+                        if REPLI_RE.search(ligne):
+                            cats["REPLI_DELIBERE"] += 1
+                            sites["REPLI_DELIBERE"].append((p, num, cite, proprios[0]))
+                            continue
+                        if NEGATIF_RE.search(ligne):
+                            cats["CITATION_NEGATIVE"] += 1
+                            sites["CITATION_NEGATIVE"].append((p, num, cite, proprios[0]))
+                            continue
                         cats["A_MIGRER"] += 1
                         sites["A_MIGRER"].append((p, num, cite, proprios[0]))
                         continue
@@ -394,7 +412,8 @@ def main() -> int:
     print("FICHIERS BALAYES   : %d" % nb_fichiers)
     print("")
     print("CITATIONS          : %d" % total)
-    for k in ("TROUVEE", "A_MIGRER", "AMBIGUE_DSL", "HORS_FAMILLE_DSL", "INTROUVABLE"):
+    for k in ("TROUVEE", "A_MIGRER", "AMBIGUE_DSL", "CITATION_NEGATIVE", "REPLI_DELIBERE",
+              "HORS_FAMILLE_DSL", "INTROUVABLE"):
         print("  %-22s %d" % (k, cats[k]))
     if total == 0:
         print("")
@@ -405,6 +424,10 @@ def main() -> int:
     for cat, titre in (("A_MIGRER", "MIGRABLES -- une seule des cinq classes DSL la declare"),
                        ("AMBIGUE_DSL", "AMBIGUES -- plusieurs la declarent ; le TYPE DE RETOUR "
                                        "au site tranche, jamais le nom"),
+                       ("CITATION_NEGATIVE", "CITATIONS NEGATIVES -- la phrase AFFIRME l'absence "
+                                             "du symbole ; la reecrire la rendrait FAUSSE"),
+                       ("REPLI_DELIBERE", "REPLIS DELIBERES -- l'ancienne orthographe est ecrite "
+                                          "EXPRES (marqueur `REPLI DELIBERE` sur la ligne)"),
                        ("HORS_FAMILLE_DSL", "HORS FAMILLE DSL -- la methode vit ailleurs"),
                        ("INTROUVABLE", "INTROUVABLES -- nulle part (corps fondu, generique, "
                                        "coquille, ou citation NEGATIVE deliberee)")):

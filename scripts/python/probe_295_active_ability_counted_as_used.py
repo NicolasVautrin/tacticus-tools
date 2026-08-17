@@ -62,7 +62,7 @@ import probe_293_aura_predicate_comparator as P293      # noqa: E402  (Binary/_v
 # des citations l'a d'abord ECRASE en un doublon -- un migrateur ne distingue pas une citation
 # PERIMEE d'un REPLI DELIBERE sur l'ancienne. Ne pas << corriger >> la premiere entree.
 SYMS_SUBJECT = ("IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed",
-                "IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed")
+                "IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed")  # REPLI DELIBERE
 SYMS_CONST_CTOR = ("IdunBattleLogic.Entities.DSLFormulas$$.ctor",
                    "IdunBattleLogic.Entities.DSLFactory$$.ctor")
 
