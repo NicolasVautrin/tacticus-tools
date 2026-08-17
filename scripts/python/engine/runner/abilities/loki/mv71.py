@@ -549,7 +549,19 @@ def _unobscured_tiles(dctx, from_tiles, tile_id: int) -> bool:
 def _occupants_by_tile(state: "State", board) -> dict:
     """Le substrat d'`_is_target_in_attack_range_for_summon`, hydrate depuis l'ECS du RUNNER :
     `{id de tuile: (team, steppable, targetable)}` des unites VIVANTES seulement (le natif teste
-    `IsAlive` en dernier, donc les cadavres ne comptent pas)."""
+    `IsAlive` en dernier, donc les cadavres ne comptent pas).
+
+    ⚠ **TOUS LES PIEDS, PAS LA MAIN TILE (#590-r6-r1).** Ce dict est consomme par deux etages qui
+    resolvent l'occupant d'une tuile ADJACENTE, et le natif y passe par
+    `IdunBattle.Entities.UnitExtensions$$GetUnit(adj, state)`, dont les trois surcharges suivent
+    `TileContentComponent -> UnitFootComponent -> unite parente` : n'importe quel pied resout en son
+    unite. L'indexer par la seule `PositionComponent` rendait une CIBLE multi-hex invisible des que
+    son pied au contact n'etait pas le principal -- ecart PERMISSIF, exactement celui que
+    `targeting.should_apply_ranged_in_melee` portait de son cote. Sur une unite a 1 pied les deux
+    formes coincident, ce qui est pourquoi il avait pu vivre.
+
+    Deux tuiles d'une meme unite portent le MEME triplet (il est per-unite), donc le dict ne peut
+    pas devenir incoherent ; l'ordre d'insertion est conserve, comme dans `state.unit_at`."""
     out: dict = {}
     if board is None:
         return out
@@ -559,11 +571,11 @@ def _occupants_by_tile(state: "State", board) -> dict:
         pc = e.get_component(PositionComponent)
         if uc is None or oc is None or pc is None or not uc.alive:
             continue
-        tid = board.id_at(pc.col, pc.row)
-        if tid is None:
-            continue
-        out[int(tid)] = (oc.team, has_steppable_unit(state, int(eid)),
-                         is_targetable(state, int(eid)))
+        info = (oc.team, has_steppable_unit(state, int(eid)), is_targetable(state, int(eid)))
+        for pos in (get_unit_feet(state, e) or ()):     # `EntityExtensions$$IterateTiles`
+            tid = board.id_at(int(pos[0]), int(pos[1]))
+            if tid is not None:
+                out.setdefault(int(tid), info)
     return out
 
 
