@@ -58,8 +58,11 @@ import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 // Une valeur pré-empruntée doit SURVIVRE jusqu'à sa substitution : sans racine, le GC IL2CPP
 // peut la ramasser entre l'emprunt et le `retval.replace`.
 import { gcRoot } from "../il2cpp/gc-root.js";
-// `s()` convertit un `char*` natif ; un `System.String` MANAGÉ a sa propre disposition.
-import { stringAt } from "../il2cpp/read.js";
+// ⚠ `s()` convertit un `char*` NATIF. Un `System.String` MANAGÉ a sa propre disposition, et
+// `readIl2cppString` est le lecteur du dépôt. Mesuré : `stringAt` rendait `null` sur les
+// arguments de `TryMarkUnitAsPlaced` — le verdict était bon, le NOM manquait, et un capteur
+// qui rend `null` sur ce qu'il est censé identifier ne sert qu'à moitié.
+import { readIl2cppString } from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
 import { Ctx } from "../controller.js";
@@ -549,8 +552,17 @@ const NS_HUD = "idun.ui";
 const CLS_HUD = "UnitDeploymentHud";
 let listenerShow: InvocationListener | null = null;
 let listenerPose: InvocationListener | null = null;
+let listenerBoard: InvocationListener | null = null;
 let hudEtat: Record<string, unknown> | null = null;
 const hudPoses: Array<{ unitId: string | null; mow: boolean; accepte: boolean }> = [];
+// ⚠ L'ÉTAGE QUI POSE VRAIMENT. `TryMarkUnitAsPlaced` n'est que la comptabilité du roster —
+// mesuré : il rend `true` (l'unité se grise) alors que le plateau ne bouge pas.
+// `StateMachineActions$$UnitDeployment_PlaceUnitOnBoard` interroge le HUD puis délègue à un
+// SECOND étage ; c'est celui-là qu'il faut voir.
+const hudBoard: Array<{
+    unitId: string | null; col: number; row: number; manuel: boolean; playerId: number;
+    retour: number;
+}> = [];
 
 /** Compte d'un `Dictionary<K,V>` : `_count - _freeCount`, les deux résolus PAR NOM. */
 function compteDict(dico: NativePointer): number | string {
@@ -620,7 +632,7 @@ function armerHud(): true | Refus {
             onEnter(args) {
                 const self = this as unknown as { uid: string | null; mow: boolean };
                 self.uid = null;
-                try { self.uid = stringAt(args[1]); } catch { /* best effort */ }
+                try { self.uid = readIl2cppString(args[1]); } catch { /* best effort */ }
                 self.mow = args[2].toInt32() !== 0;
             },
             onLeave(retval) {
@@ -628,6 +640,44 @@ function armerHud(): true | Refus {
                 if (hudPoses.length < 32) {
                     hudPoses.push({ unitId: self.uid, mow: self.mow,
                                     accepte: (retval.toInt32() & 0xff) !== 0 });
+                }
+            },
+        });
+    }
+    if (!listenerBoard) {
+        const ka = findClassAnywhere("IdunBattle.View.FSM", "StateMachineActions");
+        if (!ka) return refus("`IdunBattle.View.FSM.StateMachineActions` INTROUVABLE");
+        const mb = findMethodByParamCount(ka, "UnitDeployment_PlaceUnitOnBoard", 5);
+        if (!mb) {
+            return refus("`StateMachineActions$$UnitDeployment_PlaceUnitOnBoard` INTROUVABLE "
+                + "(5 paramètres)");
+        }
+        const tb = lireTete(mb.ptr);
+        if (tb.erreur !== null) return refus(`tête de \`PlaceUnitOnBoard\` ILLISIBLE`);
+        if (teteTriviale(tb)) {
+            return refus("REFUS : `UnitDeployment_PlaceUnitOnBoard` résout sur un corps "
+                + `TRIVIAL (ret à l'octet ${tb.retA}) -- adresse PARTAGÉE. Cf. §8.`);
+        }
+        listenerBoard = Interceptor.attach(mb.ptr, {
+            onEnter(args) {
+                const self = this as unknown as {
+                    uid: string | null; c: number; r: number; m: boolean; p: number;
+                };
+                self.uid = null;
+                try { self.uid = readIl2cppString(args[1]); } catch { /* best effort */ }
+                self.c = args[2].toInt32();
+                self.r = args[3].toInt32();
+                self.m = (args[4].toInt32() & 0xff) !== 0;
+                self.p = args[5].toInt32();
+            },
+            onLeave(retval) {
+                const self = this as unknown as {
+                    uid: string | null; c: number; r: number; m: boolean; p: number;
+                };
+                if (hudBoard.length < 32) {
+                    hudBoard.push({ unitId: self.uid, col: self.c, row: self.r,
+                                    manuel: self.m, playerId: self.p,
+                                    retour: retval.toInt32() & 0xff });
                 }
             },
         });
@@ -936,17 +986,17 @@ export function register(ctx: Ctx): void {
         if (!body || body.armer === undefined) {
             return { ok: true, lecture: true,
                      arme: listenerShow !== null && listenerPose !== null,
-                     etat: hudEtat, poses: hudPoses };
+                     etat: hudEtat, poses: hudPoses, plateau: hudBoard };
         }
         if (body.armer === false) {
             if (listenerShow) { listenerShow.detach(); listenerShow = null; }
-            if (listenerPose) { listenerPose.detach(); listenerPose = null; }
+            if (listenerPose) { listenerPose.detach(); listenerPose = null; } if (listenerBoard) { listenerBoard.detach(); listenerBoard = null; }
             Interceptor.flush();
             return { ok: true, arme: false, action: "retire" };
         }
         const r = armerHud();
         if (r !== true) return r;
-        return { ok: true, arme: true, etat: hudEtat, poses: hudPoses,
+        return { ok: true, arme: true, etat: hudEtat, poses: hudPoses, plateau: hudBoard,
                  note: "`Show` publie les deux comptes ; `TryMarkUnitAsPlaced` publie le "
                      + "verdict de chaque clic. Un premier dictionnaire plein et un second "
                      + "vide EST la signature de « je sélectionne mais je ne pose pas »." };
