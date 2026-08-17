@@ -35,6 +35,32 @@ ASCII only. OFFLINE : aucun runner, aucune session.
 """
 from __future__ import annotations
 
+# Pose au MERGE de la PR #1155 : le garde `declencheur_guard` (#486-r15) refuse un fichier de test
+# NEUF qui ne dit pas ce qui doit changer pour qu'il change de verdict, et il fait rougir la passe
+# entiere (`37 passed`, `rc 1`). La proposition a ete DERIVEE, pas ecrite de memoire :
+# `probe_486r15_declencheurs_tests.py --proposer <ce fichier>` rend « RIEN A DECLARER hors de la
+# cascade » sur une fermeture de 747 modules.
+#
+# ⚠ CE QUE CETTE DECLARATION NE COUVRE PAS, ET ELLE LE DIT : `--proposer` ne voit que les IMPORTS.
+# Les temoins de l'empreinte 457 sont NON MESURES ici, parce que cette mesure est SUSPENDUE par
+# decision de l'utilisateur tant que les declencheurs trop larges ne sont pas assainis. Le risque
+# qu'elle couvrirait est un `read_text("data/...")` qu'aucun import ne revele -- verifie a la main
+# sur ce fichier : il n'ouvre AUCUN chemin (`open`, `read_text`, `Path`, `rglob`, `gameconfig` :
+# zero occurrence). La declaration est donc juste pour la raison qu'elle enonce, pas par chance.
+DECLENCHEUR = {
+    "chemins": (),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Fichier PUREMENT offline et PUREMENT structurel : il monte des behaviours en memoire et "
+        "compte les evenements emis. Il ne lit ni le binaire, ni `data/symbols/**`, ni le "
+        "gameconfig -- il n'ouvre aucun chemin. Sa fermeture d'imports tient donc entierement dans "
+        "la cascade derivee de son foyer (`runner/operations/triggers/dispatch/attack.py`, "
+        "`runner/abilities/behaviours/combat.py`, `runner/operations/damage_ops/**`), qu'il ne faut "
+        "PAS re-declarer ici (#531). `chemins` vide n'est pas un aveu : c'est le resultat."
+    ),
+}
+
 import os
 import sys
 
