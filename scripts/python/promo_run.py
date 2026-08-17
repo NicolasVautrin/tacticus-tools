@@ -29,15 +29,21 @@ necessaire >>. C'est le << un peu >> qui etait faux. Mesure : le 2026-08-17 a 07
 registre portait 21 echecs dans les 24 h glissantes (les 39 tentatives du 16/08 tiennent dans
 DIX MINUTES, 10:24:55 -> 10:34:27 UTC), donc le garde refusait de jouer. Une SONDE payee avec un
 code PERIME (`WEEK2WAAAGH`, 07/07) a rendu `OutOfTimeFrame` -- pas `MaxFailsReached`. Le compteur
-serveur etait OUVERT, et les trois codes du 16/08 sont passes dans la foulee. La remise a zero
-est donc QUOTIDIENNE (vraisemblablement minuit UTC, comme le rafraichissement d'Operations), pas
-glissante -- le garde par defaut aurait fait attendre ~3 h pour RIEN.
+serveur etait OUVERT, et les trois codes du 16/08 sont passes dans la foulee.
+
+LA BASCULE EST **0 H UTC**, et le garde l'implemente desormais (`epoch // 86400 * 86400`, qui EST
+minuit UTC puisque l'epoch y est ancre -- aucun fuseau n'intervient). Deux sources concordantes :
+l'utilisateur l'affirme, et la mesure ci-dessus la corrobore. Le glissant, lui, faisait renoncer
+~3 h chaque matin pour RIEN.
 
   * COMMENT TRANCHER SANS RIEN RISQUER, et c'est la seule methode qui ne coute pas un code
     frais : jouer UN code notoirement PERIME. `MaxFailsReached` => compteur ferme, on attend ;
     tout autre verdict => compteur ouvert, on enchaine. Un code deja mort ne perd rien.
-  * Ce qui reste NON MESURE : l'heure exacte de la bascule. On sait qu'a 07:26 UTC c'etait
-    ouvert alors que le glissant disait ferme ; on n'a pas borne l'instant.
+    Ca reste la sonde a jouer si un jour le comportement dementait la bascule.
+  * ⚠ TOUT RETRAIT D'UNE ENTREE DU REGISTRE FAIT DIVERGER CE COMPTE DU COMPTEUR SERVEUR. Le
+    serveur compte la TENTATIVE ; nous comptons la LIGNE. Retirer un `SANS REPONSE` pour le
+    rejouer (cf. plus bas) est legitime, mais le budget local sous-compte alors d'une unite --
+    mesure du 2026-08-17 : 6 tentatives cote serveur, 5 lignes au registre.
 
 Reste vrai, et c'etait deja la :
 
@@ -269,15 +275,25 @@ def main():
     # LE BUDGET D'ECHECS CUMULES. Le compteur du serveur est CUMULATIF (mesure : 21 echecs au
     # declenchement, dont seulement 3 consecutifs), et il survit a nos executions -- donc on le
     # reconstitue depuis le REGISTRE, pas depuis cette boucle.
-    # ⚠ La fenetre de remise a zero du serveur est INCONNUE : 24 h glissantes est une
-    #   approximation PRUDENTE, pas une mesure.
-    recent = time.time() - 24 * 3600
+    #
+    # LA FENETRE EST LE JOUR UTC, PAS 24 H GLISSANTES. Le compteur serveur repart a ZERO a
+    # 0 h UTC. Deux sources concordantes : l'utilisateur l'affirme, et la mesure du 2026-08-17
+    # le corrobore -- a 07:26 UTC le glissant comptait 21 echecs (donc << bloque >>) alors qu'une
+    # sonde payee avec un code PERIME rendait `OutOfTimeFrame`, pas `MaxFailsReached`.
+    # Le glissant faisait donc renoncer ~3 h chaque matin, pour rien.
+    #
+    # `epoch // 86400 * 86400` EST minuit UTC : l'epoch Unix est ancre dessus, donc aucun fuseau
+    # ni aucune bibliotheque de dates n'intervient -- et c'est ce qui rend ce calcul insensible
+    # a l'heure locale de la machine.
+    bascule = (int(time.time()) // 86400) * 86400
     cumul = sum(1 for v in reg.values()
-                if v.get("resultat") not in (0, None) and (v.get("ts") or 0) >= recent)
-    print("echecs cumules sur 24 h (registre) : %d / budget %d  [seuil serveur mesure : 20]"
-          % (cumul, a.budget_echecs))
+                if v.get("resultat") not in (0, None) and (v.get("ts") or 0) >= bascule)
+    print("echecs depuis la bascule 0 h UTC (registre) : %d / budget %d  "
+          "[seuil serveur mesure : 20]" % (cumul, a.budget_echecs))
     if cumul >= a.budget_echecs:
-        print("BUDGET ATTEINT -- on ne joue rien. Attendre la remise a zero du serveur, ou")
+        reste = (bascule + 86400) - int(time.time())
+        print("BUDGET ATTEINT -- on ne joue rien. Prochaine bascule dans %dh%02d (0 h UTC), ou"
+              % (reste // 3600, (reste % 3600) // 60))
         print("relever --budget-echecs en sachant que le blocage tombe vers 20.")
         return 0
     print()
