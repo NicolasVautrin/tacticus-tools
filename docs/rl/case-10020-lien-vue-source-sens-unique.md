@@ -382,6 +382,86 @@ naître en `UnitDeploymentState`. On a confirmé la sonde, pas encore l'effet.
 dont la SORTIE est la voie létale documentée (§9 ci-dessous). Il faut donc prévoir la relance du
 jeu **dans le plan**, pas la découvrir après.
 
+## 10. ✅ FORCÉ POUR DE VRAI — l'écran de déploiement s'ouvre sur une sandbox, et le roster se remplit
+
+Mesuré le 2026-08-17, session 30. **Confirmé À L'ÉCRAN par l'utilisateur**, pas seulement par des
+compteurs.
+
+```
+relaisRetours: [0]         la sandbox rend FALSE
+relaisForces: 1            remplace par TRUE
+etatCourant                "UnitDeploymentState"        <- la phase EXISTE
+enableObservations         [{ skip: 0 }]                le drapeau n'y est pour rien
+```
+
+**Le roster était VIDE**, et c'est le stub du §6 qui revient — cette fois APPELÉ. Le chemin réel,
+décompilé :
+
+```
+StateMachineActions$$UnitDeployment_ShowHud(callbacks)
+    <slot 0x2b sur _source>  -> PooledList          = GetUnitsForDeploymentHUD
+    MapAsList(converter)     -> List<IUnitModel>
+    <slot 0xe sur _hud>(units, options, callbacks)   = IdunGameHud$$UnitDeployment_ShowHud
+```
+
+⚠ **Le stub ne tirait pas parce que l'ÉCRAN N'ÉTAIT PAS RECONSTRUIT** — `relaisFires` figé, le
+second `sandbox_mode start` ayant été un no-op (le script prévient lui-même que « l'appel est
+passé » ne dit rien du montage). **`Enter()` rejoué sur l'état courant le reconstruit**, et le stub
+tire. C'est le geste qui manquait, et il ne coûte rien.
+
+### Le refus du module a MESURÉ la forme du conteneur
+
+```
+`Add` (1 param) INTROUVABLE sur `PooledListElement`1` -- NE RIEN ÉCRIRE
+```
+
+Le retour est un **wrapper de pool**, pas la liste : `classFields` sur la classe VIVANTE donne
+`_object : List\`1`, hérité de `PooledElement\`1`. **C'est le garde qui a établi la forme** — sans
+son exigence de trouver `Add`, la première version aurait écrit dans le wrapper.
+Correctif : descente d'un cran, champ résolu **par son nom** (`getFieldOffset`, qui remonte la
+chaîne de parents), voie publiée. Résultat :
+
+```
+dernierRemplissage: { ajoutes: 5, erreur: null, voie: "PooledListElement`1._object -> List`1" }
+```
+
+⇒ **Le roster affiche les unités.** Objectif de la tranche atteint : une sandbox avec écran de
+déploiement peuplé, ce que le jeu ne fait jamais.
+
+### ⚠ LA POSE REFUSE ENCORE — et la porte a CINQ gardes, tous MUETS
+
+`idun.ui.UnitDeploymentHud$$TryMarkUnitAsPlaced` rend `false` sans rien dire. Champs **nommés sur la
+classe vivante** (`classFields`), jamais cités par offset nu :
+
+| champ | garde |
+|---|---|
+| `_disabledInput` | vrai ⇒ refus |
+| `_unitProgression` | désaccord sur `isMachineOfWar` ⇒ refus |
+| `_currentlyPlacedUnits` / `_maxUnitsPossible` | `count >= max` ⇒ refus |
+| `_currentlyPlacedUnits` | contient déjà l'unité ⇒ refus |
+| `_allUnlockedUnitModels` | `TryGetValue` échoue ⇒ refus |
+| `_unitDeploymentHudGameMode` | slot 8 rend faux ⇒ refus |
+
+`UnitDeployment_PlaceUnitOnBoard` étant **`void`**, un refus au cran 1 est **totalement
+silencieux** — d'où l'obligation de lire `TryPlaceUnitOnBoard` séparément pour le voir.
+
+**Mesures qui ORIENTENT** : `MaxUnitsPossibleToStartBattle` = **5**, `MinUnitsNeededToStartBattle` =
+**3** (invoqués sur la source vivante) — la source n'est donc PAS stubbée là-dessus, hypothèse
+écartée. Et l'utilisateur voit **5 unités déjà déployées** : le sandbox **pré-place son équipe**,
+donc `count(_currentlyPlacedUnits)` vaut vraisemblablement 5 pour un plafond de 5.
+
+⚠ **Mais `HandleOnRemoveAllHeroesPressed()` n'a PAS débloqué** (porte toujours `false` après), et
+`GetPlayerPower()` rend **0 avant comme après** — donc ce témoin-là ne mesure rien ici et **ne doit
+pas servir à conclure**. Deux candidats restent, non départagés :
+
+1. le `Clear` ne vide pas `_currentlyPlacedUnits` (ou la pré-pose vient de la BC, hors HUD) ;
+2. garde `_allUnlockedUnitModels` — nos ids injectés n'ont pas de `IUnitModel` associé, la
+   conversion `MapAsList` les affichant sans les enregistrer.
+
+**La mesure qui tranche** : lire les COMPTES de `_currentlyPlacedUnits` et `_allUnlockedUnitModels`
+sur le HUD vivant. Aucun RPC ne le fait aujourd'hui — c'est le prochain geste, et il est en lecture
+pure.
+
 ### ⚠ CE QUE LA POSE A COÛTÉ — un warmup VERT sur un jeu qu'il venait de FIGER
 
 Le reinject de cette tranche a été joué **alors qu'une bataille montée en sandbox était à
