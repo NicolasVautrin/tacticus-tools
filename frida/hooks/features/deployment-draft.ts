@@ -437,6 +437,84 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
     fires: 0, emprunts: 0, dernier: null,
 }));
 
+// ============================================================================
+// ROSTER NON FILTRÉ — lever le filtre de NŒUD, sans toucher au nœud.
+//
+// `CampaignProgression$$GetDeployableUnits(locationIndex: Nullable<Int32>, onlyUnlocked)`
+// charge TA collection puis la filtre :
+//
+//     info = null
+//     si locationIndex.HasValue :                       <-- TOUT le filtrage est sous ce test
+//         info = (this->_battles[idx], GetStarsOfLocation(idx))
+//     unites = this->_unitProgression.GetUnits(flags, null)
+//     return CampaignBattleInfo.GetDeployableUnits(info, ..., unites, ...)
+//
+// Un `Nullable` SANS valeur rend donc la collection non filtrée. Mais
+// `CampaignGameModeSource$$GetUnitsForDeploymentHUD` en construit toujours un AVEC valeur
+// (depuis `_currentLocationIndex`, un `Int32`) : ce chemin est inatteignable sans intervenir.
+//
+// ⚠ DEUX RÉGIMES, ET L'OBSERVATION EST LE DÉFAUT. On ne sait pas d'avance si un
+// `Nullable<Int32>` (8 octets) arrive PAR VALEUR dans un registre — auquel cas `args[1]` porte
+// `valeur | hasValue<<32` — ou PAR POINTEUR. Masquer un POINTEUR le corromprait, et une faute
+// native sur le thread principal fige le jeu (deux fois le 2026-08-17). On LIT donc d'abord :
+// `74` + `hasValue 1` donnerait `0x10000004a`, une adresse de tas ne ressemble à rien de tel.
+//
+// ⚠ Et l'effet est BORNÉ À L'APPEL EMPRUNTÉ (`dansEmprunt`) : `GetDeployableUnits` sert aussi
+// aux écrans méta, où lever le filtre mentirait à l'interface du jeu.
+let sansFiltreArme = false;
+let sansFiltreEcrit = false;
+let dansEmprunt = false;
+let listenerDeployable: InvocationListener | null = null;
+// ⚠ COMPTER TOUS LES PASSAGES, PAS SEULEMENT CEUX DE LA FENÊTRE. Un compteur conditionné par
+// `dansEmprunt` ne sait pas distinguer « la méthode n'est jamais appelée » (donc la classe
+// ancrée est la mauvaise) de « elle est appelée hors fenêtre » (donc c'est ma fenêtre qui est
+// fausse). Les deux rendent zéro observation, et ce zéro-là ne désigne rien.
+let firesDeployable = 0;
+const observationsNullable: Array<{
+    brut: string; basse: string; haute: string; dansEmprunt: boolean; ecrit: boolean;
+}> = [];
+
+function armerSansFiltre(ecrire: boolean): true | Refus {
+    sansFiltreArme = true;
+    sansFiltreEcrit = ecrire;
+    if (listenerDeployable) return true;
+    const k = findClassAnywhere("IdunMetaLogic.UserProgress", "CampaignProgression");
+    if (!k) return refus("`CampaignProgression` INTROUVABLE sur ce build");
+    const mi = findMethodByParamCount(k, "GetDeployableUnits", 2);
+    if (!mi) {
+        return refus("`CampaignProgression$$GetDeployableUnits` INTROUVABLE (2 paramètres)");
+    }
+    const tete = lireTete(mi.ptr);
+    if (tete.erreur !== null) return refus(`tête ILLISIBLE (${tete.erreur})`);
+    if (teteTriviale(tete)) {
+        return refus("REFUS : `GetDeployableUnits` résout sur un corps TRIVIAL "
+            + `(ret à l'octet ${tete.retA} ; tête = ${tete.hex}) -- adresse probablement `
+            + "PARTAGÉE par déduplication IL2CPP. Cf. case-10020 §8.");
+    }
+    listenerDeployable = Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            firesDeployable++;
+            const brut = args[1];
+            let ecrit = false;
+            if (sansFiltreArme && dansEmprunt && sansFiltreEcrit) {
+                // `hasValue` occupe l'octet 4 du struct empaqueté : on ne garde que la valeur.
+                args[1] = brut.and(ptr("0xffffffff"));
+                ecrit = true;
+            }
+            if (observationsNullable.length < 24) {
+                observationsNullable.push({
+                    brut: brut.toString(),
+                    basse: brut.and(ptr("0xffffffff")).toString(),
+                    haute: brut.shr(32).toString(),
+                    dansEmprunt, ecrit,
+                });
+            }
+        },
+    });
+    Interceptor.flush();
+    return true;
+}
+
 /** Arme UNE délégation. Rend un refus NOMMÉ plutôt qu'un silence. */
 function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }): true | Refus {
     if (d.listener) return true;
@@ -486,7 +564,12 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
             }
             try {
                 const argv = (this as unknown as { argv: NativePointer[] }).argv ?? [];
-                const r = invokeMethod(mc.info, src, argv) as NativePointer;
+                // Fenêtre de l'emprunt : c'est la SEULE pendant laquelle `sansFiltre` agit.
+                // Hors d'elle, `GetDeployableUnits` sert les écrans méta du jeu.
+                dansEmprunt = true;
+                let r: NativePointer;
+                try { r = invokeMethod(mc.info, src, argv) as NativePointer; }
+                finally { dansEmprunt = false; }
                 if (r === null || r.isNull()) {
                     d.dernier = { ok: false,
                         detail: "la vraie source a rendu NUL -- rien substitué" };
@@ -597,6 +680,40 @@ export function register(ctx: Ctx): void {
 
     /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
+
+    /**
+     * LÈVE LE FILTRE DE NŒUD sur le roster emprunté — deux régimes, observation par défaut.
+     *
+     *   { armer: true }                          -> OBSERVE `args[1]` sans rien écrire
+     *   { armer: true, ecrire: true, confirmer: true } -> efface `hasValue`
+     *
+     * L'observation est le défaut parce qu'on ne sait pas d'avance si le `Nullable<Int32>`
+     * arrive par VALEUR (registre) ou par POINTEUR : masquer un pointeur le corromprait, et
+     * une faute native sur le thread principal fige le jeu. Lire d'abord coûte un aller-retour.
+     */
+    ctx.rpc.deploymentPoolSansFiltre = (body?: {
+        armer?: boolean; ecrire?: boolean; confirmer?: boolean;
+    }): unknown => {
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, arme: sansFiltreArme, ecrit: sansFiltreEcrit, fires: firesDeployable,
+                     observations: observationsNullable,
+                     note: "`{ armer: true }` observe ; `{ armer: true, ecrire: true, "
+                         + "confirmer: true }` écrit. Lire les observations AVANT d'écrire : "
+                         + "un `Nullable<Int32>` par valeur donne `basse`=index et `haute`=1." };
+        }
+        if (body.armer === false) {
+            sansFiltreArme = false; sansFiltreEcrit = false;
+            return { ok: true, arme: false, action: "desarme" };
+        }
+        if (body.ecrire === true && body.confirmer !== true) {
+            return { ok: false, error: "`confirmer: true` exigé pour ÉCRIRE : on modifie un "
+                + "argument natif en vol. Observer d'abord (`{ armer: true }`)." };
+        }
+        const r = armerSansFiltre(body.ecrire === true);
+        if (r !== true) return r;
+        return { ok: true, arme: true, ecrit: sansFiltreEcrit,
+                 observations: observationsNullable };
+    };
 
     /**
      * LE PRÊTEUR, LU ET POSITIONNÉ — sans bataille, sans `StartMatch`, sans swap.
