@@ -62,15 +62,40 @@ serait PERDU -- il est donc re-applique ICI, ou l'evenement `On(PreUnitDeath)` e
 C'est un DEPLACEMENT du meme gate natif, pas un gate supplementaire.
 
 ===================================================================================================
+`ApplyInternal` / `RevertInternal` : UN STEP DE STREAM, PAS UNE OPERATION (#1002-r3, TRANCHE)
+===================================================================================================
+
+L'enonce d'origine accusait le mauvais champ, et c'est ce qui rendait le dict ininterpretable : il
+parlait d'une Operation poussee a « `<processor>+0x70` ». Or `IdunBattle.Entities.Effects.
+BaseEffect$$Init` ecrit, verbatim, `*(this+0x68) = operationProcessor` et `*(this+0x70) = events`.
+Le champ lu par les deux corps est donc le canal d'EVENEMENTS. Ce qu'ils poussent :
+
+    events.<slot 2>( StepType.ChangeStats = 0xc,
+                     <entityId de l'effet>,
+                     { TagKey.UnitStats_IsPlayDeathAnimationOnHit = 0x76 : 0 } )   # apply
+                                                                          ... : 1 )   # revert
+
+CE QUI IDENTIFIE LE CANAL n'est pas le nom du champ mais le couple (interface, slot) : c'est le
+MEME que celui d'une Operation dont ghidra NOMME le recepteur --
+`IdunBattle.Operations.AddActiveAbilityOperation$$Execute` fait
+`<slot 2>( IdunBattle.Core.AOperation$$get_Events(this), StepType.ChangeAbility = 0xd, entityId,
+{ TagKey.UnitStats_ActiveAbility_Id : ..., ... } )`. Meme interface, meme slot, step DIFFERENT.
+
+RIEN A PORTER COTE MOTEUR, et c'est MESURE, pas suppose : les seuls symboles du build qui portent
+`PlayDeathAnimationOnHit` sont `idun.Game.Board.AUnitView$$get_/set_/SetPlayDeathAnimationOnHit` --
+la couche VUE. AUCUN sous `IdunBattle.` ni `IdunBattleLogic.`. L'effet demande a la vue de ne pas
+jouer l'animation de mort sur le coup tant qu'il est applique (`0`), et la lui rend au retrait
+(`1`) : exactement ce qu'il faut pour que le summon place sa derniere attaque AVANT de tomber.
+
+⚠ LE SEUL CRAN QUI PUISSE SE PERIMER EST LE DERNIER. Le jour ou un consommateur LOGIQUE de ce tag
+apparait, « purement visuel » est a refaire -- c'est pour lui que
+`probe_1002r3_final_vengeance_stream_step.py` est versionne (5 crans, tout derive du binaire et des
+tables versionnees, aucune VA en dur).
+
+===================================================================================================
 RESIDUS NOMMES -- ce que ce module NE porte PAS
 ===================================================================================================
 
-* **L'Operation d'`ApplyInternal`/`RevertInternal`.** Les deux poussent une Operation a
-  `<processor>+0x70` avec un `Dictionary{0x76: 0}` (apply) / `{0x76: 1}` (revert). Le dict n'est PAS
-  IDENTIFIE ; tant qu'il ne l'est pas, on ne peut PAS conclure « purement visuel ». Non porte.
-  **NON TRANCHE -- changement de build en cours** au moment de cette tranche (le dump offline et le
-  projet ghidra ne correspondent plus au binaire installe) : la lecture est a refaire contre le
-  nouveau hash.
 * **`caster = Get(abilityEntities + 8)` / `target = Get(abilityEntities + 0x10)`.** Ces deux slots
   ne servent qu'a RE-CONSTRUIRE l'`AbilityEntities` passe a l'ability declenchee ; le behaviour de
   `FinalJustice` porte, lui, ne lit que son OWNER (`_finaljustice_attack(state, owner_id)`), donc
