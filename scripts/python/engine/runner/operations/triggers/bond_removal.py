@@ -278,6 +278,15 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     # l'enfouissement du Destroyer. S'il valait `true`, le kit s'auto-detruirait au cast.
     int(EffectType.TunnelingHorror_PendingSummon): BondRemovalGates(
         "IdunBattle.Entities.Effects.Loki.TunnelingHorror_PendingSummonEffect", False, None, False),
+    # Pose par `CallRipperSwarmsAbility$$ExecuteBehaviour` (#890-r3) sur QUATRE tuiles,
+    # `bondedEntity` = le caster (le Hive Tyrant). MEMES trois valeurs que son jumeau ci-dessus, et
+    # RE-MESUREES sur le build COURANT (`--step declared` : `none` / `false` / `false`) -- l'`ArraySet`
+    # herite est donc VIDE et cette entree ne fait que le DOCUMENTER. Les deux triggers REELS de
+    # l'effet sont ceux que sa classe AJOUTE (`triggers/loki/call_ripper_swarms.py`), inscrits a
+    # `EFFECT_TRIGGERS` -- pas ici. `false` sur (a) est load-bearing : le boss reste sur le plateau,
+    # mais s'il mourait avant son turn-start les marques survivraient, ce qui est le natif.
+    int(EffectType.CallRipperSwarms_PendingSummon): BondRemovalGates(
+        "IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect", False, None, False),
     # Pose par `HazeOfCorruptionAbility` (chaine de bonds, #207/#220/#231). `get_Range` et
     # `get_Adjacent` sont ici des CHAMPS (`this+0x480` / `this+0x488`) que
     # `HazeOfCorruption_DamageTransferEffect$$.ctor` n'ecrit PAS -> `Nullable` vide et `false`.

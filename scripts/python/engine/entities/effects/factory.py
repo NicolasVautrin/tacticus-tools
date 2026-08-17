@@ -224,7 +224,8 @@ from .loki.status import (
     HammerOfWrathConditionalDamageEffect, HypersensoryMinimalHealthEffect, MV71InitialDmgEffect,
     MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect, PinnedEffect,
     StandVigilExtraArmorEffect, StunnedDamageModifierEffect, StunnedEffect, TauntedEffect,
-    ThrillSeekersEffect, TunnelingHorrorPendingSummonEffect, WaaaghExtraDamageEffect,
+    ThrillSeekersEffect, TunnelingHorrorPendingSummonEffect,
+    CallRipperSwarmsPendingSummonEffect, WaaaghExtraDamageEffect,
     WaaaghExtraHitsEffect, WaaaghExtraMovementEffect
 )
 from .loki.structural_analyser import StructuralAnalyserVisualEffect
@@ -1391,6 +1392,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # pas oubli). Arrive offline par `_load_tile_effects` uniquement : l'ability 1011 n'est pas
     # portee (primitive `RemoveUnitFromTilesOperation` manquante, residu #366-r1).
     "TunnelingHorror_PendingSummon": TunnelingHorrorPendingSummonEffect,
+    # CallRipperSwarms_PendingSummon (0x446=1094, `tyranBossHiveTyrantLeviathan`) -- le JUMEAU du
+    # precedent : meme base `ABondEffect`, memes trois getters de retrait (`none`/`false`/`false`,
+    # RE-MESURES sur le build courant), meme absence de contribution. Il en DIFFERE par ses DEUX
+    # `Triggered()` propres, portes dans `runner/operations/triggers/loki/call_ripper_swarms.py`
+    # et inscrits a `EFFECT_TRIGGERS` -- c'est eux qui font apparaitre le ripper (#890-r3).
+    "CallRipperSwarms_PendingSummon": CallRipperSwarmsPendingSummonEffect,
     # Contaminated_Unit (0x4dd=1245) : sous-effet -X% FixedArmor pose sur une unite occupant/entrant une
     # tuile contaminee (0x4dc). Debuff stat FixedArmor (=16) ; magnitude X NON resolue (#132) -> value=None
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect

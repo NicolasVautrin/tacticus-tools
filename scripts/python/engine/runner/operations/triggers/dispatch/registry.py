@@ -107,6 +107,10 @@ from ..loki.fleshmetal_guns import (FleshmetalGunsRotationAbility,   # lot POSE 
                                    FleshmetalGunsTileEffectAbility)  # #85 volet DespoiledGround
 from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvDespoiledGroundTileAbility)
                                     DESPOILED_GROUND_TILE)
+from ..loki.call_ripper_swarms import (                              # #890-r3 (boss Hive Tyrant :
+    CALL_RIPPER_SWARMS_PENDING_SUMMON,                               #  la PHASE 2, le spawn differe
+    CallRipperSwarmsSpawnOnBondedTurnStart,                          #  de l'effet-BOND 1094)
+    CallRipperSwarmsRemoveOnUnitMovesIn)
 from ..loki.head_claimer import (HeadClaimerOnDeathAbility,          # lot POSE (passif blackHaarken,
                                  HeadClaimerOnFledAbility)           # #947)
 from ..loki.trophy_taker import TrophyTakerOnUnitDefeatedAbility     # #951 (passif worldExecutions)
@@ -2330,6 +2334,14 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # tire dans [DespoiledGroundMinDmgPct, DespoiledGroundMaxDmgPct] % de sa PV MAX (profil
     # DirectDamage), puis pose 1478 (+%degat vs Xenos/Imperial) si l'occupant est Chaos a SON tour.
     DESPOILED_GROUND_TILE: [DespoiledGroundTileDoT],
+    # CallRipperSwarms_PendingSummon 0x446=1094 (#890-r3) : la PHASE 2 du boss Hive Tyrant. Les DEUX
+    # `Triggered()` que `...CallRipperSwarms_PendingSummonEffect$$CreateHandleTriggerAbilitiesInternal`
+    # AJOUTE a l'`ArraySet` herite -- lequel est VIDE ici (les trois getters de retrait d'`ABondEffect`
+    # rendent `none`/`false`/`false`, RE-MESURES sur le build courant). Le second est un RETRAIT SEUL :
+    # porter un spawn dessus ferait apparaitre un ripper quand une unite MARCHE sur la tuile marquee,
+    # l'inverse exact du natif et de l'i2.
+    CALL_RIPPER_SWARMS_PENDING_SUMMON: [CallRipperSwarmsSpawnOnBondedTurnStart,   # On(0x15) -> Spawn + Remove
+                                        CallRipperSwarmsRemoveOnUnitMovesIn],    # On(0x1f) -> Remove SEUL
     # MasterOfTheTutelaries (#202-C, effet 1197 pose par l'active 1096 d'Abraxas) : la collecte
     # par-effet-actif EST le Add/RemoveTriggeredAbility natif (IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal /
     # IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).

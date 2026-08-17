@@ -1388,3 +1388,33 @@ class TunnelingHorrorPendingSummonEffect(BaseEffect):
     BOND_ADJACENT = False                    # `get_Adjacent` -> false
     BOND_RANGE = None                        # `get_Range` -> Nullable<int> sans valeur
     BOND_REMOVE_ON_BONDED_ENTITY_DEATH = False   # `get_RemoveOnBondedEntityDeath` -> false
+
+
+class CallRipperSwarmsPendingSummonEffect(BaseEffect):
+    """`CallRipperSwarms_PendingSummon` (EffectType 0x446 = **1094**) -- le MARQUEUR de summon en
+    attente que `CallRipperSwarmsAbility` (active 1052, `tyranBossHiveTyrantLeviathan`) pose sur
+    QUATRE tuiles. C'est le JUMEAU EXACT de `TunnelingHorrorPendingSummonEffect` ci-dessus : meme
+    base native (`IdunBattle.Entities.Effects.ABondEffect`), memes trois getters, et les DEUX sont
+    les seules classes du build dont `get_RemoveOnBondedEntityDeath` rend `false`.
+
+    ⚠ IL DIFFERE DE SON JUMEAU SUR UN POINT, ET C'EST TOUTE LA MECANIQUE : son
+    `$$CreateHandleTriggerAbilitiesInternal` AJOUTE deux `Triggered()` a l'`ArraySet` herite. Le
+    jumeau n'en ajoute aucun (son ArraySet est vide de bout en bout), d'ou son absence d'
+    `EFFECT_TRIGGERS` ; celui-ci, lui, Y ENTRE -- cf. `runner/operations/triggers/loki/
+    call_ripper_swarms.py`, qui porte les deux.
+
+    LES TROIS GETTERS, RE-MESURES SUR LE BUILD COURANT (#890-r3) et non recopies de la fiche du
+    jumeau, qui citait un balayage de `rnca9r7q6c` :
+    `probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared` rend, pour
+    `CallRipperSwarms_PendingSummonEffect`, `get_Range = none` / `get_Adjacent = false` /
+    `get_RemoveOnBondedEntityDeath = false` -- soit **AUCUN** trigger de RETRAIT herite. Les deux
+    seuls triggers de l'effet sont donc ceux que la classe AJOUTE elle-meme.
+
+    ZERO contribution par ailleurs : ni stat-mod, ni EffectBonus, ni condition d'activite. Toute sa
+    semantique est dans ses deux triggers."""
+    __slots__ = ()
+
+    HAS_AUTOMATIC_ACTIVATION = True              # `ABondEffect..ctor(hasAutomaticActivation = 1)`
+    BOND_ADJACENT = False                        # `get_Adjacent` -> false           (MESURE)
+    BOND_RANGE = None                            # `get_Range` -> Nullable vide      (MESURE)
+    BOND_REMOVE_ON_BONDED_ENTITY_DEATH = False   # `get_RemoveOnBondedEntityDeath`   (MESURE)
