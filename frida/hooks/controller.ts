@@ -55,6 +55,7 @@ import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as promoCode from "./features/promo-code.js";
 import * as inbox from "./features/inbox.js";
 import * as shop from "./features/shop.js";
+import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -481,6 +482,12 @@ export function wireRpc(ctx: Ctx): void {
      // payante dans ce module, et c'est la garde qui l'etablit, pas le nom du RPC.
      netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, promoCode, inbox,
      shop,
+     // `pvpOpponents` n'installe RIEN et n'invoque AUCUN natif du jeu : il LIT trois champs
+     // par leur nom (`_pvpProgression` -> `_pvpProgressionData` -> `latestOpponents`). Le
+     // decompile de `PvpProgression$$GetLatestOpponents` tient en deux dereferencements, aux
+     // offsets exacts que les metadonnees nomment -- l'appel etait donc EVITABLE. Il ne touche
+     // pas a `RefreshOpponentsAsync`, la voie RESEAU. Aucune tentative d'Arene n'est consommee.
+     pvpOpponents,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
