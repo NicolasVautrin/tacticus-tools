@@ -77,13 +77,6 @@ silence -- le piege deja documente sur `Vitarus`.
 ================================================================================================
 CE QUI N'EST PAS PORTE, ET C'EST NOMME
 ================================================================================================
-* `BlockUnitMovementBondEffect$$ApplyInternal` ecrit le MEME `MovementComponent+0x50` (LU), donc
-  `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement` (1016)
-  bloquent AUSSI le mouvement cote natif. Le port ne les inscrit PAS au registre de
-  `turnflow._can_move` : l'appariement `EffectType -> classe d'effet` de ces trois-la n'a pas ete
-  lu dans l'`EffectsDatabase`, et l'inscrire sur la foi du NOM serait exactement le vice que
-  `docs/rl/case-270r1-volet2-cles-ambigues.md` documente. Ecart PERMISSIF (le port laisse bouger
-  la ou le natif bloque) et INCHANGE par rapport a avant cette tranche. Residu `#1015-r2`.
 * `ApplyInternal`/`RevertInternal` mutent un dictionnaire MATERIALISE ; le port evalue
   `IsAllowedToMove` A LA LECTURE, en interrogeant `EffectsState.active_effects`. Les deux
   coincident parce que l'appartenance au dictionnaire est exactement « une instance ACTIVE de
@@ -114,19 +107,36 @@ CTX_BLOCK_MOVEMENT_ACTIVE = "instinctive_behaviour_block_movement"
 
 #: LES `EffectType` DONT UNE INSTANCE **ACTIVE** REND `MovementComponent$$IsAllowedToMove` FAUX --
 #: c'est-a-dire ceux dont la classe d'effet derive de `IdunBattle.Entities.Effects.
-#: BlockUnitMovementEffect` ou de `...BlockUnitMovementBondEffect`, les DEUX seuls ecrivains du
-#: dictionnaire `MovementComponent+0x50` (`$$ApplyInternal` / `$$RevertInternal`, LUS).
+#: BlockUnitMovementEffect` ou de `...BlockUnitMovementBondEffect`.
 #:
-#: N'INSCRIRE QUE CE QUI EST LU. `1235` est le seul type dont l'appariement `EffectType -> classe`
-#: soit etabli : sa classe est nommee d'apres lui (`InstinctiveBehaviourBlockMovementEffect`) ET
-#: c'est l'UNIQUE sous-classe de `BlockUnitMovementEffect` du build (`frida/classes.tsv`), ET son
-#: poseur est lu (`InstinctiveBehaviour_InitAbility$$GetEffectType` -> `return 0x4d3`).
-#: `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement` (1016)
-#: passent tres probablement par `BlockUnitMovementBondEffect`, mais leur appariement n'a pas ete
-#: lu dans l'`EffectsDatabase` -- les inscrire sur la foi du NOM serait le vice de
-#: `docs/rl/case-270r1-volet2-cles-ambigues.md`. Residu `#1015-r2` ; l'ecart est PERMISSIF (le
-#: port laisse bouger la ou le natif bloque) et INCHANGE par rapport a avant #1015-r1.
-BLOCK_UNIT_MOVEMENT_EFFECT_TYPES = (INSTINCTIVE_BEHAVIOUR_BLOCK_MOVEMENT,)                # 1235
+#: CETTE LISTE EST EXHAUSTIVE, ET C'EST MESURE SUR DEUX AXES (#1015-r2) :
+#:  * EN AVAL, le `MethodInfo*` du `Dictionary<..>$$Add` de `MovementComponent+0x50` n'a que DEUX
+#:    lecteurs dans TOUT le binaire -- `BlockUnitMovementBondEffect$$ApplyInternal` et
+#:    `BlockUnitMovementEffect$$ApplyInternal`. Aucun troisieme ecrivain n'existe.
+#:  * EN AMONT, `probe_1015r2_effectsdb_slot_de_classe.py` lit le SLOT `Il2CppClass*` de chacune
+#:    des 607 fabriques d'`EffectsDatabase$$InitializeEffects` : `1235` est un groupe SINGLETON
+#:    (ctor `InstinctiveBehaviourBlockMovementEffect$$.ctor`, qui NOMME sa classe), et `25` / `91`
+#:    / `1016` forment un groupe de taille EXACTEMENT 3, distinct de tous les autres -- il n'y a
+#:    donc pas de quatrieme porteur cache, ni un membre de trop.
+#:
+#: L'APPARIEMENT DES TROIS NE VIENT PAS DE LEUR NOM (ce serait le vice de
+#: `docs/rl/case-270r1-volet2-cles-ambigues.md` -- et la famille `Taunted` le prouve : ses QUATRE
+#: effets sont servis par QUATRE classes distinctes, `27 -> TauntedEffect`,
+#: `26 -> BlockActiveAbilityEffect`, `1237 -> Taunted_RefreshUnitTurnFinishedEffect`, `25 -> ce
+#: groupe-ci`). Il vient du SLOT partage, plus la position du ctor du groupe : son corps est emis
+#: ENTRE `BlockUnitMovementBondEffect$$RevertInternal` et `BlockUnitMovementBondEffect$$get_Range`
+#: (le symbole que la table lui attribue, `Common.UntargetableEffect$$.ctor`, est un proprietaire
+#: ICF -- l'effet `1044 Untargetable`, lui, appelle un AUTRE ctor et porte un AUTRE slot).
+#:
+#: LE SENS DU CHANGEMENT EST RESTRICTIF : le port refuse desormais le mouvement la ou il le
+#: laissait passer. C'est la correction d'un ecart PERMISSIF, confronte live sur le taunt
+#: (`probe_1015r2_taunt_block_movement.py` : `aiMovableTiles` du taunte).
+BLOCK_UNIT_MOVEMENT_EFFECT_TYPES = (
+    int(EffectType.Taunted_BlockMovement),                                                #   25
+    int(EffectType.Vines_BlockMovement),                                                  #   91
+    int(EffectType.PrecisionShot_BlockMovement),                                          # 1016
+    INSTINCTIVE_BEHAVIOUR_BLOCK_MOVEMENT,                                                 # 1235
+)
 
 
 class InstinctiveBehaviourBlockMovementEffect(BaseEffect):
