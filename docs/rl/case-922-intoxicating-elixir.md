@@ -378,3 +378,12 @@ la reparation du seeding tertiaire (#1005/#1081), l'INSTANCE porte elle-meme le 
 le repli rendait deja le bon niveau, et le temoin ne discriminait plus. Il SUBSTITUE desormais la
 branche de repli de `triggered_ability_state` au lieu de la retirer, et `etages()` imprime
 `ability_level_instance` pour que la cause soit LUE. 9 passed.
+
+⚠ **DEUX fichiers, un seul vice.** Le meme temoin, ecrit de la meme facon, etait inerte dans
+`probe_589r1r1r2r1_amulet_crit_reduction_live.py` -- et son test rougissait pareil sur `master`
+(`test_amulet_voidwyrm_crit_reduction_live.py::test_le_niveau_lu_est_celui_de_la_relique_pas_du_passif[1]`,
+`passif == off == [2739, 2727, 3062, 2767]`, avant comme apres le correctif). Meme cause, meme
+correctif, 9 passed. Ce n'est pas une coincidence : `AmuletOfTheVoidwyrm_CritDamageReduction` est
+un owner-effect de relique de la MEME forme qu'`IntoxicatingElixir`, donc son instance a herite du
+meme couple bake. Tout temoin qui refute une lecture en RETIRANT une entree, plutot qu'en
+SUBSTITUANT la lecture fausse, est exposee a ce glissement.
