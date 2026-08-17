@@ -312,5 +312,69 @@ un cran plus haut encore.
 
 ⚠ **Ce que ça ne dit pas** : `VisualBattleQuery` sert **tous** les modes, pas seulement la sandbox.
 Un hook qui force `true` doit donc être **armé explicitement** et se désarmer, sous peine de faire
-apparaître une phase de déploiement là où le jeu n'en veut pas. Et rien n'a encore été posé —
-ceci reste **NON CONFRONTÉ** : on sait où ancrer, on ne l'a pas fait.
+apparaître une phase de déploiement là où le jeu n'en veut pas.
+
+## 9. LE HOOK EST POSÉ — et son garde est prouvé DANS LES DEUX SENS
+
+Livré dans `frida/hooks/features/deployment-draft.ts` (RPC `deploymentPhaseArmer` /
+`deploymentPhaseStatus`). Deux ancrages, `forcer` **faux par défaut** — armer n'écrit rien.
+
+| ancrage | rôle |
+|---|---|
+| `VisualBattleQuery$$ShouldShowUnitDeploymentHud` | lit le retour ; le remplace par `true` **si et seulement si** `forcer` |
+| `IdunGameViews$$Enable` | **observation pure** : lit le `skipUnitDeployment` que le jeu passe |
+
+Le second n'est pas décoratif : c'est lui qui dira si le drapeau court-circuite le prédicat, auquel
+cas forcer le relais ne servirait à rien. **Sans lui, un forçage sans effet serait indiscernable
+d'un forçage raté.**
+
+### Le garde exécutable, et sa contre-épreuve
+
+Une prose n'arrête pas un comportement : `armerPhase()` lit les 8 premiers octets du corps résolu
+et **REFUSE** l'attache si un `ret` (`0xC3`) y tombe — critère mécanique de « corps constant, donc
+probablement dédupliqué, donc partagé ». Le refus publie les octets.
+
+**Mesuré des deux côtés, et c'est ce qui le rend non vacant** :
+
+| corps | tête (8 octets) | `ret` à | verdict |
+|---|---|---|---|
+| relais `0x18057fbc0` | `40 53 48 83 ec 20 80 3d` | — | **passe** (prologue réel + garde de cctor) |
+| `Enable` `0x1805a2840` | `48 89 5c 24 10 48 89 4c` | — | **passe** |
+| source dédupliquée `0x1802b45a0` | `32 c0 c3 cc cc cc cc cc` | **octet 2** | **refuserait** (`xor al,al ; ret`) |
+
+Un garde qu'on n'a jamais vu refuser ne prouve rien ; celui-ci discrimine les deux régimes qu'il
+existe pour séparer.
+
+⚠ **Les adresses résolues AU RUNTIME concordent avec la RE hors ligne** (`0x18057fbc0`,
+`0x1805a2840`). C'est un contrôle, pas une redondance : la chaîne de résolution et la lecture Ghidra
+sont deux sources indépendantes.
+
+### NON CONFRONTÉ, et il faut le dire
+
+Le hook est **armé et vert**, mais `relaisFires` vaut **0** : aucune bataille n'a démarré depuis.
+On n'a donc **pas** vu le relais tirer, pas vu `forcer` mordre, et pas vu un FSM naître en
+`UnitDeploymentState`. Tout ce qui est établi ici, c'est que l'ancrage tient et que le garde trie.
+
+### ⚠ CE QUE LA POSE A COÛTÉ — un warmup VERT sur un jeu qu'il venait de FIGER
+
+Le reinject de cette tranche a été joué **alors qu'une bataille montée en sandbox était à
+l'écran**. Le warmup, autonome, a fait son cycle (démarrer une bataille de campagne, capturer, se
+retirer par `OnBattleSurrender` → `ContinueSurrender`) et a rendu **`ok: true` sur ses 13 crans**,
+dont le dernier affirme « la scène meta est remontée, le jeu affiche un écran ».
+
+**C'était faux à l'instant où il l'écrivait.** Relevé juste après : `Responding = False`, **delta CPU
+nul** sur 1,5 s, et `thor.Loader.__loadingStep = 12` — la signature EXACTE, déjà documentée dans ce
+dépôt, de la sortie d'une bataille montée en sandbox. Le jeu a dû être relancé à la main.
+
+Deux enseignements, et le second est le vrai :
+
+1. Le premier cran du warmup (`prog-etat-initial`) a rendu **« aucune bataille active »** alors
+   qu'une sandbox tournait. C'est cette lecture aveugle qui l'a autorisé à enchaîner.
+2. **Un `ok: true` de warmup ne prouve pas un jeu vivant.** Le discriminant est ailleurs :
+   `Responding` + **delta CPU** + un RPC **queué** qui revient. Résidu **#10021**.
+
+⚠ Et le hook n'y est **pour rien** — établi, pas supposé : `deploymentPhaseStatus` (RPC NON queué,
+donc lisible sur un jeu figé) rendait `arme: false`, `ancrage: {relais: null, enable: null}`. La
+callback d'armement attendait dans une file que le thread principal ne drainait plus. Le `500`
+qu'elle a rendu était un timeout de file, pas une faute de son code — **le lire comme une faute du
+dernier code écrit aurait envoyé chercher au mauvais endroit.**
