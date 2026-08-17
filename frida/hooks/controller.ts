@@ -56,6 +56,7 @@ import * as promoCode from "./features/promo-code.js";
 import * as inbox from "./features/inbox.js";
 import * as shop from "./features/shop.js";
 import * as pvpOpponents from "./features/pvp-opponents.js";
+import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -488,6 +489,12 @@ export function wireRpc(ctx: Ctx): void {
      // offsets exacts que les metadonnees nomment -- l'appel etait donc EVITABLE. Il ne touche
      // pas a `RefreshOpponentsAsync`, la voie RESEAU. Aucune tentative d'Arene n'est consommee.
      pvpOpponents,
+     // `guildBossConfig` LIT la progression guild boss et invoque DEUX natifs verifies au
+     // decompile : `GetGuildBossBattleConfiguration` ALLOUE un objet de vue sans rien ecrire sur
+     // le compte, `GetDeployableUnits*` lit et alloue depuis un pool. Il ne passe JAMAIS par
+     // `GuildBossGameModeSource`, dont le `SendLoadBattleGameEventInternal` enregistrerait une
+     // tentative AU CHARGEMENT. Aucune tentative consommee.
+     guildBossConfig,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne

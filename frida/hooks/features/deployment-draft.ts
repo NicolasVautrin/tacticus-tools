@@ -63,6 +63,10 @@ import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/
 // écriture JS PAR FRAME dans le hot path le plus sensible du dépôt : un coût permanent payé par
 // toutes les batailles pour un besoin qui n'existe que le temps d'un RPC.
 import { premiereInstance } from "./view-command.js";
+// Le prêteur GUILD BOSS. Résolu dans SON module (qui porte le RE de la règle de filtrage),
+// pas re-marché ici : `deployment-draft` consomme un roster, il n'a pas à connaître la chaîne
+// qui mène à `GuildBossProgression`.
+import { rosterPooledGuildBoss } from "./guild-boss-config.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // Le MÊME message que le harnais RL applique pour chaque pose de joueur.
@@ -3392,7 +3396,8 @@ export function register(ctx: Ctx): void {
      * deux prêteurs se lirait comme « ça marche » alors qu'on offrirait le mauvais roster.
      */
     ctx.rpc.deploymentPoolPreEmprunt = (body?: {
-        confirmer?: boolean; oublier?: boolean; source?: "campagne" | "pvp";
+        confirmer?: boolean; oublier?: boolean; source?: "campagne" | "pvp" | "guildBoss";
+        encounterIndex?: number; includeLocked?: boolean;
     }): Promise<unknown> | unknown => {
         if (body?.oublier === true) {
             preEmprunt = null; preEmpruntInfo = null;
@@ -3403,16 +3408,69 @@ export function register(ctx: Ctx): void {
                      sources: {
                          campagne: getCampaignGameModeSourcePtr()?.toString() ?? null,
                          pvp: getPvpGameModeSourcePtr()?.toString() ?? null,
+                         guildBoss: "via la PROGRESSION, pas une GameModeSource",
                      },
                      note: "`source: \"pvp\"` emprunte le roster à la source PvP -- c'est ce "
                          + "qu'il faut pour un montage PvP ; la campagne n'offrirait que sa "
-                         + "propre liste déployable" };
+                         + "propre liste déployable. `source: \"guildBoss\"` passe par "
+                         + "`GuildBossProgression$$GetDeployableUnitsPooled`, qui APPLIQUE "
+                         + "`DisallowedFactions` -- le filtre du mode, pas une liste brute." };
         }
         if (body.confirmer !== true) {
             return { ok: false, error: "`confirmer: true` exigé : ce RPC INVOQUE la méthode de "
                 + "la source de mode vivante." };
         }
         const quelle = body.source ?? "campagne";
+
+        // GUILD BOSS — le prêteur n'est PAS une `GameModeSource` mais la PROGRESSION.
+        //
+        // ⚠ Ce n'est pas un contournement faute d'instance : au décompilé,
+        // `GuildBossGameModeSource$$IsUnitDeployable` ne fait que DÉLÉGUER à la progression
+        // (slot d'interface `0x36`, avec son index d'encounter). La règle vit donc là, et
+        // `GetDeployableUnitsPooled` APPLIQUE déjà `DisallowedFactions` -- ce qu'on emprunte
+        // est le roster FILTRÉ par le mode, pas une liste brute qu'il faudrait re-filtrer.
+        if (quelle === "guildBoss") {
+            const idx = body.encounterIndex ?? 0;
+            const incl = body.includeLocked === true;
+            return queueOnMainThread(() => {
+                const boite = rosterPooledGuildBoss(idx, incl);
+                if (typeof boite === "object" && boite !== null
+                    && (boite as { ok?: boolean }).ok === false) {
+                    return { ok: false, source: quelle, ...(boite as object) };
+                }
+                const b = boite as NativePointer;
+                gcRoot.add(b);
+                const cBoite = classeDerriere(b);
+                let deboxe: NativePointer;
+                try { deboxe = b.add(0x10).readPointer(); }
+                catch (e) {
+                    return { ok: false, source: quelle,
+                             error: "déboxage impossible : " + (e as Error).message };
+                }
+                if (deboxe.isNull()) {
+                    return { ok: false, source: quelle,
+                             error: "déboxage -> NUL : on ne substitue RIEN plutôt que de poser "
+                                 + "un pointeur douteux",
+                             boite: b.toString(), classeBoite: cBoite.classe };
+                }
+                gcRoot.add(deboxe);
+                const cDeboxe = classeDerriere(deboxe);
+                preEmprunt = deboxe;
+                preEmpruntInfo = {
+                    source: quelle, instance: "progression", encounterIndex: idx,
+                    includeLocked: incl,
+                    boite: b.toString(), classeBoite: cBoite.classe, erreurBoite: cBoite.erreur,
+                    deboxe: deboxe.toString(), classeDeboxee: cDeboxe.classe,
+                    erreurDeboxee: cDeboxe.erreur,
+                    // Le témoin de `GetDeployableUnits` ne vaut QUE pour la campagne : ni la
+                    // source PvP ni la progression guild boss ne passent par elle.
+                    deltaGetDeployableUnits: null,
+                    masqueArme: sansFiltreArme && sansFiltreEcrit,
+                };
+                return { ok: true, ...preEmpruntInfo };
+            });
+        }
+
         return queueOnMainThread(() => {
             const pvp = quelle === "pvp";
             const nomClasse = pvp ? "PvpGameModeSource" : "CampaignGameModeSource";

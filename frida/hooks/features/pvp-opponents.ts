@@ -33,109 +33,17 @@
 //
 // LECTURE SEULE : aucune ecriture, aucun envoi, aucune tentative consommee.
 
-import {
-    findClassAnywhere, getFieldOffset, readIl2cppString,
-} from "../il2cpp/helpers.js";
+import { findClassAnywhere, getFieldOffset } from "../il2cpp/helpers.js";
 // Le FOYER de la resolution du `ViewCommandExecutor` -- importe, jamais re-marche.
 import { executeurVivant, Refus as RefusVue } from "./view-command.js";
+// Le FOYER de la lecture de champs par NOM. Extrait d'ici quand `guild-boss-config.ts` a eu
+// besoin des memes gardes : deux copies auraient diverge, et ce sont des gardes, pas du confort.
+import {
+    champInt, champPointeur, champTexte, elementsDeListe, estRefus, listeDeTextes, refus,
+} from "./lecture-champs.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
-import { log } from "../runtime/diag.js";
-
-/** Borne de garde sur la taille d'une liste native. Une `_size` aberrante (objet libere,
- *  offset perime) ferait boucler des millions de fois et figer le jeu ; on prefere tronquer
- *  EN LE DISANT. L'Arene en propose une poignee. */
-const MAX_ELEMENTS = 4096;
-
-function estRefus(x: unknown): x is RefusVue {
-    return typeof x === "object" && x !== null && (x as RefusVue).ok === false;
-}
-
-function refus(error: string): RefusVue {
-    return { ok: false, error };
-}
-
-/**
- * Lit un champ POINTEUR par son NOM, sur la classe REELLE de l'instance.
- *
- * ⚠ La classe est lue a l'offset 0 de l'objet (slot `Il2CppClass*`), pas cherchee par son nom
- * de namespace : l'instance derriere une interface peut etre d'une classe qu'on n'a pas
- * nommee, et c'est precisement le cas ici (`IPvpProgression` -> `PvpProgression`).
- *
- * ⚠ `getFieldOffset` rend -1 sur un nom absent, et -1 est *truthy* : on teste `< 0`.
- */
-function champPointeur(obj: NativePointer, nom: string): NativePointer | RefusVue {
-    if (obj.isNull()) return refus(`objet NUL -- \`${nom}\` illisible`);
-    let k: NativePointer;
-    try { k = obj.readPointer(); } catch (e) {
-        return refus(`classe illisible sur l'objet (${(e as Error).message})`);
-    }
-    if (k.isNull()) return refus("slot de classe NUL -- ce n'est pas un objet IL2CPP vivant");
-    const off = getFieldOffset(k, nom);
-    if (off < 0) {
-        return refus(`champ \`${nom}\` ABSENT de ce build -- chemin PERIME, pas de repli `
-            + "sur un offset mesure");
-    }
-    try { return obj.add(off).readPointer(); }
-    catch (e) { return refus(`lecture de \`${nom}\` : ${(e as Error).message}`); }
-}
-
-/** Lit un champ Int32 par son NOM. Rend `null` quand le champ n'existe pas -- l'appelant
- *  publie alors `null`, JAMAIS un zero (un zero se lirait comme une valeur mesuree). */
-function champInt(obj: NativePointer, nom: string): number | null {
-    if (obj.isNull()) return null;
-    try {
-        const off = getFieldOffset(obj.readPointer(), nom);
-        if (off < 0) return null;
-        return obj.add(off).readS32();
-    } catch { return null; }
-}
-
-/** Lit un champ `System.String` par son NOM. */
-function champTexte(obj: NativePointer, nom: string): string | null {
-    const p = champPointeur(obj, nom);
-    if (estRefus(p) || p.isNull()) return null;
-    try { return readIl2cppString(p); } catch { return null; }
-}
-
-/**
- * Les elements d'une `List<T>` native, resolus PAR NOM (`_items`, `_size`).
- *
- * Rend un REFUS NOMME plutot qu'un tableau vide quand la liste est illisible : « pas de
- * proposition » et « je n'ai pas su lire » ne doivent pas se confondre -- c'est exactement le
- * genre de zero muet qui a deja fait conclure a tort qu'un gisement etait vide.
- */
-function elementsDeListe(liste: NativePointer): NativePointer[] | RefusVue {
-    if (liste.isNull()) return refus("liste NULLE");
-    let k: NativePointer;
-    try { k = liste.readPointer(); } catch { return refus("classe de la liste illisible"); }
-    const offItems = getFieldOffset(k, "_items");
-    const offSize = getFieldOffset(k, "_size");
-    if (offItems < 0 || offSize < 0) {
-        return refus("`_items`/`_size` absents -- ce n'est pas une `List<T>` de ce build");
-    }
-    const n = liste.add(offSize).readS32();
-    if (n < 0) return refus(`\`_size\` = ${n} : negatif, l'objet n'est pas une liste vivante`);
-    const arr = liste.add(offItems).readPointer();
-    if (arr.isNull()) return [];
-    const pris = Math.min(n, MAX_ELEMENTS);
-    const out: NativePointer[] = [];
-    for (let i = 0; i < pris; i += 1) {
-        // Tableau IL2CPP : en-tete de 0x20, puis les elements (pointeurs).
-        out.push(arr.add(0x20 + i * Process.pointerSize).readPointer());
-    }
-    if (pris < n) log(`[pvp-opponents] liste TRONQUEE : ${pris}/${n} (borne ${MAX_ELEMENTS})`);
-    return out;
-}
-
-/** Une liste de `System.String` -> tableau de chaines. */
-function listeDeTextes(liste: NativePointer): string[] | null {
-    const els = elementsDeListe(liste);
-    if (estRefus(els)) return null;
-    return els.map((p) => (p.isNull() ? null : readIl2cppString(p)))
-        .filter((x): x is string => typeof x === "string");
-}
 
 /** La `PvpProgression` vivante, via le foyer `executeurVivant`. */
 function progressionPvp(): NativePointer | RefusVue {
