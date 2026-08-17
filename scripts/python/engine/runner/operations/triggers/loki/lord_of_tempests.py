@@ -88,9 +88,21 @@ class LordOfTempestsAddIceAbility(TriggeredAbility):
     Glace la tuile de CHAQUE ennemi touché par une attaque normale de Njal : cible principale
     (`On(38)`) + victime du splash Smite Psyker (`On(9) & kind==0x3f5`), toujours `OwnerIsCaster`.
     L'autre moitié du passif (+extraDmg × hex d'Ice ring-1) = `LordOfTempestsExtraDamageEffect`
-    (extra_damage.py, face DECISION/COMBAT déjà portée — lit la glace posée ici via att_ctx)."""
+    (extra_damage.py, face DECISION/COMBAT déjà portée — lit la glace posée ici via att_ctx).
+
+    ⚠ **`fire_on_death` = VRAI (#10015).**
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility` surcharge
+    `IdunBattle.Entities.Abilities.ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` et son corps
+    rend VRAI (`b0 01 c3`, LU -- `metadata/allow_for_dead_owner.tsv`), contre le FAUX de
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility`. Njal tue par la riposte de sa propre
+    attaque normale continue donc de glacer la tuile de sa cible, et le port ne le faisait pas :
+    `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` coupait avant `matches`.
+    Symetrique DELIBERE du fait deja ecrit plus bas -- << sa tuile reçoit Ice même si le coup l'a
+    tuée >> vaut pour la CIBLE morte ; ceci le rend vrai pour le PORTEUR mort."""
     event_id = _ON_NORMAL                              # primaire (branche 1) ; `event_ids` = les deux
     event_ids = (_ON_NORMAL, _ON_ATTACK)
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -> VRAI (cf. la docstring).
+    fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if ev.actor_id != self.owner_id:               # get_OwnerIsCaster (l'attaquant EST le porteur)

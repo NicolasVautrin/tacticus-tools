@@ -86,12 +86,24 @@ class ControlEdictAbility(TriggeredAbility):
       - Protector -> summon 1 Skitarii Vanguard adjacent a Tan (cap maxSummons[level]) ;
       - Conqueror -> chaque Summon Mechanical adjacent a Tan attaque la cible de Tan si a portee.
     Les 2 branches (`op_add`) sont NON exclusives (chacune gardee par son `HasEffect`) ; en pratique
-    DoctrinaImperatives garantit un seul actif. `matches` (actor==owner) couvre la garde anti-re-trigger."""
+    DoctrinaImperatives garantit un seul actif. `matches` (actor==owner) couvre la garde anti-re-trigger.
+
+    ⚠ **`fire_on_death` = VRAI (#10015), et la prose qui disait << owner vivant garanti par le
+    dispatch >> etait FAUSSE.** `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility`
+    surcharge `IdunBattle.Entities.Abilities.ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` et
+    son corps rend VRAI (`b0 01 c3`, LU -- `metadata/allow_for_dead_owner.tsv`) ; le defaut de
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility` est FAUX. Le dispatch natif
+    (`IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger`) ne garantit donc RIEN
+    sur la vie de Tan : si l'attaque normale de Tan le tue (riposte, overwatch, retribution) avant
+    la publication d'`On(0x26 = NormalAttack)`, le natif declenche l'Edit et le port ne le faisait
+    pas. Le trigger natif ne porte, lui non plus, aucun conjoint de vie du porteur."""
     event_id = int(EventTriggerType.NormalAttack)         # 38 (0x26)
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -> VRAI (cf. la docstring).
+    fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # OwnerIsCaster : Tan est l'attaquant. Une attaque induite (summon) a actor != owner -> pas de re-trigger
-        # (= la garde native NOT(TriggeringAbilityIs 1024) pour l'observable). Owner vivant garanti par le dispatch.
+        # (= la garde native NOT(TriggeringAbilityIs 1024) pour l'observable).
         return ev.actor_id == self.owner_id
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:

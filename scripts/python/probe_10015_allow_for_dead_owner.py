@@ -98,12 +98,21 @@ CORPS = {"b001c3": "TRUE", "32c0c3": "FALSE"}
 
 TSV_REL = "metadata/allow_for_dead_owner.tsv"
 
-#: LE PORT -> LE NATIF, declare A LA MAIN et seulement pour ce qui a ete LU au decompile. Un
-#: appariement automatique par le symbole cite en docstring existe (`--croiser`) mais il n'entre PAS
-#: dans le cliquet : mesure du 2026-08-15, il apparie `FuelledByFuryReviveAbility` a
-#: `FuelledByFury_ExtraDamageAbility` et les TROIS classes Haywire du port a la MEME native, donc il
-#: fabrique des desaccords qui n'en sont pas. Un cliquet nourri d'un appariement devinable se ferait
-#: desarmer a la premiere fausse alerte.
+#: LE PORT -> LE NATIF, declare A LA MAIN et seulement pour ce qui a ete LU au decompile.
+#:
+#: ⚠ **CE DICTIONNAIRE N'EST PLUS LA SOURCE DE L'ETAGE 2 -- IL EN EST LE TEMOIN (#10015-r3).**
+#: L'appariement effectif est MECANIQUE (`apparier_mecaniquement`, plus bas) : nom court NORMALISE
+#: et BIJECTIF DANS LES DEUX SENS. Ces neuf lignes restent parce qu'elles ont ete LUES au decompile
+#: une par une : l'etage 2 exige que le critere mecanique les REPRODUISE toutes les neuf, a
+#: l'identique. C'est ce controle -- et pas une intuition -- qui autorise a etendre la confrontation
+#: de 9 classes a ~130.
+#:
+#: ⚠ **ET IL NE FAUT PAS LE CONFONDRE AVEC L'AUTRE APPARIEMENT AUTOMATIQUE, QUI RESTE REFUSE.**
+#: `--croiser` apparie par le symbole CITE EN DOCSTRING ; mesure du 2026-08-15, il apparie
+#: `FuelledByFuryReviveAbility` a `FuelledByFury_ExtraDamageAbility` et les TROIS classes Haywire du
+#: port a la MEME native, donc il fabrique des desaccords qui n'en sont pas. Le critere du NOM, lui,
+#: ECARTE ces cinq-la (aucune native ne porte leur nom -> ils sortent en `SANS NATIF`) au lieu de les
+#: deviner : c'est la difference entre un appariement qui se tait et un qui invente.
 NATIF_DU_PORT: dict[str, str] = {
     "SynapticLinchpinAbility":
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility",
@@ -132,21 +141,23 @@ NATIF_DU_PORT: dict[str, str] = {
 #: ete relue -- les inscrire d'office fabriquerait deux desaccords non instruits. Ils entrent dans
 #: le residu `#10015`, pas dans le cliquet.
 
-#: LA DETTE, MESUREE le 2026-08-15 sur `t6dpr4k06g`. Chaque entree est un desaccord CONSTATE, avec
-#: la valeur du port ; le cliquet exige qu'il soit TOUJOURS la et TOUJOURS dans ce sens. Il ne peut
-#: donc que retrecir -- et un desaccord NEUF, lui, fait rougir. Residu `#10015`.
+#: LA DETTE. Chaque entree est un desaccord CONSTATE, avec la valeur du port ; le cliquet exige
+#: qu'il soit TOUJOURS la et TOUJOURS dans ce sens. Il ne peut donc que retrecir -- et un desaccord
+#: NEUF, lui, fait rougir.
+#:
+#: ⚠ **ELLE VALAIT 4 SUR NEUF CLASSES CONFRONTEES ; ELLE VAUT 1 SUR ~130 (#10015-r3).** Les trois
+#: sorties (`ControlEdictAbility`, `LightImUpAbility`, `LordOfTempestsAddIceAbility`) sont PORTEES,
+#: pas radiees. Et l'elargissement du perimetre en a fait apparaitre DEUX que personne n'avait
+#: comptees -- `CursedPlagueBellAttackAbility` et `LifewardsAbility`, toutes deux natif VRAI / port
+#: FAUX, toutes deux portees dans le meme commit : la fiche annoncait << au moins 4 abilities >>,
+#: c'etait 6. Un cliquet qui ne confronte que ce qu'on lui a nomme ne peut pas montrer ce qu'on a
+#: oublie de nommer.
 DESACCORDS_CONNUS: dict[str, bool] = {
-    #: `ControlEdictAbility` : natif VRAI, port FAUX. Non tranche -- la face n'a pas ete relue.
-    "ControlEdictAbility": False,
     #: `EnvAmbushResurrectAbility` : natif FAUX (herite de `BaseTriggeredAbility`), port VRAI.
     #: GARDE volontairement -- cf. la docstring de la classe (`triggers/genestealer.py`) : l'owner
     #: natif d'une `Env*Ability` n'est peut-etre pas une unite, auquel cas `IsUnit(owner)` est faux
     #: et les deux gates sont sautes. Residu `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1`.
     "EnvAmbushResurrectAbility": True,
-    #: `LightImUpAbility` : natif VRAI, port FAUX. Non tranche.
-    "LightImUpAbility": False,
-    #: `LordOfTempestsAddIceAbility` : natif VRAI, port FAUX. Non tranche.
-    "LordOfTempestsAddIceAbility": False,
 }
 
 
@@ -334,6 +345,90 @@ def valeur_heritee(tsv: dict, parents: dict, plein: str, meth: str) -> tuple[str
     return "NON DECLARE DANS LA CHAINE", "->".join(chaine)
 
 
+def types_natifs_du_build() -> set[str]:
+    """Tout type d'ability du build, DERIVE des DEUX entrees VERSIONNEES.
+
+    `ghidra/functions.tsv` seul ne suffit pas : il est indexe par ADRESSE, donc une classe dont
+    TOUS les corps sont dedupliques n'y a aucun proprietaire (c'est le fait meme qui a rendu ce cas
+    necessaire). `frida/classes.tsv` liste les TYPES, y compris ceux-la. L'union est donc le
+    perimetre honnete -- et elle se lit sans le jeu installe, ce qui rend l'etage 2 jouable dans un
+    worktree nu."""
+    out: set[str] = set()
+    fn = build_dir() / "ghidra" / "functions.tsv"
+    if fn.exists():
+        with fn.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                c = line.rstrip("\n").split("\t")
+                if len(c) < 2 or "$$" not in c[1]:
+                    continue
+                p = c[1].split("$$", 1)[0]
+                if p.startswith(PREFIXES) and "u003C" not in p:
+                    out.add(p)
+    cl = build_dir() / "frida" / "classes.tsv"
+    if cl.exists():
+        with cl.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("#!"):
+                    continue
+                c = line.rstrip("\n").split("\t")
+                if c and c[0].startswith(PREFIXES) and "u003C" not in c[0]:
+                    out.add(c[0])
+    return out
+
+
+def _norm(nom: str) -> str:
+    """Nom court CANONIQUE. Le seul ecart de forme mesure entre les deux cotes est le SOULIGNE que
+    le natif place aux jointures (`LordOfTempests_AddIceAbility` / `LordOfTempestsAddIceAbility`,
+    `Ambush_SummonAbility` / `AmbushSummonAbility`) ; la casse est normalisee par prudence, elle ne
+    departage rien aujourd'hui."""
+    return nom.replace("_", "").lower()
+
+
+def apparier_mecaniquement(abilites: dict) -> tuple[dict[str, str], dict[str, list[str]], list[str]]:
+    """`(bijectifs, ambigus, sans_natif)` -- appariement port -> natif par NOM COURT NORMALISE.
+
+    LE CRITERE, ET POURQUOI IL N'EST PAS UNE DEVINETTE. Un appariement n'est retenu que s'il est
+    BIJECTIF DANS LES DEUX SENS : exactement UN type natif porte ce nom normalise, ET exactement une
+    classe du port. Tout le reste sort en `ambigus` ou en `sans_natif` -- jamais rabattu sur un
+    << plus probable >>. C'est la difference de nature avec `--croiser`, qui CHOISIT (`(pref or
+    cands or [None])[0]`) et fabrique ainsi cinq faux appariements mesures.
+
+    ⚠ **ET LE CRITERE EST LUI-MEME CONTROLE**, ce qui est la seule raison de lui faire confiance :
+    l'etage 2 exige qu'il reproduise les NEUF appariements de `NATIF_DU_PORT`, lus au decompile un
+    par un. Mesure du 2026-08-17 sur `t6dpr4k06g` : 9/9 reproduits, 0 ambiguite d'aucun cote,
+    130 appariements retenus sur 196 classes de registre. Si un renommage futur casse un des neuf,
+    l'etage 2 ROUGIT au lieu de se degrader en silence.
+
+    ⚠ **CE QU'IL NE COUVRE PAS EST STRUCTUREL, PAS UN RESIDU A FINIR** : le port SCINDE souvent une
+    native en plusieurs classes (les trois `HaywireMine*` du port viennent toutes de
+    `HaywireMineSteppableAbility`, les sept `PowerUpSummonSpawn*` d'une seule fabrique). Aucun
+    critere de NOM ne peut apparier ces cas-la -- il faut les LIRE. Ils sortent en `sans_natif`,
+    comptes a chaque run."""
+    natifs = types_natifs_du_build()
+    par_natif: dict[str, list[str]] = {}
+    for t in natifs:
+        par_natif.setdefault(_norm(t.rsplit(".", 1)[-1]), []).append(t)
+    par_port: dict[str, list[str]] = {}
+    for nom in abilites:
+        par_port.setdefault(_norm(nom), []).append(nom)
+
+    bijectifs: dict[str, str] = {}
+    ambigus: dict[str, list[str]] = {}
+    sans_natif: list[str] = []
+    for nom in sorted(abilites):
+        cle = _norm(nom)
+        cands = sorted(par_natif.get(cle, []))
+        if len(par_port.get(cle, [])) > 1:
+            ambigus[nom] = ["<%d classes du PORT portent ce nom>" % len(par_port[cle])] + cands
+        elif not cands:
+            sans_natif.append(nom)
+        elif len(cands) > 1:
+            ambigus[nom] = cands
+        else:
+            bijectifs[nom] = cands[0]
+    return bijectifs, ambigus, sans_natif
+
+
 def classes_du_registre():
     from engine.runner.operations.triggers.dispatch import registry as REG
     abilites, effets = {}, {}
@@ -361,14 +456,40 @@ def confronter_port(tsv: dict) -> int:
         print("  PAS MESURE : `frida/classes.tsv` absent -- la chaine d'heritage est illisible")
         return 99
 
-    rc, vus = 0, 0
+    bijectifs, ambigus, sans_natif = apparier_mecaniquement(abilites)
+    rc = 0
+
+    # --- 2a : LE CRITERE EST-IL DIGNE DE CONFIANCE ? ------------------------------------------
+    #: On ne le suppose pas, on le CONFRONTE au seul etalon qui existe : les appariements LUS au
+    #: decompile. Ce controle precede la confrontation -- si le critere a derive, tout ce qu'il rend
+    #: ensuite est suspect, et un desaccord de plus ne serait pas lisible.
+    if not NATIF_DU_PORT:
+        print("  PAS MESURE : le TEMOIN `NATIF_DU_PORT` est VIDE -- le controle 2a serait vacant")
+        return 99
+    ecarts_temoin = 0
     for nom, plein in sorted(NATIF_DU_PORT.items()):
-        cls = abilites.get(nom)
-        if cls is None:
-            print("  ABSENT DU REGISTRE : %s (l'appariement est PERIME)" % nom)
-            rc = 1
-            continue
-        vus += 1
+        obtenu = bijectifs.get(nom)
+        if obtenu is None:
+            print("  TEMOIN PERDU : %-34s le critere du NOM ne l'apparie plus (%s)"
+                  % (nom, "ambigu" if nom in ambigus else
+                     ("sans natif" if nom in sans_natif else "absent du registre")))
+            ecarts_temoin += 1
+        elif obtenu != plein:
+            print("  TEMOIN DIVERGENT : %-30s lu=%s / critere=%s" % (nom, plein, obtenu))
+            ecarts_temoin += 1
+    if ecarts_temoin:
+        print("  ROUGE : %d/%d appariement(s) LU(S) au decompile non reproduit(s) par le critere du"
+              " NOM -- l'etage 2b ne vaut plus rien tant que ce n'est pas relu"
+              % (ecarts_temoin, len(NATIF_DU_PORT)))
+        rc = 1
+    else:
+        print("  2a : le critere du NOM reproduit les %d appariement(s) LU(S) au decompile (%d/%d)"
+              % (len(NATIF_DU_PORT), len(NATIF_DU_PORT), len(NATIF_DU_PORT)))
+
+    # --- 2b : LA CONFRONTATION, sur TOUT ce que le critere apparie ----------------------------
+    accord = 0
+    for nom, plein in sorted(bijectifs.items()):
+        cls = abilites[nom]
         port = bool(getattr(cls, "fire_on_death", False))
         val, chaine = valeur_heritee(tsv, parents, plein, "get_AllowForDeadOwner")
         if val not in ("TRUE", "FALSE"):
@@ -377,6 +498,7 @@ def confronter_port(tsv: dict) -> int:
             continue
         natif = (val == "TRUE")
         if natif == port:
+            accord += 1
             if nom in DESACCORDS_CONNUS:
                 print("  DETTE RESORBEE, RETIRE-LA DE `DESACCORDS_CONNUS` : %s" % nom)
                 rc = 1
@@ -388,12 +510,14 @@ def confronter_port(tsv: dict) -> int:
         elif attendu != port:
             print("  DETTE DEPLACEE : %-29s port=%s, la dette disait %s" % (nom, port, attendu))
             rc = 1
-    print("  %d classe(s) appariee(s) explicitement, dette declaree = %d"
-          % (vus, len(DESACCORDS_CONNUS)))
+    print("  2b : %d classe(s) confrontee(s) -- ACCORD %d, dette declaree %d"
+          % (len(bijectifs), accord, len(DESACCORDS_CONNUS)))
     #: PORTEE -- ce que cet etage NE couvre PAS, imprime a chaque run : un cliquet qui tait son
-    #: perimetre se lit comme une couverture totale.
-    print("  NON COUVERT : %d classe(s) ABILITY du registre sans appariement natif declare"
-          % (len(abilites) - vus))
+    #: perimetre se lit comme une couverture totale. Les deux causes sont DISTINCTES et le restent.
+    print("  NON COUVERT : %d sans natif de meme nom (le port SCINDE une native en N classes),"
+          " %d nom(s) ambigu(s)" % (len(sans_natif), len(ambigus)))
+    for nom in sorted(ambigus):
+        print("      AMBIGU %-38s -> %s" % (nom, ambigus[nom]))
     return rc
 
 
