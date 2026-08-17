@@ -56,6 +56,7 @@ import {
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
 import { Ctx } from "../controller.js";
 
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
@@ -356,6 +357,118 @@ function armerPhase(): true | Refus {
     return true;
 }
 
+// ============================================================================
+// MIRROR DE `GetUnlockedUnitsPooled` (#10020-r1) — LE SECOND STUB, celui qui bloque LA POSE.
+//
+// LES SIX MÉTHODES DE LA SOURCE ONT **DEUX RÔLES**, et les confondre coûte cher (mesuré) :
+//
+//   GetUnitsForDeploymentHUD   -> l'AFFICHAGE   (rempli plus haut ; le roster apparaît)
+//   GetUnlockedUnitsPooled     -> le MODÈLE     (`UnitDeploymentHud._allUnlockedUnitModels`)
+//
+// C'est le SECOND que consulte le garde `TryGetValue` de
+// `idun.ui.UnitDeploymentHud$$TryMarkUnitAsPlaced`. Sur la sandbox il rend un dictionnaire
+// **fraîchement loué** (`DictionaryPooler<K,V>.Get()`, aucun champ de `this` lu), donc vide, donc
+// **toute pose est refusée quel que soit l'affichage**. Remplir le premier ne peut pas débloquer
+// le second — deux heures de sondage du HUD ne l'auraient pas dit, il fallait lire le corps.
+//
+// POURQUOI ON N'A PAS RÉIMPLÉMENTÉ LE CORPS CAMPAGNE, ET C'EST UNE MESURE, PAS UN CONFORT
+// ----------------------------------------------------------------------------------------
+//   `CampaignGameModeSource$$GetUnlockedUnitsPooled(this)` lit `this+0x20` (unitProgression) ET
+//   `this+0x70`, puis `<slot 0x15>(Nullable(this+0x70), 1)` suivi d'un `.Map(converter)`.
+//   Or `SandboxGameModeSource` fait **0x58 octets** (`classes.tsv`) : il **N'A PAS de `+0x70`**.
+//   Rejouer ce corps sur un `this` sandbox lirait HORS DES BORNES de l'objet.
+//
+// ⇒ On EMPRUNTE le résultat à la source CAMPAGNE VIVANTE, capturée par le warmup
+// (`getCampaignGameModeSourcePtr`). Même compte, même progression, et c'est SA méthode qui
+// construit le dictionnaire — on n'en fabrique aucun. Le mirror est un emprunt, pas une copie.
+//
+// ⚠ CE QUE CET EMPRUNT NE GARANTIT PAS, et il faut le dire : le `+0x70` de la campagne participe
+// à la requête (vraisemblablement un type/palier de campagne). Le dictionnaire obtenu est donc
+// « les unités débloquées SELON LA CAMPAGNE », pas « selon la sandbox ». Tant qu'aucune mesure ne
+// compare les deux, ce module ne prétend pas à l'équivalence — il rend un dictionnaire NON VIDE
+// et publie sa provenance.
+//
+// GARDES — les mêmes que pour la phase, et pour la même raison :
+//   * refus si le corps résolu est TRIVIAL (`ret` dans les 8 premiers octets) ⇒ corps dédupliqué,
+//     donc adresse PARTAGÉE (cf. les 745 xrefs du §8) ;
+//   * refus si aucune source campagne n'est capturée — on ne fabrique pas un dictionnaire vide
+//     pour faire joli, on DIT qu'on ne peut pas ;
+//   * `Interceptor.attach` + substitution du retour, JAMAIS `replace`.
+
+const CLS_CAMP = "CampaignGameModeSource";
+const METH_POOL = "GetUnlockedUnitsPooled";
+
+let poolListener: InvocationListener | null = null;
+let poolFires = 0;
+let poolEmprunts = 0;
+/** Dernier incident RÉEL de l'emprunt — jamais avalé, jamais résumé en booléen. */
+let poolDernier: { ok: boolean; detail: string } | null = null;
+let poolAncrage: { sandbox: string; campagne: string; tete: Tete } | null = null;
+
+function armerPool(): true | Refus {
+    if (poolListener) return true;
+
+    const ks = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
+    if (!ks) return refus(`${NS_SRC}.SandboxGameModeSource INTROUVABLE`);
+    const ms = findMethodByParamCount(ks, METH_POOL, 0);
+    if (!ms) return refus(`\`SandboxGameModeSource$$${METH_POOL}\` INTROUVABLE (0 param)`);
+
+    const teteS = lireTete(ms.ptr);
+    if (teteS.erreur !== null) {
+        return refus(`tête du corps de \`${METH_POOL}\` ILLISIBLE (${teteS.erreur})`);
+    }
+    if (teteTriviale(teteS)) {
+        return refus(`REFUS : \`SandboxGameModeSource$$${METH_POOL}\` résout sur un corps TRIVIAL `
+            + `(ret à l'octet ${teteS.retA} ; tête = ${teteS.hex}) -- adresse probablement PARTAGÉE `
+            + "par déduplication IL2CPP. Cf. case-10020 §8.");
+    }
+
+    const kc = findClassAnywhere(NS_SRC, CLS_CAMP);
+    if (!kc) return refus(`${NS_SRC}.${CLS_CAMP} INTROUVABLE`);
+    const mc = findMethodByParamCount(kc, METH_POOL, 0);
+    if (!mc) return refus(`\`${CLS_CAMP}$$${METH_POOL}\` INTROUVABLE (0 param)`);
+
+    poolListener = Interceptor.attach(ms.ptr, {
+        onLeave(retval) {
+            poolFires++;
+            const src = getCampaignGameModeSourcePtr();
+            if (src === null || src.isNull()) {
+                poolDernier = { ok: false, detail: "aucune CampaignGameModeSource capturée -- "
+                    + "le warmup ne l'a pas prise, ou la session est froide. RIEN SUBSTITUÉ." };
+                return;
+            }
+            try {
+                const dico = invokeMethod(mc.info, src, []) as NativePointer;
+                if (dico === null || dico.isNull()) {
+                    poolDernier = { ok: false, detail: "l'emprunt a rendu NUL -- rien substitué" };
+                    return;
+                }
+                retval.replace(dico);
+                poolEmprunts++;
+                poolDernier = { ok: true, detail: `emprunté à ${src} -> ${dico}` };
+            } catch (e) {
+                poolDernier = { ok: false, detail: "l'emprunt a levé : " + (e as Error).message };
+            }
+        },
+    });
+    Interceptor.flush();
+    poolAncrage = {
+        sandbox: ghidraVA(ms.ptr), campagne: ghidraVA(mc.ptr), tete: teteS,
+    };
+    return true;
+}
+
+function etatPool(): Record<string, unknown> {
+    const src = getCampaignGameModeSourcePtr();
+    return {
+        arme: poolListener !== null,
+        fires: poolFires, emprunts: poolEmprunts, dernier: poolDernier,
+        ancrage: poolAncrage,
+        // TRI-ÉTAT : `null` = pas de source capturée, ce qui n'est PAS « dictionnaire vide ».
+        sourceCampagne: src && !src.isNull() ? src.toString() : null,
+    };
+}
+
 function etatPhase(): Record<string, unknown> {
     return {
         arme: relaisListener !== null,
@@ -434,6 +547,48 @@ export function register(ctx: Ctx): void {
 
     /** ÉTAT du hook de phase de déploiement. Lecture pure. */
     ctx.rpc.deploymentPhaseStatus = (): unknown => ({ ok: true, lecture: true, ...etatPhase() });
+
+    /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
+    ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
+
+    /**
+     * ARMER / DÉSARMER le mirror de `GetUnlockedUnitsPooled` — le stub qui bloque LA POSE.
+     *
+     *   { armer: true, confirmer: true }   -> emprunte le dictionnaire à la source CAMPAGNE vivante
+     *   { armer: false }                   -> retire
+     *
+     * `confirmer` est exigé parce que ce hook SUBSTITUE un retour dès qu'il est armé : il n'a pas
+     * de régime transparent, contrairement à celui de la phase. Le rendre observable d'abord
+     * n'aurait rien appris — on sait déjà, par le décompilé, que le stub rend un dictionnaire vide.
+     */
+    ctx.rpc.deploymentPoolArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etatPool(),
+                     note: "{ armer: true, confirmer: true } pour emprunter à la source campagne" };
+        }
+        return queueOnMainThread(() => {
+            if (body.armer === false) {
+                if (poolListener) { poolListener.detach(); poolListener = null; Interceptor.flush(); }
+                return { ok: true, action: "retire", ...etatPool() };
+            }
+            if (body.confirmer !== true) {
+                return refus("`confirmer: true` exigé : ce hook SUBSTITUE le retour dès l'armement "
+                    + "(pas de régime transparent). Il fait lire au HUD les unités débloquées "
+                    + "SELON LA CAMPAGNE, pas selon la sandbox -- écart non mesuré.");
+            }
+            const src = getCampaignGameModeSourcePtr();
+            if (src === null || src.isNull()) {
+                return refus("aucune `CampaignGameModeSource` capturée : le warmup ne l'a pas prise, "
+                    + "ou la session est froide. On ne fabrique PAS de dictionnaire vide pour "
+                    + "faire joli -- rejouer le warmup, puis réarmer.");
+            }
+            const r = armerPool();
+            if (r !== true) return r;
+            return { ok: true, action: "arme", ...etatPool() };
+        });
+    };
 
     /**
      * ARMER / FORCER / DÉSARMER la phase de déploiement.

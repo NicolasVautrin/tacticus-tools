@@ -570,3 +570,63 @@ progression elle-meme, c'est-a-dire rejouer l'appel de la campagne.
 | phase de deploiement forcee sur sandbox | **ACQUIS**, confirme a l'ecran |
 | roster AFFICHE peuple | **ACQUIS** (`ajoutes: 12`, ids de la BC uniquement) |
 | pose d'une unite | **BLOQUE** par `GetUnlockedUnitsPooled`, recette identifiee |
+
+## 13. ⚠ CORRECTION DU SS12 -- `GetUnlockedUnitsPooled` n'est JAMAIS APPELEE, et le mirror est INERTE
+
+Mesure du 2026-08-17, session 32, mirror arme et confirme.
+
+Le SS12 enonce comme un FAIT que `GetUnlockedUnitsPooled` << alimente
+`UnitDeploymentHud._allUnlockedUnitModels` >>. **C'est FAUX**, et c'est mon propre hook qui le
+refute : ancre sur `SandboxGameModeSource$$GetUnlockedUnitsPooled`, il rend **`fires: 0`** apres le
+montage ET apres un `Enter()` de reconstruction. La methode n'est pas appelee sur ce chemin.
+
+L'enchainement etait plausible -- meme classe, meme famille de nom, un dictionnaire des deux cotes --
+et je l'ai ecrit sans l'avoir mesure. C'est exactement la faute du SS6 (<< atteignable >> lu comme
+<< appelee >>), commise une seconde fois dans le meme dossier.
+
+**La piste qui reste** : `idun.ui.UnitDeploymentHud$$Init(logger, unitProgression, featureUnlocker,
+battlePassProgression, crusadeProgression, liveEventsProgression, heroReleaseEventProgression)` --
+le HUD porte SA PROPRE progression et construit vraisemblablement son dictionnaire LA, une fois,
+hors de tout mode de jeu. Si c'est le cas, le dictionnaire n'est pas vide et le garde qui refuse est
+un AUTRE des cinq -- `_disabledInput` etant le plus credible pour un HUD que le sandbox n'affiche
+jamais. **Non mesure** : departager exige de lire les champs du HUD vivant, ce qu'aucun RPC ne fait.
+
+### Ce qui est livre malgre tout
+
+`deploymentPoolArmer` / `deploymentPoolStatus` (`frida/hooks/features/deployment-draft.ts`) --
+mirror par EMPRUNT a la source campagne vivante. Il est **arme, resolu et inerte** :
+
+```
+ancrage sandbox   0x18053cc10     (identique a la RE hors ligne)
+ancrage campagne  0x1805121c0     (identique)
+sourceCampagne    capturee, non nulle
+fires             0
+```
+
+⚠ Il reste utile comme **capteur negatif** : c'est lui qui etablit le `fires: 0`. Et son refus
+d'armer sans `CampaignGameModeSource` capturee documente une dependance reelle au warmup.
+
+⚠ **Pourquoi l'emprunt plutot qu'un port** : `CampaignGameModeSource$$GetUnlockedUnitsPooled` lit
+`this+0x20` ET `this+0x70` ; or `SandboxGameModeSource` fait **0x58 octets**, il n'a PAS de `+0x70`.
+Rejouer ce corps sur un `this` sandbox lirait hors des bornes. L'emprunt evite l'invention -- au
+prix d'un ecart non mesure (les unites debloquees << selon la campagne >>).
+
+## 14. LE PLAFOND D'UNITES EST GLOBAL, ET NOTRE OUTILLAGE LE CONTOURNE SANS RIEN DIRE
+
+Trouve par l'utilisateur (<< c'est pas normal que tu aies reussi a deployer plus d'unites que ce que
+la BC autorise >>), puis mesure.
+
+```
+SandboxGameModeSource$$MaxUnitsPossibleToStartBattle(this):
+    return *(this+0x28 = gameConfig)->+0x10->+0x80
+```
+
+C'est une valeur **GLOBALE du gameconfig** (5), pas une propriete de la BC : elle rend **5** aussi
+bien sur un montage a 5 unites que sur un montage a **12**. Et le chemin de PRE-PLACEMENT du sandbox
+ne la consulte jamais -- seul le HUD de deploiement s'en sert, or le sandbox ne l'affiche pas.
+
+=> **`sandbox_mode.py start --units` accepte et place N unites sans aucun controle**, et produit
+une BC que le jeu ne fabriquerait jamais (12 heros poses pour un plafond de 5). Ce n'est pas un bug
+du jeu : c'est un piege de notre outillage, et il fabrique un specimen hors-spec sur lequel on
+diagnostique ensuite le HUD. Garde a poser : refuser (ou au moins NOMMER) un `--units` plus long que
+`MaxUnitsPossibleToStartBattle`.
