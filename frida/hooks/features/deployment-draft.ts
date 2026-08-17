@@ -739,7 +739,7 @@ export function register(ctx: Ctx): void {
      * publie donc AVANT et APRÈS, pour que l'appelant puisse le remettre.
      */
     ctx.rpc.deploymentPoolPreteur = (body?: {
-        locationIndex?: number; confirmer?: boolean;
+        locationIndex?: number; confirmer?: boolean; classe?: boolean;
     }): Promise<unknown> | unknown => queueOnMainThread(() => {
         const src = getCampaignGameModeSourcePtr();
         if (!src || src.isNull()) {
@@ -788,9 +788,23 @@ export function register(ctx: Ctx): void {
             // Une commodité de diagnostic ne justifie pas d'invoquer à l'aveugle sur le
             // thread principal. Si ce tri-état est voulu, il se prend par un `Interceptor`
             // sur l'appel que le JEU fait lui-même -- jamais en le provoquant.
+            // ⚠ OPT-IN, ET C'EST UNE HISTOIRE D'ACCUSATION PUIS D'ACQUITTEMENT. Ce
+            // déréférencement a été RETIRÉ le 2026-08-17 comme cause présumée de deux gels du
+            // jeu. Il a ensuite été DISCULPÉ : un troisième gel, même signature
+            // (`__loadingStep = 12`), s'est produit sur un inject NU, sans qu'aucun RPC ne soit
+            // appelé -- les trois appartiennent au cycle inject/warmup (résidu #10021).
+            // Il revient donc, mais sur demande explicite : suivre un pointeur de champ reste
+            // le geste le plus risqué de ce module, et rien ne prouve qu'il soit TOUJOURS sain.
+            let classeProgression: string | null = null;
+            if (body?.classe === true && !progBrut.isNull()) {
+                try {
+                    classeProgression = s(class_get_name(progBrut.readPointer()) as NativePointer);
+                } catch (e) { classeProgression = "ILLISIBLE : " + (e as Error).message; }
+            }
             return {
                 source: src.toString(), locationIndex: idx,
                 campaignProgression: progBrut.isNull() ? null : progBrut.toString(),
+                classeProgression,
                 currentCampaignIdPtr: idBrut.isNull() ? null : idBrut.toString(),
                 note: "SCALAIRES ET ADRESSES SEULEMENT -- aucun pointeur n'est suivi, aucun "
                     + "natif invoqué (deux gels du jeu le 2026-08-17). Le NOM de la campagne "

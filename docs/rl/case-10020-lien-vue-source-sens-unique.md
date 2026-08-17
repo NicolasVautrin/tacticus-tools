@@ -1061,3 +1061,81 @@ correspond exactement. Dans l'écran de sandbox natif, l'argument vient d'un oct
 qu'elles portent le même préfixe et vivent sur la même interface.** `GetUnitsForDeploymentHUD`
 dépend de l'état du mode, `GetUnitModel` n'en dépend pas du tout. Lire le CORPS aurait coûté
 un appel.
+
+## 23. LE ROSTER : le filtre est SOUS `HasValue`, l'appariement etait JUSTE, et il reste UN FAIT INEXPLIQUE
+
+Cette section **corrige la section precedente sur un point**, et laisse une question ouverte
+plutot que de la refermer sur une troisieme hypothese.
+
+### Le mecanisme, entierement decompile
+
+```
+CampaignGameModeSource$$GetUnitsForDeploymentHUD(this) :
+    prog     = this->_campaignProgression          (+0x20, ICampaignProgression)
+    nullable = new Nullable<Int32>( this->_currentLocationIndex )    (+0x70)
+    liste    = prog.<index 0x15>(nullable, onlyUnlocked: false)
+    return PooledList.Map(liste, converteur)
+
+CampaignProgression$$GetDeployableUnits(locationIndex: Nullable<Int32>, onlyUnlocked) :
+    info = null
+    si locationIndex.HasValue :                    <-- TOUT le filtrage est sous ce test
+        info = (this->_battles[idx], GetStarsOfLocation(idx))
+    unites = this->_unitProgression.GetUnits(flags, null)     // la collection ENTIERE
+    return CampaignBattleInfo.GetDeployableUnits(info, ..., unites, ...)
+```
+
+Deux consequences, toutes deux mesurees :
+
+1. **La collection complete est chargee a CHAQUE appel** ; c'est le noeud qui la vide. Un
+   `Nullable` sans valeur rendrait le roster non filtre — mais `CampaignGameModeSource` en
+   construit toujours un AVEC valeur, donc ce chemin est inatteignable sans intervenir.
+2. **Positionner le preteur ne demande NI bataille NI jeton.** Cette methode ne lit ni
+   `_currentMatch` ni `_currentCampaignId` : un seul `Int32` commande le roster. La crainte
+   ecrite au SS19 (« un DTO deja resolu deviendrait perime ») vaut pour `LoadBattle`, pas ici.
+   `deploymentPoolPreteur` lit et ecrit ce champ ; eprouve 74 -> 12 -> 74.
+
+### L'APPARIEMENT DE SLOT ETAIT JUSTE — et ma « refutation » etait fausse
+
+Un commit intermediaire a conclu que « index 0x15 = `GetDeployableUnits` » etait FAUX, sur la
+foi d'un compteur a zero. **Mesure faite depuis, par `classInterfaceSlots` qui LIT
+`interfaceOffsets` au lieu de deriver** :
+
+```
+CampaignProgression  nbInterfaces=2
+  ICampaignProgression  offset=4
+      0x14 -> slot 24  GetBattleRestrictions
+      0x15 -> slot 25  GetDeployableUnits
+      0x16 -> slot 26  IsDeploymentUnlocked
+```
+
+Le decalage de bloc **est** 4, et l'appariement etait bon. L'heuristique disait vrai ; c'est ma
+conclusion qui etait pressee. ⇒ **Le meme raisonnement au SS22 (`IUnitProgression`,
+0x1a/0x1c/0x2b/0x2c) n'est donc PAS entache** — mais il reste a confirmer par la meme voie, et
+c'est desormais un appel de RPC, plus une derivation.
+
+### LE FAIT QUI RESTE INEXPLIQUE, et il est REPRODUCTIBLE
+
+Sur deux sessions independantes, meme montage :
+
+```
+delegation GetUnitsForDeploymentHUD   fires 1   emprunts 1   (retour non nul substitue)
+ancrage    GetDeployableUnits         fires 0   (compteur INCONDITIONNEL)
+```
+
+Tous les maillons sont mesures et concordants :
+* l'ancrage vise `0x181708ff0` — `resolveMethodPtr` rend cette adresse pour
+  `CampaignProgression$$GetDeployableUnits` ;
+* le slot de vtable 25 CONTIENT cette meme adresse (`resolveVtableSlot @0x2c8`) ;
+* l'objet vivant en `_campaignProgression` EST un `CampaignProgression` ;
+* le decalage d'interface est lu, pas suppose.
+
+Et pourtant la methode n'est jamais entree. **On ne conclut pas.** L'hypothese restante — que
+`invokeMethod` rende un pointeur sans que le corps emprunte s'execute — se testerait en ancrant
+la methode qu'on invoque, **ce que le depot interdit** (c'est le motif qui gele le jeu). Il faut
+donc une voie d'observation indirecte, pas une hypothese de plus.
+
+### Cran de methode : le COMPTEUR doit etre INCONDITIONNEL
+
+Le premier compteur etait conditionne par la fenetre d'emprunt. Il ne distinguait pas
+« jamais appelee » de « appelee hors fenetre » — les deux rendent zero, et ce zero-la ne designe
+rien. Le compteur inconditionnel est ce qui a rendu le fait ci-dessus **exploitable**.
