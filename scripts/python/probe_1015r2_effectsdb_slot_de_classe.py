@@ -104,6 +104,28 @@ def _voisinage(va: int | None, rayon: int = 2) -> list[str]:
     return out
 
 
+def _cibles_du_ctor(dll: Path, ctor: int | None, bornes: dict[int, int]) -> list[int]:
+    """Les cibles d'appel DIRECT du corps de `ctor` (dans l'ordre, sans doublon)."""
+    if ctor is None:
+        return []
+    import pefile
+
+    capstone, md = _capstone()
+    pe = pefile.PE(str(dll), fast_load=True)
+    base = pe.OPTIONAL_HEADER.ImageBase
+    image = pe.get_memory_mapped_image()
+    pe.close()
+    fin = min(bornes.get(ctor, ctor + 0x200), ctor + 0x200)
+    out: list[int] = []
+    for ins in md.disasm(image[ctor - base:fin - base], ctor):
+        if (ins.mnemonic == "call" and ins.operands
+                and ins.operands[0].type == capstone.x86.X86_OP_IMM):
+            v = ins.operands[0].imm
+            if v not in out:
+                out.append(v)
+    return out
+
+
 def slots_des_lambdas(dll: Path, lam: dict[int, int],
                       bornes: dict[int, int]) -> dict[int, tuple[int, int]]:
     """{N: (slot Il2CppClass*, VA du ctor appele)}.
@@ -345,6 +367,12 @@ def main() -> int:
         # imprime pour etre confronte, jamais pour conclure seul.
         for enc in _voisinage(ctor, 2):
             print("          %s" % enc)
+        # CE QUE LE CTOR APPELLE. Un corps ICF n'est partage que par des ctors au code machine
+        # IDENTIQUE, donc la cible d'appel est LA MEME pour toutes les classes qui le partagent :
+        # elle dit de quelle base la classe derive DIRECTEMENT. `ABondEffect$$.ctor` -> effet BOND ;
+        # une surcharge de `BaseEffect$$.ctor` -> derivation directe de la base.
+        for cible in _cibles_du_ctor(dll, ctor, bornes):
+            print("          appelle %s" % noms_fn.get(cible, "0x%x" % cible))
 
     if args.groupes:
         print("")

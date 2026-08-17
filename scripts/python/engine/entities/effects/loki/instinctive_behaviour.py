@@ -123,10 +123,23 @@ CTX_BLOCK_MOVEMENT_ACTIVE = "instinctive_behaviour_block_movement"
 #: `docs/rl/case-270r1-volet2-cles-ambigues.md` -- et la famille `Taunted` le prouve : ses QUATRE
 #: effets sont servis par QUATRE classes distinctes, `27 -> TauntedEffect`,
 #: `26 -> BlockActiveAbilityEffect`, `1237 -> Taunted_RefreshUnitTurnFinishedEffect`, `25 -> ce
-#: groupe-ci`). Il vient du SLOT partage, plus la position du ctor du groupe : son corps est emis
-#: ENTRE `BlockUnitMovementBondEffect$$RevertInternal` et `BlockUnitMovementBondEffect$$get_Range`
-#: (le symbole que la table lui attribue, `Common.UntargetableEffect$$.ctor`, est un proprietaire
-#: ICF -- l'effet `1044 Untargetable`, lui, appelle un AUTRE ctor et porte un AUTRE slot).
+#: groupe-ci`). Il vient du SLOT partage, plus DEUX lectures du ctor du groupe :
+#:  * sa POSITION -- le corps est emis ENTRE `BlockUnitMovementBondEffect$$RevertInternal` et
+#:    `BlockUnitMovementBondEffect$$get_Range` (le symbole que la table lui attribue,
+#:    `Common.UntargetableEffect$$.ctor`, est un proprietaire ICF : l'effet `1044 Untargetable`
+#:    appelle un AUTRE ctor et porte un AUTRE slot) ;
+#:  * ce qu'il APPELLE -- `IdunBattle.Entities.Effects.BaseEffect$$.ctor`, et non
+#:    `IdunBattle.Entities.Effects.ABondEffect$$.ctor`. Un corps ICF n'est partage que par des
+#:    ctors au code machine IDENTIQUE, donc cette cible vaut pour TOUTES les classes du groupe :
+#:    la classe derive DIRECTEMENT de `BaseEffect`, c'est donc `BlockUnitMovementEffect` et non
+#:    son jumeau BOND. Le verdict de cette table y est de toute facon INDIFFERENT -- les deux
+#:    `$$ApplyInternal` ecrivent le MEME dictionnaire.
+#:
+#: ⚠ COROLLAIRE POUR `runner/operations/triggers/bond_removal.py` : sa question ouverte sur `25` et
+#: `26` (<< la classe native qui les sert n'est pas etablie [...] elle vient de la lambda
+#: d'`EffectsDatabase$$InitializeEffects`, non lue >>) est tranchee POUR `25` par la mesure
+#: ci-dessus, et dans le sens NEGATIF : la classe ne derive pas d'`ABondEffect`, donc `25` ne porte
+#: AUCUN trigger de retrait de bond. Ce fichier-la n'est pas edite ici (hors foyer de la tranche).
 #:
 #: LE SENS DU CHANGEMENT EST RESTRICTIF : le port refuse desormais le mouvement la ou il le
 #: laissait passer. C'est la correction d'un ecart PERMISSIF, confronte live sur le taunt
