@@ -213,6 +213,37 @@ class Enemies(TargetsSelector):
     `...NovaChargeAbility$$GetAdditionalMarkedTiles` enchaine
     `NormalUnits(Enemies(Owner@+0x30, <des TUILES>, 3), 3)` -- un selecteur d'UNITES consomme la
     sortie d'`Enemies`, ce qui n'aurait aucun sens sur des ids de tuile.
+    TROISIEME source, celle-la EXHAUSTIVE : le `global-metadata.dat` place `get_ReturnsOnlyUnits`
+    au slot **20** et `get_ReturnsOnlyActors` au slot **21**, ce qui est exactement ce que les deux
+    offsets de vtable donnent (`(0x278 - 0x138) / 0x10 = 20`, `(0x288 - 0x138) / 0x10 = 21`).
+
+    ⚠ **LE COURT-CIRCUIT DE LA LIGNE 2 EST DU CODE MORT, ET C'EST MESURE (#1030-r6).** La lecture
+    d'origine en tirait que le port etait << plus restrictif que le natif >> sur les sources qui ne
+    rendent que des acteurs, donc sur l'ecrasante majorite des ~600 call-sites unit-domain. Les
+    DEUX moities de cette premisse sont fausses :
+
+      * `get_ReturnsOnlyActors` n'a qu'**UNE** definition dans tout le `global-metadata.dat` (la
+        virtuelle de `TargetsSelector`, slot 21) : **AUCUN selecteur ne la surcharge**. Elle ne peut
+        donc pas distinguer une source unit-domain d'une source tuile -- c'est UNE CONSTANTE pour
+        tous les selecteurs, et l'ecart tel qu'il etait ecrit est structurellement impossible.
+        Temoin non vide : la MEME famille porte 9 / 3 / 5 surcharges (`Tiles` / `Units` / `Unique`),
+        donc le compteur discrimine bel et bien.
+      * cette constante vaut **FAUX**, lue AUX OCTETS : `32 c0 c3` (`xor al,al ; ret`), contre
+        `b0 01 c3` (`mov al,1 ; ret`) pour les 17 surcharges triviales de la famille.
+
+    ⇒ la boucle tourne TOUJOURS, et l'application INCONDITIONNELLE de `_selection_ok` ci-dessous est
+    CORRECTE. Le getter etant absent des deux tables de noms (corps trivial, fondu par l'ICF), il a
+    fallu passer par `g_MethodPointers` : `probe_1030r6_court_circuit_returns_only_actors.py`
+    re-derive tout, et `tests/engine/test_1030r6_returns_only_actors_offline.py` le fige.
+
+    ⚠ **CE QUI RESTE NON PORTE : la branche MACHINE** (`else if (IsMachine(entity))`), residu
+    `#1030-r8`. Le natif ajoute une MACHINE qui a echoue `SelectUnit` -- et elle echoue TOUJOURS,
+    `MatchesUnitSelectionType` rendant `false` des que `EntityType != 1`, meme pour
+    `selectionType = Any`. Cette branche est donc l'UNIQUE porte par laquelle une MoW entre dans un
+    `Enemies`/`Friends`, et elle n'applique AUCUN `selectionType`. Le port, lui, traite la machine
+    comme une unite (`unit_or_machine` rend son dict, puis `_selection_ok`) : les deux lectures
+    CONCORDENT sur toute MoW vivante et ciblable, et ne divergent que sur une machine MORTE ou
+    `Untargetable` -- regime qu'aucun call-site porte n'atteint (leur source est `AllAliveUnits`).
 
     ⚠ CE QUE CETTE LECTURE CORRIGE : la forme d'avant rendait l'entite SOURCE, donc des ids de
     TUILE des que la source etait tile-domain -- `1094 TheLantern` (`Enemies(Caster, <zone>, 3)`
@@ -487,6 +518,10 @@ class Friends(TargetsSelector):
         # `result.Add(entity)` reinjecte l'ACTEUR RESOLU. Demonstration complete et recoupements :
         # docstring d'`Enemies` ci-dessus. `Friends` portait le meme trou (une source en domaine
         # TUILE rendait `[]`), et il se repare du meme geste : la classe native est UNE.
+        # Le `_selection_ok` INCONDITIONNEL ci-dessous est correct : le court-circuit
+        # `get_ReturnsOnlyActors` de `SelectAllActors` est du CODE MORT (une seule definition dans
+        # le metadata, corps `32 c0 c3` = `return false`, #1030-r6). La branche MACHINE, elle,
+        # reste non portee -- residu #1030-r8, meme raison qu'`Enemies`.
         out = []
         for e in _entities_of(self.inner, ctx):
             u = unit_or_machine(e, ctx)          # `UnitExtensions$$GetUnitOrMachine(entity, state)`
