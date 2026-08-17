@@ -222,6 +222,35 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   `resolveUnitVisual`/`dumpAllUnitVisuals`/`getUnitAssetMap` (`unit-visual-resolve.ts`,
   `unit-asset-map.ts`).
 
+## SORTIR D'UNE BATAILLE — un seul appel, et il est ici parce qu'on le recherche à chaque fois
+
+```
+retreatInvoke { methode: "OnBattleSurrender", confirmer: true }     # `retreat-capture.ts`
+```
+
+**C'est tout.** `OnBattleSurrender` **suffit** : mesuré le 2026-08-17 sur une bataille sandbox, le
+`ContinueSurrender` qui suit refuse en disant « aucune instance IdunMainView » — la scène est déjà
+partie. Le module DÉPOSE ses ancrages pendant l'appel (sinon gel) et le dit dans sa réponse.
+
+**Vérifier la sortie par TROIS témoins, jamais par le retour de l'appel** :
+
+| témoin | valeur attendue |
+|---|---|
+| `sandboxProbe` → `instance` | **`null`** (`IdunMainView` ABSENTE) — le témoin décisif |
+| `loaderStatus` → `etape` | **0**, `chargementEnCours: false` |
+| process | `Responding = True` **et delta CPU non nul** |
+
+⛔ **Ce qui NE sort PAS d'une bataille, et que j'ai essayé à tort** :
+`UnitDeploymentState$$HandleOnBackButtonPressed` (délègue au slot 99 de `_actions` — ouvre une
+confirmation, l'état du FSM ne bouge pas), et le `Pause → Retreat` par l'écran (les endpoints d'UI
+sont supprimés, cf. § précédent).
+
+⚠ **Et SURTOUT : sortir AVANT tout reinject si une bataille sandbox est montée.** Le warmup enchaîné
+par l'inject démarre une bataille de campagne PAR-DESSUS et se retire — le jeu se fige à
+`thor.Loader.__loadingStep = 12`, en rendant `ok: true` sur ses 13 crans. Mesuré le 2026-08-17,
+relance manuelle obligatoire. Détail : `docs/rl/case-10020-lien-vue-source-sens-unique.md` §9,
+résidu `#10021`.
+
 ## Sim / mirror (`sim-engine.ts`, `sim.ts`)
 
 `sim`, `commit`, `simAndCommit`, `simRunAiTurn`, `simEndTurn`, `simMirror`,

@@ -511,3 +511,62 @@ du montage) ; le compteur du hook en fait une **mesure** au lieu d'un avertissem
 **c. `GetPlayerPower()` ne mesure RIEN dans ce regime** -- il rend 0 avant comme apres un `Clear`,
 avec ou sans unites au roster. Ne pas s'en servir pour conclure ici, contrairement a l'usage qu'en
 fait `case-596` sur une bataille de campagne. Un temoin valide ailleurs ne l'est pas partout.
+
+## 12. IL Y A **DEUX** STUBS, PAS UN -- et c'est le second qui bloque la pose
+
+Mesure du 2026-08-17, session 31. Le montage a 12 unites a fait tomber les deux hypotheses
+precedentes d'un coup, et designe le vrai bloqueur.
+
+### Ce que le montage a 12 a montre
+
+Les **12 unites de `--units` sont sur le PLATEAU** (confirme a l'ecran) -- le sandbox pre-place tout
+ce que la BC porte, et **deborde meme le plafond** `MaxUnitsPossibleToStartBattle = 5`.
+Pendant ce temps `GetPlayerPower()` rend **0** et la porte de pose refuse toujours.
+
+=> **Les deux couches sont DECOUPLEES** : le sandbox spawne ses unites directement dans la
+bataille, et le HUD de deploiement est une couche VIDE posee par-dessus. Le garde `count >= max`
+est donc HORS DE CAUSE : `_currentlyPlacedUnits` est vide (d'ou le `PlayerPower` a 0), pendant que
+le plateau porte 12 entites.
+
+### Le vrai bloqueur : un SECOND stub, symetrique du premier
+
+```
+IdunBattle.ViewLogic.BattleSource.SandboxGameModeSource$$GetUnlockedUnitsPooled(this):
+    return DictionaryPooler<K,V>.Get()      # dictionnaire FRAICHEMENT LOUE, aucun champ de `this` lu
+```
+
+C'est lui qui alimente `UnitDeploymentHud._allUnlockedUnitModels`, et c'est ce dictionnaire que
+consulte le garde `TryGetValue` de `TryMarkUnitAsPlaced`. Vide => **toute pose est refusee, quel que
+soit ce qu'on affiche**.
+
+⚠ **D'ou l'erreur de methode que j'ai commise pendant deux heures** : les six methodes de la source
+se repartissent en DEUX ROLES, et je les traitais comme une seule surface.
+`GetUnitsForDeploymentHUD` alimente **l'AFFICHAGE** (le remplir marche : `ajoutes: 12`, roster
+visible), `GetUnlockedUnitsPooled` alimente le **MODELE** que la pose interroge. Remplir le premier
+ne peut pas debloquer le second, et aucune quantite de sondage du HUD ne l'aurait dit -- il fallait
+lire le corps.
+
+### La recette est ECRITE dans la version campagne, et l'ingredient est DEJA LA
+
+```
+CampaignGameModeSource$$GetUnlockedUnitsPooled(this):
+    <slot 0x15 sur this+0x20 = unitProgression>(Nullable(this+0x70), 1)   -> PooledList
+    .Map(converter)                                                        -> Dictionary poole
+```
+
+**`SandboxGameModeSource` porte le MEME `unitProgression` a `+0x20`** -- 2e parametre de son ctor,
+etabli au SS3. La sandbox a donc la vraie progression du compte sous la main **et ne s'en sert
+pas**. Le correctif est un mirror 1:1 de la version campagne, pas une invention.
+
+⚠ **Ce que ca coute de plus que le premier stub** : le retour n'est plus une `List<String>` mais un
+**Dictionary<UnitConfigId, IUnitModel>** -- cles STRUCT et valeurs OBJET. On ne peut pas le peupler
+avec des chaines comme on l'a fait pour l'affichage ; il faut faire produire les modeles par la
+progression elle-meme, c'est-a-dire rejouer l'appel de la campagne.
+
+### Etat de la tranche
+
+| | |
+|---|---|
+| phase de deploiement forcee sur sandbox | **ACQUIS**, confirme a l'ecran |
+| roster AFFICHE peuple | **ACQUIS** (`ajoutes: 12`, ids de la BC uniquement) |
+| pose d'une unite | **BLOQUE** par `GetUnlockedUnitsPooled`, recette identifiee |
