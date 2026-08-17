@@ -169,3 +169,27 @@ n'est un filet que pour les chemins **purement offline**, et seul le cliquet OFF
   consommateurs portés ne lit `ev.ability_type` (mesuré : 0 occurrence dans `fleshmetal_guns.py`,
   `fire.py`, `geminae_superia.py`, `savior_protocols.py`), donc l'y poser serait un canal sans
   lecteur. `BLOCAGE: aucun`.
+
+  ⚠ **RE-MESURÉ le 2026-08-17. Les deux prémisses TIENNENT — mais aucune n'était établie comme
+  écrit ci-dessus, et l'une des deux est fausse en tant que fait.**
+
+  * **Le natif.** « Ne construit qu'**UN SEUL** `AbilityEntities` (une seule invocation du ctor à
+    33 paramètres) » est **FAUX** : `ApplyDamageOperation$$Execute` invoque le ctor **deux** fois.
+    La seconde est le ctor de **COPIE** à 2 arguments — `AbilityEntities$$.ctor(entities,
+    activeTarget)`, signature LUE dans `data/symbols/<build>/frida/methods.tsv` — et elle produit
+    une **autre** structure, qui reçoit ensuite deux `Nullable<int>` de dégât. Ce qui est vrai, et
+    qui suffit à la conclusion : **les trois publications passent la même variable** (`On(0x39)`,
+    `On(0xf)` et `On(0x10)` reçoivent toutes `local_408`). La conclusion était juste ; son
+    fondement, non.
+  * **La reachabilité.** La mesure par **liste blanche** de quatre fichiers ne pouvait pas montrer
+    ce qu'elle avait oublié : elle ne visitait ni `lifewards.py` ni `on_toxic_damage.py`, deux
+    consommateurs réels. Re-dérivée des **registres** de `dispatch/registry.py` (305 classes de
+    trigger recensées) : `On(0x39)` a **trois** consommateurs portés (`GeminaeSuperiaAbility`,
+    `SaviorProtocolsAbility`, `LifewardsAbility`) et `On(0x10)` **trois**
+    (`FleshmetalGunsTileEffectAbility`, `OnFireDamageAbility`, `OnToxicDamageAbility`). **Aucun des
+    six ne lit `ev.ability_type`** ; les deux qui lisent un canal d'ability lisent
+    `ev.triggering_effect` (`+0x98`). Le seul lecteur d'`ev.ability_type` de la famille est
+    `ElectrochaffBackupsOnRangedDamageAbility`, sur `On(0xf)` — déjà câblé par `#1025-r2`.
+
+  Le canal reste donc **sans lecteur**, donc non validable (patron #419) : `BLOCAGE: porteur`, et
+  non `aucun`. À fermer quand un consommateur de `On(0x39)` ou `On(0x10)` lira un gate de kind.

@@ -560,6 +560,70 @@ l'état, pas sur son écriture textuelle. Vues rouges avant, re-vues rouges apr�
   pour tous ceux qui ont une décomposition par coup, et **sans aucune erreur**.
 * **`#1020-r6` n'est pas affecté** : `execute_additional_hits` ne threade toujours pas
   `source_ability`, donc son sink le reçoit `None` — exactement l'état que ce résidu décrit.
+  ⚠ **Périmé depuis le 2026-08-17** : `#1020-r6` est fermé, cf. §13.
 * Le régime **MULTI-PROTECTEURS** et le drone **MOURANT** restent non confrontés (§10).
 * Les vecteurs **sans décomposition par coup** (DoT, knockback, dégât direct) gardent l'émission de
   groupe : côté natif le groupe EST le coup, donc la position y est déjà juste.
+
+## 13. `#1020-r6` FERME (2026-08-17) — un groupe additionnel HÉRITE, il n'a pas de source propre
+
+`execute_additional_hits` reçoit désormais `source_ability` de son appelant, et le donne au
+`pending_sink` (`On(0x39)`) **comme** au chokepoint `_apply_damage_pipeline`. La valeur n'est pas
+devinée au site : elle DESCEND, exactement comme le natif la fait descendre.
+
+### Les deux voies natives, lues
+
+* `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`
+  (voie SANS profil, appelée inline par `Execute`) bâtit l'`AbilityEntities` des groupes en
+  construisant **DEUX** `Nullable<AbilityOrEffect>` à partir du **MÊME** `abilityOrEffect` reçu de
+  l'attaque parente — deux `Nullable$$.ctor` consécutifs sur le même bloc de 0x18 octets — et les
+  pose en `+0x60` (`CurrentAbility`) **ET** `+0x98` (`TriggeringAbility`).
+* `Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType` (voie À PROFIL)
+  RECOPIE son bloc d'options (0x18) et l'`AbilityEntities` (0x128) tels quels vers
+  `IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute`, qui les
+  repasse au slot `0x3c` sans les reconstruire.
+
+Un groupe additionnel ne porte donc **jamais** d'`AbilityOrEffect` propre.
+
+### La confrontation, et le témoin sans lequel elle ne conclurait rien
+
+`probe_1020r6_groupes_source_ability_live.py` (seed 777, board MC1_67) EMPRUNTE la fixture nommée
+`probe_1020_savior_protocols_live.stage()` — triangle attaquant / victime / protecteur adjacent,
+positions FORCÉES — en ne changeant **que** l'attaquant, qui devient `orksRuntherd` : son passif
+`SquigHound` (`nrOfHits = 2`, bornes PRÉDÉFINIES, `range = 2`) ajoute un GROUPE après les coups
+d'arme, dans la MÊME action. Les deux régimes sont donc côte à côte.
+
+| bras | victime | drone (DÉPLACÉ) | transferts appliqués |
+|---|---|---|---|
+| NATIF (`step 35`) | 4956 | **4321** | **3** |
+| PORT **avec** le canal | 3831 | **4321** | **3** |
+| PORT **sans** (contrefactuel) | 6147 | 2592 | 2 |
+
+Le contrefactuel substitue **une seule ENTRÉE** (`source_ability=None`), ni formule ni pipeline ni
+registre. Le dégât DÉPLACÉ est reproduit à l'unité avec le canal, faux sans lui.
+
+Le témoin `drone_loin` (drone DÉPLACÉ hors adjacence, même roster, même ordre d'apparition) est
+**BIT-EXACT** : `[2581, 12, 13]` d'arme + `[2403, 1509, 9]` de groupe des deux côtés, 0 transfert.
+C'est lui qui autorise l'attribution — et c'est lui qui a **réfuté** la première hypothèse écrite
+(« résidu R6-b' du couple `orksRuntherd`/`SquigHound` »).
+
+⚠ Le `mti` n'est **pas** un verdict, il est imprimé en contexte :
+`IdunBattle.Operations.TransferDamageOperation$$GetDamage` CONSOMME un tirage par transfert
+réellement appliqué, donc un bras qui en applique un de moins consomme un tirage de moins. C'est la
+signature du canal, pas un artefact.
+
+### Ce que la confrontation a OUVERT — `#1020-r11`
+
+Avec le protecteur ADJACENT, le natif exécute **sept** coups sur la victime
+(`[0, 16, 0, 1509, 0, 2306, 1125]`) là où le port en exécute **six**, d'où `1125` d'écart. Étranger
+à ce canal, et c'est mesuré : le bras SANS canal exécute exactement les mêmes six coups, et le
+témoin hors adjacence est bit-exact. La seule différence entre les deux montages est l'ADJACENCE du
+protecteur. Le probe le NOMME et le chiffre au lieu de rougir dessus — un rouge y ferait accuser
+`source_ability`.
+
+### Garde de signature
+
+Les **quatre** substitutions d'`execute_additional_hits` suivent la signature du port (cliquet
+#393, `test_additional_hits_variant_signatures_offline.py`) ; `probe_949_ltgb_coup_manquant.py`
+TRANSMET le paramètre au lieu de l'avaler, sans quoi son rejeu désarmerait le canal que le port
+livré, lui, garde. 35 passed sur les quatre fichiers offline du canal.

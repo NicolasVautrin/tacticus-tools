@@ -328,3 +328,53 @@ compris (pas de decalage d'index, contrairement a la chance). Foyer = le pipelin
 Portee : tout owner-effect a condition dependante de l'etat pose pendant la salve --
 `AmuletOfTheVoidwyrm_CritDamageReduction` (1460) et `NetherRealmCasket_CritDamageReduction` (1455)
 ont la meme forme, non mesuree chez eux.
+
+## 12. `#922-r5` FERME (2026-08-17) -- l'axe temporel etait deja porte, et il ne servait a rien
+
+Le paragraphe ci-dessus decrit un travail **deja livre** : #919 (2026-08-11) a pose
+`crit_damage = crit_apres[1]` dans les TROIS vecteurs. La fiche #922-r5, ecrite le 2026-08-15,
+prescrivait donc un correctif present dans l'arbre depuis quatre jours.
+
+Et ce correctif etait un **NO-OP dans son propre regime de motivation**. Mesure : le bras
+`CRITDMG_AVANT` du probe (qui fige `crit_damage` sur sa premiere lecture, c'est-a-dire l'etat
+d'AVANT #919) rendait `[6534, 4621, 5010]` -- **exactement `OFFLINE`**. Un correctif dont le
+contrefactuel est indistinguable ne corrige rien.
+
+### La cause : une seule unite du board avait ses effets FIGES
+
+`AttackDamageOperation._crit_carriers` relisait `state.effects.active_effects(...)` pour toutes les
+unites du board **sauf l'attaquant**, a qui il repassait tel quel le parametre `attacker_effects`.
+Or ce parametre est la liste que `damage_model.attacker_modifiers` calcule **en tete d'operation**,
+donc AVANT `On(PreAttackHit = 6)`. Relire la facade CRIT apres l'event ne pouvait donc rien changer
+pour un effet du PORTEUR : la liste, elle, datait d'avant.
+
+C'est la porte que #922-r1 volet (a) appelait << l'ACTIVITE >>, et elle explique aussi pourquoi
+substituer le seul callable de MAGNITUDE ne mordait pas : a compteur nul, l'instance est exclue
+d'`active_effects`, donc `_crit_params` ne la voit meme pas et la magnitude n'est jamais evaluee.
+
+### Ce qui l'etablit, et ce n'est pas une symetrie supposee
+
+`IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses` **ne prend AUCUN argument** --
+ni unite, ni liste pre-calculee. Elle enumere la collection globale des entites-effet, appelle le
+slot `0x29` du service sur chacune (rafraichissement) **avant** de tester `EffectComponent+0x5c`
+(`IsActive`), et rend `(effet, cibles)`. Il n'existe donc, cote natif, aucune place ou la liste de
+l'attaquant serait plus vieille que celle des autres.
+
+### Mesure
+
+Meme montage joue avant/apres (`probe_922_intoxicating_elixir_live.py --n 0 --thrilled
+--inactifs`) : ecart natif/port par coup **`[462, 1600, 988]` -> `[0, 0, 0]`**, `accord=True`. Les
+deux temoins du probe restent ROUGES, et c'est ce qui etablit que les DEUX pieces sont necessaires :
+`NOCHANNEL` (port sans le canal) et `CRITDMG_AVANT` (port sans l'axe temporel) rendent tous deux
+`[6534, 4621, 5010]`.
+
+### Un temoin qui avait cesse de mordre, et le vert qu'il aurait pu donner
+
+`test_922_intoxicating_elixir_crit_live.py::test_le_niveau_lu_est_celui_de_la_relique_pas_du_passif`
+etait **rouge sur `origin/master`** -- avant comme apres ce correctif (contre-epreuve sur `HEAD~1` :
+memes valeurs `passif == off == [5991, 4889, 5149]`). Le mutant `PASSIF` RETIRAIT le callable
+`tertiary_ability_state_of`, en supposant que l'effet retomberait sur le niveau des PASSIFS. Depuis
+la reparation du seeding tertiaire (#1005/#1081), l'INSTANCE porte elle-meme le couple TERTIAIRE :
+le repli rendait deja le bon niveau, et le temoin ne discriminait plus. Il SUBSTITUE desormais la
+branche de repli de `triggered_ability_state` au lieu de la retirer, et `etages()` imprime
+`ability_level_instance` pour que la cause soit LUE. 9 passed.
