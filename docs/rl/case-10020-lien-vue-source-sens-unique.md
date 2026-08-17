@@ -349,11 +349,38 @@ existe pour séparer.
 `0x1805a2840`). C'est un contrôle, pas une redondance : la chaîne de résolution et la lecture Ghidra
 sont deux sources indépendantes.
 
-### NON CONFRONTÉ, et il faut le dire
+### ✅ LE RÉGIME OBSERVER EST CONFRONTÉ — et il rend le CONTRASTE
 
-Le hook est **armé et vert**, mais `relaisFires` vaut **0** : aucune bataille n'a démarré depuis.
-On n'a donc **pas** vu le relais tirer, pas vu `forcer` mordre, et pas vu un FSM naître en
-`UnitDeploymentState`. Tout ce qui est établi ici, c'est que l'ancrage tient et que le garde trie.
+Warmup joué hook armé (bataille de **campagne**, chemin éprouvé, aucune sandbox impliquée) :
+
+```
+relaisFires: 1     relaisRetours: [1]              <- la CAMPAGNE rend TRUE
+enableObservations: [{ skip: 0 }]                  <- skipUnitDeployment == 0
+relaisForces: 0                                    <- forcer etait FAUX, rien n'a ete ecrit
+Responding = True, delta CPU = 1,97                <- jeu vivant APRES coup
+```
+
+Trois choses tombent d'un coup :
+
+1. **L'ancrage tire, et au bon moment** — une fois, à l'entrée en bataille.
+2. **Le contraste est mesuré par le MÊME capteur** : `true` en campagne contre le `false` relevé
+   en sandbox au §7. Ce n'est plus deux mesures de provenances différentes qu'on rapproche, c'est
+   une seule sonde qui voit les deux régimes.
+3. **`skip == 0` : le second gate est DÉJÀ OUVERT sur ce chemin.** Le drapeau ne court-circuite
+   rien — donc forcer le relais suffirait, sans avoir à toucher `IdunMainView+0x120`. C'est
+   précisément ce que l'ancrage sur `Enable` était là pour dire, et il l'a dit.
+
+⚠ **Mesuré sur un départ de CAMPAGNE, pas de sandbox.** Rien n'établit que le chemin sandbox passe
+par `IdunGameViews$$Enable` avec le même drapeau — il monte par `ViewCommandExecutor$$StartMatch` →
+`thor.Loader$$LoadBattle`. `enableObservations` répondra au premier montage sandbox ; d'ici là,
+la conclusion « un seul gate à forcer » ne vaut **que pour la campagne**.
+
+⚠ **RESTE NON CONFRONTÉ** : `forcer` n'a jamais mordu (`relaisForces: 0`), et aucun FSM n'a été vu
+naître en `UnitDeploymentState`. On a confirmé la sonde, pas encore l'effet.
+
+⛔ **Et le montage qui manque a un COÛT connu** : confronter `forcer` demande une bataille sandbox,
+dont la SORTIE est la voie létale documentée (§9 ci-dessous). Il faut donc prévoir la relance du
+jeu **dans le plan**, pas la découvrir après.
 
 ### ⚠ CE QUE LA POSE A COÛTÉ — un warmup VERT sur un jeu qu'il venait de FIGER
 
