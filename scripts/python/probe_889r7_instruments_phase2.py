@@ -151,6 +151,13 @@ def unites_off(state) -> set:
     return {int(eid) for eid in state.entities}
 
 
+def _pos_off(state, eid: int):
+    from engine.runner.components import PositionComponent
+    e = state.get_entity(int(eid))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return (int(eid), None if pc is None else (int(pc.col), int(pc.row)))
+
+
 def marques_off(state) -> dict:
     """`{cle: [effect_type, ...]}` des instances NON consommees -- pour voir le retrait du 1518."""
     out = {}
@@ -374,6 +381,11 @@ def _mesure(sid: int, rid: int) -> dict:
         # DUMP BRUT : un `{}` de `_coups_natifs` peut vouloir dire « le natif n'a pas frappe » OU
         # « ce lecteur ne sait pas lire ces events ». On imprime donc la VENTILATION des types.
         "events_natifs_types": _types_events(act2),
+        # Les CLES brutes de la reponse : un `{}` de `_types_events` peut aussi vouloir dire que
+        # `captureEvents` ne remonte rien sur un `endturn`. On imprime la FORME, pas un zero.
+        "act2_cles": sorted((act2 or {}).keys()),
+        "act2_actions_cles": sorted({k for a in (act2.get("actions") or []) for k in a}),
+        "act2_brut": json.dumps(act2, default=str)[:4000],
         "emis_port": sorted({n for r in (off_phase2 or [])
                              for f in ((r or {}).get("fired") or [])
                              for res in (f.get("results") or []) if isinstance(res, dict)
@@ -382,6 +394,15 @@ def _mesure(sid: int, rid: int) -> dict:
         "dhp_port": _dhp(hp_o0, hp_o1),
         "spawn_natif": {str(k): v for k, v in unites_l1.items() if k not in unites_l0},
         "spawn_port": sorted(unites_o1 - unites_o0),
+        # LES TUILES de spawn, des DEUX cotes. C'est l'etage qui separe « le coup differe diverge »
+        # de « les SUMMONS ne sont pas nes au meme endroit, donc ils n'ont pas frappe pareil » --
+        # les deux se presentent comme un simple ecart de PV.
+        "spawn_pos_natif": sorted(
+            (int(c["squadId"]), (int((c.get("to") or {}).get("col")),
+                                 int((c.get("to") or {}).get("row"))))
+            for a in (act2.get("actions") or []) for c in (a.get("changes") or [])
+            if c.get("appeared") and (c.get("to") or {}).get("col") is not None),
+        "spawn_pos_port": sorted(_pos_off(state, int(e)) for e in (unites_o1 - unites_o0)),
         "marques_apres_phase2": marques_off(state),
         "events_bascule": len(act2.get("actions") or []),
     }
@@ -436,6 +457,8 @@ def main() -> int:
     print("[889r7] [C] SPAWN")
     print("        natif = %s" % json.dumps(m["spawn_natif"], sort_keys=True))
     print("        port  = %s" % m["spawn_port"])
+    print("        tuiles natif = %s" % m["spawn_pos_natif"])
+    print("        tuiles port  = %s" % m["spawn_pos_port"])
     print("[889r7] MARQUES 1518 (port) : apres cast = %d cles, apres phase 2 = %d cles"
           % (sum(1 for v in m["marques_apres_cast"].values() if IOV_LOCATION_TARGET in v),
              sum(1 for v in m["marques_apres_phase2"].values() if IOV_LOCATION_TARGET in v)))
@@ -454,9 +477,26 @@ def main() -> int:
               "lignes ne portait d'ennemi. Replacer une cible SUR une ligne (cf. `ligne_i pos`).")
         ok = False
     elif m["dhp_natif"] != m["dhp_port"]:
-        print("[889r7] [B] ECART : natif %s != port %s"
-              % (json.dumps(m["dhp_natif"], sort_keys=True),
-                 json.dumps(m["dhp_port"], sort_keys=True)))
+        # ⚠ **UN VERDICT DOIT DIRE A QUOI IL S'APPLIQUE.** Le `dhp` de ce pas AGREGE le coup differe
+        # ET les attaques des summons (`PerformAIAttackFromCurrentPosition`, on-appearance). Si les
+        # TUILES de spawn different, les summons n'ont pas frappe depuis les memes cases et le
+        # `dhp` n'est tout simplement PAS comparable -- accuser le coup differe serait accuser le
+        # mauvais etage. MESURE (2026-08-17) : seed 777, tuiles IDENTIQUES -> accord BIT-EXACT ;
+        # seed 31337, tuiles differentes (natif [(3,5),(4,4),(3,2),(2,1)] / port
+        # [(2,3),(1,2),(4,4),(2,1)]) -> ecart de 984 PV sur ~36 000. Residu `#889-r11`.
+        memes_tuiles = ([p for _, p in (m["spawn_pos_natif"] or [])]
+                        == [p for _, p in (m["spawn_pos_port"] or [])])
+        if not memes_tuiles:
+            print("[889r7] [B] NON COMPARABLE : les TUILES DE SPAWN different, donc le `dhp` de ce "
+                  "pas melange deux etages. natif=%s port=%s"
+                  % (m["spawn_pos_natif"], m["spawn_pos_port"]))
+            print("        (l'ecart de PV %s / %s N'ACCUSE PAS le coup differe -- residu #889-r11)"
+                  % (json.dumps(m["dhp_natif"], sort_keys=True),
+                     json.dumps(m["dhp_port"], sort_keys=True)))
+        else:
+            print("[889r7] [B] ECART REEL (memes tuiles de spawn) : natif %s != port %s"
+                  % (json.dumps(m["dhp_natif"], sort_keys=True),
+                     json.dumps(m["dhp_port"], sort_keys=True)))
         ok = False
     else:
         print("[889r7] [B] ACCORD BIT-EXACT sur le delta de PV : %s"
