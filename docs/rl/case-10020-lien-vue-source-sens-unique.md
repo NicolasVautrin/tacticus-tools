@@ -691,3 +691,39 @@ coherent avec un plafond qui varie par bataille.
 
 => Le garde a poser sur `sandbox_mode.py --units` compare a la valeur de **la source montee**,
 jamais a un 5 ecrit en dur.
+
+## 17. UNITE OBLIGATOIRE -- le mecanisme existe, et mon premier candidat etait FAUX
+
+Signale par l'utilisateur : **des events rendent obligatoire le deploiement d'une unite donnee.**
+
+J'ai d'abord attribue ca a un bloc de `Show` qui filtre par un predicat et remplit une liste :
+
+```c
+if (<slot 0x37 sur le modele>(u)) { List.Add(this+0x250, u); this+0x222 = 1; }
+```
+
+**FAUX.** `classFields` sur la classe VIVANTE nomme les deux champs : `+0x250` = **`_mows`**,
+`+0x222` = **`_hasMachinesOfWar`**. Ce bloc separe les **Machines of War**, il n'a aucun rapport
+avec une unite obligatoire. Le predicat du slot `0x37` est un `IsMachineOfWar`, pas un `IsRequired`.
+
+⚠ C'est la **quatrieme** fois dans ce dossier qu'une inference par le NOM ou la FORME aurait fait
+ecrire un faux (apres << atteignable != appelee >> SS6, << meme famille de nom => meme role >> SS12,
+et `GetUnlockedUnitsPooled` jamais appelee SS13). Le remede est le meme a chaque fois et il est
+bon marche : **nommer les champs par `classFields` avant d'ecrire une phrase sur eux.**
+
+### Le vrai mecanisme, nomme mais NON CONFRONTE
+
+```
+IdunBattle.ViewLogic.BattleSource.CampaignGameModeSource$$HasGameModeReasonNotToStartMatch(
+    units: List<String>, reasonNotToStartMatch: GameModeReasonNotToStartMatch&) -> Boolean
+IdunBattle.View.FSM.StateMachineActions$$HandleReasonNotToStartMatch(reasonNotToStartMatch)
+idun.ui.UnitDeploymentHud$$SortUnitsWithRequiredFirst(unitA, unitB) -> Int32
+```
+
+C'est la porte du bouton **Start!** : elle recoit la composition et rend un MOTIF de refus type.
+Cote catalogue, `requiredUnits` existe sur les noeuds de campagne (releve dans `case-596`, ou il est
+etabli qu'il designe le trio de la CAMPAGNE et ne discrimine pas le noeud -- a ne pas confondre avec
+l'obligation d'event decrite ici).
+
+**NON MESURE** : quelle source porte l'obligation d'event, et si `SandboxGameModeSource` la porte du
+tout. A instruire avant toute conclusion.
