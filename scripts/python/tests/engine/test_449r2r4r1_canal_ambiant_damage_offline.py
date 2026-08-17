@@ -137,8 +137,18 @@ def test_une_section_VIDE_reste_un_dict(_dec_obs_snap):
 
 
 def test_les_sections_publiees_sont_celles_qui_sont_LUES():
-    """Publier une section que personne ne lit fabriquerait du code mort a l'air de canal."""
-    assert C.BC_SECTIONS_PUBLIEES == ("Damage",)
+    """Publier une section que personne ne lit fabriquerait du code mort a l'air de canal.
+
+    ⚠ Le litteral seul ne gardait PAS cet enonce : il rougissait a chaque section AJOUTEE, y
+    compris legitime (`Player`, #889-r9), et restait vert si on retirait son LECTEUR. On garde
+    donc l'invariant lui-meme -- toute section publiee est demandee quelque part dans
+    `snapshot.py` -- et le litteral n'est plus qu'un inventaire, mis a jour avec lui."""
+    assert C.BC_SECTIONS_PUBLIEES == ("Damage", "Player")
+    src = (Path(S.__file__)).read_text(encoding="utf-8")
+    for section in C.BC_SECTIONS_PUBLIEES:
+        assert ('"%s"' % section) in src, (
+            "la section %r est PUBLIEE mais aucun `_section_bc_du_runner(..., %r)` ne la lit dans "
+            "snapshot.py -- c'est du code mort a l'air de canal" % (section, section))
 
 
 def test_le_depot_meurt_avec_son_runner():

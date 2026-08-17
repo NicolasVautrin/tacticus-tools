@@ -176,12 +176,18 @@ def seed_offline_rng(state, dump):
 # ---------------------------------------------------------------- LA FIXTURE, nommee et reutilisable
 
 def monter_scenario(sid: int, *, avec_camarade: bool, seed: str = "777",
-                    board: str = BOARD, state_name: str | None = None):
+                    board: str = BOARD, state_name: str | None = None,
+                    hp_target: str | None = "400000"):
     """Monte le duel du Lion sur SA carte, avec ou sans CAMARADE activable derriere lui.
 
     `avec_camarade=True` est le SEUL levier qui change entre les deux bras : il garde le tour du
     JOUEUR ouvert apres le cast, donc empeche `EndTurnOperation` de tourner avant la relecture.
-    Le Lion est `moveNone` -- c'est la CIBLE qu'on colle a lui, jamais l'inverse."""
+    Le Lion est `moveNone` -- c'est la CIBLE qu'on colle a lui, jamais l'inverse.
+
+    `hp_target` REPREND le regime de la fiche, et il n'est pas cosmetique : au regime nominal le
+    cast TUE la cible (11044 PV), l'`IfAlive(Target)` du natif refuse alors les DEUX bonds et
+    AUCUN des effets dont on mesure la duree n'est pose. Mesure : sans lui, `live_cast` ne porte
+    que le `1522` du caster -- le bras ne discrimine plus rien."""
     nom = state_name or ("probe_889r9_%s" % ("pre" if avec_camarade else "post"))
     state_path = LOGS / ("%s.json" % nom)
     p_units = BOSS + ((",%s" % CAMARADE) if avec_camarade else "")
@@ -191,6 +197,8 @@ def monter_scenario(sid: int, *, avec_camarade: bool, seed: str = "777",
             "--a-units", "custoVexilusPraetor,orksBigMek",
             "--place", "%s:3,3" % BOSS,
             "--a-place", "custoVexilusPraetor:3,4", "--a-place", "orksBigMek:2,2"]
+    if hp_target:
+        args += ["--hp-target", str(hp_target)]
     if avec_camarade:
         # LOIN du Lion et de la melee : ce camarade ne doit rien changer d'autre que le fait
         # qu'une unite du camp reste activable.
@@ -282,6 +290,9 @@ def main() -> int:
     ap.add_argument("--bras", choices=["pre", "post", "les-deux"], default="les-deux")
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default=BOARD)
+    ap.add_argument("--hp-target", default="400000",
+                    help="PV de la cible (regime de la fiche). Sans lui le cast TUE la cible et "
+                         "l'`IfAlive(Target)` eteint les effets qu'on mesure.")
     a = ap.parse_args()
 
     sid = _session()
@@ -295,7 +306,7 @@ def main() -> int:
     res = {}
     for bras in (("pre", "post") if a.bras == "les-deux" else (a.bras,)):
         rid, dispose = monter_scenario(sid, avec_camarade=(bras == "pre"),
-                                       seed=a.seed, board=a.board)
+                                       seed=a.seed, board=a.board, hp_target=a.hp_target)
         try:
             res[bras] = _cast(sid, rid, avec_camarade=(bras == "pre"))
         finally:
@@ -311,9 +322,19 @@ def main() -> int:
             print("        discrimine PAS (le natif a tique avant la relecture).")
         else:
             vn, vp = _valeurs(m["live_cast"]), _valeurs(m["off_cast"])
-            print("  [pre] PRE-TICK -- valeurs natives=%s port=%s" % (sorted(vn), sorted(vp)))
-            print("        (ii) canal en ROUNDS/POST-tick : %s"
-                  % ("REFUTE" if vn == vp and vn == {fbc["facteur"]} else "NON REFUTE"))
+            identique = m["live_cast"] == m["off_cast"]
+            # NON-DEGENERESCENCE : un bras ou tous les `remaining` vaudraient 0 (effets sans
+            # duree) accorderait sans rien mesurer. On EXIGE qu'au moins une duree porte le
+            # facteur -- sinon on ne conclut pas.
+            porte = fbc["facteur"] in vn
+            print("  [pre] PRE-TICK -- valeurs natives=%s port=%s (identiques=%s)"
+                  % (sorted(vn), sorted(vp), identique))
+            if not porte:
+                print("        REGIME DEGENERE : aucune duree ne vaut le facteur %d -- ce bras "
+                      "n'oppose rien." % fbc["facteur"])
+            else:
+                print("        (ii) canal en ROUNDS/POST-tick : %s"
+                      % ("REFUTE" if identique else "NON REFUTE"))
     if "post" in res:
         m = res["post"]
         ok = m.get("off_apres_tick") == m["live_cast"]

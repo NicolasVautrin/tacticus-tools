@@ -210,7 +210,10 @@ _BC_SECTIONS_DIR = ROOT / "logs" / "runners" / "bc-sections"
 
 #: Sections publiees. STRICTEMENT celles qu'un consommateur LIT : publier une section que personne
 #: ne lit fabriquerait du code mort qui aurait l'air d'un canal.
-BC_SECTIONS_PUBLIEES = ("Damage",)
+#:   * `Damage`  -> `DamageConfiguration.from_bc` (#449-r2-r4-r1) ;
+#:   * `Player`  -> `snapshot._facteur_tours_par_round` (#889-r9), qui itere `TurnOrder` et ecarte
+#:                  `PlayerType == 2` comme `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`.
+BC_SECTIONS_PUBLIEES = ("Damage", "Player")
 
 
 def runner_bc_sections_path(label: str) -> Path:
