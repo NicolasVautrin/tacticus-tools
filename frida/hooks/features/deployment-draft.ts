@@ -52,9 +52,16 @@
 //   * le régime REMPLIR exige `confirmer: true` ET une observation préalable réussie.
 
 import {
-    class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, il2cppBase, s,
+    class_get_fields, class_get_name, class_instance_size, field_get_name, field_get_offset,
+    field_get_type, findClassAnywhere, findMethodByParamCount, getFieldOffset, il2cppBase, s,
+    type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
-import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
+import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+// ⚠ VOIE FROIDE, ET C'EST DÉLIBÉRÉ. La vue vivante s'obtient par `FindObjectsByType`, À LA
+// DEMANDE. La version précédente la publiait depuis le pump (`IdunGameViews$$Update`), donc une
+// écriture JS PAR FRAME dans le hot path le plus sensible du dépôt : un coût permanent payé par
+// toutes les batailles pour un besoin qui n'existe que le temps d'un RPC.
+import { premiereInstance } from "./view-command.js";
 // Une valeur pré-empruntée doit SURVIVRE jusqu'à sa substitution : sans racine, le GC IL2CPP
 // peut la ramasser entre l'emprunt et le `retval.replace`.
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -836,6 +843,807 @@ function armerUneDelegation(d: Delegation, spec: { nom: string; params: number }
     return true;
 }
 
+// ============================================================================
+// L'ÉTAGE PREFAB — ET LE CHARGEMENT « À LA DEMANDE » EXISTE DÉJÀ DANS LE JEU.
+//
+// Symptôme : on sélectionne une unité du roster, elle se GRISE (`TryMarkUnitAsPlaced` rend
+// `true`), et le plateau ne bouge pas. `IdunGameViews$$AddPlaceholderUnit` sort en `false` sur
+// `UnitIdToPrefabDictionary$$Get` -> `NullableRefExtensions$$TryGet` -> `false`.
+//
+// CE QUE `Get` FAIT VRAIMENT, et c'est le fait qui commande tout ce bloc :
+//
+//     ref = dico[GetUnitIdForUniverse(unitId)]      // AssetBundleBattleReference
+//     si ref.prefab == null :                       // <-- LE CHARGEMENT PARESSEUX
+//         ref.prefab = ref.loader.Invoke()          //     EST DÉJÀ LÀ, dans le jeu
+//     return NullableRefUnity(ref.prefab)
+//
+// ⇒ Il n'y a donc RIEN à charger : il y a une ENTRÉE à créer. Le prefab sera tiré par le jeu
+// lui-même, au premier `Get`, exactement là où il le tire pour les unités de `bc.Units`. On
+// ne déclenche aucun chargement de bundle depuis un thread Frida — ce qui écarte au passage
+// le profil de gel qu'on redoutait.
+//
+// POURQUOI L'ENTRÉE MANQUE. `UnitIdToPrefabDictionary$$Add` n'a qu'UN SEUL appelant :
+// `idun.IdunMainView$$StartBattle`, qui itère `BattleConfiguration.Units`. Notre roster est
+// EMPRUNTÉ à la campagne et n'est dans aucune BC — il ne pouvait donc pas avoir de prefab.
+//
+// LA SÉQUENCE NATIVE, mirroir 1:1 de `StartBattle` :
+//
+//     holder = new <classe porteuse>()                    // { visualConfig, effectPool }
+//     holder.effectPool = thor.Game.Board.EffectPool$$GetInstance()
+//     IdunUniverse$$TryGetUnitVisualConfig(univers, visualId, &holder.visualConfig)
+//     del = new WidgetPoolReuseHelper.CreateWidget<T>(holder, <méthode du holder>)
+//     ref = new AssetBundleBattleReference(del)
+//     dico.Add(unitId, ref)
+//
+// ⚠ AUCUNE de ces classes n'est nommée ici, et c'est le cœur du dispositif. Ghidra ne les
+// nomme pas non plus : le ctor d'`AssetBundleBattleReference` s'y appelle
+// `UnityEngine.EventSystems.BaseEventData$$.ctor` (corps DÉDUPLIQUÉ — son absence de
+// `methods.tsv` ne prouvait rien, cf. le CLAUDE.md), et la classe porteuse n'est qu'un `DAT_`.
+// On CAPTURE donc un exemplaire VIVANT : `sandboxModeStart` fait tourner `StartBattle`, donc
+// `Add` tire pour chaque unité de la BC. Le patron ainsi capturé porte les trois classes, le
+// `m_target` du délégué et l'`EffectPool` — sans une seule adresse en dur, et re-capturé à
+// chaque montage, donc insensible au changement de build.
+//
+// ⚠ ON CLONE, ON NE RECONSTRUIT PAS. Copier l'instance capturée puis n'écraser que le champ
+// qui change préserve tout ce que le runtime a calculé (l'`invoke_impl` et le `method_code` du
+// délégué, notamment) et évite d'invoquer trois ctors dont un prend un `IntPtr`. Le seul piège
+// est en face : le `ref` capturé a SON prefab déjà résolu, donc le clone doit REMETTRE CE SLOT
+// À NUL — sans quoi chaque unité ajoutée afficherait le modèle de l'unité capturée, et ça se
+// verrait comme un bug de jeu, pas comme un bug de patron.
+//
+// ⚠ Les slots sont résolus PAR LE TYPE du champ (même doctrine que `bucket-decode`), jamais par
+// un offset écrit ici, et le diagnostic PUBLIE le nom réellement trouvé pour que la péremption
+// se voie.
+
+const NS_PREFAB = "IdunBattle.View.Game";
+const CLS_DICO = "UnitIdToPrefabDictionary";
+const CLS_VIEWS_PREFAB = "IdunGameViews";
+
+interface Champ { nom: string; off: number; type: string }
+
+/** Champs d'instance d'une classe, avec le NOM DE TYPE — la clé de la résolution par type. */
+function champsDe(klass: NativePointer): Champ[] {
+    const out: Champ[] = [];
+    const it = Memory.alloc(Process.pointerSize);
+    it.writePointer(ptr(0));
+    let f: NativePointer;
+    while (!(f = class_get_fields(klass, it) as NativePointer).isNull()) {
+        let type = "?";
+        try {
+            const t = field_get_type(f) as NativePointer;
+            const k = type_get_class_or_element_class(t) as NativePointer;
+            if (!k.isNull()) type = s(class_get_name(k) as NativePointer);
+        } catch { /* type illisible : le champ reste listé, avec `?` */ }
+        try {
+            out.push({ nom: s(field_get_name(f) as NativePointer),
+                       off: field_get_offset(f) as number, type });
+        } catch { /* champ illisible : on continue plutôt que de tout perdre */ }
+    }
+    return out;
+}
+
+/** Le premier champ dont le type porte `type`. Rend `-1` si absent — jamais un offset deviné. */
+function offsetParType(champs: Champ[], type: string): number {
+    const c = champs.find((x) => x.type === type);
+    return c ? c.off : -1;
+}
+
+/** Ce qu'un `Add` VIVANT nous a appris. Tout est capturé, rien n'est écrit en dur. */
+interface Patron {
+    dico: string;
+    refClasse: NativePointer; refClasseNom: string;
+    offPrefab: number; nomPrefab: string;
+    offLoader: number; nomLoader: string;
+    delClasse: NativePointer; delClasseNom: string;
+    offTarget: number;
+    /** ⚠ LE SLOT QUE `Get` LIT VRAIMENT. Le décompilé invoque le loader par
+     *  `invoke_impl(delegue->method_code, &retour, delegue->method)` — donc `method_code`,
+     *  PAS `m_target`. Ne réécrire que `m_target` laisse le délégué cloné pointer sur la
+     *  fermeture DU PATRON : mesuré, deux unités distinctes se sont affichées avec le modèle du
+     *  patron, sans la moindre erreur. Les deux champs sont donc écrits, et relus. */
+    offMethodCode: number;
+    holderClasse: NativePointer; holderClasseNom: string;
+    offConfig: number; nomConfig: string;
+    /** TOUS les champs du porteur. Publiés : c'est en choisissant le champ « par élimination »
+     *  qu'on a écrit la config dans le mauvais slot, et que deux unités distinctes se sont
+     *  affichées avec le modèle du patron. Le slot se choisit désormais par le TYPE RÉEL de la
+     *  config, à l'écriture — pas par une devinette à la capture. */
+    champsHolder: Champ[];
+    /** Le corps que le délégué appelle : c'est LUI qui fabrique le prefab. Lu sur le délégué
+     *  capturé (`method_ptr`, champ NOMMÉ de `System.Delegate`), donc jamais une adresse écrite. */
+    loaderPtr: NativePointer | null;
+    /** ⚠ CE QUE `Delegate..ctor` ATTEND, et ce n'est PAS `method_ptr`. En IL2CPP, `ldftn` rend un
+     *  `MethodInfo*` déguisé en `IntPtr` : le second argument du ctor est donc le champ `method`
+     *  (+0x28), pas le pointeur de code (+0x10). Lui passer le code construit un délégué dont
+     *  l'invocateur part sur une sentinelle — mesuré : « access violation accessing
+     *  0xffffffffffffffff ». */
+    loaderMethodInfo: NativePointer | null;
+    tailleRef: number; tailleDel: number; tailleHolder: number;
+    exemplaireRef: NativePointer; exemplaireDel: NativePointer; exemplaireHolder: NativePointer;
+    unitIdVu: string | null;
+}
+
+let patron: Patron | null = null;
+let patronRefus: string | null = null;
+let listenerAdd: InvocationListener | null = null;
+let addFires = 0;
+const prefabCharges: Array<{ unitId: string; ok: boolean; detail: string }> = [];
+
+// ⚠ LES POINTEURS QUE LE JEU UTILISE VRAIMENT — la seule autorité.
+//
+// Mesuré session 52 : `HasPrefabForUnitId` rend `true` pour `spaceBlackmane` alors que le `Get`
+// du jeu rend NUL pour la même unité. Or les deux corps font le MÊME `ContainsKey`, sur le MÊME
+// champ, avec la MÊME clé — sur une seule et même instance ils ne PEUVENT pas diverger. Donc ils
+// portent sur DEUX objets différents, et c'est ma lecture qui visait le mauvais.
+//
+// La cause est la voie d'accès : aller CHERCHER la vue (`FindObjectsByType`, ou le dernier `this`
+// vu par le pump) rend *une* vue, pas *celle que le déploiement utilise*. On enregistre donc les
+// pointeurs tels qu'ils passent dans les appels du jeu, et tout le reste s'y adosse.
+const dicosVusParAdd = new Map<string, number>();
+/** Les unitIds que `Add` a inscrits — donc ceux dont le prefab EXISTE, sans rien fabriquer. */
+const idsAvecPrefab: string[] = [];
+let dicoDeGet: NativePointer | null = null;     // le `this` du dernier `Get` -- l'AUTORITÉ
+let vuesDePose: NativePointer | null = null;    // le `this` d'`Enable` / `AddPlaceholderUnit`
+let listenerVue: InvocationListener | null = null;
+/** Ce qu'a donné chaque tentative de capture de la vue. Publié — jamais avalé. */
+const captureVue: string[] = [];
+
+/**
+ * Le dictionnaire ET la vue que LE JEU utilise pour le déploiement.
+ *
+ * ⚠ ORDRE DE PRÉFÉRENCE, et il n'est pas cosmétique : on prend d'abord ce qu'on a VU PASSER dans
+ * les appels du jeu (`Get`, `AddPlaceholderUnit`), puis seulement à défaut une vue qu'on va
+ * chercher. C'est exactement l'erreur qui a produit la contradiction `HasPrefabForUnitId=true` /
+ * `Get=NUL` : une vue trouvée n'est pas la vue employée. La SOURCE est publiée à chaque appel,
+ * pour qu'un résultat obtenu par le repli ne se lise jamais comme un résultat autoritaire.
+ */
+function dicoVivant(): { dico: NativePointer; vues: NativePointer; source: string } | Refus {
+    const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+    if (!kv) return refus(`\`${NS_PREFAB}.${CLS_VIEWS_PREFAB}\` INTROUVABLE`);
+    const off = offsetParType(champsDe(kv), CLS_DICO);
+    if (off < 0) {
+        return refus(`aucun champ de type \`${CLS_DICO}\` sur \`${CLS_VIEWS_PREFAB}\` -- `
+            + "chemin PÉRIMÉ, pas de repli sur un offset");
+    }
+    // (1) L'AUTORITÉ : la vue sur laquelle le jeu vient d'appeler `AddPlaceholderUnit`.
+    if (vuesDePose !== null && !vuesDePose.isNull()) {
+        const dico = vuesDePose.add(off).readPointer();
+        if (!dico.isNull()) {
+            return { dico, vues: vuesDePose, source: "vue OBSERVÉE dans `AddPlaceholderUnit`" };
+        }
+    }
+    // (2) Le dictionnaire vu dans `Get` : autoritaire lui aussi, mais il ne donne pas la vue,
+    // donc il ne suffit pas pour `GetUnitVisualConfig`.
+    if (dicoDeGet !== null && !dicoDeGet.isNull() && vuesDePose === null) {
+        return refus("le dictionnaire du jeu est connu (" + dicoDeGet
+            + ") mais AUCUNE vue n'a encore été observée : `GetUnitVisualConfig` a besoin de la "
+            + "vue. Tenter une pose d'abord (elle échouera, et elle publiera la vue).");
+    }
+    // (3) Repli : une vue qu'on va chercher. Peut viser à côté -- on le DIT.
+    const trouve = premiereInstance(kv);
+    if (!(trouve instanceof NativePointer)) return refus(trouve.error + " (repli)");
+    if (trouve.isNull()) return refus("`FindObjectsByType` a rendu un pointeur NUL (repli)");
+    const dico = trouve.add(off).readPointer();
+    if (dico.isNull()) return refus("le champ dictionnaire est NUL sur la vue trouvée (repli)");
+    return { dico, vues: trouve,
+             source: "REPLI `FindObjectsByType` -- PAS forcément la vue du déploiement" };
+}
+
+/** Arme la CAPTURE du patron sur `Add`. Observation pure : n'écrit rien, ne remplace rien. */
+function armerPrefab(): true | Refus {
+    if (listenerAdd) return true;
+    const kd = findClassAnywhere(NS_PREFAB, CLS_DICO);
+    if (!kd) return refus(`\`${NS_PREFAB}.${CLS_DICO}\` INTROUVABLE sur ce build`);
+    const mi = findMethodByParamCount(kd, "Add", 2);
+    if (!mi) return refus(`\`${CLS_DICO}$$Add\` INTROUVABLE (2 paramètres)`);
+    const t = lireTete(mi.ptr);
+    if (t.erreur !== null) return refus(`tête de \`Add\` ILLISIBLE (${t.erreur})`);
+    if (teteTriviale(t)) {
+        return refus(`REFUS : \`${CLS_DICO}$$Add\` résout sur un corps TRIVIAL `
+            + `(ret à l'octet ${t.retA}) -- adresse PARTAGÉE par déduplication. Cf. §8.`);
+    }
+    // La VUE, captée au montage plutôt qu'à la première pose. Le `this` de ces méthodes EST la
+    // vue employée — donc autoritaire, au même titre que celui d'`AddPlaceholderUnit`, mais
+    // disponible sans attendre un clic de l'utilisateur.
+    //
+    // ⚠ DEUX candidates, et le RÉSULTAT DE CHACUNE EST PUBLIÉ. La version précédente n'en tentait
+    // qu'une et AVALAIT l'échec : le hook n'a pas tiré, `vuesDePose` est resté nul, et il a fallu
+    // un aller-retour avec l'utilisateur pour découvrir que le capteur n'était pas armé. Un
+    // capteur qui échoue en silence coûte plus cher que pas de capteur du tout.
+    const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+    if (!listenerVue && kv) {
+        for (const [nom, np] of [["Enable", 1], ["Continue", 0], ["Clear", 0]] as const) {
+            const mv = findMethodByParamCount(kv, nom, np);
+            if (!mv) { captureVue.push(`${nom}(${np}) : INTROUVABLE`); continue; }
+            const tv = lireTete(mv.ptr);
+            if (tv.erreur !== null) { captureVue.push(`${nom} : tête ILLISIBLE`); continue; }
+            if (teteTriviale(tv)) { captureVue.push(`${nom} : corps TRIVIAL, refusé`); continue; }
+            listenerVue = Interceptor.attach(mv.ptr, {
+                onEnter(args) { if (vuesDePose === null) vuesDePose = args[0]; },
+            });
+            captureVue.push(`${nom} : ARMÉ`);
+            break;
+        }
+    }
+    listenerAdd = Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            addFires++;
+            // QUEL dictionnaire a été rempli, et combien de fois chacun. C'est ce comptage qui
+            // distingue « 68 prefabs chargés » de « 68 prefabs chargés AILLEURS ».
+            const cle = args[0].toString();
+            dicosVusParAdd.set(cle, (dicosVusParAdd.get(cle) ?? 0) + 1);
+            // LES IDS QUI ONT UN PREFAB, par construction : ce sont ceux que le jeu vient de
+            // charger. C'est la bonne source pour le roster -- inutile d'en fabriquer d'autres.
+            try {
+                const nom = readIl2cppString(args[1]);
+                if (nom !== null && nom !== "" && idsAvecPrefab.indexOf(nom) < 0) {
+                    idsAvecPrefab.push(nom);
+                }
+            } catch { /* best effort */ }
+            if (patron !== null) return;          // un seul patron suffit
+            try { patronRefus = capturerPatron(args[0], args[1], args[2]); }
+            catch (e) { patronRefus = "capture levée : " + (e as Error).message; }
+        },
+    });
+    Interceptor.flush();
+    return true;
+}
+
+/**
+ * Booléen rendu par `invokeMethod`. **À N'OUBLIER SOUS AUCUN PRÉTEXTE.**
+ *
+ * `il2cpp_runtime_invoke` BOXE les retours de type valeur : le pointeur rendu désigne une boîte
+ * managée, et le `Boolean` vit à `+0x10`. Lire `retour.toInt32()` lit les 32 bits BAS DU
+ * POINTEUR — quasi jamais nuls — donc rend **`true` inconditionnellement**.
+ *
+ * Ce n'est pas une précaution théorique : c'est exactement la faute qui a fait répondre
+ * `HasPrefabForUnitId = true` sur des unités ABSENTES du dictionnaire, réfuter à tort la bonne
+ * cause, et faire dire à `deploymentPrefabCharger` « déjà présent -- rien fait » alors qu'il
+ * n'avait rien créé. Un capteur qui ne peut rendre que `true` ne mesure rien.
+ */
+function boolBoxe(p: NativePointer): boolean {
+    if (p.isNull()) return false;
+    return p.add(0x10).readU8() !== 0;
+}
+
+/** Taille d'instance. `il2cpp_class_instance_size` peut manquer de l'export : on LÈVE avec le
+ *  nom plutôt que de cloner sur une taille devinée — un clone tronqué laisserait des champs à
+ *  zéro sans la moindre erreur. */
+function taille(klass: NativePointer): number {
+    if (class_instance_size === null) {
+        throw new Error("`il2cpp_class_instance_size` absent de ce build : clonage IMPOSSIBLE");
+    }
+    return class_instance_size(klass) as number;
+}
+
+/** Décortique un `Add` réel. Rend `null` si le patron est complet, sinon la RAISON du refus. */
+function capturerPatron(dico: NativePointer, unitId: NativePointer,
+                        ref: NativePointer): string | null {
+    if (ref.isNull()) return "la référence passée à `Add` est NULLE";
+    const kRef = ref.readPointer();
+    const nomRef = s(class_get_name(kRef) as NativePointer);
+    const champsRef = champsDe(kRef);
+    // Le prefab est le champ `GameObject` ; le loader est le SEUL autre champ référence.
+    const offPrefab = offsetParType(champsRef, "GameObject");
+    if (offPrefab < 0) {
+        return `aucun champ de type \`GameObject\` sur \`${nomRef}\` -- champs vus : `
+            + champsRef.map((c) => `${c.nom}:${c.type}`).join(", ");
+    }
+    const cLoader = champsRef.find((c) => c.off !== offPrefab && c.type !== "?");
+    if (!cLoader) return `aucun champ loader identifiable sur \`${nomRef}\``;
+    const del = ref.add(cLoader.off).readPointer();
+    if (del.isNull()) return "le champ loader est NUL sur l'exemplaire capturé";
+    const kDel = del.readPointer();
+    const nomDel = s(class_get_name(kDel) as NativePointer);
+    // `m_target` est un champ NOMMÉ de `System.Delegate` : on le résout par son nom, pas par
+    // la disposition supposée d'`Il2CppDelegate`.
+    const offTarget = getFieldOffset(kDel, "m_target");
+    if (offTarget < 0) return `\`m_target\` absent de \`${nomDel}\``;
+    const holder = del.add(offTarget).readPointer();
+    if (holder.isNull()) return "le `m_target` du délégué capturé est NUL";
+    const kHolder = holder.readPointer();
+    const nomHolder = s(class_get_name(kHolder) as NativePointer);
+    const champsHolder = champsDe(kHolder);
+    // La config visuelle est ce que `TryGetUnitVisualConfig` écrit ; on la repère par le champ
+    // dont le type n'est PAS le pool d'effets.
+    const cConfig = champsHolder.find((c) => c.type.indexOf("EffectPool") < 0 && c.type !== "?");
+    if (!cConfig) {
+        return `aucun champ de config visuelle sur \`${nomHolder}\` -- champs vus : `
+            + champsHolder.map((c) => `${c.nom}:${c.type}`).join(", ");
+    }
+    patron = {
+        dico: dico.toString(),
+        refClasse: kRef, refClasseNom: nomRef,
+        offPrefab, nomPrefab: champsRef.find((c) => c.off === offPrefab)?.nom ?? "?",
+        offLoader: cLoader.off, nomLoader: cLoader.nom,
+        delClasse: kDel, delClasseNom: nomDel, offTarget,
+        offMethodCode: getFieldOffset(kDel, "method_code"),
+        holderClasse: kHolder, holderClasseNom: nomHolder,
+        offConfig: cConfig.off, nomConfig: cConfig.nom, champsHolder,
+        loaderPtr: (() => {
+            const o = getFieldOffset(kDel, "method_ptr");
+            if (o < 0) return null;
+            const p = del.add(o).readPointer();
+            return p.isNull() ? null : p;
+        })(),
+        loaderMethodInfo: (() => {
+            const o = getFieldOffset(kDel, "method");
+            if (o < 0) return null;
+            const p = del.add(o).readPointer();
+            return p.isNull() ? null : p;
+        })(),
+        tailleRef: taille(kRef), tailleDel: taille(kDel), tailleHolder: taille(kHolder),
+        exemplaireRef: ref, exemplaireDel: del, exemplaireHolder: holder,
+        unitIdVu: (() => { try { return readIl2cppString(unitId); } catch { return null; } })(),
+    };
+    // Le patron sert de gabarit BIEN APRÈS le `Add` qui l'a fourni : sans racine, le GC peut
+    // ramasser les trois exemplaires entre la capture et la première fabrication.
+    gcRoot.add(ref); gcRoot.add(del); gcRoot.add(holder);
+    return null;
+}
+
+/** Clone une instance managée : même classe, mêmes octets, en-tête neuf. */
+function cloner(source: NativePointer, klass: NativePointer, taille: number): NativePointer {
+    const copie = il2cpp_object_new(klass) as NativePointer;
+    if (copie.isNull()) throw new Error("`il2cpp_object_new` a rendu NUL");
+    // L'en-tête (klass + monitor, 2 pointeurs) vient de l'allocation ; on ne copie QUE le corps.
+    const debut = Process.pointerSize * 2;
+    Memory.copy(copie.add(debut), source.add(debut), Math.max(0, taille - debut));
+    return copie;
+}
+
+/**
+ * Les ids du roster, lus dans la liste PRÉ-EMPRUNTÉE à la campagne.
+ *
+ * ⚠ POURQUOI C'EST NÉCESSAIRE, ET PAS UN CONFORT. Charger « les unités qu'on croit utiles »
+ * fait porter à l'utilisateur la traduction portrait -> identifiant : il a cliqué
+ * `admecMarshall` en pensant désigner un héros de la liste que j'avais chargée, et l'essai n'a
+ * rien mesuré du tout. Un écran est utilisable quand TOUT ce qu'il montre est posable.
+ *
+ * La liste est un `PooledListElement\`1` : on descend dans `_object` (le `List\`1` réel), puis on
+ * lit `_size` et `_items` PAR LEUR NOM. Aucun offset écrit ici.
+ */
+function listeDuRoster(): string[] | Refus {
+    if (preEmprunt === null || preEmprunt.isNull()) {
+        return refus("aucun pré-emprunt en main -- jouer `deploymentPoolPreEmprunt` d'abord");
+    }
+    try {
+        const kWrap = preEmprunt.readPointer();
+        let liste = preEmprunt;
+        const offObj = getFieldOffset(kWrap, "_object");
+        if (offObj > 0) {
+            const interne = preEmprunt.add(offObj).readPointer();
+            if (interne.isNull()) return refus("`_object` du wrapper de pool est NUL");
+            liste = interne;
+        }
+        const kListe = liste.readPointer();
+        const offItems = getFieldOffset(kListe, "_items");
+        const offSize = getFieldOffset(kListe, "_size");
+        if (offItems < 0 || offSize < 0) {
+            return refus(`\`_items\`/\`_size\` absents de \`${s(class_get_name(kListe) as
+                NativePointer)}\` -- chemin PÉRIMÉ`);
+        }
+        const n = liste.add(offSize).readS32();
+        const items = liste.add(offItems).readPointer();
+        if (items.isNull()) return refus("`_items` est NUL");
+        if (n < 0 || n > 4096) return refus(`taille invraisemblable (${n}) -- on ne lit RIEN`);
+        const out: string[] = [];
+        // ⚠ LES ÉLÉMENTS NE SONT PAS FORCÉMENT DES CHAÎNES. `GetUnitsForDeploymentHUD` MAPPE la
+        // liste : ses éléments sont des MODÈLES d'unité. `readIl2cppString` dessus ne rend rien,
+        // et la première version rendait donc une liste VIDE -- que l'appelant a rapportée comme
+        // « `tout` non demandé ». Un vide silencieux vaut pire qu'une erreur.
+        let classeElement: string | null = null;
+        let offId = -1;
+        for (let i = 0; i < n; i++) {
+            // Tableau managé : longueur à +0x18, premier élément à +0x20.
+            const el = items.add(0x20 + i * Process.pointerSize).readPointer();
+            if (el.isNull()) continue;
+            const ke = el.readPointer();
+            if (classeElement === null) {
+                classeElement = s(class_get_name(ke) as NativePointer);
+                if (classeElement !== "String") {
+                    // L'id se trouve sur le modèle : champ String nommé, résolu PAR SON NOM.
+                    for (const nom of ["unitId", "UnitId", "id", "Id",
+                                       "<UnitId>k__BackingField", "<unitId>k__BackingField"]) {
+                        const o = getFieldOffset(ke, nom);
+                        if (o >= 0) { offId = o; break; }
+                    }
+                    if (offId < 0) {
+                        return refus(`les éléments sont des \`${classeElement}\`, et aucun champ `
+                            + "d'id n'y est reconnu -- champs : "
+                            + champsDe(ke).map((c) => `${c.nom}:${c.type}`).join(", "));
+                    }
+                }
+            }
+            const v = classeElement === "String"
+                ? readIl2cppString(el)
+                : readIl2cppString(el.add(offId).readPointer());
+            if (v !== null && v !== "") out.push(v);
+        }
+        if (out.length === 0) {
+            return refus(`liste lue (taille ${n}, éléments \`${classeElement ?? "?"}\`) mais AUCUN `
+                + "id extrait -- on refuse plutôt que de rendre un vide qui se lirait comme "
+                + "« rien à charger »");
+        }
+        return out;
+    } catch (e) { return refus("lecture du roster levée : " + (e as Error).message); }
+}
+
+/**
+ * Fabrique l'entrée manquante d'UNE unité, sur le patron capturé. Rend le détail — jamais un
+ * booléen nu : chaque refus doit se lire.
+ *
+ * ⚠ N'appelle AUCUN chargement d'asset. Elle pose un triplet PARESSEUX (`_prefab` à nul) ;
+ * c'est le corps natif de `Get` qui invoquera le loader ensuite, exactement comme il le fait
+ * pour les unités de la BC. Le coût reste donc proportionnel à ce qui est RÉELLEMENT posé.
+ */
+function fabriquerEntree(
+    p: Patron, dico: NativePointer, vues: NativePointer, id: string,
+    mHas: MethodRefLike, mAdd: MethodRefLike, mCfg: MethodRefLike,
+): { ok: boolean; detail: string; ref?: NativePointer } {
+    try {
+        const sid = createManagedString(id);
+        // `Add` LÈVE sur clé dupliquée : on ne tente que ce qui manque vraiment.
+        if (boolBoxe(invokeMethod(mHas.info, dico, [sid]))) {
+            return { ok: true, detail: "déjà présent -- rien fait" };
+        }
+        // Lecture pure (`UnitConfigMap.TryGetValue`), aucun asset touché.
+        const cfg = invokeMethod(mCfg.info, vues, [sid]);
+        if (cfg.isNull()) {
+            return { ok: false, detail: "`GetUnitVisualConfig` rend NUL -- pas de config visuelle "
+                + "dans l'univers chargé ; on n'invente rien" };
+        }
+        // LE SLOT SE CHOISIT PAR LE TYPE RÉEL DE `cfg`, pas par élimination. Mesuré : le choix
+        // « le premier champ qui n'est pas l'EffectPool » visait un autre membre de la fermeture,
+        // la config du patron restait en place, et DEUX unités s'affichaient avec SON modèle.
+        const nomCfg = s(class_get_name(cfg.readPointer()) as NativePointer);
+        const cible = p.champsHolder.find((c) => c.type === nomCfg);
+        if (!cible) {
+            return { ok: false, detail: `aucun champ de type \`${nomCfg}\` sur `
+                + `\`${p.holderClasseNom}\` -- champs : `
+                + p.champsHolder.map((c) => `${c.nom}:${c.type}`).join(", ")
+                + " ; on n'écrit RIEN plutôt qu'à côté" };
+        }
+        if (p.loaderMethodInfo === null) {
+            return { ok: false, detail: "`method` (le `MethodInfo*`) du délégué capturé "
+                + "ILLISIBLE -- on ne construit pas de délégué sans lui" };
+        }
+        const ctorDel = findMethodByParamCount(p.delClasse, ".ctor", 2);
+        if (!ctorDel) {
+            return { ok: false, detail: `\`${p.delClasseNom}..ctor\` (2 paramètres) INTROUVABLE` };
+        }
+        const holder = cloner(p.exemplaireHolder, p.holderClasse, p.tailleHolder);
+        holder.add(cible.off).writePointer(cfg);
+        // RELECTURE : une écriture non vérifiée est ce qui a produit deux modèles identiques
+        // sans la moindre erreur.
+        if (!holder.add(cible.off).readPointer().equals(cfg)) {
+            return { ok: false, detail: `écriture NON CONFIRMÉE dans \`${cible.nom}\`` };
+        }
+        // ⚠ ON CONSTRUIT LE DÉLÉGUÉ, ON NE LE CLONE PAS — et les deux tentatives précédentes
+        // établissent pourquoi. `method_code` (+0x40), que `Get` passe à l'invocateur, n'est pas
+        // la CIBLE mais un pointeur de CODE, vers un trampoline où la cible est déjà scellée :
+        //   * ne réécrire que `m_target` -> pas de crash, mais le trampoline appelle toujours la
+        //     fermeture du PATRON (mesuré : deux unités affichées avec SON modèle) ;
+        //   * écrire le porteur dans `method_code` -> l'invocateur saute sur des données
+        //     (mesuré : « access violation accessing 0x... » levée par `Get`).
+        // Un délégué ne se re-cible donc pas par écriture de champ. `StartBattle` l'instancie par
+        // `.ctor(cible, pointeur_de_méthode)` — on fait pareil, et le runtime bâtit le trampoline.
+        const del = il2cpp_object_new(p.delClasse) as NativePointer;
+        if (del.isNull()) return { ok: false, detail: "`il2cpp_object_new` (délégué) a rendu NUL" };
+        // Un `IntPtr` est un TYPE VALEUR : `runtime_invoke` en attend l'ADRESSE, pas la valeur.
+        const boiteFn = Memory.alloc(Process.pointerSize);
+        boiteFn.writePointer(p.loaderMethodInfo);
+        invokeMethod(ctorDel.info, del, [holder, boiteFn]);
+        const cibleRelue = del.add(p.offTarget).readPointer();
+        if (!cibleRelue.equals(holder)) {
+            return { ok: false, detail: `délégué construit mais \`m_target\` vaut ${cibleRelue} `
+                + `au lieu de ${holder} -- on n'inscrit RIEN` };
+        }
+        const ref = cloner(p.exemplaireRef, p.refClasse, p.tailleRef);
+        // ⚠ LE SLOT QUI DOIT REPARTIR À NUL : le patron a son prefab déjà résolu ; le laisser
+        // afficherait le modèle de l'unité capturée.
+        ref.add(p.offPrefab).writePointer(ptr(0));
+        ref.add(p.offLoader).writePointer(del);
+        gcRoot.add(holder); gcRoot.add(del); gcRoot.add(ref);
+        invokeMethod(mAdd.info, dico, [sid, ref]);
+        return { ok: true, ref, detail: `entrée créée -- config ${nomCfg} @ \`${cible.nom}\`` };
+    } catch (e) { return { ok: false, detail: "LEVÉ : " + (e as Error).message }; }
+}
+
+/** Ce dont `fabriquerEntree` a besoin d'une méthode : son `MethodInfo*`. */
+interface MethodRefLike { info: NativePointer }
+
+function etatPrefab(): Record<string, unknown> {
+    return {
+        arme: listenerAdd !== null,
+        addFires,
+        patron: patron === null ? null : {
+            reference: patron.refClasseNom,
+            champPrefab: `${patron.nomPrefab}@+0x${patron.offPrefab.toString(16)}`,
+            champLoader: `${patron.nomLoader}@+0x${patron.offLoader.toString(16)}`,
+            delegue: patron.delClasseNom,
+            porteur: patron.holderClasseNom,
+            champConfig: `${patron.nomConfig}@+0x${patron.offConfig.toString(16)}`,
+            champsDuPorteur: patron.champsHolder.map((c) => `${c.nom}:${c.type}`),
+            unitIdVu: patron.unitIdVu,
+        },
+        // LE COMPTAGE QUI TRANCHE : si `Add` a rempli un dictionnaire et que `Get` en lit un
+        // AUTRE, « N prefabs chargés » ne dit rien sur ce que le déploiement voit.
+        dicosRemplisParAdd: Array.from(dicosVusParAdd, ([p, n]) => ({ dico: p, adds: n })),
+        dicoLuParGet: dicoDeGet === null ? null : dicoDeGet.toString(),
+        idsAvecPrefab,
+        vueDePose: vuesDePose === null ? null : vuesDePose.toString(),
+        captureVue,
+        dicoDuPatron: patron === null ? null : patron.dico,
+        // TRI-ÉTAT : `null` = aucun refus ENREGISTRÉ, ce qui n'est pas « tout va bien » tant
+        // qu'`addFires` vaut 0.
+        refusDeCapture: patronRefus,
+        charges: prefabCharges.slice(-24),
+    };
+}
+
+// ============================================================================
+// POURQUOI LA POSE ÉCHOUE — ET LA PREMIÈRE CAUSE ÉCRITE ICI ÉTAIT FAUSSE.
+//
+// Mesuré sur la session 50, sur les DEUX unités réellement refusées
+// (`spaceBlackmane`, `admecRuststalker`) : `HasPrefabForUnitId` rend **true** pour chacune.
+// Le montage `useAccountUnits` charge **68** prefabs (compté sur `Add`, hook armé APRÈS le
+// warmup, donc tous les fires viennent de NOTRE montage). ⇒ **La cause « prefab manquant »
+// est RÉFUTÉE** ; elle avait été déduite du décompilé sans jamais être mesurée.
+//
+// L'étage supérieur est tranché, lui aussi par mesure. `StateMachineActions` porte
+// `_hud : IIdunGameHud` en `+0x48` et `_views : IIdunGameViews` en `+0x18` (`classFields`), donc :
+//
+//     UnitDeployment_PlaceUnitOnBoard(unitId, col, row, isManual, playerId) :
+//         si _hud != null et <garde> :
+//             si !_hud.<slot 0x11>(unitId) : return false      <- c'est `TryMarkUnitAsPlaced`,
+//                                                                 MESURÉ à `true` (le grisement)
+//         return _views.AddPlaceholderUnit(unitId, col, row, isManual, playerId)
+//
+// ⇒ On entre donc BIEN dans `AddPlaceholderUnit`, et c'est LUI qui rend `false`. Il lui reste
+// exactement trois sorties, et ce bloc les départage AU LIEU d'en élire une :
+//
+//   (A) `UnitIdToPrefabDictionary$$Get` -> `TryGet` faux        -- déjà réfutée, on la RE-MESURE
+//                                                                  au runtime plutôt que de s'en
+//                                                                  remettre à `HasPrefabForUnitId`
+//   (B) `IdunBoardView$$GetLogicalTileAt(col, row)` rend NUL    -- la tuile cliquée n'existe pas
+//   (C) `_placeholderUnitViews` contient déjà `unitId`          -- unité déjà posée
+//
+// ⚠ Aucun de ces trois hooks n'écrit quoi que ce soit. On observe, on nomme, ET ENSUITE on
+// décide — c'est le régime qui a déjà rattrapé deux fausses causes dans ce dossier.
+
+const NS_BOARD = "idun";
+const CLS_BOARD = "IdunBoardView";
+let listenerAdd2: InvocationListener | null = null;
+let listenerTuile: InvocationListener | null = null;
+let listenerGet: InvocationListener | null = null;
+const poseTrace: Array<Record<string, unknown>> = [];
+const tuileTrace: Array<{ col: number; row: number; trouvee: boolean }> = [];
+const getTrace: Array<{
+    unitId: string | null; rendu: string; nul: boolean; dico: string;
+    loaderAppele: number; lecture: string;
+}> = [];
+let listenerLoader: InvocationListener | null = null;
+let listenerCle: InvocationListener | null = null;
+let listenerDemande: InvocationListener | null = null;
+/** Le régime À LA DEMANDE. Faux par défaut : il ÉCRIT dans le dictionnaire du jeu. */
+let aLaDemande = false;
+let demandesFaites = 0;
+const demandeTrace: Array<{ unitId: string | null; detail: string }> = [];
+let loaderFires = 0;
+const loaderTrace: Array<{ rendu: string; nul: boolean }> = [];
+const cleTrace: Array<{ entree: string | null; sortie: string | null }> = [];
+
+function armerPoseDiag(): true | Refus {
+    const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+    if (!kv) return refus(`\`${CLS_VIEWS_PREFAB}\` INTROUVABLE`);
+    const mAdd = findMethodByParamCount(kv, "AddPlaceholderUnit", 5);
+    if (!mAdd) return refus("`IdunGameViews$$AddPlaceholderUnit` INTROUVABLE (5 paramètres)");
+    const kb = findClassAnywhere(NS_BOARD, CLS_BOARD);
+    if (!kb) return refus(`\`${NS_BOARD}.${CLS_BOARD}\` INTROUVABLE`);
+    const mTuile = findMethodByParamCount(kb, "GetLogicalTileAt", 2);
+    if (!mTuile) return refus("`IdunBoardView$$GetLogicalTileAt` INTROUVABLE (2 paramètres)");
+    const kd = findClassAnywhere(NS_PREFAB, CLS_DICO);
+    if (!kd) return refus(`\`${CLS_DICO}\` INTROUVABLE`);
+    const mGet = findMethodByParamCount(kd, "Get", 1);
+    if (!mGet) return refus("`UnitIdToPrefabDictionary$$Get` INTROUVABLE (1 paramètre)");
+    for (const [nom, mi] of
+        [["AddPlaceholderUnit", mAdd], ["GetLogicalTileAt", mTuile], ["Get", mGet]] as const) {
+        const t = lireTete(mi.ptr);
+        if (t.erreur !== null) return refus(`tête de \`${nom}\` ILLISIBLE (${t.erreur})`);
+        if (teteTriviale(t)) {
+            return refus(`REFUS : \`${nom}\` résout sur un corps TRIVIAL (ret à l'octet `
+                + `${t.retA}) -- adresse PARTAGÉE par déduplication. Cf. §8.`);
+        }
+    }
+    if (!listenerAdd2) {
+        listenerAdd2 = Interceptor.attach(mAdd.ptr, {
+            onEnter(args) {
+                const self = this as unknown as {
+                    uid: string | null; c: number; r: number; vues: NativePointer;
+                    tAvant: number; gAvant: number;
+                };
+                self.uid = null;
+                try { self.uid = readIl2cppString(args[1]); } catch { /* best effort */ }
+                self.c = args[2].toInt32();
+                self.r = args[3].toInt32();
+                self.vues = args[0];
+                vuesDePose = args[0];      // l'AUTORITÉ sur « quelle vue déploie »
+                // Les deux compteurs encadrent l'appel : ils disent quels sous-étages ont été
+                // TRAVERSÉS, donc où la sortie s'est produite. Un `false` sans delta de tuile
+                // désigne (A) ou (C) ; avec delta et tuile non trouvée, c'est (B).
+                self.tAvant = tuileTrace.length;
+                self.gAvant = getTrace.length;
+            },
+            onLeave(retval) {
+                const self = this as unknown as {
+                    uid: string | null; c: number; r: number; vues: NativePointer;
+                    tAvant: number; gAvant: number;
+                };
+                if (poseTrace.length >= 32) return;
+                const rendu = (retval.toInt32() & 0xff) !== 0;
+                let dejaPosee: boolean | string = "non lu";
+                let nbPosees: number | string = "non lu";
+                try {
+                    const kv2 = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+                    const off = kv2 ? getFieldOffset(kv2, "_placeholderUnitViews") : -1;
+                    if (off >= 0) {
+                        const dico = self.vues.add(off).readPointer();
+                        nbPosees = compteDict(dico);
+                    } else { nbPosees = "champ `_placeholderUnitViews` ABSENT"; }
+                } catch (e) { nbPosees = "ILLISIBLE : " + (e as Error).message; }
+                const tuiles = tuileTrace.slice(self.tAvant);
+                const gets = getTrace.slice(self.gAvant);
+                if (gets.length > 0) dejaPosee = false;   // on a dépassé le test (C)
+                poseTrace.push({
+                    unitId: self.uid, col: self.c, row: self.r, rendu,
+                    // Le VERDICT est dérivé des étages traversés, jamais deviné.
+                    etage: rendu ? "POSÉE"
+                        : gets.length === 0 ? "(A?) sorti AVANT `Get` -- prefab ou garde amont"
+                        : gets.some((g) => g.nul) ? "(A) `Get` a rendu NUL"
+                        : tuiles.length === 0 ? "(C) sorti APRÈS `Get`, SANS chercher de tuile "
+                            + "-- `_placeholderUnitViews` contient déjà cet unitId"
+                        : tuiles.some((t) => !t.trouvee) ? "(B) `GetLogicalTileAt` a rendu NUL"
+                        : "sorti APRÈS une tuile TROUVÉE -- aucune des trois causes connues",
+                    getsVus: gets, tuilesVues: tuiles, placeholders: nbPosees, dejaPosee,
+                });
+            },
+        });
+    }
+    if (!listenerTuile) {
+        listenerTuile = Interceptor.attach(mTuile.ptr, {
+            onEnter(args) {
+                const self = this as unknown as { c: number; r: number };
+                self.c = args[1].toInt32();
+                self.r = args[2].toInt32();
+            },
+            onLeave(retval) {
+                const self = this as unknown as { c: number; r: number };
+                if (tuileTrace.length < 64) {
+                    tuileTrace.push({ col: self.c, row: self.r, trouvee: !retval.isNull() });
+                }
+            },
+        });
+    }
+    // LE LOADER. S'il tire pendant un `Get` qui rend nul, l'entrée EXISTE et c'est la fabrication
+    // du prefab qui échoue. S'il ne tire pas, `Get` est sorti par « clé absente » -- donc la clé
+    // qu'il calcule DIFFÈRE de celle de `HasPrefabForUnitId`, seule autre explication possible.
+    if (!listenerLoader && patron !== null && patron.loaderPtr !== null) {
+        listenerLoader = Interceptor.attach(patron.loaderPtr, {
+            onLeave(retval) {
+                loaderFires++;
+                if (loaderTrace.length < 32) {
+                    loaderTrace.push({ rendu: retval.toString(), nul: retval.isNull() });
+                }
+            },
+        });
+    }
+    // LA CLÉ. Les deux appels de `GetUnitIdForUniverse` dans `Get` passent par des blocs d'init
+    // distincts : si leurs sorties diffèrent, la contradiction s'explique sans mystère.
+    if (!listenerCle) {
+        const kn = findClassAnywhere("idun.shared", "UnitNamingConventions")
+            ?? findClassAnywhere("shared", "UnitNamingConventions");
+        const mn = kn ? findMethodByParamCount(kn, "GetUnitIdForUniverse", 1) : null;
+        if (mn) {
+            listenerCle = Interceptor.attach(mn.ptr, {
+                onEnter(args) {
+                    const self = this as unknown as { e: string | null };
+                    self.e = null;
+                    try { self.e = readIl2cppString(args[0]); } catch { /* best effort */ }
+                },
+                onLeave(retval) {
+                    const self = this as unknown as { e: string | null };
+                    if (cleTrace.length >= 48) return;
+                    let sortie: string | null = null;
+                    try { sortie = readIl2cppString(retval); } catch { /* best effort */ }
+                    cleTrace.push({ entree: self.e, sortie });
+                },
+            });
+        }
+    }
+    // ============================================================================
+    // LE CHARGEMENT À LA DEMANDE, DANS SA FORME DÉFINITIVE.
+    //
+    // On ancre `Get` et, si la clé MANQUE, on fabrique l'entrée DANS LE `onEnter` — puis on
+    // laisse le corps natif s'exécuter normalement : il trouve alors la clé et déclenche son
+    // propre chargement paresseux. Aucun `replace`, aucun retour fabriqué, et c'est le JEU qui
+    // charge, au moment où il l'aurait fait.
+    //
+    // ⚠ POURQUOI PAS UN PRÉCHARGEMENT DU ROSTER. Créer les 55 entrées d'avance « pour tester »
+    // valide un mécanisme qui n'est PAS celui qu'on livre : le régime d'épreuve doit être le
+    // régime réel, sinon le vert ne prouve rien. Une entrée par unité RÉELLEMENT posée.
+    //
+    // ⚠ Les appels faits ici (`HasPrefabForUnitId`, `GetUnitVisualConfig`, `Add`) ne seront PAS
+    // vus par nos propres ancrages : un `Interceptor` ne ré-observe pas un appel émis depuis un
+    // autre callback sur le même thread. `addFires` ne bougera donc pas — ce n'est pas une panne.
+    if (!listenerDemande) {
+        const kdd = findClassAnywhere(NS_PREFAB, CLS_DICO);
+        const kvv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+        const mHas = kdd ? findMethodByParamCount(kdd, "HasPrefabForUnitId", 1) : null;
+        const mAddD = kdd ? findMethodByParamCount(kdd, "Add", 2) : null;
+        const mCfg = kvv ? findMethodByParamCount(kvv, "GetUnitVisualConfig", 1) : null;
+        if (!mHas || !mAddD || !mCfg) {
+            return refus("chargement à la demande IMPOSSIBLE : "
+                + `HasPrefabForUnitId=${mHas !== null} Add=${mAddD !== null} `
+                + `GetUnitVisualConfig=${mCfg !== null}`);
+        }
+        listenerDemande = Interceptor.attach(mGet.ptr, {
+            onEnter(args) {
+                if (!aLaDemande || patron === null) return;
+                const vues = vuesDePose;
+                if (vues === null || vues.isNull()) {
+                    if (demandeTrace.length < 32) {
+                        demandeTrace.push({ unitId: null,
+                            detail: "aucune vue captée -- rien tenté" });
+                    }
+                    return;
+                }
+                let id: string | null = null;
+                try { id = readIl2cppString(args[1]); } catch { /* best effort */ }
+                if (id === null || id === "") return;
+                const r = fabriquerEntree(patron, args[0], vues, id, mHas, mAddD, mCfg);
+                if (r.detail === "déjà présent -- rien fait") return;   // le cas courant
+                demandesFaites++;
+                if (demandeTrace.length < 32) demandeTrace.push({ unitId: id, detail: r.detail });
+            },
+        });
+    }
+    if (!listenerGet) {
+        listenerGet = Interceptor.attach(mGet.ptr, {
+            onEnter(args) {
+                const self = this as unknown as {
+                    uid: string | null; dico: NativePointer; lAvant: number;
+                };
+                self.uid = null;
+                try { self.uid = readIl2cppString(args[1]); } catch { /* best effort */ }
+                self.dico = args[0];
+                self.lAvant = loaderFires;
+                dicoDeGet = args[0];       // l'AUTORITÉ sur « quel dictionnaire est lu »
+            },
+            onLeave(retval) {
+                const self = this as unknown as {
+                    uid: string | null; dico: NativePointer; lAvant: number;
+                };
+                if (getTrace.length < 64) {
+                    const dl = loaderFires - self.lAvant;
+                    getTrace.push({
+                        unitId: self.uid, rendu: retval.toString(), nul: retval.isNull(),
+                        dico: self.dico.toString(), loaderAppele: dl,
+                        // LE VERDICT, dérivé -- pas choisi.
+                        lecture: !retval.isNull() ? "prefab rendu"
+                            : dl > 0 ? "le loader A TIRÉ et n'a rien produit -- entrée présente, "
+                                + "fabrication du prefab EN ÉCHEC"
+                            : "le loader N'A PAS tiré -- `Get` est sorti par « clé absente », "
+                                + "donc sa clé DIFFÈRE de celle de `HasPrefabForUnitId`",
+                    });
+                }
+            },
+        });
+    }
+    Interceptor.flush();
+    return true;
+}
+
 function etatPool(): Record<string, unknown> {
     const src = getCampaignGameModeSourcePtr();
     return {
@@ -926,6 +1734,347 @@ export function register(ctx: Ctx): void {
 
     /** ÉTAT du hook de phase de déploiement. Lecture pure. */
     ctx.rpc.deploymentPhaseStatus = (): unknown => ({ ok: true, lecture: true, ...etatPhase() });
+
+    /** Arme la CAPTURE du patron sur `UnitIdToPrefabDictionary$$Add`. Observation PURE.
+     *  À armer AVANT `sandboxModeStart` : c'est `StartBattle` qui fait tirer `Add`. */
+    ctx.rpc.deploymentPrefabArmer = (body?: { armer?: boolean }): unknown => {
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etatPrefab(),
+                     note: "lecture seule -- `armer: true` pose la capture (elle n'écrit rien)" };
+        }
+        if (body.armer === false) {
+            if (listenerAdd) { try { listenerAdd.detach(); } catch { /* best effort */ } }
+            listenerAdd = null;
+            return { ok: true, arme: false };
+        }
+        const r = armerPrefab();
+        if (r !== true) return r;
+        return { ok: true, ...etatPrefab() };
+    };
+
+    /** Départage les trois sorties d'échec d'`AddPlaceholderUnit`. Observation PURE. */
+    ctx.rpc.deploymentPoseDiag = (body?: {
+        armer?: boolean; aLaDemande?: boolean; confirmer?: boolean;
+    }): unknown => {
+        // Le régime À LA DEMANDE se règle ici : il ÉCRIT dans le dictionnaire du jeu, donc il
+        // exige `confirmer`, et son état est publié à chaque lecture.
+        if (body?.aLaDemande !== undefined) {
+            if (body.aLaDemande === true && body.confirmer !== true) {
+                return refus("`confirmer: true` exigé : le régime à la demande ÉCRIT dans le "
+                    + "dictionnaire de prefabs du jeu, sur défaut de clé");
+            }
+            aLaDemande = body.aLaDemande;
+        }
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true,
+                     arme: listenerAdd2 !== null && listenerTuile !== null,
+                     poses: poseTrace.slice(-12),
+                     tuiles: tuileTrace.slice(-16), gets: getTrace.slice(-16),
+                     // TRI-ÉTAT : `loaderArme: false` veut dire NON MESURÉ, pas « n'a pas tiré ».
+                     loaderArme: listenerLoader !== null, loaderFires,
+                     loaderRetours: loaderTrace.slice(-12),
+                     aLaDemande, demandesFaites, demandes: demandeTrace.slice(-12),
+                     clesArme: listenerCle !== null, cles: cleTrace.slice(-16) };
+        }
+        if (body.armer === false) {
+            for (const l of [listenerAdd2, listenerTuile, listenerGet]) {
+                if (l) { try { l.detach(); } catch { /* best effort */ } }
+            }
+            listenerAdd2 = null; listenerTuile = null; listenerGet = null;
+            return { ok: true, arme: false };
+        }
+        const r = armerPoseDiag();
+        if (r !== true) return r;
+        return { ok: true, arme: true,
+                 note: "poser une unité, puis relire ce RPC sans argument" };
+    };
+
+    /**
+     * POURQUOI `Get` REND NUL ALORS QUE LA CLÉ EST LÀ. Lectures pures, aucune écriture.
+     *
+     * Mesuré session 53, MÊME dictionnaire et MÊME instant : `HasPrefabForUnitId` rend `true`
+     * pour `spaceBlackmane` quand le `Get` du jeu rend `0x0`. `ContainsKey` étant donc vrai,
+     * `Get` ne sort PAS par la branche « clé absente » — la seule autre issue à `0x0` est que
+     * le loader rende un prefab NUL. Or `StartBattle` teste `IdunAssets$$IsAssetBundleAvailable`,
+     * ÉCRIT UN AVERTISSEMENT, **et ajoute l'entrée quand même** : une entrée présente ne promet
+     * donc rien sur la disponibilité de l'asset.
+     *
+     * Ce RPC lit, pour chaque unité : la config visuelle, sa référence d'asset (champ résolu PAR
+     * TYPE), et la réponse de `IsAssetBundleAvailable`. Il n'invoque AUCUN chargement.
+     */
+    ctx.rpc.deploymentPrefabInspecter = (body?: { ids?: string[] }):
+        Promise<unknown> | unknown => {
+        const ids = body?.ids ?? [];
+        if (ids.length === 0) return refus("`ids` exigé");
+        return queueOnMainThread(() => {
+            const d = dicoVivant();
+            if ("ok" in d) return d;
+            const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+            if (!kv) return refus(`\`${CLS_VIEWS_PREFAB}\` INTROUVABLE`);
+            const mCfg = findMethodByParamCount(kv, "GetUnitVisualConfig", 1);
+            if (!mCfg) return refus("`GetUnitVisualConfig` INTROUVABLE (1 paramètre)");
+            const kAssets = findClassAnywhere("Idun.Source.Scripts", "IdunAssets")
+                ?? findClassAnywhere("idun.Idun.Source.Scripts", "IdunAssets");
+            const mDispo = kAssets
+                ? findMethodByParamCount(kAssets, "IsAssetBundleAvailable", 1) : null;
+            const out: Array<Record<string, unknown>> = [];
+            for (const id of ids) {
+                const ligne: Record<string, unknown> = { unitId: id };
+                try {
+                    const cfg = invokeMethod(mCfg.info, d.vues, [createManagedString(id)]);
+                    ligne.config = cfg.toString();
+                    if (cfg.isNull()) { ligne.verdict = "config visuelle NULLE"; out.push(ligne);
+                                        continue; }
+                    const kc = cfg.readPointer();
+                    ligne.classeConfig = s(class_get_name(kc) as NativePointer);
+                    const champs = champsDe(kc);
+                    ligne.champs = champs.map((c) => `${c.nom}:${c.type}`);
+                    const cRef = champs.find((c) => c.type.indexOf("AssetReference") >= 0);
+                    if (!cRef) {
+                        ligne.verdict = "aucun champ `AssetReference*` -- chemin PÉRIMÉ";
+                        out.push(ligne); continue;
+                    }
+                    const aref = cfg.add(cRef.off).readPointer();
+                    ligne.assetRef = `${cRef.nom}@+0x${cRef.off.toString(16)} = ${aref}`;
+                    if (mDispo === null) {
+                        ligne.verdict = "`IdunAssets$$IsAssetBundleAvailable` INTROUVABLE "
+                            + "-- NON MESURÉ (ce n'est pas un `false`)";
+                    } else if (aref.isNull()) {
+                        ligne.verdict = "référence d'asset NULLE";
+                    } else {
+                        const dispo = boolBoxe(invokeMethod(mDispo.info, null, [aref]));
+                        ligne.bundleDisponible = dispo;
+                        ligne.verdict = dispo
+                            ? "bundle DISPONIBLE -- la cause est ailleurs"
+                            : "bundle INDISPONIBLE -- le loader ne peut RIEN produire, `Get` "
+                                + "rendra nul quoi qu'on écrive dans le dictionnaire";
+                    }
+                } catch (e) { ligne.verdict = "LEVÉ : " + (e as Error).message; }
+                out.push(ligne);
+            }
+            return { ok: true, dico: d.dico.toString(), source: d.source, unites: out };
+        });
+    };
+
+    /**
+     * L'ÉPREUVE CONTRÔLÉE : fabriquer l'entrée d'UNE unité, puis appeler `Get` NOUS-MÊMES et
+     * DÉCODER ce qui en sort — retour, ou exception managée avec sa classe et son message.
+     *
+     * Pourquoi elle existe : `listenerDemande` a vu **5** appels de `Get` là où `listenerGet`
+     * n'en a enregistré que **3**, et les deux manquants sont exactement les unités posées. Or
+     * `listenerGet` écrit dans son `onLeave` — un `onLeave` qui ne tire pas signifie que l'appel
+     * N'EST PAS REVENU. `Get` lève donc dans notre entrée fabriquée, silencieusement : rien sur
+     * le plateau, aucune trace de pose, aucune erreur à l'écran. Seul un appel encadré peut lire
+     * ce message.
+     *
+     * ⛔ ON DÉPOSE LES ANCRAGES SUR `Get` PENDANT L'APPEL. Ancrer la méthode qu'on invoque est
+     * le motif qui gèle le jeu (`retreatInvoke` applique déjà cette précaution). Ils sont
+     * ré-armés ensuite.
+     */
+    ctx.rpc.deploymentPrefabEprouver = (body?: { id?: string; confirmer?: boolean }):
+        Promise<unknown> | unknown => {
+        const id = body?.id;
+        if (!id) return refus("`id` exigé (une seule unité)");
+        if (body?.confirmer !== true) {
+            return refus("`confirmer: true` exigé : cette épreuve ÉCRIT une entrée puis INVOQUE "
+                + "`Get`, donc elle peut déclencher un chargement d'asset");
+        }
+        if (patron === null) return refus("aucun PATRON capturé -- monter une bataille d'abord");
+        return queueOnMainThread(() => {
+            const p = patron;
+            if (p === null) return refus("patron perdu");
+            const d = dicoVivant();
+            if ("ok" in d) return d;
+            const kd = findClassAnywhere(NS_PREFAB, CLS_DICO);
+            const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+            if (!kd || !kv) return refus("classes INTROUVABLES");
+            const mHas = findMethodByParamCount(kd, "HasPrefabForUnitId", 1);
+            const mAdd = findMethodByParamCount(kd, "Add", 2);
+            const mCfg = findMethodByParamCount(kv, "GetUnitVisualConfig", 1);
+            const mGet = findMethodByParamCount(kd, "Get", 1);
+            if (!mHas || !mAdd || !mCfg || !mGet) return refus("méthodes INTROUVABLES");
+
+            const fab = fabriquerEntree(p, d.dico, d.vues, id, mHas, mAdd, mCfg);
+            const sortie: Record<string, unknown> = { unitId: id, fabrication: fab.detail };
+
+            // ⛔ dépose des ancrages sur `Get` -- on invoque ce qu'on ancrait.
+            const gardeDemande = aLaDemande;
+            aLaDemande = false;
+            for (const l of [listenerDemande, listenerGet]) {
+                if (l) { try { l.detach(); } catch { /* best effort */ } }
+            }
+            listenerDemande = null; listenerGet = null;
+            Interceptor.flush();
+            try {
+                const r = invokeMethod(mGet.info, d.dico, [createManagedString(id)]);
+                sortie.getRetour = r.toString();
+                sortie.getNul = r.isNull();
+                sortie.verdict = r.isNull()
+                    ? "`Get` rend NUL sans lever -- l'entrée est là mais ne produit pas de prefab"
+                    : "`Get` a RENDU quelque chose -- le prefab existe";
+            } catch (e) {
+                // C'EST LE MESSAGE QU'ON CHERCHAIT : `invokeMethod` décode la classe, le message
+                // et la pile de l'exception managée.
+                sortie.verdict = "`Get` a LEVÉ";
+                sortie.exception = (e as Error).message;
+            }
+            // L'état de l'entrée APRÈS l'appel : le loader a-t-il rempli `_prefab` ?
+            if (fab.ref !== undefined) {
+                try {
+                    const pr = fab.ref.add(p.offPrefab).readPointer();
+                    sortie.prefabApres = pr.toString();
+                    sortie.prefabRempli = !pr.isNull();
+                } catch (e) { sortie.prefabApres = "ILLISIBLE : " + (e as Error).message; }
+            }
+            aLaDemande = gardeDemande;
+            const re = armerPoseDiag();
+            sortie.ancragesReArmes = re === true ? true : (re as Refus).error;
+            return { ok: true, ...sortie };
+        });
+    };
+
+    /** Diagnostic PUR : le patron, et pour chaque id demandé si le jeu a déjà son prefab.
+     *  `HasPrefabForUnitId` est une lecture (`ContainsKey`), elle n'écrit rien. */
+    ctx.rpc.deploymentPrefabStatus = (body?: { ids?: string[] }): Promise<unknown> | unknown => {
+        const ids = body?.ids ?? [];
+        if (ids.length === 0) return { ok: true, lecture: true, ...etatPrefab() };
+        return queueOnMainThread(() => {
+            const d = dicoVivant();
+            if ("ok" in d) return d;
+            const kd = findClassAnywhere(NS_PREFAB, CLS_DICO);
+            if (!kd) return refus(`\`${CLS_DICO}\` INTROUVABLE`);
+            const mh = findMethodByParamCount(kd, "HasPrefabForUnitId", 1);
+            if (!mh) return refus("`HasPrefabForUnitId` INTROUVABLE (1 paramètre)");
+            const vus: Array<{ unitId: string; aSonPrefab: boolean | string }> = [];
+            for (const id of ids) {
+                try {
+                    const r = invokeMethod(mh.info, d.dico, [createManagedString(id)]);
+                    vus.push({ unitId: id, aSonPrefab: boolBoxe(r) });
+                } catch (e) { vus.push({ unitId: id, aSonPrefab: "LEVÉ : " + (e as Error).message }); }
+            }
+            return { ok: true, dico: d.dico.toString(), vus, ...etatPrefab() };
+        });
+    };
+
+    /** LE CHARGEMENT À LA DEMANDE. Fabrique l'entrée manquante pour chaque id, sur le patron
+     *  capturé. N'appelle AUCUN chargement d'asset : c'est le jeu qui tirera le prefab à son
+     *  premier `Get`, comme il le fait pour les unités de la BC. */
+    ctx.rpc.deploymentPrefabCharger = (body?: {
+        ids?: string[]; confirmer?: boolean; tout?: boolean;
+    }):
+        Promise<unknown> | unknown => {
+        let ids = body?.ids ?? [];
+        if (!body || body.confirmer === undefined) {
+            return { ok: true, lecture: true, ...etatPrefab(),
+                     note: "`confirmer: true` exigé, plus `ids` OU `tout: true` : ce RPC ÉCRIT "
+                         + "dans le dictionnaire de prefabs de la vue vivante" };
+        }
+        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
+        // `tout` = tout ce que le HUD affiche. C'est le seul régime qui rende l'écran
+        // réellement utilisable : l'utilisateur clique un portrait, pas un identifiant.
+        if (body.tout === true) {
+            const r = listeDuRoster();
+            if (!Array.isArray(r)) return r;
+            ids = r;
+        }
+        if (ids.length === 0) return refus("`ids` vide et `tout` non demandé : rien à faire");
+        if (patron === null) {
+            return refus("aucun PATRON capturé -- armer `deploymentPrefabArmer` AVANT le montage, "
+                + `puis remonter la bataille (addFires=${addFires}, refus=${patronRefus})`);
+        }
+        return queueOnMainThread(() => {
+            const p = patron;
+            if (p === null) return refus("patron perdu entre-temps");
+            const d = dicoVivant();
+            if ("ok" in d) return d;
+            const kd = findClassAnywhere(NS_PREFAB, CLS_DICO);
+            const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+            if (!kd || !kv) return refus("classes du dictionnaire/vue INTROUVABLES");
+            const mHas = findMethodByParamCount(kd, "HasPrefabForUnitId", 1);
+            const mAdd = findMethodByParamCount(kd, "Add", 2);
+            const mCfg = findMethodByParamCount(kv, "GetUnitVisualConfig", 1);
+            if (!mHas || !mAdd) return refus("`HasPrefabForUnitId`/`Add` INTROUVABLES");
+            if (!mCfg) return refus("`IdunGameViews$$GetUnitVisualConfig` INTROUVABLE (1 param)");
+            const faits: Array<{ unitId: string; ok: boolean; detail: string }> = [];
+            for (const id of ids) {
+                let detail = "";
+                let ok = false;
+                try {
+                    const sid = createManagedString(id);
+                    // `Add` LÈVE sur clé dupliquée : on ne tente que ce qui manque vraiment.
+                    if (boolBoxe(invokeMethod(mHas.info, d.dico, [sid]))) {
+                        detail = "déjà présent -- rien fait";
+                        ok = true;
+                    } else {
+                        // Lecture pure (`UnitConfigMap.TryGetValue`), aucun asset touché.
+                        const cfg = invokeMethod(mCfg.info, d.vues, [sid]);
+                        if (cfg.isNull()) {
+                            detail = "`GetUnitVisualConfig` rend NUL -- cette unité n'a pas de "
+                                + "config visuelle dans l'univers chargé ; on n'invente rien";
+                        } else {
+                            // LE SLOT SE CHOISIT PAR LE TYPE RÉEL DE `cfg`, pas par élimination.
+                            // Mesuré : le choix « le premier champ qui n'est pas l'EffectPool »
+                            // visait un autre membre de la fermeture ; la config du patron restait
+                            // en place et DEUX unités distinctes s'affichaient avec SON modèle.
+                            const nomCfg = s(class_get_name(cfg.readPointer()) as NativePointer);
+                            const cible = p.champsHolder.find((c) => c.type === nomCfg);
+                            if (!cible) {
+                                detail = `aucun champ de type \`${nomCfg}\` sur `
+                                    + `\`${p.holderClasseNom}\` -- champs : `
+                                    + p.champsHolder.map((c) => `${c.nom}:${c.type}`).join(", ")
+                                    + " ; on n'écrit RIEN plutôt qu'à côté";
+                                faits.push({ unitId: id, ok: false, detail });
+                                continue;
+                            }
+                            const holder = cloner(p.exemplaireHolder, p.holderClasse,
+                                                  p.tailleHolder);
+                            holder.add(cible.off).writePointer(cfg);
+                            // RELECTURE : une écriture non vérifiée est ce qui a produit deux
+                            // modèles identiques sans la moindre erreur.
+                            const relu = holder.add(cible.off).readPointer();
+                            if (!relu.equals(cfg)) {
+                                detail = `écriture NON CONFIRMÉE dans \`${cible.nom}\` `
+                                    + `(relu ${relu}, attendu ${cfg})`;
+                                faits.push({ unitId: id, ok: false, detail });
+                                continue;
+                            }
+                            const del = cloner(p.exemplaireDel, p.delClasse, p.tailleDel);
+                            del.add(p.offTarget).writePointer(holder);
+                            // `method_code` est le slot que `Get` passe à l'invocateur.
+                            if (p.offMethodCode < 0) {
+                                detail = "`method_code` ABSENT de `" + p.delClasseNom
+                                    + "` : le délégué cloné appellerait la fermeture du PATRON. "
+                                    + "On refuse plutôt que d'afficher un modèle d'emprunt.";
+                                faits.push({ unitId: id, ok: false, detail });
+                                continue;
+                            }
+                            del.add(p.offMethodCode).writePointer(holder);
+                            const reluCode = del.add(p.offMethodCode).readPointer();
+                            if (!reluCode.equals(holder)) {
+                                detail = `\`method_code\` NON CONFIRMÉ (relu ${reluCode})`;
+                                faits.push({ unitId: id, ok: false, detail });
+                                continue;
+                            }
+                            const ref = cloner(p.exemplaireRef, p.refClasse, p.tailleRef);
+                            // ⚠ LE SLOT QUI DOIT REPARTIR À NUL : le patron a son prefab déjà
+                            // résolu ; le laisser afficherait le modèle de l'unité capturée.
+                            ref.add(p.offPrefab).writePointer(ptr(0));
+                            ref.add(p.offLoader).writePointer(del);
+                            gcRoot.add(holder); gcRoot.add(del); gcRoot.add(ref);
+                            invokeMethod(mAdd.info, d.dico, [sid, ref]);
+                            detail = `entrée créée -- config ${nomCfg} @ \`${cible.nom}\``
+                                + `+0x${cible.off.toString(16)} = ${cfg} (relue OK)`;
+                            ok = true;
+                        }
+                    }
+                } catch (e) { detail = "LEVÉ : " + (e as Error).message; }
+                faits.push({ unitId: id, ok, detail });
+                if (prefabCharges.length < 128) prefabCharges.push({ unitId: id, ok, detail });
+            }
+            return { ok: true, faits, poses: faits.filter((f) => f.ok).length,
+                     total: ids.length };
+        });
+    };
 
     /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });

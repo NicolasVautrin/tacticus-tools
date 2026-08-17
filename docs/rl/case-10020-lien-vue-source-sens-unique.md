@@ -1245,3 +1245,97 @@ successives ont toutes rendu << vide >> en accusant chaque fois un etage differe
 La POSE. `useAccountUnits: true` doit faire rendre `GetUnit(unitId)` -- un vrai modele de
 compte -- donc faire passer `IsUnlocked` et peupler `_allUnlockedUnitModels` (SS22). Non
 confronte : afficher n'est pas poser.
+
+## 26. LE PREFAB : ce qui manque n'est pas un CHARGEMENT, c'est une ENTREE -- et un delegue ne se re-cible pas
+
+Symptome de depart : on selectionne une unite du roster, elle se GRISE, et rien n'apparait.
+`IdunGameViews$$AddPlaceholderUnit` sort par `UnitIdToPrefabDictionary$$Get` -> `TryGet` -> faux.
+
+### Le chargement paresseux EST DEJA DANS LE JEU
+
+```
+UnitIdToPrefabDictionary$$Get(unitId) :
+    si !ContainsKey(GetUnitIdForUniverse(unitId)) : log ; return 0
+    ref = dico[cle]                              // AssetBundleBattleReference
+    si ref._prefab == null :                     // <- LE CHARGEMENT A LA DEMANDE
+        ref._prefab = ref._loader.Invoke()       //    est deja la
+    return NullableRefUnity(ref._prefab)
+```
+
+Il n'y a donc **rien a charger** : il y a une **entree a creer**. `Add` n'a qu'UN appelant,
+`idun.IdunMainView$$StartBattle`, qui itere `BattleConfiguration.Units` -- et notre roster est
+EMPRUNTE a la campagne, donc dans aucune BC.
+
+⚠ **`bc.Units` n'est PAS une source de roster** : sur un montage `useAccountUnits`, les 68 ids
+inscrits sont **3 heros** (l'equipe adverse declaree) et **65 SUMMONS** (`*Smn*`, `orksGrot`,
+`deathPoxwalker`...). L'idee « afficher bc.Units comme roster » est donc morte-nee.
+
+### L'anatomie d'une entree, mesuree sur un exemplaire VIVANT
+
+```
+AssetBundleBattleReference   _prefab:GameObject @+0x10   _loader:Func`1 @+0x18
+Func`1                       -> cible : <>c__DisplayClass65_1
+<>c__DisplayClass65_1        visualUnitConfig:IdunUnitType @+0x10
+                             CS$<>8__locals1:<>c__DisplayClass65_0 @+0x18  (porte l'EffectPool)
+```
+
+Rien de tout ca n'est ecrit en dur : Ghidra nomme le ctor de `AssetBundleBattleReference`
+`UnityEngine.EventSystems.BaseEventData$$.ctor` (corps DEDUPLIQUE) et la classe porteuse n'est
+qu'un `DAT_`. On **capture un patron** en ancrant `Add`, qui tire a chaque montage.
+
+### CE QUI A COUTE LA JOURNEE : UN DELEGUE NE SE RE-CIBLE PAS PAR ECRITURE DE CHAMP
+
+`Get` invoque le loader par `invoke_impl(delegue->method_code, &retour, delegue->method)`.
+`method_code` (+0x40) n'est PAS la cible : c'est un pointeur de CODE, vers un trampoline ou la
+cible est **deja scellee**. Les deux ecritures possibles echouent, chacune a sa maniere :
+
+| ecriture | resultat MESURE |
+|---|---|
+| `m_target` seul (+0x20) | pas de crash, mais le trampoline appelle la fermeture DU PATRON -> **deux unites distinctes affichent le meme modele** |
+| `method_code` (+0x40) | l'invocateur saute sur des donnees -> `access violation accessing 0x...` |
+
+**La forme juste est de CONSTRUIRE le delegue**, comme `StartBattle` :
+`.ctor(cible, MethodInfo*)`. ⚠ Et le second argument est le champ **`method` (+0x28)**, PAS
+`method_ptr` (+0x10) : en IL2CPP `ldftn` rend un `MethodInfo*` deguise en `IntPtr`. Passer le
+pointeur de code construit un delegue dont l'invocateur part sur une sentinelle
+(`access violation accessing 0xffffffffffffffff`).
+
+Disposition de `System.Delegate` sur ce build, LUE (`classFields`) et non deduite :
+`method_ptr@0x10 · invoke_impl@0x18 · m_target@0x20 · method@0x28 · method_code@0x40`.
+
+### LE REGIME LIVRE : a la demande, sur defaut de cle
+
+On ancre `Get` ; si la cle manque, on fabrique l'entree DANS LE `onEnter`, puis on laisse le
+corps natif s'executer -- il trouve la cle et declenche SON propre chargement paresseux.
+Une entree par unite REELLEMENT posee, aucun prechargement, et c'est le jeu qui charge.
+
+⚠ **Le regime d'epreuve doit etre le regime reel.** Precharger les 55 entrees du roster « pour
+tester » validerait un mecanisme qu'on ne livre pas. Refuse a raison par l'utilisateur.
+
+### QUATRE CAPTEURS QUI ONT MENTI -- c'est la vraie lecon
+
+1. **`il2cpp_runtime_invoke` BOXE les retours de type valeur.** Lire `retour.toInt32()` lit les
+   32 bits bas du POINTEUR DE BOITE : `HasPrefabForUnitId` rendait donc **`true`
+   inconditionnellement**. Cout : la bonne cause refutee, et un `deploymentPrefabCharger` qui
+   repondait « deja present -- rien fait » sans rien creer. Le booleen est a **+0x10**.
+2. **Aller CHERCHER le dictionnaire au lieu d'utiliser celui que le jeu passe.**
+   `FindObjectsByType` / le `this` publie par le pump rendent *une* vue, pas *celle qui deploie* :
+   d'ou une contradiction apparente entre `HasPrefabForUnitId` et `Get`. On lit desormais le
+   `this` des appels du jeu (`Get`, `AddPlaceholderUnit`, `Continue`), et la SOURCE est publiee.
+3. **Un compteur sur la mauvaise adresse.** `loaderFires` ancrait `method_ptr` alors que
+   l'invocateur dispatche par le `MethodInfo` : son `0` ne prouvait pas que le loader n'avait pas
+   tourne. Meme vice que #1 sous une autre forme.
+4. **`AddPlaceholderUnit` rend `0` AUSSI sur le chemin de SUCCES** (sa derniere instruction est
+   une emission d'evenement, pas un booleen). Le `rendu=False` de nos capteurs est donc un FAUX
+   NEGATIF -- l'ecran est la verite, et il l'a ete a chaque desaccord de ce dossier.
+
+⚠ **Un `onLeave` qui ne tire pas est un SIGNAL, pas un trou.** C'est l'ecart « `listenerDemande`
+voit 5 appels, `listenerGet` en enregistre 3 » qui a designe l'exception silencieuse. L'appel
+encadre (`deploymentPrefabEprouver`, ancrages DEPOSES pendant l'invocation) rend le message
+manage decode -- sans lui on ne voyait qu'un ecran vide.
+
+### CRAN D'EXPLOITATION
+
+Chaque essai rate **grise l'unite definitivement** (`TryMarkUnitAsPlaced` est appele au clic du
+portrait, pas seulement a la pose) : tous les tests posterieurs au premier sont CONTAMINES.
+Un montage neuf est obligatoire entre deux epreuves.
