@@ -162,7 +162,7 @@ class UnitComponent(Component):
     @+0x40 (défaits) ».
     LECTURE : `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished` (rend `comp + 0x5c`).
     Consommateurs natifs : `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger`
-    (le nœud `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns`, gate de PileIn),
+    (le nœud `IdunBattleLogic.Entities.DSLTriggers$$OwnerHasFinishedMinTurns`, gate de PileIn),
     `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability` et
     `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$GetUseProbability`.
     ⚠ `turns_finished` n'est PAS dérivable de `turnsStarted` : une unité APPARUE PENDANT le tour de
@@ -176,7 +176,7 @@ class UnitComponent(Component):
       * `@+0x38` — PER-TOUR, remis à 0 par
         `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetAttacksReceivedThisTurn`
         (`*(ulong*)(this+0x38) = 0`, donc +0x38 ET +0x3c d'un coup). C'est la source du prédicat DSL
-        `IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater` (G6
+        `IdunBattleLogic.Entities.DSLTriggers$$HasBeenAttackedAmountThisTurnIsEqualOrGreater` (G6
         HypersensoryAbilities) -> `times_attacked_this_turn` ici, remis à 0 au `start_turn`. Gate de
         l'ActiveCondition du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi)
         et du trigger MoveAndSpawnDecoy.
@@ -220,7 +220,7 @@ class UnitComponent(Component):
         `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetReceivedDamageThisTurn`.
         (`ActorStatisticsComponent$$ResetThisTurn` ne touche NI 0x6c NI 0x70.)
       * LECTURE : `IdunBattle.Entities.Formulas.LastHitDamageTakenLastTurnFormula$$Calculate` rend
-        `*(int *)(comp + 0x70)` -> noeud DSL `IdunBattleLogic.Entities.DSLFactory$$LastHitDamageTakenLastTurn`.
+        `*(int *)(comp + 0x70)` -> noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$LastHitDamageTakenLastTurn`.
         Consommateur porte : la regen `TimeFlux` de `thousTerminator` (« plus an additional amount
         equal to the Damage of the last hit he received in the last enemy turn »).
 
@@ -256,7 +256,7 @@ class UnitComponent(Component):
     (mainTile != null) ? mainTile.Id : 0`. C'est donc la tuile ou l'unite se trouvait au DEBUT DE SON
     PROPRE TOUR -- PAS la tuile qu'elle vient de quitter. RELU par
     `IdunBattle.Entities.Selectors.CurrentTurnStartTileSelector$$Select` (`IdunBattleLogic.Entities.
-    DSLFactory$$CurrentTurnStartTile`), qui rend une liste VIDE quand le champ vaut 0 -- ce que le
+    IdunBattleLogic.Entities.DSLSelectors$$CurrentTurnStartTile`), qui rend une liste VIDE quand le champ vaut 0 -- ce que le
     port represente par `None`. Consommateur porte : `GhostReviveAbility`/`TimeFluxReviveAbility`
     (le time-ghost de `thousTerminator` est pose sur CETTE tuile, cf. `triggers/loki/ghost_revive.py`).
 
@@ -303,7 +303,7 @@ class UnitComponent(Component):
     `damaged_units_this_phase` = mirror de la `List<BEntityId>` @`ActorStatisticsComponent + 0x48`
     (l'ATTAQUANT y accumule les unites auxquelles il a inflige des degats pendant la PHASE courante).
     C'est LA source du selecteur `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select`
-    (`IdunBattleLogic.Entities.DSLFactory$$UnitsDamagedThisPhase(attacker)`), qui resout son selecteur
+    (`IdunBattleLogic.Entities.DSLSelectors$$UnitsDamagedThisPhase(attacker)`), qui resout son selecteur
     `attacker`, prend ce composant sur chaque attaquant et rend les ENTITES correspondantes.
     Le champ 0x48 est REMIS A ZERO par `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase` --
     la MEME fonction, la MEME boucle d'entites, que le `TriggeredAbilityComponent$$ResetPhase` deja
@@ -1418,7 +1418,7 @@ class UnitFlagsComponent(Component):
                                 # +0x17d5 (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` — le
                                 # `mov edx,8` precede immediatement le call, lu au desassemblage) ; RETIRE par
                                 # `IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0` (Remove(8)).
-                                # Lu par `IdunBattleLogic.Entities.DSLFactory$$HasFlag(unit, 8)` — volet
+                                # Lu par `IdunBattleLogic.Entities.DSLTriggers$$HasFlag(unit, 8)` — volet
                                 # OVERKILL de `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$ExecuteBehaviour`.
     TELEPORTED = UnitFlag.Teleported             # UnitFlag.Teleported
     AMBUSH_CONSUMED = UnitFlag.Resurrected        # flag 0xe (UnitPostAbility) — G3 : Ambush ré-suscité UNE fois ; posé par
@@ -1778,10 +1778,10 @@ class PersistentDataComponent(Component):
       • `IdunBattle.Entities.Components.PersistentDataComponent$$ClearPersistentData(key) = `Dictionary.Remove(key)` ;
       • `IdunBattle.Entities.Components.PersistentDataComponent$$ClearAllPersistentData() (appele par `IdunBattle.Operations.ResurrectUnitOperation$$ResetPersistentData+0x91 et `IdunBattle.Entities.Behaviours.ClearPersistentDataBehaviour$$ExecuteClearAll+0x1d).
 
-    Cote DSL, les noeuds qui l'adressent sont `DSLFactory.SetPersistentData` (IdunBattleLogic.Entities.DSLFactory$$SetPersistentData et overloads),
-    `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` (= `AmountIsEqualOrGreater(GetPersistentDataFormula(key,
+    Cote DSL, les noeuds qui l'adressent sont `DSLFactory.SetPersistentData` (IdunBattleLogic.Entities.DSLBehaviors$$SetPersistentData et overloads),
+    `IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData` (= `AmountIsEqualOrGreater(GetPersistentDataFormula(key,
     entity, dataKey) IdunBattle.Entities.Triggers.GetPersistentDataFormula$$Calculate, Direct(0)@0xb8)` -> « la cle est posee ») et
-    `DSLFactory.ClearPersistentData` (IdunBattleLogic.Entities.DSLFactory$$ClearPersistentData/IdunBattleLogic.Entities.DSLFactory$$ClearPersistentData).
+    `DSLFactory.ClearPersistentData` (IdunBattleLogic.Entities.DSLBehaviors$$ClearPersistentData/IdunBattleLogic.Entities.DSLBehaviors$$ClearPersistentData).
 
     Le port modelise le sac comme un dict `{cle: valeur}` sur l'unite. La CLE offline = le tuple
     `(abilityOrEffect, dataKey)` (mirror de la cle composite native : l'`AbilityOrEffect` passe a
@@ -2636,7 +2636,7 @@ def set_moved_flag(state, unit_id: int) -> bool:
 
 
 def unit_has_moved(state, unit_id: int) -> bool:
-    """`HasFlag(unit, UnitFlag.Moved=0)` (`IdunBattleLogic.Entities.DSLFactory$$HasFlag` ->
+    """`HasFlag(unit, UnitFlag.Moved=0)` (`IdunBattleLogic.Entities.DSLTriggers$$HasFlag` ->
     `IdunBattle.Entities.Conditions.HasFlagAbilityTrigger$$ShouldTrigger` = `UnitFlagsComponent.Has`).
     LECTEUR UNIQUE du fait « a bouge ce tour » cote port : le natif n'a QU'UN store (le
     `UnitFlagsComponent`), pose par `set_moved_flag` et purge par `RemoveTurnFlags(new_activation=1)`
@@ -3331,7 +3331,7 @@ def enemy_psykers_alive(state, unit_id: int) -> Optional[int]:
     `CreateActiveCondition` de `DestroyTheWitch_ExtraMove`/`_ExtraDamage` (corps FONDU, cf.
     `entities/effects/loki/destroy_the_witch.py`).
 
-    `AllUnits@0x80` = le sélecteur battlefield-wide (`DSLFactory$$InitializeShared` +0x80,
+    `AllUnits@0x80` = le sélecteur battlefield-wide (`IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` +0x80,
     identifié par `WarHowlAbility$$OtherBuffTargets` = `Friends(owner, @0x80 − owner)` = « tous les
     AUTRES alliés du plateau »). `Enemies(owner, …)` filtre `team != team(owner)` ; les unités
     MORTES ne sont plus sur le plateau. None si l'équipe du porteur est inconnue (clé alors ABSENTE
