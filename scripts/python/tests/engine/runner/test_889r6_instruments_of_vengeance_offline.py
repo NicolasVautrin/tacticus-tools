@@ -348,17 +348,35 @@ def test_les_trois_ordinaux_sont_qualifies_par_leur_enum():
         "qualification ci-dessus n'aurait plus d'objet et il faudrait la re-mesurer")
 
 
-def test_1519_reste_HORS_de_la_table_des_attaques_differees():
-    """RESIDU `#889-r6-r1`, garde en NEGATIF. `1519 InstrumentsOfVengeance_PendingAttack` derive
-    bien d'`IdunBattle.Entities.Effects.APendingAttackEffect` (son `$$.ctor` a pour corps entier
-    `APendingAttackEffect..ctor(this, Nullable(AbilityOrEffect(...)))`, et son
-    `$$GetTriggeredAbilityType` a pour corps entier `return 0x5ef`), donc l'entree SERAIT correcte
-    -- mais la PHASE 2 (`InstrumentsOfVengeance_AttackAbility`) n'est pas portee.
+def test_1519_est_dans_la_table_ET_sa_phase_2_est_ATTEIGNABLE():
+    """LE CRAN A BASCULE (`#889-r7`, 2026-08-17), et c'etait son signal. Il gardait en NEGATIF
+    l'ABSENCE de `1519` dans `PENDING_ATTACK_EFFECTS`, parce que la PHASE 2
+    (`...InstrumentsOfVengeance_AttackAbility$$CreateBehaviour`) n'etait pas portee : l'inscrire
+    seule aurait fait consommer la marque `1518` par le `RemoveEffect` du meme arbre sans que rien
+    ne frappe -- un no-op SILENCIEUX.
 
-    L'inscrire maintenant ferait firer `TriggerAbility(Caster(), 1519)` sur une ability triggered
-    ABSENTE du registre, tandis que le `RemoveEffect` du meme arbre consommerait la marque : le port
-    RETIRERAIT l'armement sans jamais frapper. Ce cran tombe le jour ou la phase 2 arrive -- et
-    c'est exactement le signal qu'on veut."""
-    assert IOV_PENDING_ATTACK not in PENDING_ATTACK_EFFECTS, (
-        "1519 est entre dans PENDING_ATTACK_EFFECTS : la phase 2 est-elle portee ? Si oui, retirer "
-        "ce cran ET son residu #889-r6-r1. Si non, l'entree consomme la marque sans frapper.")
+    Il garde desormais le MEME invariant dans l'autre sens, et c'est le seul qui compte : l'entree
+    n'est legitime QUE si son ability triggered est atteignable. Le couple est donc verifie
+    ENSEMBLE -- retirer le module de phase 2 en laissant l'entree rougit ici, et l'inverse aussi.
+
+    ⚠ L'`attacker` est `ATTACKER_EFFECT_SOURCE` et NON `ATTACKER_BONDED`, bien que l'effet soit pose
+    par `AddBondEffect` : `...InstrumentsOfVengeance_PendingAttackEffect$$GetAttackingUnitSelector`
+    est SURCHARGEE en `DSLSelectors$$EffectSource(Effect@DSLSelectors+0x38)`. Sur ce porteur les deux
+    lectures COINCIDENT (`source == targets == bondedEntity == Owner@+0x30`), donc aucune mesure live
+    ne peut les separer -- l'assertion vient du decompile, et c'est ce qui la rend utile."""
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+    from engine.runner.abilities.behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS
+    from engine.runner.operations.triggers.dispatch import registry as _reg     # noqa: F401
+    from engine.runner.operations.triggers.pending_attack import ATTACKER_EFFECT_SOURCE
+
+    spec = PENDING_ATTACK_EFFECTS.get(IOV_PENDING_ATTACK)
+    assert spec is not None, (
+        "1519 a QUITTE PENDING_ATTACK_EFFECTS : sans elle le `Triggered()` d'APendingAttackEffect "
+        "ne fire jamais et la phase 2 portee devient du code mort.")
+    assert spec.triggered_ability == int(TriggeredAbilityType.InstrumentsOfVengeance_PendingAttack)
+    assert spec.attacker == ATTACKER_EFFECT_SOURCE, (
+        "GetAttackingUnitSelector est SURCHARGEE en EffectSource -- ATTACKER_BONDED accorderait sur "
+        "ce porteur (source == bonde) et serait faux partout ailleurs.")
+    assert spec.triggered_ability in TRIGGERED_ABILITY_BEHAVIOURS, (
+        "l'entree 1519 est dans la table mais son ability triggered n'est PAS au registre : le "
+        "RemoveEffect de l'arbre consommerait la marque sans que rien ne frappe.")

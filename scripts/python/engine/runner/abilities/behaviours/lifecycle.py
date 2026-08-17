@@ -438,13 +438,61 @@ def _unit_has_triggered_ability(state, unit_id, ability_type: int) -> bool:
 
     Substrat : `entity_triggered_ability_ids` (l'`AbilitiesComponent` mesure via `unitAbilityStates`,
     repli kit gameconfig quand le canal n'a pas parle) -- le MEME que lit la feuille d'utilite
-    `TriggeredAbilities(2)`, jamais un second recensement."""
+    `TriggeredAbilities(2)`, jamais un second recensement.
+
+    ⚠ **TROIS BRANCHES, ET LE PORT N'EN AVAIT QU'UNE** (#889-r7). `IdunBattle.Entities.UnitExtensions$$
+    GetAbilityState(unit, <TriggeredAbilityType>)` (la surcharge triggered), corps LU :
+
+        a = StaticBattleRules.TriggeredAbility$$GetActiveAbilityUsedForConfig(type)
+        if (a != 0)   return GetAbilityState(unit, (ActiveAbilityType)a)     # [1] LA CONFIG D'UNE ACTIVE
+        if (unit.GetComponent<TriggeredAbilityComponent>().TryGetAbility(type, out ab))
+                      return Nullable(ab.<+0x20..0x28>)                      # [2] LE KIT DECLENCHE
+        t = StaticBattleRules.TriggeredAbility$$GetTriggeredAbilityUsedForConfig(type)
+        if (t == 0)   return <Nullable VIDE>                                 # [3] ni l'un ni l'autre
+        return GetAbilityState(unit, (TriggeredAbilityType)t)                #     RECURSION
+
+    et la surcharge ACTIVE (`@ +0x20` du composant) itere les `ActiveAbility` de l'unite et rend un
+    `Nullable` VIDE si aucune n'a le type demande -- donc [1] revient bien a « l'unite porte-t-elle
+    CETTE ACTIVE ».
+
+    Le port ne mirrorait que **[2]**. MESURE qui l'a rendu visible (#889-r7,
+    `probe_889r7_instruments_phase2.py`, `CE6_boss`/`darkaBossLion:4`) : la phase 2 de `1215` sort en
+    `notCarrying = [84]` cote port -- `1519` n'est dans AUCUN kit (ni `passiveAbilities`, ni
+    `ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS` : `0x4bf` n'apparait pas dans `ActiveAbility$$.cctor`) --
+    tandis que le natif frappe pour **35 955** PV et pose **4** summons. La branche [1] est la seule
+    qui l'explique : `GetActiveAbilityUsedForConfig[1519] = 1215`, et le Lion porte bien l'ACTIVE
+    `InstrumentsOfVengeance`.
+
+    ⚠ POURQUOI CE TROU EST RESTE INVISIBLE SI LONGTEMPS : `1520 TheLionsWrath_PendingAttack` est dans
+    les DEUX tables, donc [2] suffisait pour elle. Le couple `(dans le kit, dans le dict)` n'est pas
+    une equivalence -- `1519` n'est QUE dans le dict, et c'est exactement ce cas-la que [2] seule ne
+    peut pas voir."""
     if state is None or unit_id is None:
         return False
     e = state.get_entity(int(unit_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
-    return int(ability_type) in set(entity_triggered_ability_ids(ctx))
+    vid = getattr(ctx, "visual_id", None) if ctx is not None else None
+    # DIFFERE et PORTEUR : `entities.active_abilities` tire `engine.entities.abilities.*`, dont la
+    # cascade re-entre dans `runner.abilities` -- hisser fermerait le cycle. (Meme forme que les
+    # autres differes de ce module.)
+    from ....entities.active_abilities import entity_active_ability_ids
+    from ....entities.triggered_ability_type import (TRIGGERED_ABILITY_USES_ACTIVE_CONFIG,
+                                                     TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG)
+    vus: set[int] = set()
+    t = int(ability_type)
+    while t not in vus:                       # la RECURSION de [3] ; `vus` borne un cycle de table
+        vus.add(t)
+        a = TRIGGERED_ABILITY_USES_ACTIVE_CONFIG.get(t)
+        if a is not None:                                                    # [1]
+            return int(a) in set(entity_active_ability_ids(ctx, vid))
+        if t in set(entity_triggered_ability_ids(ctx, vid)):                 # [2]
+            return True
+        nxt = TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG.get(t)
+        if nxt is None:                                                      # [3] `Nullable` VIDE
+            return False
+        t = int(nxt)
+    return False
 
 
 class Kill(AbilityBehaviour):

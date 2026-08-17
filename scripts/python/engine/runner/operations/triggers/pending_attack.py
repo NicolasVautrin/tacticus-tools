@@ -261,6 +261,30 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
         "IdunBattle.Entities.Effects.Loki.SolarAtomizer_PendingAttackEffect",
         int(TriggeredAbilityType.SolarAtomizer_PendingAttack),   # 0x511 = 1297, LU au corps
         ATTACKER_EFFECT_SOURCE),                                 # pose par `AddEffect`
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility$$
+    # ExecuteBehaviour` (1215, #889-r7) : `AddBondEffect(0x5ef, AbilityStateReference,
+    # source = Owner@DSLSelectors+0x30, targets = Owner@+0x30, bondedEntity = Owner@+0x30,
+    # options = <Nullable ZERO>)`. La derivation d'`APendingAttackEffect` est LUE et non deduite du
+    # nom : `...InstrumentsOfVengeance_PendingAttackEffect$$.ctor` a pour corps ENTIER
+    # `APendingAttackEffect..ctor(this, Nullable(AbilityOrEffect(...)))`, et son
+    # `$$GetTriggeredAbilityType` a pour corps entier `return 0x5ef`.
+    #
+    # ⚠ **`ATTACKER_EFFECT_SOURCE` BIEN QUE POSE PAR `AddBondEffect`** -- c'est le SEUL de la table
+    # dans ce cas, et c'est une SURCHARGE lue, pas une deduction du vecteur de pose :
+    # `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.InstrumentsOfVengeance_PendingAttackEffect$$
+    # GetAttackingUnitSelector` prend `<selectors+0x38>` (= `Effect@DSLSelectors+0x38`) et alloue le
+    # selecteur de SOURCE, sans passer par `ABondEffect$$BondedEntitySelector`. Les deux autres
+    # entrees `ATTACKER_EFFECT_SOURCE` de la table le sont parce qu'elles n'ONT pas de bond ; celle-ci
+    # en a un, et le natif choisit quand meme la source.
+    #
+    # ⚠ **LES DEUX LECTURES COINCIDENT SUR CE PORTEUR** : `source`, `targets` et `bondedEntity`
+    # valent TOUS `Owner@+0x30`, donc porteur == source == bonde (le Lion). Une erreur ici serait
+    # donc INVISIBLE en confrontation live et fausse partout ailleurs -- raison pour laquelle la
+    # valeur vient du decompile de la surcharge, pas d'une mesure qui ne peut pas les separer.
+    int(EffectType.InstrumentsOfVengeance_PendingAttack): PendingAttackSpec(
+        "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.InstrumentsOfVengeance_PendingAttackEffect",
+        int(TriggeredAbilityType.InstrumentsOfVengeance_PendingAttack),   # 0x5ef, LU au corps
+        ATTACKER_EFFECT_SOURCE),                                 # SURCHARGE lue, cf. ci-dessus
 }
 
 

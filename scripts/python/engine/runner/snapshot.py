@@ -414,9 +414,18 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # cf. modele des summons : pas de 3e team, Environment = 0 unite) -> non-Environment =
     # `counts.player - 1`. MESURE PRE-tick (2 unites/camp) : counts.player=3 -> 2, et `TurnsFromRounds(1)`
     # comme `DefaultAmountOfRounds=1` rendent bien `remaining = 2` live.
-    _pc = (observe.get("counts") or {}).get("player")
-    if _pc is not None and int(_pc) > 1:
-        state.turn_order_player_count = int(_pc) - 1
+    # #889-r9 : la BC PRIME, quand elle est publiee -- `_facteur_tours_par_round` itere le MEME
+    # `TurnOrder` que le natif et ecarte le MEME `PlayerType == 2`. Le proxy ci-dessous reste le
+    # repli, et il n'a PAS ete retire parce qu'il serait faux : mesure du 2026-08-17, les deux
+    # rendent 2 sur `CE6_boss`. Il reste parce que `load_state` est appelee sur des etats sans
+    # canal (payloads de test, runners d'un autre processus).
+    _fac = _facteur_tours_par_round(runner_label(decision, observe, snapshot))
+    if _fac is not None and _fac > 0:
+        state.turn_order_player_count = _fac
+    else:
+        _pc = (observe.get("counts") or {}).get("player")
+        if _pc is not None and int(_pc) > 1:
+            state.turn_order_player_count = int(_pc) - 1
     # `snapshot` PRIME sur `observe` pour le MAXIMUM (max COURANT vs max INITIAL, cf. `_hp_by_id`).
     hp_by_id = _hp_by_id(observe, snapshot)
     for u in (decision.get("units") or []):
@@ -1806,6 +1815,51 @@ def _section_bc_du_runner(label: Optional[str], section: str):
         return None
     val = data.get(section)
     return val if isinstance(val, dict) else None
+
+
+def _facteur_tours_par_round(label: Optional[str]) -> Optional[int]:
+    """`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`, MIRROR EXACT du compte --
+    ou `None` quand la BC n'est pas mesurable (#889-r9).
+
+    DECOMPILE : `this+0xa0` = la `BattleConfiguration` ; `bc+0x30 -> +0x18` = la liste iteree
+    (`BC.Player.TurnOrder`, des ids de joueurs) ; pour chaque id, `StateExtensions.GetPlayer(state,
+    id)` puis `PlayerComponent.<+0x20>` (le `PlayerType`) -- l'entree est comptee SAUF si cette
+    valeur vaut `2` (Environment). Le retour est `compteur * rounds`.
+
+    On itere donc la MEME liste, dans le MEME ordre, avec le MEME discriminant, au lieu de
+    l'estimer. `None` des qu'un maillon manque -- l'appelant retombe alors sur le PROXY
+    historique, exactement comme avant ce canal. Le natif, lui, LEVE sur un id du `TurnOrder`
+    sans `Player` correspondant (`GetPlayer` nul -> le corps saute au throw) : le port ne peut
+    pas mirrorer un throw sans casser des etats legitimes, il rend `None` et le dit par sa
+    degradation.
+
+    ⚠ Ce que ce canal REMPLACE etait juste ICI et le reste sur toute BC derivee de la seed
+    versionnee : `observeBattle.counts.player - 1` postule EXACTEMENT un joueur `Environment`
+    parmi les joueurs projetes, et qu'ils soient TOUS dans le `TurnOrder`. Mesure du 2026-08-17
+    (`probe_889r9_duree_pre_tick.py`, board `CE6_boss`) : proxy = `3 - 1` = **2**, compte natif
+    (`TurnOrder=[11,12,13]`, PlayerType `0/1/2`) = **2** -- ils COINCIDENT, donc ce changement
+    n'a AUCUN effet observable sur nos runners. Il retire une DEDUCTION, pas un bug."""
+    sec = _section_bc_du_runner(label, "Player")
+    if not isinstance(sec, dict):
+        return None
+    ordre = sec.get("TurnOrder")
+    joueurs = sec.get("Players")
+    if not isinstance(ordre, list) or not isinstance(joueurs, dict) or not ordre:
+        return None
+    n = 0
+    for pid in ordre:
+        # Le JSON reindexe les cles entieres en chaines ; on tente les deux, sans en inventer une.
+        cfg = joueurs.get(str(pid))
+        if cfg is None:
+            cfg = joueurs.get(pid) if not isinstance(pid, str) else None
+        if not isinstance(cfg, dict):
+            return None                                  # `GetPlayer` nul -> le natif LEVE
+        pt = cfg.get("PlayerType")
+        if pt is None:
+            return None                                  # champ absent : rien a discriminer
+        if int(pt) != 2:                                 # 2 = PlayerType.Environment
+            n += 1
+    return n
 
 
 def _grafts_du_runner(label: Optional[str]) -> list:

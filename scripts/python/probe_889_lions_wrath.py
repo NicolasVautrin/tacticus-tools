@@ -426,6 +426,19 @@ def main() -> int:
         print("[889] [A] CAST -- effets poses")
         print("        port  : %s" % m["off_cast"])
         print("        natif : %s" % m["live_cast"])
+        # ⚠ #889-r9 : les deux `remaining` ne sont PAS pris au meme instant des que le cast a
+        # BASCULE le tour. Le Lion est SEUL dans son camp ici -- son cast appelle donc
+        # `FinishUnitTurn`, plus rien n'est activable, et le natif enchaine
+        # `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` ->
+        # `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn` AVANT que
+        # `decisionView` ne soit relu. Le port, lui, ne joue que le cast. Un `remaining` natif
+        # inferieur d'exactement 1 est ce DECALAGE, pas une duree divergente : mesure
+        # `probe_889r9_duree_pre_tick.py` -- avec un camarade activable derriere le Lion, les
+        # deux cotes rendent 2, bit a bit.
+        if m["tours"].get("apres_cast") != m["mon_joueur"]:
+            print("        -> ATTENTION : le cast a BASCULE le tour, donc les `remaining` natifs "
+                  "ci-dessus sont POST-tick. Ne PAS les comparer aux `remaining` du port sans "
+                  "lui faire jouer le meme `EndTurnOperation` (#889-r9).")
         print("[889] [A] CAST -- degat")
         print("        port  : %s" % _dhp(*m["off_hp_cast"]))
         print("        natif : %s" % _dhp(*m["live_hp_cast"]))

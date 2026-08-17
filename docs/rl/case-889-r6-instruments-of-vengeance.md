@@ -170,9 +170,41 @@ Garde offline : `tests/engine/runner/test_889r6_instruments_of_vengeance_offline
   `CASTER_GATE_NOT_READ` — trancher exigerait le slot de vtable de l'INSTANCE au runtime, que cette
   tranche n'a pas fait. Dégradation PERMISSIVE, déjà nommée dans `services/ability_caster_gates.py`.
 
-## 5. La RE de la PHASE 2 — résidu `#889-r7`
+## 5. La PHASE 2 — RE écrite ici, **PORTÉE ET CONFRONTÉE le 2026-08-17** (`#889-r7`)
 
-Écrite ici pour que le successeur n'ait pas à la refaire.
+**Verdict : accord BIT-EXACT.** `probe_889r7_instruments_phase2.py`, `CE6_boss` / `darkaBossLion:4`
+/ `--hp-target 400000` / seed 777 — dégât natif `86: 400000 -> 364045` **==** port
+`86: 400000 -> 364045` ; spawn **4 / 4** sur les **mêmes tuiles** ; marques `1518` **13 posées → 0
+restantes**. Le port vit dans
+`engine/runner/operations/triggers/loki/instruments_of_vengeance_attack.py`.
+
+⚠ **LA RE CI-DESSOUS ÉTAIT JUSTE, ET ELLE N'A PAS SUFFI.** Deux étages que ni le décompilé de
+`CreateBehaviour` ni celui de ses trois sous-fonctions ne pouvaient montrer ont bloqué le portage,
+tous deux **silencieux** :
+
+1. **LE RAIL.** `TriggerAbility(1519)` sortait en `notCarrying = [<le Lion>]`.
+   `IdunBattle.Entities.UnitExtensions$$GetAbilityState(unit, <TriggeredAbilityType>)` a **trois**
+   branches et le port n'en mirrorait qu'une (le kit déclenché). La première —
+   `idun...StaticBattleRules.TriggeredAbility$$GetActiveAbilityUsedForConfig(type)` non nul ⇒ lire
+   l'état de l'**ACTIVE** — est celle qui compte ici : `GetActiveAbilityUsedForConfig[1519] = 1215`,
+   et le Lion porte l'ACTIVE. `1519` n'est dans **aucun** kit : `0x4bf` n'apparaît nulle part dans
+   `idun...StaticBattleRules.ActiveAbility$$.cctor`, donc `ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS` a
+   raison de ne pas le porter. Les **deux** dicts du `.cctor` (54 + 4 entrées) sont désormais
+   mirrorés dans `engine/entities/triggered_ability_type.py`.
+   **Pourquoi ça n'était jamais sorti** : `1520 TheLionsWrath_PendingAttack` est dans les DEUX
+   tables, donc la branche du kit suffisait pour elle. Le couple `(dans le kit, dans le dict)` n'est
+   **pas** une équivalence.
+2. **LA CIBLE.** Le collapse MONO-cible d'`AttackWithAttackDamage` appelle `resolve_unit`, qui rend
+   `None` sur un id de **tuile** — alors que sa branche MULTI résout déjà l'occupant (`_get_unit`) et
+   que le natif le fait (`AttackDamageBehaviour$$Execute` → `UnitExtensions.GetUnit`). Sans
+   normalisation, le flux d'émissions ne portait **aucun** `AttackWithAttackDamage` alors que le
+   gate était VRAI sur la tuile occupée. Résidu `#889-r10`.
+
+**Résidu ouvert sur ce qui reste** : `#889-r11` — les **tuiles** de spawn divergent sur seed 31337
+(cardinal 4/4 toujours juste, 2 tuiles sur 4 en commun, écart de PV imputable aux summons). Le probe
+refuse d'accuser le coup différé quand les tuiles diffèrent, et le dit.
+
+La RE, écrite pour que le successeur n'ait pas à la refaire :
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InstrumentsOfVengeance_AttackAbility$$CreateBehaviour` :
 
 ```
@@ -245,6 +277,12 @@ que `1195 TheLantern_PendingTarget` (`#1030`), qui n'a pas non plus d'entrée da
 
 ## Résidus ouverts
 
-- `#889-r7` — la PHASE 2 de 1215 (RE ci-dessus, §5) : la triggered `InstrumentsOfVengeance_Attack`,
-  l'entrée `1519` dans `PENDING_ATTACK_EFFECTS` (avec `ATTACKER_EFFECT_SOURCE`), et le volet SPAWN
-  de son `CreateBehaviour`. Tant qu'elle manque, les marques `1518` ne sont jamais consommées.
+- ~~`#889-r7`~~ — **LIVRÉE ET CONFRONTÉE le 2026-08-17** (cf. §5). Les marques `1518` sont
+  consommées, le coup différé accorde bit-exact et le spawn accorde en cardinal.
+- `#889-r10` — le collapse **mono-cible** d'`AttackWithAttackDamage` ne résout pas le domaine
+  TUILE, contrairement à sa branche multi et au natif ; même forme sur `AreEnemies`. Normalisé au
+  site ici, le foyer vrai est partagé. Non lu : ce que `SelectSingle(entities, 8)` fait d'une entité
+  tuile.
+- `#889-r11` — les **tuiles** de spawn de la phase 2 divergent sur seed 31337 (2/4 en commun,
+  cardinal 4/4 juste, écart de PV 984 imputable aux summons). Trois candidats non départagés :
+  consommation PRNG des trois `Randomize`, contenu d'`UnitsDamagedThisPhase`, vivier `t3`.

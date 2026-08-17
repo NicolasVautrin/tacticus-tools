@@ -630,6 +630,94 @@ TRIGGERED_DERIVED_TRIGGERED_ABILITY_IDS: dict[int, tuple[int, ...]] = {
     TriggeredAbilityType.TheWrathfulDead: (TriggeredAbilityType.TheWrathfulDead_Overkill,),
 }
 
+#: `idun...StaticBattleRules.TriggeredAbility$$GetActiveAbilityUsedForConfig` -- le dict
+#: `<statics>+0x48`, `Dictionary<TriggeredAbilityType, ActiveAbilityType>`, RELU VERBATIM dans
+#: `...StaticBattleRules.TriggeredAbility$$.cctor` sur le build courant : **54 entrees**.
+#:
+#: ⚠ **CE N'EST PAS `ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS`, ET LA CONFUSION COUTE UN NO-OP
+#: SILENCIEUX** (#889-r7). Les deux tables lient une active et une triggered, mais elles repondent
+#: a des questions INVERSES et ne se recouvrent PAS :
+#:   * `ACTIVE_DERIVED_TRIGGERED_ABILITY_IDS` (`ActiveAbility$$GetDerivedTriggeredAbilities`,
+#:     `<statics>+0x30`, 43 entrees) dit ce que `UnitFactory$$AddDerivedAbilities` INSCRIT au
+#:     `TriggeredAbilityComponent` -- donc ce que l'unite PORTE ;
+#:   * celle-ci dit quelle CONFIG une triggered lit, et c'est ce que
+#:     `IdunBattle.Entities.UnitExtensions$$GetAbilityState(unit, <TriggeredAbilityType>)` consulte
+#:     **EN PREMIER** : si la cle est presente, il ne regarde meme PAS le `TriggeredAbilityComponent`
+#:     et rend l'etat de l'ACTIVE nommee.
+#: Mesure : `1520 TheLionsWrath_PendingAttack` est dans les DEUX (d'ou l'illusion qu'une seule
+#: suffit), mais `1519 InstrumentsOfVengeance_PendingAttack` n'est QUE dans celle-ci -- `0x4bf`
+#: n'apparait nulle part dans `ActiveAbility$$.cctor`. Un gate qui ne lit que le kit rend donc
+#: `notCarrying` pour la phase 2 de `1215` alors que le natif l'execute.
+TRIGGERED_ABILITY_USES_ACTIVE_CONFIG: dict[int, int] = {
+    TriggeredAbilityType.ValkyrieStrike_Attack: ActiveAbilityType.ValkyrieStrike,
+    TriggeredAbilityType.TargetingProtocols_Attack: ActiveAbilityType.TargetingProtocols,
+    TriggeredAbilityType.CallRipperSwarms_Spawn2: ActiveAbilityType.CallRipperSwarms2,
+    TriggeredAbilityType.CallRipperSwarms_Spawn3: ActiveAbilityType.CallRipperSwarms3,
+    TriggeredAbilityType.SeekerMissileFrequencyLock_Attack: ActiveAbilityType.SeekerMissileFrequencyLock,
+    TriggeredAbilityType.AnnihilatorBeam_Attack: ActiveAbilityType.AnnihilatorBeam,
+    TriggeredAbilityType.NeedsMoreDakka_Attack: ActiveAbilityType.NeedsMoreDakka,
+    TriggeredAbilityType.TheLantern_Attack: ActiveAbilityType.TheLantern,
+    TriggeredAbilityType.HeavyRailRifle_Attack: ActiveAbilityType.HeavyRailRifle,
+    TriggeredAbilityType.EreWeGo_Attack: ActiveAbilityType.EreWeGo,
+    TriggeredAbilityType.MasterOfTheTutelaries_Summon: ActiveAbilityType.MasterOfTheTutelaries,
+    TriggeredAbilityType.SorcerousFacade_Switch: ActiveAbilityType.SorcerousFacade,
+    TriggeredAbilityType.Doombolt_Reset: ActiveAbilityType.Doombolt,
+    TriggeredAbilityType.TacticalPrecision_Reset: ActiveAbilityType.TacticalPrecision,
+    TriggeredAbilityType.PoundThemToDust_Attack: ActiveAbilityType.PoundThemToDust,
+    TriggeredAbilityType.GunnersKillOnSight_Attack: ActiveAbilityType.GunnersKillOnSight,
+    TriggeredAbilityType.OverwhelmingWrath_Attack: ActiveAbilityType.OverwhelmingWrath,
+    TriggeredAbilityType.MalleusRocketLauncher_Attack: ActiveAbilityType.MalleusRocketLauncher,
+    TriggeredAbilityType.TheWailingDoomSweeps_DelayedAttack: ActiveAbilityType.TheWailingDoomSweeps,
+    TriggeredAbilityType.TheWailingDoomStrikes_DelayedAttack: ActiveAbilityType.TheWailingDoomStrikes,
+    TriggeredAbilityType.TheWrathOfKhaineUnleashed_Attack: ActiveAbilityType.TheWrathOfKhaineUnleashed,
+    TriggeredAbilityType.TheWrathOfKhaineUnleashedRework_Attack: ActiveAbilityType.TheWrathOfKhaineUnleashedReworked,
+    TriggeredAbilityType.DaemonicOrdnance_Crit: ActiveAbilityType.DaemonicOrdnance,
+    TriggeredAbilityType.HammerOfWrath_ConditionalDamage: ActiveAbilityType.HammerOfWrath,
+    TriggeredAbilityType.MacroPlasmaIncinerator_Attack: ActiveAbilityType.MacroPlasmaIncinerator,
+    TriggeredAbilityType.ExplosivePresents_Cooldown: ActiveAbilityType.ExplosivePresents,
+    TriggeredAbilityType.SolarAtomizer_PendingAttack: ActiveAbilityType.SolarAtomizer,
+    TriggeredAbilityType.DevastatingRefrain_Attack: ActiveAbilityType.DevastatingRefrain,
+    TriggeredAbilityType.MomentShackle_Attack: ActiveAbilityType.MomentShackle,
+    TriggeredAbilityType.NovaBoost_Attack: ActiveAbilityType.NovaBoost,
+    TriggeredAbilityType.NovaCharge_Attack: ActiveAbilityType.NovaCharge,
+    TriggeredAbilityType.NovaShield_Attack: ActiveAbilityType.NovaShield,
+    TriggeredAbilityType.CalibaniteGreatsword_NormalAttackAdditionalDamage: ActiveAbilityType.CalibaniteGreatsword,
+    TriggeredAbilityType.DaemonicPatrons_Finale: ActiveAbilityType.DaemonicPatrons,
+    TriggeredAbilityType.Drachnyen_ExtraAttack: ActiveAbilityType.Drachnyen,
+    TriggeredAbilityType.AncestralFortune_Reset: ActiveAbilityType.AncestralFortune,
+    TriggeredAbilityType.Hailstrike_Attack: ActiveAbilityType.Hailstrike,
+    TriggeredAbilityType.TheLionsWrath_PendingAttack: ActiveAbilityType.TheLionsWrath,
+    TriggeredAbilityType.InstrumentsOfVengeance_PendingAttack: ActiveAbilityType.InstrumentsOfVengeance,
+    TriggeredAbilityType.EmpyricAmbush_Reset: ActiveAbilityType.EmpyricAmbush,
+    TriggeredAbilityType.HeavyBoltPistol: ActiveAbilityType.TemplarInitiateNormalAttack,
+    TriggeredAbilityType.MV71SniperDroneSquad: ActiveAbilityType.MV71SniperDroneSquadAttack,
+    TriggeredAbilityType.ProperKilly: ActiveAbilityType.ProperKilly_NormalAttack,
+    TriggeredAbilityType.BlisteringAssault: ActiveAbilityType.BlisteringAssault_NormalAttack,
+    TriggeredAbilityType.FeederTendrils: ActiveAbilityType.FeederTendrils_NormalAttack,
+    TriggeredAbilityType.Boltstorm: ActiveAbilityType.Boltstorm_NormalAttack,
+    TriggeredAbilityType.OptimizedGait: ActiveAbilityType.OptimizedGait_NormalAttack,
+    TriggeredAbilityType.FloatingDeath: ActiveAbilityType.FloatingDeath_NormalAttack,
+    TriggeredAbilityType.AncientFury: ActiveAbilityType.AncientFury_NormalAttack,
+    TriggeredAbilityType.Wraithcannon: ActiveAbilityType.Wraithcannon_NormalAttack,
+    TriggeredAbilityType.ElectroShock: ActiveAbilityType.ElectroShock_NormalAttack,
+    TriggeredAbilityType.RighteousRepugnance: ActiveAbilityType.RighteousRepugnance_NormalAttack,
+    TriggeredAbilityType.TalonOfHorus: ActiveAbilityType.TalonOfHorus_NormalAttack,
+    TriggeredAbilityType.Fealty: ActiveAbilityType.Fealty_NormalAttack,
+}
+
+#: Le PENDANT sur l'autre dict du MEME `.cctor` :
+#: `idun...StaticBattleRules.TriggeredAbility$$GetTriggeredAbilityUsedForConfig` (`<statics>+0x58`),
+#: `Dictionary<TriggeredAbilityType, TriggeredAbilityType>` -- **4 entrees**, relues verbatim.
+#: `GetAbilityState` le consulte en DERNIER, apres avoir echoue sur les deux voies precedentes, et
+#: RECURSE sur la valeur ; une cle absente rend un `Nullable` VIDE (donc `TriggerAbility` n'execute
+#: rien).
+TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG: dict[int, int] = {
+    TriggeredAbilityType.PowerUp_ReinforcementShield: TriggeredAbilityType.EnvReinforcementShield,
+    TriggeredAbilityType.Ambush: TriggeredAbilityType.EnvAmbushResurrect,
+    TriggeredAbilityType.TheWrathfulDead_Overkill: TriggeredAbilityType.TheWrathfulDead,
+    TriggeredAbilityType.GazeOfMagnus_Attack: TriggeredAbilityType.GazeOfMagnus,
+}
+
 
 def triggered_ability_ids(visual_id: str | None) -> list[int]:
     """Ids `TriggeredAbilityType` du KIT DECLENCHE d'une unité, tel que la FABRIQUE native le monte.
