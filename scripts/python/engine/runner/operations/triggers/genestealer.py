@@ -432,22 +432,19 @@ class AmbushSummonAbility(TriggeredAbility):
         u = self.owner_id
         e = state.get_entity(u)
         uc = e.get_component(UnitComponent) if e is not None else None
-        oc = e.get_component(OwnerComponent) if e is not None else None
-        # TurnDefeated = compteur de tours du joueur du porteur A LA MORT (base du delai `Difference == 1`).
-        #
-        # ⚠ **COMPENSATION NOMMEE, et l'ECRIVAIN natif est desormais IDENTIFIE** (le residu
-        # `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1` disait le contraire) : c'est
-        # `IdunBattle.Operations.RemoveUnitOperation$$Execute+0x4f6`, SEUL ecrivain semantique de
-        # `UnitComponent+0x17c` dans tout le binaire (balayage a l'encodage, cf.
-        # `runner/components.py`), et il est desormais PORTE dans `operations/remove_unit.py`.
-        # `Ambush_SummonAbility$$GetSummonBehaviour` n'ecrit toujours RIEN de tel -- cette ligne-ci
-        # reste donc un ECART. Elle est GARDEE parce que `KillUnitOperation$$Execute` n'appelle
-        # jamais `IOperationProcessor` slot 6 = `RemoveUnit` (ses appels sont 77/80/85/99/130/143) :
-        # cote port, une unite TUEE n'atteint pas `RemoveUnitOperation`, donc sans cette pose
-        # `EnvAmbushResurrect` ne ressusciterait JAMAIS personne. Ce qui reste a etablir est la
-        # chaine native qui retire du plateau une unite tuee.
-        if uc is not None:
-            uc.turn_defeated = state.turn_counts.get(int(oc.player), 0) if (oc is not None and oc.player is not None) else 0
+        # ⚠ **LA COMPENSATION `turn_defeated` EST RETIREE ICI (#10015-r3) -- SON ECRIVAIN NATIF EST
+        # DESORMAIS SUR LE CHEMIN.** Elle etait gardee au motif que
+        # `IdunBattle.Operations.KillUnitOperation$$Execute` << n'appelle jamais `IOperationProcessor`
+        # slot 6 = `RemoveUnit` (ses appels sont 77/80/85/99/130/143) >>. **CETTE PREMISSE EST
+        # FAUSSE** : il l'appelle a `KillUnitOperation$$Execute+0xd34`, par la forme WALK D'ITABLE
+        # (slot en TROISIEME argument), que le recensement des seuls appels de la forme DISPATCHER
+        # ne pouvait pas voir. Mesure, contre-exemples et offsets : en-tete de
+        # `runner/operations/remove_unit.py`.
+        # Le port appelle donc `RemoveUnitOperation` depuis `_kill_unit_operation`, et cette
+        # Operation ecrit `TurnDefeated` a l'etape 10 -- a `+0xd34`, donc AVANT l'`On(0x36 =
+        # UnitDefeated)` de `+0xeac` qui amene ici. La valeur est deja posee quand ce behaviour
+        # s'execute, et c'est le MIRROR : `Ambush_SummonAbility$$GetSummonBehaviour` n'ecrit rien
+        # de tel. On la RELIT pour la trace, on ne la REECRIT plus.
         tile = _free_tile_or_adjacent(state, _pos_of(state, u))     # FreeTilesOrAdjacentFreeTiles(Tiles(target))
         did = spawn_decoy(state, tile, u) if tile is not None else None
         return {"ability": "Ambush_Summon", "owner": u, "decoy": did,

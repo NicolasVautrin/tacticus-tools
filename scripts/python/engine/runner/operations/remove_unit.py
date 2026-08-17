@@ -12,6 +12,78 @@ structurelle) APPELLE cette Operation (en-dessous, imperative). Chaine native co
       -> Core.Services.OperationProcessor$$RemoveUnit           (gate `this+0x1f0 != 0`)
       -> IdunBattle.Operations.RemoveUnitOperation$$Execute(state, entity, removeEffects=1, param4=0)
 
+QUATRE APPELANTS DU SLOT 6, PAS UN -- ET LE PLUS IMPORTANT EST LA MORT (#10015-r3)
+---------------------------------------------------------------------------------
+Le residu `#10015-r2` affirmait que << la CHAINE NATIVE qui retire du plateau une unite TUEE n'est
+pas identifiee >> et que `IdunBattle.Operations.KillUnitOperation$$Execute` << n'appelle **jamais**
+`IOperationProcessor` slot 6 = `RemoveUnit` >>, ses appels sur cette interface etant << les slots
+77, 80, 85, 99, 130, 143 >>. **C'EST FAUX**, et la mesure qui le montre coute une requete :
+
+    recherche LITTERALE `DAT_18336edb0,6)` sur tout le pseudo-C  ->  3 fonctions
+        IdunBattle.Operations.KillUnitOperation$$Execute
+        IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute
+        IdunBattle.Messages.InputMessageProcessor$$Visit
+    recherche LITTERALE `(6,DAT_18336edb0`               ->  1 fonction
+        IdunBattle.Operations.FleeOperation$$Execute
+
+⚠ **CE QUI A FAIT MANQUER `KillUnitOperation`, ET C'EST LA LECON REUTILISABLE** : un appel
+d'interface IL2CPP a DEUX formes dans le pseudo-C, et un recensement d'UNE seule forme rend un zero
+qui se lit comme une absence.
+  * forme DISPATCHER -- `FUN_<x>(<slot>, <iface>, <obj>, ...)`, le slot en PREMIER argument. C'est
+    elle que le recensement precedent a balayee, et c'est d'elle que sortent << 77, 80, 85, ... >> ;
+  * forme WALK D'ITABLE INLINE -- le decompile deroule la recherche de l'interface dans l'itable
+    (`while (itable[i] != <iface>) ...`), calcule le slot en INLINE (`(base + 6) * 0x10 + 0x138`),
+    et n'appelle `FUN_1801e72b0(<obj>, <iface>, <slot>)` qu'en REPLI, le slot en TROISIEME argument.
+    Le call-site final est un `(*pcVar2)(...)` anonyme. **Aucun** filtre sur le premier argument ne
+    peut le voir.
+`KillUnitOperation$$Execute` utilise la SECONDE forme, et `FleeOperation` les deux (la premiere pour
+son `RemoveUnit`, la seconde pour son `EvaluateAbilities`) -- donc le binaire fournit lui-meme le
+contre-exemple qui invalide le recensement.
+
+⚠ **LE DEPOT PORTAIT DEJA LES DEUX AFFIRMATIONS, CONTRADICTOIRES** : `runner/components.py` ecrit
+<< `KillUnitOperation$$Execute` n'appelle **jamais** [le] slot 6 >> tandis que
+`runner/operations/damage.py` ecrit, a l'endroit exact, << Le natif intercale entre eux le retrait
+de l'unite du plateau (`processor.<slot 6>` + `matchState.<slot 0x31>`) >>. La seconde est la bonne.
+
+ORDRE DANS `KillUnitOperation$$Execute`, offsets MESURES (adresses de retour des call-sites) --
+le retrait s'insere entre les deux premiers `RemoveEffects`, exactement ou `damage.py` l'annonce :
+
+    +0x7dc   On(1  = PreUnitDeath)                       <- AVANT la garde revive
+    +0x81c   garde  if (!unitComponent.PendingRevive.HasValue)
+    +0x828   unitComponent.KilledThisTurn@+0x17a = 1
+    +0x8b9   RegisterDefeatedUnit
+    +0x97a   On(2  = PreUnitDeath_2)
+    +0x9be   KillUnitOperation$$RemoveEffects(killed, PreUnitRemove)
+    +0xd34   >>> IOperationProcessor slot 6 = RemoveUnit(killed, removeEffects: 0, keepActive: 1)
+    +0xd88   MatchState slot 0x31
+    +0xd9c   KillUnitOperation$$RemoveEffects(killed, AfterUnitRemove)
+    +0xdf9   On(0  = UnitDeath)
+    +0xeac   On(54 = UnitDefeated)
+    +0xf35   garde HEAL (return si hp > 0)
+    +0xf59   KillUnitOperation$$RemoveEffects(killed, AfterDeathTrigger)
+    +0x10ac  On(53 = PostUnitKill)
+
+Le `+0xd34` est DANS la branche non-revive : profondeur d'accolades du pseudo-C **jamais inferieure
+a 9** entre le `+0x17a = 1` (premiere instruction de cette branche) et l'appel -- meme methode que
+celle qui avait tranche la semantique de la garde.
+
+CONSEQUENCES, et elles depassent `turn_defeated` :
+  a. une unite TUEE (sans revive en attente) TRAVERSE bien cet ecrivain -- `TurnDefeated@+0x17c`
+     est donc ecrit par la MORT, et `EnvAmbushResurrect` n'est pas structurellement mort ;
+  b. `keepActive: 1` SAUTE l'etape 11 et `removeEffects: 0` SAUTE l'etape 14 -- sur la voie MORT,
+     ce foyer ne consomme donc AUCUN effet (c'est `KillUnitOperation$$RemoveEffects` qui s'en
+     charge, en trois temps, autour de lui) ;
+  c. **`On(0x25 = UnitRemoved)` (etape 13) EST PUBLIE A CHAQUE MORT effective.** Il ne l'est pas
+     cote port, et c'est un vecteur ENTIER manquant pour ses six consommateurs
+     (`bond_removal`, `armour_of_shrieking_souls`, `ghost_revive`, `lions_wrath_attack`,
+     `instruments_of_vengeance_attack`, `pending_attack`).
+
+⚠ **CONFIRMATION CROISEE, independante du decompile de `KillUnitOperation`** : le trigger natif
+d'`ArmourOfShriekingSoulsResurrectOnRemoved` est `On(0x25 = UnitRemoved) & get_OwnerIsTarget &
+IsDead(Owner@+0x30)`. Le conjoint `IsDead` n'aurait AUCUN regime ou etre vrai si `On(0x25)` ne
+partait que sur des retraits d'unites vivantes -- le trigger serait mort-ne. Sa seule existence
+etablit que le retrait s'applique aux morts.
+
 SEQUENCE de `RemoveUnitOperation$$Execute`, LUE au decompile (`operationCtx+0x10` = `MatchState`,
 `+0x18` = journal d'events de match, `+0x20` = logger, `+0x28` = `OperationProcessor`) :
 
@@ -82,14 +154,23 @@ class RemoveUnitOperation:
     """Mirror `IdunBattle.Operations.RemoveUnitOperation$$Execute`.
 
     `remove_effects` = le `param_3` natif (`RemoveUnitBehaviour$$Execute` passe **1** a son unique
-    call-site). Rend `None` quand un gate refuse (entite inconnue, pas une unite, deja retiree) --
-    aucune mutation, aucun event ; sinon un dict de trace.
+    call-site ; `KillUnitOperation$$Execute` passe **0**). Rend `None` quand un gate refuse (entite
+    inconnue, pas une unite, deja retiree) -- aucune mutation, aucun event ; sinon un dict de trace.
+
+    `allow_already_dead` = le call-site MORT, et c'est un ECART NOMME, pas une commodite. Le natif
+    ne gate QUE sur `HasFlag(0x1a = Removed)` et l'appartenance au plateau -- jamais sur la VIE.
+    Cote port, `alive` porte DEUX sens fondus (vivante, et sur le plateau) parce que l'etape 8 est
+    collapsee dessus ; sur la voie MORT, `alive` est deja `False` quand `KillUnitOperation` atteint
+    le slot 6, si bien que le gate ci-dessous refuserait le retrait que le natif effectue. Le
+    drapeau leve donc EXACTEMENT ce que le collapse a introduit, et rien d'autre : les trois gates
+    natifs (entite, `IsUnit`, `Removed`) restent en place.
     """
     __slots__ = ()
 
     @staticmethod
     def execute(state: State, unit_id: Optional[int], *,
-                remove_effects: bool = True) -> Optional[dict]:
+                remove_effects: bool = True,
+                allow_already_dead: bool = False) -> Optional[dict]:
         if unit_id is None:                                    # 1. entity == 0
             return None
         e = state.get_entity(int(unit_id))
@@ -103,9 +184,10 @@ class RemoveUnitOperation:
             fl = e.add_component(UnitFlagsComponent())
         if fl.has(UnitFlagsComponent.REMOVED):                 # 3. GATE anti-double-retrait
             return None
-        if not uc.alive:
-            # Corollaire du collapse etape 8 : une unite deja hors-plateau cote port (morte OU
-            # retiree par un site qui ne posait pas encore le flag) n'est pas re-retiree.
+        if not uc.alive and not allow_already_dead:
+            # Corollaire du collapse etape 8 : une unite deja hors-plateau cote port (retiree par un
+            # site qui ne posait pas encore le flag) n'est pas re-retiree. La voie MORT, elle, DOIT
+            # passer -- cf. `allow_already_dead` dans la docstring.
             return None
         uc.alive = False                                       # 8. retrait des TUILES (collapse)
         fl.add(UnitFlagsComponent.REMOVED)                     # 9. `UnitFlagsComponent.Add(0x1a)`

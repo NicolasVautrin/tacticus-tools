@@ -135,17 +135,28 @@ def _park_others(state, board, keep_ids, center_coord):
 
 
 def _kill(state, uid, killer_id):
-    """SIMULE la mort de `uid` EXACTEMENT comme `DamageCalculations._fire_death_if_killed` : hp=0 + alive=False
-    PUIS `unit_defeated_triggers` (On UnitDefeated=54) -> Ambush_SummonAbility (decoy + turn_defeated)."""
+    """Tue `uid` par l'APPLICATION reelle de la mort -- `AttackDamageOperation._kill_unit_operation`,
+    mirror d'`IdunBattle.Operations.KillUnitOperation$$Execute`. `hp = 0` et `alive = False` sont
+    poses en amont, comme `_fire_death_if_killed` le fait avant d'enfiler.
+
+    ⚠ **CE MONTAGE APPELAIT `unit_defeated_triggers` DIRECTEMENT, ET C'ETAIT UN COURT-CIRCUIT
+    (#10015-r3).** Sa docstring affirmait simuler `_fire_death_if_killed` << EXACTEMENT >> ; en
+    realite elle sautait toute l'Operation de mort pour n'en publier qu'UN des cinq evenements.
+    Le test passait quand meme parce que `Ambush_SummonAbility` ecrivait `turn_defeated` de sa
+    propre main -- une COMPENSATION du port. En la retirant (le natif l'ecrit dans
+    `IdunBattle.Operations.RemoveUnitOperation$$Execute`, atteint depuis
+    `KillUnitOperation$$Execute+0xd34`), ces cinq tests sont passes au ROUGE : ils accusaient le
+    MONTAGE, pas le portage. Passer par le vrai chemin est ce qui les rend a nouveau capables de
+    juger -- et desormais ils couvrent AUSSI l'ordre natif retrait -> `On(UnitDefeated)`."""
     from engine.runner.components import UnitComponent, HealthComponent
-    from engine.runner.operations.triggers.dispatch.move_death import unit_defeated_triggers
+    from engine.runner.operations.damage import AttackDamageOperation
     e = state.get_entity(uid)
     hc = e.get_component(HealthComponent)
     uc = e.get_component(UnitComponent)
     if hc is not None:
         hc.hp = 0
     uc.alive = False
-    return unit_defeated_triggers(state, uid, killer_id)
+    return AttackDamageOperation._kill_unit_operation(state, uid, killer_id, False) or []
 
 
 def _start_turn(state, player, force_delta=None):
