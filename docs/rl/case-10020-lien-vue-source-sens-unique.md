@@ -727,3 +727,68 @@ l'obligation d'event decrite ici).
 
 **NON MESURE** : quelle source porte l'obligation d'event, et si `SandboxGameModeSource` la porte du
 tout. A instruire avant toute conclusion.
+
+## 18. LA CHAINE EST COMPLETE -- et les restrictions vivent sur la **SOURCE**, pas sur la BC
+
+Recadrage donne par l'utilisateur (<< si c'est pas la BC qui contient les restrictions c'est la
+gameModeSource >>), et le decompile le confirme de bout en bout.
+
+### Le chemin complet, du roster a la pose
+
+```
+StateMachineActions$$UnitDeployment_ShowHud(callbacks)
+  <slot 0x2b sur _source>  GetUnitsForDeploymentHUD      -> PooledList<String>   [STUB sandbox]
+  MapAsList(convertisseur) ................................ String -> IUnitModel
+  <slot 0xe sur _hud>      IdunGameHud$$UnitDeployment_ShowHud(units, options, callbacks)
+     UnitDeploymentHud$$Show(units, min, max, options)
+        _units <- units                     (AFFICHAGE, sans filtre)
+        si IsUnlocked(u) : _allUnlockedUnitModels[configId] <- u    (LE DICTIONNAIRE DE LA POSE)
+
+convertisseur = StateMachineActions$$<UnitDeployment_ShowHud>b__118_0(unitId):
+     return <slot 0x27 sur this+0x100 = LA SOURCE>(unitId, false)   = GetUnitModel
+
+IUnitModelExtensions$$IsUnlocked(u) = <slot 0x17 sur u>() == 0
+```
+
+### Le verrou, lu au corps
+
+```c
+SandboxGameModeSource$$GetUnitModel(this, unitId, isPvpEnemyUnit):
+    prog = this+0x20                                  // le vrai IUnitProgression du compte
+    si <slot 0x2b>(prog, unitId) OU <slot 0x2c>(prog, unitId) :
+        return <slot 0x1a>(prog, unitId, true)        // MODELE REEL de progression
+    si (cfg = this+0x18) est un `SandboxCampaignEventBattleConfig` et cfg.Player1Type != 0 :
+        return <slot 0x1c>(prog, unitId)              // autre modele reel
+    return new IdunMetaLogic.UserProgress.Model.HotseatUnitModel(unitId, prog, 2, 0, 0)
+```
+
+⇒ **Le sandbox fabrique un `HotseatUnitModel`** -- un modele de banc d'essai, pas un modele de
+compte -- et c'est lui qui echoue a `IsUnlocked`. D'ou : le roster S'AFFICHE, le dictionnaire reste
+VIDE, et **toute pose est refusee**.
+
+**DEUX SORTIES existent, et toutes deux sont sur la SOURCE ou sa CONFIG** :
+1. les deux predicats de progression en tete (slots `0x2b` / `0x2c`, avec un `unitId`) -- selon
+   toute vraisemblance une verification de POSSESSION. Corroboration independante : le RPC
+   `rosterOwned` cherche une methode nommee **`HasUnitUnlocked`** ;
+2. la branche `SandboxCampaignEventBattleConfig` + `Player1Type != 0` -- inatteignable en mode
+   `waves` (le test de type echoue ; `SandboxWavesBattleConfig` n'a meme pas de champ a `+0x34`,
+   verifie par `classFields` sur les neuf configs).
+
+⚠ **`rosterOwned` est CASSE sur `t6dpr4k06g`** : il rend `HasUnitUnlocked NON RESOLUE`. La
+possession n'est donc PAS mesurable par cette voie aujourd'hui -- l'hypothese (1) reste **NON
+CONFRONTEE**, et il ne faut pas l'ecrire comme etablie.
+
+### LE RECADRAGE, et c'est le vrai enseignement de la tranche
+
+**TOUTES les portes rencontrees sont des methodes de `IGameModeSource`** -- `GetUnitModel`,
+`GetUnitsForDeploymentHUD`, `GetUnlockedUnitsPooled`, `Min`/`MaxUnitsNeededToStartBattle`,
+`HasGameModeReasonNotToStartMatch`, `ShouldShowUnitDeployment`. **Aucune n'est un champ de la BC.**
+
+J'ai passe la tranche a chercher cote BC (`--units`, factions, `Units[]`) ce qui est cote SOURCE :
+c'est ce qui m'a fait injecter 40 ids etrangers, puis 18, puis raisonner sur les factions
+imperiales. Le sandbox n'a pas << des restrictions vides >> : sa source REPOND VIDE ou FAUX a tout
+ce que la couche deploiement lui demande.
+
+⇒ Rendre le deploiement utilisable en sandbox = **faire repondre la SOURCE comme une vraie
+source**, methode par methode. Le mirror du SS13 en visait une (la mauvaise) ; `GetUnitModel` est
+celle qui commande la pose.
