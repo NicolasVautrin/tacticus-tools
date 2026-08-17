@@ -1459,6 +1459,31 @@ class UnitFlagsComponent(Component):
                                 # PERMISSIF : il ressuscitait un crushé que le natif refuse
                                 # (#462-r4b-r1-r1-r1-r1-c-r3-r1-r6, mesuré par
                                 # `probe_462r4br6_revive_apres_crush.py`).
+    UNTARGETABLE = UnitFlag.Untargetable      # flag 0x11 (`enums.tsv` : `17=Untargetable`) — le seul
+                                # etat que lit `IdunBattle.Entities.UnitExtensions$$IsTargetable`
+                                # (`= !HasFlag(unit, 0x11)`), donc la regle de ciblage
+                                # `TargetIsTargetable` d'`ActiveAbilityOperation$$IsInvalidTarget`.
+                                # POSE par `IdunBattle.Entities.Effects.Common.UntargetableEffect
+                                # $$ApplyInternal` -- et la pose est GARDEE, relue verbatim sur
+                                # `t6dpr4k06g` :
+                                #     if (!this.<vslot +0x728 IsUntargetableEnabled>(owner, target,
+                                #                                                    effect)) return;
+                                #     target.GetComponent<UnitFlagsComponent>().Add(0x11);
+                                # RETIRE par `$$RevertInternal`, qui est un tail call NU vers
+                                # `UnitFlagsComponent$$Remove(0x11)` -- aucun gate, et **aucun
+                                # comptage de references** : deux effets untargetable simultanes
+                                # partagent UN seul element d'`OrderedSet`, donc le premier retrait
+                                # rend l'unite ciblable alors que le second effet vit encore. Quirk
+                                # NATIF, porte tel quel (#433-r5 le nomme).
+                                # TROIS AUTRES POSEURS, hors de tout effet (#433-r3-r2-r1-r1) :
+                                # `ResurrectUnitOperation$$Execute` et `AddUnitOperation$$Execute`
+                                # encadrent chacune leur propre corps d'un `Add(0x11)` ... `Remove(0x11)`
+                                # -- fenetre TRANSITOIRE intra-operation. Cf. `operations/resurrect.py`.
+                                # LES POSEURS PORTES : `AddEffectOperation._apply_untargetable_flag` /
+                                # `remove_effects.remove_effect_instance` (#433-r3-r2-r1). Avant eux le
+                                # flag n'etait pose par AUCUN chemin, ce qui rendait
+                                # `abilities/targeting.py::is_targetable` -- et donc `TargetIsTargetable`,
+                                # `HatefulAssault`, `SavageKiller`, `MV71` -- constamment vrais.
 
     def __init__(self, flags=None):
         self.flags = set(int(f) for f in flags) if flags else set()

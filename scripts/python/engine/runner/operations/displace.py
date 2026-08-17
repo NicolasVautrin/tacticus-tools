@@ -157,8 +157,19 @@ def _occupied(state: State, exclude_id: int) -> dict[tuple[int, int], int]:
 
 def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: int):
     """Mirror `IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo` : degat de COLLISION au push bloque.
-    - gates : `IdunBattle.Entities.UnitExtensions$$IsTargetable` (= !HasFlag(0x11) — flag non trace offline, approxime par
-      vivant) puis, dans le montant (`IdunBattle.Core.Services.DamagePrediction$$GetKnockback`, atteint via le MEME
+    - gates : `IdunBattle.Entities.UnitExtensions$$IsTargetable` (= `!HasFlag(0x11)`) -- **PORTE
+      POUR DE VRAI depuis #433-r3-r2-r1** : le flag `UnitFlag.Untargetable` est desormais pose par
+      `AddEffectOperation._apply_untargetable_flag` et retire par `remove_effect_instance`, donc
+      l'approximation << flag non trace offline, approxime par vivant >> qui vivait ici est levee.
+      Ce site est l'UN DES CINQ lecteurs natifs d'`IsTargetable` (les autres :
+      `TargetingQuery$$GetInvalidTargetReason`, `DamageCalculations$$ShouldApplyRangedInMelee`,
+      `BattleQuery$$IsTargetInAttackRangeForSummon`, `MovementActionGenerator.
+      u003CFindClosestEnemyu003Ed__8$$MoveNext` -- xrefs relues sur `t6dpr4k06g`).
+      ⚠ Le gate `alive` qui le precede n'est PAS dans le natif (`ApplyKnockbackTo` ouvre sur
+      `if (!doIt || !IsTargetable(target)) return;`, rien d'autre) : il est CONSERVE, sa direction
+      est RESTRICTIVE (le port refuse un knockback sur un cadavre que le natif appliquerait), et il
+      est nomme plutot que tu -- meme convention que le gate `alive` des trois `execute()` de ce
+      module. Puis, dans le montant (`IdunBattle.Core.Services.DamagePrediction$$GetKnockback`, atteint via le MEME
       couple (iface DAT_183287ef8, slot 0xf) que `IdunBattleLogic.Core.Services.Caches.CachedDamagePrediction$$GetKnockback`) :
       `IsDisplaceable(unit)` + `!HasTrait(unit, 0x19=25 Immune)` -> 0 (aucun degat).
     - montant : `IdunBattle.Core.Services.DamageCalculations$$CalculateKnockbackDamage` = ceil(maxHealth x BC.Damage.KnockbackPercentage/100),
@@ -172,7 +183,17 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
     if e is None:
         return None
     uc = e.get_component(UnitComponent)
-    if uc is not None and not uc.alive:                       # IsTargetable ~ vivant (flag 0x11 non trace)
+    if uc is not None and not uc.alive:            # AJOUT du port, RESTRICTIF (cf. docstring)
+        return None
+    # DIFFERE, classe PORTEUR par le protocole (#485-r1-r1) : charger `abilities.targeting` seul
+    # fait atterrir `runner.operations.displace` dans `sys.modules` (cascade
+    # `targeting` -> `abilities.base` -> ... -> `operations`), donc le hisser fermerait un cycle.
+    # C'est la meme classe et la meme raison que `damage_ops/normal.py::normal_attack_type_for` et
+    # `repair.py::is_actor`. FORME C (`from X import nom` DANS la fonction) : elle mord sous
+    # `monkeypatch.setattr("...targeting.is_targetable", ...)` parce que l'instruction est
+    # re-executee a chaque appel -- c'est ce que les gardes de cette tranche exploitent.
+    from ..abilities.targeting import is_targetable
+    if not is_targetable(state, unit_id):          # `if (!IsTargetable(target)) return;` -- VERBATIM
         return None
     sc = e.get_component(StatsComponent)
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None

@@ -2729,10 +2729,27 @@ def get_only_targets(state: "State", unit_id) -> list:
 
 
 def is_targetable(state: "State", entity_id) -> bool:
-    """`IdunBattle.Entities.UnitExtensions$$IsTargetable` = `!HasFlag(unit, 0x11)`.
-    Le flag 0x11 n'est pose par AUCUN chemin du port (aucun `UnitFlagsComponent.add(0x11)`) -> le
-    predicat est constamment vrai offline. Mirror ecrit quand meme : le jour ou le flag sera pose,
-    la regle s'activera d'elle-meme (et le lecteur voit que ce n'est pas un oubli)."""
+    """`IdunBattle.Entities.UnitExtensions$$IsTargetable` = `HasFlag(unit, 0x11) ^ 1` (corps ENTIER,
+    relu sur `t6dpr4k06g`).
+
+    ⚠ **CE PREDICAT ETAIT MORT, ET IL NE L'EST PLUS (#433-r3-r2-r1).** La phrase qui vivait ici --
+    << le flag 0x11 n'est pose par AUCUN chemin du port -> le predicat est constamment vrai
+    offline >> -- etait exacte et decrivait un TROU, pas une convention : elle rendait inertes les
+    CINQ lecteurs natifs recenses par xref sur `UnitExtensions$$IsTargetable`, dont QUATRE sont
+    portes -- `TargetingQuery$$GetInvalidTargetReason` (la regle `TargetIsTargetable`, plus bas dans
+    ce module), `DamageCalculations$$ShouldApplyRangedInMelee`,
+    `DisplaceUnitOperation$$ApplyKnockbackTo` (`operations/displace.py`) et
+    `BattleQuery$$IsTargetInAttackRangeForSummon` (`abilities/loki/mv71.py`) ; le cinquieme est
+    `MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`, cote DECISION.
+
+    Le flag est desormais POSE par `AddEffectOperation._apply_untargetable_flag` (mirror
+    `UntargetableEffect$$ApplyInternal`) et RETIRE par
+    `remove_effects.remove_effect_instance` (mirror `$$RevertInternal`), sur le domaine
+    `UNTARGETABLE_EFFECT_TYPES`. Le port a donc DEUX canaux de non-ciblabilite -- celui-ci (le FLAG,
+    fidele au natif) et l'interrogation des EFFETS (`aura_selectors.is_targetable`,
+    `ai.state_bridge._is_untargetable`) -- qui coincident sauf dans le regime MULTI-EFFETS
+    simultanes, ou le natif lui-meme les separe (`$$RevertInternal` retire NU, sans comptage de
+    references). Residu `#433-r5`."""
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return not (fl is not None and fl.has(UNIT_FLAG_NOT_TARGETABLE))
