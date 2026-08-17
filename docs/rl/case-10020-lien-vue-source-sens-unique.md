@@ -904,3 +904,52 @@ reutilisable, pas a la reecrire.
 court. `LoadBattle` lit `_currentMatch` pendant l'appel ; rien ne dit que les methodes de
 deploiement n'ont pas besoin d'un etat coherent AU-DELA de leur propre retour (les modeles rendus
 survivent a la fenetre, eux). A confronter avant de s'engager.
+
+## 21. ⛔ LA << FENETRE POSITIONNEE >> DU SS20 EST REFUTEE -- `UnitModel` est une VUE PARESSEUSE
+
+Le SS20 proposait de deleguer DANS une fenetre `swap -> invoke -> restore`, en notant comme NON
+MESURE le fait que les modeles rendus survivent a la fenetre. **Mesure faite, et elle tue le
+design.** `classFields` sur les classes VIVANTES :
+
+```
+IdunMetaLogic.UserProgress.Model.UnitModel        2 CHAMPS
+   +0x10  _unitId           String
+   +0x18  _unitProgression  IUnitProgression
+
+IdunMetaLogic.UserProgress.Model.HotseatUnitModel  10 champs
+   ITEM_LEVEL / STAR_LEVEL / PROGRESSION_INDEX / RANK / RARITY / XP_LEVEL / ABILITY_LEVEL
+   +0x28 _unitId   +0x30 _unitProgression   +0x38 _itemModels
+```
+
+**`UnitModel` ne stocke RIEN.** Un id, un pointeur vers la progression, et c'est tout : chaque
+propriete -- y compris ce que le slot `0x17` calcule pour `IsUnlocked` -- est resolue **A LA
+DEMANDE**, contre la progression, au moment de l'appel.
+
+⇒ Apres `swap -> invoke -> restore`, le modele rendu relit la progression **RESTAUREE**. Il survit
+a la fenetre, mais **il repond faux**. La fenetre courte convient a `LoadBattle`, qui CONSOMME
+`_currentMatch` pendant l'appel et rend une `BattleConfiguration` deja materialisee ; elle ne
+convient PAS a `GetUnitModel`, dont le produit est une VUE sur l'etat qu'on vient de defaire.
+
+⚠ Et la progression echangee est **le meme objet** dans les deux regimes (`source+0x20` est
+partage ; le swap ecrit SES champs). Il n'y a donc meme pas d'echappatoire par identite : le modele
+pointe exactement sur l'instance qu'on restaure.
+
+**Ce que HotseatUnitModel dit au passage** : il porte des CONSTANTES de progression
+(`RANK`, `RARITY`, `XP_LEVEL`, `ABILITY_LEVEL`, `STAR_LEVEL`) en plus de la reference. C'est une vue
+a stats FIXEES -- exactement ce qu'il faut a un banc d'essai, et exactement ce qui le fait echouer a
+`IsUnlocked`, qui interroge la possession et non les stats.
+
+### Ce qui reste debout
+
+Les deux voies encore ouvertes sont donc celles qui ne dependent PAS d'un etat transitoire :
+
+1. **Un vrai preteur actif** -- une `CampaignGameModeSource` reellement positionnee sur son noeud,
+   c'est-a-dire une bataille de campagne OUVERTE. Le wrapper delegue alors sans aucun swap.
+   Cout : le jeu est dans une bataille de campagne pendant qu'on joue la sandbox -- non confronte.
+2. **Renoncer a la fidelite** et assumer un deploiement PERMISSIF : injecter le roster a la main
+   (ce qui MARCHE, cf. SS10-SS11) et accepter qu'il n'y ait ni restriction de faction, ni unite
+   obligatoire, ni objectif. Utilisable pour entrainer/tester un moteur, pas pour reproduire
+   l'experience du jeu.
+
+⚠ **NE PAS re-proposer la fenetre positionnee** : elle est refutee ici par mesure, pas ecartee par
+prudence.
