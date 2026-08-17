@@ -337,7 +337,14 @@ class _NormalLike:
                                              # `currentAttack@+0x2c` : pose par la seule
                                              # `AttackDamageOperation$$Execute` -> la famille de
                                              # factory, comme dans `damage_ops/ability.py`.
-                                             attack_used_attack_damage=bool(is_attack_damage_op))
+                                             attack_used_attack_damage=bool(is_attack_damage_op),
+                                             # #512-r4 : MEME gate que l'`On(PreAttack = 5)` de
+                                             # cette facade (#925-r2) -- une feuille NUE ne pousse
+                                             # ni `StartAttack` ni `FinishAttack`, donc ni `On(5)`
+                                             # ni `On(9)`. Porte ici pour les N feuilles de
+                                             # transfert d'`HazeOfCorruption`, qui vivent sous UN
+                                             # SEUL `Attack(bonded, Owner@0x148, beh)`.
+                                             emit_finish_attack=bool(is_outside_attack))
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

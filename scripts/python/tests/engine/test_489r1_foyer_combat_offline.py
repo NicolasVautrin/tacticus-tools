@@ -356,10 +356,22 @@ def test_etage5_la_voie_ability_emet_deja_On9():
     assert _appelle(AB._AbilityAttack.execute_ability_attack, "after_hit_ability_attack")
 
 
-def test_etage5_finish_attack_triggers_n_a_bien_qu_UN_call_site():
-    """La moitie VRAIE de la fiche, gardee telle quelle : ajouter un second emetteur DOUBLERAIT
-    `On(9)` sur les 37 consommateurs recenses. Si un jour ce compte bouge, c'est que quelqu'un a
-    pris #512-r3 au mot -- et ce test est l'endroit ou on s'en apercoit."""
+def test_etage5_finish_attack_triggers_a_DEUX_foyers_et_pas_un_de_plus():
+    """#512-r4 -- CE CLIQUET A CHANGE D'INVARIANT, ET C'EST DELIBERE.
+
+    Il gardait « UN SEUL call-site », comme moitie VRAIE de #512-r3 : lire le NOM
+    `finish_attack_triggers` au lieu de l'EVENEMENT `On(9)` faisait croire que la voie ability ne
+    l'emettait pas, et ajouter un second emetteur y aurait DOUBLE l'evenement. Cette prudence-la
+    est REMPLIE autrement depuis #512-r4 : l'emission par FEUILLE est desormais GATEE par
+    `is_outside_attack` (cf. l'etage 6), donc un foyer de NOEUD n'ajoute rien -- il DEPLACE.
+
+    Le nouvel invariant est la topologie NATIVE : le slot 59 (`FinishAttack`) est pousse par les
+    NOEUDS de l'arbre et par la voie MESSAGE, jamais par une operation de degat. Cote port, cela
+    fait exactement DEUX foyers -- `damage_ops/normal.py` (la voie normale/overwatch, mirror du
+    `Attack(...)` de `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`) et
+    `abilities/behaviours/combat.py::_emettre_finish_attack_de_noeud` (le foyer de NOEUD, appele par
+    `SortedAttackSeries` et par `HazeOfCorruption`). Un TROISIEME nom de fichier ici veut dire qu'un
+    emetteur a ete recable ailleurs qu'au foyer -- c'est ce qu'on refuse."""
     racine = pathlib.Path(__file__).resolve().parents[2] / "engine"
     sites = []
     for chemin in racine.rglob("*.py"):
@@ -370,4 +382,37 @@ def test_etage5_finish_attack_triggers_n_a_bien_qu_UN_call_site():
                    else fn.attr if isinstance(fn, ast.Attribute) else None)
             if nom == "finish_attack_triggers":
                 sites.append(chemin.name)
-    assert sites == ["normal.py"], sites
+    assert sorted(sites) == ["combat.py", "normal.py"], sites
+
+
+def test_etage5_le_vecteur_On9_de_la_feuille_est_GATE_par_is_outside_attack():
+    """#512-r4 -- LE CRAN QUI REMPLACE « un seul call-site ». Une feuille NUE
+    (`IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` / `$$AbilityDamage`, `isOutsideAttack`
+    = 0) ne pousse NI `StartAttack` NI `FinishAttack` : c'est le noeud parent qui ouvre et ferme.
+    Le port gatait deja `On(PreAttack = 5)` (#512-r2) et PAS `On(Attack = 9)` -- d'ou une
+    CARDINALITE fausse des qu'un noeud porte deux feuilles sur la MEME cible (`1088
+    HellfyreMissileRack`) ou une feuille nue dans le `Attack(...)` d'une autre attaque (le FOLD de
+    l'attaque normale, les N transferts d'`HazeOfCorruption`).
+
+    On garde le GATE, pas son ecriture : les deux facades doivent thread `emit_finish_attack`
+    depuis leur `is_outside_attack`, et `after_hit_ability_attack` doit en faire une CONDITION."""
+    from engine.runner.operations.triggers.dispatch import attack as A
+    from engine.runner.operations.damage_ops import ability as AB
+    from engine.runner.operations.damage_ops import normal_like as NL
+
+    src = inspect.getsource(A.after_hit_ability_attack)
+    arbre = ast.parse("if 1:\n" + "\n".join("    " + l for l in src.splitlines()))
+    gardes = [n for n in ast.walk(arbre)
+              if isinstance(n, ast.If) and isinstance(n.test, ast.Name)
+              and n.test.id == "emit_finish_attack"]
+    assert gardes, "`On(9)` n'est plus sous le gate `emit_finish_attack` dans la facade after-hit"
+    # ... et le gate doit etre ALIMENTE par `is_outside_attack` aux DEUX call-sites, sinon il est
+    # arme mais toujours vrai (degradation silencieuse, exactement le regime d'avant).
+    for fn in (AB._AbilityAttack.execute_ability_attack, NL._NormalLike.execute_normal_like):
+        s = inspect.getsource(fn)
+        a = ast.parse("if 1:\n" + "\n".join("    " + l for l in s.splitlines()))
+        kw = [k for n in ast.walk(a) if isinstance(n, ast.Call)
+              for k in (n.keywords or []) if k.arg == "emit_finish_attack"]
+        assert kw, "%s ne thread pas `emit_finish_attack`" % fn.__qualname__
+        assert any("is_outside_attack" in ast.unparse(k.value) for k in kw), \
+            "%s thread `emit_finish_attack` sans le derier d'`is_outside_attack`" % fn.__qualname__

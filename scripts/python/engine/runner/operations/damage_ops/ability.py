@@ -840,7 +840,19 @@ class _AbilityAttack:
                                              # `currentAttack@+0x2c`, pose par la SEULE
                                              # `AttackDamageOperation$$Execute` -> cote port c'est
                                              # exactement la famille de factory.
-                                             attack_used_attack_damage=bool(is_attack_damage_op))
+                                             attack_used_attack_damage=bool(is_attack_damage_op),
+                                             # #512-r4 -- `On(9 = Attack)` sort de
+                                             # `FinishAttackOperation$$Execute`, atteint par le slot
+                                             # 59 que pousse un NOEUD de l'arbre, jamais une
+                                             # operation de degat. Une feuille NUE
+                                             # (`isOutsideAttack = 0`) n'ouvre ni ne FERME
+                                             # d'attaque : c'est le MEME gate que celui d'`On(5)`
+                                             # quelques centaines de lignes plus haut, et il
+                                             # manquait a la cloture. Les deux autres evenements de
+                                             # cette facade (`On(0x3c)`, `On(8)`) restent emis :
+                                             # eux viennent d'`ADamageOperation$$
+                                             # EvaluateAfterHitTriggers`, donc de l'OPERATION.
+                                             emit_finish_attack=bool(is_outside_attack))
         # `On(FinalDamage = 0x42 = 66)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
         # ADamageOperation$$RegisterFinalDamage` : `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la
