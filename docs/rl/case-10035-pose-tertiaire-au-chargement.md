@@ -146,8 +146,60 @@ INACTIF à l'instant de la capture*. Partout ailleurs la passe est un no-op exac
   contexte. Résidu **#10035-r2**.
 * **Le volet (c) de `#922-r1`** (basculer `includeInactive` par défaut dans `ChargeRegimeHarness`)
   reste ouvert, avec son rayon de 53 fichiers.
-* **Les 23 reliques sans entrée `ABILITY_INIT_OWNER_EFFECTS`** ne sont pas visitées. Deux d'entre
-  elles sont équipées au seed BC (`SupaCyborkBody` sur `orksRuntherd`, `KardiocoreGalvanus` sur
-  `admecMarshall`/`admecRuststalker`) ; `KardiocoreGalvanus` est toujours actif (donc toujours capté),
-  `SupaCyborkBody` a une condition — c'est le régime de `#961-r3`. Établir si leur `CreateBehaviour`
-  pose un owner-effet à l'init exige de le LIRE, ability par ability. Résidu **#10035-r3**.
+* ~~**Les 23 reliques sans entrée `ABILITY_INIT_OWNER_EFFECTS`** ne sont pas visitées.~~ **LUES
+  (2026-08-18, `#10035-r3`) — SEPT posent, SEIZE non.** Cf. §10.
+
+## 10. `#10035-r3` — les 23 reliques, LUES une par une (2026-08-18)
+
+Le résidu disait « le zéro n'est pas une mesure, c'est une absence de lecture ». Les 23
+`CreateBehaviour`/`CreateTrigger` ont été lus sur `t6dpr4k06g` : **7 posent** un owner-effet à
+l'init, **16 non**. Le résultat NÉGATIF compte autant — c'est lui qui interdit de croire qu'on
+aurait pu tout inscrire, et il est figé test par test.
+
+| relique | forme | effet posé sur `Owner` (ordinal LU) |
+|---|---|---|
+| `KardiocoreGalvanus` | (a) | `KardiocoreGalvanus_ExtraCritDmg` `0x5aa` |
+| `MawClawsOfThyrax` | (a) | `MawClawsOfThyrax_ExtraCritDmg` `0x5b5` |
+| `SupaCyborkBody` | (a) | `SupaCyborkBody_CritDmgReduction` `0x5bc` |
+| `TalismanOfRage` | (a) SPECIFIC, `.ctor(this, 0x5b4)` LU | `TalismanOfRage_CritDamageReduction` `0x5ad` |
+| `PhoenixGem` | (a), via `PhoenixGem_InitAbility` | `PhoenixGem_CanRevive` `0x5ab` |
+| `DawnBlade` | (b), via `DawnBlade_InitAbility` | `DawnBlade_ExtraDmg` `0x5dd` |
+| `RelicBoltPistol` | (b) | `RelicBoltPistol_ExtraPierce` `0x5b1` **et** `..._ExtraCritDamage` `0x5b2` |
+
+* **(a)** base `AOwnerEffect[Specific]TriggeredAbility` : la classe ne déclare que `GetEffectType`
+  (corps ENTIER `return <ordinal>`), tout le reste vient de la base —
+  `$$CreateTrigger` = `OnOwnerSpecificAbilityInit(this.AbilityType@+0x10)` (resp. `<this+0x60>`
+  pour la variante SPECIFIC) et `$$CreateBehaviour` = `If(<ce trigger>, AddEffect(GetEffectType(),
+  AbilityState(Owner, AbilityType), targets = `Owner@<DSLSelectors+0x30>`, turns ZÉROÉ), null)`.
+* **(b)** `BaseTriggeredAbility` + `CreateBehaviour` propre, `CreateTrigger` = corps ICF partagé de
+  corps ENTIER `OnOwnerSpecificAbilityInit(this.get_AbilityType())`, sans conjoint.
+
+**Le partage ICF de (b) est MESURÉ, pas déduit.** Le RPC `resolveMethodPtr` (lecture pure, aucun
+runner) rend le MÊME `methodPointer` pour les `CreateTrigger` de `RelicBoltPistolAbility`,
+`SupaCyborkBodyAbility_AddTrait`, `DawnBlade_InitAbility` et `WayOfTheShortBlade_InitAbility` — et
+c'est cette dernière qui porte le symbole, donc le corps lisible. Sans cette mesure, (b) restait un
+appariement de bloc `methodPointers`.
+
+⚠ **Le piège d'ordinal est réel dans ce lot même** : `EffectType` 1457/1458 sont les deux effets de
+`RelicBoltPistol`, alors que `TriggeredAbilityType` 1457/1458 sont `KardiocoreGalvanus` et
+`PhoenixGem`. Les quatre entrent dans le même bloc de registre ; un appariement par l'ordinal y
+écrivait deux entrées fausses **sans lever d'erreur**.
+
+⚠ **`PhoenixGem` n'est pas cosmétique** : 1451 est l'effet-MARQUEUR sur lequel tout le self-revive
+de `#79` est branché (`EFFECT_TRIGGERS[PhoenixGem_CanRevive]`, trois classes). Sans la pose à
+l'init, le rail existait mais n'était **jamais armé** hors capture live.
+
+**Trouvé en passant, même registre, même lecture** : le passif `WayOfTheShortBlade` n'avait pas non
+plus son entrée. C'est SA `CreateTrigger` qui porte le corps ICF de la forme (b) — la lire, c'est
+lire son `CreateBehaviour` = `AddEffect(0x5db) & AddEffect(0x5dc)` sur `Owner`. Le canal AURA de
+1499 (`#1019-r1`, confronté bit-exact) était donc INERTE hors capture live.
+
+**Les seize non-poseuses**, avec la raison lue, sont figées dans
+`tests/engine/runner/test_10035r3_reliques_non_visitees_offline.py` (65 tests). Cinq mutants joués,
+cinq mordent : entrée retirée, effet manquant d'une paire, non-poseuse inscrite, ordinal dérivé,
+4ᵉ source du seed débranchée.
+
+**Reste ouvert** : `SupaCyborkBodyAbility_AddTrait$$CreateBehaviour` =
+`AddTrait(Owner, 0x421 = UnitTrait.AffectedByHealAndRepair, isTemporary: false)` sous le même
+trigger d'init — un TRAIT, qu'aucun des trois registres du port ne sait écrire. Résidu
+**#10035-r5**.

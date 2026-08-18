@@ -1685,6 +1685,16 @@ class LetTheGalaxyBurnEffect(BaseEffect):
         `On(5 = PreAttack)`, qui n'a pas tourne), seule la branche `TargetHasTileEffect` ouvre --
         c'est le substrat qui le dit, pas une regle ecrite ici.
 
+        ## L'ETAGE EST UN CHOIX DE PORT, ET IL EST LE MEME QUE CELUI DE #10019
+        ⚠ Le natif n'ajoute PAS ce coup a `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`
+        : il construit une prediction SEPAREE par entree
+        (`AActiveAbility$$GetEffectAdditionalHitPrediction`) et la somme par
+        `IdunBattle.Core.Services.DamagePredictionResult$$Add`. Le port n'a pas cet etage-la ; il
+        loge la contribution dans la formule de coups, ou elle est NUMERIQUEMENT EXACTE des lors
+        que le coup vaut un coup d'arme -- c'est exactement la forme retenue par #10019 pour
+        `MasterAnnihilator` (elle-meme calquee sur `GetStuckIn`). L'ecrire ici sans le dire
+        laisserait croire a un mirror 1:1 de l'etage natif : ce n'en est pas un.
+
         `get_OwnerIsCaster` est STRUCTUREL sur ce canal : `hits_bonus_from_effects` n'agrege que
         les effets de l'ATTAQUANT, et LTGB est un owner-effect AUTO-PORTE par son attaquant.
 
@@ -1853,6 +1863,12 @@ class AstartesBannerExtraHitEffect(BaseEffect):
         garde INTEGRALEMENT le groupe #179 de #204 (`create_aura_additional_hits_for_ally`
         ci-dessous), et le cliquet qui garde ce verdict
         (`test_ah_master_annihilator_astartes_banner_live.py`) tourne en regime COMBAT.
+
+        ⚠ MEME RESERVE D'ETAGE que chez `LetTheGalaxyBurnEffect` : le natif somme une prediction
+        SEPAREE (`DamagePredictionResult$$Add`), pas un terme de `GetAttackHits`. Le port loge la
+        contribution dans la formule de coups parce qu'il n'a pas cet etage -- NUMERIQUEMENT exact
+        tant que le coup vaut un coup d'arme (forme retenue par #10019), mais ce n'est pas un
+        mirror 1:1 de l'etage natif.
 
         Le SIGNE est POSITIF -> `block_hits_reduction` ne l'eteint pas."""
         c = ctx or {}

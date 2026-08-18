@@ -130,3 +130,66 @@ sous-formules (attaquant, défenseur, `weaponHits`) puis invoque le slot d'inter
   troisième porteur de `attack_hit_damage` gardent leur face prédiction éteinte. La déduction de
   `case-227` §2.5 vient d'être réfutée pour **un** porteur ; rien ne dit qu'elle l'est pour eux,
   et personne ne les a mesurés. Ne pas généraliser sans montage.
+
+## `#10019-r2` — les deux jumeaux, sans généraliser (2026-08-18)
+
+La fiche interdisait de généraliser la mesure de `MasterAnnihilator` à `LetTheGalaxyBurnEffect` et
+`AstartesBanner_AdditionalHitsEffect`. Aucune généralisation n'était nécessaire : **le compte de
+coups est face-INDÉPENDANT dans le corps que les trois partagent.**
+
+Deux lectures neuves l'établissent.
+
+1. **La signature native porte le nom.** `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`
+   a HUIT paramètres nommés par la metadata :
+   `(trigger, damageFormula, additionalHitsType, damageProfileType, hitsFormula, forceOverkill,
+   predictionDamageFormula, maxDamage)`. Le 7ᵉ s'appelle **`predictionDamageFormula`** — le port
+   l'appelait « display », ce qui masquait qu'il gouverne la face PRÉDICTION.
+2. **Le corps partagé ne regarde `isPrediction` que pour le DÉGÂT.**
+   `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(entities, isPrediction)`, lu en entier :
+
+       if (!trigger.ShouldTrigger(entities)) return null;      // MÊME gate sur les 2 faces
+       hits = hitsFormula?.Calculate(entities) ?? 1;           // MÊME compte  sur les 2 faces
+       min = max = predictionDamageFormula.<slot 4>(entities); // face PRÉDICTION
+       if (!isPrediction) {                                    // face COMBAT
+           min = damageFormula.CalculateMin(entities);
+           max = damageFormula.CalculateMax(entities);
+       }
+
+   En aval, `IdunBattle.Entities.Abilities.AActiveAbility$$AddAdditionalHitsToPrediction` fait un
+   `IdunBattle.Core.Services.DamagePredictionResult$$Add` **par entrée**, avec le `hits` de
+   l'entrée.
+
+La face PRÉDICTION change donc la **valeur** du coup, jamais son **existence**. La seule variable
+par porteur est le TRIGGER — et c'est lui, et lui seul, que le port évalue.
+
+**Ce qui reste de la déduction de `case-227` §2.5.** Elle est JUSTE au niveau du nœud :
+`IdunBattle.Entities.Formulas.FirstHitInCurrentAttackDamageRange$$Calculate` rend `0` dès que la
+liste d'attaque courante est nulle ou `Count <= 0` (lu). Ce qui était faux, c'est le saut « donc le
+coup prédit est un no-op numérique ». La réconciliation — par quel chemin le coup prédit récupère
+le dégât d'un coup d'arme — reste `#10019-r1`, `BLOCAGE: capteur`, et elle porte sur la VALEUR.
+
+**Le port.** `LetTheGalaxyBurnEffect.create_effect_hits_bonus_for_attack` (canal ATTAQUANT, le
+porteur est l'attaquant lui-même) et `AstartesBannerExtraHitEffect.create_aura_hits_bonus_for_attack`
+(canal AURA, le porteur est un allié à ≤ 2 hex). Les deux sont gatés `is_prediction`, donc la face
+COMBAT garde INTÉGRALEMENT le groupe #179 de `#204`. Le gate est **factorisé** avec la face combat
+(`_trigger_fires`, `_hits_if_trigger_and_selector`) parce que le natif n'a qu'UN trigger : deux
+copies pourraient diverger, lui non.
+
+⚠ **L'étage est un CHOIX de port, écrit comme tel.** Le natif ne somme pas ces coups dans
+`GetAttackHits` — il construit une prédiction séparée et l'ajoute. Le port n'a pas cet étage et loge
+la contribution dans la formule de coups, où elle est numériquement exacte tant que le coup vaut un
+coup d'arme. C'est exactement la forme retenue par `#10019` pour `MasterAnnihilator`.
+
+⚠ **Un maillon manquait, et il aurait rendu le port INERTE en silence.** `att_hits_ctx` de
+`attack_hits_with_modifiers` était bâti **avant** le `board` qui porte `is_prediction` : le canal
+ATTAQUANT ne pouvait pas voir la face. Corrigé au même endroit, et c'est le mutant M1 de la garde.
+
+**Garde** : `tests/engine/test_10019r2_faces_prediction_additional_hits_offline.py` — 13 tests,
+dont un étage de PÉREMPTION qui relit la signature de `Create` dans `frida/methods.tsv` du build qui
+fait foi. Quatre mutants joués, quatre mordent : `is_prediction` non threadé, gate de face retiré
+(fuite vers le combat), face aura muette, gate dé-factorisé.
+
+**Ce qui n'est PAS couvert** : la confrontation LIVE. Le pool de runners était saturé (`runner cap
+reached (50)`, deux fois à 40 min d'écart, aucun runner à moi) — ni fenêtre DRAIN, ni porteur non
+confrontable : **NON CONFRONTÉ — pool saturé**. Le montage exact des deux bras est écrit dans
+`#10019-r3`.
