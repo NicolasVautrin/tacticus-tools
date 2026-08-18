@@ -72,8 +72,10 @@ valeurs reellement changees    : 0
 
 C'est **exactement** l'ecart mesure contre `HEAD` (75/77, 0 valeur). Le commit `457e64de`
 (<< #1032-r3 : les citations DSL migrees >>) a fait precisement cela sur des dizaines de fichiers
-`engine/**` : `DSLFactory$$Filter` -> `IdunBattleLogic.Entities.DSLSelectors$$Filter`, un
-commentaire. Nos migrations de citations VA -> symbole sont donc un moteur de churn a plein regime.
+`engine/**` : il a remplace l'ancienne orthographe `DSLFactory$$Filter` (REPLI DELIBERE -- ecrite
+ici pour dire CE QUI A CHANGE, ne pas la << corriger >>) par
+`IdunBattleLogic.Entities.DSLSelectors$$Filter`, dans un **commentaire**. Nos migrations de
+citations VA -> symbole sont donc un moteur de churn a plein regime.
 
 ## Cadence : la peremption est structurelle, pas accidentelle
 
