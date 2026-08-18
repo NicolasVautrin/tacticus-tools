@@ -114,6 +114,16 @@ class RitesOfMorkaiExtraDamageEffect(BaseEffect):
     """`RitesOfMorkai_ExtraDamage` (0x5f9 = 1529) -- +extraDmg FLAT sur TOUTES les attaques du
     porteur, tant qu'il a une forme de Final Vengeance. Cf. l'en-tete de module pour la RE."""
 
+    # `IdunBattle.Entities.Effects.Loki.RitesOfMorkai_ExtraDamageEffect$$get_KeepOnRevive`
+    # (`IEffect` slot 2) SURCHARGE le defaut `True` de `IdunBattle.Entities.Effects.BaseEffect` :
+    # corps `xor al,al ; ret` (`32 c0 c3`), DERIVE par `probe_547r13_keep_on_revive.py`, entree
+    # versionnee `data/symbols/<build>/metadata/keep_on_revive.tsv`. L'UNE des trois seules classes
+    # du binaire a le renverser -- et le sens colle a la mecanique : le bonus de degat que Baldr
+    # accorde a l'unite << Inspired >> ne survit PAS a la resurrection de cette unite (#547-r14).
+    # ⚠ Lu UNIQUEMENT au revive (`keep_on_revive_gate`) : sur le chemin de MORT ce flag est inerte,
+    # donc ceci ne change RIEN a la sequence de mort -- 1529 y part comme avant.
+    keep_on_revive = False
+
     def _level(self) -> "int | None":
         """`Level$$ToZeroBasedIndex(abilityState)` : `RitesOfMorkai` est une ability ACTIVE, donc la
         variable s'indexe par le niveau d'ability ACTIVE (meme idiome que les 18 autres classes qui

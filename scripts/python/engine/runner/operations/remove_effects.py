@@ -99,9 +99,11 @@ son corps est le DOUBLON qu'IL2CPP a emis, l'appel reel etant INLINE dans
 ecritures, meme slot 0x5a, entre `SetHealth` et la rafale de flags). Conclure << mort >> d'une
 absence de xref aurait ete faux ici.
 
-⚠ **ET C'EST UN ECART DE PORT, NOMME** : le natif RETIRE au revive tous les effets du ressuscite
-SAUF ceux a `KeepOnRevive`, alors que `revive.py::ReviveUnitOperation.execute` n'en retire AUCUN.
-Residu `#547-r14` -- il vit dans `revive.py`, pas ici.
+⚠ **CE N'EST PLUS UN ECART DE PORT (#547-r14)** : `remove_effects_operation` porte desormais le
+second predicat, sous le parametre `keep_on_revive_gate` -- le mirror EXACT de `options.<+0x08>`,
+donc `False` par defaut (les quatre producteurs de MORT/DESPAWN) et `True` au SEUL appelant qui
+l'arme, `revive.py::ReviveUnitOperation.execute`. Le flag lu est `BaseEffect.keep_on_revive`
+(defaut `True`, derive).
 
 ## `RemoveEffectOperation$$Execute` — ce que « retirer » veut dire
 
@@ -299,13 +301,21 @@ def _remove_sub_effects(state: State, unit_id: int, parent) -> None:
 
 
 def remove_effects_operation(state: State, owner_id: Optional[int], *,
-                             step: Optional[int] = None) -> list:
+                             step: Optional[int] = None,
+                             keep_on_revive_gate: bool = False) -> list:
     """`IdunBattle.Operations.RemoveEffectsOperation$$Execute(owner, options)` — le slot 0x5a de
     `Core.Services.OperationProcessor`, atteint par `KillUnitOperation$$RemoveEffects(killed, step)`.
 
-    `step = None` = `options.step` sans valeur -> AUCUN filtre (tous les effets du porteur).
-    `step = KillUnitStep.X` -> ne retire que les effets dont `BaseEffect.remove_on_kill_step` vaut
-    `X` (cf. l'hypothese nommee en tete de module).
+    Les DEUX parametres sont les DEUX champs de la struct `RemoveEffectsOptions` (12 octets, layout
+    prouve en tete de module), et chacun garde SA clause :
+
+      * `step = None` = `options.step` sans valeur -> AUCUN filtre par step (tous les effets du
+        porteur) ; `step = KillUnitStep.X` -> ne retire que ceux dont `remove_on_kill_step` vaut `X`.
+      * `keep_on_revive_gate` = `options.<+0x08>`, le gate de la SECONDE clause. **`False` par
+        defaut, et c'est le mirror exact du binaire** : les quatre producteurs de MORT / DESPAWN
+        (`KillUnitOperation`, `DestroyMachineOperation`, `FleeOperation`, `RemoveUnitOperation`)
+        passent 0, donc `IEffect` slot 2 n'y est JAMAIS lu (#547-r13). Le SEUL producteur qui l'arme
+        est `IdunBattle.Operations.ReviveUnitOperation$$Execute` (#547-r14).
 
     Mirror des DEUX boucles natives : la premiere COLLECTE les candidats, la seconde les retire.
     La separation est load-bearing — un consommateur de `On(63 = PreEffectRemoved)`/`On(64 = EffectRemoved)` declenche pendant la
@@ -327,6 +337,15 @@ def remove_effects_operation(state: State, owner_id: Optional[int], *,
         defaut = KillUnitStep.AfterUnitRemove
         if step is not None and int(getattr(eff, "remove_on_kill_step", defaut)) != int(step):
             continue                       # `effectObj.<IEffect slot 4> != options.step.Value`
+        # `if (options.<+0x08> && effectObj.<IEffect slot 2>) continue` -- la SECONDE clause, dont
+        # le gate est INDEPENDANT du premier : le natif y saute (`goto LAB_...`) meme quand
+        # `options.step` n'a pas de valeur, donc elle est evaluee dans les DEUX regimes de step.
+        # ⚠ MEME LECON QUE #1088 SUR LE DEFAUT DE SECOURS : un objet-effet sans l'attribut (stub de
+        # test, effet hydrate hors `BaseEffect`) doit se comporter comme
+        # `IdunBattle.Entities.Effects.BaseEffect`, dont le getteur rend **True** -- ecrire `False`
+        # ici ferait disparaitre au revive des effets que le natif conserve.
+        if keep_on_revive_gate and getattr(eff, "keep_on_revive", True):
+            continue                       # `effectObj.<IEffect slot 2> == true` -> il SURVIT
         candidates.append(eff)
     removed = []
     for eff in candidates:
