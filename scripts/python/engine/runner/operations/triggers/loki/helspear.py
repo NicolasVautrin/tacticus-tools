@@ -54,7 +54,7 @@ en SEQUENCE simple (aucun des deux ne gate l'autre).
       & NOT AreFriends( Owner@+0x30, Target@+0x60,
                         UnitTeamSelectionType.ByCurrentTeam = 0, anyEntity = false )
       & NOT TriggeringAbilityIs( AbilityOrEffect(ActiveAbilityType.HeraldOfTheApocalypse = 0x3fc) )
-      & <DSLTriggers+0x58>                                   <-- RESIDU, cf. plus bas
+      & <DSLTriggers+0x58 = HasOwnersActiveAbilityBeenUsed>   <-- PORTE (#1008-r3), cf. plus bas
 
     GetNumDefeatedEnemiesCurrent() =
         GetPersistentData( AbilityOrEffect(TriggeredAbilityType.Helspear = 0x616),
@@ -94,27 +94,48 @@ CRITERE DE L'EMETTEUR
 ===================================================================================================
 RESIDUS NOMMES
 ===================================================================================================
-* **`<DSLTriggers+0x58>` : SIXIEME conjoint du `CreateTrigger` du RESET, NON IDENTIFIE.**
-  C'est un champ mis en cache par `IdunBattleLogic.Entities.DSLTriggers$$.ctor` (`new <classe C>()`,
-  sans argument), pas un noeud construit au site. Ce qui est ETABLI :
-    - le slot de metadata `DAT_183328470` n'a que DEUX xrefs, toutes deux dans ce `.ctor` -> la
-      classe n'est instanciee NULLE PART ailleurs, donc aucun `DSLTriggers$$<X>` NOMME ne l'alloue
-      (meme situation qu'`OwnerIsAliveAbilityTrigger`, cf. `entities/triggers.OwnerIsAlive`) ;
-    - le ctor ne lui pose aucun champ -> classe SANS etat ;
-    - les classes derivant d'`IdunBattle.DSL.AbilityTrigger` de taille 16 (aucun champ) sont
-      exactement TROIS : `YesTrigger`, `NoTrigger`,
-      `IdunBattle.DSL.HasActiveAbilityBeenUsedByOwnerAbilityTrigger` ;
-    - `<+0x40>` et `<+0x70>` sont deja identifies AILLEURS dans le port comme la constante VRAIE /
-      `YesTrigger`, et ils partagent le MEME slot de classe -> il reste `<+0x50>` et `<+0x58>` pour
-      `NoTrigger` et `HasActiveAbilityBeenUsedByOwner...`, sans que rien ne dise LEQUEL est LEQUEL.
-  Ce qui n'est PAS etabli : l'appariement final. L'argument « ce n'est pas `NoTrigger`, sinon
-  l'ability serait morte » vaut pour `YesTrigger` aussi bien que pour le gate, et il ne tranche
-  donc pas. **Le port N'INSCRIT PAS ce conjoint** -- il l'omet et le DIT, plutot que de deviner un
-  gate qui pourrait bloquer des increments legitimes (ou d'ecrire un no-op qui en laisserait
-  passer). Consequence MESURABLE si c'est bien `HasActiveAbilityBeenUsedByOwner` : le port compte
-  les kills faits AVANT le premier usage de l'active, le natif non. Residu `#1008-r3`,
-  BLOCAGE `capteur` (un hook sur `DSLTriggers$$.ctor` lirait le nom de classe en une seconde ;
-  offline, la table de metadata usages n'est pas dumpee).
+* ~~**`<DSLTriggers+0x58>` : SIXIEME conjoint du `CreateTrigger` du RESET, NON IDENTIFIE.**~~
+  **FERME (#1008-r3, 2026-08-18) -- IDENTIFIE PAR SON NOM DE CHAMP, ET PORTE.** Le residu cherchait
+  l'appariement par la TAILLE de classe (« il reste `<+0x50>` et `<+0x58>` pour `NoTrigger` et
+  `HasActiveAbilityBeenUsedByOwner...`, sans que rien ne dise LEQUEL est LEQUEL ») et declarait
+  `BLOCAGE: capteur`. Aucun capteur n'etait requis : le RPC `classFields` **deja en vol** nomme les
+  champs, en lecture pure et sans runner. RE-MESURE du 2026-08-18, session 11, build `t6dpr4k06g` --
+  `classFields("IdunBattleLogic.Entities", "DSLTriggers")` rend
+
+      +0x40 True   +0x48 False   +0x50 IsOwnerEmpty   +0x58 HasOwnersActiveAbilityBeenUsed
+      +0x60 No     +0x68 Never   +0x70 Yes
+
+  Le NOM DE CHAMP est plus fort que le nom de classe cherche : c'est le nom que le jeu donne au
+  slot, et il survit a un renumerotage. ⚠ Il refute AUSSI la premisse intermediaire du residu :
+  `<+0x50>` n'est pas `NoTrigger` (c'est `IsOwnerEmpty`), donc l'enumeration « trois classes de
+  taille 16 » ne pouvait pas trancher.
+
+  SEMANTIQUE, LUE au corps de `IdunBattle.DSL.HasActiveAbilityBeenUsedByOwnerAbilityTrigger$$
+  ShouldTrigger` (aucune deduction depuis le nom) :
+
+      owner = <AbilityEntities.Owner>                      ; null -> throw
+      comp  = owner.<ActiveAbilitiesComponent>             ; comp.<+0x20> null -> throw
+      foreach (a in comp.<+0x20>)                          # la Collection<ActiveAbility>
+          if (StaticBattleRules.ActiveAbility.IsActiveAbility(a.<+0x44>) && a.<+0x28> == 0)
+              return true
+      return false
+
+  Les deux offsets sont DEJA nommes par le port (`runner/components.py::ActiveAbility`) :
+  `+0x44 AbilityName` -> `ability_type`, `+0x28 CanStillBeUsed` -> `can_still_be_used`. Donc le
+  predicat est « le porteur a AU MOINS UNE active (au sens d'`IsActiveAbility`) qui n'est PLUS
+  utilisable » -- c'est-a-dire qui a DEJA SERVI. `IsActiveAbility` est lui aussi deja porte
+  (`runner/abilities/attack_type.py::is_active_ability`, mirror du decompile :
+  `!IsRegularAttack(t) && t not in {Heal, Repair, Repair_GalvanicField, Heal_TwistedScience,
+  HealingBalms_Heal}`) -- ce port-ci n'en re-derive AUCUN etage.
+
+  EFFET, exactement celui que le residu annoncait : les kills faits AVANT le premier usage d'une
+  active du porteur n'incrementent PLUS le compteur.
+  ⚠ TRI-ETAT, et la degradation est PERMISSIVE **par mesure, pas par gout** : le composant
+  `ActiveAbilitiesComponent` n'est seede que si la vue de decision porte `allAbilities: true`
+  (`runner/snapshot.py::_active_abilities` le DIT : « sans `allAbilities: true` [...] composant
+  ABSENT »). Composant ABSENT = canal NON MESURE -> on ne bloque pas, ce qui est STRICTEMENT le
+  comportement d'avant ce port. Le rabattre sur FAUX eteindrait le compteur entier sur un trou de
+  substrat -- une regression la ou il n'y avait qu'une absence de gate.
 * **l'EFFET `1583 Helspear_IgnoreArmor` est porte, sa MAGNITUDE n'atteint pas le calcul** :
   cf. `entities/effects/loki/helspear.py`, residu `#1008-r2`.
 """
@@ -139,7 +160,8 @@ from ....abilities.behaviours.ability_state import ResetActiveAbility
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect
 from ....abilities.behaviours.persistent_data import AddPersistentData, ClearPersistentData
-from ....components import OwnerComponent, UnitComponent
+from ....abilities.attack_type import is_active_ability
+from ....components import ActiveAbilitiesComponent, OwnerComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent, triggered_ability_state
 
@@ -174,6 +196,32 @@ _INCREMENT = 1
 #: pour corps `HasTrait(selector, UnitTrait.Steppable = 0x1b)`. Noeud DSL du foyer, jamais une
 #: recopie du nom de trait au site.
 _TARGET_IS_STEPPABLE = HasTrait(Target(), int(UnitTrait.Steppable))
+
+
+def _owners_active_ability_been_used(state: State, owner_id: int) -> bool:
+    """`<DSLTriggers+0x58> = HasOwnersActiveAbilityBeenUsed` (#1008-r3) -- mirror de
+    `IdunBattle.DSL.HasActiveAbilityBeenUsedByOwnerAbilityTrigger$$ShouldTrigger`, LU verbatim :
+
+        foreach (a in owner.<ActiveAbilitiesComponent>.<+0x20>)
+            if (StaticBattleRules.ActiveAbility.IsActiveAbility(a.<+0x44>) && a.<+0x28> == 0)
+                return true
+        return false
+
+    `+0x44 AbilityName` et `+0x28 CanStillBeUsed` sont les offsets que `runner/components.py::
+    ActiveAbility` NOMME deja ; `IsActiveAbility` est le mirror deja porte de
+    `runner/abilities/attack_type.py`. Cette fonction ne re-derive AUCUN etage.
+
+    TRI-ETAT : composant ABSENT = canal NON MESURE -> **VRAI** (on ne bloque pas). Ce n'est pas un
+    choix de gout : `runner/snapshot.py::_active_abilities` n'ajoute le composant que si la vue de
+    decision porte `allAbilities: true`, et rendre FAUX sur ce trou eteindrait le compteur entier --
+    une REGRESSION la ou il n'y avait, avant ce port, qu'une absence de gate. Un composant PRESENT
+    mais vide, lui, est une mesure : aucune active montee -> aucune active utilisee -> **FAUX**."""
+    ent = state.get_entity(int(owner_id))
+    comp = ent.get_component(ActiveAbilitiesComponent) if ent is not None else None
+    if comp is None:
+        return True                                    # canal NON MESURE (cf. la docstring)
+    return any(is_active_ability(a.ability_type) and not a.can_still_be_used
+               for a in (comp.abilities or ()))
 
 
 def helspear_buff_tree():
@@ -267,12 +315,18 @@ class HelspearResetActiveAbility(TriggeredAbility):
         return ev.dying_id if ev.dying_id is not None else ev.target_id
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        """Les CINQ conjoints portes du `CreateTrigger` (le sixieme, `<DSLTriggers+0x58>`, est le
-        residu `#1008-r3` de l'en-tete -- OMIS, et le dire est le point)."""
+        """Les SIX conjoints du `CreateTrigger` (le sixieme, `<DSLTriggers+0x58> =
+        HasOwnersActiveAbilityBeenUsed`, est porte depuis `#1008-r3` -- cf. l'en-tete)."""
         if ev.actor_id != self.owner_id:                   # get_OwnerIsActor
             return False
         owner = state.get_entity(self.owner_id)
         if owner is None:
+            return False
+        # `<DSLTriggers+0x58> = HasOwnersActiveAbilityBeenUsed` -- le SIXIEME conjoint (#1008-r3).
+        # Mirror de `IdunBattle.DSL.HasActiveAbilityBeenUsedByOwnerAbilityTrigger$$ShouldTrigger`
+        # (corps cite dans l'en-tete) : VRAI des qu'UNE active du porteur, au sens d'`IsActiveAbility`,
+        # n'est plus utilisable (`CanStillBeUsed@0x28 == 0`), c'est-a-dire a DEJA servi.
+        if not _owners_active_ability_been_used(state, int(self.owner_id)):
             return False
         ouc = owner.get_component(UnitComponent)
         if ouc is not None and not ouc.alive:              # On(..., ownerNeedsToBeAlive = 1)

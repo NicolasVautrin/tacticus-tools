@@ -867,7 +867,15 @@ class _AbilityAttack:
         # `AttackDamageOperation$$Execute`. Cote port, ce gate EST `is_attack_damage_op` (famille de
         # factory : `AttackWithAttackDamage` vs `AttackWithAbilityDamage`). Une attaque d'ability de la
         # famille ABILITY n'emet donc RIEN ici, comme le natif.
-        if is_attack_damage_op:
+        # #512-r6 : SECOND gate, `is_outside_attack`, strictement jumeau de l'`emit_finish_attack`
+        # de son frere `On(9)` ci-dessus. Les DEUX evenements sortent du MEME
+        # `FinishAttackOperation$$Execute`, atteint par le slot 59 que pousse un NOEUD -- jamais une
+        # operation de degat. Une feuille NUE (`isOutsideAttack = 0`) ne ferme pas l'attaque, donc
+        # elle n'emet NI 9 NI 10 ; c'est le noeud parent qui les emet tous les deux, dans l'ordre
+        # natif (`combat.py::_emettre_finish_attack_de_noeud`). Sans ce gate, `1088
+        # HellfyreMissileRack` (deux feuilles sur la MEME cible) emettait DEUX `On(10)` la ou le
+        # natif en emet UN, et le `On(9)` du noeud partait APRES eux.
+        if is_attack_damage_op and is_outside_attack:
             from ..triggers.dispatch.attack import attack_damage_attack_triggers
             from ..triggers.base import _is_ranged_position
             # `ranged` POSITION-based, comme le vecteur frere `after_hit_ability_attack` (mirror

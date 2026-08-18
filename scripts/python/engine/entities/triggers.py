@@ -823,20 +823,67 @@ class IsTurnOf(AbilityTrigger):
 
 
 def _select_actor(node, ctx):
-    """Mirror -- au domaine d'unite du port -- d'`IdunBattle.DSL.TargetsSelector$$SelectActor(
-    entities, UnitSelectionType.Any)`, le slot **8** d'`ITargetsSelector` par lequel
+    """Mirror d'`IdunBattle.DSL.TargetsSelector$$SelectActor(entities, UnitSelectionType.Any)`, le
+    slot **8** d'`ITargetsSelector` par lequel
     `IdunBattle.Entities.Triggers.AreFriendsAbilityTrigger$$ShouldTrigger` resout CHACUN de ses deux
     operandes (#963-r4).
 
-    Le natif itere `Select(entities)` DANS L'ORDRE et rend le PREMIER element qui resout en unite
-    (`SelectUnit(e, Any)`) ou, a defaut, qui est une machine ; `null` si aucun. Le port n'ayant
-    qu'un domaine d'unite ici (des dicts -- les tuiles y sont des `int`), c'est le PREMIER dict de
-    la liste evaluee, et `None` s'il n'y en a aucun.
+    LE CORPS NATIF, relu verbatim (#889-r10, build courant) :
+
+        foreach (entity in this.<slot 23 = Select>(entities)) {
+            if (entity == null) continue;
+            unit = TargetsSelector.SelectUnit(this, entity, selectionType);   # surcharge ENTITE
+            if (unit != null) return unit;
+            if (EntityExtensions.IsMachine(entity)) return entity;
+        }
+        return null;
+
+    et la surcharge ENTITE de `IdunBattle.DSL.TargetsSelector$$SelectUnit`, qui est LE point que
+    `#889-r10` declarait NON LU :
+
+        if (EntityExtensions.IsUnitFoot(entity) || EntityExtensions.IsTile(entity))
+            entity = UnitExtensions.GetUnit(entity, this.<+0x10 = State>);
+        return (entity != null && IsUnit(entity)
+                && MatchesUnitSelectionType(entity, selectionType, State)) ? entity : null;
+
+    ⇒ **UNE TUILE RESOUT EN SON OCCUPANT**, et le camp compare par `AreFriends` est celui de cet
+    OCCUPANT, jamais celui de la tuile. La lecture est corroboree par un SECOND etage independant :
+    `IdunBattle.Entities.EntityExtensions$$GetCurrentPlayer` porte lui-meme une branche
+    `<TileEntity> -> UnitExtensions.GetUnit(entity, state) -> RECURSION`. Le port avait choisi
+    l'occupant du cote conservateur ; c'est desormais LU, pas suppose.
+
+    CE QUE LE PORT NE RESOUT PAS ENCORE, et il le dit : `MatchesUnitSelectionType` (residu
+    `#433-r3-r2`, inerte a `Any`) et le repli MACHINE (`IsMachine(entity)`) -- le port n'a pas de
+    domaine machine distinct sur ce noeud.
 
     C'est la difference de FORME avec un `any` sur le produit des deux listes : le natif ne compare
-    QU'UN couple, et rend FAUX des qu'un operande ne resout rien."""
-    for u in _units_of(node, ctx):
-        if isinstance(u, dict):
+    QU'UN couple, et rend FAUX des qu'un operande ne resout rien.
+
+    ⚠ EFFET DE CE CORRECTIF, ET IL EST OBSERVABLE : sur un operande a domaine TUILE, l'ancien corps
+    rendait `None`, donc `AreFriends` FAUX -- donc `AreEnemies` (une negation NUE, cf. sa docstring)
+    **VRAI POUR TOUT OCCUPANT, ALLIE COMPRIS**. C'etait la degradation PERMISSIVE que la phase 2 de
+    `1215 InstrumentsOfVengeance` contournait par une normalisation AU SITE."""
+    board = getattr(ctx, "board", None)
+    occupant = None
+    for it in _units_of(node, ctx):
+        if isinstance(it, dict):                 # `entity is <UnitEntity>` -> elle se rend elle-meme
+            return it
+        if it is None or isinstance(it, bool):
+            continue
+        # `IsUnitFoot(entity) || IsTile(entity)` -> `UnitExtensions.GetUnit(entity, state)`. Foyer
+        # UNIQUE de la resolution d'occupant (`dsl.base._occupants_by_tile`, #433-r3-r1a) : il
+        # indexe par les PIEDS, donc n'importe quel pied d'une multi-hex rend SON unite.
+        p = None
+        if isinstance(it, int):
+            p = board.coord(it) if (board is not None and it in board.by_id) else None
+        elif isinstance(it, (tuple, list)) and len(it) == 2:
+            p = (it[0], it[1])
+        if p is None:
+            continue
+        if occupant is None:
+            occupant = _occupants_by_tile(ctx.units)
+        u = occupant.get((int(p[0]), int(p[1])))
+        if u is not None:
             return u
     return None
 
@@ -909,11 +956,14 @@ class AreFriends(AbilityTrigger):
     `SelectActor(entities, sel)` = premier élément d'ordre de `Select(entities)` qui **résout** en
     unité (`SelectUnit(e, sel)` -- lui-même résout un pied d'unité ou une TUILE en son occupant via
     `IdunBattle.Entities.UnitExtensions$$GetUnit`) ou, à défaut, qui est une MACHINE
-    (`IdunBattle.Entities.EntityExtensions$$IsMachine`). Le port n'a qu'un domaine d'unité (des
-    dicts) sur ce nœud : `_select_actor` prend donc le PREMIER dict de la liste évaluée. Ce qui
-    n'est PAS modélisé, et qui est nommé plutôt que deviné : la résolution TUILE -> occupant (aucun
-    call-site porté ne passe un opérande tile-domain -- ils passent `Units(...)`, qui a déjà
-    résolu), et le filtre `UnitSelectionType`, inerte à `Any`.
+    (`IdunBattle.Entities.EntityExtensions$$IsMachine`). ⚠ **La résolution TUILE -> occupant EST
+    portée depuis `#889-r10`** (le corps de la surcharge ENTITE de `SelectUnit` est cité verbatim
+    dans `_select_actor`) : la phrase qui vivait ici -- « ce qui n'est PAS modélisé [...] la
+    résolution TUILE -> occupant » -- est PÉRIMÉE, et sa justification (« aucun call-site porté ne
+    passe un opérande tile-domain ») l'était déjà : la phase 2 de `1215 InstrumentsOfVengeance`
+    passe `ActiveTarget@+0x68` BRUT, une entité TUILE. Restent hors du port, et c'est nommé plutôt
+    que deviné : le filtre `UnitSelectionType` (inerte à `Any`, résidu `#433-r3-r2`) et le repli
+    MACHINE.
 
     ⚠ **Le 4e argument natif `anyEntity` choisit la CLASSE du trigger**, et les deux classes ne
     résolvent pas leurs opérandes de la même façon (`IdunBattleLogic.Entities.DSLTriggers$$AreFriends`) :

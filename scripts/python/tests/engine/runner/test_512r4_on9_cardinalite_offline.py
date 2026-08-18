@@ -1,5 +1,6 @@
-"""#512-r4 -- CARDINALITE d'`On(Attack = 9)` : le natif l'emet PAR CIBLE au niveau du NOEUD, le port
-l'emettait PAR FEUILLE au niveau de l'OPERATION.
+"""#512-r4 / #512-r6 -- CARDINALITE ET ORDRE des DEUX evenements de cloture d'attaque.
+Le natif les emet PAR CIBLE au niveau du NOEUD, le port les emettait PAR FEUILLE au niveau de
+l'OPERATION.
 
 RE (decompile = verite). `On(9)` sort d'`IdunBattle.Operations.FinishAttackOperation$$Execute`, qui
 n'est atteint que par le slot **59** (`FinishAttack`) du processeur. Ce slot est pousse par des
@@ -17,6 +18,17 @@ NOEUDS de l'arbre, JAMAIS par une operation de degat -- les cinq emetteurs, relu
   * `IdunBattle.Entities.Behaviours.FinishAttackBehaviour$$Execute` ;
   * la voie MESSAGE.
 
+#512-r6 -- LE SECOND EVENEMENT, `On(AttackDamageAttack = 10)`, SORT DE LA MEME FONCTION. Fin de
+`FinishAttackOperation$$Execute`, relue verbatim au build `t6dpr4k06g` :
+
+    FUN_1800280e0(0x50, <IOperationProcessor>, proc, 9, entities)       # On(Attack = 9)  : TOUJOURS
+    if (*(char *)(currentAttack + 0x2c) != '\\0')
+        FUN_1800280e0(0x50, <IOperationProcessor>, proc, 10, entities)  # On(10)          : GATE
+
+`currentAttack` est le `GetCurrentAttack()` lu en TETE de la fonction ; son octet `+0x2c` est pose
+par la SEULE `IdunBattle.Operations.AttackDamageOperation$$Execute`. Cote port c'est exactement
+`is_attack_damage_op` -- pas un second canal.
+
 CE QUE CE FICHIER GARDE, ET IL LE FAIT PAR MESURE, PAS PAR LECTURE DE SOURCE :
   (1) un noeud `SortedAttackSeries` portant DEUX feuilles sur la MEME cible emet **UN** `On(9)` --
       et le CONTRE-CAS integre (des feuilles qui emettent elles-memes, c'est-a-dire le port
@@ -24,7 +36,15 @@ CE QUE CE FICHIER GARDE, ET IL LE FAIT PAR MESURE, PAS PAR LECTURE DE SOURCE :
   (2) la facade after-hit d'ability n'emet `On(9)` que si `emit_finish_attack` est vrai, et ses deux
       AUTRES vecteurs (`On(0x3c = UnitBlocked)`, `On(8 = AttackHit)`) partent dans les DEUX regimes
       -- ils viennent d'`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, donc de
-      l'OPERATION, et les confondre aurait eteint le cluster on-block avec la cloture.
+      l'OPERATION, et les confondre aurait eteint le cluster on-block avec la cloture ;
+  (3) MEME cardinalite pour `On(10)` : UN par cible distincte du noeud, DEUX dans le contre-cas ;
+  (4) l'ORDRE `9` PUIS `10` sur la voie NOEUD -- l'assertion porte sur la SEQUENCE, pas sur des
+      comptes (avant #512-r6 le noeud cloturant APRES ses feuilles, `On(10)` partait le PREMIER) ;
+  (5) le GATE de famille : un noeud dont TOUTES les feuilles sont de la famille ABILITY
+      (`AbilityDamageOperation`, qui ne pose PAS `+0x2c`) emet `On(9)` et **AUCUN** `On(10)` ;
+  (6) le gate de FEUILLE, mesure sur l'OPERATION REELLE : `execute_ability_attack` avec
+      `is_outside_attack = False` n'emet NI 9 NI 10, et avec `True` emet les deux. Ce cran-la ne
+      lit aucune source -- il execute le pipeline de degat complet.
 
 Porteur reel de l'ecart : `1088 HellfyreMissileRack` (`thousTerminator`), dont
 `HellfyreMissileRackAbility$$ExecuteBehaviour` monte DEUX `AbilityDamage` sur `ActiveTarget()` via
@@ -71,9 +91,13 @@ from dataclasses import replace                                            # noq
 from engine.dsl.base import DslContext                                     # noqa: E402
 from engine.dsl.effects import ExecutionContext                            # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType                 # noqa: E402
+from engine.entities.unit_context import UnitContext                       # noqa: E402
 from engine.runner.abilities.behaviours.combat import SortedAttackSeries   # noqa: E402
-from engine.runner.components import UnitComponent                         # noqa: E402
+from engine.runner.components import (HealthComponent, OwnerComponent,     # noqa: E402
+                                      PositionComponent, StatsComponent, UnitComponent)
+from engine.runner.operations.damage import AttackDamageOperation          # noqa: E402
 from engine.runner.operations.triggers.dispatch import attack as A         # noqa: E402
+from engine.runner.prng import IntBasedMersenneTwister                     # noqa: E402
 from engine.runner.state import State                                      # noqa: E402
 
 
@@ -92,6 +116,12 @@ class _FeuilleMuette:
         return None
 
 
+class _FeuilleAttaque(_FeuilleMuette):
+    """MEME feuille nue, mais de la famille ATTACK : c'est elle qui fait poser
+    `currentAttack@+0x2c` par `AttackDamageOperation$$Execute`, donc qui ouvre le gate d'`On(10)`."""
+    native_factory = "attack"
+
+
 class _FeuilleQuiClot(_FeuilleMuette):
     """CONTRE-CAS : la feuille emet SA propre cloture -- c'est exactement le port d'AVANT #512-r4,
     ou `execute_ability_attack` appelait `after_hit_ability_attack` sans gate."""
@@ -100,6 +130,17 @@ class _FeuilleQuiClot(_FeuilleMuette):
         super().execute(entities, ectx)
         A.finish_attack_triggers(ectx.state, (entities.caster or {}).get("id"),
                                  (entities.active_target or {}).get("id"), ranged=False)
+        return None
+
+
+class _FeuilleAttaqueQuiClot(_FeuilleAttaque):
+    """CONTRE-CAS de `#512-r6` : la feuille emet SA propre paire de cloture, dans l'ordre ou le port
+    la produisait -- `On(10)` etait emis par l'OPERATION, donc AVANT que le noeud n'emette `On(9)`."""
+
+    def execute(self, entities, ectx):
+        _FeuilleMuette.execute(self, entities, ectx)
+        A.attack_damage_attack_triggers(ectx.state, (entities.caster or {}).get("id"),
+                                        (entities.active_target or {}).get("id"), ranged=False)
         return None
 
 
@@ -184,6 +225,116 @@ def test_deux_cibles_distinctes_donnent_DEUX_On9(monkeypatch):
     noeud.execute(ctx, ExecutionContext(state=st, rng=st.rng))
     assert _n(vus, EventTriggerType.Attack) == 2, vus
     assert _n(vus, EventTriggerType.PreAttack) == 2, vus
+
+
+def _seq(vus, *ev_types) -> list:
+    """La SOUS-SEQUENCE des evenements demandes, dans l'ordre d'emission. C'est ce qui distingue un
+    ORDRE d'un COMPTE -- et l'ordre est precisement ce que `#512-r6` corrigeait."""
+    vises = {int(e) for e in ev_types}
+    return [e for e in vus if e in vises]
+
+
+# ==================================================================================================
+# #512-r6 -- `On(AttackDamageAttack = 10)`, meme foyer natif : cardinalite, ORDRE et gate de famille
+# ==================================================================================================
+
+def test_le_noeud_emet_UN_On10_pour_DEUX_feuilles_ATTACK_sur_la_MEME_cible(monkeypatch):
+    """(3) MEME `if (unit != prevUnit)` que pour `On(9)` : une cloture par cible DISTINCTE. Le gate
+    `currentAttack@+0x2c` est ouvert des qu'UNE feuille de la cible est de la famille ATTACK."""
+    st, ctx, _caster, cible = _etat_et_contexte()
+    noeud = SortedAttackSeries([(_SelFixe(cible), _FeuilleAttaque()),
+                                (_SelFixe(cible), _FeuilleAttaque())], ability_type=1088)
+    vus = _compter(monkeypatch)
+    noeud.execute(ctx, ExecutionContext(state=st, rng=st.rng))
+    assert _n(vus, EventTriggerType.AttackDamageAttack) == 1, vus
+    assert _n(vus, EventTriggerType.Attack) == 1, vus
+
+
+def test_l_ORDRE_sur_la_voie_NOEUD_est_9_PUIS_10(monkeypatch):
+    """(4) LE SECOND VOLET DU RESIDU, et il ne se mesure pas sur des comptes. `FinishAttackOperation
+    $$Execute` emet `9` puis, sous le gate, `10`."""
+    st, ctx, _caster, cible = _etat_et_contexte()
+    noeud = SortedAttackSeries([(_SelFixe(cible), _FeuilleAttaque())], ability_type=1088)
+    vus = _compter(monkeypatch)
+    noeud.execute(ctx, ExecutionContext(state=st, rng=st.rng))
+    assert _seq(vus, EventTriggerType.Attack, EventTriggerType.AttackDamageAttack) == \
+        [int(EventTriggerType.Attack), int(EventTriggerType.AttackDamageAttack)], vus
+
+
+def test_CONTRE_CAS_le_regime_d_avant_rend_DEUX_On10_ET_l_ordre_INVERSE(monkeypatch):
+    """La mesure ci-dessus n'est discriminante que si le regime d'AVANT #512-r6 rend AUTRE CHOSE.
+    Il rend les deux ecarts a la fois : DEUX `On(10)` (le port l'emettait par FEUILLE, depuis
+    l'OPERATION) et l'ordre INVERSE (`10` avant `9`, le noeud cloturant apres ses feuilles)."""
+    st, ctx, _caster, cible = _etat_et_contexte()
+    noeud = SortedAttackSeries([(_SelFixe(cible), _FeuilleAttaqueQuiClot()),
+                                (_SelFixe(cible), _FeuilleAttaqueQuiClot())], ability_type=1088)
+    vus = _compter(monkeypatch)
+    noeud.execute(ctx, ExecutionContext(state=st, rng=st.rng))
+    assert _n(vus, EventTriggerType.AttackDamageAttack) == 3, (
+        "2 clotures de feuille + 1 du noeud attendues dans le CONTRE-CAS : %r" % (vus,))
+    ordre = _seq(vus, EventTriggerType.Attack, EventTriggerType.AttackDamageAttack)
+    assert ordre[0] == int(EventTriggerType.AttackDamageAttack), (
+        "le CONTRE-CAS doit montrer l'ordre INVERSE (10 avant 9) : %r" % (ordre,))
+
+
+def test_un_noeud_de_famille_ABILITY_emet_On9_mais_AUCUN_On10(monkeypatch):
+    """(5) LE GATE. `IdunBattle.Operations.AbilityDamageOperation$$Execute` ne pose PAS
+    `currentAttack@+0x2c` -- seule `AttackDamageOperation$$Execute` le fait. Un noeud dont toutes
+    les feuilles sont de la famille ABILITY clot donc l'attaque SANS le second evenement."""
+    st, ctx, _caster, cible = _etat_et_contexte()
+    noeud = SortedAttackSeries([(_SelFixe(cible), _FeuilleMuette()),
+                                (_SelFixe(cible), _FeuilleMuette())], ability_type=1088)
+    vus = _compter(monkeypatch)
+    noeud.execute(ctx, ExecutionContext(state=st, rng=st.rng))
+    assert _n(vus, EventTriggerType.Attack) == 1, vus
+    assert _n(vus, EventTriggerType.AttackDamageAttack) == 0, vus
+
+
+def _etat_de_degat():
+    """Un etat MINIMAL mais REEL : deux unites completes, un PRNG cale. C'est ce qu'il faut pour
+    qu'`execute_ability_attack` aille jusqu'au bout (sans PRNG elle rend `None` en silence, et le
+    test serait vert sur zero evenement)."""
+    st = State()
+    st.rng = IntBasedMersenneTwister(1234)
+    ids = []
+    for i in (0, 1):
+        e = st.add_entity()
+        e.add_component(UnitComponent(visual_id="ultraEliminatorSgt", alive=True))
+        e.add_component(HealthComponent(hp=1000, hp_max=1000))
+        e.add_component(OwnerComponent(team=i, player=i))
+        e.add_component(PositionComponent(i * 2, 0))
+        e.add_component(StatsComponent(
+            ctx=UnitContext(entity_id=e.id, visual_id="ultraEliminatorSgt")))
+        ids.append(e.id)
+    return st, ids[0], ids[1]
+
+
+def test_la_FEUILLE_ne_clot_NI_9_NI_10_quand_isOutsideAttack_est_faux(monkeypatch):
+    """(6) LE GATE DE FEUILLE, MESURE SUR L'OPERATION REELLE -- aucun AST, aucune source lue.
+
+    Une `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` NUE (`isOutsideAttack = 0`) ne pousse
+    NI `StartAttack` NI `FinishAttack` : c'est le noeud parent qui ouvre et ferme. Les DEUX
+    evenements de cloture doivent donc disparaitre ENSEMBLE, et les vecteurs de l'OPERATION
+    (`On(8 = AttackHit)`, `On(0x42 = FinalDamage)`) doivent RESTER dans les deux regimes -- sinon le
+    gate aurait eteint autre chose que la cloture."""
+    st, att, tgt = _etat_de_degat()
+    resultats = {}
+    for outside in (True, False):
+        vus = _compter(monkeypatch)
+        r = AttackDamageOperation.execute_ability_attack(
+            st, att, tgt, 10, 10, 0, 1, damage_profile="Bolter", is_melee=True,
+            is_attack_damage_op=True, is_outside_attack=outside)
+        assert (r or {}).get("total"), (
+            "l'operation doit vraiment s'executer, sinon la mesure est VIDE : %r" % (r,))
+        resultats[outside] = list(vus)
+    assert _n(resultats[True], EventTriggerType.Attack) == 1, resultats[True]
+    assert _n(resultats[True], EventTriggerType.AttackDamageAttack) == 1, resultats[True]
+    assert _n(resultats[False], EventTriggerType.Attack) == 0, resultats[False]
+    assert _n(resultats[False], EventTriggerType.AttackDamageAttack) == 0, resultats[False]
+    # TEMOIN : les vecteurs de l'OPERATION survivent des deux cotes.
+    for regime, vus in resultats.items():
+        assert _n(vus, EventTriggerType.AttackHit) == 1, (regime, vus)
+        assert _n(vus, EventTriggerType.FinalDamage) == 1, (regime, vus)
 
 
 def test_la_facade_after_hit_gate_On9_mais_JAMAIS_On8_ni_On_block(monkeypatch):

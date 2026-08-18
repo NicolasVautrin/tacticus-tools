@@ -331,13 +331,79 @@ def test_residu_1008_r2_la_magnitude_de_l_effet_1583_est_branchee_SOUS_SA_GATE()
         is_melee=True, attacker_ctx={"id": 7}) is not None
 
 
-def test_residu_1008_r3_le_sixieme_conjoint_du_reset_n_est_PAS_porte():
-    """`#1008-r3` (BLOCAGE `capteur`) : `<DSLTriggers+0x58>` n'est pas identifie -- deux candidats
-    restants et rien ne tranche offline. Le port OMET le conjoint ; ce test FIGE le fait que les
-    gates portes sont exactement CINQ, pour qu'un sixieme n'apparaisse pas sans RE."""
-    src = HS.HelspearResetActiveAbility.matches.__doc__ or ""
-    assert "#1008-r3" in src, "le residu doit rester ECRIT au site qui l'omet"
-    assert "CINQ" in src
+def _etat_helspear(actives=None, avec_composant=True):
+    """Un `State` MINIMAL pour `HelspearResetActiveAbility.matches` : le porteur (team 1) et une
+    victime ENNEMIE (team 2), vivants tous les deux, non-`Steppable`.
+
+    `actives` = liste de `(ability_type, can_still_be_used)`. `avec_composant=False` reproduit le
+    substrat SANS `allAbilities: true` (composant ABSENT), qui est le tri-etat << non mesure >>."""
+    from engine.runner.state import State
+    from engine.runner.components import (ActiveAbilitiesComponent, ActiveAbility,
+                                          OwnerComponent, StatsComponent, UnitComponent)
+    from engine.entities.unit_context import UnitContext
+    st = State()
+    ids = []
+    for team in (1, 2):
+        e = st.add_entity()
+        e.add_component(UnitComponent(visual_id="bloodHaarken" if team == 1 else "orksNob",
+                                      alive=True))
+        e.add_component(OwnerComponent(team=team, player=team))
+        e.add_component(StatsComponent(ctx=UnitContext(entity_id=e.id, visual_id="x")))
+        ids.append(e.id)
+    if avec_composant:
+        st.get_entity(ids[0]).add_component(ActiveAbilitiesComponent(abilities=[
+            ActiveAbility(ability_type=int(t), can_still_be_used=bool(u))
+            for t, u in (actives or ())]))
+    return st, ids[0], ids[1]
+
+
+def _matches_helspear(st, owner_id, victim_id):
+    from engine.runner.operations.triggers.base import TriggerEvent
+    ab = HS.HelspearResetActiveAbility(owner_id=owner_id)
+    ev = TriggerEvent(int(EventTriggerType.UnitDefeated), owner_id, victim_id,
+                      ranged=False, profile=None)
+    ev.dying_id = victim_id
+    return bool(ab.matches(st, ev))
+
+
+def test_1008r3_le_SIXIEME_conjoint_du_reset_est_PORTE_et_il_MORD():
+    """`#1008-r3` FERME. `<DSLTriggers+0x58>` est `HasOwnersActiveAbilityBeenUsed` -- nom LU par
+    `classFields("IdunBattleLogic.Entities", "DSLTriggers")` (RPC en lecture pure, aucun runner), et
+    semantique LUE au corps de
+    `IdunBattle.DSL.HasActiveAbilityBeenUsedByOwnerAbilityTrigger$$ShouldTrigger` :
+    « une active (au sens d'`IsActiveAbility`) dont `CanStillBeUsed@0x28` est FAUX ».
+
+    ⚠ CE TEST REMPLACE le cran-signal qui figeait << exactement CINQ gates >> : c'etait le signal du
+    residu, et il devait TOMBER avec cette tranche. Il est remplace par la garde POSITIVE, mesuree
+    sur `matches`, avec son CONTRE-CAS -- sans quoi on aurait echange un cran contre rien."""
+    # (a) une active ENCORE utilisable -> l'active n'a PAS servi -> le kill n'est PAS compte.
+    st, owner, victim = _etat_helspear([(int(ActiveAbilityType.HeraldOfTheApocalypse), True)])
+    assert _matches_helspear(st, owner, victim) is False
+    # (b) CONTRE-CAS : la MEME active, DEJA utilisee -> le kill est compte. Sans cet ecart, (a) ne
+    #     mesurerait que << matches rend False >>, ce que n'importe quel autre conjoint donnerait.
+    st, owner, victim = _etat_helspear([(int(ActiveAbilityType.HeraldOfTheApocalypse), False)])
+    assert _matches_helspear(st, owner, victim) is True
+
+
+def test_1008r3_le_filtre_IsActiveAbility_est_APPLIQUE_pas_seulement_cite():
+    """Le natif gate sur `StaticBattleRules.ActiveAbility$$IsActiveAbility(a.<+0x44>)` AVANT de lire
+    `CanStillBeUsed`. Une entree EXCLUE par ce predicat -- ici `Heal` (0x12), l'un des cinq litteraux
+    du decompile -- ne doit donc PAS ouvrir le gate, meme epuisee."""
+    st, owner, victim = _etat_helspear([(int(ActiveAbilityType.Heal), False)])
+    assert _matches_helspear(st, owner, victim) is False
+    # TEMOIN : la MEME entree epuisee, mais sur un type qui PASSE `IsActiveAbility`, ouvre le gate.
+    st, owner, victim = _etat_helspear([(int(ActiveAbilityType.HeraldOfTheApocalypse), False)])
+    assert _matches_helspear(st, owner, victim) is True
+
+
+def test_1008r3_le_TRI_ETAT_ne_fabrique_pas_un_FAUX_sur_un_trou_de_substrat():
+    """Composant `ActiveAbilitiesComponent` ABSENT = canal NON MESURE (`snapshot.py` ne l'ajoute que
+    si la vue de decision porte `allAbilities: true`). On ne bloque PAS -- c'est STRICTEMENT le
+    comportement d'avant ce port. Un composant PRESENT mais VIDE, lui, EST une mesure."""
+    st, owner, victim = _etat_helspear(avec_composant=False)
+    assert _matches_helspear(st, owner, victim) is True, "canal absent -> on ne bloque pas"
+    st, owner, victim = _etat_helspear([])                       # present et VIDE = mesure
+    assert _matches_helspear(st, owner, victim) is False
 
 
 def test_residu_1008_r1_UnitLevel_sans_substrat_rend_zero():

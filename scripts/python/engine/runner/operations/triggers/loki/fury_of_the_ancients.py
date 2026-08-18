@@ -113,25 +113,46 @@ XREFS ENTRANTES, jamais par le pseudo-C (piege #585-r3) :
   `1 preselectionnee + 1 saut = 2 cibles`, ce que le natif fait sur les TROIS montages de
   `probe_927` (et le mutant `maxTargets = 0` MORD sur les trois : une seule cible frappee).
 
-  ⚠⚠ **DEUX CALL-SITES LISENT `<DSLFormulas + 0x20>` ET LEURS COMPORTEMENTS MESURES SONT
-  INCOMPATIBLES -- L'UN DES DEUX OFFSETS AFFICHES EST FAUX, ET ON LE DIT PLUTOT QUE DE CHOISIR.**
+  ⚠⚠ **`#927-r1` FERME (2026-08-18) -- AUCUN DES DEUX OFFSETS N'EST FAUX. LA FAUTE ETAIT UNE
+  IDENTITE DE CLASSE, ET C'EST LE PIEGE DEJA DOCUMENTE DU DEPOT : `$$.ctor` N'EST PAS LA CLASSE.**
 
-    `DSLFormulas$$.ctor`          : `+0x18 <- (0)`, `+0x20 <- (1)`, `+0x28 <- (2)`,
-                                    `+0x30 <- (100)`, `+0x38 <- (-1)`
-    `CreateBehaviour`             : `maxTargets = <DSLFormulas + 0x20>`   -> MESURE : **1**
-    `DSLTriggers$$AmountIsZero(x)`: `op_LogicalNot( AmountIsGreaterAbilityTrigger(
-                                        x, minAmount = <DSLFormulas + 0x20>) )`
-    `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` : `return minAmount.Calculate() < count(x)`
+  Ce que le residu affirmait -- « l'un des deux offsets affiches par le pseudo-C est faux » --
+  est REFUTE, a l'ASSEMBLEUR :
 
-  Si `+0x20` valait 1 des DEUX cotes, le gate serait `count > 1` -- le passif exigerait **deux**
-  ennemis adjacents. Il n'en exige qu'un : mesure `probe_927 --solo` (tuile adjacente a EXACTEMENT
-  un ennemi, le natif FRAPPE). Donc `minAmount = 0`, donc les deux `+0x20` ne designent pas le meme
-  champ, et le pseudo-C en affiche un de travers. Le port suit la MESURE des deux cotes :
-  `MAX_TARGETS = 1` et le gate `count > 0` (ce que le NOM `AmountIsZero` dit, et ce que le noeud
-  porte `AmountIsZero` fait deja). RESIDU `#927-r1`.
-  ⚠ `loki/fabricator_claw_array.py` annote ce champ « `<Zero @formulas+0x20>` » : cote GATE cette
-  lecture est celle que la mesure confirme, et son port (`count <= 0`) est JUSTE. On ne la corrige
-  donc pas -- c'est le `.ctor` qu'il faut relire, pas le call-site.
+    `DSLFormulas$$.ctor`  prologue `mov rdi,rcx` (donc `rdi == this`), puis
+                          `xor edx,edx ; call <ctor> ; mov [rdi+0x18],rbx`   -> `+0x18 = Direct(0)`
+                          `mov edx,1   ; call <ctor> ; mov [rdi+0x20],rbx`   -> `+0x20 = Direct(1)`
+    `DSLTriggers$$AmountIsZero`  `mov rax,[rcx+0x10]` (= le `dsl`, pose par `DSLTriggers$$.ctor`)
+                          `mov rax,[rax+0x80]` (= `DSLFormulas` -- prouve par
+                          `FuryOfTheAncientsAbility$$CreateBehaviour`, qui appelle
+                          `DSLFormulas$$ConfigConst` sur CE champ), puis `mov rdi,[rax+0x20]`.
+
+  Les DEUX call-sites lisent donc bien `Direct(1)`. **CE QUI DIFFERE EST LA CLASSE ALLOUEE**, et le
+  discriminant est l'`Il2CppClass*` passe a l'allocateur, jamais le nom du `.ctor` :
+
+    `DSLTriggers$$AmountIsZero`             alloue `<classe A>` avec `minAmount = <formulas+0x20> = 1`
+    `DSLTriggers$$AmountIsEqualOrGreater`   alloue la **MEME** `<classe A>`
+    `DSLTriggers$$AmountIsGreaterThanZero`  alloue `<classe B>` avec `minAmount = <formulas+0x18> = 0`
+    `DSLTriggers$$AmountIsGreater`          alloue la **MEME** `<classe B>`
+
+  Or les deux `ShouldTrigger` ne comparent PAS pareil, et ils sont NOMMES tous les deux :
+  `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` finit par
+  `return minAmount.Calculate() <= value;` -- tandis que
+  `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par `<`.
+  Leurs `.ctor` sont des corps TRIVIAUX que l'ICF a FONDUS : Ghidra affiche
+  `AmountIsGreaterAbilityTrigger$$.ctor` aux DEUX sites, et la RE d'origine a donc lu le
+  `ShouldTrigger` de la MAUVAISE classe.
+
+  D'ou, verbatim :
+    `AmountIsZero(x)` = `op_LogicalNot( AmountIsEqualOrGreater(x, Direct(1)) )`
+                      = `NOT (1 <= Count(x))` = **`Count(x) == 0`**.
+
+  Tout s'accorde alors : le NOM `AmountIsZero`, la mesure `probe_927 --solo` (un seul ennemi
+  adjacent suffit -> `NOT AmountIsZero` = `Count >= 1`), `maxTargets = <formulas+0x20> = 1` et
+  ses 2 cibles frappees, et `AmountIsGreaterThanZero(x)` = `AmountIsGreater(x, Direct(0))` = `0 < x`.
+  Le port etait CORRECT des deux cotes (`MAX_TARGETS = 1`, gate `count <= 0` nie) ; seule la
+  CITATION etait fausse. Le noeud `entities/triggers.py::AmountIsZero` portait deja la bonne
+  lecture, comme `engine/battle_query.py` (#293) qui avait rencontre le meme piege sur l'aura.
 
   ⚠ `chainOptions+0x12 = 1` (le SEUL octet pose) = coup DIFFERE d'un cran : la 2e cible est choisie
   alors que la 1re est encore VIVANTE. Meme valeur que les deux consommateurs de `ChainAbilityDamage`.

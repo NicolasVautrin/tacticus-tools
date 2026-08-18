@@ -32,9 +32,19 @@ est la face DECISION, tranchee par la tache #242 et hors perimetre ici).
     DSLSelectors+0x40)` -- c'est CETTE fonction qui NOMME les deux slots : `+0x30 = Owner`,
     `+0x40 = Actor` (cf. le noeud `selectors.accessors.Owner`) ;
   * `IdunBattleLogic.Entities.DSLTriggers$$AmountIsZero(selector)` (surcharge SELECTEUR) =
-    `op_LogicalNot( AmountIsGreaterAbilityTrigger(selector, <Zero @formulas+0x20>) )` = « le selecteur
-    ne rend RIEN » ; sous le `op_LogicalNot` du trigger, la condition est donc « il existe au moins une
-    cible ».
+    `op_LogicalNot( AmountIsEqualOrGreaterAbilityTrigger(selector, <One @formulas+0x20>) )`
+    = `NOT (1 <= Count(selector))` = « le selecteur ne rend RIEN » ; sous le `op_LogicalNot` du
+    trigger, la condition est donc « il existe au moins une cible ».
+    ⚠ **CETTE LIGNE A PORTE DEUX ERREURS, corrigees le 2026-08-18 (#927-r1), et elles se
+    COMPENSAIENT** : le champ `<formulas+0x20>` est `Direct(1)`, PAS `Zero` (le `.ctor` de
+    `DSLFormulas` pose `+0x18 = Direct(0)` et `+0x20 = Direct(1)`, verifie a l'ASSEMBLEUR, prologue
+    `mov rdi,rcx` compris) ; et la classe allouee est `AmountIsEqualOrGreaterAbilityTrigger`
+    (`ShouldTrigger` finit par `minAmount <= value`), PAS `AmountIsGreaterAbilityTrigger` (qui finit
+    par `<`). Le discriminant est l'`Il2CppClass*` passe a l'allocateur : `AmountIsZero` alloue la
+    MEME classe qu'`AmountIsEqualOrGreater`, et une AUTRE que celle d'`AmountIsGreaterThanZero`
+    (lequel lit `<formulas+0x18> = Direct(0)`). Les deux `.ctor` sont des corps TRIVIAUX fondus par
+    l'ICF, donc Ghidra les nomme pareil -- meme piege que celui deja rencontre sur l'aura (#293,
+    `engine/battle_query.py`). Le predicat porte (`count <= 0`) etait JUSTE et ne change pas.
 
 `...$$GetTargetSelector` =
 
@@ -149,8 +159,8 @@ def fabricator_claw_array_trigger_tree():
         get_OwnerIsActor & op_LogicalNot( AmountIsZero( GetTargetSelector() ) )
 
     `AmountIsZero` prend un SELECTEUR cote natif (surcharge `DSLTriggers$$AmountIsZero(selector)`, qui
-    construit `NOT AmountIsGreater(selector, <Zero>)`) ; le noeud porte prend une VALEUR, d'ou le
-    `Count(...)` explicite -- meme predicat, `count <= 0`.
+    construit `NOT AmountIsEqualOrGreater(selector, <One @formulas+0x20>)`, cf. l'en-tete) ; le noeud
+    porte prend une VALEUR, d'ou le `Count(...)` explicite -- meme predicat, `count <= 0`.
 
     Comme `GetTargetSelector`, une NOUVELLE instance a chaque appel : l'arbre du trigger porte SON
     `PickRandomly`, distinct de celui du behaviour (cf. l'en-tete du module)."""
