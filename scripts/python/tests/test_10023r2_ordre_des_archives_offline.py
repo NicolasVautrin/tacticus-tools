@@ -148,7 +148,7 @@ def test_etage2_sur_le_depot_l_ordre_rendu_est_croissant_en_estampille():
 
 # --------------------------------------------- etage 3 : le consommateur, `previous_build`
 
-def test_etage3_previous_build_n_elit_JAMAIS_un_build_non_datable(arbre, monkeypatch):
+def test_etage3_previous_build_n_elit_JAMAIS_un_build_non_datable(arbre, tmp_path, monkeypatch):
     """Le piege exact que la convention de tri cree, et que le foyer doit refuser.
 
     Les non datables sont places EN FIN, donc `reversed(...)` les visite EN PREMIER. Un
@@ -162,7 +162,15 @@ def test_etage3_previous_build_n_elit_JAMAIS_un_build_non_datable(arbre, monkeyp
     monkeypatch.setattr(P283, "builds_sans_date", SL.builds_sans_date)
     #: `P283` resout ses tables par `REPO / "data" / "symbols" / b` : on aligne l'arbre temoin
     #: sur cette forme plutot que de reecrire le foyer pour le test.
-    faux_repo = SL.SYMBOLS.parent / "_repo"
+    #: ⚠ ECRIT DEPUIS `tmp_path`, JAMAIS DEPUIS `SL.SYMBOLS` -- et l'ecart n'est PAS cosmetique.
+    #: A l'execution les deux coincident (le fixture `arbre` pose `SL.SYMBOLS = tmp_path`), mais le
+    #: balayage STATIQUE de `probe_273 --only-scan` ne voit pas un `monkeypatch` : il resout
+    #: `SL.SYMBOLS.parent / "_repo"` sur la valeur PAR DEFAUT du module et lit `data/_repo/...`,
+    #: donc une ECRITURE de run sous `data/` -- ce que l'invariant interdit. Trouve AU MERGE
+    #: (#10023-r2 + #273), par un cliquet que la meme passe de merge venait de reparer : le
+    #: `parents[3]` de `probe_273` etait faux d'un cran, donc l'accusation n'existait pas encore
+    #: quand ce fichier a ete ecrit.
+    faux_repo = tmp_path.parent / "_repo"
     (faux_repo / "data").mkdir(parents=True, exist_ok=True)
     lien = faux_repo / "data" / "symbols"
     if not lien.exists():
