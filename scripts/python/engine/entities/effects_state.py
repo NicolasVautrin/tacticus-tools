@@ -369,9 +369,11 @@ class EffectsState:
         remis à 0 par le `DeactivateEffect` qui précède). Inobservable tant qu'aucun consommateur porté
         n'écoute `On(0x3f)` — il n'y en a aucun.
 
-        ⚠ Les ENFANTS d'un composite expiré restent pris par la cascade `parent_type` ci-dessous, qui
-        pose `consumed` sans passer par le foyer : ils ne publient donc pas leurs propres vecteurs.
-        Écart PRÉEXISTANT, hors de cette voie (résidu #936-r1-r1)."""
+        ⚠ Les ENFANTS d'un composite expiré passent EUX AUSSI par le foyer depuis #936-r1-r2 : la
+        cascade `parent_type` ci-dessous route par `remove_effect_instance` dès que `state` est
+        fourni. Elle posait `consumed` en direct, ce qui sautait non seulement les trois vecteurs
+        mais aussi `unregister_name` — donc laissait le NOM de l'enfant collé à
+        l'`EffectsOwnedComponent` du porteur, sur le canal que LIT la couche décision."""
         lst = self.by_unit.get(int(unit_id), [])
         due: list = []
         for e in lst:
@@ -394,14 +396,50 @@ class EffectsState:
                     et = e.effect_type
                     if _remove_effects.remove_effect_instance(state, int(unit_id), e):
                         removed.append(et)
-        # cascade : tant qu'un parent vient de disparaître, consommer ses enfants (point fixe — gère un
+        # cascade : tant qu'un parent vient de disparaître, retirer ses enfants (point fixe — gère un
         # éventuel chaînage parent->enfant->petit-enfant ; aujourd'hui 1 niveau pour Stunned).
+        #
+        # #936-r1-r2 — ELLE PASSE PAR LE FOYER, elle aussi. Le natif retire les enfants par
+        # `IdunBattle.Operations.RemoveEffectOperation$$RemoveSubEffects`, dont le corps est un appel
+        # au slot 0x11 sur CHAQUE enfant — donc le MÊME `RemoveEffectOperation$$Execute` que le
+        # parent, récursivement. Poser `consumed` en direct sautait tout ce corps.
+        #
+        # ⚠ CE N'EST PAS QUE LES TROIS VECTEURS, et la fiche du résidu l'annonçait « INOBSERVABLE » :
+        # `remove_effect_instance` appelle aussi `unregister_name`, et les enfants SONT inscrits à
+        # l'`EffectsOwnedComponent` à la pose (`AddEffectOperation._spawn_sub_effects` ->
+        # `_register_name`, une ligne par enfant). Un enfant seulement marqué gardait donc son NOM
+        # COLLÉ sur le porteur — exactement la fuite que #936-r1 a corrigée pour le PARENT, et ce
+        # canal-là EST lu par la couche décision (`ai/state_bridge.py`, `playbook/scene.py`).
+        #
+        # POURQUOI CETTE CASCADE SUBSISTE À CÔTÉ de `_remove_sub_effects` (appelé par le foyer sur le
+        # parent) : ce dernier dérive les enfants de `parent.sub_effects_on_apply()` et sort tout de
+        # suite si le parent n'en déclare AUCUN. Les liens reconstruits à l'hydratation
+        # (`snapshot._load_effect_parent_links`) n'ont pas de specs — la cascade est leur seul
+        # chemin. Les deux domaines se recouvrent partiellement ; l'idempotence de
+        # `remove_effect_instance` (gates `+0x5f`/`+0x5e` -> `eff.consumed`) rend le recouvrement
+        # inoffensif : le second passage est un no-op qui rend `False`.
+        #
+        # REPLI `state is None` = `consumed = True`, le comportement strictement antérieur — même
+        # raison que la branche « échéance » ci-dessus (un `EffectsState` sans `OperationProcessor`).
         while True:
             gone = {e.effect_type for e in lst
                     if (e.consumed or e.expired) and e.effect_type is not None}
             changed = False
-            for e in lst:
-                if not e.consumed and e.parent_type in gone:
+            # COPIE de la liste : `remove_effect_instance` publie des vecteurs, et un consommateur
+            # peut poser un effet -> muter `lst` pendant l'itération (mirror du `new List<int>(...)`
+            # que `RemoveSubEffects` fait pour exactement cette raison).
+            for e in list(lst):
+                if e.consumed or e.parent_type not in gone:
+                    continue
+                if state is None:
+                    e.consumed = True
+                    changed = True
+                elif _remove_effects.remove_effect_instance(state, int(unit_id), e):
+                    changed = True
+                else:
+                    # Le foyer a REFUSÉ (gate d'idempotence). Sans cette marque l'enfant resterait
+                    # non consommé et serait re-tenté à chaque tour de boucle -> point fixe jamais
+                    # atteint. On ne relâche pas la garde, on la termine.
                     e.consumed = True
                     changed = True
             if not changed:
