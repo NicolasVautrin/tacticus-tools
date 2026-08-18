@@ -76,12 +76,16 @@ class SolarAtomizerPlaybook(NonComparablePlaybook):
     `.cctor` : `<statique> = Fix64.op_Implicit(1)` -> `minUtility` du Bucket = **1**.
     Tier `get_Priority` = **100** (`AbilityPriority.Early`), mesure #170.
 
-    RESIDU NOMME (`#1027-r4`) : `dsl_context_for_tile_target` ne REPOSITIONNE PAS le caster sur la
-    position candidate, alors que `GetEligibleTargetsSelectable(caster, casterPosition)` construit
-    ses `AbilityEntities` A CETTE POSITION. Or `GetTargetTiles` lit `CasterTiles@+0x58` (la
-    direction de la bande EN DEPEND). Consequence : la bande est calculee depuis l'empreinte
-    COURANTE du caster pour toutes les positions balayees. Inerte tant que Belisarius ne bouge pas
-    (boss 3 hex), mais le dire vaut mieux que le taire."""
+    ⚠ `#1027-r4` FERME : le caster EST desormais repositionne sur la position balayee. Le corps
+    natif itere `BasePlaybook$$GetEligibleTargetsSelectable(this, caster, casterPosition)`, qui
+    ecrit `ae@+0x48 = possibleCasterPosition` (et `ae@+0x40 = UnitPosition.get_MainTile(...)`),
+    puis evalue la bande par `TargetsSelector$$SelectTiles(GetTargetTiles(), <copie de ae>)` : le
+    `CasterTiles@+0x58` de `GetTargetTiles` prend donc la 1re branche de
+    `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` (`CasterPosition.Tiles`), jamais
+    `GetTiles(Caster)`. Le port pose `caster_pos` sur le `DslContext` par position balayee ; a
+    l'ORIGINE il ne pose RIEN, pour garder l'empreinte MESUREE (cf. `generate_candidates`).
+    Ce qui RESTE ouvert est `#459-r1`, distinct : `caster_pos` est une main tile, pas une
+    `UnitPosition` -- le caster est au BON ENDROIT, pas encore a la BONNE FORME."""
     ABILITY_ID = int(ActiveAbilityType.SolarAtomizer)          # 1174
     MIN_UTILITY = 1.0
     PRIORITY = native_priority(int(ActiveAbilityType.SolarAtomizer))   # 100 = AbilityPriority.Early
@@ -120,12 +124,25 @@ class SolarAtomizerPlaybook(NonComparablePlaybook):
         for caster_pos in ctx.reach_nc:
             # Selecteur PAR POSITION : `fromHere` a l'origine (ordre natif exact), union ailleurs.
             centers = from_here if (caster_pos == ctx.origin and from_here) else union
+            # #1027-r4 -- `AbilityEntities.CasterPosition` (+0x48), POSE PAR POSITION BALAYEE.
+            # `...SolarAtomizerPlaybook$$EvaluateNonComparable` itere
+            # `BasePlaybook$$GetEligibleTargetsSelectable(this, caster, casterPosition)`, qui ecrit
+            # `ae@+0x48 = possibleCasterPosition`, puis evalue `GetTargetTiles()` PAR
+            # `TargetsSelector$$SelectTiles(sel, <copie de ae>)` : le `CasterTiles@+0x58` de la
+            # bande lit donc la position CANDIDATE, pas la position courante. Sans ce fil, la
+            # DIRECTION de la bande (`DirectionTo(AdjacentTiles(Target) & Tiles(CasterTiles),
+            # Target)`) etait calculee depuis l'origine pour toutes les positions balayees.
+            # ⚠ A L'ORIGINE on passe `None` : le repli `_feet(caster)` rend l'empreinte MESUREE
+            # (`decisionView.units[].feet`), la ou `caster_pos` la reduirait a sa main tile
+            # (#459-r1). C'est la regle de `the_lantern._caster_footprint`.
+            cp = None if caster_pos == ctx.origin else caster_pos
             for center in centers:
                 tid = (ctx.tile_id_by_pos or {}).get(center)
                 if tid is None:
                     continue
                 sel = solar_atomizer_target_tiles(FixedTileIds([tid]))
-                tiles = sel.evaluate(replace(dctx, subject=None, active_target=None)) or []
+                tiles = sel.evaluate(replace(dctx, subject=None, active_target=None,
+                                             caster_pos=cp)) or []
                 u = 1.0                                        # `Fix64.op_Implicit(1)`
                 for t in tiles:
                     if self._tile_holds_enemy(dctx, board, t, epos):
