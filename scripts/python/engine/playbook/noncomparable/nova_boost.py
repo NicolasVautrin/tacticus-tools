@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first, native_priority
+from ._base import (NCContext, NonComparablePlaybook, _sweep_origin_first,
+                    has_minimum_remaining_turns, native_priority, probability_gate)
+
+#: Le litteral `2` du call-site `HasMinimumRemainingTurns(unit, 2)` -- le MEME que 1193 et 1194.
+_MIN_REMAINING_TURNS = 2
 
 
 class NovaBoostPlaybook(NonComparablePlaybook):
@@ -28,13 +32,36 @@ class NovaBoostPlaybook(NonComparablePlaybook):
       dispatch d'interface (@180028910 = trampoline), non lisible statiquement -> la base est la COHERENCE
       GENERATEUR + la classe self-target confirmee, PAS un agreement (arene-inagreable). Cf. NovaShield =
       classe TILE-target, comportement OPPOSE.]
-    - N1 : gate `IdunBattle.AI.Playbook.Loki.NovaBoostPlaybook$$ShouldEvaluate` = `if query.slot0x1a(unit,2) then base.ShouldEvaluate else 0`
-      (précondition Nova, prob. charge, + base) NON modélisé -> on s'appuie sur le filtre driver
-      `usable is False` (supposé encoder la précondition). L'eligible-empty (`GetEligibleTargetsSelectable`
-      vide -> le natif n'émet rien) est modélisé ci-dessous."""
+    - N1 **RESOLU (#552-r4)** : le gate slot-4 est PORTE, cf. `should_evaluate` ci-dessous.
+      L'ancienne note l'appelait `query.slot0x1a(unit,2)` << precondition Nova, prob. charge >> --
+      une SUPPOSITION, et le slot etait faux (`0x1a` = 26 = `ShouldPlayerSkipTurn`, UN parametre).
+      L'eligible-empty (`GetEligibleTargetsSelectable` vide -> le natif n'émet rien) est modélisé
+      ci-dessous."""
     ABILITY_ID = int(ActiveAbilityType.NovaBoost)  # 1192
     MIN_UTILITY = 1.0
     PRIORITY = native_priority(int(ActiveAbilityType.NovaBoost))   # 1000 = AbilityPriority.First (surcharge mesuree, #170)
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """`...NovaBoostPlaybook$$ShouldEvaluate(unit)` -- la classe SURCHARGE le slot 4 :
+
+            if (!<IBattleQuery slot 0x1b = 27 = HasMinimumRemainingTurns>(unit, 2))  return false;
+            return BasePlaybook$$ShouldEvaluate(unit);
+
+        ⚠ **CE GATE ETAIT NON PORTE, ET SON ABSENCE EST PERMISSIVE** (le port proposait 1192 dans
+        le dernier tour, la ou le natif la saute) -- donc invisible en self-play. Trouve par
+        `probe_552r3_slot4_declare` : la metadata DECLARE `ShouldEvaluate` sur cette classe alors
+        que le port ne surchargeait rien. Signature exacte de #46.
+
+        Slot RESOLU, pas suppose : `metadata/interface_slots.tsv` donne
+        `IBattleQuery 27 HasMinimumRemainingTurns 2 params`, arite concordante avec les DEUX
+        arguments du call-site (`unit`, `2`).
+
+        CORROBORATION : le corps est IDENTIQUE a celui de `NovaShieldPlaybook` (1194) et a celui de
+        `NovaChargePlaybook` (1193, deja porte et confronte par #1032-r1) -- meme kit Riptide,
+        meme litteral."""
+        if not has_minimum_remaining_turns(ctx, _MIN_REMAINING_TURNS):
+            return False
+        return probability_gate(self.use_probability(ctx))    # `BasePlaybook$$ShouldEvaluate`
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._has_eligible_target(ctx):

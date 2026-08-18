@@ -105,24 +105,59 @@ fenetre de reinject, et sans le faux negatif de la deduplication.
 
 ---
 
-## 3. `#552-r4` -- ce que la meme mesure OUVRE (numero alloue par `probe_468 --suggere 552`)
+## 3. `#552-r4` -- ce que la meme mesure OUVRE, et le BUG qu'elle a deja fait tomber
 
-Applique aux **98** playbooks portes, le critere rend **20 ecarts** entre ce que le port surcharge
-(`should_evaluate` / `use_probability`) et ce que la chaine native DECLARE. Ils ne sont **pas**
-rendus rouges, et c'est mesure : une partie est un GAP ASSUME et documente au site (une porte
-ALEATOIRE que le moteur deterministe ne modelise pas -- `BlackRage`, `ScarabSummon`,
+Applique aux **98** playbooks portes, le critere rend d'abord **20 ecarts** entre ce que le port
+surcharge (`should_evaluate` / `use_probability`) et ce que la chaine native DECLARE. Ils ne sont
+**pas** rendus rouges, et c'est mesure : une partie est un GAP ASSUME et documente au site (une
+porte ALEATOIRE que le moteur deterministe ne modelise pas -- `BlackRage`, `ScarabSummon`,
 `EmpyricAmbush` l'ecrivent noir sur blanc), une autre un `GetUseProbability` dont la valeur
 constante `>= 1` rend le port EXACT malgre l'absence de surcharge. Un cliquet qui rougirait sur
 les vingt se ferait desarmer.
 
-Ce qui reste a lire un par un, et qui est le coeur du residu : **cinq classes natives DECLARENT
-`ShouldEvaluate`** alors que le port ne surcharge rien -- `1039 RitesOfRestoration`,
-`1140 ExemplarOfHate`, `1192 NovaBoost`, `1194 NovaShield`, `1223 ReanimationBeam`. Trois d'entre
-elles (`ExemplarOfHate`, `NovaShield`, `ReanimationBeam`) ne mentionnent meme pas `ShouldEvaluate`
-dans leur module : personne n'a regarde. C'est un gate AMONT non porte, dont la degradation est
-PERMISSIVE (le port propose l'ability la ou le natif la saute) -- exactement la signature de #46.
+Le coeur du residu : **CINQ classes natives DECLARENT `ShouldEvaluate`** alors que le port ne
+surchargeait rien -- `1039 RitesOfRestoration`, `1140 ExemplarOfHate`, `1192 NovaBoost`,
+`1194 NovaShield`, `1223 ReanimationBeam`. Trois d'entre elles ne mentionnaient meme pas
+`ShouldEvaluate` dans leur module : personne n'avait regarde.
 
-L'etage 3 du probe l'imprime a chaque run (`--inventaire` pour la liste complete).
+### 3bis. DEUX des cinq sont PORTEES par cette tranche (20 ecarts -> 18)
+
+Les corps de `NovaBoostPlaybook$$ShouldEvaluate` et `NovaShieldPlaybook$$ShouldEvaluate` sont
+IDENTIQUES entre eux, et IDENTIQUES a celui de `NovaChargePlaybook` (1193), deja porte par
+`#1032-r1` -- trois abilities du meme kit Riptide :
+
+    if (!<IBattleQuery slot 0x1b = 27 = HasMinimumRemainingTurns>(unit, 2))  return false;
+    return BasePlaybook$$ShouldEvaluate(unit);
+
+Le slot est RESOLU (`metadata/interface_slots.tsv` : `IBattleQuery 27 HasMinimumRemainingTurns
+2 params`) et son ARITE concorde avec les deux arguments du call-site. Le pont de substrat existe
+deja (`_base.has_minimum_remaining_turns`, `#1027-r5`), donc le port tient en quatre lignes par
+classe.
+
+⚠ **UNE RAISON ECRITE MAIS NON MESUREE AVAIT FIGE LE TROU.** `nova_boost.py` portait, sous
+l'etiquette `N1`, << gate `query.slot0x1a(unit,2)` (precondition Nova, prob. charge) NON
+modelise >>. `0x1a` = 26 = `ShouldPlayerSkipTurn`, qui prend **UN** parametre : l'arite l'exclut.
+La note nommait donc le mauvais slot ET donnait une semantique inventee -- et, en donnant
+l'impression que quelqu'un avait regarde, elle decourageait la verification. C'est le vice que le
+CLAUDE.md decrit pour les imports differes, transpose ici.
+
+⚠ **LES TROIS NE SONT PAS INTERCHANGEABLES SUR LE SECOND ETAGE**, et le cliquet a MORDU dessus a
+son premier passage : la metadata declare `GetUseProbability` sur `NovaCharge` SEUL. Recopier
+l'etage d'une soeur a l'autre aurait ajoute une probabilite que le natif n'a pas.
+
+### 3ter. Les TROIS qui restent, et pourquoi elles ne se lisent pas de la meme facon
+
+* **`1039 RitesOfRestoration`** -- corps LU :
+  `RitesOfRestorationAbility$$GetPossibleResurrectTargets(this.<+0x68>)` puis un selecteur
+  (`Count > 0`). C'est-a-dire << y a-t-il au moins une unite ressuscitable ? >>. Portable, mais son
+  substrat (`obs_units` + le selecteur de resurrection) demande une lecture propre.
+* **`1140 ExemplarOfHate` et `1223 ReanimationBeam`** -- **Ghidra ne nomme AUCUN corps sous ces
+  noms** alors que la metadata les DECLARE. C'est la deduplication a l'oeuvre, et c'est exactement
+  le regime que le §2 explique : leur corps est FOLDE sur celui d'une autre classe. Les lire exige
+  soit de resoudre `rid -> VA` (comme `probe_10015`), soit un `pbGate(slot=4)` live. **Ne pas
+  conclure de cette absence.**
+
+L'etage 3 du probe imprime l'inventaire a chaque run (`--inventaire` pour la liste complete).
 
 ---
 
@@ -216,6 +251,10 @@ regime sur six montages et rend `rc 2` sans en avoir joue un seul.
 | `#1033-r2` mutants | `probe_1033r2_mutants.py` | **8/8 MORDENT** |
 | `#552-r3` verdict | `probe_552r3_slot4_declare.py` | temoin **8/8**, bilateral 4/4 ; MindControl et Reveal declarent `{.ctor, .cctor, EvaluateNonComparable}` |
 | `#552-r3` mutants | `probe_552r3_mutants.py` | **3/3 MORDENT** |
+| `#552-r4` gates Nova | `ShouldEvaluate` de 1192 / 1194 vs 1193, build `t6dpr4k06g` | corps IDENTIQUES ; slot 27 resolu par `interface_slots.tsv` |
+| `#552-r4` cliquet | `test_552r4_gate_nova_remaining_turns_offline.py` | 4 passed (a MORDU au 1er passage) |
+| `#552-r4` mutants | `probe_552r4_mutants.py` | **5/5 MORDENT** |
+| `#552-r4` effet | `probe_552r3_slot4_declare.py --inventaire` | ecarts **20 -> 18** |
 | `#942-r3` RE | `ShouldEvaluate` + `HasNormalAttackTarget`, build `t6dpr4k06g` | relus, inchanges ; slot 4 d'arite 1 |
 | `#942-r3` / `#971-r5` live | cap de runners | **NON CONFRONTE** (rc 2) |
 
@@ -238,8 +277,13 @@ manquante sur 182).
   s'accordent sur le vide. C'est un accord DEGENERE, pas une validation.
 * **Le §2 n'etablit pas que la declaration EST le slot 4** d'`IPlaybook` -- hors des huit temoins,
   c'est une BORNE SUPERIEURE de surcharge. Le probe l'imprime a chaque run.
-* **Les 20 ecarts du §3 ne sont pas lus** : c'est `#552-r4`, et cinq d'entre eux sont des gates
-  AMONT natifs que le port ignore.
+* **Les 18 ecarts restants du §3 ne sont pas lus** : c'est `#552-r4`. Trois d'entre eux sont des
+  gates AMONT natifs que le port ignore encore, et DEUX (`ExemplarOfHate`, `ReanimationBeam`)
+  n'ont aucun corps nomme par Ghidra -- leur lecture demande `rid -> VA` ou du live.
+* **Les deux gates Nova portes ne sont CONFRONTES QUE OFFLINE.** Leur porteur natif est
+  `tauBossRiptide` (npc), et le regime discriminant (une BC portant reellement un plafond de
+  tours) n'a pas ete joue live -- meme cause que le §4. Ce qui est mesure, c'est que les trois
+  corps natifs sont identiques et que le gate porte MORD dans les deux sens sur le substrat.
 * **Aucune couverture generee n'a ete regeneree** (ni `refresh_audits.py`, ni `probe_603 --index`).
   L'entree de `1107` au registre `PLAYBOOKS` fait bouger la couverture DECISION : a regenerer au
   MERGE.
