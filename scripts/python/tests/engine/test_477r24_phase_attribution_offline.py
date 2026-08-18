@@ -64,8 +64,14 @@ def test_ordinaux_figes_en_dur():
     assert int(PhaseType.ProcessDeaths) == 12
     assert int(PhaseType.ProcessRemovals) == 13
     assert int(PhaseType.StartBattle) == 0
+    assert int(PhaseType.ProcessDamageEvents) == 14
     assert int(PhaseType.ProcessPendingTriggeredAbilities) == 15
     assert P.ORDINAUX_ECRITS[13] == "ProcessRemovals"
+    #: #10028 -- l'ordinal du drain des damage-events est ECRIT au depot depuis que ses deux
+    #: citations sont NOMMEES (`dispatch/damage_events.py`, `test_443r2b2_post_damage_taken`).
+    #: Il entre donc ICI, au meme titre que les six autres : c'est le cran que `probe_313` ne
+    #: peut pas rendre (il redevient vert des qu'on regenere le mirror).
+    assert P.ORDINAUX_ECRITS[14] == "ProcessDamageEvents"
 
 
 def test_aucune_phase_ne_nomme_un_revive(ref):

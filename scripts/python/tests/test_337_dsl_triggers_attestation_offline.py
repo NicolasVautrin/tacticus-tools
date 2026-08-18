@@ -242,3 +242,26 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     assert "IsFirstHitGroupInAttack" in porte, (
         "IsFirstHitGroupInAttack est sortie de `lus` mais n'est pas PORTEE : sa ligne a-t-elle "
         "ete retiree de `docs/rl/dsl-port-attestations.tsv` sans que rien ne la porte ?")
+    # #10028 -- LES TROIS ATTESTATIONS `PORTE_HORS_FACADE` DU ROUGE DE `master`, nommees ICI.
+    # Elles sont arrivees par la MEME porte que `IsMoving` ci-dessus : une tranche a CITE le
+    # symbole `DSLTriggers$$<nom>` dans `engine/**`, ce qui fait basculer l'heuristique de
+    # `NON_PORTE` (aucune citation) vers `CITE_A_QUALIFIER` -- et l'heuristique ne peut PAS les
+    # attribuer, le porteur de chaque citation ne portant pas le nom de la primitive (mesure :
+    # `owned = False` sur les 6 sites). Les trois ports SONT LUS, ce sont des predicats COLLAPSES.
+    # PROVENANCE MESUREE (`git log -S` par fichier) -- TROIS PR INDEPENDANTES, donc aucune des
+    # trois n'a vu le rouge qu'elle creusait, et le fichier ne rougit qu'a leur SOMME :
+    #   `IsInTeam`               `8ff8c672` (#10004, PR #1104)
+    #                            -> `power_up_spawn.py::_ActeurDansLaTeam`
+    #   `IsPartialAttackAbility` `78a604de` (#419-r1-tr9-r4-r1-r2-r1a, PR #1112)
+    #                            -> `static_battle_rules.py::ability_is_partial_attack`
+    #   `IsSpawnTile`            `94f84dab` (PR #1123 ; le port lui-meme date de #368-r2)
+    #                            -> `status.py::tile_status_effect_is_active`
+    # ⚠ CE CRAN N'EST PAS REDONDANT avec l'assertion `a_qualifier` du haut. Retirer une des trois
+    # lignes du TSV la ferait bien rougir, mais un futur `NON_PORTE` ecrit A LA PLACE la ferait
+    # taire en SILENCE -- alors que ces trois primitives ONT un mirror LU au decompile. Le cran
+    # exige donc le camp PORTE, pas seulement l'absence de `CITE_A_QUALIFIER`.
+    assert {"IsInTeam", "IsPartialAttackAbility", "IsSpawnTile"} <= porte, (
+        "attestation(s) #10028 perdue(s) ou degradee(s) en NON_PORTE : %s -- les trois ports sont "
+        "LUS (cf. `docs/rl/case-10028-quatre-attestations-rouges.md`), ne pas les rabattre sur "
+        "un aveu d'ignorance"
+        % sorted({"IsInTeam", "IsPartialAttackAbility", "IsSpawnTile"} - porte))

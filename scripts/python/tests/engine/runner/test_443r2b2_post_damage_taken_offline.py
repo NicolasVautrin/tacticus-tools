@@ -73,7 +73,7 @@ def test_443r2b2_enqueue_et_ses_gardes():
 def test_443r2b2_snapshot_puis_clear_et_vagues(monkeypatch):
     """`snapshot = new List<T>(q) ; q.Clear()` -- dans CET ordre. Consequence LUE : un event enfile
     PENDANT le drain n'est pas vu par CETTE vague, mais par la SUIVANTE (le natif rattrape par le
-    `RunPhase(0xe, isInternalPhase: 1)` qui re-draine).
+    `RunPhase(PhaseType.ProcessDamageEvents /*0xe*/, isInternalPhase: 1)` qui re-draine).
 
     LE VICE QUE CE TEST GARDE : un drain en FIFO plat (qui verrait l'event ré-enfilé dans la meme
     passe) OU un drain qui le perdrait (clear APRES l'iteration)."""
