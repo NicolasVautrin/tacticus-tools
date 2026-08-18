@@ -563,10 +563,22 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
                                      "seededActives": seeded_act,
                                      "seededConfigActives": seeded_cfg,
                                      "seededActiveLevels": seeded_lvl}
+        # APRES `_load_tertiary_abilities`, POUR LA MEME RAISON QUE LE RE-BAKE QUI SUIT, ET UN CRAN
+        # PLUS BAS (#589-r1-r1-r2-r1-r1 / #908-r2 / #922-r1) : la boucle ABILITIES de
+        # `_load_stats_and_effects` mirrore bien `IdunBattle.Operations.
+        # InitializeActorAbilitiesOperation$$Execute`, mais elle tourne AVANT le seul ecrivain de
+        # `ctx.tertiary_ability` -- donc sa quatrieme source (#1005) y est structurellement muette
+        # et AUCUN owner-effect de relique n'entrait dans l'etat par la capture. Idempotente : elle
+        # ne peut qu'AJOUTER ce qui manquait. Cf. `_seed_tertiary_owner_effects`.
+        state.ability_states_seed["seededTertiaryOwnerEffects"] = \
+            _seed_tertiary_owner_effects(state)
         # APRES `_load_tertiary_abilities` -- ET C'EST TOUT L'ENJEU (#1009) : ce re-bake LIT
         # `ctx.tertiary_ability`, que la passe ci-dessus vient d'ecrire. Place dans
         # `_load_stats_and_effects` (donc AVANT), il voyait `None` sur toutes les unites et ne
         # mordait sur RIEN -- mesure, pas hypothese.
+        # ⚠ Il reste l'ECRIVAIN UNIQUE du couple, y compris pour les instances que la passe
+        # ci-dessus vient de poser (qui naissent deja au couple TERTIAIRE -> reecriture a la MEME
+        # valeur, jamais deux ecritures divergentes).
         state.ability_states_seed["rebakedTertiaryOwnerEffects"] = \
             _rebake_tertiary_owner_effects(state)
         # MEME cause, AUTRE porte (#1038) : une ability tertiaire dont le behaviour pose sur
@@ -3043,6 +3055,76 @@ def _rebake_tertiary_owner_effects(state: State) -> int:
                 eff.ability_level = lvl
                 eff.ability_variables_multiplier = mult
                 n += 1
+    return n
+
+
+def _seed_tertiary_owner_effects(state: State) -> int:
+    """POSE des owner-effects d'une ability TERTIAIRE sur le chemin de CAPTURE (#589-r1-r1-r2-r1-r1,
+    #908-r2, #922-r1). MEME cause d'ORDRE que `_rebake_tertiary_owner_effects` ci-dessus, mais un
+    cran PLUS BAS : le rebake corrige le COUPLE d'une instance qui existe ; ici l'instance
+    n'existe PAS DU TOUT.
+
+    LE NATIF N'A QU'UNE BOUCLE, ET ELLE VOIT LA TERTIAIRE. `IdunBattle.Operations.
+    InitializeActorAbilitiesOperation$$Execute` enumere la `Collection` du composant d'abilities
+    (`+0x20`) et, pour CHAQUE entree, emet le trigger `0x31` (`OnOwnerSpecificAbilityInit`) puis
+    consulte `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$
+    GetEffectToBeAddedToOwnerForAbility`. La TERTIAIRE est dans cette collection au meme titre que
+    les autres -- `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` l'y met par
+    `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)`. Il n'existe donc AUCUN ordre
+    natif ou l'owner-effect d'une relique ne serait pas pose.
+
+    L'ORDRE DU PORT, LUI, L'INVERSAIT -- et c'est la cause RACINE, mesuree. `_load_stats_and_effects`
+    porte la boucle `_seed_ability_owner_effects` (mirror de la boucle ABILITIES ci-dessus), mais
+    elle tourne AVANT `_load_tertiary_abilities`, qui est le SEUL ecrivain de
+    `ctx.tertiary_ability`. Au moment du seed, toute unite a donc `tertiary_ability = None` : la
+    quatrieme source de `_seed_ability_owner_effects` (#1005) est structurellement muette sur ce
+    chemin. Le seed OFFLINE (`operations/spawn.py`, ou le ctx est complet avant l'appel) posait
+    bien l'effet ; le seed de CAPTURE n'en posait AUCUN.
+
+    MESURE, avant / apres (`probe_922_intoxicating_elixir_live.py --n 0 --thrilled`, porteur
+    `emperKakophonist` + relique `IntoxicatingElixir`) : `instance_dans_by_unit` **0 -> 1**, et
+    l'ecart de degat par coup `[462, 1600, 988] -> [0, 0, 0]`. Le drapeau `--inactifs` (canal
+    `includeInactive`) donnait deja `1`, mais par l'AUTRE bout : il ELARGIT la capture au lieu de
+    reparer la pose, et son rayon est le harnais entier (53 fichiers lecteurs). Ici rien n'est
+    elargi -- on rejoue la MEME boucle native une fois son entree connue.
+
+    PORTEE STRICTE, et c'est ce qui borne le rayon : seules sont visitees les unites qui portent
+    une tertiaire DEBLOQUEE (`tertiary_ability_level > 0`). Sur les 32 items relique du build, **9**
+    ont une entree `ABILITY_INIT_OWNER_EFFECTS` ; une seule (`NetherRealmCasket` sur `necroSpyder`)
+    est equipee dans le seed BC. `_seed_ability_owner_effects` est IDEMPOTENT (gate `has_effect` de
+    `_materialize_owner_effect`), donc tout ce que la premiere passe a deja pose -- et tout ce que
+    `decisionView.effects` a capte -- reste INTACT : cette passe ne peut qu'AJOUTER ce qui manquait.
+
+    ⚠ RANG. Elle est APRES `_load_tertiary_abilities` (sans quoi elle relirait le meme `None`) et
+    AVANT `_rebake_tertiary_owner_effects`, qui reste l'ECRIVAIN UNIQUE du couple : les instances
+    posees ici naissent deja avec le couple TERTIAIRE (`_seed_ability_owner_effects::_couple`), et
+    le rebake les reecrit a la MEME valeur -- pas deux ecritures divergentes.
+
+    ⚠ GATE `TeleportingIn` (1035) -- le MEME que la boucle de `_load_stats_and_effects` : une unite
+    encore en deep-strike n'a pas ses passives initialisees, elles sont DIFFEREES a l'atterrissage
+    (`spawn.initialize_deferred_actor_abilities`). L'omettre poserait la relique un tour trop tot.
+
+    Rend le nombre d'unites dont la passe a pose au moins un effet (0 = aucune relique equipee)."""
+    if state.effects is None:
+        return 0
+    n = 0
+    for uid, ent in list(state.entities.items()):
+        sc = ent.get_component(StatsComponent)
+        uc = ent.get_component(UnitComponent)
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        if ctx is None or uc is None or not uc.visual_id:
+            continue
+        tert = getattr(ctx, "tertiary_ability", None)
+        if not tert:
+            continue
+        if int(getattr(ctx, "tertiary_ability_level", 0) or 0) <= 0:
+            continue                       # `0` = verrouille (`Level$$CreateValidOrLockedLevel`)
+        if state.effects.has_effect(uid, effect_type=TELEPORT_STRIKE_TELEPORTING_IN):
+            continue
+        mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
+        if _seed_ability_owner_effects(state, uid, uc.visual_id, mult,
+                                       ability_level=getattr(ctx, "passive_ability_level", None)):
+            n += 1
     return n
 
 

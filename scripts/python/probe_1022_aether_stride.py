@@ -302,8 +302,81 @@ def main() -> int:
         aire = STS.get_area(board, occ, board.coord(cible))
         print("[D] adjacence Psyker CRAFTEE : %s -> cible retenue %s %s (aire=%s)"
               % (psyker_pose, cible, board.coord(cible), aire))
+
+        # --- ETAGE E (amont) : AMENER UN ENNEMI AU CONTACT DE L'EMPREINTE (#1022-r3) --------------
+        # Sans cible a portee, `PerformAIAbilityUnitBehaviour$$Execute` s'execute mais ne frappe
+        # personne : natif et port rendent 0 degat et l'accord est en REGIME DEGENERE -- il ne dit
+        # rien du choix de cible ni de la magnitude. C'est le residu #1022-r3.
+        #
+        # ⚠ SA PREMISSE ETAIT FAUSSE, et elle est REFUTEE PAR LE HARNAIS LUI-MEME. La fiche disait
+        # « l'equipe adverse n'est pas pilotable sous `--no-ai` », donc « il faut un board ou les
+        # trois contraintes coexistent ». Or `tests/engine/runner/_charge_regime.py::place` porte,
+        # ecrit noir sur blanc : « `applyAction` ne verifie NI propriete NI portee : les DEUX camps
+        # sont pilotables ». Ce probe DEPLACE deja un allie par ce meme canal -- rien ne distingue
+        # une unite adverse. Aucun board a chercher : on POSE l'ennemi.
+        #
+        # ⚠ ET AUCUN BOARD NE L'AURAIT DONNE. C'est structurel, pas une malchance de `MC1_67` :
+        # les spawns des deux equipes sont aux deux bouts (`C1_74` : team 1 en row 0, team 2 en
+        # rows 5-8, `(2,0)->(5,4) = 5 hex`), et l'ancre du cast doit etre a portee du CASTER, donc
+        # dans son camp. Au tour 0, aucune empreinte atteignable ne touche un ennemi, sur aucun
+        # board.
+        #
+        # Un `place` est un `MoveUnitOperation` NATIF COMPLET (il appelle `UpdateCharging`, peut
+        # declencher overwatch et charges) : on le joue AVANT le cast et on RELIT la position, un
+        # pas refuse ne devant jamais passer pour un pas fait.
+        # ⚠ LE CANAL DES ADVERSES EST `decisionView`, PAS `observeBattle` -- et les confondre rend un
+        # ensemble VIDE en silence, donc un « aucun ennemi posable » qui n'a rien mesure. Le
+        # discriminant lu ici est `ctrl` (l'unite est-elle du camp qu'on pilote), le meme champ que
+        # la selection des psykers plus haut ; `observeBattle.units[]`, lui, ne porte pas de `team`
+        # comparable a `owner` (qui est un PLAYER).
+        ennemi_pose = None
+        refus = []
+        vs_libres = sorted(_voisines(aire) - occupants(sid, rid))
+        dv_e = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}).get("units") or []
+        adverses = [u for u in dv_e
+                    if u.get("alive") and u.get("pos") and not u.get("ctrl")]
+        print("[E] adverses VIVANTS lus dans decisionView : %s"
+              % [(u["id"], u.get("visualId"), (u["pos"]["col"], u["pos"]["row"]))
+                 for u in adverses][:8])
+        deja = any(hexgeo.distance((u["pos"]["col"], u["pos"]["row"]), f) <= 1
+                   for u in adverses for f in aire)
+        if deja:
+            ennemi_pose = ("DEJA", "un ennemi touche deja l'empreinte -- rien a poser")
+        else:
+            for e in adverses:
+                for dest in vs_libres:
+                    r = rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                        "kind": "move", "unitId": e["id"],
+                        "to": {"col": dest[0], "row": dest[1]}}})
+                    dv2 = (rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+                           .get("units") or [])
+                    now = next((x for x in dv2 if x.get("id") == e["id"]), None)
+                    p = (now or {}).get("pos") or {}
+                    if (p.get("col"), p.get("row")) == dest:
+                        ennemi_pose = (e["id"], e.get("visualId"), dest)
+                        occ = occupants(sid, rid)
+                        break
+                    # ON LEVE L'ECHEC : un `applyAction` refuse rend `ok`/`mutated` et parfois un
+                    # `error` -- s'en tenir a « la position n'a pas change » ferait conclure
+                    # « geometrie impossible » sur un simple refus de propriete.
+                    refus.append((e["id"], dest, r.get("ok"), r.get("mutated"),
+                                  str(r.get("error") or r.get("reason") or "")[:90]))
+                if ennemi_pose:
+                    break
+        print("[E] ennemi au contact de l'empreinte : %s (voisines libres=%s)"
+              % (ennemi_pose, vs_libres[:6]))
+        if refus:
+            print("[E] refus d'applyAction (les 4 premiers) : %s" % (refus[:4],))
+        if ennemi_pose is None:
+            print("    ATTENTION REGIME DEGENERE (#1022-r3) : aucun ennemi n'a pu etre pose au "
+                  "contact -- `PerformAIAttack` frappera dans le vide et l'accord a 0 degat ne "
+                  "prouvera RIEN. Ne pas lire le verdict de l'etage D comme une confrontation "
+                  "de l'ATTAQUE.")
         pre_dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
         pre_ob = rpc(sid, "observeBattle", {"runnerId": rid})
+        # Dump du Mersenne Twister PRIS AVANT LE CAST : c'est ce qui rend le rejeu offline
+        # comparable au live des que le summon frappe pour de bon (cf. l'etage C).
+        pre_rng = rpc(sid, "dumpRng", {"runnerId": rid})
         avant = {u.get("squadId") for u in (pre_ob.get("units") or [])}
         pred_area = STS.get_area(board, occ, board.coord(cible))
         anc = board.coord(cible)
@@ -351,6 +424,19 @@ def main() -> int:
         from engine.runner.snapshot import load_state
         from engine.services import movement_query as MQ
         st = load_state(pre_dv, pre_ob, board=board)
+        # ⚠ LE MT DOIT ETRE CALE DES QUE LE SUMMON PEUT FRAPPER (#1022-r3). Tant qu'aucun ennemi
+        # n'etait au contact, `PerformAIAttack` n'atteignait jamais `AttackDamageOperation` et
+        # `state.rng is None` passait inapercu ; avec l'ennemi pose, le rejeu tire pour de bon et
+        # `damage_ops/normal.py` REFUSE (`state.rng non cale`) -- un refus explicite, pas un
+        # degat invente. On repose le twister sur le dump pris JUSTE AVANT le cast live, donc le
+        # port consomme le MEME flux que le natif. Meme patron que `_charge_regime::offline_state`.
+        if isinstance(pre_rng, dict) and pre_rng.get("mt"):
+            from engine.runner.prng import IntBasedMersenneTwister
+            _mt = IntBasedMersenneTwister()
+            _mt.mt, _mt.mti = list(pre_rng["mt"]), pre_rng["mti"]
+            st.rng = _mt
+        print("[C] MT cale sur le dump pre-cast : %s (mti=%s)"
+              % (bool(getattr(st, "rng", None)), (pre_rng or {}).get("mti")))
         diag = AetherStrideAbility().execute_behaviour(st, caster, cible)
         print("[C] port : tile=%s spawned=%s removed_machine=%s traits=%s carried=%s"
               % (diag.get("tile"), diag.get("spawned"), diag.get("removed_machine"),
@@ -387,6 +473,55 @@ def main() -> int:
               % [(u.get("squadId"), u.get("visualId")) for u in adj_psy])
         print("[D] port : ai_attacks=%s" % json.dumps(diag.get("ai_attacks"))[:400])
         print("[D] natif : unites ayant PERDU des PV pendant le cast = %s" % (touches,))
+
+        # --- ETAGE F : L'ATTAQUE ELLE-MEME, cible ET magnitude (#1022-r3) -------------------------
+        # C'est l'etage que le residu declarait NON CONFRONTE : sans ennemi a portee, `attacks`
+        # etait vide DES DEUX COTES et l'accord a 0 degat ne disait rien. L'etage E l'a leve.
+        # ⚠ ON ASSERTIONNE LE NON-NUL AVANT DE COMPARER : un accord `[] == []` (ou `0 == 0`) est
+        # exactement le regime degenere qu'on vient de supprimer -- s'il revient, il doit se voir.
+        att = [x for a_ in (diag.get("ai_attacks") or []) for x in (a_.get("attacks") or [])]
+        cibles_port = sorted({int(x["target"]) for x in att if x.get("target") is not None})
+        degat_port = sum(int(x.get("total") or 0) for x in att)
+        degats_natifs = {s: int(pv_avant[s]) - int(pv_apres[s]) for s in touches}
+        degat_natif = sum(degats_natifs.values())
+        print("[F] ATTAQUE du summon -- cible(s) port=%s natif=%s | degat port=%s natif=%s (%s)"
+              % (cibles_port, touches, degat_port, degat_natif, degats_natifs))
+        if not att or degat_natif == 0:
+            print("    REGIME DEGENERE : `attacks` vide cote port (%s) ou 0 degat cote natif (%s) "
+                  "-- l'etage F ne conclut RIEN. #1022-r3 reste ouvert." % (bool(att), degat_natif))
+        else:
+            print("[F] VERDICT CIBLE : %s"
+                  % ("ACCORD" if cibles_port == touches else
+                     "DESACCORD port=%s natif=%s" % (cibles_port, touches)))
+            print("[F] VERDICT MAGNITUDE : %s (ecart=%s)"
+                  % ("ACCORD" if degat_port == degat_natif else "DESACCORD",
+                     degat_port - degat_natif))
+
+            # --- ETAGE G : DECOMPOSER l'ecart de magnitude, jamais le fitter -------------------
+            # On ne cherche pas un facteur : on met COTE A COTE ce qui alimente le degat du
+            # summon des deux cotes -- son `AbilityState` (niveau / multiplicateur) et ses stats
+            # d'attaque. Le premier etage ou natif != port est la cause ; tout le reste en aval.
+            from engine.runner.components import StatsComponent as _SC
+            sid_port = (diag.get("spawned") or [None])[0]
+            ctx_port = None
+            if sid_port is not None:
+                _e = st.get_entity(sid_port)
+                _sc = _e.get_component(_SC) if _e is not None else None
+                ctx_port = getattr(_sc, "ctx", None)
+            snap_n = rpc(sid, "combatSnapshot", {"runnerId": rid}) or {}
+            ligne_n = next((u for u in (snap_n.get("units") or [])
+                            if u.get("entityId") in set(squads)), None)
+            stats_n = (ligne_n or {}).get("stats") or {}
+            print("[G] summon PORT  : id=%s visual=%s attack=%s dmg=%s level=%s mult=%s hp=%s"
+                  % (sid_port, getattr(ctx_port, "visual_id", None),
+                     getattr(ctx_port, "attack", None), getattr(ctx_port, "damage", None),
+                     getattr(ctx_port, "active_ability_level", None),
+                     getattr(ctx_port, "ability_variables_multiplier", None),
+                     getattr(ctx_port, "health", None)))
+            print("[G] summon NATIF : entityId=%s visual=%s unitConfig=%s stats(extrait)=%s"
+                  % ((ligne_n or {}).get("entityId"), (ligne_n or {}).get("visualId"),
+                     json.dumps((ligne_n or {}).get("unitConfig") or {})[:220],
+                     json.dumps({k: v for k, v in list(stats_n.items())[:10]})[:300]))
         print("PROBE OK")
         return 0
     finally:

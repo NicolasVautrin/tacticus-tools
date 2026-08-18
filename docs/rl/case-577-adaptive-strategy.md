@@ -149,11 +149,26 @@ Deux écarts subsistent, et aucun des deux n'a été imputé « à l'IA » sur p
   des **faits de décomposition**, et le verdict sur le nœud (1) est porté par un observable
   **persistant** (§ suivant), pas par la tuile.
 * **`RelentlessMarch_Effect` (1011)** — le natif rend `[]` après le cast alors qu'il portait `[83]`
-  avant : il a **expiré** les instances à durée 1 tour pendant que le summon jouait
-  (`AiControl$$ApplyAiMessages` → `FinishUnitTurn`). Contre-épreuve **disjointe de 1005** :
-  `ComputerActionOperation.execute(summon)` joué **seul** conserve `[83]` côté port. L'écart
-  **préexiste** donc au port de 1005 et vit sous le nœud (3). Si l'étage IA seul avait expiré, le
-  probe aurait rougi — le bras est écrit dans les deux sens. ⇒ résidu **#577-r1**.
+  avant. ⚠ **L'IMPUTATION ÉCRITE ICI — « il a expiré les instances à durée 1 tour »,
+  `AiControl$$ApplyAiMessages` → `FinishUnitTurn` — EST FAUSSE, et elle l'est deux fois** (2026-08-18,
+  tranche #10035). `FinishUnitTurnOperation$$Execute` n'expire rien (déjà relevé par #577-r1) ; et
+  **le mécanisme n'est pas une expiration du tout, c'est un RE-CIBLAGE**.
+  L'ability pose `AddEffect(0x3f3, …, targets = UnitsWithoutTrait(Friends(AdjacentUnits(Owner)),
+  0x418), turns = 1)` — les cibles sont un **sélecteur géométrique**, que
+  `RefreshEffectsOperation` matérialise dans `EffectComponent.Targets @+0x48` et **différencie** à
+  chaque refresh (`$$GetTargetsToRemove` → `$$RemoveTargetsFromEffect`).
+  La géométrie du montage suffit : l'instance sur `83` a été posée quand le Warden `81` était en
+  `(1,0)` (`dist = 1`) ; le montage le déplace en `(0,2)` (`dist((0,2),(0,0)) = 2`) ; le natif déplace
+  le summon en `(0,4)` (`dist((0,2),(0,4)) = 2`). **Les deux porteurs sont sortis du sélecteur** — le
+  `[]` est complet sans invoquer aucune durée.
+  **La contre-épreuve qui réfute l'expiration est déjà dans le tableau ci-dessus** : le natif *pose*
+  1011 sur le summon pendant ce cast même, puis le retire dans la même cascade. Un effet posé à
+  l'instant ne peut pas avoir expiré — `EffectComponent$$RemoveOneTurn` n'est enfilé que par
+  `EndTurnOperation$$RefreshEffects`, dont l'appelant **unique** est `EndTurnOperation$$Execute`.
+  Le foyer de `#577-r1` n'est donc **ni `summon_ai.py` ni le trigger de 1011**, mais le retrait des
+  porteurs sortis du sélecteur (`runner/operations/refresh_effects.py`). Et la divergence est
+  **observable sur la stat** : `RelentlessMarchExtraMoveEffect` ne surcharge ni `is_active` ni aucun
+  sélecteur, donc côté port `83` garde le **+1 Mouvement** que le natif lui a retiré.
 
 Autre limite **nommée** : `state.rng is None` sur un état rechargé (`load_state` ne restitue pas
 l'état interne du Mersenne Twister), donc `RandomAmount` prend sa dégradation documentée — la borne

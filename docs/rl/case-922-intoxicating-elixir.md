@@ -239,13 +239,25 @@ callable `unit_health_of` retiré → branche non doublée), `CRITDMG_AVANT` (l'
 * **`Stunned` (1162) et `Taunted_OnlySpecificTargets` (27) ne sont pas exercés LIVE** : seuls
   `Pinned` et `ThrillSeekers` le sont. Les quatre entrent par le **même** `HasOneOfEffects`, donc
   rien ne les distingue dans le code — mais c'est dit plutôt que supposé ;
-* **le SEEDING d'un effet INACTIF au snapshot** — résidu `#922-r1`. `decisionView` est ACTIF-ONLY
-  (#100), donc un effet de relique à condition géométrique **fausse au moment de la capture** est
-  absent de l'état offline : si le compteur devient positif pendant la simulation, le port ne verse
-  rien. **MESURÉ** : bras `--thrilled n = 0`, live `[6996, 6221, 5998]` contre port
-  `[6534, 4621, 5010]`, soit `[462, 1600, 988]` d'écart. Le gisement est **PARTAGÉ** avec
-  `AmuletOfTheVoidwyrm` et `NetherRealmCasket` (mêmes conditions géométriques, même absence
-  d'entrée `ABILITY_INIT_OWNER_EFFECTS` puisque la relique n'est pas au kit) ;
+* ~~**le SEEDING d'un effet INACTIF au snapshot** — résidu `#922-r1`~~ — **FERMÉ (#10035,
+  2026-08-18), et le « correctif d'UNE LIGNE » que cette section désignait n'était pas le bon.**
+  Ce qu'elle affirmait — « le canal de capture du harnais, UNE ligne », dont le rayon (53 fichiers
+  lecteurs de `ChargeRegimeHarness`) justifiait de ne pas la payer — visait un symptôme. La cause est
+  **en amont du canal** et son rayon est **nul** pour ces 53 fichiers : `snapshot.load_state` joue
+  `_load_stats_and_effects` — qui porte la boucle `_seed_ability_owner_effects` — **AVANT**
+  `_load_tertiary_abilities`, seul écrivain de `ctx.tertiary_ability`. La quatrième source du seed
+  (#1005) était donc structurellement muette sur le chemin de CAPTURE, alors qu'elle fonctionne sur
+  le chemin OFFLINE où le ctx est complet avant l'appel. `--inactifs` donnait bien `1`, mais en
+  **élargissant la capture** au lieu de réparer la pose.
+  **MESURE, même montage (`--n 0 --thrilled`, SANS le drapeau)** : `instance_dans_by_unit`
+  **0 → 1**, écart par coup **`[462, 1600, 988]` → `[0, 0, 0]`**, `accord=True`, les **deux** témoins
+  (`NOCHANNEL`, `CRITDMG_AVANT`) restant ROUGES à `[6534, 4621, 5010]`.
+  Le gisement était bien **PARTAGÉ** avec `AmuletOfTheVoidwyrm` et `NetherRealmCasket` — les trois
+  sont fermés du même coup. Détail : `docs/rl/case-10035-pose-tertiaire-au-chargement.md`.
+  ⚠ **Le volet (c) reste ouvert mais change de MOTIF** : basculer `includeInactive` par défaut dans
+  `ChargeRegimeHarness` ne ferme plus rien ici (un owner-effet d'INIT est désormais rattrapé par le
+  seed) ; ce qu'il couvrirait encore est un effet posé **en COMBAT** et devenu inactif, qu'aucun seed
+  d'init ne peut rejouer ;
 * la face **DÉCISION** est portée et son arbre est partagé avec la face COMBAT (donc confronté par
   ricochet). Résidu `#922-r2`, **re-mesuré le 2026-08-15 — son `BLOCAGE: capteur` est RÉFUTÉ.**
   Le walk L3 est bien le seul canal qui publierait l'utilité PAR-TUILE ; mais **l'ANCRE est
