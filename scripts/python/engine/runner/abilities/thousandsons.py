@@ -1350,18 +1350,23 @@ class AetherStrideAbility(ActiveAbility):
         # `SetStatFromConfig(config, abilityState, <baseVarType>, ordinal, <StatType>)` qui suivent
         # indexent donc `summonHp`/`summonDmg`/`summonArmor`/... SOUS CET ETAT-LA.
         #
-        # ⚠ **CE N'EST PAS LE SCALAIRE `ctx.active_ability_level` DU CASTER**, et l'ecart est MESURE
-        # (#1022-r4, `probe_1022_aether_stride.py` etage [G], MC1_67/777) : la MoW porteuse expose
-        # `AetherStride` a `level 50 / multiplier 180` (`decisionView.mows[].abilities[]`), alors que
-        # son scalaire d'unite vaut `0`. Le defaut de la feuille `Spawn` (« lire le scalaire du
-        # caster ») rendait donc `summonHp[0] = 60` / `summonDmg[0] = 7` la ou le natif rend
-        # `summonHp[49] x 180 % = 5983` / `summonDmg[49] x 180 % = 698` / `summonArmor[49] x 180 % =
-        # 1595` -- les TROIS stats natives, a l'unite pres. Le degat du summon suivait (29 contre
-        # 2761). Le scalaire n'est un proxy correct que pour un HERO d'un runner normalise, ou il
-        # coincide avec l'`AbilityState` ; sur une MACHINE OF WAR il vaut `0` = niveau 1.
+        # LE DEFAUT DE LA FEUILLE `Spawn` EST UN **PROXY** DE CET ETAT, PAS CET ETAT : il lit le
+        # SCALAIRE `UnitContext.active_ability_level` du caster. `active_ability_state` (#890) lit,
+        # lui, l'`AbilityState` de CETTE ability -- exactement l'objet que le natif transmet -- et il
+        # RETOMBE sur le scalaire quand le canal `unitAbilityStates` est muet.
         #
-        # `active_ability_state` est le FOYER de cette lecture (#890) et il RETOMBE sur le scalaire
-        # quand le canal `unitAbilityStates` est muet -- donc aucun regime anterieur ne change.
+        # ⚠ **HONNETETE DE MESURE (#1022-r4) : SUR LE SEUL MONTAGE CONFRONTABLE, LES DEUX LECTURES
+        # COINCIDENT, ET CE RAFFINEMENT EST DONC INERTE LIVE.** Le mutant `ability_state=None` laisse
+        # `test_1022_aether_stride_live.py` VERT (10 passed) : sur une MoW, `snapshot.
+        # _load_machine_stats` remplit le scalaire depuis `_machine_ability_state`, c'est-a-dire
+        # depuis le MEME canal (`decisionView.mows[].abilities[].level/multiplier`). Ce qui a
+        # reellement ferme l'ecart 29 -> 2761 est le MONTAGE : le probe appelait `load_state` SANS
+        # `combatSnapshot`, donc la MoW n'avait aucun `StatsComponent` et la feuille lisait
+        # `level = None` -> `summonHp[0] = 60`. La separation des deux lectures est gardee OFFLINE
+        # (`test_1022r4_abilitystate_du_call_site_offline.py`), la ou elle est constructible : un
+        # caster dont le scalaire et l'`AbilityState` de 1208 DIFFERENT. Aucun runner ne produit
+        # cette configuration (toutes les actives d'une meme unite normalisee partagent leur
+        # couple), d'ou le residu ouvert plutot qu'une confrontation live inventee.
         aether_stride_tree(tile_id,
                            active_ability_state(state, caster_id, self.ABILITY_TYPE)) \
             .execute(entities, ectx)
