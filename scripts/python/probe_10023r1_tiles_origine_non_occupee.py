@@ -414,11 +414,73 @@ def etage5_substrat_absent() -> int:
     return 0
 
 
+# --------------------------------------------------------------------------------------------
+# ETAGE 6 -- ATTEIGNABILITE : quels call-sites peuvent porter une origine MULTI-UNITES ?
+# --------------------------------------------------------------------------------------------
+#: Les QUATRE noeuds dont l'exclusion passe par `op_Subtraction Tiles(origin)` -- DERIVES du code :
+#: ce sont ceux qui appellent `_within(order='surrounding')` sans `include_center=True`, plus
+#: l'accesseur de tuiles. `order='adjacent'` est un AUTRE selecteur natif
+#: (`AdjacentTilesSelector$$Select`, exclusion INTERNE sur l'EMPREINTE) et ne passe pas par ici.
+NOEUDS_A_EXCLUSION = ("SurroundingTiles", "SurroundingUnits", "SurroundingEnemies",
+                      "SurroundingFriends")
+
+#: Accesseurs qui rendent UNE SEULE entite (donc au plus UNE main tile), lus dans
+#: `entities/selectors/accessors.py` : les slots de role du contexte natif.
+CENTRES_MONO = ("Caster", "Target", "Owner", "Actor", "Subject", "Self",
+                "CasterTile", "TargetTile", "OwnerTile", "ActorTile", "Const")
+
+
+def etage6_atteignabilite_multi_unites() -> int:
+    """La question MULTI-UNITES, tranchee par une mesure et non par un raisonnement.
+
+    `UnitsMainTilesSelector$$Select` retranche UNE main tile PAR ENTITE : une origine a N unites
+    distinctes en retranche N. Le port le fait desormais (E3) ; reste a savoir si un call-site
+    peut y arriver -- si non, la correction est une mise en conformite, pas un changement de
+    comportement observable.
+
+    Le recenseur visite TOUTES les instanciations des quatre noeuds a exclusion dans
+    `engine/**` et deparse leur premier argument. Il ne classe pas « sur » : tout ce qui n'est pas
+    un accesseur de role MONO sort en INDETERMINE et doit etre lu a la main. Un INDETERMINE n'est
+    pas un echec -- c'est ce que ce probe RAPPORTE."""
+    racine = RACINE / "engine"
+    mono, indetermine = [], []
+    for f in sorted(racine.rglob("*.py")):
+        try:
+            arbre = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        rel = f.relative_to(RACINE).as_posix()
+        for n in ast.walk(arbre):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                    and n.func.id in NOEUDS_A_EXCLUSION and n.args):
+                continue
+            #: `include_center=True` -> AUCUNE exclusion, le noeud sort du perimetre.
+            kw = {k.arg: k.value for k in n.keywords}
+            ic = kw.get("include_center")
+            if isinstance(ic, ast.Constant) and ic.value:
+                continue
+            src = ast.unparse(n.args[0])
+            tete = src.split("(")[0].split(".")[-1]
+            ligne = (rel, n.lineno, n.func.id, src)
+            (mono if tete in CENTRES_MONO else indetermine).append(ligne)
+    print("[E6] instanciations a exclusion armee : %d (MONO %d, INDETERMINE %d)"
+          % (len(mono) + len(indetermine), len(mono), len(indetermine)))
+    for rel, ligne, noeud, src in mono:
+        print("     MONO         %-46s:%-5d %s(%s)" % (rel, ligne, noeud, src[:52]))
+    for rel, ligne, noeud, src in indetermine:
+        print("     INDETERMINE  %-46s:%-5d %s(%s)" % (rel, ligne, noeud, src[:52]))
+    if not (mono or indetermine):
+        print("[E6] ECHEC : aucune instanciation trouvee -- le recenseur ne mesure RIEN.")
+        return 1
+    print("[E6] OK (INVENTAIRE, jamais bloquant) : les INDETERMINE se lisent un par un.")
+    return 0
+
+
 def main() -> int:
     rc = 0
     for f in (etage0_recensement, etage1_tuile_vide, etage1bis_pied_secondaire,
               etage2_within_domaine_id, etage3_multi_unites, etage4_non_regression_10023,
-              etage5_substrat_absent):
+              etage5_substrat_absent, etage6_atteignabilite_multi_unites):
         try:
             rc |= f()
         except Exception as exc:                                    # noqa: BLE001
