@@ -392,13 +392,38 @@ def test_le_playbook_MOVE_compte_le_MOVER_LUI_MEME_quand_il_est_Summon():
 def test_les_cles_du_compteur_sont_publiees_par_le_substrat_d_etat():
     """La `CreateActiveCondition` lit `unit_state[CARRIER_COUNT_KEY]` et le canal CRIT lit
     `att_ctx[CTX_COUNT_OF]`. Les deux noms doivent exister LA OU ils sont consommes, sinon l'effet
-    degrade en « toujours actif, jamais de bonus » -- silencieusement."""
+    degrade en « toujours actif, jamais de bonus » -- silencieusement.
+
+    ⚠ LE CANAL CRIT SE MESURE, IL NE SE GREPPE PLUS (#10026). L'assertion d'origine cherchait
+    `CTX_COUNT_OF` dans le SOURCE de `_crit_board` ; #1042-r5 y a remplace les litteraux par des
+    ALIAS importes (`_CTX_ADJACENT_SUMMONS_OF`), et le grep est tombe alors que la cle etait
+    toujours publiee -- un rouge qui n'accusait rien. La faute est symetrique et bien pire : le
+    meme grep passe sur une cle qui n'est **plus** publiee des qu'un COMMENTAIRE la nomme, et
+    `_crit_board` en nomme quatre pour dire qu'il ne les reutilise PAS. On interroge donc le dict
+    RENDU, ce qui est strictement plus fort que le texte : la cle doit etre presente ET porter un
+    callable (forme paresseuse par-porteur, cf. la docstring de `_crit_board`).
+
+    Le `State()` nu suffit : les deux compteurs de ce foyer sont des lambdas, donc rien n'est
+    calcule a la construction du dict."""
     from engine.entities.effects.loki import maw_claws_of_thyrax as M
     from engine.runner.components import UnitEffectStateView
     from engine.runner.operations.damage import AttackDamageOperation
+    from engine.runner.state import State
     assert M.CARRIER_COUNT_KEY in inspect.getsource(UnitEffectStateView.__getitem__)
     assert M.CARRIER_COUNT_KEY in inspect.getsource(UnitEffectStateView.__iter__)
-    assert M.CTX_COUNT_OF in inspect.getsource(AttackDamageOperation._crit_board)
+    board = AttackDamageOperation._crit_board(State(), None, None)
+    assert board, "`_crit_board` rend un substrat VIDE : l'assertion suivante serait VACUE"
+    assert M.CTX_COUNT_OF in board, (
+        "`%s` n'est PAS publiee par `_crit_board` (cles vues : %s)"
+        % (M.CTX_COUNT_OF, sorted(board)))
+    assert callable(board[M.CTX_COUNT_OF]), (
+        "`%s` doit rester un CALLABLE par-porteur : la boucle native ECRASE "
+        "`AbilityEntities+0x18` a chaque iteration, donc la grandeur depend de l'instance d'effet "
+        "qui interroge -- une valeur figee serait celle du dernier porteur" % (M.CTX_COUNT_OF,))
+    # CONTRE-EPREUVE du critere lui-meme : un nom que `_crit_board` ne publie pas doit MANQUER.
+    # Sans elle, un `board` qui rendrait tout (`defaultdict`, `__contains__` permissif) passerait.
+    assert (M.CTX_COUNT_OF + "_absent") not in board, (
+        "le substrat accepte n'importe quelle cle -- le test ci-dessus ne garde rien")
 
 
 def test_le_gate_de_presence_de_la_cle_est_GEOMETRIQUE_SEUL():

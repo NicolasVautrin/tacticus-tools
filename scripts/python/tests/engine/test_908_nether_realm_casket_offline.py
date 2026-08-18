@@ -323,13 +323,31 @@ def test_1455_a_sa_classe_et_1456_n_en_a_DELIBEREMENT_pas():
 def test_la_cle_du_compteur_est_publiee_par_le_substrat_d_etat():
     """La `CreateActiveCondition` lit `unit_state[CARRIER_COUNT_KEY]` et le canal CRIT lit
     `att_ctx[CTX_COUNT_OF]`. Les deux noms doivent exister LA OU ils sont consommes, sinon l'effet
-    degrade en « toujours actif, jamais de bonus » -- silencieusement."""
+    degrade en « toujours actif, jamais de bonus » -- silencieusement.
+
+    ⚠ CE CRAN ETAIT UN FAUX VERT, ET C'EST MESURE (#10026). L'assertion du canal CRIT cherchait
+    `CTX_COUNT_OF` dans le SOURCE de `_crit_board` ; or ce source NOMME quatre cles voisines dans
+    ses COMMENTAIRES, precisement pour dire qu'il ne les reutilise PAS. Contre-epreuve jouee :
+    `_CTX_ADJACENT_FRIENDLY_MECHANICAL_UNITS_OF` remplace par un nom mort dans le dict rendu ->
+    la cle N'EST PLUS PUBLIEE et ce fichier restait **14 passed**. On interroge donc le dict RENDU,
+    ce qui rougit dans ce regime (verifie). Le jumeau de ce cran vit dans
+    `tests/engine/test_920_maw_claws_of_thyrax_offline.py`."""
     from engine.entities.effects.loki import nether_realm_casket as NRC
     from engine.runner.components import UnitEffectStateView
     from engine.runner.operations.damage import AttackDamageOperation
+    from engine.runner.state import State
     assert NRC.CARRIER_COUNT_KEY in inspect.getsource(UnitEffectStateView.__getitem__)
     assert NRC.CARRIER_COUNT_KEY in inspect.getsource(UnitEffectStateView.__iter__)
-    assert NRC.CTX_COUNT_OF in inspect.getsource(AttackDamageOperation._crit_board)
+    board = AttackDamageOperation._crit_board(State(), None, None)
+    assert board, "`_crit_board` rend un substrat VIDE : l'assertion suivante serait VACUE"
+    assert NRC.CTX_COUNT_OF in board, (
+        "`%s` n'est PAS publiee par `_crit_board` (cles vues : %s)"
+        % (NRC.CTX_COUNT_OF, sorted(board)))
+    assert callable(board[NRC.CTX_COUNT_OF]), (
+        "`%s` doit rester un CALLABLE par-porteur : la boucle native ECRASE "
+        "`AbilityEntities+0x18` a chaque iteration" % (NRC.CTX_COUNT_OF,))
+    assert (NRC.CTX_COUNT_OF + "_absent") not in board, (
+        "le substrat accepte n'importe quelle cle -- le test ci-dessus ne garde rien")
 
 
 @pytest.mark.parametrize("mod", [

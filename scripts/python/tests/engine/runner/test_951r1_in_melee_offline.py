@@ -41,6 +41,7 @@ import gameconfig as GC
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.runner.components import UnitComponent, register_defeated_unit
 from engine.runner.operations.damage import AttackDamageOperation
+from engine.runner.state import Entity, State
 from engine.services.battle_query import get_attack_range_type, is_ranged_attack
 
 #: #486-r15 -- perimetre = exactement les foyers que ce fichier lit. Aucun runner ; le gameconfig du
@@ -57,6 +58,12 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/operations/damage.py",
         "scripts/python/engine/runner/components.py",
         "scripts/python/engine/runner/operations/revive.py",
+        # #10026 -- les DEUX foyers que ce fichier TRAVERSE depuis #10015-r3 et qu'il ne declarait
+        # pas : le retrait de plateau raccorde DANS `_kill_unit_operation` (slot 6
+        # @`KillUnitOperation$$Execute+0xd34`) et le substrat ECS que le montage instancie. C'est
+        # exactement par la que ce fichier est devenu rouge sans que son verdict ait bouge.
+        "scripts/python/engine/runner/operations/remove_unit.py",
+        "scripts/python/engine/runner/state.py",
         "scripts/python/engine/runner/operations/triggers/base.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
         "scripts/python/engine/runner/operations/triggers/loki/possession.py",
@@ -146,26 +153,31 @@ def test_le_slot_4_est_COHERENT_avec_le_slot_3_sur_les_quatre_branches():
 # Etage 2 -- le CABLAGE : de la file de morts jusqu'aux deux ecritures
 # --------------------------------------------------------------------------------------------
 
-class _Ent:
-    def __init__(self, comps):
-        self._c = dict(comps)
+def _ent(uid: int, *comps):
+    """L'entite REELLE du moteur, jamais un double maison (#10026).
 
-    def get_component(self, cls):
-        return self._c.get(cls)
+    ⚠ CE FICHIER PORTAIT DEUX DOUBLES (`_Ent`, `_St`) dont la surface etait << le strict minimum
+    que `register_defeated_unit` consulte >>. C'est precisement ce qui les a perimes : #10015-r3 a
+    raccorde `RemoveUnitOperation.execute` DANS `_kill_unit_operation` (le slot 6 d'
+    `IOperationProcessor` @`KillUnitOperation$$Execute+0xd34`), lequel appelle `add_component` --
+    methode que le double n'avait pas. Les trois tests de cablage tombaient alors sur un
+    `AttributeError` DANS LE MONTAGE, sans rien dire du port, qui etait juste.
 
-
-class _St:
-    """Le strict minimum que `register_defeated_unit` consulte."""
-    def __init__(self, ents):
-        self.entities = ents
-
-    def get_entity(self, uid):
-        return self.entities.get(int(uid))
+    `Entity`/`State` suivent le moteur par construction : un etage raccorde en amont ne peut plus
+    faire tomber ce fichier pour une raison qui n'est pas la sienne."""
+    e = Entity(int(uid))
+    for c in comps:
+        e.add_component(c)
+    return e
 
 
 def _duo():
+    """Le couple TUEUR (1) / VICTIME (2), sur un `State` nu."""
+    st = State()
     tueur, victime = UnitComponent("A", True), UnitComponent("B", False)
-    return _St({1: _Ent({UnitComponent: tueur}), 2: _Ent({UnitComponent: victime})}), tueur
+    st.entities[1] = _ent(1, tueur)
+    st.entities[2] = _ent(2, victime)
+    return st, tueur
 
 
 def test_register_defeated_unit_partitionne_sur_in_melee():
@@ -203,18 +215,42 @@ def test_la_vue_union_est_inchangee_quelle_que_soit_la_partition():
     assert tueur_m.defeated_units == tueur_o.defeated_units == [2]
 
 
+#: Les vecteurs d'evenement que `_kill_unit_operation` (et le retrait de plateau qu'il appelle)
+#: publient, et dont ce fichier ne teste RIEN. Ils sont neutralises pour isoler les deux ecritures
+#: de l'octet `inMelee`.
+#: ⚠ **LA LISTE EST DERIVEE, PAS ECRITE** (#10026). Elle etait figee a CINQ noms ; #10015-r3 a
+#: intercale `RemoveUnitOperation.execute` (slot 6 @`KillUnitOperation$$Execute+0xd34`), qui
+#: publie un SIXIEME vecteur -- `On(0x25 = UnitRemoved)`, via `move_death.unit_removed_triggers`.
+#: Une liste ecrite a la main ne peut pas montrer le vecteur qu'elle ignore : on neutralise donc
+#: TOUT ce que `move_death` expose sous `*_triggers`, et on VERIFIE que les six connus y sont --
+#: sans quoi un renommage viderait le montage en silence.
+_VECTEURS_ATTENDUS = ("after_death_triggers", "pre_unit_death_2_triggers", "unit_death_triggers",
+                      "unit_defeated_triggers", "post_unit_kill_triggers", "unit_removed_triggers")
+
+
 def _kill_unit_operation_isole(monkeypatch, st, **kwargs):
     """Joue `_kill_unit_operation` en NEUTRALISANT tout ce qui n'est pas les deux ecritures d'
-    `inMelee` (les cinq vecteurs d'evenement, la garde revive, les trois `RemoveEffects`).
+    `inMelee` (les vecteurs d'evenement, la garde revive, les trois `RemoveEffects`).
 
     Les substitutions portent sur les modules REELLEMENT resolus a l'appel : `move_death` et
     `revive` sont importes en forme MODULE **dans** la fonction, donc un `setattr` sur le module
-    mord ; `_kill_unit_remove_effects` est une fonction de module de `damage.py`."""
+    mord ; `_kill_unit_remove_effects` est une fonction de module de `damage.py`.
+
+    ⚠ **`RemoveUnitOperation` N'EST PAS NEUTRALISE**, et c'est deliberatoire : il est desormais SUR
+    le chemin natif de la mort, donc le neutraliser rendrait ce fichier vert sur un cablage qui
+    n'existe plus. On le laisse muter (`alive`, flag `Removed`, `turn_defeated`) -- aucune de ces
+    trois ecritures ne touche l'octet que ce fichier garde."""
     from engine.runner.operations import damage as DM
     from engine.runner.operations.triggers.dispatch import move_death
     from engine.runner.operations import revive as _revive
-    for nom in ("after_death_triggers", "pre_unit_death_2_triggers", "unit_death_triggers",
-                "unit_defeated_triggers", "post_unit_kill_triggers"):
+    vecteurs = [n for n in dir(move_death)
+                if n.endswith("_triggers") and not n.startswith("_")
+                and callable(getattr(move_death, n))]
+    manquants = [n for n in _VECTEURS_ATTENDUS if n not in vecteurs]
+    assert not manquants, (
+        "vecteur(s) introuvable(s) dans `move_death` : %s -- le montage ne neutralise plus ce "
+        "qu'il croit neutraliser (renommage ? deplacement ?)" % (manquants,))
+    for nom in vecteurs:
         monkeypatch.setattr(move_death, nom, lambda *a, **k: [])
     monkeypatch.setattr(_revive, "kill_unit_revive_gate", lambda *a, **k: None)
     monkeypatch.setattr(DM, "_kill_unit_remove_effects", lambda *a, **k: [])
@@ -270,8 +306,9 @@ def test_possession_lit_le_marqueur_et_retombe_sur_l_adjacence_sans_lui(monkeypa
 
     monkeypatch.setattr(P, "_is_ranged_position", lambda *a, **k: True)
     victime = UnitComponent("B", False)
-    st = _St({1: _Ent({UnitComponent: UnitComponent("A", True)}),
-              2: _Ent({UnitComponent: victime})})
+    st = State()
+    st.entities[1] = _ent(1, UnitComponent("A", True))
+    st.entities[2] = _ent(2, victime)
     st.rng = None
 
     vus: list = []
