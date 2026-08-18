@@ -1,6 +1,12 @@
 """#1003 -- CLIQUET OFFLINE du couple de reliques DEATH GUARD : `OrbsOfDecay` (1465) et
 `Lakrimae` (1541, volet `AddContamination`).
 
+⚠ << volet `AddContamination` >> est le PERIMETRE de ce fichier, PAS une affirmation d'unicite.
+L'id 1541 porte DEUX classes natives (`...Lakrimae_AddContamination_Ability` et
+`...Lakrimae_SummonPoxwalker_Ability`), et le volet SUMMON a ete porte depuis (#1144) : l'etage 3
+ci-dessous fige donc la liste des DEUX classes, et le detail du second volet vit dans
+`test_462r4r1_lakrimae_summon_poxwalker_offline.py`. Cf. #10029.
+
 CE QUE CE FICHIER GARDE, ETAGE PAR ETAGE -- et pourquoi chaque bras est DISCRIMINANT :
 
  1. ORDINAUX FIGES A LA CONVERSION. `probe_313` compare le MIRROR au BUILD ; il redevient vert des
@@ -173,9 +179,30 @@ def test_1003_constantes_gameconfig():
 def test_1003_registre_relique():
     """`RELIC_ABILITY_TRIGGERS` est indexe par le NOM gameconfig (le natif monte la relique par
     `BC.Units[].TertiaryAbility`, une CHAINE). Les deux cles doivent y etre, avec EXACTEMENT les
-    classes portees -- ni plus (une entree vide serait un mensonge de couverture), ni moins."""
+    classes portees -- ni plus (une entree vide serait un mensonge de couverture), ni moins.
+
+    ⚠ PREMISSE CORRIGEE (#10029). Ce bras figeait `["Lakrimae"] == [LakrimaeAddContaminationAbility]`
+    et il est devenu ROUGE quand le SECOND volet natif du meme id a ete porte (#1144, ex-#462-...-r4-r1).
+    Ce n'est pas une derive du registre : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    Lakrimae_SummonPoxwalker_Ability$$CreateTrigger` / `$$CreateBehaviour` existent bel et bien dans
+    le build, a cote de `...Lakrimae_AddContamination_Ability$$CreateTrigger` / `$$CreateBehaviour`
+    -- UN `TriggeredAbilityType`, DEUX classes natives, exactement le patron `DaemonfleshPlate` que
+    l'en-tete de `triggers/loki/lakrimae.py` decrit. L'en-tete de CE fichier disait << volet
+    AddContamination >> : c'etait le PERIMETRE du cas, pas une affirmation d'unicite.
+
+    Ce que ce bras garde reste << ni plus ni moins >>, sur la liste MISE A JOUR ; le detail du volet
+    SUMMON (ses neuf conjoints, son `event_id`, ses constantes) est garde par
+    `test_462r4r1_lakrimae_summon_poxwalker_offline.py`, pas ici."""
     assert RELIC_ABILITY_TRIGGERS.get("OrbsOfDecay") == [OD.OrbsOfDecayAbility]
-    assert RELIC_ABILITY_TRIGGERS.get("Lakrimae") == [LK.LakrimaeAddContaminationAbility]
+    assert RELIC_ABILITY_TRIGGERS.get("Lakrimae") == [LK.LakrimaeAddContaminationAbility,
+                                                      LK.LakrimaeSummonPoxwalkerAbility]
+    # UN id, DEUX classes : l'invariant qui rend la seconde entree LEGITIME plutot que suspecte --
+    # meme `TRIGGERED_ABILITY_ID`, vecteurs DISTINCTS (si les deux ecoutaient le meme event, l'une
+    # d'elles serait morte, et le registre mentirait sur sa couverture).
+    classes_1541 = RELIC_ABILITY_TRIGGERS["Lakrimae"]
+    assert {int(c.TRIGGERED_ABILITY_ID) for c in classes_1541} == {
+        int(TriggeredAbilityType.Lakrimae)}
+    assert len({int(c.event_id) for c in classes_1541}) == len(classes_1541)
     # Temoin NON NUL : le registre porte aussi les entrees preexistantes (un dict vide passerait).
     assert "DawnBlade" in RELIC_ABILITY_TRIGGERS and len(RELIC_ABILITY_TRIGGERS) >= 4
 

@@ -150,8 +150,22 @@ def test_no_unclassified_ability_state_rederivation_in_the_registry():
     pas le canal capte doit avoir sa feuille de pose CLASSEE (`OWNER` / `SRC` / `CROSS`) dans
     `probe_366r1_statmod_rederivation_census.POSE_TARGETS`. Sans cette classification, une classe
     posee cross-unite rouvre en silence le trou de `1000` et `1171` : ni erreur, ni crash, juste une
-    magnitude fausse et un residu opaque non retirable."""
+    magnitude fausse et un residu opaque non retirable.
+
+    ⚠ ANTI-VACUITE (#10029). `assert not bad` passe VERT sur un recensement VIDE -- registre ampute,
+    import casse, filtre du recenseur devenu trop etroit : le cliquet se tairait exactement quand il
+    devrait crier. Le cran est un INVARIANT, pas un seuil : **toute** entree de `POSE_TARGETS` doit
+    s'apparier a une ligne du recensement. Une classe retiree d'`EFFECT_CLASSES` (ou renommee) laisse
+    alors une entree ORPHELINE, et un recenseur devenu muet les rend TOUTES orphelines -- les deux
+    regimes rougissent ici, sans qu'aucun chiffre arbitraire soit ecrit."""
     rows = CENSUS.census()
+    vus = {r["name"] for r in rows}
+    orphelines = sorted(set(CENSUS.POSE_TARGETS) - vus)
+    assert not orphelines, (
+        "%d entree(s) de POSE_TARGETS ne s'apparient a AUCUNE ligne du recensement (%s) : la classe "
+        "a disparu du registre, ou le recenseur ne visite plus le gisement -- dans les deux cas "
+        "`not bad` ci-dessous serait un vert VACANT (recensement = %d lignes)"
+        % (len(orphelines), orphelines, len(rows)))
     bad = CENSUS.offenders(rows)
     assert not bad, (
         "%d classe(s) re-derivent une magnitude ability-state SANS canal capte NI classification de "

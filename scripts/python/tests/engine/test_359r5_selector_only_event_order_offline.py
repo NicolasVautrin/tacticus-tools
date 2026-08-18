@@ -7,15 +7,30 @@ SELECTEUR (`GetAllTargets` et son tri), celui-ci teste ce que `make_damage_predi
 CE QUE LE DECOMPILE DIT. Il y a DEUX formes de `<Ability>Playbook$$MakeDamagePredictions`, et rien
 d'autre que le corps natif ne permet de les distinguer :
 
-  A. BOUCLE UNIQUE sur le selecteur -- aucun event pour `<Target>` separement. La cible n'a un event
-     que si le selecteur la porte, et alors A SA PLACE :
+  A. AUCUN event pour `<Target>` separement. La cible n'a un event que si le selecteur la porte, et
+     alors A SA PLACE. Cette forme se presente sous DEUX ecritures, qui different par l'ENDROIT ou
+     la boucle est ecrite -- et qui sont OBSERVATIONNELLEMENT LA MEME CHOSE :
+
+     A1. la boucle est DANS le `MakeDamagePredictions` : `GetEntitiesFromSelector(<sel>, caster,
+         casterPosition, target)` puis, par entite, `GenerateMultiHitAttackPredictions(..., pvVar10,
+         Entity(pvVar10), ...)` + `AddRange`.
 
          `IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions`   (1147)
          `IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions`   (1148)
          `IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions`          (1137)
 
-     (celui de 1137 ne CONSOMME meme pas son argument `target` : il boucle sur
-     `AdjacentEnemies(caster)` et compte `Enumerable.Count(entities)` pour `GetCorrectDamage`.)
+         (celui de 1137 ne CONSOMME meme pas son argument `target` : il boucle sur
+         `AdjacentEnemies(caster)` et compte `Enumerable.Count(entities)` pour `GetCorrectDamage`.)
+
+     A2. UN SEUL appel a la surcharge PLURIELLE, a qui on passe le SELECTEUR : la boucle vit alors
+         dans le generique
+         `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateAttackPredictions`
+         (RELU : il evalue la formule de degat UNE fois, `Select`e le selecteur, puis emet un
+         `IdunBattle.AI.Playbook.ProbableDamageEvent` PAR entite ; l'argument `target` ne sert qu'a
+         construire les `AbilityEntities`, il n'emet AUCUN event a lui seul).
+
+         `IdunBattle.AI.Playbook.Loki.TacticalPrecisionPlaybook$$MakeDamagePredictions`  (1154)
+         `IdunBattle.AI.Playbook.Loki.ExplosivePresentsPlaybook$$MakeDamagePredictions`  (1170)
 
   B. BATCH `<Target>` EXPLICITE, puis une boucle sur un SECOND selecteur :
 
@@ -213,11 +228,23 @@ def test_hors_du_registre_la_cible_REVIENT_en_tete(monkeypatch):
 
 # ───────────────────────────────── 2. le REGISTRE lui-meme ──────────────────────────────────────
 
-def test_le_registre_porte_les_trois_playbooks_a_boucle_unique():
+def test_le_registre_porte_les_playbooks_SANS_batch_Target():
+    """L'ensemble EXACT, fige a la lecture. Toute entree/sortie doit venir d'une LECTURE du corps de
+    `<Ability>Playbook$$MakeDamagePredictions`.
+
+    ⚠ PREMISSE CORRIGEE (#10029). Ce test s'appelait `..._les_trois_playbooks_a_boucle_unique` et
+    figeait un triplet : il est devenu ROUGE quand #976 (1154) puis #909-r7 (1170) ont inscrit deux
+    playbooks de plus. Les DEUX corps ont ete RELUS sur le build courant, et les deux sont bien
+    SANS batch `<Target>` -- mais en ECRITURE A2 (cf. l'en-tete), ce que le nom << a boucle unique >>
+    ne decrivait pas : leur `MakeDamagePredictions` ne contient AUCUNE boucle, il delegue le
+    selecteur a la surcharge plurielle. C'est le CRITERE qui etait mal nomme, pas le registre qui
+    avait derive."""
     assert PA._MAKE_DMG_SELECTOR_ONLY == frozenset({
-        ActiveAbilityType.HadesAutocannons,     # 1147
-        ActiveAbilityType.DaemonicOrdnance,     # 1148
-        ActiveAbilityType.MurderousSwing,       # 1137
+        ActiveAbilityType.HadesAutocannons,     # 1147  A1
+        ActiveAbilityType.DaemonicOrdnance,     # 1148  A1
+        ActiveAbilityType.MurderousSwing,       # 1137  A1
+        ActiveAbilityType.TacticalPrecision,    # 1154  A2 (#976)
+        ActiveAbilityType.ExplosivePresents,    # 1170  A2 (#909-r7)
     }), ("le registre a bouge (%r). Toute entree/sortie doit venir d'une LECTURE du corps de "
          "`<Ability>Playbook$$MakeDamagePredictions` -- un batch `<Target>` explicite avant la "
          "boucle = FORME B = hors registre." % (sorted(int(x) for x in PA._MAKE_DMG_SELECTOR_ONLY),))
@@ -234,11 +261,26 @@ def test_les_playbooks_a_batch_TARGET_explicite_restent_HORS_du_registre(aid):
 
 def test_les_deux_familles_sont_NON_VIDES():
     """ANTI-VACUITE du registre : les deux cotes doivent porter du monde. Un registre VIDE ferait
-    passer les cinq tests ci-dessus (aucune forme A appliquee), et un registre qui contiendrait
-    TOUTES les abilities ferait passer le premier lot mais pas ceux-la -- c'est l'asymetrie qu'on
-    verrouille ici."""
-    assert len(PA._MAKE_DMG_SELECTOR_ONLY) == 3
-    assert len(_FORME_B) == 5
+    passer `test_hors_du_registre_la_cible_REVIENT_en_tete` (aucune forme A appliquee, donc la
+    contre-epreuve devient le regime NOMINAL), et un registre qui contiendrait TOUTES les abilities
+    ferait passer le premier lot mais pas ceux-la -- c'est l'asymetrie qu'on verrouille ici.
+
+    ⚠ LE CARDINAL DU REGISTRE N'EST PLUS FIGE ICI (#10029), ET C'EST LE CORRECTIF. Ce test ecrivait
+    `len(PA._MAKE_DMG_SELECTOR_ONLY) == 3`, donc il DOUBLAIT le cliquet d'egalite exacte ci-dessus :
+    l'arrivee legitime de 1154 et 1170 a rendu DEUX tests rouges pour UNE seule cause, et le second
+    n'apportait rien que le premier ne disait mieux (il ne nommait meme pas les entrees). Ce qui est
+    garde ici, et qui n'est garde QUE ici, c'est la NON-VACUITE et la DISJONCTION -- deux proprietes
+    qui ne se periment pas quand le registre grandit.
+
+    Le `len(_FORME_B) == 5`, lui, RESTE : `_FORME_B` est une constante de ce fichier, et la vider
+    ferait DISPARAITRE les cinq tests parametres ci-dessus sans qu'aucun rouge ne l'annonce (pytest
+    ne collecte simplement plus rien -- l'angle mort de #455-r3)."""
+    assert PA._MAKE_DMG_SELECTOR_ONLY, (
+        "registre VIDE : la forme A n'est appliquee a personne, et la contre-epreuve "
+        "`test_hors_du_registre_la_cible_REVIENT_en_tete` devient le regime nominal")
+    assert len(_FORME_B) == 5, (
+        "les contre-temoins ont ete amputes (%d) : les tests parametres ci-dessus disparaissent de "
+        "la COLLECTE, sans rougir" % (len(_FORME_B),))
     assert not (set(_FORME_B) & set(PA._MAKE_DMG_SELECTOR_ONLY))
 
 

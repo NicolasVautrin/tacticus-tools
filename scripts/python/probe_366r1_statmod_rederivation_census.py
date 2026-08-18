@@ -95,6 +95,34 @@ POSE_TARGETS = {
     "TwistedScience_ExtraHp": ("SRC", "TwistedScience_HealAbility$$ExecuteBehaviour :"
                                " AddDynamicStatModifierEffect(targets = Target@Sel+0x60,"
                                " source = Owner@Sel+0x30, 0x54b, statType 5 = Health)"),
+    # #10029 -- les DEUX stat-mods de `HealingBalms` (#966), arrivees sans classification, ce qui
+    # rendait `master` ROUGE sur `test_statmod_captured_channel_offline` -- MEME recidive que #943,
+    # et par la meme porte (notre cadence de portage). Feuille de pose RELUE au decompile sur
+    # `t6dpr4k06g`, argument par argument : les deux `AddDynamicStatModifierEffect` passent la
+    # SOURCE explicitement (`Owner@DSLSelectors+0x30`), donc `EffectComponent.SourceUnit` designe le
+    # POSEUR (Baldr) et non l'allie soigne -- le `source = null` de la note (b) ne les concerne pas.
+    # Regime identique a `TwistedScience_ExtraHp` ci-dessus, qui est l'autre `<P>_Heal` substitue.
+    "HealingBalms_ExtraCritDamage": ("SRC", "HealingBalms_HealAbility$$ExecuteBehaviour :"
+                                     " AddDynamicStatModifierEffect(targets = Target@Sel+0x60,"
+                                     " source = Owner@Sel+0x30, 0x5df, statType 10 ="
+                                     " CriticalDamage, AbilityStateReference,"
+                                     " TurnsFromRounds(ConfigConst(0x5de, Owner@+0x30, 0x45)))"),
+    "HealingBalms_ExtraCritChance": ("SRC", "meme ExecuteBehaviour, 2e volet (0x5e0, statType 9 ="
+                                     " CriticalChance) -- l'appariement effectType <-> statType est"
+                                     " INVERSE de ce que les noms suggerent, cf."
+                                     " entities/effects/loki/healing_balms.py"),
+    # --- OWNER (suite) : la relique `BladeOfTheAncestors` (#1001) --------------------------------
+    # #10029 -- meme lot. Ce n'est PAS un `AddStat*StatModifierEffect` : c'est un `AddEffect` NU dont
+    # la classe d'effet native pose elle-meme ses deux `ChangeStat` dans `$$ApplyModification`. La
+    # question de POSE_TARGETS reste pourtant la meme (« la magnitude re-derivee lit-elle
+    # l'`AbilityState` du bon porteur ? »), et le decompile la tranche : la CIBLE de l'`AddEffect`
+    # est `Owner@DSLSelectors+0x30`, donc porteur == poseur, et le `GetAbilityState(this)` que lit
+    # `ApplyModification` est l'etat d'ability du porteur lui-meme.
+    "BladeOfTheAncestors_Effect": ("OWNER", "BladeOfTheAncestorsAbility$$CreateBehaviour :"
+                                   " AddEffect(0x5d1, AbilityStateReference,"
+                                   " targets = Owner@DSLSelectors+0x30, turns = null) ; la magnitude"
+                                   " vit dans BladeOfTheAncestorsBuffEffect$$ApplyModification"
+                                   " (GetVariableForLevel(cfg, 0x41 / 0x42, GetAbilityState(this)))"),
     # --- CROSS (source = null + cibles != Owner) -> canal capte OBLIGATOIRE --------------------
     "ShockAssault_Buff": ("CROSS", "ShockAssaultAbility$$CreateBehaviour :"
                           " AddStaticStatModifierEffect(<Inceptors adjacents>)"),
