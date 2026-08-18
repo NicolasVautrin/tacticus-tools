@@ -707,12 +707,72 @@ class DeathwingPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
     Terme = 10 x #amis a distance 1 de la tuile candidate dont le `FactionId` est `DarkAngels`.
     Il departage donc deux tuiles a MEME nombre d'amis adjacents des que leurs factions different.
 
-    ⚠ `DeathwingKnightPlaybook` (ability `DeathwingKnight` 1510, porteurs `darkaNpc3Terminator` npc
-    et `darkaSmnTerminator` SUMMON) porte le MEME corps a la cle pres
-    (`DEATHWINGKNIGHT_AdjacentDAFriend`, elle aussi = 10) : elle n'est PAS portee ici -- une ability
-    par tranche."""
+    ⚠ `DeathwingKnightPlaybook` (ability `DeathwingKnight` 1510) porte le MEME corps a la cle pres.
+    Elle est portee juste en dessous (#932-r1) -- et c'est une CLASSE NATIVE DISTINCTE, pas une
+    instance de celle-ci."""
 
-    KEY = "DEATHWING_AdjacentDAFriend"                            # slot literal 0x33fa868
+    KEY = "DEATHWING_AdjacentDAFriend"                            # slot literal 0x33fca48
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        if _unit_faction(unit) != UnitFaction.DarkAngels.name:    # HasFaction(friend, 0xa)
+            return 0.0
+        return float(wt.sub("TriggeredAbilities", self.KEY))
+
+
+class DeathwingKnightPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
+    """`DeathwingKnightPlaybook` (`IdunBattle.AI.Playbook.Loki.DeathwingKnightPlaybook$$.ctor` :
+    litteral `0x5e6` = 1510 `TriggeredAbilityType.DeathwingKnight` -- passif du SUMMON
+    `darkaSmnTerminator` et de son jumeau npc `darkaNpc3Terminator`). #932-r1.
+
+    `IdunBattle.AI.Playbook.Loki.DeathwingKnightPlaybook$$GetAdjacentFriendUtility`, corps ENTIER
+    relu au decompile sur `t6dpr4k06g` :
+
+        if (!UnitExtensions.HasFaction(friend, 0xa)) return 0;         // UnitFaction.DarkAngels
+        return getUtilityVal("DEATHWINGKNIGHT_AdjacentDAFriend");      // 10
+
+    ⚠ **DEUX CLASSES NATIVES, DEUX CORPS DISTINCTS -- pas une instance de `DeathwingPlaybook`.**
+    Le port ne DERIVE donc pas de sa jumelle : `classes.tsv` donne aux DEUX
+    `AdjacentUnitPreferenceTriggeredAbilityPlaybook`1` comme base, et leurs corps vivent a deux
+    adresses (l'ICF ne peut pas les fondre, le slot de litteral differe). Les octets sont par
+    ailleurs identiques : meme `HasFaction(friend, 0xa)`, meme forme.
+
+    ⚠ LA CLE EST LUE AU SLOT DE LITTERAL, JAMAIS DERIVEE DU NOM. Le corps charge `DAT_1833fc908` ;
+    `data/symbols/t6dpr4k06g/metadata/string_literals.tsv` donne
+    `0x33fc908 -> "DEATHWINGKNIGHT_AdjacentDAFriend"` -- a UNE LETTRE de casse pres du prefixe de sa
+    jumelle (`0x33fca48 -> "DEATHWING_AdjacentDAFriend"`), et les deux slots sont voisins dans la
+    table. Poids `Utilities.Default.TriggeredAbilities` = **10**, comme `Deathwing` (mesure sur
+    `data/seed-bc.json`) : c'est une COINCIDENCE de valeur, pas une cle partagee.
+
+    ⚠ PARENTE : le pseudo-C du `.ctor` appelle
+    `AdjacentToOwnerNonOwnerPlaybook<__Il2CppFullySharedGenericType>$$.ctor(this, 0x5e6, ...)` --
+    c'est le MISLABEL de thunk gshared deja documente pour `Deathwing`, `RedRampage`,
+    `IconOfObstinacy` et `PsychicFortress`. `frida/classes.tsv` dit
+    `AdjacentUnitPreferenceTriggeredAbilityPlaybook`1`, et c'est elle qui fait foi.
+
+    ⚠ CE QUE LA CLASSE DECLARE, lu au bloc `methodPointers` du PE (ancre sur le `.ctor`, trois
+    entrees CONTIGUES) : `[.ctor, GetAdjacentFriendUtility, <corps `return 0` fondu par l'ICF>]`.
+    La troisieme entree est le MEME corps que la troisieme de `DeathwingPlaybook` --
+    `GetAdjacentEnemyUtility` (slot 14) est un override EXPLICITE qui rend 0, semantiquement egal
+    au defaut de la base, d'ou l'absence de surcharge ici. **NI cap NI filtre** : aucun
+    `GetMaxAdjacentFriendsToCount` ni `FilterAdjacentFriends` dans le bloc -- le gate est DANS
+    l'accesseur. Faces ATTACK / REPAIR : aucun corps propre, donc le `yield Fix64(0)` herite de
+    `TriggeredAbilityPlaybook<T>` -- DEAD, comme chez sa jumelle.
+
+    Terme = 10 x #amis a distance 1 de la tuile candidate dont le `FactionId` est `DarkAngels`.
+
+    REGISTRE : `metadata/active_playbook_builders.tsv` porte `triggered 1510
+    IdunBattle.AI.Playbook.Loki.DeathwingKnightPlaybook` -- le playbook est CHARGE par
+    `PlaybookDatabase$$LoadPlaybook`, pas du code enregistre-mais-mort. Aucune face NON-OWNER :
+    `non_owner_slot4.tsv` ne porte rien pour cette famille, et `TriggeredAbilitiesNonOwner`
+    (`data/seed-bc.json`) n'a aucune cle `DEATHWING*`.
+
+    PORTEURS (`unit_map.py find --ability DeathwingKnight`) : `darkaNpc3Terminator` (**npc**) et
+    `darkaSmnTerminator` (**SUMMON**, HP/DMG/ARM a 0 au catalogue). Aucun n'est un hero du pool.
+    L'accesseur ne lit NI stat NI trait DU CASTER (seulement la faction du VOISIN), donc l'ability
+    se GREFFE sur une unite du pool -- c'est la voie de confrontation retenue (gate de
+    confrontabilite, cas `1194 NovaShield`)."""
+
+    KEY = "DEATHWINGKNIGHT_AdjacentDAFriend"                      # slot literal 0x33fc908
 
     def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
         if _unit_faction(unit) != UnitFaction.DarkAngels.name:    # HasFaction(friend, 0xa)
@@ -877,6 +937,12 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # aucune cle `DEATHWING*` dans `TriggeredAbilitiesNonOwner`), et ses faces ATTACK / REPAIR sont
     # DEAD (corps herite `yield return Fix64.op_Implicit(0)` de `TriggeredAbilityPlaybook<T>`).
     int(TriggeredAbilityType.Deathwing): DeathwingPlaybook(),                    # 1245 (10 / ami DarkAngels)
+    # #932-r1 -- la JUMELLE de la ligne ci-dessus, classe native DISTINCTE (deux corps, deux
+    # adresses) a la seule CLE de litteral pres (`0x33fc908` vs `0x33fca48`). Porteurs
+    # `darkaSmnTerminator` (SUMMON) et `darkaNpc3Terminator` (npc) : aucun hero du pool, mais
+    # l'accesseur ne lit ni stat ni trait DU CASTER -> l'ability se GREFFE sur une unite du pool.
+    # `triggered 1510` est bien dans `metadata/active_playbook_builders.tsv` (registre natif).
+    int(TriggeredAbilityType.DeathwingKnight): DeathwingKnightPlaybook(),        # 1510 (10 / ami DarkAngels)
     # #954 -- MEME famille « corps propre » que `LegacyOfCombat` juste au-dessus, et MEME forme de
     # produit plat, mais la query est la QUATRIEME surcharge de `GetAdjacentEnemies` (**slot 128**,
     # ancre `UnitPosition` + argument UNITE) et non la troisieme (slot 127, ancre TUILE via

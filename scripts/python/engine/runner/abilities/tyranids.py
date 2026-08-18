@@ -59,7 +59,7 @@ from ...entities.selectors.geometry import Cache, Entity, PickFirstN
 from ...entities.selectors.tiles import (AdjacentTiles, AllAliveUnits, AllTiles, CanAddUnit, Caster,
                                          TileIntersect, TileUnion)
 from ...entities.selectors.units import (AdjacentUnits, DeadUnits, Enemies, Friends, SortByFormula,
-                                         Sub, SurroundingUnits, Tiles, Units, UnitsFromFaction,
+                                         Sub, SurroundingUnits, Tiles, UnitsFromFaction,
                                          non_steppable_or_object_units)
 from ...entities.stats import StatType
 from ...entities.triggers import HasUnitFlag, IsInTeamAura, Not
@@ -885,6 +885,11 @@ class BurrowersAbility(ActiveAbility):
 
 IT_ITCHES_ID = "ItItches"
 IT_ITCHES_PINNED = int(EffectType.Pinned)         # 0x429 = 1065 -- UI « Suppressed »
+#: #550-r3 -- le 3e argument LU de `DSLSelectors$$Enemies(this, of, entities, selectionType)` dans
+#: `...ItItchesAbility$$GetTargetUnits`. Il etait PERDU par le `Units(...)` intercalaire que le port
+#: interposait ; sans lui, le volet `Untargetable` du predicat
+#: `UnitExtensions$$MatchesUnitSelectionType` ne s'appliquait pas.
+IT_ITCHES_SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)   # 3
 
 
 def _it_itches_selectors(tile_id):
@@ -911,15 +916,34 @@ def _it_itches_selectors(tile_id):
     `AdjacentTilesIntersection(a, b)` n'a pas de noeud dedie cote port : son corps natif EST
     `AdjacentTiles(a) op_BitwiseAnd AdjacentTiles(b)` (relu), donc on ecrit la composition.
 
-    ⚠ **DOMAINE.** Le natif reste en domaine TUILE de bout en bout : `Target` est une entite-TUILE
-    (masque `TargetIsTile`), et `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd`
-    resout l'occupant (`GetUnitOrMachine`) pour le TEST `IsFriend` mais ajoute l'ENTITE SOURCE au
-    resultat -- donc `Enemies(<tuiles>)` rend des TUILES. Le port passe en domaine UNITE par un
-    `Units(...)` EXPLICITE, et l'ecart est de REPRESENTATION, pas de semantique : les consommateurs
-    aval (`AddEffectOperation`, `DisplaceUnitOperation`, `KillUnitOperation`) resolvent tous
-    l'occupant, et `Tiles(<unite>)` rend sa main tile, c'est-a-dire la tuile de depart. Le seul
-    regime ou les deux divergeraient est une unite MULTI-HEX (`Tiles(tuile)` = LA tuile,
-    `Tiles(unite)` = sa main tile) -- inatteignable ici, `IsDisplaceable` refusant `BigTarget`.
+    ⚠ **DOMAINE (#550-r3) -- LA PREMISSE DU RESIDU EST REFUTEE, ET LE `Units(...)` EXPLICITE A
+    DISPARU.** Le residu tenait de la lecture << `CountOrAdd` ajoute l'ENTITE SOURCE, donc
+    `Enemies(<tuiles>)` rend des TUILES >>, qui manquait UN ETAGE : ce que `CountOrAdd` itere n'est
+    pas `Select(entities)` mais le **slot 5 `SelectAllActors`** de son selecteur source
+    (`FUN_180026100(5, ..., <this+0x20>, entities, <this+0x2c = selectionType>)` -- arite 2,
+    concordante avec `data/symbols/<build>/metadata/interface_slots.tsv`), et
+    `IdunBattle.DSL.TargetsSelector$$SelectAllActors` RESOUT chaque element par `SelectUnit`
+    (`IsUnitFoot || IsTile -> GetUnit`). L'`entity` ajoute est donc **un acteur DEJA RESOLU** --
+    c'est ce qu'a etabli #1030-r5, et c'est pourquoi le port n'a plus besoin d'un `Units(...)`
+    intercalaire : `entities/selectors/units.py::Enemies` fait deja la resolution.
+
+    ⚠ **ET LE `Units(...)` N'ETAIT PAS INERTE -- il portait DEUX ecarts, mesurables tous les deux.**
+
+      1. **DEDOUBLONNAGE que le natif n'a pas.** `UnitsByTeamSelector$$Select` alloue un
+         `System.Collections.Generic.List<T>` et `CountOrAdd` y fait `List.Add` par element
+         qualifiant, sans jamais passer par un `ArraySet` -- une unite occupant DEUX tuiles de
+         `zone` sort donc **DEUX FOIS**. `Units`, lui, dedoublonne INCONDITIONNELLEMENT (son set
+         `seen`, residu `#433-r3-r1a-r1`). `zone` compte au plus TROIS tuiles (`Target` +
+         l'intersection des deux voisinages, qui vaut au plus 2), donc le regime est atteignable
+         par un ennemi MULTI-HEX -- et `AddEffect(Pinned)`, contrairement au displace, n'a aucun
+         gate `IsDisplaceable`/`BigTarget` pour l'ecarter.
+      2. **`selectionType` PERDU.** Le natif passe `UnitSelectionType.OnlyAliveAndTargetable`
+         (3) a `Enemies` ; le port n'en passait AUCUN, ni a `Units` ni a `Enemies`. Le volet
+         VIVANT etait rattrape par accident (`_occupants_by_tile` ne garde que les vivants), le
+         volet **Untargetable** ne l'etait pas : une unite en deep strike entrait dans les cibles.
+
+    Le port ecrit donc desormais la forme NATIVE, `Enemies(<tuiles>, selection_type=3)`, et
+    `unit_or_machine` resout l'occupant par l'EMPREINTE (tout pied, pas la seule main tile).
 
     ⚠ **LE `Cache` EST LOAD-BEARING**, il n'est pas decoratif : `targets` est relu APRES la poussee
     par `DeadUnits(targets)`, et la poussee TUE les steppables. Sans memoisation, `Units` (qui ne
@@ -932,7 +956,10 @@ def _it_itches_selectors(tile_id):
     zone = TileUnion(target,                                   # `Target op_Addition ...`
                      TileIntersect(AdjacentTiles(CasterTile(as_ids=True)),   # `AdjacentTilesIntersection`
                                    AdjacentTiles(target)))
-    targets = Cache(Enemies(Units(zone)))                      # `Cache(Enemies(Caster, zone, 3))`
+    # #550-r3 -- `Cache(Enemies(Caster@0x48, zone, UnitSelectionType.OnlyAliveAndTargetable), true)`.
+    # PAS de `Units(...)` intercalaire : `Enemies` resout deja l'occupant (slot 5 `SelectAllActors`),
+    # et l'intercaler DEDOUBLONNAIT la ou le natif rend une `List` (cf. la docstring ci-dessus).
+    targets = Cache(Enemies(zone, selection_type=IT_ITCHES_SELECTION))
     target_tiles = Cache(Tiles(targets, as_ids=True))          # `Cache(Tiles(targetUnits))`
     return zone, targets, target_tiles
 

@@ -19,8 +19,56 @@ from .. import battle_query as _bq
 from ..entities.stats import StatType as _ST
 
 
-def dsl_context_for_tile_target(ctx, machine_caster: bool = False):
+def dsl_context_for_tile_target(ctx, machine_caster: bool = False, caster_position=None):
     """`SelectorContext` de la face DECISION pour un playbook TILE-TARGET.
+
+    `caster_position` (#1027-r4) -- LA `CasterPosition` DE L'`AbilityEntities`, c'est-a-dire la
+    position CANDIDATE du balayage, pas la position courante du caster. Elle est LUE dans
+    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable(caster,
+    possibleCasterPosition)`, qui remplit son `AbilityEntities` ainsi (offsets relus aux ecritures
+    du corps, struct de 0x128 octets memset a 0 avant) :
+
+        ae@+0x08 = caster                                    // Caster      (l'ENTITE, inchangee)
+        ae@+0x10 = entity                                    // Target      (l'entite eligible)
+        ae@+0x18 = caster                                    // Owner
+        ae@+0x30 = EntityExtensions.GetMainTile(entity)      // TargetTile
+        ae@+0x38 = EntityExtensions.GetTiles(entity)         // TargetPosition
+        ae@+0x40 = UnitPosition.get_MainTile(possibleCasterPosition)   // CasterTile
+        ae@+0x48 = possibleCasterPosition                              // CasterPosition
+
+    et `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` (le corps des DEUX slots
+    `<DSLSelectors+0x50> = CasterTile` et `<DSLSelectors+0x58> = CasterTiles`, alloues depuis le
+    MEME pointeur de classe) lit dans CET ordre :
+
+        tiles = entities.CasterPosition.Tiles        (+0x48)   // la position CANDIDATE
+             ?? entities.CasterTile.ToList()         (+0x40)
+             ?? EntityExtensions.GetTiles(entities.Caster, state)  (+0x08)  // l'empreinte COURANTE
+        return new List(tiles);
+
+    Donc **toute evaluation par tuile candidate doit poser cette position**, sans quoi le port
+    prend systematiquement la 3e branche (l'empreinte COURANTE) la ou le natif prend la 1re. La
+    consequence n'est pas cosmetique quand un arbre est ANCRE dessus :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SolarAtomizerAbility$$GetTargetTiles` derive la
+    DIRECTION de sa bande de `DirectionTo(AdjacentTiles(Target) & Tiles(CasterTiles), Target)` --
+    un caster reste a sa position d'origine donne une bande orientee depuis le mauvais cote, ou
+    vide (l'intersection est alors sans voisin commun).
+
+    ⚠ **`Caster` (+0x08) N'EST PAS REPOSITIONNE, ET C'EST LE NATIF QUI LE DIT** : le slot porte
+    l'ENTITE, et `TargetsSelector$$SelectTiles` la deplie par `GetTiles(caster, state)` =
+    l'empreinte COURANTE. Un arbre ancre sur `Caster()` lit donc bien la position d'ORIGINE, meme
+    quand la position candidate est posee. Le port doit reproduire cette asymetrie : on pose
+    `caster_pos` sur le contexte, jamais `caster["pos"]`.
+
+    ⚠ **A L'ORIGINE, ON NE POSE RIEN** (l'appelant passe `None`), et c'est plus fidele que de
+    poser la position courante : natif, `CasterPosition.Tiles` a l'origine EST l'empreinte
+    d'origine, que le repli `_feet(caster)` rend MESUREE (`decisionView.units[].feet`) au lieu de
+    la reduire a sa main tile. C'est la meme regle que `the_lantern._caster_footprint` (<< a
+    l'origine, la MESURE fait autorite sur la derivation >>).
+
+    ⚠ RESIDU `#459-r1` INCHANGE : le port ne stocke de la position candidate que sa MAIN TILE
+    (`caster_pos` est un `(col,row)`), donc `CasterTile.select` rend UNE tuile la ou le natif rend
+    l'empreinte candidate entiere. Fermer #1027-r4 met le caster au BON ENDROIT sans lui rendre sa
+    FORME -- inerte pour toute unite mono-hex, borne nommee pour les autres.
 
     `machine_caster` (#1066) -- LE CASTER EST UNE MACHINE OF WAR, ET ELLE N'EST PAS DANS
     `dv.units`. Ce n'est pas un canal muet, c'est une propriete du substrat : `observeBattle`
@@ -46,11 +94,16 @@ def dsl_context_for_tile_target(ctx, machine_caster: bool = False):
     contexte DSL du port porte des dicts d'UNITE et qu'une entite-tuile n'en est pas une. C'est le
     meme montage que la face COMBAT (`deathguard.execute_plagueburst_mortar`).
 
-    ⚠ Le caster n'est PAS repositionne sur la tuile candidate (contrairement a
-    `resurrection_orb._dsl_context`) : c'est une difference NATIVE, pas une simplification. Le
-    `AbilityEntities` de `PlagueburstMortarPlaybook$$CalculateCustomUtility` ne porte pas
-    `casterPosition` — un playbook tile-target dont le custom LIT `casterPosition` devra construire
-    son propre contexte, comme 1009 le fait.
+    ⚠ **DEUX FONCTIONS NATIVES, DEUX REPONSES OPPOSEES -- et c'est ce qui rend `caster_position`
+    OPTIONNEL plutot qu'automatique.** Le defaut `None` n'est pas une simplification, c'est le
+    regime de la voie `CalculateCustomUtility` :
+    `IdunBattle.AI.Playbook.PlagueburstMortarPlaybook$$CalculateCustomUtility(this, caster,
+    casterPosition, target, abilityState, possibleTargets)` construit son `AbilityEntities` par
+    `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor(&ae, caster, caster, target, 0, 0, ...)`
+    et **NE PASSE PAS son parametre `casterPosition`** (relu aux arguments du `call` sur
+    `t6dpr4k06g`) -- donc `CasterTiles` y retombe sur `GetTiles(Caster)`, l'empreinte COURANTE.
+    La voie `GetEligibleTargetsSelectable` ci-dessus, elle, la passe. Un appelant declare donc
+    LAQUELLE des deux il mirrore ; recopier l'une sur l'autre serait faux dans les deux sens.
 
     Rend `None` si la `Scene` ou son board manquent (`combatSnapshot` indisponible) : l'appelant
     retombe alors sur `0.0`, jamais sur une valeur inventee."""
@@ -132,7 +185,12 @@ def dsl_context_for_tile_target(ctx, machine_caster: bool = False):
     # besoin au chargement.
     from .prediction.abilities import _tile_has_effect_from_scene
 
+    # `caster_pos` = `AbilityEntities.CasterPosition` (+0x48), la 1re branche de
+    # `CasterTileSelector$$Select`. `None` -> le selecteur retombe sur `GetTiles(Caster)`
+    # (l'empreinte COURANTE, MESUREE par `decisionView.units[].feet`), ce qui est le regime des
+    # appelants qui mirrorent `CalculateCustomUtility` -- cf. l'en-tete.
     return dsl.DslContext(units=units, caster=caster, board=scene.board,
+                          caster_pos=caster_position,
                           elev_by_pos=scene.elev_by_pos,
                           current_player_machine_position=mow_pos,
                           tile_has_effect=_tile_has_effect_from_scene(scene),
