@@ -212,6 +212,76 @@ def _owner_class(tree: ast.AST, node: ast.AST) -> str:
     return ""
 
 
+def _resoudre_porte_par_delegation(bruts: list) -> None:
+    """Propage `porte` le long des DELEGATIONS, par POINT FIXE. Ecrit `porte` et `delegue` en place.
+
+    ⚠ POURQUOI CE N'EST PLUS UN SINGLETON (#498-r4-r2). `delegue` valait
+    `FOYER_CALL in appels`, avec `FOYER_CALL` = le foyer RUNNER, ECRIT EN CONSTANTE. #977 a cree un
+    SECOND foyer -- `playbook/displace_utility.py::is_displaceable`, ou le corps de
+    `loki_custom.MortisRoundPlaybook._is_displaceable` a ete DEPLACE. La delegation vers lui etait
+    donc invisible, et le site correctement factorise sortait en `NON-PORTE`.
+
+    C'est le MEME vice que celui qu'`_alias_traits_global` avait deja du corriger un cran plus bas,
+    sur l'axe des CONSTANTES : **le recenseur recompense la duplication**. Une copie locale des
+    traits reste visible ; un corps hisse dans un foyer partage disparait. L'axe des APPELS avait
+    garde le defaut que l'axe des NOMS avait perdu.
+
+    Deux exigences, et la seconde est celle qui empeche le remede d'etre pire que le mal :
+
+    1. LES DELEGATAIRES SE DERIVENT -- toute fonction qui porte des conditions EN PROPRE en est un.
+       Aucune constante a tenir a jour, donc un troisieme foyer ne rouvrira pas ce trou.
+    2. UN DELEGANT HERITE DE CE QUE SON DELEGATAIRE PORTE, JAMAIS DES CINQ CONDITIONS. L'ancien
+       `delegue` creditait `set(CONDITIONS)` d'office : c'etait juste tant que l'unique cible etait
+       le foyer RUNNER (qui les porte toutes), mais generaliser cette forme aurait fabrique un FAUX
+       VERT des le premier delegataire incomplet -- et `displace_utility::is_displaceable` en EST
+       un (il manque `EntityType` et `Undisplaceable`, cf. l'etage 3). Le manque doit TRAVERSER.
+
+    Resolution d'un appel : d'abord dans le MEME fichier, sinon globalement. Sans cette priorite,
+    l'homonymie `_is_displaceable` (quatre definitions) ferait resoudre l'appel de
+    `momentum.py::_suppress_or_stun` sur les miroirs d'`it_itches`/`unstoppable_momentum` au lieu du
+    delegue de son propre module -- il heriterait d'un manque qui n'est pas le sien. Quand plusieurs
+    cibles subsistent, on prend l'INTERSECTION : la garantie la plus FAIBLE, jamais un credit
+    fabrique."""
+    par_fichier: dict = {}
+    par_nom: dict = {}
+    for i, s in enumerate(bruts):
+        par_fichier.setdefault((s["fichier"], s["fonction"]), []).append(i)
+        par_nom.setdefault(s["fonction"], []).append(i)
+
+    def cibles(i: int) -> list:
+        s = bruts[i]
+        out = []
+        for n in s["_appels"]:
+            for j in par_fichier.get((s["fichier"], n)) or par_nom.get(n) or ():
+                if j != i:
+                    out.append(j)
+        return out
+
+    porte = [set(s["_porte_direct"]) for s in bruts]
+    for _ in range(len(bruts) + 1):              # point fixe, borne EXPLICITE
+        change = False
+        for i, s in enumerate(bruts):
+            if s["_porte_direct"] or porte[i]:
+                continue
+            vals = [porte[j] for j in cibles(i) if porte[j]]
+            if vals:
+                nouveau = set.intersection(*vals)
+                if nouveau != porte[i]:
+                    porte[i] = nouveau
+                    change = True
+        if not change:
+            break
+    for i, s in enumerate(bruts):
+        s["porte"] = porte[i]
+        # DELEGUE = il ne porte rien en propre, mais il porte par sa cible.
+        s["delegue"] = bool(not s["_porte_direct"] and porte[i] and not s["foyer"])
+        # Les traits EFFECTIFS : en propre, ou herites du delegataire. C'est cette valeur-la qui
+        # dit « le recenseur voit-il encore les traits », que la factorisation les ait deplaces ou
+        # non -- `traits_en_dur` ne repond, lui, que pour le site LUI-MEME.
+        s["traits_effectifs"] = sorted(
+            {c for c in ("Immovable", "Hulking", "BigTarget") if c in porte[i]})
+
+
 def etape_recensement() -> dict:
     sites = []
     globales = _alias_traits_global()
@@ -248,41 +318,52 @@ def etape_recensement() -> dict:
                     traits |= tr
             foyer = (node.name == FOYER_FUNC)
             appels = _appels(node)
-            delegue = (FOYER_CALL in appels and not foyer)
             cite = SYMBOL in seg
             # CRITERE DE RECENSEMENT -- derive, jamais une liste ecrite ici : soit la fonction CITE
             # le symbole natif, soit elle teste conjointement les deux traits historiques.
             if not (cite or {"Immovable", "BigTarget"} <= traits):
                 continue
-            # ROLE : un MIROIR re-implemente le predicat ; un CONSOMMATEUR se contente d'appeler un
-            # miroir (`_is_displaceable(...)`). Confondre les deux fait rougir des sites qui n'ont
-            # rien a porter -- et c'est ce que la 1re version de ce probe faisait.
-            appelle_miroir = ("_is_displaceable" in appels and node.name != "_is_displaceable")
-            if foyer or delegue or traits:
-                role = "MIROIR"
-            elif appelle_miroir:
-                role = "CONSOMMATEUR"
-            else:
-                role = "NON-PORTE"
-            porte = set()
-            if foyer or delegue:
-                porte |= set(CONDITIONS)
-            elif role == "MIROIR":
-                porte |= traits
+            # CE QUE LE SITE PORTE **EN PROPRE**. Le foyer RUNNER est la reference declaree ; tout
+            # autre site ne recoit que ce que son CODE lit. Ce qu'il porte par DELEGATION est
+            # resolu apres coup (`_resoudre_porte_par_delegation`), quand tous les sites sont
+            # connus -- un delegataire peut etre defini plus loin dans l'arbre que son delegant.
+            porte_direct = set()
+            if foyer:
+                porte_direct |= set(CONDITIONS)
+            elif traits:
+                porte_direct |= traits
                 if "UnitFlag.Undisplaceable" in symb:      # AST, pas texte (cf. `_symboles`)
-                    porte.add("Undisplaceable")
+                    porte_direct.add("Undisplaceable")
                 if "MachineComponent" in symb:
-                    porte.add("EntityType")
+                    porte_direct.add("EntityType")
             cls = _owner_class(tree, node)
             sites.append({
                 "fichier": rel, "classe": cls, "fonction": node.name, "ligne": node.lineno,
-                "role": role, "foyer": foyer, "delegue": delegue,
+                "foyer": foyer,
                 "traits_en_dur": sorted(traits),
-                "porte": sorted(porte),
-                "manque": sorted(set(CONDITIONS) - porte) if role == "MIROIR" else [],
                 "gate_alive": ("alive" in seg),
                 "face": "RUNNER" if rel.startswith("runner/") else "DECISION",
+                "_appels": appels, "_symb": symb, "_porte_direct": porte_direct,
             })
+
+    _resoudre_porte_par_delegation(sites)
+
+    for s in sites:
+        # ROLE : un MIROIR porte le predicat -- en propre OU par delegation ; un CONSOMMATEUR se
+        # contente d'appeler un miroir (`_is_displaceable(...)`) sans etre lui-meme un site du
+        # predicat. Confondre les deux fait rougir des sites qui n'ont rien a porter -- et c'est ce
+        # que la 1re version de ce probe faisait.
+        appelle_miroir = ("_is_displaceable" in s["_appels"] and s["fonction"] != "_is_displaceable")
+        if s["foyer"] or s["delegue"] or s["traits_en_dur"]:
+            s["role"] = "MIROIR"
+        elif appelle_miroir:
+            s["role"] = "CONSOMMATEUR"
+        else:
+            s["role"] = "NON-PORTE"
+        s["manque"] = (sorted(set(CONDITIONS) - s["porte"]) if s["role"] == "MIROIR" else [])
+        s["porte"] = sorted(s["porte"])
+        for k in ("_appels", "_symb", "_porte_direct"):
+            s.pop(k, None)
     return {"sites": sites}
 
 
