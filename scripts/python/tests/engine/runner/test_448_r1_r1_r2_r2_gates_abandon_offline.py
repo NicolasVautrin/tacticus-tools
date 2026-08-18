@@ -250,8 +250,10 @@ CALL_SITES: dict[tuple[str, str, int], object] = {
     # --- `TheQuickening` : le port COLLAPSE le lift-off natif, geometrie que le natif ne voit pas
     ("runner/abilities/loki/quickening.py", "execute_behaviour", 1): False,
     ("runner/abilities/loki/quickening.py", "execute_behaviour", 2): False,
-    # --- `FleeOperation$$Execute` n'appelle NI `MoveUnit` NI `SetUnitPosition`
-    ("runner/operations/behaviour.py", "execute", 1): False,
+    # --- `FleeOperation$$Execute` n'appelle NI `MoveUnit` NI `SetUnitPosition` : son call-site du
+    #     port a donc ete SUPPRIME (#429-r1-r3-r1-r2-r1), pas re-classe. L'entree qui vivait ici
+    #     (`("runner/operations/behaviour.py", "execute", 1): False`) est retiree AVEC lui -- c'est
+    #     exactement ce que le message de `test_6` demande d'un retrait de site.
     # --- push / pull / switch : STAND-INS de `SetUnitPositionOperation$$Execute`
     ("runner/operations/displace.py", "execute", 1): False,
     ("runner/operations/displace.py", "execute", 2): False,

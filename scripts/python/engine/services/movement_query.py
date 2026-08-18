@@ -795,10 +795,38 @@ class BeelineSansChemin(RuntimeError):
       * **1 seul** porte une poche isolee -- `Waves_Xenos_13`, la tuile `(3, 4)`, un `Block`
         NON MARCHABLE dont le `ConnectivityComponent` est VIDE. Sur ce board : 126 couples sans
         chemin beeline et **61 sauts de vol** reellement non recousus, mais **0** issu d'un
-        MOUVEMENT LEGAL. `GetConnectedPathTo` n'est appele que par
-        `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, donc APRES un deplacement : ses
-        deux extremites sont marchables par construction, et sous cette contrainte le compte
-        tombe a zero.
+        MOUVEMENT LEGAL.
+
+    ## QUI APPELLE `GetConnectedPathTo` -- LU, et la premisse d'origine etait FAUSSE (#589-r2-r1-r1)
+
+    Cette docstring a porte << `GetConnectedPathTo` n'est appele que par
+    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` >>. C'est FAUX :
+    `RecordTilesMoved(unit, tiles, state)` prend un **ENTIER** -- son corps entier est
+    `if (n < 1) return; comp[+0xec] += n; comp[+0xf0] += n;` -- il ne calcule aucun chemin. Les
+    appelants du slot `IBattleQuery` 0x15 (= `IdunBattle.Core.Services.BattleQuery$$
+    GetConnectedPathTo`, qui delegue au slot `IMovementQuery` 8) sont EXACTEMENT DEUX dans tout le
+    binaire : `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` (la route COMBAT, son 9e
+    out-param) et `IdunBattle.View.FSM.VisualBattleQuery$$GetVisualPathTo` (la route VUE, qu'aucun
+    mirror du moteur ne porte).
+
+    ## LES DEUX EXTREMITES, ET ELLES N'ONT PAS LA MEME FORCE DE PREUVE
+
+    **DESTINATION -- ETABLIE PAR LECTURE.** `CalculatePaths` n'a qu'un appelant,
+    `IdunBattle.Operations.MoveUnitOperation$$Execute`, dont le TROISIEME gate est
+    `IdunBattle.Operations.MoveUnitOperation$$TilesAreWalkable(unit, position)` : il exige le slot
+    `IBattleQuery` 0xa1 (`IdunBattle.Core.Services.BattleQuery$$IsWalkableTile`) sur CHAQUE tuile de
+    la destination, sinon `return` sans rien faire. Il est INCONDITIONNEL et tombe avant
+    `IsLikeFlying`, avant `GetUnitPosition`, avant `SetReservation`. La destination d'un
+    `MoveUnit`/`FlyUnit` DSL est donc marchable **quel que soit le selecteur qui l'a produite** --
+    les QUATRE producteurs d'override de `#448-r1-r1-r2` y passent tous.
+
+    **DEPART -- ETABLI SEULEMENT PAR LA MESURE, ET C'EST LUI QUI FERME.** Ventilation du
+    2026-08-18 sur `Waves_Xenos_13` : sous la seule hypothese DESTINATION, il reste **61** sauts ;
+    sous la seule hypothese DEPART, **0**. Les 61 partent tous de la poche `(3, 4)`. Le gate lu
+    ci-dessus ne suffit donc PAS -- c'est la tuile de DEPART (`movementStartPosition =
+    GetUnitPosition(unit)`) qui exclut le regime, et elle n'a aucun gate de marchabilite propre :
+    `IdunBattle.Operations.SetUnitPositionOperation$$Execute` (l'autre ecrivain de position) n'a
+    que DEUX gates, `feet.Count == position.Count` et `!HasFlag(unit, 6 = Dead)`. Residu **#589-r3**.
 
     ⇒ aucun mouvement jouable n'atteint cette levee sur le corpus ENTIER. Si elle part un jour,
     c'est que l'etat reproduit exactement celui ou le natif jette -- une information, pas une

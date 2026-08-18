@@ -265,14 +265,23 @@ def test_displace_push_et_pull_ne_jouent_pas_le_vecteur(spy):
     assert all(kw.get("emit_after_move") == "False" for _o, kw in sites), sites
 
 
-def test_flee_ne_joue_pas_le_vecteur():
-    """`FleeOperation$$Execute` n'appelle NI `MoveUnit` NI `SetUnitPosition` : le deplacement du
-    port y est une approximation best-effort. Jouer le vecteur fabriquerait un overwatch sur un
-    mouvement qui n'existe pas cote natif."""
+def test_flee_ne_DEPLACE_PAS_DU_TOUT():
+    """`IdunBattle.Operations.FleeOperation$$Execute` n'appelle NI `MoveUnit` NI `SetUnitPosition`.
+
+    ⚠ **CETTE ASSERTION A ETE RENFORCEE, PAS ADAPTEE (#429-r1-r3-r1-r2-r1).** Elle exigeait
+    `len(calls) == 1` avec `emit_after_move=False`, c'est-a-dire << le port deplace, mais sans jouer
+    le vecteur >>. Or le decompile, relu EN ENTIER, ne porte AUCUN deplacement a cet endroit et ne
+    met rien a la place : l'unite vient d'etre RETIREE du plateau (`<slot 6 = RemoveUnit>`), sa
+    position n'a plus de lecteur. Le deplacement du port (`_safest_tile`) est donc SUPPRIME, et ce
+    cran exige desormais **ZERO** call-site -- strictement plus fort que ce qu'il gardait.
+
+    Ne jamais le rabattre a `<= 1` : ce serait re-autoriser en silence exactement ce qui vient
+    d'etre retire."""
     from engine.runner.operations import behaviour as BH
     calls = _move_unit_calls(BH)
-    assert len(calls) == 1
-    assert calls[0].get("emit_after_move") == "False"
+    assert calls == [], (
+        "`FleeOperation` construit %d `MoveUnitOperation` -- le natif n'en construit AUCUN : %r"
+        % (len(calls), calls))
 
 
 def test_feuilles_dsl_ferment_arrive_at_final_tile():

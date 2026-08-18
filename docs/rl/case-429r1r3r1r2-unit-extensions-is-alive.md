@@ -163,7 +163,31 @@ Re-joués **après** le fix : `test_429r1r3r1_message_gate_perimeter_live` (11),
   123 ne produisent aucune fuite, re-mesuré). Le régime RETIRÉ-SANS-FUITE (`RemoveUnitOperation`
   seule) n'est pas confronté.
 
-## 8. Résidu nommé
+## 8. Résidu nommé — **FERMÉ le 2026-08-18, et l'énoncé ci-dessous se trompait deux fois**
+
+> **`#429-r1-r3-r1-r2-r1` est CLOS.** Le déplacement est retiré (`_safest_tile` supprimé avec son
+> unique appel et quatre imports), après relecture *complète* de
+> `IdunBattle.Operations.FleeOperation$$Execute` : aucun `MoveUnit`, aucun `SetUnitPosition`, et
+> **rien à la place** — l'unité vient d'être retirée du plateau, sa position n'a plus de lecteur.
+>
+> ⚠ **Mais les deux affirmations soulignées plus bas sont FAUSSES, mesuré.** « Il la mute quand
+> même » : NON — depuis cette tranche même, `RemoveUnitOperation` pose
+> `UnitComponent.alive = False`, et le `MoveUnitOperation` qui suivait tombait sur le bras `IsDead`
+> du gate d'override (`last_abandoned == "override-unit-dead"`). Et donc « elle rougit
+> aujourd'hui » : NON — le retournement proposé était **vert dès le premier jour**.
+>
+> C'était un **accident de collapse, et pour une raison fausse** :
+> `IdunBattle.Entities.UnitExtensions$$IsDead` teste `HasFlag(unit, 6 = Dead)`, pas `Removed`, et
+> une enfuie garde ses PV pleins — côté natif ce gate ne mordrait pas. Le comportement juste
+> reposait donc sur un gate qui n'a rien à voir avec lui.
+>
+> **Le cran posé porte sur l'APPEL**, pas sur la position : `--volet flee` compte les constructions
+> de `MoveUnitOperation` pendant `FleeOperation.execute` (`1 → 0`), avec témoin non dégénéré, et la
+> substitution est posée sur `MoveUnitOperation.__init__` — la **classe** — parce que patcher
+> l'attribut du module `behaviour` aurait cessé de mordre à l'instant où l'import disparaît.
+> Détail : `docs/rl/case-589r2r1r1-le-gate-etait-du-mauvais-cote.md` §5.3.
+
+*Énoncé d'origine, conservé pour ce qu'il enseigne :*
 
 * **`#429-r1-r3-r1-r2-r1` — le DÉPLACEMENT de fuite du port n'existe pas en natif.**
   `FleeOperation.execute` déplace l'enfui vers `_safest_tile` ; le décompilé de

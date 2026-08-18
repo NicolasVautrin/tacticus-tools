@@ -614,12 +614,50 @@ def mesurer_regime(bd) -> dict:
     [1] la beeline echoue-t-elle sur un couple quelconque a `d_hex > 1` ?
     [2] un chemin de VOL produit-il un saut que la beeline ne recoud pas ?
     [3] **et ce saut nait-il d'un MOUVEMENT LEGAL** ? C'est le seul etage qui reponde a
-        << le moteur peut-il y arriver >> : `MovementQuery$$GetConnectedPathTo` n'est appele que
-        par `UnitExtensions$$RecordTilesMoved`, APRES un deplacement -- donc `from` est la tuile ou
-        l'unite se tenait (MARCHABLE) et `to` celle ou elle arrive (MARCHABLE aussi, un
-        `IsMovableTile` l'exige). Un saut dont les extremites du MOUVEMENT ne sont pas marchables
-        est geometriquement reel et INATTEIGNABLE en jeu -- les confondre serait exactement le
-        << bloque par la geometrie de spawn >> que la doctrine interdit, a l'envers."""
+        << le moteur peut-il y arriver >>. L'etage est VENTILE en trois hypotheses emboitees
+        (`sauts_sans_dest`, `sauts_sans_depart`, `sauts_sans_legaux`) parce qu'elles n'ont PAS
+        la meme force de preuve -- cf. ci-dessous.
+
+    ## QUI APPELLE `GetConnectedPathTo`, LU AU DECOMPILE (#589-r2-r1-r1)
+
+    ⚠ **LA PREMISSE D'ORIGINE ETAIT FAUSSE, ET C'EST MESURE.** Cette docstring a porte
+    << `MovementQuery$$GetConnectedPathTo` n'est appele que par
+    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` >>. Or `RecordTilesMoved(unit, tiles,
+    state)` prend un **ENTIER** (son corps entier est `if (n < 1) return; comp[+0xec] += n;
+    comp[+0xf0] += n;`) : il ne calcule AUCUN chemin. Les appelants du slot `IBattleQuery` 0x15
+    (= `IdunBattle.Core.Services.BattleQuery$$GetConnectedPathTo`, qui delegue au slot
+    `IMovementQuery` 8) sont EXACTEMENT DEUX dans tout le binaire :
+
+      * `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` -- la route COMBAT, son 9e
+        out-param `connectedPath` ;
+      * `IdunBattle.View.FSM.VisualBattleQuery$$GetVisualPathTo` -- la route VUE (affichage du
+        trace), qu'aucun mirror du moteur ne porte.
+
+    ## POURQUOI LA DESTINATION EST MARCHABLE -- UN GATE, PAS UN RECENSEMENT DE SELECTEURS
+
+    `CalculatePaths` n'a qu'un appelant, `IdunBattle.Operations.MoveUnitOperation$$Execute`, qui
+    ouvre par SEPT gates inconditionnels. Le TROISIEME est
+    `IdunBattle.Operations.MoveUnitOperation$$TilesAreWalkable(unit, position)`, ou `position` est
+    la **DESTINATION** : il boucle sur l'empreinte et exige le slot `IBattleQuery` 0xa1
+    (`IdunBattle.Core.Services.BattleQuery$$IsWalkableTile`) sur CHAQUE tuile, sinon `return` sans
+    rien faire. Aucune option ne le contourne -- il est AVANT `IsLikeFlying`, avant
+    `GetUnitPosition`, avant `SetReservation`.
+
+    ⇒ la destination d'un `MoveUnit`/`FlyUnit` DSL est marchable **quel que soit le selecteur qui
+    l'a produite**. Les QUATRE producteurs d'override recenses par `#448-r1-r1-r2`
+    (`DSLBehaviors$$FlyUnit`, `TreasonOfTzeentchAbility$$ExecuteBehaviour`,
+    `NovaBoost_AttackAbility$$CreateBehaviour`, la lambda de `Visit(CheatMoveUnitMessage)`) passent
+    tous par ce gate : il est EN AVAL du selecteur et EN AMONT de `CalculatePaths`. C'est ce qui
+    ferme `#589-r2-r1-r1` sur l'axe DESTINATION -- par une lecture, pas par quatre.
+
+    ## CE QUE LA VENTILATION MESURE, ET CE QU'ELLE NE MESURE PAS
+
+    Le DEPART, lui, n'a pas de gate de marchabilite propre : c'est
+    `movementStartPosition = GetUnitPosition(unit)` (ou `GetPreviousPositionThisTurn` si vide), donc
+    la tuile ou l'unite SE TIENT. Elle y est arrivee par un mouvement (donc via ce meme gate) ou par
+    un placement. `sauts_sans_dest` borne donc le regime sous la SEULE hypothese que le decompile
+    etablit ; `sauts_sans_legaux` y ajoute le depart. Les rendre separement evite de faire porter a
+    une conclusion sure le poids d'une hypothese qui ne l'est pas."""
     from engine.entities.pathfinding import beeline_pathfinder as BL
     from engine.entities.pathfinding import pathfinders as PF
     import hexgeo
@@ -627,7 +665,9 @@ def mesurer_regime(bd) -> dict:
     ids = sorted(bd.by_id)
     marchables = {i for i in ids if bd.walkable(i)}
     r = {"tuiles": len(ids), "marchables": len(marchables), "couples": 0, "sans_chemin": 0,
-         "sauts": 0, "sauts_sans": 0, "sauts_sans_legaux": 0, "exemples": [], "legaux": []}
+         "sauts": 0, "sauts_sans": 0, "sauts_sans_legaux": 0,
+         "sauts_sans_dest": 0, "sauts_sans_depart": 0, "exemples": [], "legaux": [],
+         "dest_seule": []}
     for a in ids:
         for b in ids:
             if a == b or hexgeo.distance(bd.coord(a), bd.coord(b)) <= 1:
@@ -644,14 +684,25 @@ def mesurer_regime(bd) -> dict:
             path = PF.find_path(bd, 3, a, b)          # PathfinderType.Fly
             if not path:
                 continue
-            legal = a in marchables and b in marchables
+            # `dest` = la seule hypothese que le decompile ETABLIT (le gate G3
+            # `MoveUnitOperation$$TilesAreWalkable`) ; `depart` s'y ajoute par l'argument, plus
+            # faible, que l'unite se tient sur une tuile ou elle a pu arriver.
+            dest = b in marchables
+            depart = a in marchables
             for x, y in zip(path, path[1:]):
                 if hexgeo.distance(bd.coord(x), bd.coord(y)) <= 1:
                     continue
                 r["sauts"] += 1
                 if BL.find_path(bd, x, y) is None:
                     r["sauts_sans"] += 1
-                    if legal:
+                    if dest:
+                        r["sauts_sans_dest"] += 1
+                        if len(r["dest_seule"]) < 6:
+                            r["dest_seule"].append((bd.coord(a), bd.coord(b),
+                                                    bd.coord(x), bd.coord(y)))
+                    if depart:
+                        r["sauts_sans_depart"] += 1
+                    if dest and depart:
                         r["sauts_sans_legaux"] += 1
                         if len(r["legaux"]) < 6:
                             r["legaux"].append((bd.coord(a), bd.coord(b),
@@ -694,16 +745,26 @@ def run_regime(board_id: str, seed: int, reuse: bool, derive: bool = False) -> i
     if r["sauts"] == 0:
         print("       ECART : aucun saut -- ce board ne fait PAS jouer la beeline, la mesure [2]")
         print("               ne sait rien voir ici (elle n'est pas un zero)")
-    print("   [3] dont issus d'un MOUVEMENT LEGAL (deux extremites marchables) : %d"
+    # VENTILATION (#589-r2-r1-r1) : `dest` est la seule hypothese que le decompile ETABLIT (gate G3
+    # `MoveUnitOperation$$TilesAreWalkable`, inconditionnel et en amont de `CalculatePaths`) ; le
+    # depart s'y ajoute par un argument plus faible. Les rendre separement empeche de faire porter a
+    # la conclusion sure le poids de celle qui ne l'est pas.
+    print("   [3a] DESTINATION marchable seule (le gate G3 -- LU au decompile)     : %d"
+          % r["sauts_sans_dest"])
+    for e in r["dest_seule"]:
+        print("        move %s -> %s   saut %s -> %s" % e)
+    print("   [3b] DEPART marchable seul                                           : %d"
+          % r["sauts_sans_depart"])
+    print("   [3c] dont issus d'un MOUVEMENT LEGAL (les DEUX extremites)           : %d"
           % r["sauts_sans_legaux"])
     for e in r["legaux"]:
         print("        move %s -> %s   saut %s -> %s" % e)
-    if r["sauts_sans_legaux"]:
-        print("   REGIME ATTEINT EN JEU : le port avalerait %d absence(s) et compterait 1 arete"
-              % r["sauts_sans_legaux"])
+    if r["sauts_sans_dest"]:
+        print("   REGIME ATTEINT SOUS LE SEUL GATE G3 : le port leverait sur %d saut(s)"
+              % r["sauts_sans_dest"])
         return 1
     if r["sauts_sans"]:
-        print("   REGIME GEOMETRIQUEMENT REEL, INATTEIGNABLE PAR UN MOUVEMENT LEGAL")
+        print("   REGIME GEOMETRIQUEMENT REEL, INATTEIGNABLE : le gate G3 SUFFIT a l'exclure")
     return 0
 
 

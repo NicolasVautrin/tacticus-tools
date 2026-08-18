@@ -213,6 +213,52 @@ def test_le_repli_de_la_BEELINE_est_la_GEOMETRIE_jamais_le_champ_ampute():
     assert sans.neighbours_native(9) == []                 # le champ, lui, la laisse isolee
 
 
+def test_le_JUMEAU_EN_DOMAINE_POSITION_reste_sur_le_champ_AMPUTE_et_c_est_LOAD_BEARING():
+    """LE SITE QUI NE DOIT **PAS** ETRE REBRANCHE, et ce n'est pas un oubli.
+
+    `ignore_terrain_pathfinder.get_path_node_counts_by_pos` (le jumeau en domaine POSITION, ne
+    depuis `#175-r1`) recoit `neigh_by_pos` = `board.neighbours_native` -- le champ AMPUTE -- alors
+    que son frere en domaine TILE-ID lit le canal. La docstring du jumeau appelle ca un << NO-OP
+    prouve >> ; ce cran le MESURE, et mesure aussi le regime ou il CESSE d'en etre un.
+
+      * `elev_by_pos` FOURNI (le cas nominal) : les deux canaux rendent le MEME resultat. Le
+        rebranchement serait inerte -- exactement l'argument de `base_add_neighbours` (les aretes
+        que le canal ajoute ont `|dElev| >= 2`, et `IgnoreTerrainPathfinder$$IsValidPathNode` exige
+        `|dElev| <= 1`).
+      * `elev_by_pos` ABSENT : ils DIVERGENT. Le port ne peut alors PAS rejouer la porte, et le
+        canal le ferait SUR-ATTEINDRE -- il compterait joignable une tuile que le natif refuse.
+        Le champ ampute, lui, porte deja la porte du CAPTEUR : c'est ce qui rend le port juste
+        dans ce regime-la.
+
+    ⇒ le choix est LOAD-BEARING dans un sens, inerte dans l'autre. Un futur rebranchement << par
+    coherence >> casserait le second cas sans rien gagner au premier. Le second `assert` est ce
+    qui l'interdit ; le premier est ce qui empeche ce test d'etre vert sur un montage degenere."""
+    from engine.entities.pathfinding import ignore_terrain_pathfinder as ITP
+
+    b = Board(_grid(), adjacency="evenq")
+    ampute = {_POS[i]: [_POS[x] for x in b.neighbours_native(i)] for i in range(1, 10)}
+    canal = {_POS[i]: [_POS[x] for x in b.base_add_neighbours(i)] for i in range(1, 10)}
+    assert ampute != canal, "montage DEGENERE : les deux canaux coincident, rien ne peut diverger"
+    walk = {_POS[i]: True for i in range(1, 10)}
+    elev = {_POS[i]: _ELEV[i] for i in range(1, 10)}
+
+    avec_a = ITP.get_path_node_counts_by_pos(_POS[1], neigh_by_pos=ampute,
+                                             walkable_by_pos=walk, elev_by_pos=elev)
+    avec_c = ITP.get_path_node_counts_by_pos(_POS[1], neigh_by_pos=canal,
+                                             walkable_by_pos=walk, elev_by_pos=elev)
+    assert avec_a == avec_c, (avec_a, avec_c)          # NO-OP, MESURE et pas seulement deduit
+
+    sans_a = ITP.get_path_node_counts_by_pos(_POS[1], neigh_by_pos=ampute,
+                                             walkable_by_pos=walk, elev_by_pos=None)
+    sans_c = ITP.get_path_node_counts_by_pos(_POS[1], neigh_by_pos=canal,
+                                             walkable_by_pos=walk, elev_by_pos=None)
+    assert sans_a != sans_c, (
+        "sans porte d'elevation les deux canaux devraient DIVERGER (la tuile 9, a elevation 2, "
+        "n'est joignable que par le canal) -- si ce n'est plus le cas, l'argument qui justifie de "
+        "laisser ce site sur le champ ampute a disparu : %r vs %r" % (sans_a, sans_c))
+    assert _POS[9] in sans_c and _POS[9] not in sans_a, (sans_a, sans_c)
+
+
 def test_base_add_neighbours_respecte_le_TRI_ETAT_du_canal():
     """Le foyer ne doit jamais confondre « canal absent » et « liste vide ». Une tuile dont le
     `ConnectivityComponent` ne relie rien rend `[]` -- et surtout PAS le repli, qui inventerait
