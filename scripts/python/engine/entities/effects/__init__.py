@@ -730,13 +730,16 @@ def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
                 # brancher sur `get_armor_penetration` l'accorderait a Farsight lui-meme, que le
                 # natif exclut par `get_OwnerIsCaster`. Meme raison exactement qui fait coexister
                 # `create_effect_damage_bonus_for_attack` et `create_aura_attack_damage_bonus_for_ally`.
-                # ⚠ `getattr` et pas un defaut sur `BaseEffect` : `entities/effects/base.py` est le
-                # foyer d'une tranche CONCURRENTE au moment de ce commit. Le defaut
-                # `aura_armor_penetration_for_ally(ctx) -> None` a sa place sur `BaseEffect` et doit
-                # y monter des que le fichier est libre -- residu #924-r3 ne le couvre PAS, c'est un
-                # simple hissage sans changement de comportement.
-                pen_fn = getattr(e, "aura_armor_penetration_for_ally", None)
-                pen = pen_fn(octx) if callable(pen_fn) else None
+                # #1019-r4 : APPEL DIRECT du slot, plus un `getattr`. Le defaut
+                # `aura_armor_penetration_for_ally(ctx) -> None` vit desormais sur `BaseEffect`,
+                # a cote de `get_armor_penetration` -- meme slot natif (`<Effect>.IgnoreArmor`,
+                # `<vtable +0x718>`), lu depuis la boucle d'AURA, ou `AbilityEntities+0x18 (Owner)`
+                # vaut le BENEFICIAIRE et non le porteur. Le `getattr` d'origine ne simulait le
+                # defaut que par l'ABSENCE d'attribut : une faute de frappe sur le nom d'une
+                # surcharge se lisait alors comme « ce porteur n'ouvre pas l'axe armure », en
+                # silence. Aucun changement de comportement : le seul implementeur est
+                # `WayOfTheShortBladeDamageBuffEffect`.
+                pen = e.aura_armor_penetration_for_ally(octx)
                 if pen:
                     # `for_armor_penetration` -> kind "ArmorPenetration" -> `DamageModifiers.
                     # armor_penetration` (@0x28). Le natif SOMME `@0x28` des DEUX accumulateurs

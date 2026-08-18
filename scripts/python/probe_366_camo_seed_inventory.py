@@ -178,7 +178,7 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility$$ExecuteBehaviour"
         " (AddEffect(0x5b9 = 1465, targets = Caster))",
         "AmountIsGreaterThanZero(Count(Filter(AdjacentEnemies(Owner@0x30), "
-        "HasEffect(It@0x68, 0x1b = 27 Taunted_OnlySpecificTargets, onlyActive: 0)))) -- "
+        "HasEffect(ActiveTarget@0x68, 0x1b = 27 Taunted_OnlySpecificTargets, onlyActive: 0)))) -- "
         "geometrique ET dependante du taunt"),
     "DaemonicPatrons_ExtraDamage": (
         "runtime", "sim",

@@ -117,7 +117,16 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     correspondants ont donc quitte cette signature — ils n'avaient AUCUN autre consommateur."""
     # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule. Un seul dict =
     # un seul point d'enrichissement pour les futurs gates cible.
-    att_hits_ctx = {**(board or {})}
+    #
+    # ⚠ `is_prediction` EST POSE ICI, et pas seulement dans le `board` reconstruit plus bas (l. ~210)
+    # : ce dict-ci est bati AVANT, donc un canal qui le lit ne verrait jamais la cle (#10019-r2).
+    # C'est le MEME axe que celui deja threade aux canaux AURA et DEFENSEUR -- la FACE, distincte de
+    # tous les autres axes du board. Premier consommateur cote ATTAQUANT :
+    # `LetTheGalaxyBurnEffect.create_effect_hits_bonus_for_attack`, dont le compte de coups est
+    # face-INDEPENDANT en natif (`IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits` n'utilise
+    # `isPrediction` que pour choisir entre `predictionDamageFormula` et `damageFormula`) mais dont
+    # le port separe les deux faces, le COMBAT restant le groupe #179.
+    att_hits_ctx = {**(board or {}), "is_prediction": bool(is_prediction)}
     # (0) INTERRUPTEUR `BaseEffect$$BlockHitsReduction` (case-366-r1). Le natif l'evalue dans une
     # boucle DEDIEE, sur la MEME collection d'effets actifs que les bonus de coups et AVANT toute
     # somme, puis s'en sert pour SAUTER la liste des bonus a `addition < 0`

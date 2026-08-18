@@ -12,7 +12,7 @@ pour `Sum(TurnsFromRounds(nrOfRounds), Const(1))` tours :
     `IdunBattle.Entities.Effects.Loki.ADaemonicPatronsEffect$$GetNumAdjacentTauntedEnemies` (la BASE
     commune des deux classes natives) =
         Count( Filter( AdjacentEnemies(Owner@DSLSelectors+0x30, unique: 1, selectionType: 3),
-                       HasEffect(It@DSLSelectors+0x68, 0x1b = 27 Taunted_OnlySpecificTargets,
+                       HasEffect(ActiveTarget@DSLSelectors+0x68, 0x1b = 27 Taunted_OnlySpecificTargets,
                                  onlyActive: 0, targetType: 6) ) )
 
 ⚠ **CE N'EST PAS « les ennemis adjacents »** -- c'est leur sous-ensemble TAUNTE, et le filtre est ce
@@ -92,7 +92,7 @@ def adjacent_taunted_enemies_selector():
     (doctrine #149 : l'artefact natif est un SELECTEUR + une FORMULE, donc le port est un arbre) :
 
         Count( Filter( AdjacentEnemies(Owner@0x30, unique: 1, selectionType: 3),
-                       HasEffect(It@0x68, 27, onlyActive: 0, targetType: 6) ) )
+                       HasEffect(ActiveTarget@0x68, 27, onlyActive: 0, targetType: 6) ) )
 
     - `AdjacentEnemies` : la surcharge ancree sur l'UNITE (4 arguments), tranchee par les XREFS
       ENTRANTES du call-site -- la MEME que `supa_cybork_body.adjacent_enemies_selector` et que
@@ -100,7 +100,7 @@ def adjacent_taunted_enemies_selector():
       `Enemies(unit, Units(AdjacentTiles(unit), unique, selectionType) - unit, selectionType)`.
     - `Filter(entities, trigger)` = `IdunBattleLogic.Entities.DSLSelectors$$Filter`, qui delegue
       litteralement a `FromTrigger(entities, filter, 0)`.
-    - `Subject()` = `It@DSLSelectors+0x68`, l'element courant du filtre (meme slot que le
+    - `Subject()` = `ActiveTarget@DSLSelectors+0x68`, l'element courant du filtre (meme slot que le
       `subject@0x180` de `case-117` : `DSLSelectors+0x68 == DSLFactory+0x180`).
     - `active_only=False` PORTE le `onlyActive: 0` du 4e argument natif.
 

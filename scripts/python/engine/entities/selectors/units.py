@@ -1301,7 +1301,7 @@ class NormalUnits(TargetsSelector):
     decompile (build `rnca9r7q6c`), qui COMPOSE trois noeuds deja portes :
 
         u = Units(entities, unique: true, selectionType)          # UnitsOnTilesSelector
-        t = DSLTriggers.IsNormalUnit(It@0x68)                     # IsNormalUnitTrigger
+        t = DSLTriggers.IsNormalUnit(ActiveTarget@0x68)           # IsNormalUnitTrigger
         return FromTrigger(u, t, requireContinuous: false)        # == `Filter`
 
     Le predicat est `IdunBattle.Entities.Triggers.IsNormalUnitTrigger$$ShouldTrigger` :

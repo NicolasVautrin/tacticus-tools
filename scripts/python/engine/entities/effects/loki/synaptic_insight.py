@@ -56,7 +56,7 @@ L'EFFET -- `SynapticInsight_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`, mi
                  & (   Any( AdjacentFriends( unit     = Owner@<DSLSelectors+0x30>,
                                              unitTile = Target@<DSLSelectors+0x60>,
                                              unique   = true ),
-                            HasFaction( It@<DSLSelectors+0x68>,
+                            HasFaction( ActiveTarget@<DSLSelectors+0x68>,
                                         UnitFaction.Tyranids = 0xc,
                                         UnitSelectionType.OnlyAliveAndTargetable = 3 ) )
                      | IsInTeamSynapseRange( Target@<+0x60>, Owner@<+0x30> ) ),
@@ -155,7 +155,7 @@ CONST_EXTRA_HIT = "extraHit"
 #: `UnitSelectionType 3` -- le litteral que la variante B d'`AdjacentFriends` code EN DUR aux deux
 #: etages (`Units(..., unique, 3)` puis `Friends(unit, ..., 3)`).
 _SEL = int(UnitSelectionType.OnlyAliveAndTargetable)
-#: `HasFaction(It@<DSLSelectors+0x68>, 0xc, 3)` -- `UnitFaction.Tyranids`.
+#: `HasFaction(ActiveTarget@<DSLSelectors+0x68>, 0xc, 3)` -- `UnitFaction.Tyranids`.
 FACTION_TYRANIDS = UnitFaction.Tyranids
 #: cle du contexte per-coup : tri-etat du PREMIER disjoint (`Any(AdjacentFriends(...), HasFaction)`),
 #: evalue par les deux faces (`runner/components.py` en COMBAT, `playbook/scene.py` en PREDICTION).
@@ -170,7 +170,7 @@ def adjacent_tyranid_friend_trigger():
     un arbre) :
 
         Any( AdjacentFriends(unit = Owner@+0x30, unitTile = Target@+0x60, unique: true),
-             HasFaction(It@+0x68, UnitFaction.Tyranids = 0xc, 3) )
+             HasFaction(ActiveTarget@+0x68, UnitFaction.Tyranids = 0xc, 3) )
 
     `AdjacentFriends(center = Target(), radius = Const(1), reference = Owner(), selection_type = 3)`
     est la VARIANTE B cote port : son 3e parametre natif est l'ANCRE GEOMETRIQUE (`center` ici) et le
@@ -179,7 +179,7 @@ def adjacent_tyranid_friend_trigger():
     EXPLICITEMENT : c'est ce que le natif ecrit, et le collapse ne survivrait pas a un contexte bati
     sur une autre unite.
 
-    `Subject()` = `It@<DSLSelectors+0x68>` = l'element courant lie par le `Any`
+    `Subject()` = `ActiveTarget@<DSLSelectors+0x68>` = l'element courant lie par le `Any`
     (`XAnyYTrigger.<>c__DisplayClass4_0$$<ShouldTrigger>b__0` construit un `AbilityEntities` NEUF ou
     `ability+0x180` porte l'element) -- le MEME slot que celui d'un `Filter`.
 

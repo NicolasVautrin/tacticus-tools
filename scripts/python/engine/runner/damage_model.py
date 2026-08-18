@@ -640,7 +640,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            #    substrat que `_neuroparasite_instance` du trigger de pose). Tri-etat : cible
            #    absente / pas de store d'effets -> `None`, et le gate se TAIT.
            _NORN_CTX_TGT_EFFECTS: _target_effect_names(state, target_id),
-           # 2. `IsInTeamSynapseRange(It@+0x68, Owner@+0x30)` -> `IsInAuraRangeTrigger(0x41c)` ->
+           # 2. `IsInTeamSynapseRange(ActiveTarget@+0x68, Owner@+0x30)` -> `IsInAuraRangeTrigger(0x41c)` ->
            #    `BattleQuery$$GetInRangeAuraAmount`, qui balaye les unites de l'EQUIPE portant le
            #    trait rendu par `SynapseEffect$$GetTrait` (`return 0x7e8` = 2024 `Synapse`) et
            #    compare `GetDistance(unit, target)` a la portee de l'aura. La map est par EQUIPE
@@ -1978,7 +1978,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              "persistent_data_list": _persistent_data_list_reader(state),
              # #1073 -- les DEUX disjoints de `SynapticInsight_ExtraHitsEffect$$
              # CreateEffectHitsBonusForAttack`, sur le canal COUPS :
-             #  * `Any(AdjacentFriends(Owner@+0x30, Target@+0x60, unique), HasFaction(It@+0x68,
+             #  * `Any(AdjacentFriends(Owner@+0x30, Target@+0x60, unique), HasFaction(ActiveTarget@+0x68,
              #    Tyranids, 3))` -- l'ARBRE vit dans la classe d'effet (doctrine #149) et
              #    `runner/components.py` lui donne son `AbilityEntities`. TRI-ETAT : `None` = porteur
              #    ou cible sans equipe/tuile -> le disjoint se FERME cote effet.

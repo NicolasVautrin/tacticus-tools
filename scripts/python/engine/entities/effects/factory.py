@@ -1800,7 +1800,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `Sum(TurnsFromRounds(nrOfRounds), Const(1))` tours. Leur BASE native commune
     # `ADaemonicPatronsEffect` porte le seul etage qui les rend dynamiques :
     #     n = Count(Filter(AdjacentEnemies(Owner@0x30, unique: 1, selectionType: 3),
-    #                      HasEffect(It@0x68, 27 Taunted_OnlySpecificTargets, onlyActive: 0, 6)))
+    #                      HasEffect(ActiveTarget@0x68, 27 Taunted_OnlySpecificTargets, onlyActive: 0, 6)))
     # -- les ennemis adjacents TAUNTES, pas les ennemis adjacents. La meme grandeur sert la
     # `CreateActiveCondition` (`AmountIsGreaterThanZero(n)`) et les deux magnitudes, donc elles ne
     # peuvent pas diverger ; foyer unique `runner/components.py::adjacent_taunted_enemies_count`,
@@ -1926,8 +1926,8 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # a voir avec la relique ; et `EffectType.NornCrown` (1492) n'est PAS `TriggeredAbilityType.
     # NornCrown` (1495) malgre le nom identique.
     # `IdunBattle.Entities.Effects.Loki.NornCrownEffect$$CreateTargetSelector` =
-    # `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, It@+0x68, ByCurrentTeam, false)
-    #         & IsInTeamSynapseRange(It@+0x68, Owner@+0x30)
+    # `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, ActiveTarget@+0x68, ByCurrentTeam, false)
+    #         & IsInTeamSynapseRange(ActiveTarget@+0x68, Owner@+0x30)
     #         & (HasTrait(It, 0x3ea = Psyker) | HasTrait(It, 0x2 = Summon)))` -- le PORTEUR n'est
     # PAS exclu (`BattleQuery$$AreFriends` -> `UnitExtensions$$IsFriend`, qui n'ecarte pas
     # l'egalite), d'ou les DEUX pattes disjointes de la classe (self + aura), meme arbitrage que
@@ -3394,6 +3394,98 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # -- un bonus de SOIN (`hpToHeal = [980, 1033, 1086, 1139, 1192]` au gameconfig), canal distinct
     # de celui des trois effets de degat de ce lot.
     "NetherRealmCasket": ["NetherRealmCasket_CritDamageReduction", "NetherRealmCasket_LivingMetalBonus"],
+    # =========================================================================================
+    # #10035-r3 -- LES 23 RELIQUES NON VISITEES, LUES UNE PAR UNE
+    # =========================================================================================
+    # Le residu disait << le zero n'est pas une mesure, c'est une absence de lecture >>. Les 23
+    # `CreateBehaviour`/`CreateTrigger` ont ete LUS sur `t6dpr4k06g` : **SEPT** posent un
+    # owner-effect a l'INIT, SEIZE n'en posent aucun (leur `AddEffect` vit sous un vecteur de
+    # COMBAT, ou vise AUTRUI, ou est enveloppe d'un `If`). Le detail des seize, qui est le
+    # resultat NEGATIF et compte autant, vit dans `docs/rl/case-10035-pose-tertiaire-au-
+    # chargement.md`.
+    #
+    # DEUX FORMES, toutes deux ramenees au MEME patron natif :
+    #   (a) base `AOwnerEffectTriggeredAbility` / `AOwnerEffectSpecificTriggeredAbility` -- la
+    #       classe ne DECLARE que `GetEffectType`, tout le reste vient de la base :
+    #       `$$CreateTrigger` = `OnOwnerSpecificAbilityInit(this.AbilityType@+0x10)` (resp.
+    #       `<this+0x60>` pour la variante SPECIFIC) et `$$CreateBehaviour` = `If(<ce trigger>,
+    #       AddEffect(GetEffectType(), AbilityState(Owner, AbilityType), targets = Owner@
+    #       <DSLSelectors+0x30>, turns = struct ZEROE -> PERMANENT), null)`. Meme patron que
+    #       `InescapableDeath` / `FirstAmongTraitors` / `FiringPosition` ci-dessus.
+    #   (b) `BaseTriggeredAbility` + `CreateBehaviour` PROPRE, dont le `CreateTrigger` est le corps
+    #       ICF PARTAGE deja cite trois fois plus haut (`...WayOfTheShortBlade_InitAbility$$
+    #       CreateTrigger`), de corps ENTIER `OnOwnerSpecificAbilityInit(this.get_AbilityType())`,
+    #       SANS conjoint.
+    #
+    # ⚠ LE PARTAGE ICF DE (b) N'EST PLUS UNE HYPOTHESE -- il est MESURE. Le RPC `resolveMethodPtr`
+    # (lecture pure, aucun runner) rend le MEME `methodPointer` pour les `CreateTrigger` de
+    # `RelicBoltPistolAbility`, `SupaCyborkBodyAbility_AddTrait`, `DawnBlade_InitAbility` et
+    # `WayOfTheShortBlade_InitAbility` -- et c'est cette DERNIERE qui porte le symbole, donc le
+    # corps lisible. Sans cette mesure, (b) serait reste une deduction par appariement de bloc.
+    #
+    # ⚠ HOMONYMIE, comme partout dans cette table : la CLE est un nom de `TriggeredAbilityType`,
+    # la VALEUR un nom d'`EffectType`. Ici c'est PIEGEUX au premier degre -- `EffectType` 1457 est
+    # `RelicBoltPistol_ExtraPierce` alors que `TriggeredAbilityType` 1457 est `KardiocoreGalvanus`,
+    # et `EffectType` 1458 est `RelicBoltPistol_ExtraCritDamage` alors que `TriggeredAbilityType`
+    # 1458 est `PhoenixGem`. Les quatre apparaissent dans ce bloc. Ne jamais rapprocher par l'ordinal.
+    #
+    # VOIE D'ARRIVEE : toutes des RELIQUES -> `BC.Units[].TertiaryAbility` -> `ctx.tertiary_ability`,
+    # la 4e source de `_seed_ability_owner_effects` (#1005). Deux sont equipees DANS LE SEED BC
+    # (`SupaCyborkBody` sur `orksRuntherd`, `KardiocoreGalvanus` sur `admecMarshall`/
+    # `admecRuststalker`) : elles arrivent donc a CHAQUE bataille, sans montage.
+    #
+    # -- forme (a), `GetEffectType` de corps ENTIER `return <ordinal>` --------------------------
+    # `...Triggered.Loki.KardiocoreGalvanusAbility$$GetEffectType`  = `return 0x5aa;` (= 1450)
+    "KardiocoreGalvanus": ["KardiocoreGalvanus_ExtraCritDmg"],
+    # `...Triggered.Loki.MawClawsOfThyraxAbility$$GetEffectType`    = `return 0x5b5;` (= 1461)
+    "MawClawsOfThyrax": ["MawClawsOfThyrax_ExtraCritDmg"],
+    # `...Triggered.Loki.SupaCyborkBodyAbility$$GetEffectType`      = `return 0x5bc;` (= 1468)
+    # ⚠ La MEME relique porte une SECONDE classe, `SupaCyborkBodyAbility_AddTrait`, dont le
+    # `CreateBehaviour` est `AddTrait(Owner@<DSLSelectors+0x30>, 0x421 = UnitTrait.
+    # AffectedByHealAndRepair, isTemporary: false)` -- un TRAIT, pas un effet, donc HORS de cette
+    # table et d'`ABILITY_INIT_OWNER_FLAGS` (qui porte des `UnitFlag`, pas des traits). Aucun
+    # registre du port ne sait poser un trait a l'init d'une ability : residu ouvert, cf. le
+    # rapport de la tranche. Le NOMMER ici evite qu'on relise ce `CreateBehaviour` en croyant a
+    # un oubli.
+    "SupaCyborkBody": ["SupaCyborkBody_CritDmgReduction"],
+    # `...Triggered.Loki.TalismanOfRageAbility$$GetEffectType`      = `return 0x5ad;` (= 1453).
+    # Variante SPECIFIC : son `$$.ctor` a pour corps ENTIER
+    # `AOwnerEffectSpecificTriggeredAbility..ctor(this, 0x5b4)` -- l'ability dont l'init est
+    # ECOUTEE est donc `TriggeredAbilityType` 1460 = `TalismanOfRage`, la relique ELLE-MEME (LU,
+    # pas suppose : c'est ce qui distingue cette variante, dont le `CreateTrigger` lit `<this+0x60>`
+    # et non `<this+0x10>`).
+    "TalismanOfRage": ["TalismanOfRage_CritDamageReduction"],
+    # `...Triggered.Loki.PhoenixGem_InitAbility$$GetEffectType`     = `return 0x5ab;` (= 1451).
+    # ⚠ CETTE ENTREE-LA N'EST PAS COSMETIQUE : 1451 est l'effet-MARQUEUR sur lequel tout le
+    # self-revive est BRANCHE cote port (`EFFECT_TRIGGERS[PhoenixGem_CanRevive]` =
+    # `[PhoenixGemReviveAbility, PhoenixGemRemoveMarkerOnRevive, PhoenixGemRemoveMarkerOnResurrect]`).
+    # Sans la pose a l'init, le rail existait mais n'etait JAMAIS arme -- l'ability #79 ne pouvait
+    # pas se declencher hors capture live. 1451 n'a pas de classe dans `EFFECT_CLASSES` : son
+    # instance est un `BaseEffect` NU, ce qui SUFFIT (c'est le rail de trigger qui porte le
+    # comportement), meme regime que `FiringPosition_ReactivateOverwatch` ci-dessus.
+    "PhoenixGem": ["PhoenixGem_CanRevive"],
+    # -- forme (b), `CreateBehaviour` PROPRE ----------------------------------------------------
+    # `...Triggered.Loki.DawnBlade_InitAbility$$CreateBehaviour` = `AddEffect(0x5dd = 1501, Ability
+    # StateReference, source = Owner@<DSLSelectors+0x30>, targets = Owner@<+0x30>, options)`. UN
+    # seul noeud, aucun `If`, aucune branche sur `triggerType`. 1501 n'a pas de classe portee ->
+    # `BaseEffect` nu (le natif POSE l'effet, donc `HasEffect(owner, 1501)` doit dire VRAI).
+    "DawnBlade": ["DawnBlade_ExtraDmg"],
+    # `...Triggered.Loki.RelicBoltPistolAbility$$CreateBehaviour` = `AddEffect(0x5b1 = 1457, ...,
+    # source = Owner, targets = Owner) & AddEffect(0x5b2 = 1458, ..., source = Owner, targets =
+    # Owner)`, les deux concatenes par `IdunBattle.DSL.AbilityBehaviour$$op_BitwiseAnd`, sans
+    # aucun `If`. ORDRE = celui de l'`op_BitwiseAnd`. Les DEUX classes existent deja au registre.
+    "RelicBoltPistol": ["RelicBoltPistol_ExtraPierce", "RelicBoltPistol_ExtraCritDamage"],
+    # -- HORS RELIQUES, mais MEME lecture et MEME registre -------------------------------------
+    # `WayOfTheShortBlade` est un PASSIF de `tauFarsight`, pas une relique : il n'entrait donc pas
+    # dans le perimetre de #10035-r3. Il en sort quand meme, parce que c'est SA `CreateTrigger`
+    # qui porte le corps ICF de la forme (b) ci-dessus -- en la lisant, on lit AUSSI son
+    # `CreateBehaviour`, et le trou saute aux yeux : `AddEffect(0x5db = 1499) & AddEffect(0x5dc =
+    # 1500)`, `source = targets = Owner@<DSLSelectors+0x30>`, sans `If`. Le commentaire
+    # d'`EFFECT_CLASSES` (l. ~513) DECRIVAIT deja cette pose ; elle n'etait inscrite NULLE PART,
+    # donc le canal AURA de 1499 (#1019-r1, confronte bit-exact) etait INERTE hors capture live.
+    # 1500 n'a de comportement que par `WayOfTheShortBlade_AttackAbility` (residu `#1019-r2`) ;
+    # le natif POSE les deux, n'en seeder qu'un ferait mentir `HasEffect(owner, 1500)`.
+    "WayOfTheShortBlade": ["WayOfTheShortBlade_DamageBuff", "WayOfTheShortBlade_AdditionalAttackMarker"],
 }
 
 

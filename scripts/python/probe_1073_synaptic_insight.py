@@ -15,7 +15,7 @@ Ce que le natif fait, et que ce probe MESURE plutot que de le supposer :
             get_OwnerIsCaster & IsRangedAttack()
             & (   Any( AdjacentFriends(unit = Owner@<Sel+0x30>, unitTile = Target@<Sel+0x60>,
                                        unique: true),
-                       HasFaction(It@<Sel+0x68>, UnitFaction.Tyranids = 0xc, 3) )
+                       HasFaction(ActiveTarget@<Sel+0x68>, UnitFaction.Tyranids = 0xc, 3) )
                 | IsInTeamSynapseRange( Target@<Sel+0x60>, Owner@<Sel+0x30> ) ),
             ConfigConst(0x2b = extraHit) )                                   # = 2 sur ce build
 

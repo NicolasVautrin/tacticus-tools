@@ -1,0 +1,43 @@
+# Les selecteurs PARTAGES de `IdunBattleLogic.Entities.DSLSelectors` -- build t6dpr4k06g.
+# Chaque champ est un slot alloue une fois pour toutes par
+# `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` ; TOUT arbre DSL du jeu
+# designe ses entites par l'un de ces offsets. C'est ce que le decompile montre sous la
+# forme `<this + 0xNN>` -- sans nom, parce que les ctors des 14 selecteurs partages sont
+# ICF-DEDUPLIQUES entre eux et que ghidra n'en nomme qu'un (`+0x18 = AllTilesSelector`).
+#
+# COMMENT LA TABLE EST OBTENUE (#590-r11, et c'est le point de la fiche) : aucun capteur
+# n'est requis, aucune lecture structurelle non plus -- le RPC `classFields` rend le NOM
+# DE CHAMP de chaque slot, en lecture pure de la metadata IL2CPP.
+# Regenerer / confronter : python scripts/python/probe_590r11_dsl_selectors.py [--regenerer]
+#
+# `offset` = l'offset d'INSTANCE, tel qu'il apparait dans le decompile (`DSLSelectors` est
+# une CLASSE, donc l'en-tete d'objet de 16 octets est deja compris dans les deux : pas de
+# correction de boxing a appliquer, contrairement a un `ValueType` passe en argument).
+#
+# `nom` = le nom du champ DEBACKINGFIELDISE (`<Owner>k__BackingField` -> `Owner`), qui est
+# le nom de la PROPRIETE publique -- c'est celui-la qu'on cite dans le port.
+#
+# ⚠ LE SLOT `0x68` S'APPELLE `ActiveTarget`, PAS `It`. Le port l'a longtemps ecrit `It`
+# (lecture STRUCTURELLE : c'est bien l'element courant qu'un `Filter`/`Any` ecrase a chaque
+# iteration, et `PreviousActiveTarget` juste au-dessus corrobore la semantique de pile).
+# La SEMANTIQUE etait juste, le NOM etait faux -- exactement le regime ou une inversion de
+# deux slots au prochain build serait SILENCIEUSE.
+#offset	nom	type	declaredBy
+0x10	_dsl	DSLFactory	DSLSelectors
+0x18	_allTiles	TargetsSelector	DSLSelectors
+0x20	_allAliveUnits	TargetsSelector	DSLSelectors
+0x28	_currentTurnUnits	TargetsSelector	DSLSelectors
+0x30	Owner	TargetsSelector	DSLSelectors
+0x38	Effect	TargetsSelector	DSLSelectors
+0x40	Actor	TargetsSelector	DSLSelectors
+0x48	Caster	TargetsSelector	DSLSelectors
+0x50	CasterTile	TargetsSelector	DSLSelectors
+0x58	CasterTiles	TargetsSelector	DSLSelectors
+0x60	Target	TargetsSelector	DSLSelectors
+0x68	ActiveTarget	TargetsSelector	DSLSelectors
+0x70	PreviousActiveTarget	TargetsSelector	DSLSelectors
+0x78	TargetTiles	TargetsSelector	DSLSelectors
+0x80	UnitFeetTiles	TargetsSelector	DSLSelectors
+0x88	CurrentAbility	IAbilityTypeSelector	DSLSelectors
+0x90	TriggeringAbility	IAbilityTypeSelector	DSLSelectors
+0x98	ParentAbility	IAbilityTypeSelector	DSLSelectors

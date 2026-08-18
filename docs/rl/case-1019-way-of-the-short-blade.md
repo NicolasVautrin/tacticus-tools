@@ -315,3 +315,39 @@ python rl_duel.py build --seed 777 --board MC1_67 --state-file <abs unique>.json
 
 Le discriminant est **la position de `tauMarksman`**, pas la géométrie de spawn : les deux régimes
 s'obtiennent en déplaçant une unité d'un hex.
+
+## `#1019-r4` — le canal ARMURE d'aura devient un SLOT (2026-08-18)
+
+`aura_attack_damage_bonus_from_allies` lisait `getattr(e, "aura_armor_penetration_for_ally", None)`.
+Le canal fonctionnait — `#1019-r1` l'a confronté bit-exact — mais son **défaut n'existait nulle
+part** : il était simulé par l'absence d'attribut. Une faute de frappe sur le nom d'une surcharge se
+serait donc lue « ce porteur n'ouvre pas l'axe armure », en silence.
+
+`BaseEffect.aura_armor_penetration_for_ally(ctx) -> None` est désormais déclaré à côté de
+`get_armor_penetration`, et l'agrégateur appelle le slot directement. **Aucun changement de
+comportement** : le seul implémenteur est `WayOfTheShortBladeDamageBuffEffect`.
+
+La docstring du slot porte les deux choses qu'un `getattr` ne pouvait pas dire :
+
+* c'est le **même slot natif** que `get_armor_penetration` — `<Effect>.IgnoreArmor`, virtuel
+  `<vtable +0x718>` — lu depuis l'itération de
+  `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` où `AbilityEntities+0x18 (Owner)`
+  vaut le **bénéficiaire** du `CreateTargetSelector`, pas le porteur ;
+* pourquoi il ne faut **pas** rabattre l'un sur l'autre : le sélecteur de 1499 exclut son porteur
+  (`SurroundingFriends` sans `+ Owner`), donc `get_armor_penetration` donnerait les `armorIgnored`
+  points à Farsight lui-même — ce que le natif ferme par `get_OwnerIsCaster`.
+
+La prémisse du résidu était **fraîche** (le `getattr` était toujours au site, vérifié avant de
+coder) et sa cause datée — `base.py` était le foyer d'une tranche concurrente — n'existe plus.
+
+**Garde** : `tests/engine/test_1019r4_slot_aura_armure_offline.py` — 5 tests, dont un étage qui
+vérifie que le slot reste évalué **sous** le gate du bonus d'aura (le natif n'appelle `+0x718` que
+sous le test du trigger) et un autre qui fige `WayOfTheShortBladeDamageBuffEffect` comme **seul**
+implémenteur. Deux mutants joués, deux mordent : slot retiré de la base, appel de l'agrégateur
+débranché.
+
+⚠ **Effet de bord mesuré pendant la même tranche** : `WayOfTheShortBlade` n'avait **aucune** entrée
+`ABILITY_INIT_OWNER_EFFECTS`, alors que
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.WayOfTheShortBlade_InitAbility$$CreateBehaviour`
+= `AddEffect(0x5db) & AddEffect(0x5dc)` sur `Owner`, sous `OnOwnerSpecificAbilityInit`. Hors capture
+live, ce canal d'aura était donc **inerte faute de porteur**. L'entrée est posée (cf. `#10035-r3`).

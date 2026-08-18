@@ -278,3 +278,51 @@ fenêtre de reinject.
 Sa portée dépasserait largement `#967` : c'est le **seul canal qui donnerait l'utilité native par
 cible**, là où aujourd'hui on n'observe que l'action retenue. Toutes les faces DÉCISION en
 bénéficieraient.
+
+## `#590-r11` — les sélecteurs partagés de `DSLSelectors`, VERSIONNÉS (2026-08-18)
+
+Le résidu d'origine annonçait « le NOM des sélecteurs partagés n'est lisible par AUCUNE voie
+offline » et réclamait un capteur. C'était faux, et `#1064` l'avait déjà dit : le RPC `classFields`
+rend le nom de CHAMP de chaque slot, en lecture pure de la metadata IL2CPP — aucun hook, aucun
+reinject.
+
+Re-joué sur `t6dpr4k06g` : **18 champs**, `boxedSize 160 / fieldsSize 144`. `DSLSelectors` étant une
+**classe**, l'offset rendu est celui du décompilé — aucune correction de boxing, contrairement à un
+`ValueType` passé en argument. La table de `#1064` est confirmée au champ près :
+
+    +0x10 _dsl   +0x18 _allTiles   +0x20 _allAliveUnits   +0x28 _currentTurnUnits
+    +0x30 Owner  +0x38 Effect      +0x40 Actor            +0x48 Caster
+    +0x50 CasterTile  +0x58 CasterTiles  +0x60 Target     +0x68 ActiveTarget
+    +0x70 PreviousActiveTarget  +0x78 TargetTiles  +0x80 UnitFeetTiles
+    +0x88 CurrentAbility  +0x90 TriggeringAbility  +0x98 ParentAbility
+
+**`+0x68` s'appelle `ActiveTarget`, pas `It`.** La lecture STRUCTURELLE du port était juste sur la
+sémantique — c'est bien l'élément courant qu'un `Filter`/`Any` écrase à chaque itération, et
+`PreviousActiveTarget` juste au-dessus corrobore la sémantique de pile — mais le NOM était inventé.
+
+**Versionnée** : `data/symbols/t6dpr4k06g/metadata/dsl_selectors.tsv`, avec son
+générateur/confronteur `scripts/python/probe_590r11_dsl_selectors.py` (`--regenerer` LIVE, défaut
+100 % OFFLINE, `--report` inventaire).
+
+**Rayon corrigé** : 34 lignes sur 16 fichiers (`It` → `ActiveTarget`) — les 7 modules
+`entities/effects`, `entities/selectors/units.py`, `runner/components.py`, `runner/damage_model.py`,
+5 probes, 2 tests. Les 35 lignes restantes vivent dans les modules tenus par d'autres agents et sont
+attestées dans `scripts/ratchets-590r11-citations-heritees.json`, qui ne doit que DÉCROÎTRE.
+
+⚠ **Le premier critère du cliquet était inexploitable, et c'est la mesure qui l'a montré.** Apparier
+`<Nom>@[+]0xNN` sans exiger de marqueur de struct rend **plus de 60** « incohérences » dont la
+quasi-totalité sont FAUSSES (`UtilityAttackCase@0x28`, `config@0x60`, `NormalAttackType@0x28`,
+`this@0x10`…) : **tout struct du build a un `+0x30`**, donc l'offset seul ne désigne rien. Un cliquet
+à ce taux de faux positifs se fait désarmer. Le critère retenu exige le marqueur écrit au site
+(`@DSLSelectors+`, `@<Sel+`, `sel@`), **plus** l'alias `It`, qui n'est champ d'aucun struct du build
+et ne peut donc désigner que ce slot.
+
+Mesure du cliquet ainsi resserré : **1090 citations cohérentes, 74 en désaccord**, dont **15 couples
+`It@0xNN`** (le gisement bloquant, ratcheté) et **59 alias du vocabulaire du port** (`Subject`,
+`EffectSelf`, `AllUnits`, `Targets`, `Current`…) qui mêlent des alias légitimes et de vrais
+glissements (`ActiveTarget@0x48` alors que `0x48` est `Caster`) → **inventaire, jamais bloquant**,
+résidu `#590-r16`. Les citations d'un slot **sans nom devant** (754) sont comptées à part : le probe
+assertionne son propre non-vide, un recenseur qui ne visiterait rien rendrait 0 et passerait pour
+vert.
+
+Mutant joué : un `It@+0x68` ajouté hors base attestée fait passer le probe de rc 0 à rc 1.

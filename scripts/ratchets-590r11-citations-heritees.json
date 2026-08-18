@@ -1,0 +1,20 @@
+{
+ "_commentaire": "Plafond du nombre de citations INCOHERENTES par (fichier|nom|offset). Ne doit que DECROITRE. Genere par probe_590r11_dsl_selectors.py --ecrire-base ; cf. #590-r11.",
+ "plafonds": {
+  "scripts/python/engine/entities/triggers.py|It|0x68": 1,
+  "scripts/python/engine/playbook/prediction/normal_attack.py|It|0x68": 1,
+  "scripts/python/engine/playbook/scene.py|It|0x68": 1,
+  "scripts/python/engine/runner/abilities/behaviours/stats.py|It|0x68": 1,
+  "scripts/python/engine/runner/abilities/bloodangels.py|It|0x68": 2,
+  "scripts/python/engine/runner/abilities/handler.py|It|0x68": 1,
+  "scripts/python/engine/runner/abilities/loki/attempted_possession.py|It|0x68": 2,
+  "scripts/python/engine/runner/abilities/loki/mind_control.py|It|0x68": 2,
+  "scripts/python/engine/runner/abilities/necrons.py|It|0x68": 3,
+  "scripts/python/engine/runner/abilities/worldeaters.py|It|0x68": 2,
+  "scripts/python/engine/runner/operations/triggers/loki/lakrimae.py|It|0x68": 2,
+  "scripts/python/engine/runner/operations/triggers/loki/primarch_first_legion.py|It|0x68": 2,
+  "scripts/python/engine/runner/operations/triggers/loki/sabre_of_sacrifice.py|It|0x68": 4,
+  "scripts/python/engine/runner/operations/triggers/loki/the_ardent_blade.py|It|0x68": 3,
+  "scripts/python/tests/engine/runner/test_1013r2_the_ardent_blade_offline.py|It|0x68": 1
+ }
+}

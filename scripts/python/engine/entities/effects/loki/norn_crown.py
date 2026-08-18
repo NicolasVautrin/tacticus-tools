@@ -47,11 +47,11 @@ lit depuis #1005.
 ================================================================================================
 
     Filter( AllUnits@DSLSelectors+0x20,
-              AreFriends( Owner@DSLSelectors+0x30, It@DSLSelectors+0x68,
+              AreFriends( Owner@DSLSelectors+0x30, ActiveTarget@DSLSelectors+0x68,
                           comparisonType = 0 = ByCurrentTeam, anyEntity = false )
-            & IsInTeamSynapseRange( It@+0x68, Owner@+0x30 )
-            & (   HasTrait( It@+0x68, 0x3ea = 1002 Psyker )
-                | HasTrait( It@+0x68, 0x2   = 2    Summon ) ) )
+            & IsInTeamSynapseRange( ActiveTarget@+0x68, Owner@+0x30 )
+            & (   HasTrait( ActiveTarget@+0x68, 0x3ea = 1002 Psyker )
+                | HasTrait( ActiveTarget@+0x68, 0x2   = 2    Summon ) ) )
 
 Les signatures sont LUES dans `data/symbols/<build>/frida/methods.tsv`
 (`DSLTriggers.AreFriends(unit1, unit2, comparisonType:UnitTeamSelectionType, anyEntity:Boolean)`,
@@ -150,7 +150,7 @@ import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNI
 NORN_CROWN_ABILITY = "NornCrown"
 #: `AbilityVariableType` 0x8 = 8 -- la seule variable de `NornCrown` (`extraDmg`, 10 paliers).
 _VAR_EXTRA_DMG = "extraDmg"
-#: `HasTrait(It@+0x68, 0x3ea) | HasTrait(It@+0x68, 0x2)` -- le fork de trait du selecteur.
+#: `HasTrait(ActiveTarget@+0x68, 0x3ea) | HasTrait(ActiveTarget@+0x68, 0x2)` -- le fork de trait du selecteur.
 _QUALIFYING_TRAITS = (UnitTrait.Psyker, UnitTrait.Summon)
 #: `SynapseEffect$$GetTrait` -> `return 0x7e8` -- l'EMETTEUR de la bulle, teste par `HasTrait`.
 SYNAPSE_TRAIT = UnitTrait.Synapse.name
@@ -287,13 +287,13 @@ class NornCrownEffect(BaseEffect):
         c = ctx or {}
         if c.get("att_id") == c.get("owner_id"):             # patte SELF ci-dessus
             return None
-        # `AreFriends(Owner@+0x30, It@+0x68, ByCurrentTeam, anyEntity: false)`
+        # `AreFriends(Owner@+0x30, ActiveTarget@+0x68, ByCurrentTeam, anyEntity: false)`
         if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
             return None
         traits = c.get("att_traits")
         if traits is None or not has_any_trait(traits, _QUALIFYING_TRAITS):
             return None                                      # HasTrait(It, Psyker) | HasTrait(It, Summon)
-        # `IsInTeamSynapseRange(It@+0x68, Owner@+0x30)` -- la bulle est celle de l'equipe du PORTEUR,
+        # `IsInTeamSynapseRange(ActiveTarget@+0x68, Owner@+0x30)` -- la bulle est celle de l'equipe du PORTEUR,
         # et le sujet teste est le BENEFICIAIRE (a sa position d'attaque evaluee).
         if _in_team_synapse_range(c.get("owner_team"), c.get("att_pos"), c) is not True:
             return None

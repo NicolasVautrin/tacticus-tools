@@ -1570,12 +1570,20 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     reduite `(906, 1359)`) et **906** sur la cellule `(725, 1087)` — soit exactement `reduce(base)`,
     la cellule reduite valant `(reduce(0.8 base), reduce(1.2 base))`.
 
-    ## Face PREDICTION
+    ## Face PREDICTION — RECTIFIEE (#10019-r2)
     `IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditionalHitsFromEffectsForPrediction` tourne
-    HORS de toute `OngoingAttack` -> `currentAttack@+0x50` est vide -> le noeud rend **0** sur ses
-    trois accesseurs -> le groupe predit est un coup a **0 degat** (no-op numerique), et le nb de
-    coups de `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` n'est PAS augmente (ce n'est
-    pas un `EffectHitsBonusForAttack`). Cote port : `attack_hit_damage` absent -> aucun groupe.
+    HORS de toute `OngoingAttack` -> `currentAttack@+0x50` est vide -> le noeud rend **0** (LU dans
+    `IdunBattle.Entities.Formulas.FirstHitInCurrentAttackDamageRange$$Calculate` : la liste nulle ou
+    `Count <= 0` sortent par `return 0`). Ce fait-la est JUSTE.
+    ⚠ Ce qui en etait deduit ne l'etait PAS : le COMPTE de coups, lui, est identique sur les deux
+    faces. `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(entities, isPrediction)` evalue
+    `trigger` puis `hitsFormula` SANS regarder `isPrediction` -- ce dernier ne choisit qu'entre
+    `predictionDamageFormula` (le 7e parametre NOMME de `EffectAdditionalHits$$Create`) et
+    `damageFormula`. Le groupe predit EXISTE donc, avec son compte, et
+    `AActiveAbility$$AddAdditionalHitsToPrediction` l'ajoute par
+    `IdunBattle.Core.Services.DamagePredictionResult$$Add`. Cote port : le COMBAT reste le groupe
+    #179 ci-dessous (`attack_hit_damage` requis), la PREDICTION passe par
+    `create_effect_hits_bonus_for_attack` (+1 coup d'ARME), gate IDENTIQUE (`_trigger_fires`).
 
     ## Les DEUX branches du gate (exclusives par construction)
     Le trigger de POSE `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` =
@@ -1599,7 +1607,14 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     courante. Contexte ABSENT (None) -> aucune contribution (degradation fidele « present !=
     applique », = l'etat PREDICTION mesure #62/#65 : contribution native 0)."""
 
-    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+    def _trigger_fires(self, ctx: "Mapping | None" = None) -> bool:
+        """Le TRIGGER de `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$
+        CreateAdditionalHits`, ECRIT UNE SEULE FOIS parce que le natif n'en a qu'UN.
+
+        `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(entities, isPrediction)` evalue
+        `trigger.ShouldTrigger(entities)` A L'IDENTIQUE sur les DEUX faces -- seule la FORMULE DE
+        DEGAT change (cf. `create_effect_hits_bonus_for_attack` ci-dessous). Factoriser le gate
+        ici est donc la fidelite meme : deux copies pourraient diverger, le natif ne le peut pas."""
         c = ctx or {}
         # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE au sens
         # « n'importe LEQUEL des status de tuile », PAS « n'importe quel effet porte par la tuile » :
@@ -1617,7 +1632,89 @@ class LetTheGalaxyBurnEffect(BaseEffect):
         # `IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) — flag intra-attaque arme par
         # le trigger de pose (33%) et efface en fin d'attaque par le Reset IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour.
         armed = LET_THE_GALAXY_BURN_PERSISTENT_KEY in (c.get("persistent_data") or ())
-        if not (on_tile_fx or armed):
+        return bool(on_tile_fx or armed)
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> "EffectBonus | None":
+        """FACE PREDICTION SEULEMENT (#10019-r2) -- `hitsFormula` coups d'ARME de plus.
+
+        ## Ce qui a ete LU, et qui n'etait PAS dans la fiche
+        La signature de `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` porte HUIT
+        parametres NOMMES par la metadata :
+
+            Create(trigger, damageFormula, additionalHitsType, damageProfileType,
+                   hitsFormula, forceOverkill, predictionDamageFormula, maxDamage)
+
+        Le 7e s'appelle **`predictionDamageFormula`** -- le port l'appelait << display >>, ce qui
+        cachait le fait qu'il gouverne la face PREDICTION. Et
+        `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(entities, isPrediction)` (le corps
+        PARTAGE par les trois porteurs de ce noeud) fait exactement ceci :
+
+            if (!trigger.ShouldTrigger(entities)) return null;      # MEME gate sur les 2 faces
+            hits = hitsFormula?.Calculate(entities) ?? 1;           # MEME compte  sur les 2 faces
+            min = max = predictionDamageFormula.<slot 4>(entities); # face PREDICTION
+            if (!isPrediction) {                                    # face COMBAT
+                min = damageFormula.CalculateMin(entities);
+                max = damageFormula.CalculateMax(entities);
+            }
+
+        **LE COMPTE DE COUPS NE DEPEND PAS DE LA FACE.** C'est ce fait-la, et non une
+        generalisation depuis `MasterAnnihilator`, qui fonde ce port : ce que la face PREDICTION
+        change, c'est la VALEUR du coup, jamais son EXISTENCE. En aval,
+        `IdunBattle.Entities.Abilities.AActiveAbility$$AddAdditionalHitsToPrediction` boucle sur
+        les entrees et fait un `IdunBattle.Core.Services.DamagePredictionResult$$Add` par entree,
+        avec le `hits` de l'entree.
+
+        ## Ce que #227 Sect. 2.5 avait deduit, et ce qui en reste
+        La deduction (`FirstHitInCurrentAttackDamageRange` rend 0 hors `OngoingAttack`) est JUSTE
+        au niveau du noeud -- `IdunBattle.Entities.Formulas.FirstHitInCurrentAttackDamageRange$$
+        Calculate` rend `0` des que la liste d'attaque courante est nulle ou vide, LU. Ce qui
+        etait faux, c'est le SAUT de la : << donc le coup predit est un no-op numerique >>. #10019
+        l'a MESURE faux sur `MasterAnnihilator` (rapports entiers `(h+1)/h` sur les DEUX bornes,
+        contre-epreuve causale a 2.0000 exact). La reconciliation des deux (par quel chemin le
+        coup predit recupere le degat d'un coup d'arme) reste le residu `#10019-r1`,
+        `BLOCAGE: capteur` -- et elle porte sur la VALEUR, pas sur le COMPTE.
+
+        ## Pourquoi ce porteur-ci et pas une generalisation
+        Les trois porteurs du noeud ecrivent le MEME descripteur (profil `NULL`, meme
+        `predictionDamageFormula`) : la seule variable par porteur est le TRIGGER. Celui de LTGB
+        est `get_OwnerIsCaster & (TargetHasTileEffect | IsPersistentData(0x5ca, Self@0x148,
+        Get(<statique>)))`, et il est evalue ici par `_trigger_fires` -- LE MEME appel que la face
+        COMBAT, sur le MEME contexte. Le port ne decide donc RIEN du substrat : si `persistent_data`
+        ne porte pas la cle en prediction (le flag intra-attaque est arme par le trigger
+        `On(5 = PreAttack)`, qui n'a pas tourne), seule la branche `TargetHasTileEffect` ouvre --
+        c'est le substrat qui le dit, pas une regle ecrite ici.
+
+        ## L'ETAGE EST UN CHOIX DE PORT, ET IL EST LE MEME QUE CELUI DE #10019
+        ⚠ Le natif n'ajoute PAS ce coup a `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`
+        : il construit une prediction SEPAREE par entree
+        (`AActiveAbility$$GetEffectAdditionalHitPrediction`) et la somme par
+        `IdunBattle.Core.Services.DamagePredictionResult$$Add`. Le port n'a pas cet etage-la ; il
+        loge la contribution dans la formule de coups, ou elle est NUMERIQUEMENT EXACTE des lors
+        que le coup vaut un coup d'arme -- c'est exactement la forme retenue par #10019 pour
+        `MasterAnnihilator` (elle-meme calquee sur `GetStuckIn`). L'ecrire ici sans le dire
+        laisserait croire a un mirror 1:1 de l'etage natif : ce n'en est pas un.
+
+        `get_OwnerIsCaster` est STRUCTUREL sur ce canal : `hits_bonus_from_effects` n'agrege que
+        les effets de l'ATTAQUANT, et LTGB est un owner-effect AUTO-PORTE par son attaquant.
+
+        Le SIGNE est POSITIF -> `block_hits_reduction` ne l'eteint pas (`_hits_contribution` ne
+        neutralise que les contributions negatives), fidele au tri natif, qui porte sur le signe.
+
+        `count = noeud NULL` chez ce porteur -> defaut natif **1** (`hitsFormula ?? 1`)."""
+        c = att_ctx or {}
+        # FACE : hors prediction, ce canal n'existe pas -- le combat garde le GROUPE #179
+        # (`additional_hit_groups` ci-dessous), dont le degat est le `HitDamage` brut de l'attaque.
+        # `att_ctx` absent, ou appelant anterieur a #10019-r2 -> False -> no-op strict.
+        if not c.get("is_prediction"):
+            return None
+        if not self._trigger_fires(c):
+            return None
+        return for_addition(True, 1)
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        c = ctx or {}
+        if not self._trigger_fires(c):
             return None
         # `FirstHitInCurrentAttackDamageRange` = le `HitDamage` BRUT de l'attaque courante (cf.
         # docstring). Absent = aucune attaque en cours (face PREDICTION) -> le noeud rend 0 ->
@@ -1711,7 +1808,18 @@ class AstartesBannerExtraHitEffect(BaseEffect):
     Ctx du canal (monte par `collect_additional_hit_groups` puis `aura_additional_hits_from_allies`) :
     {owner_id/pos/team, att_id/att_pos/att_team, is_melee, attack_hit_damage, tgt_id, damage_profile}."""
 
-    def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
+    def _hits_if_trigger_and_selector(self, ctx: Mapping | None = None) -> int | None:
+        """Le TRIGGER + le SELECTEUR + le `hitsFormula` de
+        `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`,
+        ECRITS UNE SEULE FOIS parce que le natif n'en a qu'UN de chaque.
+
+        `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(entities, isPrediction)` evalue
+        `trigger.ShouldTrigger(entities)` puis `hitsFormula.Calculate(entities)` A L'IDENTIQUE sur
+        les DEUX faces -- `isPrediction` ne choisit qu'entre `predictionDamageFormula` et
+        `damageFormula`. Le compte est donc face-INDEPENDANT, et le factoriser ici l'ecrit tel.
+
+        Rend le nombre de coups (`ConfigConst(0x64 = extraHits)`), ou `None` si le trigger ne tire
+        pas / si le selecteur ne couvre pas l'attaquant / si la config est muette."""
         c = ctx or {}
         if not c.get("is_melee"):                          # IsMeleeAttack
             return None
@@ -1727,6 +1835,53 @@ class AstartesBannerExtraHitEffect(BaseEffect):
         if hexgeo.distance(op, ap) > int(rng if rng else 2):             # SurroundingFriends(range)
             return None
         n = ability_var("AstartesBanner", "extraHits", is_constant=True)  # ConfigConst 0x64 (=1)
+        return int(n) if n else None
+
+    def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """FACE PREDICTION SEULEMENT (#10019-r2) -- `extraHits` coups d'ARME de plus.
+
+        MEME lecture, MEME justification et MEME forme que
+        `LetTheGalaxyBurnEffect.create_effect_hits_bonus_for_attack` : le compte de coups d'un
+        descripteur `EffectAdditionalHits` ne depend PAS de la face (`BaseEffect$$AdditionalHits`
+        n'utilise `isPrediction` que pour choisir entre `predictionDamageFormula` -- le 7e
+        parametre NOMME de `EffectAdditionalHits$$Create`, que le port appelait << display >> -- et
+        `damageFormula`), et `AActiveAbility$$AddAdditionalHitsToPrediction` `Add`e une prediction
+        par entree, avec le `hits` de l'entree.
+
+        Ce qui distingue ce porteur de `LetTheGalaxyBurnEffect` est SON trigger et SON selecteur --
+        `get_OwnerIsCaster & IsMeleeAttack` + `SurroundingFriends(Self@0x148, ConfigConst 0x16 =
+        range = 2, exclut self)` --, tous deux evaluables en prediction, et tous deux evalues ici
+        par `_hits_if_trigger_and_selector`, LE MEME appel que la face COMBAT.
+
+        ⚠ CE CANAL AVAIT DEJA ETE OUVERT PUIS FERME, et pour une raison qui reste VRAIE : #204 a
+        SUPPRIME `aura_hits_bonus_for_attack` parce que l'artefact natif de cet effet-ci est
+        `CreateAdditionalHits` (canal #179) et non `CreateEffectHitsBonusForAttack` -- ce qui
+        gouverne le COMBAT, ou la mesure a rendu une valeur CONSTANTE (4617 sur 5/5) contre 8
+        valeurs distinctes sur 8 pour les coups d'arme. Le canal a ete ROUVERT par #372 avec un
+        alimenteur natif propre (`DefenderOfTheGreaterGood_ExtraHitsEffect`). Ce que ce port-ci
+        ajoute n'est PAS un retour en arriere : il est gate `is_prediction`, donc la face COMBAT
+        garde INTEGRALEMENT le groupe #179 de #204 (`create_aura_additional_hits_for_ally`
+        ci-dessous), et le cliquet qui garde ce verdict
+        (`test_ah_master_annihilator_astartes_banner_live.py`) tourne en regime COMBAT.
+
+        ⚠ MEME RESERVE D'ETAGE que chez `LetTheGalaxyBurnEffect` : le natif somme une prediction
+        SEPAREE (`DamagePredictionResult$$Add`), pas un terme de `GetAttackHits`. Le port loge la
+        contribution dans la formule de coups parce qu'il n'a pas cet etage -- NUMERIQUEMENT exact
+        tant que le coup vaut un coup d'arme (forme retenue par #10019), mais ce n'est pas un
+        mirror 1:1 de l'etage natif.
+
+        Le SIGNE est POSITIF -> `block_hits_reduction` ne l'eteint pas."""
+        c = ctx or {}
+        # FACE : hors prediction, ce canal n'existe pas (cf. #204 ci-dessus). `ctx` sans la cle,
+        # ou appelant anterieur a #10019-r2 -> False -> no-op strict.
+        if not c.get("is_prediction"):
+            return None
+        n = self._hits_if_trigger_and_selector(c)
+        return for_addition(True, int(n)) if n else None
+
+    def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
+        c = ctx or {}
+        n = self._hits_if_trigger_and_selector(c)
         if not n:
             return None
         # `FirstHitInCurrentAttackDamageRange` — absent = hors `OngoingAttack` (face PREDICTION) ->
