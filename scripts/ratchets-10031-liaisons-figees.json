@@ -1,0 +1,12 @@
+{
+  "_": "#10031 -- liaisons FIGEES (forme A) ATTESTEES sur un nom substitue par un instrument de #381-r4. Ce fichier ne doit que DECROITRE : toute liaison NEUVE fait rougir tests/engine/services/test_10031_morsure_des_mutations_offline.py. Attester une liaison neuve pour faire taire le cliquet est exactement la faute que le cliquet existe pour empecher -- la reponse est de passer le consommateur en FORME B.",
+  "ouverture": 2,
+  "liaisons": {
+    "engine.entities.pathfinding.tile_blocking . make_can_continue": ["ai/state_bridge.py"],
+    "engine.entities.pathfinding.fly_pathfinder . is_like_flying": ["runner/operations/movement.py"]
+  },
+  "raisons": {
+    "ai/state_bridge.py": "Consommateur REEL (il appelle make_can_continue pour construire le gate #131 de la face DECISION), lie en forme A. Hors du chemin exerce par les instruments de #381-r4, qui passent tous par engine/services/movement_query.get_movable_tiles_for. Le reparer en forme B ferait MORDRE la mutation sur la face decision, donc changerait le verdict de mesures appartenant a d'autres tranches -- a faire par la tranche qui pourra les re-jouer. Residu #10031-r1.",
+    "runner/operations/movement.py": "Consommateur REEL d'is_like_flying, lie en forme A. Meme situation : hors du chemin de #381-r4, mais dans celui de #448 (test_448_r1_r1_r1_r1_flying_tiles_moved_*) et de probe_381r1_movable_tiles_pool.py, qui substituent ce nom. Residu #10031-r1."
+  }
+}

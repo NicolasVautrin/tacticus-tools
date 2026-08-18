@@ -88,24 +88,47 @@ def _build(caster_vis: str, caster_pos, target_pos):
 def _no_gate():
     """L'etat d'AVANT `#381-r4` : le gate d'expansion #131 desarme.
 
-    ⚠ LE SITE D'INJECTION EST LE MODULE **CONSOMMATEUR** (#484). La redaction d'origine disait
-    « le foyer resout `make_can_continue` a CHAQUE appel (import fonction-local), donc patcher
-    l'attribut du module suffit » -- vrai jusqu'a `492c722f` (« hisser 624 imports differes »),
-    qui a hisse cet import dans `engine/services/movement_query.py`. Le nom y est desormais lie a
-    l'import, le patch sur `tile_blocking` ne l'atteint plus, et les trois tests ci-dessous
-    mesuraient `gated == raw` : leurs assertions AUTO-DISCRIMINANTES ont mordu, comme prevu.
+    ⚠ HISTORIQUE DU SITE D'INJECTION, PARCE QU'IL A CHANGE DEUX FOIS (#484, puis #10031).
+    A l'origine de `#381-r4` le foyer `engine/services/movement_query.py` resolvait
+    `make_can_continue` a CHAQUE appel (import fonction-local, forme C) : patcher la SOURCE
+    suffisait. `492c722f` (« hisser 624 imports differes d'engine/ au niveau module ») l'a passe en
+    FORME A -- le nom y devenait lie AU CHARGEMENT, le patch sur `tile_blocking` ne l'atteignait
+    plus, et les assertions AUTO-DISCRIMINANTES de ce fichier ont mordu, comme prevu. La reponse
+    d'alors fut de patcher AUSSI le consommateur (`MQ.make_can_continue`) : un contournement AU SITE
+    DE MESURE, qui a reverdi CE fichier et laisse DEUX instruments muets -- le pendant LIVE
+    (`test_381r4_imperative_collapses_live.py`, rouge sur `aucune geometrie [...] le test ne
+    prouverait rien`) et `probe_381r4_imperative_collapses.py` (`rc 1`, `0 sortie changee`), aucun
+    des deux n'etant joue par un cliquet.
 
-    On patche les DEUX (source + consommateur), et on VERIFIE que la mutation a mordu -- une
-    contre-epreuve muette est pire qu'absente."""
+    `#10031` repare le FOYER au lieu du site de mesure : `movement_query` est repasse en FORME B
+    (liaison de MODULE, resolue a l'appel), donc patcher la SOURCE suffit de nouveau -- et
+    `MQ.make_can_continue` n'existe plus, ce qui a fait rougir ce fichier au moment de la
+    reparation. Mesure : `no-gate` 0 -> 483 sorties changees sur C2_26.
+
+    La contre-epreuve de morsure reste EXPLICITE, mais elle ne nomme plus l'alias prive du foyer :
+    elle passe par `morsure_substitution.liaisons_figees`, qui DERIVE des modules CHARGES ceux qui
+    ont fige ce symbole.
+
+    ⚠ Elle est BORNEE AU FOYER QUE CE FICHIER EXERCE (`engine.services.movement_query`), et c'est
+    une correction MESUREE : sans la borne, elle rougit sur `engine.ai.state_bridge`, qui fige bien
+    `make_can_continue` en forme A mais que les trois tests d'ici ne traversent PAS -- une garde
+    locale qui accuse un chemin non exerce est un faux rouge, et un faux rouge se fait desarmer. La
+    vue LARGE (tout `engine/**`, y compris ce que rien ne charge) est le role du cliquet
+    `tests/engine/services/test_10031_morsure_des_mutations_offline.py`, ou les deux liaisons
+    figees hors chemin sont ATTESTEES et nommees."""
     from engine.entities.pathfinding import tile_blocking as TB
-    from engine.services import movement_query as MQ
-    saved, saved_mq = TB.make_can_continue, MQ.make_can_continue
-    TB.make_can_continue = MQ.make_can_continue = lambda *a, **k: None
+    from morsure_substitution import liaisons_figees
+    saved = TB.make_can_continue
+    TB.make_can_continue = lambda *a, **k: None
     try:
-        assert MQ.make_can_continue() is None, "le desarmement du gate n'a pas mordu (cf. #484)"
+        figees = liaisons_figees("engine.entities.pathfinding.tile_blocking", "make_can_continue",
+                                 saved, consommateurs_seuls=True,
+                                 prefixe="engine.services.movement_query")
+        assert not figees, ("le desarmement du gate ne mord pas : %s a(ont) fige `make_can_continue` "
+                            "en forme A (cf. #484, #10031)" % sorted(figees))
         yield
     finally:
-        TB.make_can_continue, MQ.make_can_continue = saved, saved_mq
+        TB.make_can_continue = saved
 
 
 #: CHARGE -- cible de colonne 2 : son ring-1 porte des tuiles de colonne >= 2, que le port

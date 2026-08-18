@@ -40,12 +40,34 @@ PROBE_RANGE = 2                      # meme portee que la charge -- c'est la ou 
 
 @contextmanager
 def _no_gate():
-    """L'etat d'AVANT `#381-r4` : gate d'expansion #131 desarme. Le foyer resout
-    `make_can_continue` a CHAQUE appel (import fonction-local) -> patcher le module suffit."""
+    """L'etat d'AVANT `#381-r4` : gate d'expansion #131 desarme.
+
+    ⚠ CE CONTRE-TEMOIN A ETE MUET 13 JOURS (#10031), et le fichier a rougi sur un message qui
+    accusait la GEOMETRIE. La redaction d'origine disait « le foyer resout `make_can_continue` a
+    CHAQUE appel (import fonction-local) -> patcher le module suffit » : vrai jusqu'a `492c722f`
+    (« hisser 624 imports differes d'engine/ au niveau module »), qui a passe ce nom en FORME A dans
+    `engine/services/movement_query.py`. Des lors le patch n'atteignait plus le foyer, `raw` valait
+    toujours `gate`, `_pick_geometry` ne trouvait plus AUCUN couple discriminant, et le test
+    echouait sur « aucune geometrie ou le gate #131 change l'atterrissage sur C2_26 -- le test ne
+    prouverait rien ». L'auto-controle disait donc VRAI ; ce qu'il ne pouvait pas dire, c'est que la
+    cause etait l'INSTRUMENT et non le board. Le foyer est repasse en FORME B, et la morsure est
+    desormais VERIFIEE ici meme -- une contre-epreuve muette est pire qu'absente.
+
+    La verification est BORNEE au foyer que ce fichier exerce : `engine.ai.state_bridge` fige lui
+    aussi `make_can_continue` en forme A, mais aucun des deux tests d'ici ne traverse ce chemin
+    (residu #10031-r1). La vue large est le role de
+    `tests/engine/services/test_10031_morsure_des_mutations_offline.py`."""
     from engine.entities.pathfinding import tile_blocking as TB
+    from morsure_substitution import liaisons_figees
     saved = TB.make_can_continue
     TB.make_can_continue = lambda *a, **k: None
     try:
+        figees = liaisons_figees("engine.entities.pathfinding.tile_blocking", "make_can_continue",
+                                 saved, consommateurs_seuls=True,
+                                 prefixe="engine.services.movement_query")
+        assert not figees, ("le desarmement du gate ne mord pas : %s a(ont) fige `make_can_continue` "
+                            "en forme A -- ce fichier mesurerait `raw == gate` partout et "
+                            "accuserait la geometrie (#10031)" % sorted(figees))
         yield
     finally:
         TB.make_can_continue = saved

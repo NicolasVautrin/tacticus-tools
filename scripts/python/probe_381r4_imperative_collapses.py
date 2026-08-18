@@ -108,9 +108,17 @@ def _state(board, cpos, tpos, caster_vis: str):
 
 
 def _apply_mutation(mutate: str):
-    """Remet une lecture a son etat FAUTIF. Rend le restaurateur. Les deux cibles sont resolues
-    A CHAQUE APPEL par le foyer `services/movement_query.get_movable_tiles_for` (imports
-    fonction-locaux), donc patcher l'attribut du module suffit."""
+    """Remet une lecture a son etat FAUTIF. Rend le restaurateur.
+
+    ⚠ CE QUE CETTE MUTATION EXIGE DU FOYER, ET QUI A DEJA CEDE UNE FOIS (#10031). Patcher
+    `TB.make_can_continue` / `FP.is_like_flying` ne mord QUE si le foyer consommateur
+    (`services/movement_query`) resout ces noms A L'APPEL -- donc en liaison de MODULE (forme B) ou
+    par un import fonction-local (forme C). Les deux y etaient en forme C a l'origine de `#381-r4` ;
+    `492c722f` (« hisser 624 imports differes d'engine/ au niveau module ») les a passes en FORME A,
+    et ce probe a rendu `0 sortie changee / rc 1` pendant 13 jours -- un rouge qui accusait le BOARD
+    (« le bras NE DISCRIMINE PAS ») alors que c'etait la LIAISON. Mesure au retablissement en forme
+    B : `no-gate` 0 -> 483 sur C2_26. Le foyer est desormais en forme B et un cliquet garde la
+    MORSURE elle-meme : `tests/engine/services/test_10031_morsure_des_mutations_offline.py`."""
     from engine.entities.pathfinding import fly_pathfinder as FP
     from engine.entities.pathfinding import tile_blocking as TB
     saved = {"make_can_continue": TB.make_can_continue, "is_like_flying": FP.is_like_flying}
