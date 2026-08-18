@@ -1012,10 +1012,19 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
         if not has_trait(traits or [], UnitTrait.Steppable):
             continue
         # `KillUnitOperation$$Execute+0x505` : `savedHp = health.hp ; health.hp = 0`, AVANT tout
-        # evenement. Le port y collapse aussi le retrait du plateau (`UnitComponent.alive`), que le
-        # natif fait plus loin (`processor.<slot 6>` entre les deux premiers `RemoveEffects`) -- meme
-        # collapse que la mort par degat (`_fire_death_if_killed` pose `alive=False` avant l'enqueue).
-        uc.alive = False
+        # evenement. C'est TOUT ce que le natif fait ici.
+        # ⚠ **LE COLLAPSE `uc.alive = False` A ETE RETIRE (#462-...-r6-r2), ET C'EST UNE MESURE.**
+        # Il posait le retrait du plateau AVANT les cinq evenements de mort, la ou le natif le fait
+        # par `processor.<slot 6> RemoveUnit` ENTRE les deux premiers `RemoveEffects` -- c'est-a-dire
+        # APRES `On(1)` et `On(2)`. Depuis #10015-r3 ce retrait est APPELE a son rang, dans
+        # `damage.py::_kill_unit_operation` (`RemoveUnitOperation.execute(..., remove_effects=False,
+        # allow_already_dead=True)`), donc cette ligne n'etait plus qu'un DOUBLON PREMATURE -- et son
+        # propre commentaire le disait deja (<< que le natif fait plus loin >>).
+        # CE QU'ELLE FAUSSAIT, mesure live : un `Steppable` ECRASE n'a AUCUNE SANTE (0/0), et
+        # `HealthComponent$$IsAlive` rend TRUE dans ce cas ; a `On(1 = PreUnitDeath)` le natif le voit
+        # donc encore VIVANT, et `IsDead(Target)` est FAUX. Avec le collapse, le port le voyait MORT
+        # et faisait fire `HazeCorruption_BonusHitAbility` -- 0 groupe `HazeOfCorruption` cote natif
+        # sur un crush, contre 2 sur un kill ordinaire du MEME porteur.
         hc = e.get_component(HealthComponent)
         if hc is not None:
             hc.hp = 0
