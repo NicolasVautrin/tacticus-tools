@@ -484,6 +484,39 @@ RAIL: dict[str, tuple[str, str]] = {
     "FinalVengeanceUnitEffectTrigger":
         (TARGETS,
          "IdunBattleLogic.Entities.Abilities.Triggered.Loki.FinalVengeance_UnitEffect$$CreateTargetTrigger"),
+    # ------------------------------------------------------------------------------------------
+    # #421-r2 (2026-08-18) -- SIX classes entrees au registre SANS rail declare, donc invisibles au
+    # cliquet des gates. Symbole de chacune CONFIRME dans la table du build `t6dpr4k06g` (et le
+    # corps de `BattleFocusEffect$$CreateTargetTrigger` RELU : `On(0xb, alive:1) &
+    # AbilityHasAttackType(..., 0) & (get_OwnerIsTarget | get_OwnerIsCaster) & (NOT IsMoving &
+    # CanMove)` -- un vrai trigger de CIBLE, pas un stub).
+    #
+    # ⚠ LA PREMIERE PORTAIT UN VRAI GAP, et c'est exactement ce que ce cliquet existe pour trouver :
+    # `BattleFocusEffectTrigger` est du rail TARGETS et son `matches` ne lisait PAS le flag. Gate
+    # pose dans le MEME commit (`triggers/loki/battle_focus.py::_battle_focus_flag_is_set`).
+    "BattleFocusEffectTrigger":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.BattleFocusEffect$$CreateTargetTrigger"),
+    # Les DEUX `Triggered()` ajoutes a l'`ArraySet` herite d'`ABondEffect` (lui-meme VIDE ici).
+    "CallRipperSwarmsSpawnOnBondedTurnStart":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "CallRipperSwarmsRemoveOnUnitMovesIn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # TROISIEME couple `AReactivateOverwatch*`, apres `EarlyWarningOverride*` et
+    # `InescapableDeath*` ci-dessus : MEMES Triggered #1 et #2 du MEME corps de base.
+    # `FiringPosition_ReactivateOverwatchEffect` n'override PAS `CreateHandleTriggerAbilitiesInternal`
+    # -- etabli par le COMPTAGE de son bloc `methodPointers` (exactement DEUX entrees : son `.ctor`
+    # et un `GetHitReductionEffectType` a corps ICF-partage), jamais par l'absence dans une table
+    # indexee par ADRESSE, qui ne prouverait rien.
+    "FiringPositionReactivateOverwatch":
+        (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "FiringPositionHitReductionPurge":
+        (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # MEME forme que `InspiredToGreatnessOverrideLevelRemove` / `ChronometronExtraDamageRemove` /
+    # #522 : un `CreateRemoveEffectTrigger` que `BaseEffect$$CreateHandleTriggerAbilities` GREFFE
+    # dans l'`ArraySet`. Corps ENTIER : `On(0x9 = Attack, ownerNeedsToBeAlive: 0)` -- UN noeud,
+    # AUCUN conjoint.
+    "LifewardsProtectingRemove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.LifewardsProtectingEffect$$CreateRemoveEffectTrigger"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
@@ -500,6 +533,11 @@ ARRAYSET_READS_BY_TREE = {
     # lecture du flag vient du noeud `HasEffect(..., onlyActive=1)` de l'arbre, pas d'un gate
     # d'evaluation. Le port herite du `matches` de la base, donc de la MEME lecture.
     "InescapableDeathHitReductionPurge":      # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
+        "IdunBattleLogic.Entities.DSLTriggers$$HasEffect",
+    # #421-r2 -- TROISIEME porteur du MEME arbre natif (Triggered #2 d'`AReactivateOverwatchEffect`).
+    # Il herite du `matches` de la base `AReactivateOverwatchHitReductionPurge`, donc de la MEME
+    # lecture `via active_effects` que ses deux soeurs -- verifie par `_reads_active`, pas suppose.
+    "FiringPositionHitReductionPurge":        # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
         "IdunBattleLogic.Entities.DSLTriggers$$HasEffect",
 }
 

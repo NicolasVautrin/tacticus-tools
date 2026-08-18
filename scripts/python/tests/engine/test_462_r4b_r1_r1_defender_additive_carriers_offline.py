@@ -98,11 +98,16 @@ def _accus(add_def, att_pct=()):
 
 # ------------------------------------------------- (1) le CLIQUET du canal : qui alimente ce champ
 
-def _classes_produisant_un_additif_defenseur():
+def _sites_for_addition_defenseur():
     """Balaie l'arbre `engine/` de CE checkout (chemin derive du fichier de test -- #434 : un garde
-    ne lit JAMAIS au-dessus de son propre checkout) et rend les classes dont une methode appelle
-    `for_addition(False, ...)`, c'est-a-dire `owner_is_caster=False` = un additif porte par le
-    DEFENSEUR. Lecture AST : pas de regex sur du texte, pas d'import de tout l'arbre."""
+    ne lit JAMAIS au-dessus de son propre checkout) et rend
+    `{<module>.<classe>: [(ligne, <valeur litterale> | None), ...]}` pour chaque appel
+    `for_addition(False, ...)` -- `owner_is_caster=False` = face DEFENSEUR.
+
+    La VALEUR est desormais lue, et c'est le correctif de #462-r4b-r1-r1-r2 : `for_addition` a la
+    signature `(owner_is_caster: bool, value: int)`, donc le second argument (positionnel ou
+    `value=`) EST la magnitude. `None` = ce n'est pas un litteral (une expression, donc un montant
+    calcule). Lecture AST : pas de regex sur du texte, pas d'import de tout l'arbre."""
     root = os.path.join(_PY, "engine")
     found = {}
     for dirpath, _dirs, files in os.walk(root):
@@ -126,17 +131,60 @@ def _classes_produisant_un_additif_defenseur():
                     if fname != "for_addition" or not sub.args:
                         continue
                     a0 = sub.args[0]
-                    if isinstance(a0, ast.Constant) and a0.value is False:
-                        found.setdefault("%s.%s" % (rel, node.name), []).append(node.lineno)
+                    if not (isinstance(a0, ast.Constant) and a0.value is False):
+                        continue
+                    val = sub.args[1] if len(sub.args) > 1 else next(
+                        (kw.value for kw in sub.keywords if kw.arg == "value"), None)
+                    litt = val.value if isinstance(val, ast.Constant) else None
+                    found.setdefault("%s.%s" % (rel, node.name), []).append((sub.lineno, litt))
     return found
 
 
+def _ventiler_les_sites():
+    """(producteurs, porteurs_de_gate) -- la partition EXHAUSTIVE des classes trouvees.
+
+    * PORTEUR DE GATE : **tous** ses `for_addition(False, ...)` portent le litteral `0`. Le natif
+      rend alors un `EffectBonus` dont toutes les formules valent zero, dont l'unique role est de
+      faire passer le bloc de `IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense` ou
+      `IgnoreArmor()` est evalue -- la magnitude vit sur l'axe ARMURE, pas sur l'additif.
+    * PRODUCTEUR : au moins un site dont la magnitude n'est pas le litteral `0`.
+
+    Un `for_addition(False, <expression>)` est TOUJOURS un producteur, meme si l'expression peut
+    valoir zero a l'execution : le cliquet ne doit pas dependre d'une evaluation du gameconfig."""
+    sites = _sites_for_addition_defenseur()
+    porteurs = {k for k, v in sites.items() if all(litt == 0 for _l, litt in v)}
+    return {k for k in sites if k not in porteurs}, porteurs
+
+
+#: Les PORTEURS DE GATE, exclus du cliquet des producteurs -- avec ce qui atteste l'exclusion.
+#: Chacun est RE-MESURE EXECUTABLEMENT par `test_les_porteurs_de_gate_...` ci-dessous : la sortie
+#: du registre n'est PAS accordee sur la foi d'un litteral lu a l'AST.
+PORTEURS_DE_GATE_ATTESTES = {
+    "entities.effects.loki.helspear.HelspearIgnoreArmorEffect":
+        "`Helspear_IgnoreArmorEffect$$CreateEffectDamageMalusForDefense` (1583) -- toutes formules "
+        "NULLES, trigger `get_OwnerIsTarget & IsUnit(Caster@u003CDSLSelectors+0x48u003E)` ; la "
+        "magnitude est `IgnoreArmor()` (slot virtuel +0x718 -> `DamageModifiers+0x28`)",
+    "entities.effects.loki.strike_from_the_shadows.StrikeFromTheShadowsEffect":
+        "`StrikeFromTheShadowsEffect$$CreateEffectDamageMalusForDefense` (1549) -- six slots de "
+        "magnitude a zero, trigger `IsRangedAttack() & get_OwnerIsTarget` ; meme axe ARMURE",
+}
+
+
 def test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET():
-    """LE cliquet de ce cas. `def_mods.additive` n'a que trois alimentateurs, et chacun a du etre
-    confronte en COMBAT parce que #462-r4b-r1 a CHANGE ce que le moteur en fait. Un quatrieme qui
+    """LE cliquet de ce cas. `def_mods.additive` n'a que cinq alimentateurs, et chacun a du etre
+    confronte en COMBAT parce que #462-r4b-r1 a CHANGE ce que le moteur en fait. Un sixieme qui
     entrerait sans mesure reproduirait exactement la regression silencieuse d'origine : ni erreur,
-    ni crash, juste un montant au mauvais etage."""
-    trouves = set(_classes_produisant_un_additif_defenseur())
+    ni crash, juste un montant au mauvais etage.
+
+    ⚠ #462-r4b-r1-r1-r2 -- L'INVENTAIRE ETAIT FAUX, ET IL ACCUSAIT. Le recenseur creditait tout
+    `for_addition(False, ...)` SANS LIRE LA MAGNITUDE. Il a donc accuse `HelspearIgnoreArmorEffect`
+    et `StrikeFromTheShadowsEffect`, qui rendent `for_addition(False, 0)` : un `EffectBonus` a
+    formules NULLES dont l'unique role est de PORTER LA GATE du bloc `IgnoreArmor()`. Un montant
+    NUL ne peut pas etre << au mauvais etage >> -- le placement pre-percage est l'identite dessus.
+    Les accuser aurait fait reclamer une confrontation live pour un axe algebriquement inerte, et
+    -- pire -- aurait pu faire SUPPRIMER ces deux appels comme << inutiles, ils valent zero >>,
+    ce que les deux docstrings interdisent explicitement (cela DESARMERAIT la penetration)."""
+    trouves, _porteurs = _ventiler_les_sites()
     attestes = set(PRODUCTEURS_ATTESTES)
     nouveaux = trouves - attestes
     assert not nouveaux, (
@@ -149,6 +197,104 @@ def test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET():
     assert not disparus, (
         "producteur(s) atteste(s) INTROUVABLE(S) : %s -- le canal a-t-il ete recable ? "
         "Les gardes live correspondants ne mesurent alors plus rien." % sorted(disparus))
+
+
+def test_les_porteurs_de_gate_sont_EXCLUS_SUR_MESURE_pas_sur_un_litteral():
+    """LE GARDE QUI REMPLACE CE QUE L'EXCLUSION RETIRE. Sans lui, `_ventiler_les_sites` serait une
+    echappatoire : ecrire `for_addition(False, 0)` suffirait a sortir du cliquet des producteurs.
+
+    Pour chaque classe exclue, on MESURE, en l'executant, les quatre faits qui justifient la
+    sortie -- et le quatrieme est le vrai : le montant de cette classe existe, il vit simplement
+    sur l'AXE ARMURE. Une classe dont la penetration serait nulle AUSSI ne serait pas un porteur de
+    gate mais un effet mort, et ce test le dirait."""
+    from engine.entities.effects.loki.helspear import HelspearIgnoreArmorEffect
+    from engine.entities.effects.loki.strike_from_the_shadows import StrikeFromTheShadowsEffect
+
+    # Le `kw` qui OUVRE la gate de chacun, LU au site (cf. les deux docstrings de mirror) :
+    #   Helspear            : `IsUnit(Caster)` -> un `attacker_ctx` porteur d'un id ;
+    #   StrikeFromTheShadows: `IsRangedAttack()` -> `is_melee=False` (tri-etat : `None` ferme).
+    cas = [(HelspearIgnoreArmorEffect,
+            "entities.effects.loki.helspear.HelspearIgnoreArmorEffect",
+            {"attacker_ctx": {"id": 9}}),
+           (StrikeFromTheShadowsEffect,
+            "entities.effects.loki.strike_from_the_shadows.StrikeFromTheShadowsEffect",
+            {"is_melee": False, "attacker_ctx": {"id": 9}})]
+
+    _trouves, porteurs = _ventiler_les_sites()
+    # NON-VACUITE : sans porteur trouve, les boucles ci-dessous seraient vides et ce test vert.
+    assert porteurs == set(PORTEURS_DE_GATE_ATTESTES), (
+        "porteurs de gate trouves %s != attestes %s -- toute entree/sortie de cette partition doit "
+        "etre MESUREE ici, jamais seulement declaree"
+        % (sorted(porteurs), sorted(PORTEURS_DE_GATE_ATTESTES)))
+
+    for cls, cle, kw in cas:
+        assert cle in porteurs, "%s n'est plus classe porteur de gate" % cle
+        eff = cls({"name": cls.__name__, "source": 9})
+        eff.source = 9
+        eff.level = 1
+        eff.times_applied = 1
+        eff.ability_level = 50
+        eff.active_ability_level = 50
+        eff.ability_variables_multiplier = 180
+        bonus = eff.create_effect_damage_malus_for_defense(**kw)
+        # (1) la gate S'OUVRE -- sinon la mesure ne porterait sur rien.
+        assert bonus is not None, "%s : gate fermee -> ce garde ne mesure rien" % cls.__name__
+        # (2) c'est bien la face DEFENSEUR (le gisement du cliquet, pas un autre).
+        assert bonus.owner_is_caster is False, "%s : ce n'est pas la face DEFENSEUR" % cls.__name__
+        # (3) la magnitude est NULLE -- ce qui rend le placement pre-percage une identite.
+        assert float(bonus.value) == 0.0, (
+            "%s rend un additif defenseur NON NUL (%r) : il traverse alors "
+            "`_apply_defender_flat_reductions` avec un montant, donc il est AFFECTE par le "
+            "placement de #462-r4b-r1. Le confronter en COMBAT et le faire passer dans "
+            "PRODUCTEURS_ATTESTES." % (cls.__name__, bonus.value))
+        # (4) LE CRAN QUI COMPTE : son montant existe, sur l'AXE ARMURE. Un zero ici aussi
+        #     signifierait un effet mort, pas un porteur de gate.
+        pen = eff.get_armor_penetration()
+        assert pen, (
+            "%s : magnitude nulle sur l'additif ET penetration %r -- ce n'est pas un porteur de "
+            "gate, c'est un effet INERTE. L'exclusion du cliquet des producteurs ne se justifie "
+            "que parce que le montant vit sur l'axe ARMURE." % (cls.__name__, pen))
+
+
+def test_CONTRE_EPREUVE_un_additif_NON_NUL_reste_accuse():
+    """SANS CE TEST, L'EXCLUSION SERAIT UNE PORTE OUVERTE. On soumet au recenseur une source
+    synthetique portant les deux formes, et on verifie qu'il ne confond pas :
+    `for_addition(False, 0)` sort du cliquet, `for_addition(False, <expression>)` y reste --
+    y compris quand l'expression pourrait valoir zero a l'execution."""
+    src = ('class _Piege:\n'
+           '    def a(self):\n'
+           '        return for_addition(False, 0)\n'
+           'class _Vrai:\n'
+           '    def a(self):\n'
+           '        return for_addition(False, self._m())\n'
+           'class _VraiKw:\n'
+           '    def a(self):\n'
+           '        return for_addition(False, value=7)\n'
+           'class _Mixte:\n'
+           '    def a(self):\n'
+           '        return for_addition(False, 0)\n'
+           '    def b(self):\n'
+           '        return for_addition(False, self._m())\n')
+    tree = ast.parse(src)
+    par_classe = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Call):
+                continue
+            if (getattr(sub.func, "id", None) or getattr(sub.func, "attr", None)) != "for_addition":
+                continue
+            a0 = sub.args[0]
+            if not (isinstance(a0, ast.Constant) and a0.value is False):
+                continue
+            val = sub.args[1] if len(sub.args) > 1 else next(
+                (kw.value for kw in sub.keywords if kw.arg == "value"), None)
+            par_classe.setdefault(node.name, []).append(
+                val.value if isinstance(val, ast.Constant) else None)
+    porteurs = {k for k, v in par_classe.items() if all(x == 0 for x in v)}
+    assert porteurs == {"_Piege"}, porteurs
+    assert set(par_classe) - porteurs == {"_Vrai", "_VraiKw", "_Mixte"}, set(par_classe) - porteurs
 
 
 # ------------------------------------- (2) la BORNE du residu de troncature : magnitudes INTEGRALES

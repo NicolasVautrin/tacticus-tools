@@ -267,13 +267,55 @@ def test_le_recenseur_ne_credite_pas_une_condition_seulement_CITEE():
     assert len(decision) >= 2, sorted(decision)
     for nom, s in decision.items():
         assert s["role"] == "MIROIR", (nom, s["role"])
-        assert not s["delegue"], (
-            "%s est classe `delegue` alors qu'il n'APPELLE pas le foyer -- le critere est "
-            "redevenu textuel" % nom)
         assert set(s["manque"]) == {"EntityType", "Undisplaceable"}, (nom, s["manque"])
-        assert s["traits_en_dur"] == ["BigTarget", "Hulking", "Immovable"], (
-            "%s a perdu ses traits : le recenseur ne resout plus la constante PARTAGEE, donc il "
-            "recompense la duplication" % nom)
+        # ⚠ #498-r4-r2 -- `traits_EFFECTIFS`, PAS `traits_en_dur`. Un site qui DELEGUE son corps a
+        # un foyer partage n'a, par construction, aucun trait EN DUR : c'est le but de la
+        # factorisation. Exiger `traits_en_dur` ici revenait a exiger la DUPLICATION -- le vice
+        # meme que `_alias_traits_global` avait deja du corriger sur l'axe des CONSTANTES. La
+        # propriete a garder est que le recenseur VOIE encore les traits, que le corps soit sur
+        # place ou dans le foyer.
+        assert s["traits_effectifs"] == ["BigTarget", "Hulking", "Immovable"], (
+            "%s a perdu ses traits : le recenseur ne resout plus la constante PARTAGEE ni la "
+            "DELEGATION, donc il recompense la duplication" % nom)
+
+
+def test_un_DELEGANT_ne_porte_JAMAIS_plus_que_son_delegataire():
+    """LE FAUX VERT QUE LA GENERALISATION DE `delegue` AURAIT PU FABRIQUER (#498-r4-r2).
+
+    L'ancien `delegue` creditait `set(CONDITIONS)` -- les CINQ -- d'office. C'etait juste tant que
+    l'unique cible etait le foyer RUNNER, qui les porte toutes. Generaliser cette forme aux foyers
+    de DECISION aurait rendu `manque = []` pour `loki_custom::_is_displaceable`, alors que son
+    delegataire `displace_utility::is_displaceable` n'en porte que TROIS : le port aurait declare
+    porter `Undisplaceable` et `EntityType` sans que personne ne les ecrive nulle part.
+
+    Ce test fige le sens de la propagation : le manque TRAVERSE la delegation."""
+    import probe_498r3_is_displaceable_sites as P
+    rec = P.etape_recensement()
+    par_cle = {"%s::%s" % (s["fichier"], s["fonction"]): s for s in rec["sites"]}
+
+    delegant = par_cle.get("playbook/loki_custom.py::_is_displaceable")
+    delegataire = par_cle.get("playbook/displace_utility.py::is_displaceable")
+    assert delegant is not None and delegataire is not None, sorted(par_cle)
+    # NON-VACUITE : un delegataire qui porterait TOUT rendrait l'egalite ci-dessous sans contenu.
+    assert delegataire["manque"], (
+        "le delegataire ne manque RIEN -- ce test ne distinguerait plus l'heritage fidele du "
+        "credit d'office ; re-choisir un couple discriminant")
+    assert delegant["delegue"] is True, (
+        "`loki_custom::_is_displaceable` n'est plus vu comme delegant : son corps vit dans "
+        "`displace_utility` depuis #977, et le recenseur doit suivre l'appel")
+    assert delegant["manque"] == delegataire["manque"], (
+        "le delegant porte %s et son delegataire %s -- un delegant ne peut pas porter plus que "
+        "ce qu'il appelle" % (delegant["porte"], delegataire["porte"]))
+    assert delegant["porte"] == delegataire["porte"]
+
+    # Le pendant RUNNER, inchange : la ou le delegataire EST le foyer, l'heritage vaut bien 5.
+    foyer = par_cle.get("runner/components.py::unit_extensions_is_displaceable")
+    op = next((s for s in rec["sites"]
+               if s["fichier"] == "runner/operations/displace.py"
+               and s["classe"] == "DisplaceUnitOperation" and s["fonction"] == "execute"), None)
+    assert foyer is not None and op is not None, sorted(par_cle)
+    assert op["delegue"] is True, "le delegant RUNNER n'est plus vu comme tel"
+    assert not foyer["manque"] and not op["manque"], (foyer["manque"], op["manque"])
 
 
 def test_CONTRE_EPREUVE_une_docstring_ne_credite_RIEN():

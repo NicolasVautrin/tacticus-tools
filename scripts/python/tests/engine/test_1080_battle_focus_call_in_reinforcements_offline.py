@@ -393,6 +393,49 @@ def test_battle_focus_le_trigger_EXIGE_une_attaque_a_cible_directe(plateau):
     assert trg.matches(st, ko) is False
 
 
+def test_battle_focus_le_gate_IsActive_du_rail_TARGETS_MORD(plateau):
+    """#421-r2 -- LE GATE QUI MANQUAIT, et la mesure qui montre qu'il n'est pas cosmetique.
+
+    `BattleFocusEffect` produit son trigger par `$$CreateTargetTrigger`, donc
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` teste
+    `EffectComponent.IsActive @+0x5c` AVANT `ShouldTrigger` -- a l'entree puis PAR CIBLE. Le port ne
+    le lisait pas : le porteur se repositionnait alors que son effet 1199 etait DESACTIVE. Ni
+    erreur, ni crash, juste un deplacement de trop.
+
+    TROIS regimes, et le troisieme est ce qui distingue un gate d'un refus fabrique :
+      1. instance ACTIVE   -> le trigger arme (sinon le gate aurait tout eteint) ;
+      2. instance INACTIVE -> il ne s'arme plus (c'est LE cran) ;
+      3. AUCUNE instance   -> il s'arme, degradation PERMISSIVE NOMMEE, meme direction que
+         `effect_triggers._ranged_auto_attack_flag_is_set`. C'est aussi le regime des autres bras
+         de ce fichier, qui ne posent pas d'instance."""
+    from engine.entities.effects.loki.battle_focus import BattleFocusEffect
+
+    def _armer(active):
+        st, moi = plateau()
+        eff = BattleFocusEffect({"name": BATTLE_FOCUS_KEY, "source": moi})
+        eff.effect_type = BATTLE_FOCUS_EFFECT
+        eff.consumed = False
+        eff.active = active
+        st.effects.add_effect(moi, eff)
+        ev = TriggerEvent(int(EventTriggerType.UnitAbility), moi, 20,
+                          ranged=True, profile=None, ability_type=1013)
+        return BattleFocusEffectTrigger(moi).matches(st, ev)
+
+    assert _armer(True) is True, (
+        "instance ACTIVE et pourtant pas d'armement -- le gate refuse tout, il ne discrimine pas")
+    assert _armer(False) is False, (
+        "instance INACTIVE et le trigger s'arme quand meme -- le gate `IsActive` du rail TARGETS "
+        "n'est pas lu (c'est l'etat d'AVANT #421-r2)")
+
+    # (3) le regime SANS instance, qui est celui des autres bras : PERMISSIF, et il le reste.
+    st, moi = plateau()
+    ev = TriggerEvent(int(EventTriggerType.UnitAbility), moi, 20,
+                      ranged=True, profile=None, ability_type=1013)
+    assert BattleFocusEffectTrigger(moi).matches(st, ev) is True, (
+        "le gate fabrique un refus quand le substrat ne publie AUCUNE instance -- degradation "
+        "RESTRICTIVE non voulue")
+
+
 def test_battle_focus_le_trigger_exige_que_le_porteur_soit_CASTER_ou_CIBLE(plateau):
     """`get_OwnerIsTarget | get_OwnerIsCaster`. Un evenement ou le porteur n'est NI l'un NI
     l'autre ne l'arme pas."""
