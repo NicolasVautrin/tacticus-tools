@@ -26,7 +26,8 @@ ENSEMBLE. `source` y vient du `damageResult`, `caster`/`target` sont les paramet
 
     q = matchState.<slot 7 = GetDamageEvents>()
     if (q.Count > 0)                                        // GATE : rien si la file est vide
-        RunPhase(PhaseType 0xe, <ProcessDamageEvents>b__0, isInternalPhase: 1)
+        RunPhase(PhaseType.ProcessDamageEvents /*0xe*/, <ProcessDamageEvents>b__0,
+                 isInternalPhase: 1)
 
 et `InputMessageProcessor.<>c__DisplayClass52_0$$<ProcessDamageEvents>b__0` :
 
@@ -68,8 +69,9 @@ CE QUE LE PORT MODELISE, ET CE QU'IL NE MODELISE PAS
   * `GetEntity(casterId)` / `GetEntity(targetId)` : le port memorise les IDS et les re-resout au
     drain, comme le natif -- une entite disparue entre l'enfilement et le drain est donc traitee
     comme le natif la traite (le vecteur part quand meme, `evaluate_trigger_operation` gere) ;
-  * le `RunPhase(0xe, isInternalPhase: 1)` autour de chaque vague : NON porte comme phase, mais sa
-    consequence observable -- la RE-ENTREE du drain -- l'est, par la boucle de vagues ;
+  * le `RunPhase(PhaseType.ProcessDamageEvents /*0xe*/, isInternalPhase: 1)` autour de chaque
+    vague : NON porte comme phase, mais sa consequence observable -- la RE-ENTREE du drain --
+    l'est, par la boucle de vagues ;
   * `StartPhase`/`EndPhase` et les slots `0x1e`/`0x14` : non portes (aucun consommateur porte).
 
 CONSOMMATEURS PORTES d'`On(0x11)` -- **TROIS**, et les trois l'ecoutaient DEJA en declarant

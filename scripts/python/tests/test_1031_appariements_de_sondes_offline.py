@@ -147,20 +147,41 @@ def test_etage1_un_ordinal_NU_reste_reclame(ett) -> None:
 
 
 def _ann(ligne: str, v: int, n_ancres: int = 1, quoi: str = "FUN"):
+    """⚠ `old` EST LA MEMOIRE ARCHIVEE, PAS `previous_build()` -- et c'est LE ROUGE DE `master`
+    que #10028 ferme. Ce helper reconstruisait `old` a partir du seul build precedent, alors que
+    le foyer de production (`step_on`) lit `memoire_archivee` depuis #10023. Or `previous_build()`
+    (= `rnca9r7q6c`) est IDENTIQUE au courant sur les quatre enums : `annotation_de_ligne` ne
+    pouvait donc PLUS rendre `perimee`, et les trois etages 2 tombaient sur `nue` -- sans qu'une
+    ligne du detecteur ait bouge. Un cliquet qui reconstruit ce qu'il garde ne garde pas ce qui
+    tourne (lecon d'`_olds()`, #10023)."""
     ref = SW._by_name(SW.enum_map(SW.current_build(), SW.ENUMS["EventTriggerType"]))
-    old = SW._by_name(SW.enum_map(SW.previous_build(), SW.ENUMS["EventTriggerType"]))
+    old = SW.memoire_archivee(SW.ENUMS["EventTriggerType"])       # LA source du probe (#10023)
     return SW.annotation_de_ligne(ligne, v, ref, old, n_ancres, quoi)
+
+
+def _couple(membre: str):
+    """`(ancien, courant)` d'un membre PRECIS -- DERIVES, jamais ecrits.
+
+    Les fixtures ci-dessous doivent rester fideles au SITE REEL qu'elles reproduisent, donc le
+    MEMBRE est ecrit (c'est le nom que l'auteur a pose au site) ; ses deux ORDINAUX, eux, sont
+    derives du foyer `probe_283.temoins_de_decalage`. Figes en dur (`0x2b`/`0x2a`/`0x34`), ils
+    ont fait rougir ces trois tests au versionnement de `t6dpr4k06g`."""
+    _m, ancien, courant = SW.temoins_de_decalage(membre=membre)[0]
+    return ancien, courant
 
 
 def test_etage2_le_gate_MORD_TOUJOURS_sur_une_QUOTE() -> None:
     """NON-REGRESSION #420-r5. Ce pour quoi l'annotation a ete creee doit rester garde --
     sinon on aurait ferme le rouge en desarmant le cliquet."""
-    q = "#  FUN_1800280e0(0x4d, .., 0x2b);   # On(PreUnitAbility)"
-    assert _ann(q, 0x2B) == ("perimee", "PreUnitAbility")
-    assert _ann("#  FUN_1800280e0(0x4d, .., 0x2a);   # On(PreUnitAbility)", 0x2A)[0] == "ancree"
+    ancien, courant = _couple("PreUnitAbility")
+    quote = "#  FUN_1800280e0(0x4d, .., 0x%x);   # On(PreUnitAbility)"
+    assert _ann(quote % ancien, ancien) == ("perimee", "PreUnitAbility")
+    assert _ann(quote % courant, courant)[0] == "ancree"
     #: le detecteur doit MORDRE : sans ce controle, les deux lignes ci-dessus ne prouvent rien.
-    old = SW._by_name(SW.enum_map(SW.previous_build(), SW.ENUMS["EventTriggerType"]))
-    assert old["PreUnitAbility"] == 0x2B
+    #: (`_couple` l'assertionne deja en levant sur un membre sans decalage ; on le REDIT ici parce
+    #: que c'est CE fait -- l'ordinal cite a bien ete celui du membre nomme -- qui fonde `perimee`.)
+    memo = SW.memoire_archivee(SW.ENUMS["EventTriggerType"])
+    assert ancien in SW._ords(memo.get("PreUnitAbility")) and ancien != courant
 
 
 def test_etage2_MUTATION_la_MEME_ligne_sur_une_ancre_On_ne_mord_PLUS() -> None:
@@ -168,22 +189,31 @@ def test_etage2_MUTATION_la_MEME_ligne_sur_une_ancre_On_ne_mord_PLUS() -> None:
 
     La ligne de `test_981_vecteurs_de_fuite_offline.py:136` MET EN CONTRASTE deux evenements ;
     l'annotation n'y annote rien. Le seul discriminant qui tienne est le TYPE d'ancre : une
-    ancre `On(<n>)` a sa voie propre (`On(<n> = <Membre>)`, etape 4)."""
-    ligne = "`On(PreUnitFled)` passe la fuyarde TROIS FOIS ; `On(0x34)` et"
-    assert _ann(ligne, 0x34, 1, "On") == ("nue", None), (
+    ancre `On(<n>)` a sa voie propre (`On(<n> = <Membre>)`, etape 4).
+
+    L'ancre est l'ANCIEN ordinal de `PreUnitFled` -- c'est ce qui rend l'appariement FAUX par
+    accident, et donc ce qui doit etre reproduit ici. Il est DERIVE : ecrit `0x34` en dur, il
+    designait le membre courant `UnitFled` des le build suivant."""
+    ancien, _courant = _couple("PreUnitFled")
+    ligne = ("`On(PreUnitFled)` passe la fuyarde TROIS FOIS ; `On(0x%x)` et" % ancien)
+    assert _ann(ligne, ancien, 1, "On") == ("nue", None), (
         "l'annotation ne doit PAS ancrer une mention `On(<n>)` de la meme phrase")
     #: MUTATION : en regime `FUN` (le cran retire), la MEME ligne redevient le faux rouge.
-    assert _ann(ligne, 0x34, 1, "FUN")[0] == "perimee", (
+    assert _ann(ligne, ancien, 1, "FUN")[0] == "perimee", (
         "le cran est INERTE -- la mutation ne reproduit pas le rouge qu'il ferme")
 
 
 def test_etage2_MUTATION_deux_ancres_pour_une_annotation_sont_AMBIGUES() -> None:
     """Le second cran, sur les QUOTES cette fois : une annotation ne peut attribuer qu'a UNE
     ancre. `ambigue` et non `nue` -- ce qui est ecarte doit rester COMPTE."""
-    q = "#  FUN_1800280e0(0x4d, .., 0x2b); FUN_1800280e0(0x4d, .., 0x1c);  # On(PreUnitAbility)"
-    assert _ann(q, 0x2B, 2, "FUN") == ("ambigue", "PreUnitAbility")
+    ancien, _courant = _couple("PreUnitAbility")
+    #: la SECONDE ancre est un ordinal quelconque et NON ANNOTE : ce qui compte est qu'il y ait
+    #: DEUX ancres nues pour UNE annotation, pas ce que la seconde vaut.
+    q = ("#  FUN_1800280e0(0x4d, .., 0x%x); FUN_1800280e0(0x4d, .., 0x1c);  # On(PreUnitAbility)"
+         % ancien)
+    assert _ann(q, ancien, 2, "FUN") == ("ambigue", "PreUnitAbility")
     #: MUTATION : a UNE seule ancre, la meme ligne mord -- le cran n'est donc pas un fourre-tout.
-    assert _ann(q, 0x2B, 1, "FUN")[0] == "perimee"
+    assert _ann(q, ancien, 1, "FUN")[0] == "perimee"
 
 
 def test_etage2_le_releve_des_AMBIGUES_existe_et_est_RENDU() -> None:

@@ -39,12 +39,12 @@ ASCII only. Aucune VA en dur (les adresses sont resolues par `data/symbols/<buil
 """
 from __future__ import annotations
 
-import os
 import struct
 from pathlib import Path
 
 import pytest
 
+import pe_symboles as PE
 import hexgeo
 from engine.dsl.event_trigger_type import EventTriggerType
 from engine.entities.effect_type import EffectType
@@ -85,7 +85,6 @@ DECLENCHEUR = {
 }
 
 ROOT = Path(__file__).resolve().parents[4].parent          # racine du depot
-IMAGE_BASE = 0x180000000                                   # base de l'image PE de GameAssembly.dll
 COLS, ROWS = 7, 7
 CARRIER, FOE = 10, 20
 
@@ -100,45 +99,28 @@ LAMBDA_REMOVE = ("IdunBattle.Operations.RefreshEffectsOperation.u003Cu003Ec__Dis
 
 # ============================================================================== etage 1 : le PE
 
-def _build_hash() -> "str | None":
-    """Le build dont la table de symboles ET la DLL installee coincident (jamais un hash PERIME)."""
-    d = ROOT / "data" / "symbols"
-    local = os.environ.get("LOCALAPPDATA")
-    for p in sorted(d.iterdir()) if d.exists() else []:
-        if not ((p / "ghidra" / "functions.tsv").exists() and (p / "BUILD").exists()):
-            continue
-        if (Path(local or "") / "tacticus" / "games" / p.name / "GameAssembly.dll").exists():
-            return p.name
-    return None
+# #10026-r1 -- CES HELPERS DELEGUENT AU FOYER (`pe_symboles`, #10028). Ils etaient RECOPIES dans
+# TROIS fichiers, avec trois corps differents, et deux d'entre eux rendaient la PREMIERE VA portant
+# le nom -- verts PAR CHANCE (leurs symboles n'ont qu'une VA sur ce build), pas par construction.
+# Trois copies, c'est trois dates de peremption. Depuis, `va_du_symbole` REFUSE un nom partage.
+#
+# ⚠ CE SONT DES WRAPPERS, PAS DES LIAISONS. `_va_of = PE.va_du_symbole` gelerait la fonction a
+# l'import (forme A) et NE MORDRAIT PAS sous `monkeypatch.setattr("pe_symboles.va_du_symbole", …)`.
+# Un wrapper resout l'attribut A CHAQUE APPEL -- c'est la forme B que le CLAUDE.md prescrit.
+def _build_hash():
+    return PE.build_avec_dll()
 
 
-def _va_of(build: str, symbole: str) -> "int | None":
-    tsv = ROOT / "data" / "symbols" / build / "ghidra" / "functions.tsv"
-    for line in tsv.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("#") or "\t" not in line:
-            continue
-        va, name = line.split("\t", 1)
-        if name.strip() == symbole:
-            return int(va, 16)
-    return None
+def _va_of(build, symbole):
+    return PE.va_du_symbole(build, symbole)
 
 
-def _read_at_va(dll: Path, va: int, size: int) -> bytes:
-    """Traduction VA -> offset fichier par les SECTIONS du PE. La RVA est calculee EN CODE."""
-    rva = va - IMAGE_BASE
-    with dll.open("rb") as f:
-        head = f.read(0x400)
-        e_lfanew = struct.unpack_from("<I", head, 0x3C)[0]
-        nsec = struct.unpack_from("<H", head, e_lfanew + 6)[0]
-        opt_size = struct.unpack_from("<H", head, e_lfanew + 20)[0]
-        f.seek(e_lfanew + 24 + opt_size)
-        secs = f.read(40 * nsec)
-        for i in range(nsec):
-            vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", secs, 40 * i + 8)
-            if vaddr <= rva < vaddr + max(vsize, rawsize):
-                f.seek(rawptr + (rva - vaddr))
-                return f.read(size)
-    return b""
+def _vas_of(build, symbole):
+    return PE.vas_du_symbole(build, symbole)
+
+
+def _read_at_va(dll, va, size):
+    return PE.lire_a_la_va(dll, va, size)
 
 
 def test_le_lambda_differe_de_l_echeance_appelle_le_SLOT_DE_RETRAIT():
@@ -154,7 +136,7 @@ def test_le_lambda_differe_de_l_echeance_appelle_le_SLOT_DE_RETRAIT():
     build = _build_hash()
     if build is None:
         pytest.skip("aucun build avec table `ghidra/functions.tsv` ET GameAssembly.dll installee")
-    dll = Path(os.environ.get("LOCALAPPDATA") or "") / "tacticus" / "games" / build / "GameAssembly.dll"
+    dll = PE.chemin_dll(build)                 # meme foyer que `_build_hash` (#10026-r1)
     va = _va_of(build, LAMBDA_REMOVE)
     assert va is not None, f"symbole absent de la table du build {build} : {LAMBDA_REMOVE}"
     blob = _read_at_va(dll, va, 0x60)

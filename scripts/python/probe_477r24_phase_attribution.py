@@ -89,6 +89,7 @@ ORDINAUX_ECRITS = {
     6: "ActiveAbility",                      # `Visit(ActiveAbilityMessage)` -- handler.py
     12: "ProcessDeaths",                     # `VerifyDeaths`, 1re phase
     13: "ProcessRemovals",                   # `VerifyDeaths`, 2e phase (inline `VerifyRemovedUnits`)
+    14: "ProcessDamageEvents",               # `ProcessDamageEvents` -- dispatch/damage_events.py
     15: "ProcessPendingTriggeredAbilities",  # `ProcessPendingTriggeredAbilities`, un item par phase
 }
 

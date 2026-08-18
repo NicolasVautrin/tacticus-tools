@@ -525,6 +525,53 @@ def _ords(x) -> frozenset:
     return frozenset(x)
 
 
+def temoins_de_decalage(court: str = "EventTriggerType", n: int = 1,
+                        membre: "str | None" = None) -> list:
+    """`[(MEMBRE, ordinal ARCHIVE, ordinal COURANT)]` -- DERIVES des tables, jamais ecrits.
+
+    FOYER DES FIXTURES DE DISCRIMINATION (#10028). Ce helper vivait dans
+    `tests/test_enum_ordinal_ratchet_offline.py::_temoins` ; `tests/test_1031_...` en avait, lui,
+    une VERSION FIGEE -- des littéraux `PreUnitAbility`/`0x2b` recopies d'un renumerotage. Un
+    littéral qui suit un build est un cliquet qui se re-casse : les trois etages 2 de `1031` sont
+    devenus ROUGES au versionnement de `t6dpr4k06g` sans qu'une ligne du detecteur ait bouge,
+    exactement le mode d'echec que #10023 avait deja paye sur l'autre fichier. Deux copies d'un
+    helper, c'est deux dates de peremption -- le foyer est ici.
+
+    ⚠ LA SOURCE EST `memoire_archivee`, PAS `previous_build()`, et c'est TOUT le sujet : sur ce
+    depot, `previous_build()` (= `rnca9r7q6c`) est IDENTIQUE au courant sur les quatre enums, donc
+    tout temoin tire de lui est VIDE. Le seul renumerotage jamais mesure est
+    `gqfc5mff6c -> rnca9r7q6c` (171 membres deplaces).
+
+    Les membres AMBIGUS (`_ambigus`) sont ECARTES : les fixtures qui consomment ce helper ecrivent
+    une prose qui ne NOMME pas l'enum, donc `_paires_prose` y travaille en regime « surs ».
+    `membre` permet de viser un membre PRECIS (une fixture qui doit rester fidele au SITE REEL
+    qu'elle reproduit) ; il est alors cherche tel quel, ambigu ou non -- c'est le NOM ecrit au site
+    qui commande, et le refuser rendrait la fixture infidele.
+
+    NON-VIDE ASSERTIONNE : si plus AUCUNE archive ne porte d'ordinal decale, ces fixtures ne
+    peuvent plus rien prouver -- et le rouge doit tomber ICI, en le DISANT, pas en laissant des
+    tests de discrimination passer au vert sur des ensembles vides.
+    """
+    ref = _by_name(enum_map(current_build(), ENUMS[court]))
+    memo = memoire_archivee(ENUMS[court])
+    amb = _ambigus(current_build())
+    noms = [membre] if membre is not None else [m for m in sorted(ref) if m not in amb]
+    out = []
+    for m in noms:
+        if m not in ref:
+            continue
+        anciens = sorted(o for o in _ords(memo.get(m)) if o != ref[m])
+        if anciens:
+            out.append((m, anciens[0], ref[m]))
+    assert len(out) >= n, (
+        "moins de %d temoin(s) de decalage pour %s%s sur les archives %s : les fixtures de "
+        "DISCRIMINATION qui consomment ce foyer ne prouvent plus rien. Ne PAS relacher "
+        "l'assertion -- soit une archive porteuse a ete supprimee (la restaurer), soit il faut "
+        "fabriquer des tables SYNTHETIQUES."
+        % (n, court, (" / membre %r" % membre) if membre else "", builds_avec_table_enums()))
+    return out[:n] if n else out
+
+
 # ------------------------------------------------------------------------------------------
 # Etape 0 -- le diff
 # ------------------------------------------------------------------------------------------

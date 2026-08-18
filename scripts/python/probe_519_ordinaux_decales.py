@@ -17,13 +17,29 @@ doctrine du depot dit des ids d'ability, transpose ici. Le critere retenu est pl
 SANS accusation possible a tort :
 
     le nom est un membre de l'enum sur le build COURANT,
-    ET l'ordinal cite est EXACTEMENT sa valeur sur le build PRECEDENT,
-    ET les deux valeurs different.
+    ET l'ordinal cite est sa valeur sur AU MOINS UN build ARCHIVE,
+    ET cette valeur n'est PAS sa valeur courante.
 
 Un `Elevation(2)` ne le passe pas (l'`Elevation` de `UtilityType` valait 8, pas 2) : c'est bien une
-SIGNATURE de decalage qu'on reconnait, pas une coincidence de nom. Le prix de cette rigueur est
-qu'on ne voit QUE les citations perimees par le DERNIER changement de build ; une citation perimee
-depuis deux builds n'est pas vue, et c'est dit plutot que tu.
+SIGNATURE de decalage qu'on reconnait, pas une coincidence de nom.
+
+⚠ LA SOURCE N'EST PLUS << LE BUILD PRECEDENT >>, ET C'EST LA REPARATION DE FOND (#10028). Ce probe
+elisait son build de reference par une heuristique -- « celui qui partage le plus de NOMS avec le
+courant » -- qui est STRUCTURELLEMENT BIAISEE : plus deux tables se ressemblent, plus le score est
+haut, donc elle converge vers le build le MOINS informatif. Mesure du 2026-08-18 sur
+`t6dpr4k06g` : `rnca9r7q6c` porte **0** membre decale et `gqfc5mff6c` en porte **73** -- et
+l'heuristique elisait `rnca9r7q6c`. Le detecteur etait donc VACANT, et son zero ne disait rien de
+la fraicheur des citations ; c'est `test_519_comptes_derives_offline.py::
+test_le_detecteur_d_ordinaux_a_de_quoi_trouver` qui l'a dit en ROUGE, exactement ce pour quoi il
+assertionne son propre non-vide.
+
+La source est desormais la MEMOIRE ARCHIVEE de `probe_283` -- l'UNION des ordinaux portes par un
+membre sur AU MOINS UN build archive (`probe_283_enum_ordinal_sweep.memoire_archivee`, #10023).
+Cette union est MONOTONE : un build archive de plus ne peut qu'AJOUTER de la memoire, donc le
+detecteur devient insensible a la cadence des builds -- et une citation perimee depuis DEUX builds
+redevient visible, ce que la redaction precedente disait explicitement ne pas voir. On DELEGUE au
+foyer plutot que de recopier la lecture : un cliquet qui reconstruit ce qu'il garde ne garde pas
+ce qui tourne (meme lecon que `_olds()` de `test_enum_ordinal_ratchet_offline.py`).
 
 MODES :
     --verifier (defaut) liste les citations perimees. rc 1 s'il y en a.
@@ -40,6 +56,13 @@ import re
 import sys
 
 _ICI = pathlib.Path(__file__).resolve().parent
+if str(_ICI) not in sys.path:
+    sys.path.insert(0, str(_ICI))
+
+# Forme B (`import X` puis `X.f()`) -- la SEULE des trois qui reste mordable sous `monkeypatch`
+# (cf. CLAUDE.md). C'est ce qui permet aux contre-epreuves de substituer la memoire archivee.
+import probe_283_enum_ordinal_sweep as SW                                        # noqa: E402
+
 _RACINE = _ICI.parent.parent
 SYMBOLES = _RACINE / "data" / "symbols"
 CORPUS = _ICI / "engine"
@@ -64,24 +87,34 @@ def _charger(build):
 
 
 def builds():
-    """(precedent, courant). Le courant vient de `data/symbols/CURRENT`, jamais d'une constante."""
+    """(archives PORTEUSES de la table, courant). Le courant vient de `data/symbols/CURRENT`.
+
+    ⚠ IL N'Y A PLUS D'ELECTION D'UN BUILD << PRECEDENT >>, et c'est le fond de #10028. L'ancienne
+    version prenait « celui qui partage le plus de NOMS avec le courant », un critere qui
+    RECOMPENSE la ressemblance : il elisait donc, par construction, le build sur lequel il n'y a
+    RIEN a voir. On rend la LISTE des archives, et la memoire en est l'UNION."""
     courant = (SYMBOLES / "CURRENT").read_text(encoding="utf-8").strip()
-    autres = sorted(d.name for d in SYMBOLES.iterdir()
-                    if d.is_dir() and d.name != courant and (d / "frida" / "enums.tsv").exists())
-    if not autres:
-        return None, courant
-    # Le build PRECEDENT est celui dont l'enum diffère du courant par une insertion -- a defaut
-    # d'horodatage fiable, on prend celui qui partage le plus de NOMS avec lui.
-    neuf = _charger(courant) or {}
-    meilleur, score = None, -1
-    for b in autres:
-        v = _charger(b)
-        if v is None:
-            continue
-        s = len(set(v) & set(neuf))
-        if s > score:
-            meilleur, score = b, s
-    return meilleur, courant
+    return SW.builds_avec_table_enums(), courant
+
+
+def memoire_archivee() -> dict:
+    """`{nom: frozenset(ordinaux portes sur AU MOINS UN build archive)}` -- DELEGUE au foyer.
+
+    C'est `probe_283_enum_ordinal_sweep.memoire_archivee` (#10023) applique a l'enum suivi ici. On
+    ne recopie pas la lecture : le foyer sait deja ecarter les archives sans `frida/enums.tsv` et
+    celles dont l'estampille de provenance manque."""
+    return SW.memoire_archivee(ENUM)
+
+
+def membres_decales(vieux: dict, neuf: dict) -> list:
+    """Les membres du build COURANT qui ont porte un AUTRE ordinal sur au moins une archive.
+
+    FOYER PARTAGE avec `test_519_comptes_derives_offline.py` -- et ce partage est le cran : la
+    comparaison `vieux[n] != neuf[n]`, ecrite a la main cote test, serait TOUJOURS vraie depuis que
+    `vieux` rend un `frozenset` (un ensemble n'est jamais egal a un entier). Le test serait alors
+    VERT ET VACANT, ce qui est precisement l'etat qu'il existe pour interdire."""
+    return sorted(n for n, v in neuf.items()
+                  if any(o != v for o in SW._ords(vieux.get(n))))
 
 
 _BALAYAGE_CACHE = None
@@ -106,20 +139,23 @@ def balayer():
 
 
 def _balayer():
-    """Le BALAYAGE, foyer unique -- appele une seule fois par `balayer`."""
-    prec, cour = builds()
-    vieux, neuf = _charger(prec) if prec else None, _charger(cour)
+    """Le BALAYAGE, foyer unique -- appele une seule fois par `balayer`.
+
+    `vieux` est desormais la MEMOIRE ARCHIVEE (`{nom: frozenset}`), plus la table d'UN build."""
+    archives, cour = builds()
+    neuf = _charger(cour)
+    vieux = memoire_archivee() if archives else None
     trouves = []
     if not vieux or not neuf:
-        return trouves, vieux, neuf, (prec, cour)
+        return trouves, vieux, neuf, (tuple(archives), cour)
     for f in sorted(CORPUS.rglob("*.py")):
         texte = f.read_text(encoding="utf-8", errors="replace")
         for i, ligne in enumerate(texte.splitlines(), 1):
             for m in _RE_CITATION.finditer(ligne):
                 nom, ordi = m.group(1), int(m.group(2))
-                if nom in neuf and vieux.get(nom) == ordi and neuf[nom] != ordi:
+                if nom in neuf and ordi in SW._ords(vieux.get(nom)) and neuf[nom] != ordi:
                     trouves.append((f, i, nom, ordi, neuf[nom]))
-    return trouves, vieux, neuf, (prec, cour)
+    return trouves, vieux, neuf, (tuple(archives), cour)
 
 
 def _reecrire(trouves):
@@ -140,19 +176,19 @@ def main(argv=None):
     ap.add_argument("--ecrire", action="store_true", help="reecrit les ordinaux perimes")
     args = ap.parse_args(argv)
 
-    trouves, vieux, neuf, (prec, cour) = balayer()
+    trouves, vieux, neuf, (archives, cour) = balayer()
     print("#519 -- ORDINAUX DE `%s` CITES EN PROSE" % ENUM)
     if not vieux or not neuf:
-        print("MESURE IMPOSSIBLE : enum introuvable pour %r ou %r." % (prec, cour))
+        print("MESURE IMPOSSIBLE : enum introuvable pour %r ou %r." % (archives, cour))
         print("Ce n'est PAS un zero -- aucune conclusion ne se tire de cette sortie.")
         return 2
-    decales = [n for n in neuf if n in vieux and vieux[n] != neuf[n]]
+    decales = membres_decales(vieux, neuf)
     inserts = sorted(set(neuf) - set(vieux))
-    print("builds : %s -> %s | membres decales %d | insertions %s"
-          % (prec, cour, len(decales), inserts or "aucune"))
+    print("archives %s -> %s | membres decales %d | membres neufs %s"
+          % (", ".join(archives) or "(aucune)", cour, len(decales), inserts or "aucun"))
     if not decales:
-        print("Aucun membre decale entre ces deux builds : ce probe ne peut RIEN trouver, et un")
-        print("zero ci-dessous ne dit donc rien de la fraicheur des citations.")
+        print("Aucun membre decale sur TOUTE la memoire archivee : ce probe ne peut RIEN trouver,")
+        print("et un zero ci-dessous ne dit donc rien de la fraicheur des citations.")
     print("citations PERIMEES : %d" % len(trouves))
     for f, i, nom, o, n in trouves:
         print("  %s:%d  %s(%d) -> %s(%d)" % (f.relative_to(_ICI).as_posix(), i, nom, o, nom, n))
