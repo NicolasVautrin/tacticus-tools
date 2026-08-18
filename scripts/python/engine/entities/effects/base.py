@@ -1148,11 +1148,29 @@ class BaseEffect:
         devine."""
         return None
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True,
+                              is_ranged: bool | None = None) -> int | None:
         """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0)).
-        `is_normal_attack` : certaines pénétrations sont gated attaque normale (i2 PowerTrip
-        « NORMAL attacks ignore X Armour » — GROUND TRUTH step-13 : DakkaDakkaDakka (spéciale) du même
-        porteur ne bénéficie PAS des 499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine)."""
+
+        ⚠ **LA GATE NE VIT PAS DANS CE CORPS-CI, ET ELLE N'EST PAS LA MÊME D'UN PORTEUR À L'AUTRE.**
+        `IgnoreArmor` (slot virtuel `+0x718`) est un corps **DÉDUPLIQUÉ**, partagé par les cinq
+        porteurs d'`armorIgnored` : il ne rend qu'une formule `ConfigVar`, **sans aucun test**. Ce
+        qui décide, c'est le trigger de l'`EffectBonus` que `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`
+        (slot `0x16`, face attaquant) — ou `$$DamageMalusForDefense` (slot `0x1a`, face défenseur) —
+        évalue AVANT d'appeler `+0x718`. Chaque classe écrit donc SON trigger dans SON
+        `Create<Face>` (#1008-r2), et **les triggers DIVERGENT** (#1008-r5, mesuré au décompilé) :
+
+            PowerTrip_IgnoreArmorEffect  : IsNormalAttack & get_OwnerIsCaster & !get_OwnerIsTarget
+            KanOpenerEffect              : IsMeleeAttack  & get_OwnerIsCaster & !get_OwnerIsTarget
+
+        D'où les DEUX paramètres, tous deux TRI-ÉTAT côté nature du coup :
+          * `is_normal_attack` — `IsNormalAttack` (i2 PowerTrip « NORMAL attacks ignore X Armour » —
+            GROUND TRUTH step-13 : DakkaDakkaDakka (spéciale) du même porteur ne bénéficie PAS des
+            499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine).
+          * `is_ranged` — la nature du VECTEUR, pour les gates `IsMeleeAttack` / `IsRangedAttack`.
+            `None` = NON MESURÉ, et la convention du dépôt est que **`None` FERME** (le port ne
+            devine pas la nature du coup — même discipline que `_is_valid_attack_for_bonus` de
+            `WayOfTheShortBladeEffect`). Un porteur qui n'a pas de gate de vecteur l'ignore."""
         return None
 
     def additional_hit_groups(self, ctx: Mapping | None = None) -> "list[dict] | None":
