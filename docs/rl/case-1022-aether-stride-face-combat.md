@@ -164,20 +164,43 @@ test_1022_aether_stride_live.py`, **7 tests verts**.
   téléporté de `(6,8)` à `(0,2)`).
   **Mesure**, montage `MC1_67`/777 inchangé par ailleurs :
 
-  | étage | natif | port | verdict |
-  |---|---|---|---|
-  | F — cible frappée par le summon | `[77]` | `[77]` | **ACCORD** |
-  | F — dégât total | **2761** | **29** | **DÉSACCORD** (facteur ~95) |
-  | G — `attack` du summon | 698 | 7 | étage d'ENTRÉE |
-  | G — `health` du summon | 5983 | 60 | idem |
-  | G — `level` / `mult` | 1 / 100 | 0 / 100 | idem |
+  | étage | natif | port (avant) | port (après) | verdict |
+  |---|---|---|---|---|
+  | F — cible frappée par le summon | `[77]` | `[77]` | `[77]` | **ACCORD** |
+  | F — dégât total | **2761** | 29 | **2761** | **ACCORD** (écart 0) |
+  | H — `AbilityState` de 1208 | **(50, 180)** | (0, 100) | **(50, 180)** | **ACCORD** |
+  | G — `attack` du summon | 698 | 7 | **698** | `summonDmg[49] × 1,80` |
+  | G — `health` du summon | 5983 | 60 | **5983** | `summonHp[49] × 1,80` |
+  | G — `fixedArmor` du summon | 1595 | — | **1595** | `summonArmor[49] × 1,80` |
 
-  Le rapport des dégâts suit celui des attaques (95× contre 99,7×) : la cause n'est **ni** la
-  formule **ni** le choix de cible, c'est le **substrat de stats** du summon — le port le fait naître
-  sur les valeurs brutes du gameconfig là où `IdunBattle.Entities.Factories.UnitFactory` lui donne
-  les stats calculées du match. ⚠ Et ce n'est **pas** un défaut général de `build_summon_context` :
-  sur un autre porteur (#577, `necroNpc1Warrior`), le `hp` du summon concorde à l'unité près des deux
-  côtés. Résidu **`#1022-r4`**, avec cliquet inverse dans le test live.
+  **`#1022-r4` — RÉSOLU (2026-08-18), et sa prémisse était fausse.** Le résidu disait « le port fait
+  naître le summon sur les valeurs BRUTES du gameconfig » : le port **sait** scaler, il n'avait pas
+  l'**entrée**. Le montage appelait `load_state(pre_dv, pre_ob)` **sans `combatSnapshot`**, or
+  `load_state` gate tout `_load_stats_and_effects` sur `snapshot is not None` — donc
+  `_load_machine_stats` ne posait pas le `StatsComponent` de la MoW, et c'est lui, seul, qui porte
+  l'`AbilityState` d'une Machine of War (#174). La feuille `Spawn` lisait `level = None` → index 0 →
+  `summonHp[0] = 60`.
+
+  Ce qui rend la fermeture **non ajustée** : trois égalités exactes, issues de **trois tableaux de
+  gameconfig différents**, sous le **même** couple `(50, 180)` lu à `decisionView.mows[].abilities[]`.
+  Un facteur unique aurait « expliqué » le dégât ; il n'aurait pas produit `summonArmor` juste.
+
+  ⚠ **Deux axes distincts, et il faut lire le bon.** Le `unitConfig` du summon natif porte
+  `level = 1 / activeAbilityLevel = 1 / abilityVariablesMultiplier = 100` — c'est sa
+  `UnitConfiguration` brute. Ses abilities, elles, sont **montées à `50 / 180`** (mesuré :
+  `unitAbilityStates` du summon, active `69` et triggered `1497`/`1161`/`1036` toutes à `50 / 180`),
+  ce qui confirme `opts+0x30 = abilityState.level` de `WithStatsFromConfig`. Lire `unitConfig` pour
+  juger le niveau d'une unité **invoquée** aurait conclu « niveau 1 » — le canal qui fait foi est
+  `unitAbilityStates` (même règle que `snapshot._load_passive_abilities`, #462-…-c-r3-r1-r3).
+
+  ⚠ Et ce n'était **pas** un défaut de `build_summon_context` : sur un autre porteur (#577,
+  `necroNpc1Warrior`), le `hp` du summon concordait déjà. La fiche le disait, et c'était le bon
+  indice — mais elle en tirait « c'est le call-site de 1208 qui n'apporte pas le niveau » alors que
+  c'était **le montage qui ne l'apportait pas au port**.
+
+  **Mutants** : retirer `combatSnapshot` du montage → 2 tests rouges ; passer `ability_state=None`
+  (retour au proxy scalaire) → 10 verts, donc ce raffinement-là est **inerte live**, et c'est dit —
+  résidu `#1022-r6`, gardé offline par `test_1022r4_abilitystate_du_call_site_offline.py`.
   ⚠ **Second effet, non anticipé** : dès que le summon frappe pour de bon, `damage_ops/normal.py`
   **refuse** le rejeu (`state.rng non calé`) — le montage doit dumper le MT **avant** le cast. Tant
   que l'attaque était vide, cette absence ne se voyait pas ; c'est un exemple exact de prémisse que
