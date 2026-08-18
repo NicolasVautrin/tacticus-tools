@@ -54,7 +54,8 @@
 import {
     class_get_element_class, class_get_fields, class_get_name, class_instance_size,
     field_get_name, field_get_offset,
-    field_get_type, findClassAnywhere, findMethodByParamCount, getFieldOffset, il2cppBase, s,
+    field_get_type, findClassAnywhere, findMethod, findMethodByParamCount, getFieldOffset,
+    il2cppBase, s,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
@@ -675,6 +676,60 @@ let hudEtat: Record<string, unknown> | null = null;
 /** L'instance du HUD, gardée pour pouvoir la relire APRÈS `Show` (l'état bouge à chaque pose). */
 let hudInstance: NativePointer | null = null;
 
+/** Les chemins natifs de la bascule héros <-> MoW, ancrés en OBSERVATION PURE.
+ *  `EmptyMachineOfWarPlatformTapped` / `EmptySpawnPointTapped` = les clics sur le PLATEAU ;
+ *  `HandleOnSwitchTo*Tapped` = les BOUTONS de bascule ; `ShowStandardUnitSelection` =
+ *  l'affichage du roster héros, celui qui LÈVE si `_units` est nul. */
+const CHEMINS_BASCULE = [
+    "EmptyMachineOfWarPlatformTapped", "EmptySpawnPointTapped",
+    "HandleOnSwitchToMachinesOfWarUnitsTapped", "HandleOnSwitchToStandardUnitsTapped",
+    "ShowStandardUnitSelection", "PrepareForStandardUnitMachineOfWarSelectionSwitch",
+] as const;
+const cheminsListeners: Record<string, InvocationListener> = {};
+const cheminsEtat: Record<string, unknown> = {};
+
+/**
+ * L'ÉTAT VIVANT DE LA BASCULE HÉROS <-> MACHINES OF WAR.
+ *
+ * ⚠ L'instantané de `Show` NE SUFFIT PAS : ces trois champs bougent à chaque clic sur un point
+ * de spawn, longtemps après le dernier `Show`. Symptôme qui l'a exigé (2026-08-19) : cliquer un
+ * emplacement MoW bascule bien le roster, cliquer ensuite un spawn héros ne le ramène PAS.
+ *
+ * Le décompilé nomme les deux causes possibles, et elles sont indiscernables à l'écran :
+ *   `UnitDeploymentHud$$EmptySpawnPointTapped` ne fait RIEN si `_isMachinesOfWarSelection` est
+ *   déjà faux ; et `ShowStandardUnitSelection` LÈVE si `_units` est nul (le clic paraît alors
+ *   sans effet, l'exception étant avalée par la boucle d'évènements Unity).
+ *
+ * Résolus PAR NOM, et l'offset est CONFRONTÉ à celui du décompilé — un renommage se signale au
+ * lieu d'être subi.
+ */
+function etatBasculeHud(): Record<string, unknown> | null {
+    if (hudInstance === null || hudInstance.isNull()) return null;
+    const k = findClassAnywhere(NS_HUD, CLS_HUD);
+    if (!k) return { erreur: `classe \`${NS_HUD}.${CLS_HUD}\` introuvable` };
+    const champs: Array<{ nom: string; attendu: number; type: "bool" | "liste" }> = [
+        { nom: "_isMachinesOfWarSelection", attendu: 0x221, type: "bool" },
+        { nom: "_hasMachinesOfWar", attendu: 0x222, type: "bool" },
+        { nom: "_units", attendu: 0x230, type: "liste" },
+    ];
+    const out: Record<string, unknown> = {};
+    for (const c of champs) {
+        const off = getFieldOffset(k, c.nom);
+        if (off < 0) { out[c.nom] = { absent: true }; continue; }
+        try {
+            if (c.type === "bool") {
+                out[c.nom] = { valeur: hudInstance.add(off).readU8() !== 0,
+                               offset: off, attendu: c.attendu, concorde: off === c.attendu };
+            } else {
+                const l = hudInstance.add(off).readPointer();
+                out[c.nom] = { nul: l.isNull(), taille: l.isNull() ? null : l.add(0x18).readS32(),
+                               offset: off, attendu: c.attendu, concorde: off === c.attendu };
+            }
+        } catch (e) { out[c.nom] = { erreur: (e as Error).message }; }
+    }
+    return out;
+}
+
 /**
  * Les deux champs qui expliquent le bouton START.
  *
@@ -887,8 +942,46 @@ function armerHud(): true | Refus {
             },
         });
     }
+    // ⚠ LES CHEMINS DE LA BASCULE HÉROS <-> MoW, COMPTÉS -- parce qu'un état AU REPOS ne
+    // distingue pas « l'aller-retour a eu lieu » de « rien n'a bougé ». Mesuré le 2026-08-19 :
+    // après un clic MoW puis un clic spawn héros, `_isMachinesOfWarSelection` valait `false`,
+    // ce qui est AUSSI sa valeur initiale -- la lecture au repos ne prouvait donc rien. On
+    // compte les tirs et on relève le drapeau À L'ENTRÉE et À LA SORTIE : c'est la TRANSITION
+    // qui est le fait.
+    for (const nom of CHEMINS_BASCULE) {
+        if (cheminsListeners[nom] !== undefined) continue;
+        const mi = findMethod(k, nom);
+        if (!mi || mi.ptr.isNull()) { cheminsEtat[nom] = { introuvable: true }; continue; }
+        cheminsEtat[nom] = { fires: 0, transitions: [] };
+        cheminsListeners[nom] = Interceptor.attach(mi.ptr, {
+            onEnter(args) {
+                const s = this as unknown as { av: boolean | null; hud: NativePointer };
+                s.hud = args[0];
+                s.av = lireDrapeauMoW(args[0]);
+            },
+            onLeave() {
+                const s = this as unknown as { av: boolean | null; hud: NativePointer };
+                const e = cheminsEtat[nom] as { fires: number; transitions: unknown[] };
+                e.fires++;
+                if (e.transitions.length < 16) {
+                    e.transitions.push({ avant: s.av, apres: lireDrapeauMoW(s.hud) });
+                }
+            },
+        });
+    }
     Interceptor.flush();
     return true;
+}
+
+/** Le drapeau `_isMachinesOfWarSelection` d'une instance de HUD, ou `null` s'il est illisible. */
+function lireDrapeauMoW(hud: NativePointer): boolean | null {
+    try {
+        const k = findClassAnywhere(NS_HUD, CLS_HUD);
+        if (!k) return null;
+        const off = getFieldOffset(k, "_isMachinesOfWarSelection");
+        if (off < 0) return null;
+        return hud.add(off).readU8() !== 0;
+    } catch { return null; }
 }
 
 // ============================================================================
@@ -3611,7 +3704,8 @@ export function register(ctx: Ctx): void {
         if (!body || body.armer === undefined) {
             return { ok: true, lecture: true,
                      arme: listenerShow !== null && listenerPose !== null,
-                     etat: hudEtat, poses: hudPoses, plateau: hudBoard };
+                     etat: hudEtat, bascule: etatBasculeHud(), chemins: cheminsEtat,
+                     poses: hudPoses, plateau: hudBoard };
         }
         if (body.armer === false) {
             if (listenerShow) { listenerShow.detach(); listenerShow = null; }
