@@ -76,7 +76,14 @@ DECLENCHEUR = {
     "raison": "E1 mesure l'EFFET de la mutation `no-gate` a travers tout le chemin de mouvement "
               "(`services/movement_query`, `entities/pathfinding/**`, les trois collapses de "
               "`runner/abilities/genestealer.py` et `runner/operations/triggers/**`) ; E2 balaye "
-              "l'AST de `engine/**` en entier. Aucune session, aucun runner, aucun build.",
+              "l'AST de `engine/**` en entier. Aucune session, aucun runner, aucun build. "
+              "DERIVE par `probe_486r15_declencheurs_tests.py --proposer` (fermeture de 727 "
+              "modules ; il rend DEUX chemins hors cascade : `morsure_substitution.py` et "
+              "`probe_381r4_imperative_collapses.py`) PUIS elargi a la main pour les quatre "
+              "entrees que la proposition ne peut PAS voir, parce qu'elles ne sont pas des "
+              "IMPORTS : les trois instruments de #381-r4, LUS EN AST par `cibles_substituees` "
+              "(donc changer leurs cibles de substitution change le verdict d'E2 sans qu'aucun "
+              "import ne bouge), et le ratchet JSON, lu par `read_text`.",
 }
 
 #: les instruments dont on DERIVE les couples substitues (jamais la liste des couples elle-meme).
