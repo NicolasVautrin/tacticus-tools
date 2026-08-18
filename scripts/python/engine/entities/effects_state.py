@@ -22,6 +22,11 @@ from .effects.factory import EffectFactory
 # d'`engine`). Le litteral 0x5b4 est un `TriggeredAbilityType` ; en `EffectType` il nomme
 # `AmuletOfTheVoidwyrm_CritDamageReduction`, un AUTRE objet.
 from .triggered_ability_type import TriggeredAbilityType
+from ..runner.operations import remove_effects as _remove_effects   # FORME B (liaison de MODULE),
+#     donc `monkeypatch.setattr` sur le foyer MORD encore. Le cycle annonce au site
+#     (`effects_state -> runner.operations.remove_effects -> runner.state -> effects_state`) est
+#     REFUTE par la mesure : `import engine.runner.operations` en process frais ne charge PAS ce
+#     module. Arete GRATUITE (#485).
 
 #: `(multiplier %, abilityLevel, activeAbilityLevel)` — l'`AbilityState` applique a UN effet.
 AbilityStateTriple = tuple
@@ -385,11 +390,6 @@ class EffectsState:
                     e.consumed = True          # REPLI (cf. docstring) : la marque, sans le foyer
                     removed.append(e.effect_type)
             else:
-                # Import DIFFÉRÉ **PORTEUR** et forme B (module, pas symbole) : le foyer vit sous
-                # `engine.runner`, dont l'`State` porte ce même `EffectsState` -- hisser fermerait le
-                # cycle `entities.effects_state -> runner.operations.remove_effects -> runner.state
-                # -> entities.effects_state`. Le module reste substituable par `monkeypatch.setattr`.
-                from ..runner.operations import remove_effects as _remove_effects
                 for e in due:
                     et = e.effect_type
                     if _remove_effects.remove_effect_instance(state, int(unit_id), e):

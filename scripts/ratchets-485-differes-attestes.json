@@ -1,6 +1,6 @@
 {
   "engine.entities.effects.magnitude": {
-    "engine": 1
+    "engine.weights": 1
   },
   "engine.playbook.nonattack": {
     "engine.runner.abilities.targeting": 1

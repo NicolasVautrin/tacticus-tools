@@ -87,6 +87,9 @@ from ..base import BaseEffect
 from ..magnitude import ability_var
 import engine.battle_query as _bq                       # FORME B : le module, pas les noms
 import engine.services.range_bonus as _rb               # FEUILLE (aucun import du paquet)
+import engine.entities.pathfinding.walk_pathfinder as _wpf   # FORME B. Aretes GRATUITES : charger
+import engine.entities.traits.unit_trait as _ut              #   ces deux modules seuls ne tire pas
+#     CE module (mesure #485) -- aucune boucle a fermer, donc rien a differer.
 
 #: `GetNumberConstant(0xe)` -> `gameconfig.abilities.AdrenalGlands.constants["extraMovement"]`.
 ADRENAL_GLANDS = "AdrenalGlands"
@@ -212,8 +215,6 @@ def _path_counts(mctx) -> dict:
 
     `blocking_positions` = `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI vivant non
     `Steppable`. Un allie ne bloque pas le passage."""
-    from ....entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
-    from ....entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
     from ....runner.components import StatsComponent
     state, board = mctx.state, mctx.board
     positions = _unit_positions(state)
@@ -232,8 +233,9 @@ def _path_counts(mctx) -> dict:
         # le substrat COMPLET de `BaseUnitComponent$$HasTrait` -- kit gameconfig, traits ACCORDES
         # en bataille (`AddTraitOperation`) et pseudo-trait de grande-alliance. Un occupant qui
         # RECOIT `Steppable` en cours de partie cesse alors de bloquer, comme cote natif.
-        if has_trait(entity_trait_names(getattr(sc, "ctx", None)), UnitTrait.Steppable):
+        if _ut.has_trait(_ut.entity_trait_names(getattr(sc, "ctx", None)), _ut.UnitTrait.Steppable):
             continue                                   # `HasTrait(occ, 0x1b)` court-circuite
         blocking.add(tuple(upos))
-    return get_path_node_counts_by_pos(tuple(owner_pos), neigh_by_pos=neigh, walkable_by_pos=walk,
-                                       elev_by_pos=elev, blocking_positions=blocking)
+    return _wpf.get_path_node_counts_by_pos(tuple(owner_pos), neigh_by_pos=neigh,
+                                            walkable_by_pos=walk, elev_by_pos=elev,
+                                            blocking_positions=blocking)

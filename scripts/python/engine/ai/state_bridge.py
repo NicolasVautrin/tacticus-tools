@@ -50,6 +50,9 @@ from engine.runner.components import get_feet_count
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import entity_trait_names
+from engine.entities import active_abilities as _AA   # FORME B (liaison de MODULE) -- l'arete est
+#     GRATUITE : `import engine.entities.active_abilities` en process frais ne charge PAS ce module,
+#     donc hisser ne ferme aucune boucle (mesure #485, `probe_485_imports_differes`).
 from engine.services.custom_normal_attack import has_normal_attack
 from engine.utilities.move import UtilityMovementCase
 
@@ -131,11 +134,10 @@ def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tupl
     Le tuple est exige (et non une liste) parce que ce foyer est `lru_cache` : une entree non
     hashable leverait, et une entree MUABLE ferait servir un cache pour une valeur qui a change."""
     import enum_maps as EM
-    from ..entities.active_abilities import passive_granted_active_ability_ids
     source = (passive_abilities if passive_abilities is not None
               else ((GC.unit(vid) or {}).get("passiveAbilities") or []))
     out: list = []
-    for aid in passive_granted_active_ability_ids(source):
+    for aid in _AA.passive_granted_active_ability_ids(source):
         # ⚠ Le NOM vient de `EM.ACTIVE_ABILITY_TYPE` (sens `{id: nom}`) : ces accordees n'ont AUCUNE
         # entree gameconfig cote `activeAbilities`, donc aucun nom de kit ne les designe. Et il n'est
         # pas decoratif -- `ActionGenerators._heal_candidates` selectionne les soins par
@@ -170,7 +172,6 @@ def _abilities_of(vid: str, passive_abilities: tuple | None = None,
 
     L'attaque normale et les `activeAbilities`, eux, restent du kit : borne NOMMEE, pas un oubli."""
     import enum_maps as EM
-    from ..entities.active_abilities import derived_active_ability_ids
     rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
     gu = GC.unit(vid) or {}
     out: list = []
@@ -189,7 +190,7 @@ def _abilities_of(vid: str, passive_abilities: tuple | None = None,
     _traits = traits if traits is not None else tuple(gu.get("traits") or ())
     _passives = (passive_abilities if passive_abilities is not None
                  else tuple(gu.get("passiveAbilities") or ()))
-    for aid in derived_active_ability_ids(_traits, _passives):
+    for aid in _AA.derived_active_ability_ids(_traits, _passives):
         if not any(a[0] == aid for a in out):
             # ⚠ Le NOM vient de `EM.ACTIVE_ABILITY_TYPE` (sens `{id: nom}`), pas de `rev` (`{nom: id}`) :
             # ces derivees N'ONT AUCUNE entree gameconfig, donc aucun nom de kit ne les designe. Et il

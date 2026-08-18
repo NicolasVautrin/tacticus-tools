@@ -192,8 +192,30 @@ def _nom_module(p: Path) -> str:
     return ".".join(parts)
 
 
+def _est_module(nom: str) -> bool:
+    """`nom` (pointe, absolu) designe-t-il un module/paquet sur DISQUE ?"""
+    p = ICI / Path(*nom.split("."))
+    return (p / "__init__.py").is_file() or p.with_suffix(".py").is_file()
+
+
 def _resoudre(mod: str, node: ast.AST) -> list[str]:
-    """Rend les modules ABSOLUS `engine.*` vises par `node`, [] sinon."""
+    """Rend les modules ABSOLUS `engine.*` que HISSER `node` chargerait, [] sinon.
+
+    ⚠ `from PKG import NOM` NE CHARGE PAS TOUJOURS `PKG` SEUL -- et le confondre a fait classer
+    GRATUITS des differes reellement PORTEURS. Quand `NOM` designe un SOUS-MODULE (`PKG/NOM.py`),
+    Python charge `PKG` **puis** `PKG.NOM`, donc la fermeture du hissage est celle du MODULE, pas
+    celle du paquet. C'est exactement l'ecriture que la doctrine PRESCRIT (forme B, `from pkg
+    import module` + acces attributaire), donc le faux positif visait les sites les MIEUX ecrits.
+
+    Mesure du 2026-08-18, avant correctif : `entities.selectors.pathing -> engine.services` etait
+    rendu GRATUIT alors que `import engine.services.movement_query` en process frais met
+    `engine.entities.selectors.pathing` dans `sys.modules` -- le cliquet reclamait un hissage qui
+    FERME une boucle. Trois sites dans ce cas (`pathing` x2, `selectors.tiles` x1), tous porteurs
+    d'une raison ecrite CIRCONSTANCIEE qui disait vrai et que la mesure contredisait.
+
+    Un `ImportFrom` peut lier PLUSIEURS noms, modules et symboles meles : on rend l'ensemble, et
+    c'est `classer` qui decide PAR INSTRUCTION (gratuite ssi AUCUNE cible ne tire l'appelant).
+    """
     if isinstance(node, ast.Import):
         return [a.name for a in node.names if a.name.split(".")[0] == "engine"]
     base = mod.split(".")
@@ -203,7 +225,15 @@ def _resoudre(mod: str, node: ast.AST) -> list[str]:
         cible = ".".join(pkg + ([node.module] if node.module else []))
     else:
         cible = node.module or ""
-    return [cible] if cible.split(".")[0] == "engine" else []
+    if cible.split(".")[0] != "engine":
+        return []
+    sous = [f"{cible}.{a.name}" for a in node.names
+            if a.name != "*" and _est_module(f"{cible}.{a.name}")]
+    #: `PKG.NOM` charge deja `PKG` : le paquet n'est retenu que s'il reste un nom NON-module (ou
+    #: aucun nom du tout), sans quoi on compterait deux fois la meme instruction.
+    if sous and len(sous) == len([a for a in node.names if a.name != "*"]):
+        return sorted(set(sous))
+    return sorted({cible, *sous})
 
 
 def recenser() -> list[tuple[str, str, int, bool]]:
@@ -363,10 +393,18 @@ def classer(differes) -> tuple[list, list] | None:
         print("  critere REDONDANCE NON MESURABLE (`probe_270r4r2r2_tri_differes` muet) --")
         print("  un verdict sur le seul critere CYCLE est le faux vert que ce probe repare.")
         return None
+    #: LE VERDICT SE PREND PAR INSTRUCTION, PAS PAR CIBLE. Un `from PKG import mod, SYMBOLE` en
+    #: charge DEUX (`PKG.mod` et `PKG`) : hisser les tire TOUS les deux, donc il suffit qu'UNE
+    #: seule tire l'appelant pour que l'instruction soit PORTEUSE. Classer cible par cible
+    #: rendrait la meme ligne moitie gratuite, moitie porteuse.
+    par_instruction: dict[tuple[str, int], bool] = {}
+    for mod, cible, ligne, _ in differes:
+        gr = mod not in table[cible]
+        cle = (mod, ligne)
+        par_instruction[cle] = gr if cle not in par_instruction else (par_instruction[cle] and gr)
     porteurs, gratuits = [], []
     for mod, cible, ligne, raison in differes:
-        cycle_gratuit = mod not in table[cible]
-        if cycle_gratuit or (mod, ligne) in redondants:
+        if par_instruction[(mod, ligne)] or (mod, ligne) in redondants:
             gratuits.append((mod, cible, ligne, raison))
         else:
             porteurs.append((mod, cible, ligne, raison))

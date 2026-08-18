@@ -29,6 +29,11 @@ from ...selectors.accessors import ActiveTarget, Owner
 from ...selectors.units import ForcedAttackTargets, Tiles
 from ...triggers import (AmountIsGreaterThanZero, Any, IsInAttackOrAbilityRange, IsTurnOf,
                          IsWalkable, TriggerAnd)
+from ....runner.abilities.behaviours import context as _bctx   # FORME B (liaison de MODULE).
+#     La raison qui vivait au SITE ("`context` importe `runner.components`, qui importe CE module,
+#     hisser fermerait le cycle") est REFUTEE par la mesure : `import
+#     engine.runner.abilities.behaviours.context` en process frais ne charge PAS ce module. La
+#     vidange des barils (#485-r1-r1) a supprime l'arete de retour ; l'arete est GRATUITE (#485).
 
 
 def block_movement_active_condition() -> AbilityTrigger:
@@ -71,8 +76,5 @@ def evaluate_block_movement(state, unit_id: int) -> bool:
     le natif pose `Owner == Caster == le porteur` (`BaseTriggeredAbility$$Execute`), et c'est aussi
     ce que fait `RefreshEffectsOperation$$ShouldBeActive`, qui ECRIT l'owner dans `ctx+0x18` --
     l'un des QUATRE champs qu'il renseigne pour evaluer une `CreateActiveCondition`."""
-    from ....runner.abilities.behaviours.context import entities_from_state  # DIFFERE, PORTEUR :
-    #     `runner.abilities.behaviours.context` importe `runner.components`, qui importe CE module
-    #     (cle paresseuse). Hisser fermerait le cycle.
-    ents = entities_from_state(state, int(unit_id), int(unit_id), owner_id=int(unit_id))
+    ents = _bctx.entities_from_state(state, int(unit_id), int(unit_id), owner_id=int(unit_id))
     return bool(block_movement_active_condition().should_trigger(ents))
