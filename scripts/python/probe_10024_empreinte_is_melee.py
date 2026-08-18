@@ -315,36 +315,51 @@ def volet_confrontation(runner_id: int, caster_id: int, target_id: int, tuiles: 
     state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
 
     pieds_cible = BQS.unit_tiles(state, target_id)
-    print("   cible u%d : empreinte %s (main tile %s)"
+    pieds_caster_courants = BQS.unit_tiles(state, caster_id)
+    print("   cible  u%d : empreinte %s (main tile %s)"
           % (target_id, pieds_cible, pieds_cible[0] if pieds_cible else None))
-    if len(pieds_cible) < 2:
-        print("   LA CIBLE EST MONO-TUILE -- ce montage n'exerce PAS #10024, on ne conclut PAS.")
+    print("   caster u%d : empreinte %s (main tile %s)"
+          % (caster_id, pieds_caster_courants,
+             pieds_caster_courants[0] if pieds_caster_courants else None))
+    # `AreEntitiesAdjacent(tiles, unit)` lit les DEUX empreintes : il suffit que L'UNE des deux
+    # soit multi-tuiles pour que #10024 soit exerce. Exiger la CIBLE fermerait l'axe INVERSE
+    # (un caster multi-hex contre une cible mono-tuile), qui est le meme ecart par l'autre bout.
+    if len(pieds_cible) < 2 and len(pieds_caster_courants) < 2:
+        print("   LES DEUX ENTITES SONT MONO-TUILE -- ce montage n'exerce PAS #10024,")
+        print("   on ne conclut PAS.")
         return 1
     nom = BQS.normal_attack_name(state, caster_id)
     print("   ability soumise au slot 2 : %s (attaque normale concrete du caster)" % nom)
 
     n_div_avant, n_acc = 0, 0
     lignes = []
-    for (col, row) in tuiles:
-        rep = rpc("ncPlaybookPredict",
-                  {"runnerId": runner_id, "unitId": caster_id,
-                   "abilityType": _TRIGGERED_RECEPTEUR, "abilityKind": "triggered",
-                   "targetId": target_id, "attackAbility": "normalAttack",
-                   "col": col, "row": row}, 120) or {}
+    for tuile in tuiles:
+        # `None` = AUCUN `col`/`row` -> le hook prend `unitPositionCurrent(caster)`, c'est-a-dire
+        # `IdunBattle.Entities.EntityExtensions$$GetUnitPosition` = l'EMPREINTE du caster. C'est
+        # l'axe INVERSE : un caster MULTI-HEX contre une cible mono-tuile.
+        args = {"runnerId": runner_id, "unitId": caster_id,
+                "abilityType": _TRIGGERED_RECEPTEUR, "abilityKind": "triggered",
+                "targetId": target_id, "attackAbility": "normalAttack"}
+        if tuile is not None:
+            args["col"], args["row"] = tuile[0], tuile[1]
+        rep = rpc("ncPlaybookPredict", args, 120) or {}
         gates = rep.get("gates") or {}
         natif = gates.get("isMeleeAttack")
+        etiquette = tuile if tuile is not None else "current"
         if natif is None:
-            lignes.append(((col, row), None, None, None, (rep.get("error") or "")[:48]))
+            lignes.append((etiquette, None, None, None, (rep.get("error") or "")[:48]))
             continue
+        pieds_caster = [tuile] if tuile is not None else BQS.unit_tiles(state, caster_id)
         port = BQS.is_melee_attack(state, nom, caster_id, target_id,
-                                   caster_position=[(col, row)])
+                                   caster_position=pieds_caster)
         # CONTRE-EPREUVE : le port d'AVANT #10024, restitue LITTERALEMENT -- deux TUPLES passes au
         # service, c'est-a-dire main tile du caster x main tile de la cible (`unit_position`).
         neigh, elev = BQS.board_maps(state)
-        avant = SBQ.is_melee_attack(nom, (col, row), pieds_cible[0], elev_by_pos=elev,
+        avant = SBQ.is_melee_attack(nom, pieds_caster[0] if pieds_caster else None, pieds_cible[0],
+                                    elev_by_pos=elev,
                                     force_ranged_attack=BQS.force_ranged_attack(state, caster_id),
                                     neigh_by_pos=neigh)
-        lignes.append(((col, row), natif, port, avant, ""))
+        lignes.append((etiquette, natif, port, avant, ""))
         if natif == port:
             n_acc += 1
         if natif != avant:
@@ -377,7 +392,11 @@ def main() -> int:
     ap.add_argument("--runner", type=int, default=None)
     ap.add_argument("--caster", type=int, default=None)
     ap.add_argument("--target", type=int, default=None)
-    ap.add_argument("--tuiles", default="", help="col,row;col,row;... (volet confrontation)")
+    ap.add_argument("--tuiles", default="",
+                    help="col,row;col,row;... (volet confrontation). Le jeton `current` interroge "
+                         "la position COURANTE du caster (= son EMPREINTE via "
+                         "`EntityExtensions$$GetUnitPosition`) -- c'est l'axe INVERSE, un caster "
+                         "MULTI-HEX contre une cible mono-tuile.")
     a = ap.parse_args()
     if a.volet == "lecture":
         return volet_lecture()
@@ -389,7 +408,8 @@ def main() -> int:
         return volet_live(a.runner)
     if a.caster is None or a.target is None or not a.tuiles:
         raise SystemExit("[10024] --volet confrontation exige --caster --target --tuiles")
-    tuiles = [tuple(int(x) for x in t.split(",")) for t in a.tuiles.split(";") if t.strip()]
+    tuiles = [None if t.strip() == "current" else tuple(int(x) for x in t.split(","))
+              for t in a.tuiles.split(";") if t.strip()]
     return volet_confrontation(a.runner, a.caster, a.target, tuiles)
 
 

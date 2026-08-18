@@ -87,6 +87,30 @@ Un discriminant, trois témoins négatifs, un témoin positif. Le port d'AVANT d
 où la géométrie l'exige, et nulle part ailleurs — l'accord des quatre autres lignes est ce qui rend
 la cinquième interprétable.
 
+### 3bis. Généralisation — autre board, autre empreinte, et l'axe INVERSE
+
+**Board `MC1_67`, seed `31337`, `--place "ultraTitus:3,5"`** (l'unité est DÉPLACÉE pour forcer la
+configuration, pas laissée où le spawn la met), Galatian posé aux pieds `(1,4) (2,4) (1,5)` :
+
+| tuile | natif | port APRÈS | port AVANT |
+|---|---|---|---|
+| `(3,5)` `(2,5)` `(3,4)` | `True` | `True` | **`False`** |
+| `(2,3)` | `True` | `True` | `True` |
+| `(3,3)` `(3,6)` `(2,6)` `(2,2)` | `False` | `False` | `False` |
+
+**8 accords natif == port sur 8**, dont **4 témoins négatifs**, et **3** divergences de l'ancien
+régime — sur une empreinte et un board différents du premier montage.
+
+**Axe INVERSE — le caster est multi-hex.** `--tuiles current` interroge
+`unitPositionCurrent(caster)` = `GetUnitPosition` = l'empreinte. Galatian **caster**
+(`AncientFury_NormalAttack`) contre `ultraTitus` mono-tuile en `(3,5)` : natif `True`, port APRÈS
+`True`, port AVANT **`False`**. Témoin négatif du même axe (`ultraCalgar` en `(0,2)`) : `False`
+partout — et le probe **refuse alors de conclure** (« contre-épreuve vide »), ce qui est le
+comportement voulu : un montage qui ne discrimine pas ne rend pas un vert.
+
+Les **deux bouts** de la surcharge `AreEntitiesAdjacent(tiles, unit)` sont donc confrontés : le
+`tiles` (position du caster) et le `unit` (dont le natif prend `GetTiles`).
+
 ## 4. Le port
 
 **Foyer unique de la double boucle** : `engine/services/battle_query.are_entities_adjacent`, qui
