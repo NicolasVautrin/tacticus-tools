@@ -15,7 +15,7 @@ from ...traits.unit_trait import is_mechanical   # `UnitExtensions$$IsMechanical
 # `StaticBattleRules.Effect$$IsTileStatusEffect` par NOM -- le set que
 # `TileExtensions$$HasTileStatusEffect` interroge (#1038-r1). MEME import que `loki/hits.py`.
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 
 class MarkerlightEffect(BaseEffect):

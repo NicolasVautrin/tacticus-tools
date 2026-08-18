@@ -144,7 +144,7 @@ from ...effect_type import EffectType
 from ...traits.unit_trait import UnitTrait, has_any_trait
 from ..base import BaseEffect
 from ..magnitude import ability_var
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x5d7 = 1495 -- la config lue par `ConfigVar` (celle de la RELIQUE).
 NORN_CROWN_ABILITY = "NornCrown"

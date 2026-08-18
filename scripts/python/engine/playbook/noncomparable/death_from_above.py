@@ -4,7 +4,7 @@ from __future__ import annotations
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from . import _targets as T
+import engine.playbook.noncomparable._targets as T
 from ._base import NCContext, NonComparablePlaybook
 
 

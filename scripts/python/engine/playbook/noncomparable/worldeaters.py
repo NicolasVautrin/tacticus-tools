@@ -37,7 +37,7 @@ from ._base import (NCContext, NonComparablePlaybook, _get_num_attack_targets_in
 # Forme B : un import from ._targets import <nom> GELERAIT la liaison au chargement -- une contre-epreuve
 # qui substitue le foyer deviendrait MUETTE, en silence (mesure #977 : deux mutations d'ordre
 # n'ont RIEN mordu tant que cet import etait en forme A).
-from . import _targets as _T
+import engine.playbook.noncomparable._targets as _T
 
 
 class JakhalStimmsPlaybook(NonComparablePlaybook):

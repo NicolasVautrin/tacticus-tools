@@ -40,7 +40,7 @@ from .nonattack import NonAttackComparablePlaybook, register_nonattack
 # #977 : les DEUX corps generiques de deplacement (`Playbook`1$$GetPushableTiles` /
 # `$$GetTargetUtilityDiffOnDisplace`) ont demenage la -- foyer PARTAGE avec `1043 ThunderousAssault`
 # (NonComparable), qui les appelle a l'identique. Forme B : le binding de module reste patchable.
-from . import displace_utility as _displace
+import engine.playbook.displace_utility as _displace
 from .. import battle_query as bq
 from .. import dsl
 from ..entities.active_ability_type import ActiveAbilityType
