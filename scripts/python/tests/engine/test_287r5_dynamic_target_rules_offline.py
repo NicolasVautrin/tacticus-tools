@@ -132,17 +132,73 @@ def test_les_trois_regles_sont_evaluables():
 
 
 def test_le_recenseur_tient_son_cliquet_d_appariement():
-    """Le recensement est DERIVE de `ghidra/functions.tsv`, pas ecrit : il doit rester en phase."""
+    """Le recensement est DERIVE de `ghidra/functions.tsv`, pas ecrit : il doit rester en phase.
+
+    ⚠ #287-r5-r3 -- L'ANCRAGE DE NON-VACUITE PORTAIT SUR LE GISEMENT, ET C'EST CE QUI A RENDU
+    `master` ROUGE. La derniere ligne etait `assert res["dette"]` : elle exigeait que la DETTE reste
+    NON VIDE. Or la dette est exactement ce que les tranches #287-* travaillent a eteindre -- la
+    resorber faisait donc rougir le cliquet cense la garder. Mesure du 2026-08-18 : `dette` 19 -> 0,
+    les 15 ids d'`ETAGE_BLOQUANT` rendent tous `evaluabilite == "surcharge"`.
+
+    « Asserter le non-vide : oui sur le TEMOIN, jamais sur le GISEMENT. » Le temoin, ici, est ce que
+    le recenseur VISITE -- la population d'ids et la table de symboles --, jamais ce qu'il TROUVE.
+    Les deux planchers ci-dessous ne peuvent pas etre eteints par un port reussi ; ils ne tombent
+    que si la mesure elle-meme cesse d'avoir lieu."""
     res = R.recenser()
     par_classe = R.symboles_natifs()
+
+    # (1) NON-VACUITE, SUR CE QUI EST VISITE. Sans elle, une table illisible ferait tomber TOUT id
+    #     dans `base` (« aucune surcharge, le port coincide ») et les deux crans ci-dessous
+    #     boucleraient sur des ensembles vides : un vert PUR. C'est le remplacant de `fantomes`,
+    #     qui devient vacant des qu'`ETAGE_BLOQUANT` se vide -- et il est vide.
+    population = len(list(P.ids_portant_le_bit()))
+    assert len(par_classe) >= R.PLANCHER_SYMBOLES, (
+        "table de symboles effondree : %d surcharge(s) lue(s) pour un plancher de %d. Le "
+        "recensement classerait alors TOUT id en `base` et rendrait un zero qui n'a rien lu."
+        % (len(par_classe), R.PLANCHER_SYMBOLES))
+    assert population >= R.PLANCHER_POPULATION, (
+        "population VISITEE effondree : %d id(s) posant TargetMatchesDynamicRule pour un plancher "
+        "de %d" % (population, R.PLANCHER_POPULATION))
+    assert sum(len(v) for v in res.values()) == population, (
+        "la ventilation perd des ids : %d ventile(s) pour %d visite(s)"
+        % (sum(len(v) for v in res.values()), population))
+
+    # (2) LE CLIQUET ACTIF -- un corps que le recensement VOIT doit avoir son etage declare.
     orphelins = [n for _a, n, _s in res["dette"] if _a not in R.ETAGE_BLOQUANT]
-    fantomes = [ActiveAbilityType(a).name for a in R.ETAGE_BLOQUANT
-                if ActiveAbilityType(a).name + "Ability" not in par_classe]
     assert not orphelins, ("id(s) a surcharge NATIVE lisible sans etage recense : %s -- le "
                            "recensement se tait sur un corps qu'il VOIT" % orphelins)
+
+    # (3) Le cran d'appariement inverse. VACANT tant qu'`ETAGE_BLOQUANT` est vide (c'est dit), et
+    #     re-arme des qu'une entree y revient -- ce que (2) reclame nommement.
+    fantomes = [ActiveAbilityType(a).name for a in R.ETAGE_BLOQUANT
+                if ActiveAbilityType(a).name + "Ability" not in par_classe]
     assert not fantomes, ("entree(s) d'ETAGE_BLOQUANT sans symbole natif : %s -- renommage "
                           "inter-build : re-lire la table, pas rafraichir la table ecrite" % fantomes)
-    assert res["dette"], "recensement de la DETTE vide -- un probe qui ne visite rien ne mesure rien"
+
+
+def test_CONTRE_EPREUVE_une_table_de_symboles_MUETTE_est_VUE():
+    """SANS CE TEST, LE PLANCHER DU PRECEDENT SERAIT UNE LIGNE MORTE. Il etablit que le regime
+    dangereux existe VRAIMENT et qu'il est bien celui que le plancher attrape.
+
+    On substitue `R.symboles_natifs` par une table VIDE -- exactement ce que rendrait un
+    `functions.tsv` illisible ou un suffixe renomme au prochain build. Le recensement doit alors
+    basculer TOUS les ids dans `base` (« aucune surcharge -> le corps de base rend 0, le port
+    coincide »), c'est-a-dire rendre `dette == []` et `orphelins == []` : le cliquet (2) serait
+    VERT sur un recensement qui n'a rien lu. C'est ce vert-la que le plancher refuse."""
+    vrai = R.symboles_natifs
+    try:
+        R.symboles_natifs = lambda build=None: {}
+        degrade = R.recenser()
+    finally:
+        R.symboles_natifs = vrai
+    assert degrade["dette"] == [], (
+        "table muette et pourtant une dette : le recensement ne lit donc pas la table par cette "
+        "voie, et le plancher ne garde pas ce qu'il croit")
+    assert degrade["base"], "aucun id bascule en `base` -- la degradation modelisee est fausse"
+    # ...et le cran (2) serait effectivement vert sur ce recensement degrade :
+    assert [n for _a, n, _s in degrade["dette"] if _a not in R.ETAGE_BLOQUANT] == []
+    # Le plancher, lui, mord.
+    assert len({}) < R.PLANCHER_SYMBOLES
 
 
 def test_le_compte_sans_regle_a_baisse():
