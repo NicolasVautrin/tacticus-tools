@@ -771,7 +771,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         _ent_marker = state.get_entity(int(target_id))
         _uc_marker = (_ent_marker.get_component(UnitComponent)
                       if _ent_marker is not None else None)
-        if _uc_marker is not None and _melee_kill is not None:
+        # ⚠ **L'ECRITURE EST INCONDITIONNELLE, ET C'EST LU (#462-...-r6-r2).** Le port la gardait
+        # derriere `_melee_kill is not None`, donc une voie SANS `AttackRangeType` (crush, feuille
+        # DSL `Kill`) laissait le champ a `None` et ses deux lecteurs retombaient sur l'approximation
+        # POSITIONNELLE. Le natif, lui, ecrit toujours :
+        #     local_378[0] = (rangeType.GetValueOrDefault() == Melee(1)) & rangeType.HasValue
+        #     *(byte *)(victime.UnitComponent + 0x178) = local_378[0]
+        # -- `HasValue` faux donne donc **0**, pas << inconnu >>. Mesure live qui l'exigeait : un
+        # `Steppable` ECRASE sort avec `decisionView.units[].defeatedByMelee = false` (et non `null`),
+        # et le natif ne fait PAS fire `DawnBlade_HealAbility`, alors que le repli positionnel du
+        # port le declarait << melee >> -- le mover est SUR la tuile du crushe, distance 0.
+        if _uc_marker is not None:
             _uc_marker.defeated_by_melee = bool(_melee_kill)
         # GARDE @`KillUnitOperation$$Execute+0x81c` : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(PreUnitDeath)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est

@@ -169,8 +169,15 @@ def _replay_possession(cap, board, attaquant, cible, mutate=None):
         saved_reg = REG.ABILITY_TRIGGERS.pop("Possession", None)
         assert saved_reg is not None, "MUTANT INOPERANT : ABILITY_TRIGGERS['Possession']"
     elif mutate == "m_melee":                      # la nature du coup est INVERSEE
-        saved_rng = POSS._is_ranged_position
-        POSS._is_ranged_position = lambda st, a, b, _o=saved_rng: not _o(st, a, b)
+        # ⚠ LA MUTATION VISE LE CANAL REELLEMENT LU (#462-...-r6-r2). Elle substituait
+        # `POSS._is_ranged_position`, c'est-a-dire le REPLI POSITIONNEL -- or depuis que
+        # `KillUnitOperation` ecrit le marqueur `DefeatedByMeleeAttack` INCONDITIONNELLEMENT (mirror
+        # de `*(byte *)(uc+0x178) = local_378[0]`), le port ne retombe plus sur ce repli et le
+        # mutant NE MORDAIT PLUS : `mutant_melee_mord` rendait False sur un port pourtant d'accord
+        # avec le natif. On vise donc le foyer `triggers/base.py::defeated_by_melee`, lie ici en
+        # forme A -- le patch porte sur l'attribut du MODULE APPELANT, qui est ce que le site lit.
+        saved_rng = POSS.defeated_by_melee
+        POSS.defeated_by_melee = lambda st, a, b, _o=saved_rng: not _o(st, a, b)
     try:
         st = load_state(cap["dec"], cap["ob"], cap["snap"], board=board)
         rng = IntBasedMersenneTwister()
@@ -192,7 +199,7 @@ def _replay_possession(cap, board, attaquant, cible, mutate=None):
         if saved_reg is not None:
             REG.ABILITY_TRIGGERS["Possession"] = saved_reg
         if saved_rng is not None:
-            POSS._is_ranged_position = saved_rng
+            POSS.defeated_by_melee = saved_rng
 
 
 def _libres_autour(dv, p):

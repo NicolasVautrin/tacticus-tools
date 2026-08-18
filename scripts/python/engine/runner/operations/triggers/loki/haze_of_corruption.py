@@ -173,8 +173,7 @@ from ....abilities.behaviours.combat import AttackWithAttackDamage
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import RemoveEffect
 from ....abilities.loki.splash import _pick_randomly_n
-from ....components import StatsComponent, UnitComponent
-from ....components import UnitComponent
+from ....components import StatsComponent, UnitComponent, unit_extensions_is_alive
 from ...damage import AttackDamageOperation
 from ...left_over_damage import left_over_damages
 from ....abilities.behaviours import combat as _combat   # FORME B (liaison de MODULE). Arete
@@ -338,6 +337,20 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
             return False
         # `IsDead(Target@0x178)` : la cible de l'evenement est bien celle qui meurt.
         if ev.dying_id is None:
+            return False
+        # ... et ce conjoint est PORTE (#462-...-r6-r2), il ne se resume pas a << la cible existe >>.
+        # `IdunBattleLogic.Entities.DSLTriggers$$IsDead(sel)` = `op_LogicalNot(IsAlive(sel))`, et
+        # `IdunBattle.Entities.Conditions.IsAliveAbilityTrigger$$ShouldTrigger` est
+        # `entity = sel.Select(entities) ; entity == null ? false : UnitExtensions$$IsAlive(entity)`.
+        # Le mirror est donc `unit_extensions_is_alive`, PAS `UnitComponent.alive` seul.
+        # ⚠ CE QUE CE CONJOINT DISCRIMINE, MESURE LIVE : un `Steppable` ECRASE n'a AUCUNE SANTE
+        # (0/0), et `HealthComponent$$IsAlive` rend TRUE dans ce cas (branche << PV < 1 et maximum
+        # < 1 >> du decompile) ; a `On(1 = PreUnitDeath)` le natif n'a encore pose ni le flag `Dead`
+        # ni le retrait du pool, donc `IsDead(crushe)` est FAUX et le natif NE FAIT PAS le coup
+        # bonus. Mesure : 0 groupe `HazeOfCorruption` dans le flux d'un crush, contre 2 sur un kill
+        # ordinaire du MEME porteur.
+        _vic = state.get_entity(int(ev.dying_id))
+        if _vic is not None and unit_extensions_is_alive(_vic):
             return False
         # `NOT TriggeringEffectIs(0x435)` -- slot `AbilityEntities+0x138` (cf. la docstring).
         return _triggering_ability_or_effect(state, ev) != HAZE_DAMAGE_TRANSFER

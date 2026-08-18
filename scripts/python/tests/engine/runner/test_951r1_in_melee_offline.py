@@ -64,6 +64,10 @@ DECLENCHEUR = {
         # exactement par la que ce fichier est devenu rouge sans que son verdict ait bouge.
         "scripts/python/engine/runner/operations/remove_unit.py",
         "scripts/python/engine/runner/state.py",
+        # #462-...-r6-r2 -- le SEEDING du marqueur : c'est lui qui decide ou le tri-etat `None`
+        # survit encore, et le fichier l'exerce desormais directement
+        # (`test_le_tri_etat_survit_au_CHARGEMENT_donc_le_repli_n_est_pas_MORT`).
+        "scripts/python/engine/runner/snapshot.py",
         "scripts/python/engine/runner/operations/triggers/base.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
         "scripts/python/engine/runner/operations/triggers/loki/possession.py",
@@ -284,15 +288,61 @@ def test_un_kill_a_DISTANCE_ecrit_False_des_deux_cotes(monkeypatch):
     assert tueur.defeated_units_other == [2] and tueur.defeated_units_melee == []
 
 
-def test_une_voie_sans_AttackRangeType_ne_fabrique_pas_un_faux(monkeypatch):
+def test_une_voie_sans_AttackRangeType_ecrit_False_et_non_None(monkeypatch):
     """`$$ForSteppable` (crush) et `$$ForDefault` (feuille DSL `Kill`) laissent `+0x3c` a ZERO ->
-    `Nullable` VIDE -> `inMelee` FAUX cote natif. Cote port le canal reste `None` : l'inscription
-    tombe dans la meme liste que le natif, et le marqueur n'est PAS pose -- pour que ses lecteurs
-    sachent qu'ils n'ont pas mesure, au lieu de lire un `False` fabrique."""
+    `Nullable` VIDE -> `inMelee` FAUX cote natif. Les DEUX axes en decoulent, et ils sont
+    DISTINCTS : l'INSCRIPTION tombe dans la liste `other`, et le MARQUEUR vaut **False**.
+
+    ⚠ **RE-ETALONNE (#462-...-r6-r2) : ce test assertait `is None`, et son argument est REFUTE.**
+    Il disait << le marqueur n'est PAS pose -- pour que ses lecteurs sachent qu'ils n'ont pas
+    mesure, au lieu de lire un `False` fabrique >>. C'etait un argument de CONCEPTION (tri-etat),
+    pas une lecture du natif, et trois sources le contredisent :
+
+      1. **le decompile**, deja cite dans l'EN-TETE DE CE FICHIER (lignes 28-30) : le calcul
+         `local_378[0] = (rangeType.GetValueOrDefault() == Melee(1)) & rangeType.HasValue` est
+         **INCONDITIONNEL** -- aucune garde `if (HasValue)` ne l'entoure -- et l'ecriture
+         `*(byte *)(victime.UnitComponent + 0x178) = local_378[0]` n'est gardee que par le
+         null-check du composant. `HasValue` faux donne donc **0**, pas << rien >> ;
+      2. **la mesure LIVE d'un crush** (`probe_462r4br6r2_crush_blast_radius_live.py`) :
+         `decisionView.units[<crushe>].defeatedByMelee` vaut **`false`**, et non `null` -- le canal
+         de capture voit bien un booleen POSE ;
+      3. **la consequence observable** : avec `None`, `DawnBlade_HealAbility` retombait sur son
+         approximation POSITIONNELLE, qui declare << melee >> apres un crush (le mover est SUR la
+         tuile du crushe, distance 0) et faisait fire une reparation que le natif ne fait PAS
+         (0 groupe `DawnBlade` cote natif, contre 1 et **+1997 PV** sur un vrai kill melee).
+
+    Ce que le tri-etat garde ENCORE est teste juste en dessous : il n'a pas disparu, il a change de
+    domaine -- il ne vit plus en SIMULATION, seulement au CHARGEMENT."""
     st, tueur = _duo()
     _kill_unit_operation_isole(monkeypatch, st)
-    assert st.get_entity(2).get_component(UnitComponent).defeated_by_melee is None
+    assert st.get_entity(2).get_component(UnitComponent).defeated_by_melee is False
+    # L'axe INSCRIPTION est INCHANGE : `register_defeated_unit(in_melee=None)` et `in_melee=False`
+    # prennent la MEME branche native (`if ((char)inMelee == '\0')`), donc la liste `other`.
     assert tueur.defeated_units_other == [2] and tueur.defeated_units_melee == []
+
+
+def test_le_tri_etat_survit_au_CHARGEMENT_donc_le_repli_n_est_pas_MORT(monkeypatch):
+    """Contre-partie du test ci-dessus, et reponse a << une branche morte qui se donne l'air d'un
+    repli >>. Depuis que `_kill_unit_operation` ecrit le marqueur INCONDITIONNELLEMENT, `None` ne
+    peut plus sortir d'une SIMULATION -- mais il sort encore d'un etat CHARGE, et le repli
+    positionnel de `triggers/base.py::defeated_by_melee` garde donc un vecteur d'entree REEL.
+
+    Le vecteur est LU dans `snapshot._load_death_sources` : la boucle `continue` sur toute unite
+    VIVANTE **et** sur toute unite morte dont `killerId` est absent (<< tueur non imputable -> le
+    natif ne compte rien non plus >>). Une victime chargee sans tueur imputable n'a donc AUCUNE
+    ecriture du marqueur, et reste a `None`.
+
+    Sans ce test, la suppression du repli passerait pour un nettoyage sans consequence."""
+    from engine.runner import snapshot as SNAP
+    st = State()
+    st.entities[7] = _ent(7, UnitComponent("victime-sans-tueur", False))
+    # Une unite MORTE dont `decisionView` ne publie AUCUN `killerId` -- la forme exacte que le
+    # seeding ecarte par `continue`.
+    SNAP._load_death_sources(st, {"units": [{"id": 7, "alive": False, "killerId": None,
+                                             "defeatedByMelee": True}]})
+    assert st.get_entity(7).get_component(UnitComponent).defeated_by_melee is None, (
+        "le seeding a pose le marqueur sur une victime SANS tueur imputable -- le repli de "
+        "`defeated_by_melee` n'aurait alors plus aucun vecteur, et il faudrait le retirer")
 
 
 def test_possession_lit_le_marqueur_et_retombe_sur_l_adjacence_sans_lui(monkeypatch):
@@ -301,10 +351,19 @@ def test_possession_lit_le_marqueur_et_retombe_sur_l_adjacence_sans_lui(monkeypa
     il est mesure, et ne retombe sur l'approximation que sur `None`.
 
     Le montage neutralise `_is_ranged_position` en le forcant a VRAI : si le marqueur etait ignore,
-    un kill de MELEE serait classe << a distance >> et donnerait le mauvais summon."""
+    un kill de MELEE serait classe << a distance >> et donnerait le mauvais summon.
+
+    ⚠ **LE POINT DE MORSURE A BOUGE (#462-...-r6-r2), et il fallait le suivre.** La lecture du
+    marqueur + son repli sont desormais un FOYER UNIQUE, `triggers/base.py::defeated_by_melee`,
+    partage avec `DawnBladeHealAbility` (2e site). `possession.py` n'importe donc plus
+    `_is_ranged_position` : patcher `P._is_ranged_position` levait `AttributeError`. On patche le
+    module ou le nom est REELLEMENT resolu -- `base`, qui l'appelle depuis ses propres globals,
+    donc la substitution MORD. C'est le piege FORME A du `CLAUDE.md`, pris dans le sens ou une
+    factorisation deplace l'endroit qu'un patch doit viser."""
+    from engine.runner.operations.triggers import base as BASE
     from engine.runner.operations.triggers.loki import possession as P
 
-    monkeypatch.setattr(P, "_is_ranged_position", lambda *a, **k: True)
+    monkeypatch.setattr(BASE, "_is_ranged_position", lambda *a, **k: True)
     victime = UnitComponent("B", False)
     st = State()
     st.entities[1] = _ent(1, UnitComponent("A", True))

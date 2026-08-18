@@ -117,7 +117,7 @@ from ....abilities.behaviours.summon import Spawn
 from ....components import OwnerComponent, UnitComponent
 from ....state import State
 from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
-                    _is_ranged_position)
+                    defeated_by_melee)
 
 ABILITY_ID = "Possession"
 #: `AbilityConfiguration$$GetStringConstant(cfg, 0)` / `(cfg, 4)` -- LUS au decompile, jamais devines
@@ -232,11 +232,10 @@ class PossessionSummonOnKillAbility(TriggeredAbility):
         # `decisionView.units[].defeatedByMelee`). TRI-ETAT : `None` = mort dont la voie ne transporte
         # pas d'`AttackRangeType` (crush, feuille DSL `Kill`) ou etat charge sans le champ -> REPLI
         # sur l'approximation positionnelle historique, nommee, et desormais minoritaire.
-        _vic_e = state.get_entity(int(victim))
-        _vic_uc = _vic_e.get_component(UnitComponent) if _vic_e is not None else None
-        _dbm = _vic_uc.defeated_by_melee if _vic_uc is not None else None
-        ranged_kill = ((not bool(_dbm)) if _dbm is not None
-                       else _is_ranged_position(state, int(self.owner_id), int(victim)))
+        # ⚠ FOYER UNIQUE depuis le 2e site (#462-...-r6-r2) : `triggers/base.py::defeated_by_melee`
+        # tient le marqueur ET son repli, pour ce module et pour `loki/dawn_blade.py`. Deux copies
+        # auraient fabrique deux definitions de << ce kill est-il melee ? >>.
+        ranged_kill = not defeated_by_melee(state, int(self.owner_id), int(victim))
         ability_state = triggered_ability_state(state, self.owner_id, ABILITY_ID)
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, self.owner_id, victim, actor_id=ev.actor_id)

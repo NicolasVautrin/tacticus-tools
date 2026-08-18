@@ -597,6 +597,32 @@ def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
     return ttile not in set(state.board.neighbours(atile))     # non-adjacent = RANGED
 
 
+def defeated_by_melee(state: State, owner_id: int, victim_id: int) -> bool:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsDefeatedByMeleeAttack` -- le marqueur PERSISTANT que
+    `IdunBattle.Operations.KillUnitOperation$$Execute` ecrit sur la VICTIME, avec son REPLI.
+
+        local_378[0] = (rangeType.GetValueOrDefault() == Melee(1)) & rangeType.HasValue
+        *(byte *)(victime.UnitComponent + 0x178) = local_378[0]     # INCONDITIONNEL
+
+    Le port tient ce byte sur les DEUX faces : `damage.py::_kill_unit_operation` en simulation,
+    `snapshot._load_death_sources` (depuis `decisionView.units[].defeatedByMelee`) au chargement.
+    `None` = un etat charge qui ne porte pas le champ -> REPLI sur l'approximation POSITIONNELLE
+    historique, nommee.
+
+    ⚠ **FOYER UNIQUE, cree au DEUXIEME site (#462-...-r6-r2).** `PossessionAbility` (#951-r1) et
+    `DawnBladeHealAbility` (#317) lisent le MEME marqueur avec le MEME repli ; les recopier aurait
+    fabrique deux definitions de << ce kill est-il melee ? >>, exactement le fork que la doctrine
+    interdit au 2e site. C'est aussi ce qui rend la contre-epreuve ARMABLE : une mutation posee ici
+    mord pour les deux lecteurs, la ou substituer `_is_ranged_position` ne mord plus des que le
+    marqueur est renseigne."""
+    e = state.get_entity(int(victim_id)) if victim_id is not None else None
+    uc = e.get_component(UnitComponent) if e is not None else None
+    dbm = uc.defeated_by_melee if uc is not None else None
+    if dbm is not None:
+        return bool(dbm)
+    return not _is_ranged_position(state, int(owner_id), int(victim_id))
+
+
 def _is_ranged_attack(state: State, ability_type, attacker_id: int, target_id: int) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsRangedAttack(ability, caster, casterPosition,
     target)` -- le slot **3** d'`IBattleQuery`, COMPLET, dans le domaine du runner.

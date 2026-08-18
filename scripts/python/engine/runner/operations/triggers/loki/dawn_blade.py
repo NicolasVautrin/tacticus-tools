@@ -117,7 +117,7 @@ from ....state import State
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.stats import Repair
 from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
-                    _is_ranged_position)
+                    defeated_by_melee)
 from .....entities.effects.magnitude import ability_var
 
 ABILITY_ID = "DawnBlade"
@@ -185,9 +185,21 @@ class DawnBladeHealAbility(TriggeredAbility):
         vuc = victim.get_component(UnitComponent)
         if vuc is not None and vuc.alive:
             return False
-        # ... et le marqueur « defaite par une attaque de MELEE », approxime POSITIONNELLEMENT (le
-        # champ natif n'a aucun canal sur `On(UnitDeath)`, cf. residus).
-        return not _is_ranged_position(state, int(self.owner_id), int(dying))
+        # ... et le marqueur « defaite par une attaque de MELEE ».
+        # ⚠ **IL EST DESORMAIS LU (#462-...-r6-r2), l'approximation n'est plus qu'un REPLI** -- meme
+        # rebranchement que `loki/possession.py`, qui l'annoncait explicitement comme << NON FAIT
+        # ici (autre foyer) >>. Le natif lit le byte `UnitComponent+0x178`
+        # (`DefeatedByMeleeAttack`), que `IdunBattle.Operations.KillUnitOperation$$Execute` ecrit
+        # INCONDITIONNELLEMENT avec `rangeType.HasValue && rangeType == Melee(1)` ; le port le tient
+        # sur les DEUX faces (`damage.py::_kill_unit_operation` en simulation,
+        # `snapshot._load_death_sources` depuis `decisionView.units[].defeatedByMelee`).
+        # CE QUE CA CHANGE, MESURE LIVE : sur un CRUSH le marqueur natif vaut **False** (la voie ne
+        # transporte aucun `AttackRangeType`), alors que l'approximation positionnelle disait
+        # << melee >> -- le mover est SUR la tuile du crushe, donc a distance 0. Le port faisait donc
+        # fire une reparation que le natif ne fait pas.
+        # TRI-ETAT conserve : `None` = etat charge sans le champ -> REPLI positionnel, nomme.
+        # FOYER UNIQUE `triggers/base.py::defeated_by_melee` (2e site : `loki/possession.py`).
+        return defeated_by_melee(state, int(self.owner_id), int(dying))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         amount = hp_to_heal(state, self.owner_id)
