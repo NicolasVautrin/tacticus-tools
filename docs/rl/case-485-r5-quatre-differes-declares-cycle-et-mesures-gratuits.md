@@ -72,6 +72,41 @@ converties : les toucher changerait la morsure de call-sites que cette tranche n
 **La base attestée n'a pas été touchée.** Elle ne devait pas l'être : l'attestation est une
 conclusion, pas un remède.
 
+### Le coût de cascade, chiffré — l'argument du site était vrai en topologie, nul en volume
+
+Le site `abilities.py` invoquait « aucune cascade au chargement ». Mesuré des deux côtés
+(`origin/master` `8b2a2e35` vs cette branche), en process frais :
+
+| `import <module>` | master | branche | écart |
+|---|---|---|---|
+| `engine.playbook.prediction.abilities` | 507 modules `engine.*` | 508 | **+1** |
+| `engine.services.movement_query` | 180 | 180 | **0** |
+
+L'arête `playbook -> runner` existe bel et bien maintenant — mais elle coûte **un module**, pas une
+cascade, parce que `runner.abilities.custodes` était déjà à un module près de la fermeture. Pour
+`movement_query`, les trois cibles étaient **déjà dans sa fermeture** : le coût est **nul**, ce qui
+était prévisible pour `..runner.components` (déjà au préambule) et ne l'était pas pour les deux
+autres. Durées à cache `.pyc` chaud : 1,23-1,49 s contre 1,48-1,73 s — dans le bruit.
+
+### La forme B MORD — vérifié, et le cliquet qui le garde
+
+`probe_485r5_forme_b_mord.py`, **inscrit à `scripts/ratchets.ps1` dans le même commit** (un cliquet
+que rien ne joue est exactement le vice `#485-r4`). Il garde les quatre sites :
+
+* la **liaison** désigne bien le module cible (le registre décrit l'arbre, il ne peut pas se périmer
+  en silence) ;
+* le porteur ne porte **aucune copie gelée** du symbole — ni attribut de module, ni nom nu à l'AST ;
+* un patch posé sur le module cible est **vu** à travers la liaison.
+
+**Témoin de discrimination obligatoire (étape 0)** : les deux formes sont construites dans un paquet
+jetable et doivent **diverger** — A ne mord pas, B mord. Sans ce cran, l'étape 1 serait verte sur un
+mécanisme cassé.
+
+**Contre-épreuve du cliquet lui-même**, deux mutations en mémoire, `rc 1` les deux fois :
+poser `movement_query.BaseEffect` (exactement ce qu'un hissage en forme A produirait) →
+`FAUTE : ... porte une liaison DIRECTE` ; casser `movement_query._components` → `FAUTE : ... ne
+désigne PAS le module`. Il n'est pas vert à vide.
+
 ## 4. L'étage 3, qui ne dépend PAS de ces quatre — et la mesure de référence qui était déjà fausse
 
 Le second rouge du fichier de test est un **SEUIL**, et les quatre hissages ne le font tomber que de
