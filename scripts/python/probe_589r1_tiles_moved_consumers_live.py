@@ -90,10 +90,24 @@ PORTEURS = {
 
 # Ce que le cran INV exige du PORT. Cle = ability native ; valeur = ce qui doit exister (ou non)
 # cote port. Un changement ici rouvre la question de l'aval, et c'est exactement ce qu'on veut voir.
+#
+# ⚠ DEUX ENTREES ONT ETE CORRIGEES PARCE QU'ELLES ETAIENT PERIMEES, pas parce qu'elles genaient :
+#   * `EmpyricAmbush` -- trigger de RE-ARMEMENT porte depuis #589-r1-r1-r1-r1
+#     (`EmpyricAmbushResetAbility`, 1555), et son SEUIL `movement` confronte au natif par
+#     #589-r1-r1 ; le rouge qu'il produisait ici etait donc en retard sur sa propre fermeture.
+#   * `MastersOfManoeuvre` -- trigger porte depuis #999-r1 (`MastersOfManoeuvrePlaceOnMove`),
+#     seuil RECONFRONTE par #589-r2 : 5253 couples divergents sur `C1_74` + `C3_14`, **0 bascule**
+#     du gate porte, temoin non-nul a 1328. Cf. `probe_589r2_masters_of_manoeuvre_aval.py`.
+# Ce qui reste ACCUSE (le cran plus bas) est le seul porteur a seuil dont le trigger n'existe pas.
 PORT_ATTENDU = {
-    "ModifiedExoarmour": "porte (effet de degat, LINEAIRE)",
-    "EmpyricAmbush": "NON porte",
-    "MastersOfManoeuvre": "NON porte",
+    # ⚠ La colonne mesure « un TRIGGER porte sous `triggers/` », pas « l'ability est portee ».
+    # `ModifiedExoarmour` est porte cote EFFET (`effects/loki/extra_damage.py`, le consommateur
+    # LINEAIRE) et n'a aucun trigger : `False` est le verdict JUSTE. La regex d'avant rendait
+    # `True` sur trois occurrences de PROSE (`maugetar.py:48`, `prophetic_sentinel.py:72`,
+    # `wireweave_net.py:36`) -- dont la ligne meme qui avait fait rougir `master`.
+    "ModifiedExoarmour": "effet porte (LINEAIRE), pas de trigger",
+    "EmpyricAmbush": "porte (trigger de re-armement + seuil confronte, #589-r1-r1)",
+    "MastersOfManoeuvre": "porte (trigger #999-r1, seuil SATURE et reconfronte, #589-r2)",
     "SmashaEad": "effet porte, TRIGGER non porte",
 }
 
@@ -113,6 +127,35 @@ def _seuils_du_gameconfig() -> dict:
         out[ab] = None if key not in c else int(c[key])
     out["SmashaEad"] = 2                 # `DSLFormulas$$Direct(2)`, litteral du decompile
     out["ModifiedExoarmour"] = 0         # `AmountIsGreaterThanZero` -> seuil strict > 0
+    return out
+
+
+def _tokens_executables(source: str) -> set:
+    """Les noms en position EXECUTABLE : identifiants, attributs, noms de classe/fonction, et les
+    chaines qui ne sont PAS des docstrings. Cf. le bloc de commentaire de `_port_consumers`."""
+    import ast
+
+    arbre = ast.parse(source)
+    docstrings = set()
+    for n in ast.walk(arbre):
+        corps = getattr(n, "body", None)
+        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and corps and isinstance(corps[0], ast.Expr) \
+                and isinstance(corps[0].value, ast.Constant) \
+                and isinstance(corps[0].value.value, str):
+            docstrings.add(id(corps[0].value))
+    out = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            out.add(n.attr)
+        elif isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.arg):
+            out.add(n.arg)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings:
+            out.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", n.value))
     return out
 
 
@@ -137,10 +180,21 @@ def _port_consumers() -> dict:
             if pat_call.search(line) and "def tiles_moved_this_turn" not in line:
                 lecteurs.add("%s:%d" % (rel, i))
     trig_dir = eng / "runner" / "operations" / "triggers"
-    trig_src = "\n".join(p.read_text(encoding="utf-8", errors="replace")
-                         for p in trig_dir.rglob("*.py"))
+    # ⚠ AST, PAS une regex sur le texte brut. Le meme cran ecrit en `re.search` a fait rougir
+    # `master` pour UNE occurrence dans un COMMENTAIRE de `triggers/loki/maugetar.py` qui enumere
+    # les abilities voisines -- aucun trigger n'etait porte. Un detecteur qui lit la PROSE accuse
+    # le progres documentaire et se fait desarmer par le premier qui veut faire taire le rouge.
+    # Les COMMENTAIRES n'entrent jamais dans un AST (exclus gratuitement) ; les DOCSTRINGS y sont,
+    # on les retire ; les autres chaines RESTENT, parce qu'une cle de registre (`{"X": [...]}`) est
+    # precisement ce qu'on veut voir.
+    tokens = set()
+    for p in trig_dir.rglob("*.py"):
+        tokens |= _tokens_executables(p.read_text(encoding="utf-8", errors="replace"))
+    if len(tokens) <= 100:
+        print("      ECART: detecteur muet (%d token(s)) -- ce cran ne mesure plus rien"
+              % len(tokens))
     for ab in PORTEURS:
-        triggers[ab] = bool(re.search(r"(?<![\w])%s(?![\w])" % ab, trig_src))
+        triggers[ab] = ab in tokens
     return {"lecteurs": sorted(lecteurs), "triggers": triggers}
 
 
@@ -174,12 +228,20 @@ def run_inv() -> int:
     print("  PORT -- trigger porte, par porteur natif :")
     for ab, present in sorted(pc["triggers"].items()):
         print("    %-20s trigger porte=%s   attendu: %s" % (ab, present, PORT_ATTENDU[ab]))
-    # Le cran de NON-REGRESSION : les trois porteurs a SEUIL n'ont aucun trigger porte. S'ils en
-    # gagnent un, l'aval doit etre reconfronte -- ce probe doit alors rougir pour le dire.
-    for ab in ("EmpyricAmbush", "MastersOfManoeuvre", "SmashaEad"):
+    # Le cran de NON-REGRESSION : le porteur a SEUIL encore non exerce n'a aucun trigger porte.
+    # S'il en gagne un, l'aval doit etre reconfronte -- ce probe doit alors rougir pour le dire.
+    for ab in ("SmashaEad",):
         if pc["triggers"][ab]:
             print("      ECART: `%s` a maintenant un trigger porte -- l'aval de #589 doit etre "
                   "RECONFRONTE pour ce consommateur" % ab)
+            bad += 1
+    # ... et la NON-VACUITE du cran : les deux sortis de la liste ci-dessus (#589-r1-r1, #589-r2)
+    # en sont sortis PARCE QU'ils sont portes. S'ils cessaient de l'etre, les gardes qui les ont
+    # remplaces ne mesureraient plus rien, et ce probe passerait pour vert sans le dire.
+    for ab in ("EmpyricAmbush", "MastersOfManoeuvre"):
+        if not pc["triggers"][ab]:
+            print("      ECART: `%s` n'a PLUS de trigger porte -- sa sortie de la liste accusee "
+                  "reposait sur ce fait ; le garde qui l'a remplace est desormais VIDE" % ab)
             bad += 1
     if not pc["lecteurs"]:
         print("      ECART: AUCUN lecteur du canal cote port -- le recensement ne mesure rien")

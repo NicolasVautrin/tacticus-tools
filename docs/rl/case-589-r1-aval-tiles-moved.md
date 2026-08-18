@@ -221,8 +221,13 @@ substrats partagent. L'ancre utile est un voisin **géométrique et non connexe*
   gate, seuil confronté à `movement = 4`) puis `#589-r1-r1-r2` (le PRODUIT avec le compteur
   rebranché, sur `C1_74` et `C3_14`). ⚠ La phrase « le porteur `eldarLhykhis` est au pool » était
   **FAUSSE** : elle est hors catalogue et s'injecte (`catalog_inject --missing`).
-* **`MastersOfManoeuvre`** : porteur `darkaStormSpeeder` (MoW, voie `mythic`). Saturé par la borne,
-  donc sans enjeu pour #589 — mais non confronté.
+* ~~**`MastersOfManoeuvre`** : saturé par la borne, mais non confronté.~~ **FERMÉ** par `#589-r2`.
+  Son trigger est porté depuis `#999-r1` (`MastersOfManoeuvrePlaceOnMove`), donc son seuil est
+  **exercé** — ce qui a fait rougir, à raison, le cran offline et le cran `INV` ci-dessous. La
+  saturation n'est plus déduite : **5253 couples divergents** sur `C1_74` + `C3_14`, **0 bascule**
+  du gate porté, témoin non-nul à **1328**. Et l'hypothèse cachée de la borne (« la beeline trouve
+  toujours un chemin ») est désormais **mesurée** au lieu d'être écartée en silence par `S1`.
+  Détail : `docs/rl/case-589-r2-aval-masters-of-manoeuvre.md`.
 * **Le sujet des sélecteurs 4 et 5** (`DSLSelectors+0x48` = Caster, `+0x40` = sujet du `On(0x4)`)
   est lu au décompilé et **non confronté live**. S'il était autre, la ventilation « le sujet peut
   être un volant » changerait — pas les verdicts, qui reposent sur la borne.
