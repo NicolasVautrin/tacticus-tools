@@ -47,12 +47,18 @@ DECLENCHEUR = {
         # est confrontee ici.
         "scripts/python/tests/test_464_sibling_script_offline.py",
         "scripts/python/tests/test_457_r8_selection_par_diff_offline.py",
+        # #10036 -- le SUJET VIVANT de `test_un_bypass_DESARME_...`. Il etait consomme comme
+        # DONNEE (`DC.lire`), pas comme import : ni la fermeture ni l'empreinte ne le voient,
+        # donc RIEN ne le nommait -- et une PR qui le modifie ne rejouait pas ce fichier-ci.
+        # C'est exactement par la que le rouge de #10036 est sorti au MERGE et pas dans sa PR.
+        "scripts/python/tests/test_486_r1_cache_verdict_offline.py",
     ),
     "build": False,
     "toujours": False,
     "raison": "Le contrat (`declencheur_cliquet`), le cliquet qui l'applique aux tests, la "
-              "population ATTESTEE du bypass, et les deux declarations reelles que l'anti-vacuite "
-              "lit. La cascade de harnais est DERIVEE par le foyer, donc absente d'ici a dessein.",
+              "population ATTESTEE du bypass, les deux declarations reelles que l'anti-vacuite "
+              "lit, et le SUJET VIVANT de la mutation. La cascade de harnais est DERIVEE par le "
+              "foyer, donc absente d'ici a dessein.",
     # LE BYPASS, APPLIQUE A CE FICHIER-CI -- et ce n'est pas une commodite, c'est la mesure.
     # `test_la_population_ATTESTEE_...` relit les 767 fichiers de test du depot pour verifier
     # que le fichier d'attestation correspond au depot, et `test_chaque_bypass_reel_...` resout
@@ -298,9 +304,24 @@ def test_le_paquet_d_un_import_relatif_est_DERIVE_du_chemin(rel, niveau, attendu
 def test_un_bypass_DESARME_la_confrontation_de_CE_fichier_seulement(fermeture):
     """MUTATION : on ampute une declaration REELLE, on verifie qu'elle rougit, puis on lui pose
     le bypass et on verifie qu'elle ne rougit plus. Sans la premiere moitie, le vert de la
-    seconde ne prouverait rien."""
+    seconde ne prouverait rien.
+
+    ⚠ CELUI-CI GARDE SON SUJET VIVANT, ET C'EST DELIBERE : confronter une declaration REELLE est
+    justement ce qu'un arbre jetable ne peut pas faire. Mais la meme fragilite pese sur lui --
+    la mutation ne prouve quelque chose que si le sujet ne rougissait PAS avant elle. L'etage
+    [0] l'asserte, de sorte qu'un sujet devenu invalide DISE sa cause au lieu de faire passer
+    `rouges` pour la bonne raison apparente (#10036)."""
     rel = "scripts/python/tests/test_486_r1_cache_verdict_offline.py"
     vraie = DC.lire(ROOT / rel)
+
+    # [0] NON-DEGENERESCENCE DU SUJET -- sans mutation, il ne doit pas rougir. Sinon `rouges`
+    #     ci-dessous serait vrai AVANT la mutation, et le test mesurerait autre chose.
+    rouges0, _, _ = G.confronter({rel: dict(vraie)}, ferm=fermeture)
+    assert not rouges0, (
+        "SUJET DEGENERE : `%s` rougit DEJA sans aucune mutation (%s). La faute n'est pas dans ce "
+        "cliquet -- c'est le declencheur du sujet qui est en retard sur sa fermeture d'imports. "
+        "Le completer, ou prendre un autre sujet." % (rel, rouges0))
+
     ampute = dict(vraie)
     ampute["chemins"] = tuple(c for c in vraie["chemins"] if "verdict_cache" not in c)
     assert len(ampute["chemins"]) < len(vraie["chemins"]), "la mutation n'a pas MORDU"
@@ -316,15 +337,53 @@ def test_un_bypass_DESARME_la_confrontation_de_CE_fichier_seulement(fermeture):
     assert bypass2[0][2], "le bypass doit COMPTER ce qu'il masque, pas seulement le taire"
 
 
-def test_un_bypass_qui_ne_masque_RIEN_est_vu_comme_MORT(fermeture):
+def test_un_bypass_qui_ne_masque_RIEN_est_vu_comme_MORT(tmp_path, monkeypatch):
     """Le cran anti-imitation. Une declaration deja juste qui pose la cle << au cas ou >> doit
-    etre refusee -- sinon les 29 de la cascade l'auraient copiee et rien n'aurait change."""
-    rel = "scripts/python/tests/test_486_r1_cache_verdict_offline.py"
-    vraie = dict(DC.lire(ROOT / rel))
-    vraie[DC.CLE_HORS_CONFRONTATION] = "pose au cas ou, alors que la confrontation passe deja"
-    _, _, bypass = G.confronter({rel: vraie}, ferm=fermeture)
+    etre refusee -- sinon les 29 de la cascade l'auraient copiee et rien n'aurait change.
+
+    ⚠ LE SUJET EST SYNTHETIQUE, ET IL A DU LE DEVENIR (#10036). Il prenait
+    `test_486_r1_cache_verdict_offline.py` comme TEMOIN VIVANT : une declaration REELLE dont on
+    attendait qu'elle couvre DEJA toute sa fermeture. Cette attente n'est pas une propriete du
+    cliquet, c'est une propriete d'un fichier TIERS -- et le jour ou ce fichier a gagne un import
+    (`migrate_485r1_barils_reexport` + ses trois), son declencheur ne l'a plus couverte, donc le
+    bypass s'est mis a masquer 4 chemins et **ce test-ci** est devenu rouge. Le mecanisme etait
+    intact ; c'est le SUJET qui avait cesse d'etre valide, et l'assertion accusait le mauvais
+    objet -- une bisection entiere pour l'apprendre.
+
+    C'est le meme vice que celui repare cote `probe_175r2` dans la meme tranche : une garde dont
+    la validite depend d'une propriete NON ASSERTEE de son entree. Le montage jetable la met hors
+    d'atteinte de toute evolution du depot ; les trois assertions ci-dessous la rendent en plus
+    EXPLICITE, pour qu'un futur echec nomme sa vraie cause."""
+    _monte_arbre(tmp_path, monkeypatch,
+                 motif="pose au cas ou, alors que la confrontation passe deja",
+                 chemins=("scripts/python/cible.py",), atteste=True)
+    rel = "scripts/python/tests/test_a_offline.py"
+    ferm = DC.Fermeture(tmp_path)
+    declaree = dict(DC.lire(tmp_path / rel))
+
+    # [1] NON-DEGENERESCENCE DU SUJET -- il doit etre << deja juste >> SANS la cle. C'est
+    #     precisement ce qui avait cesse d'etre vrai du temoin vivant, en silence.
+    sans_cle = {k: v for k, v in declaree.items() if k != DC.CLE_HORS_CONFRONTATION}
+    rouges, _, bypass_vide = G.confronter({rel: sans_cle}, ferm=ferm)
+    assert not bypass_vide, "la variante sans cle ne doit pas etre comptee comme un bypass"
+    assert not rouges, (
+        "SUJET DEGENERE : sans la cle, cette declaration rougit deja (%s) -- le `[] `attendu plus "
+        "bas ne prouverait alors rien du cran anti-imitation" % (rouges,))
+
+    # [2] LE CRAN -- la cle posee sur une declaration deja juste ne masque RIEN.
+    _, _, bypass = G.confronter({rel: declaree}, ferm=ferm)
     assert len(bypass) == 1
     assert bypass[0][2] == [], "cette declaration ne masque RIEN : le cliquet doit le voir"
+
+    # [3] LE MONTAGE MORD -- sur un perimetre qui ne couvre PAS l'import, le meme appel doit
+    #     rendre un decouvert NON VIDE. Sans ce troisieme etage, un `confronter` qui ne verrait
+    #     plus rien du tout (fermeture cassee, arbre mal monte) rendrait `[]` et passerait.
+    ailleurs = dict(declaree)
+    ailleurs["chemins"] = ("scripts/python/autre_chose.py",)
+    _, _, bypass_mordant = G.confronter({rel: ailleurs}, ferm=ferm)
+    assert bypass_mordant[0][2], (
+        "TEMOIN DEGENERE : meme un perimetre qui ne couvre pas `cible.py` ne masque rien -- la "
+        "fermeture de l'arbre jetable est vide, donc l'etage [2] est vacant")
 
 
 def test_le_probe_ROUGIT_sur_un_bypass_MORT(tmp_path, monkeypatch, capsys):

@@ -51,6 +51,14 @@ DECLENCHEUR = {
         # entre au verdict.
         "scripts/python/probe_181_targeting_gaps.py",
         "scripts/python/probe_485_imports_differes.py",
+        # #10036 -- la fermeture de `migrate_485r1_barils_reexport`, importe par
+        # `_getters_du_producteur_dynamique` pour resoudre un alias de module DANS SA PORTEE.
+        # Les QUATRE sont nommes parce que la confrontation porte sur la fermeture COMPLETE,
+        # pas sur l'import direct : les omettre laissait un decouvert de 4 fichiers.
+        "scripts/python/migrate_485r1_barils_reexport.py",
+        "scripts/python/import_closure.py",
+        "scripts/python/probe_270r4r2_cycles_imports.py",
+        "scripts/python/probe_270r4r2r2_tri_differes.py",
     ),
     "build": False,
     "toujours": False,
