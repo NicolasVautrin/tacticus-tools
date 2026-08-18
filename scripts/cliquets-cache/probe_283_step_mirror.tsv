@@ -60,7 +60,7 @@ scripts/python/engine/ai/tactic.py	mirror	129e1f6fabda1005e647bcb84d8bda51c687cd
 scripts/python/engine/ai/utilities.py	mirror	412eef7fcc7fa1e8b827814e9aa2f61c4b9f15b71f0e6c39dbc50822e6667b8d	{}
 scripts/python/engine/battle_query.py	mirror	9e78a89250d63fca437c12b44177026c2f8eaf0f814fd9e4cbc1567a87cd957a	{}
 scripts/python/engine/dsl/__init__.py	mirror	acc1aedf46ff3b829cf4f565bf39034e1bfca88ab46589e130e42c5d59769d48	{}
-scripts/python/engine/dsl/base.py	mirror	a99011131eab00e0af407cd70a1ccd3894970209a880910c1c9145225f7b35d8	{}
+scripts/python/engine/dsl/base.py	mirror	ecc6d81aeeb941b707a702bad11a43c07146ecbf778b532af9d9bdce4865fb51	{}
 scripts/python/engine/dsl/effects.py	mirror	49ca91102e4396e7c67630519c22b5a52cf2d58997811ca5369b9f22c49e10aa	{}
 scripts/python/engine/dsl/event_trigger_type.py	mirror	77d043cf1b29f2509c0198ab748bd1f9e8fff464266d7dab7fdda230accbc880	{"EventTriggerType":{"AbilityInit":33,"ArrivedAtFinalTile":28,"Attack":9,"AttackChanged":55,"AttackDamageAttack":10,"AttackHit":8,"AttackInAtomicGroup":74,"BlockDamageChanged":56,"CompletedSpawningWave":71,"Custom":32,"DamageDealt":16,"DamageTaken":15,"EffectAdded":62,"EffectRemoved":64,"FinalDamage":66,"HealthChanged":30,"InitialMatchUnitAdded":65,"MachineDestroyed":68,"MatchEnd":27,"MatchInit":25,"MatchSetup":24,"MatchStart":26,"NormalAttack":38,"PendingDeathAdded":3,"PhaseEnd":58,"PostAbilityInit":34,"PostDamageTaken":17,"PostUnitKill":53,"PreAttack":5,"PreAttackDamageHit":7,"PreAttackHit":6,"PreDamageTaken":57,"PreEffectAdded":61,"PreEffectRemoved":63,"PreMachineDestroyed":67,"PreTerritoryCaptured":72,"PreUnitAbility":42,"PreUnitDeath":1,"PreUnitDeath_2":2,"PreUnitFled":51,"PreUnitMove":31,"ShieldChanged":39,"SpecificAbilityInit":49,"TerritoryCaptured":73,"TurnEnd":23,"TurnStart_Actions":22,"TurnStart_DelayedAttacks":21,"TurnStart_EffectActivation":18,"TurnStart_EnvironmentEffects":20,"TurnStart_Other":19,"UnitAbility":11,"UnitActiveAbility":12,"UnitAdded":50,"UnitAfterMove":4,"UnitBecameTargetable":59,"UnitBecameUntargetable":70,"UnitBlocked":60,"UnitConfigChanged":69,"UnitDeath":0,"UnitDefeated":54,"UnitDisplaced":35,"UnitFinishedTurn":40,"UnitFinishedTurnNormally":41,"UnitFled":52,"UnitHealed":43,"UnitHealedWithRemoveEffects":44,"UnitMemberDeath":47,"UnitPositionChanged_1":36,"UnitPositionChanged_2":29,"UnitPostAbility":14,"UnitRemoved":37,"UnitRepaired":48,"UnitResurrected":46,"UnitRevived":45,"UnitTransformed":75,"UnitTriggeredAbility":13}}
 scripts/python/engine/dsl/nodes.py	mirror	00be4c1a9a54dcc01dcb9fdf290b45f3bac43966d5cd59ef52ae78035eb128c7	{}
@@ -207,7 +207,7 @@ scripts/python/engine/entities/rarity.py	mirror	85deac6ddbf68512939488ad26c0fdc5
 scripts/python/engine/entities/selectors/__init__.py	mirror	8ea2ff3657bae09c855e54cfc721f112dc6f41b63a3352a6a49b633be8a05ba0	{}
 scripts/python/engine/entities/selectors/_pick.py	mirror	23656f3969f184e9d9197b4508f90149e94380ef97e6db72e4e539bd4126bfa4	{}
 scripts/python/engine/entities/selectors/_shared.py	mirror	ab24bf78c45057f2e7e5847ab65e8f9a780e94be123e9d008f1905298c20a6db	{}
-scripts/python/engine/entities/selectors/accessors.py	mirror	f834ec9228dd2d76973ae3aa7c4a85cb8506e4d8b375e75d62631f671d234512	{}
+scripts/python/engine/entities/selectors/accessors.py	mirror	934beae7c62e14efca9eaf78b3e1de521297a5213d4b95fd77e77f444bbf65c5	{}
 scripts/python/engine/entities/selectors/composites.py	mirror	57cbe2ccf4d283f1604d94bc310a59db880535fa5708170f2ab3a83fe3912c42	{}
 scripts/python/engine/entities/selectors/geometry.py	mirror	547a0c4dfc59f4564eb54771307bca94d9864d0bf6fa3c6df5bfccffeb4cba18	{}
 scripts/python/engine/entities/selectors/pathing.py	mirror	6f0e37d0e11ac006b9184d082e30ece1f278ca3785e3a1d2ee8fc7c1f2a4782e	{}
@@ -2181,7 +2181,7 @@ scripts/python/tests/engine/runner/test_1025_more_gitz_over_ere_live.py	mirror	5
 scripts/python/tests/engine/runner/test_1025r1_more_gitz_bonus_live.py	mirror	37d1917c0a872b2aee78d16ae5e1fa85dbe5e74e8256be69ca9762ab927646b9	{}
 scripts/python/tests/engine/runner/test_1027_belisarius_actives_offline.py	mirror	2f3ca73e7dfc4636f8b2c44446c195514c7a4ff68afbf6a832d7c6a77de781bb	{}
 scripts/python/tests/engine/runner/test_1027r7_sort_by_row_accord_live.py	mirror	2e75dfa8eaae045b6bc47decdbe7f280311d5573a49df11be65988a9b02d88f5	{}
-scripts/python/tests/engine/runner/test_1030_the_lantern_offline.py	mirror	644f2ac26f3697052a15b818d6fd34fdfaf84e9c04d8ad8539c7de8193a6dbf2	{}
+scripts/python/tests/engine/runner/test_1030_the_lantern_offline.py	mirror	7f478789e716e6b4e3e00b0b550f3a75b9982e1355dcce3f2ff390d49ff9ea8d	{}
 scripts/python/tests/engine/runner/test_1030r1_the_lantern_dynamic_target_offline.py	mirror	31c4349a119ffc546d229b57fca9ffcd19c3655f5d8cc3dd57b259388951c712	{}
 scripts/python/tests/engine/runner/test_1032_novacharge_callripperswarms_offline.py	mirror	27c30ef4404b7d7ebd8e0969e6f0efd210eec6acb82b5625514ad57970f05a81	{}
 scripts/python/tests/engine/runner/test_1033_reveal_offline.py	mirror	088273dcccf315f0614be09dbbabf084fc56871370a1bf344f4be41486960d08	{}
