@@ -25,10 +25,25 @@ CE QUI REND LA MESURE CONCLUANTE -- l'observable n'est pas l'ensemble, c'est le 
       * si elle n'y est PAS (ce que faisait le port d'avant), le total est **nrOfTiles + 1**,
         TOUJOURS.
 
-Donc **UN SEUL cast a `nrOfTiles` tuiles minees PROUVE** que la cible est dans le pool natif.
-C'est une preuve d'EXISTENCE, pas une statistique -- l'inverse (n casts a nrOfTiles+1) ne prouve
-rien et le probe le DIT au lieu de conclure. Le tirage etant aleatoire, on joue plusieurs seeds ;
-`P(cible tiree) = nrOfTiles / |pool|`, donc on vise une cible dont le disque est PETIT.
+Le probe tranche donc dans les DEUX sens, et les deux verdicts ont des formes differentes :
+
+  * **UN SEUL** cast a `nrOfTiles` tuiles minees PROUVE que la cible est dans le pool (preuve
+    d'EXISTENCE) ;
+  * N casts a `nrOfTiles + 1` REJETTENT cette hypothese quand
+    `prod(1 - nrOfTiles/(|pool|+1)) <= 0,01`. C'est un resultat, pas une absence de resultat --
+    et il faut le DIRE, sinon la seule issue possible du probe serait « non concluant ».
+
+Le tirage etant aleatoire, on joue plusieurs seeds et on vise une cible dont le disque est PETIT
+(`P(cible tiree) = nrOfTiles / |pool|` monte quand le pool descend).
+
+RESULTAT MESURE le 2026-08-18 sur `t6dpr4k06g`, board `MC1_67`, cible `(6,0)`, `|pool| = 7 + 1`,
+`nrOfTiles = 4` : **19 casts sur 19 rendent 5 tuiles minees**, jamais 4. **La tuile ciblee, VIDE,
+est RETRANCHEE** -- l'enonce de #10023-r1 annoncait l'inverse ; il etait FAUX.
+
+Invocation CONCLUANTE et reproductible (rc 0, `P = 0,0039`) :
+
+    python probe_10023r1_squig_pool_live.py --seeds 777,31337,4242,11,22,33,44,55 \
+        --board MC1_67 --state-file <chemin ABSOLU unique>
 
 ⚠ Ce probe ne compare AUCUN ensemble de tuiles : l'ordre d'enumeration natif du pool n'est pas
 porte (residu #215), donc les ensembles tires ne sont pas confrontables. Seul le cardinal l'est.
@@ -185,21 +200,32 @@ def main() -> int:
                   % (d["nMinees"], n, d["poolEstimeSansCible"]))
     print("")
     print("=== VERDICT ===")
-    ok = [d for _, d in lignes if d.get("castOk")]
+    ok = [d for _, d in lignes if d.get("castOk") and d.get("poolEstimeSansCible", 0) >= n]
     if not ok:
-        print("NON CONFRONTE : aucun cast n'a abouti (%s)"
-              % [d.get("erreur") for _, d in lignes])
+        print("NON CONFRONTE : aucun cast exploitable (%s)"
+              % [d.get("erreur") or "pool trop petit" for _, d in lignes])
         return 2
     cardinaux = sorted({d["nMinees"] for d in ok})
-    print("casts aboutis : %d ; cardinaux observes : %s ; nrOfTiles = %d"
+    print("casts exploitables : %d ; cardinaux observes : %s ; nrOfTiles = %d"
           % (len(ok), cardinaux, n))
     if preuve:
-        print("CONFRONTE : le natif GARDE la tuile ciblee (VIDE) dans `SurroundingTiles"
-              "(includeCenter=0)` -- le port d'avant la retranchait.")
+        print("H_GARDE : au moins un cast a rendu nrOfTiles -- la cible EST dans le pool, donc le")
+        print("natif la GARDE dans `SurroundingTiles(includeCenter=0)`.")
         return 0
-    print("NON CONCLUANT : tous les casts ont rendu nrOfTiles+1. Le tirage n'a jamais pris la")
-    print("cible ; ca ne prouve NI qu'elle est dans le pool NI qu'elle n'y est pas. Rejouer avec")
-    print("d'autres seeds, ou une cible de disque plus petit (`P(tiree) = nrOfTiles / |pool|`).")
+    #: Aucun cast n'a rendu `nrOfTiles`. Sous l'hypothese « la cible est dans le pool », chaque
+    #: cast avait `p = n / (|pool| + 1)` de la tirer ; la probabilite de N ratages d'affilee est
+    #: le produit des `(1 - p)`. Un produit assez petit REJETTE l'hypothese -- c'est un resultat,
+    #: pas une absence de resultat, et c'est ce que la version d'avant se refusait a dire.
+    proba = 1.0
+    for d in ok:
+        proba *= 1.0 - (float(n) / float(d["poolEstimeSansCible"] + 1))
+    print("P(ces %d ratages | la cible est DANS le pool) = %.4f" % (len(ok), proba))
+    if proba <= 0.01:
+        print("H_RETRANCHE : l'hypothese « la cible est dans le pool » est REJETEE a ce seuil.")
+        print("Le natif RETRANCHE la tuile ciblee, VIDE -- l'enonce de #10023-r1 disait l'inverse.")
+        return 0
+    print("NON CONCLUANT : pas assez de casts pour trancher (il en faut jusqu'a P <= 0,01).")
+    print("Rejouer avec d'autres seeds, ou viser une cible de disque plus petit.")
     return 1
 
 

@@ -15,10 +15,16 @@ defauts annonces par le residu n'avaient ni la meme cause ni le meme verdict :
     `board`, donc `[]` sur une origine en domaine ID, donc exclusion silencieusement VIDE.
     L'etage 2 rougit.
 
-⚠ **AUCUN test existant ne voyait la difference** : les quatre tests cibles du rayon de souffle
-sont verts sous la these refutee comme sous le port courant -- mesure. C'est ce qui rend ce
-fichier necessaire, et c'est aussi pourquoi #10023 n'avait pas pu trancher : sur son call-site
-(les sept entites-tuile d'une empreinte), les deux theses rendent la MEME tuile.
+⚠ **UN TEMOIN INDEPENDANT existait deja, et il n'est PAS celui qu'on attendait.** Contre-epreuve
+JOUEE (these refutee cablee dans `_main_tiles`, quatre tests cibles rejoues) : trois des quatre
+restent VERTS -- dont `test_1030_the_lantern_offline`, le plus proche du sujet, parce que sur son
+call-site les sept entites-tuile d'une empreinte resolvent TOUTES vers la meme unite et que les
+deux theses y rendent la MEME tuile (c'est exactement pourquoi #10023 n'avait pas pu trancher).
+Le quatrieme, lui, ROUGIT :
+`test_967r2_include_non_walkable_offline.py::test_etage4_les_deux_faces_de_1187_s_accordent`
+(`1187 ThriceBlessedConflagration`, `sisterhood.py::SurroundingTiles(Target())`) -- une face
+DECISION/COMBAT qui cesse de s'accorder. La banque refusait donc deja la these du residu, par un
+fichier qu'aucune lecture de la fiche n'aurait designe.
 
 ⚠ LES MUTATIONS PATCHENT **DEUX** LIAISONS, et ce n'est pas une precaution : `accessors.py`
 importe `_main_tiles` en FORME A (`from ...dsl.base import _main_tiles`), donc un
@@ -161,10 +167,10 @@ def test_la_RESOLUTION_D_OCCUPANT_fait_ROUGIR_l_etage(etage, mutation_resolution
 
     Elle est seduisante -- elle se lit directement dans `TargetsSelector$$SelectUnit` -- et c'est
     precisement pour ca qu'il faut un refus EXECUTABLE et pas une phrase de docstring. Un lecteur
-    qui « aligne le code sur le decompile » la reintroduirait, et **aucun test existant ne le
-    verrait** : les quatre tests cibles du rayon de souffle (`test_1030_the_lantern_offline`,
-    `test_967r2_include_non_walkable_offline`, `test_units_directly_behind_offline`,
-    `test_979_ports_decision_offline`) restent verts dans les DEUX regimes -- mesure."""
+    qui « aligne le code sur le decompile » la reintroduirait, et le seul temoin qui l'attraperait
+    ailleurs est `test_967r2_include_non_walkable_offline::test_etage4_les_deux_faces_de_1187_s
+    _accordent` -- un fichier que rien ne designe depuis ici (contre-epreuve jouee, cf. l'en-tete
+    de module)."""
     mutation_resolution()
     assert etage() == 1, (
         "l'etage %s reste VERT sous la resolution d'occupant : il ne garde pas la mesure live"
