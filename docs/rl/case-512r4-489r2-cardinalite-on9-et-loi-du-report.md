@@ -207,13 +207,50 @@ d'`AttackHitsWithModifiersFormula`.
 mais aucune forme ne passe les trois, et livrer celle qui passe `1129` rendrait `master` rouge sur
 `1227`. Le residu `#489-r2` est **re-enonce**, pas ferme.
 
-### 2.4 Sous-residu `#512-r5` — `DSLFormulas$$Get` n'est pas `$$Direct`
+### 2.4 Sous-residu `#512-r5` — **REFUTE le 2026-08-18 : `$$Get(int)` EST `$$Direct(int)`**
 
-Le port lit le 9e argument de `1006` comme `extra = 1` (la valeur de `GetNumberConstant(0x2b)`).
-Or `IdunBattleLogic.Entities.DSLFormulas$$Get(int)` et `$$Direct(int)` **allouent deux CLASSES de
-formule differentes** (`thunk_FUN_180222ae0(DAT_183396708)` contre celle de `$$Direct`), et la
-distinction n'a jamais ete lue. Si `Get(1)` ne rend pas `1`, une partie de la table ci-dessus se
-reinterprete. Foyer : `engine/runner/abilities/necrons.py`, `.../worldeaters.py`.
+Enonce d'origine : « les deux factories allouent deux CLASSES de formule differentes ». **C'est
+faux, et la cause de l'erreur est la RESOLUTION du symbole.**
+
+`IdunBattleLogic.Entities.DSLFormulas$$Get` porte **TROIS** surcharges, que `ghidra/functions.tsv`
+nomme identiquement (c'est le regime des 5 341 noms multi-VA du build). Elles ne se distinguent que
+par leur SIGNATURE, LUE dans `frida/methods.tsv` :
+
+| signature | retour | classe allouee |
+|---|---|---|
+| `Get(s:System.String)` | `IdunBattle.DSL.IStringFormula` | `183396d98` |
+| `Get(vector:IdunBattle.Utils.Hex.Edge)` | `IdunBattle.DSL.IVectorFormula` | `183396ee8` |
+| **`Get(amount:System.Int32)`** | `IdunBattle.DSL.IAmountFormula` | **`183396708`** |
+| **`Direct(amount:System.Int32)`** | `IdunBattle.DSL.IAmountFormula` | **`183396708`** |
+
+La fiche avait confronte `$$Direct` a l'une des deux premieres.
+
+**MESURE (build `t6dpr4k06g`).** Les deux corps chargent le MEME `Il2CppClass*`, appellent le MEME
+allocateur et le MEME ctor avec le MEME argument. Empreintes structurelles identiques sur les CINQ
+couches (`h_local` / `h_body` / `h_mnem` / `h_calls` / `h_imm`, meme taille, meme `n_ins`) ;
+desassemblage : memes **5** adresses decisives. Seuls les booleens `s_Il2CppMethodInitialized`
+different — un octet « bloc de metadonnees deja amorce », qui ne designe ni classe ni valeur ; le
+probe le classe par sa **largeur d'acces** (1 octet), jamais par une liste d'adresses en dur.
+
+**Corroboration independante de la classe** : `DSLFormulas$$Half(a, r)` monte
+`Divide(a, <183396708>(2), r)` et `$$Double(a)` monte `Multiply(a, <183396708>(2))` — la semantique
+« moitie » / « double » exige que cette classe rende la constante. C'est
+`IdunBattle.DSL.DirectAmount` (taille 24, base `ASimpleAmountFormula`), dont le ctor ecrit l'int a
+`+0x10` ; `DirectStringFormula$$Calculate` relit ce meme `+0x10`. `DirectAmount$$Calculate` est
+absent des deux tables — corps trivial **dedupliqué**, exactement le faux negatif que le CLAUDE.md
+decrit.
+
+**CONSEQUENCE POUR CE DOCUMENT : la table du §2.3 n'a PAS a etre reinterpretee.** Le `extra = 1`
+de `1006` tient, et `#489-r2` reste ouvert sur sa loi, inchange.
+
+Mesure re-jouable : `python probe_512r5_get_vs_direct.py` (deux volets ; le volet EMPREINTE est
+100 % offline sur `data/symbols`, le volet CIBLES desassemble le PE du build courant et sort
+`NON MESURE` s'il manque). `--mutation` substitue `Get(string)` a `Direct(int)` et doit rendre
+`RC=1`. Cliquet : `tests/engine/test_512r5_get_est_direct_offline.py`.
+
+⚠ **L'empreinte structurelle CORROBORE mais ne TRANCHE pas** : `fingerprint_functions.py` reduit
+toute reference de DONNEE au jeton unique `<X>`, donc deux classes differentes y rendraient la meme
+valeur — precisement le faux negatif que ce residu redoutait. Seul le volet CIBLES repond.
 
 ---
 

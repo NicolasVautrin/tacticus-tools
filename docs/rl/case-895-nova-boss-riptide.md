@@ -126,3 +126,31 @@ origine retirée de la zone marquée.
 **première** occurrence du fichier (`_ability_level_amount`, l'helper de 1082), pas
 `_nova_ability_scaling`. La mutation n'avait pas mordu là où on la croyait — et l'étage [4] du
 probe, lui, ne lisait que la cascade NATIVE, donc deux mutants de source passaient verts.
+
+## 8. `#895-r5` — RÉSOLU (2026-08-18) : la même faute sur `1082`, et le remède existait déjà
+
+**Prémisse re-mesurée, confirmée verbatim.**
+`IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$ExecuteBehaviour(this,
+abilityState, entities)` recopie `*(abilityState)` et `*(abilityState + 8)` dans un local, puis
+passe **ce local** aux deux `AbilityConfiguration$$GetVariableForLevel` (`0x20 = hpToHeal`,
+`0x22 = hpToHeal_2`) — la séquence de recopie est même **répétée** avant chaque lecture. C'est
+exactement la forme de `NovaShieldAbility$$ExecuteBehaviour` (§2).
+
+**Ce que la tranche apprend, et qui dépasse `1082`** : le remède était là depuis #895, sous un nom
+qui le déclarait faussement spécifique. `_nova_ability_scaling` prenait son `ability_type` **en
+paramètre** dès l'origine — il était générique *par construction*, spécifique *par son nom seul*.
+C'est ce nom qui a fait ré-écrire la lecture globale dans `_itg_heal_amounts` au lieu de l'appeler.
+Renommé **`_ability_scaling`** (un seul appelant, même fichier ; rayon de souffle mesuré : aucun
+lecteur exécutable hors `tau.py`).
+
+**Régime.** Les deux canaux **coïncident sur un héros**. Le global ne décroche que sur un porteur
+dont `combatSnapshot.unitConfig` vaut `{"error": "config null"}` — un npc. `1082` n'ayant
+aujourd'hui que des porteurs `lineup`, l'écart était **latent** ; il devient réel dès qu'un npc
+porte l'ability (greffe, injection catalogue).
+
+**Garde** : `tests/engine/runner/test_895r5_itg_scaling_per_ability_offline.py` (4 étages,
+7 tests), vu **rouge par mutation** (2 failed / 5 passed en remettant la lecture globale) —
+`hpToHeal` rend **15** au canal global contre **1786** au per-ability, facteur ~119. L'étage 0
+assertionne que le montage **sépare** les deux canaux (sans quoi tout le reste serait un accord à
+vide) ; l'étage 3 garde que l'état d'une **autre** ability n'est pas lu — ce que ni #895 ni aucun
+autre étage ne vérifiait ; l'étage 0bis garde que le foyer reste **partagé** avec `NovaShield`.
