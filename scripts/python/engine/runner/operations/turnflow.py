@@ -650,7 +650,7 @@ class StartTurnOperation:
             # ⚠ C'est UN SEUL champ, pas deux : un `Nullable<UnitPositionId>` fait 16 octets, et le
             # natif l'efface en deux `undefined8` -- exactement comme
             # `SetUnitPositionOperation$$SavePreviousPosition` l'ECRIT en deux `undefined8`.
-            # ⚠ ET C'EST TOUTE LA DIFFERENCE AVEC `+0x88` : le jumeau `PositionComponent.previous`
+            # ⚠ ET C'EST TOUTE LA DIFFERENCE AVEC `+0x88` : le jumeau `UnitComponent.previous_position`
             # n'est PAS touche ici. Les deux slots recoivent la meme valeur a l'ecriture et ne
             # divergent QUE par cette remise a zero -- d'ou << position precedente CE TOUR >> contre
             # << position precedente >> tout court.

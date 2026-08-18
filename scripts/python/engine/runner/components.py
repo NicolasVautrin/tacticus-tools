@@ -437,6 +437,7 @@ class UnitComponent(Component):
                  "critical_hits_this_turn",
                  "total_attacks_made", "defeated_units_melee", "defeated_units_other",
                  "total_defeated_units", "death_killer_id", "previous_position_this_turn",
+                 "previous_position",
                  "movement_target_override", "rarity", "defeated_by_melee")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -593,6 +594,22 @@ class UnitComponent(Component):
         # et non sur la `PositionComponent` parce qu'il doit survivre au retrait de plateau -- cf.
         # la docstring de `PositionComponent`, ou l'ecart de collapse est motive.
         self.previous_position_this_turn = None
+        # #448-r7 -- `MovementComponent+0x88` (`PreviousTile`), le JUMEAU du champ ci-dessus. Les
+        # DEUX sont ecrits ensemble par `save_previous_position`, avec la MEME valeur, et le
+        # decompile de `IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` montre qu'ils
+        # vivent sur le MEME composant natif : les deux ecritures resolvent leur composant par le
+        # MEME `GetComponent<...>` et ecrivent le MEME `UnitPositionId` a `+0x88` puis `+0x98`.
+        #
+        # Il vivait sur la `PositionComponent`, que `set_unit_feet(uid, [])` SUPPRIME au retrait de
+        # plateau -- ce que le natif ne fait JAMAIS au `MovementComponent` (le retrait ne met a zero
+        # que les `TileId` des pieds). Le champ etait donc DETRUIT par une sortie de plateau alors
+        # que le natif le CONSERVE. C'etait un probleme d'EMPLACEMENT, pas d'ecriture : l'ecriture
+        # etait juste, et aucun `write` n'etait fautif.
+        #
+        # ⚠ CE QUI LES SEPARE RESTE INCHANGE : `previous_position_this_turn` (`+0x98`) est en OUTRE
+        # efface par `StartTurnOperation$$Execute` ; `previous_position` (`+0x88`) ne l'est pas --
+        # son seul remetteur a zero est `ResetPreviousPositionBehaviour$$Execute`.
+        self.previous_position = None
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -754,19 +771,27 @@ class PositionComponent(Component):
     """Position sur le board — `PositionComponent` IdunBattle.Entities.Components.PositionComponent$$.ctor (et `UnitFootComponent`
     IdunBattle.Entities.Components.UnitFootComponent$$.ctor : UnitId@0x10, TileId@0x14). Coordonnées hex (col,row).
 
-    `previous` = la POSITION PRECEDENTE (`Nullable<UnitPositionId>` @+0x88), ecrite par
+    ⚠ **NI `+0x88` NI `+0x98` NE VIVENT ICI, et c'est MESURE (#1082 puis #448-r7).** Les deux slots
+    de position precedente sont ecrits ENSEMBLE, avec la MEME valeur, par
     `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition` -- LU verbatim :
 
         if (previousPosition == null || previousPosition.Count < 1) return;   // gate de garde
         id = new UnitPositionId(previousPosition);
-        pc = unit.GetComponent<PositionComponent>();
-        pc.<+0x88> = new Nullable<UnitPositionId>(id);      <- CE champ (`PreviousTile`)
-        pc.<+0x98> = new Nullable<UnitPositionId>(id);      <- l'AUTRE (`GetPreviousPositionThisTurn`)
+        comp.<+0x88> = new Nullable<UnitPositionId>(id);    <- `PreviousTile`
+        comp.<+0x98> = new Nullable<UnitPositionId>(id);    <- `GetPreviousPositionThisTurn`
 
-    Les DEUX slots recoivent la MEME valeur a l'ecriture ; ils DIVERGENT ensuite par leurs remises
-    a zero, et c'est toute leur difference :
+    Cote port ils sont TOUS DEUX sur le `UnitComponent` (`previous_position` et
+    `previous_position_this_turn`), et la raison est la MEME pour les deux : le port a COLLAPSE
+    `MovementComponent` et `UnitFootComponent` dans cette classe-ci, or `set_unit_feet(uid, [])` la
+    **SUPPRIME** au retrait du plateau -- ce que le natif ne fait JAMAIS au `MovementComponent`
+    (`IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute` ne met a zero que les `TileId`
+    des pieds, et ses DEUX ecritures de position precedente resolvent leur composant par le MEME
+    `GetComponent<...>`). Les loger ici les effacerait donc a chaque sortie de plateau, alors que le
+    natif les CONSERVE. MEME residu structurel de collapse que `times_attacked_this_turn`
+    (case-202 SS6).
 
-      * `previous` (`+0x88`) = la position precedente TOUT COURT. Lue par
+    Ce qui SEPARE les deux slots ne tient pas a leur porteur mais a leurs remises a zero :
+      * `UnitComponent.previous_position` (`+0x88`) = la position precedente TOUT COURT. Lue par
         `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`
         (`comp.<+0x88>.HasValue ? UnitPositionIdExtensions.ToTileList(value) : new List()`) ;
         remise a zero par le SEUL `ResetPreviousPositionBehaviour$$Execute`.
@@ -774,27 +799,12 @@ class PositionComponent(Component):
         TOUR**. Lue par `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` ;
         effacee **en plus** par `IdunBattle.Operations.StartTurnOperation$$Execute`, qui ecrit
         `comp.<+0x98> = comp.<+0xa0> = 0` pour chaque unite du pool (seconde boucle) -- `+0x88` n'y
-        est PAS touche. C'est cette remise a zero supplementaire qui les separe.
+        est PAS touche. C'est cette remise a zero supplementaire qui les separe."""
+    __slots__ = ("col", "row")
 
-    ⚠ POURQUOI `+0x98` N'EST PAS LOGE ICI, alors que le natif met les DEUX slots sur le meme
-    composant. Le port a COLLAPSE `MovementComponent` et `UnitFootComponent` dans cette classe, or
-    `set_unit_feet(uid, [])` la SUPPRIME au retrait du plateau -- ce que le natif ne fait jamais au
-    `MovementComponent` (`RemoveUnitFromTilesOperation$$Execute` ne met a zero que les `TileId` des
-    pieds). Loger `+0x98` ici l'effacerait donc a chaque sortie de plateau, et rendrait
-    STRUCTURELLEMENT INATTEIGNABLE son unique consommateur porte -- l'etage E1 de
-    `IdunBattle.Operations.MoveUnitOperation$$Execute` (`movement._movement_start_position`), dont
-    tout l'objet est le regime << unite HORS PLATEAU qui vient de quitter une tuile ce tour >>. Il
-    vit donc sur le `UnitComponent`, qui survit au retrait : MEME residu structurel de collapse que
-    `times_attacked_this_turn` (case-202 SS6), et ici il est LOAD-BEARING.
-
-    Liste de coordonnees `(col,row)` -- une `UnitPositionId` porte l'EMPREINTE (multi-hex), et
-    `ToTileList` la deplie. `None` = `Nullable` VIDE (aucun deplacement encore enregistre)."""
-    __slots__ = ("col", "row", "previous")
-
-    def __init__(self, col: int, row: int, previous=None):
+    def __init__(self, col: int, row: int):
         self.col = col
         self.row = row
-        self.previous = list(previous) if previous else None
 
 
 class PendingDamage:
@@ -1921,7 +1931,7 @@ def persistent_data(entity, key):
 
 def save_previous_position(state, unit_id, previous_tiles) -> bool:
     """`IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition(unit, previousPosition)`
-    -- FOYER UNIQUE de l'ecriture de `PositionComponent.previous`. Mirror du decompile :
+    -- FOYER UNIQUE de l'ecriture de `UnitComponent.previous_position`. Mirror du decompile :
 
         if (previousPosition == null) throw
         if (previousPosition.Count < 1) return          <- gate LU : une empreinte VIDE n'ecrit rien
@@ -1935,16 +1945,18 @@ def save_previous_position(state, unit_id, previous_tiles) -> bool:
     if unit_id is None or not previous_tiles:
         return False                                    # `Count < 1` -> aucune ecriture
     e = state.get_entity(int(unit_id))
-    pc = e.get_component(PositionComponent) if e is not None else None
-    if pc is None:
+    if e is None:
         return False
     tiles = [(int(c), int(r)) for c, r in previous_tiles]
-    pc.previous = tiles                                 # `<+0x88>`
-    # `<+0x98>` -- MEME valeur, MEME instruction native, copie distincte cote port. Loge sur le
-    # `UnitComponent` parce qu'il doit SURVIVRE au retrait de plateau (cf. `PositionComponent`).
+    # `<+0x88>` ET `<+0x98>` -- MEME valeur, MEMES instructions natives, deux copies cote port.
+    # TOUS DEUX sur le `UnitComponent` parce qu'ils doivent SURVIVRE au retrait de plateau, comme
+    # le `MovementComponent` natif qui les porte (#1082 pour `+0x98`, #448-r7 pour `+0x88` -- cf.
+    # la docstring de `PositionComponent`, ou l'ecart de collapse est motive).
     uc = e.get_component(UnitComponent)
-    if uc is not None:
-        uc.previous_position_this_turn = list(tiles)
+    if uc is None:
+        return False
+    uc.previous_position = tiles                        # `<+0x88>`
+    uc.previous_position_this_turn = list(tiles)        # `<+0x98>`
     return True
 
 
@@ -1958,11 +1970,19 @@ def previous_tiles(entity) -> list:
                                  : new List<TileEntity>()
 
     Rend les coordonnees `(col,row)` de l'empreinte PRECEDENTE, `[]` si le `Nullable` est vide.
-    Lu par l'accesseur `ctx.previous_tiles`."""
+    Lu par l'accesseur `ctx.previous_tiles`.
+
+    ⚠ #448-r7 -- LE CHAMP EST SUR LE `UnitComponent`, PAS SUR LA `PositionComponent`. Le natif le
+    porte sur le `MovementComponent`, que le retrait de plateau ne touche pas ; cote port la
+    `PositionComponent` est SUPPRIMEE par `set_unit_feet(uid, [])`, si bien que ce selecteur rendait
+    `[]` sur toute unite sortie du plateau la ou le natif rend la tuile QUITTEE."""
     if entity is None:
         return []
-    pc = entity.get_component(PositionComponent)
-    return list(pc.previous or ()) if pc is not None else []
+    uc = entity.get_component(UnitComponent)
+    # Composant absent -> `[]`. Le natif LEVE dans ce cas ; la degradation est celle qui existait
+    # deja ici (elle est nommee dans `selectors/tiles.py::PreviousTile`), et elle est INCHANGEE par
+    # le demenagement : seule la classe de composant consultee change.
+    return list(uc.previous_position or ()) if uc is not None else []
 
 
 def persistent_data_keys(entity) -> frozenset:

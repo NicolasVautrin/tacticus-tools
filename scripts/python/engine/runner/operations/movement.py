@@ -674,7 +674,7 @@ def _movement_start_position(state: State, mover_id: int) -> list:
 
     **LE SECOND BRAS EST DESORMAIS ATTEIGNABLE** (#1082, ferme `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2`).
     `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` lit le slot `+0x98`, le
-    JUMEAU de `+0x88` (celui que porte `PositionComponent.previous`). Les deux sont ecrits ensemble
+    JUMEAU de `+0x88` (celui que porte `UnitComponent.previous_position`). Les deux sont ecrits ensemble
     et avec la MEME valeur par `SetUnitPositionOperation$$SavePreviousPosition` et par
     `RemoveUnitFromTilesOperation$$Execute`, mais ils ne sont PAS remis a zero ensemble :
     `IdunBattle.Operations.StartTurnOperation$$Execute` efface `+0x98` (et lui seul, en deux
@@ -695,7 +695,7 @@ def _movement_start_position(state: State, mover_id: int) -> list:
         return feet                                  # `!IsEmpty(currentPosition)` -> on s'arrete la
     e = state.get_entity(int(mover_id))
     # `GetPreviousPositionThisTurn` lit `<+0x98>`, porte par `UnitComponent.previous_position_this
-    # _turn` (#1082) -- et non par `PositionComponent.previous` (`<+0x88>`), qui est un AUTRE slot.
+    # _turn` (#1082) -- et non par `UnitComponent.previous_position` (`<+0x88>`), qui est un AUTRE slot.
     # Il vit sur le `UnitComponent` PRECISEMENT pour survivre au `set_unit_feet(uid, [])` qui
     # supprime la `PositionComponent` : c'est ce qui rend ce second bras ATTEIGNABLE.
     uc = e.get_component(UnitComponent) if e is not None else None
@@ -1604,7 +1604,7 @@ class MoveUnitOperation(Operation):
         else:
             # `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition(unit,
             # previousPosition)` -- l'EMPREINTE QUITTEE est memorisee dans
-            # `PositionComponent.previous` (`+0x88`) AVANT l'ecriture de la nouvelle position.
+            # `UnitComponent.previous_position` (`+0x88`) AVANT l'ecriture de la nouvelle position.
             # C'est ce que lit le selecteur `PreviousTile`, et le seul poseur de mine du binaire
             # (`HaywireMineAbility`) en depend entierement.
             # POSE ICI, et pas dans une operation dediee : le port utilise `MoveUnitOperation` comme
