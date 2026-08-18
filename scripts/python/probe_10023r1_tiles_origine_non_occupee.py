@@ -40,8 +40,21 @@ POURQUOI LE DECOMPILE ET LA MESURE SE REJOIGNENT -- la porte VIRTUELLE de `Selec
 `CasterTiles` en `+0x58` -- lu dans `DSLSelectors$$InitializeShared`) declare rendre des UNITES,
 donc l'entite-TUILE qu'il porte sur un cast tile-target traverse SANS etre resolue.
 
-Cette propriete n'est PAS resoluble en statique (corps triviaux `return 1` dedupliques par IL2CPP,
-aucun proprietaire nomme) et n'est PAS portee : residu `#10023-r3`.
+⚠ **DEUX QUESTIONS DISTINCTES, ET UNE SEULE EST INSOLUBLE EN STATIQUE** -- les confondre a failli
+faire renoncer a une mesure qui existe (#10023-r3) :
+
+  * **la VALEUR** de `get_ReturnsOnlyUnits` : insoluble hors runtime, oui. Les corps triviaux
+    `return 1` sont DEDUPLIQUES par IL2CPP et `frida/methods.tsv` est indexee par ADRESSE -- elle
+    ne porte AUCUN `get_ReturnsOnlyUnits`. Elle a donc ete MESUREE en live
+    (`probe_10023r3_caster_tiles_regime_live.py`) ;
+  * **l'existence d'un OVERRIDE** : parfaitement resoluble. `global-metadata.dat` est indexee par
+    TYPE, pas par adresse, donc la deduplication du CODE ne l'aveugle pas. C'est l'ETAGE 7, et
+    c'est lui qui autorise a transporter la mesure de `CasterTileSelector` a ses freres.
+
+La propriete est PORTEE depuis #10023-r3 (`TargetsSelector.RETURNS_ONLY_UNITS`), et le regime
+mesure est « rendue TELLE QUELLE » -- donc `Tiles(origin)` retranche AUTANT de tuiles que l'origine
+ENUMERE d'entites : UNE sur `Caster()`/`Target()` (une entite-unite), TOUTE L'EMPREINTE sur
+`CasterTile()`/`TargetTile()` (N entites-tuile).
 
 Chaque etage porte sa CONTRE-EPREUVE. Board SYNTHETIQUE et plat : le sujet est le domaine de
 l'origine, pas le terrain. ASCII only (cp1252).
@@ -362,9 +375,22 @@ def etage3_multi_unites() -> int:
 
 
 # --------------------------------------------------------------------------------------------
-# ETAGE 4 -- NON-REGRESSION #10023 : les SEPT tuiles de Mortarion retranchent UNE tuile
+# ETAGE 4 -- les SEPT entites-tuile de Mortarion retranchent SEPT tuiles (#10023-r3, MESURE LIVE)
 # --------------------------------------------------------------------------------------------
-def etage4_non_regression_10023() -> int:
+def etage4_empreinte_retranchee_en_entier() -> int:
+    """LE CALL-SITE DE `1094 TheLantern`, ET LE SEUL DES SIX ETAGES QUE LE LIVE A RETOURNE.
+
+    `cring1 = SurroundingTiles(CasterTile(as_ids=True), 1, includeCenter: 0)` sur une empreinte de
+    SEPT tuiles. Sous `ReturnsOnlyUnits == true` -- ce que `CasterTiles` declare, MESURE #10023-r3 --
+    `TargetsSelector$$SelectAllUnits` rend la liste TELLE QUELLE, chaque entite-tuile etant sa
+    propre main tile (3e branche d'`EntityExtensions$$GetMainTileId`) : **les SEPT sont
+    retranchees**.
+
+    ⚠ CET ETAGE ASSERTIONNAIT L'INVERSE (« UNE SEULE retranchee »), et il etait VERT -- le port
+    portait la meme lecture que lui. Aucun cliquet ne pouvait le voir : il a fallu une mesure
+    EXTERIEURE. `1094 TheLantern` sur `deathBossMortarion` (board `GB_Mortarion_05`, cible `(1,7)`)
+    marque 9 tuiles, l'aire de CE regime, contre 10 pour l'autre.
+    `probe_10023r3_caster_tiles_regime_live.py`."""
     b = _board()
     centre = (4, 4)
     empreinte = [centre] + [(c, r) for (c, r) in hexgeo.disk(centre[0], centre[1], 1)
@@ -377,14 +403,23 @@ def etage4_non_regression_10023() -> int:
     union = set()
     for p in empreinte:
         union |= {b.id_at(c, r) for (c, r) in hexgeo.disk(p[0], p[1], 1)}
-    attendu = union - {b.id_at(*centre)}
-    print("[E4] origine = les SEPT entites-tuile de l'empreinte (#10023)")
-    print("     attendu %d tuiles (UNE SEULE retranchee) ; port %d" % (len(attendu), len(sortie)))
-    if sortie != attendu:
-        print("[E4] ECHEC : %d tuile(s) retranchee(s) au lieu d'une" % (len(union) - len(sortie)))
+    attendu = union - set(ids)
+    print("[E4] origine = les SEPT entites-tuile de l'empreinte (#10023-r3)")
+    print("     attendu %d tuiles (les SEPT retranchees) ; port %d" % (len(attendu), len(sortie)))
+    #: NON-VIDE de la mesure : sans ce cran, un montage ou l'empreinte couvrirait tout le disque
+    #: rendrait `attendu` vide et l'egalite serait vraie sans rien prouver.
+    if not attendu or len(union) - len(attendu) != len(ids):
+        print("[E4] ECHEC (montage) : l'ecart entre les deux regimes n'est pas de %d tuiles"
+              % len(ids))
         return 1
-    print("[E4] OK : une seule main tile retranchee, les six pieds secondaires gardes.")
+    if sortie != attendu:
+        print("[E4] ECHEC : %d tuile(s) retranchee(s) au lieu de %d"
+              % (len(union) - len(sortie), len(ids)))
+        return 1
+    print("[E4] OK : les sept entites-tuile retranchees, le reste de l'union garde.")
     return 0
+
+
 
 
 # --------------------------------------------------------------------------------------------
@@ -486,11 +521,99 @@ def etage6_atteignabilite_multi_unites() -> int:
     return 0
 
 
+# --------------------------------------------------------------------------------------------
+# ETAGE 7 -- CE QUI AUTORISE A TRANSPORTER LA MESURE D'UN SELECTEUR A L'AUTRE (#10023-r3)
+# --------------------------------------------------------------------------------------------
+#: Les selecteurs dont le port suppose qu'ils PARTAGENT `get_ReturnsOnlyUnits` avec leur base.
+#: `CasterTileSelector` est le SEUL des trois dont la valeur soit MESUREE en live
+#: (`probe_10023r3_caster_tiles_regime_live.py`, `1094 TheLantern` sur un caster SEPT-HEX) ; les
+#: deux autres en heritent -- et c'est CET etage qui rend cet heritage verifiable.
+HERITIERS_SANS_OVERRIDE = (
+    ("IdunBattle.Entities.Selectors", "CasterTileSelector"),
+    ("IdunBattle.Entities.Selectors", "TargetTilesSelector"),
+    ("IdunBattle.Entities.Selectors", "UnitsMainTilesSelector"),
+)
+BASE_DES_SELECTEURS = ("IdunBattle.DSL", "TargetsSelector")
+#: Les six types dont `il2cpp_metadata.locate_types` derive la grille (memes ancres que
+#: `probe_477r25_slots_autres_interfaces.py` -- aucune n'est un selecteur, donc aucune circularite).
+_ANCRES = (("Core.Services", "OperationProcessor"),
+           ("IdunBattle.Core.Services", "BattleQuery"),
+           ("IdunBattle.Core.Services", "AttackQuery"),
+           ("IdunBattle.Core.Services", "MovementQuery"),
+           ("IdunBattle.Core.Services", "DamageCalculations"),
+           ("IdunBattle.Core", "MatchState"))
+
+
+def etage7_pas_d_override_de_returns_only_units() -> int:
+    """LE CRAN QUI MANQUAIT, ET SANS LUI LE PORT GENERALISE UNE MESURE SANS DROIT.
+
+    `TargetsSelector.RETURNS_ONLY_UNITS = True` (`engine/dsl/base.py`) est une valeur MESUREE sur
+    UN seul selecteur. La transporter aux autres n'est licite que s'ils n'OVERRIDENT PAS la
+    propriete -- et `frida/methods.tsv` ne peut pas le dire : elle est indexee par ADRESSE et
+    IL2CPP DEDUPLIQUE les corps triviaux (« l'absence dans les tables ne prouve RIEN »). La source
+    qui le peut est `global-metadata.dat`, indexee par TYPE.
+
+    C'est exactement la faute que #10023-r3 a corrigee dans `test_459_tile_accessors_offline.py` :
+    ce fichier tenait `Tiles(TargetTile())` pour « une seule main tile » alors que
+    `TargetTilesSelector` herite du meme regime que `CasterTileSelector`.
+
+    NON MESURE (metadata absente : le jeu n'est pas installe) -> rc 0 avec un message NOMME. On ne
+    fabrique pas un rouge depuis une non-mesure, et on ne se rejouit pas non plus."""
+    import os
+    from pathlib import Path as _P
+    base = os.environ.get("LOCALAPPDATA")
+    build = (RACINE.parents[1] / "data" / "symbols" / "CURRENT")
+    nom = build.read_text(encoding="utf-8").strip() if build.exists() else None
+    meta = (_P(base) / "tacticus" / "games" / (nom or "") / "Tacticus_Data" / "il2cpp_data"
+            / "Metadata" / "global-metadata.dat") if (base and nom) else None
+    methods = RACINE.parents[1] / "data" / "symbols" / (nom or "") / "frida" / "methods.tsv"
+    if meta is None or not meta.exists() or not methods.exists():
+        print("[E7] NON MESURE : `global-metadata.dat` du build %r absente (jeu non installe ?) "
+              "-- le transport de la mesure n'est pas verifie ici." % (nom,))
+        return 0
+    try:
+        import il2cpp_metadata as M
+        r = M.read(meta)
+        r.locate(M.class_method_order(methods, "%s.%s" % _ANCRES[0]))
+        r.locate_types([(ns, nm, M.class_method_order(methods, "%s.%s" % (ns, nm)))
+                        for ns, nm in _ANCRES])
+        decl_base = [m.name for m in r.type_methods(*BASE_DES_SELECTEURS)]
+    except Exception as exc:                                        # noqa: BLE001
+        print("[E7] NON MESURE : lecture metadata impossible (%s)" % str(exc)[:150])
+        return 0
+    #: NON-VIDE de la mesure : si la base ne declarait PAS la propriete, l'etage ne garderait rien.
+    if "get_ReturnsOnlyUnits" not in decl_base:
+        print("[E7] ECHEC : `%s.%s` ne declare plus `get_ReturnsOnlyUnits` -- la propriete a "
+              "change de place, tout le raisonnement du port est a refaire."
+              % BASE_DES_SELECTEURS)
+        return 1
+    mauvais = []
+    for ns, nm in HERITIERS_SANS_OVERRIDE:
+        try:
+            noms = [m.name for m in r.type_methods(ns, nm)]
+        except Exception as exc:                                    # noqa: BLE001
+            print("[E7] NON MESURE pour %s (%s)" % (nm, str(exc)[:110]))
+            continue
+        ro = [n for n in noms if n.startswith("get_ReturnsOnly")]
+        print("[E7] %-24s declare %s%s" % (nm, noms, (" | OVERRIDE %s" % ro) if ro else ""))
+        if "get_ReturnsOnlyUnits" in noms:
+            mauvais.append(nm)
+    if mauvais:
+        print("[E7] ECHEC : %s OVERRIDE(nt) `get_ReturnsOnlyUnits`. La mesure faite sur "
+              "`CasterTileSelector` ne vaut plus pour eux : il faut MESURER chacun." % (mauvais,))
+        return 1
+    print("[E7] OK : aucun override -- la valeur MESUREE sur `CasterTileSelector` vaut pour les "
+          "%d selecteurs, par heritage LU dans le metadata (pas suppose)."
+          % len(HERITIERS_SANS_OVERRIDE))
+    return 0
+
+
 def main() -> int:
     rc = 0
     for f in (etage0_recensement, etage1_tuile_vide, etage1bis_pied_secondaire,
-              etage2_within_domaine_id, etage3_multi_unites, etage4_non_regression_10023,
-              etage5_domaine_tuile_insensible_a_units, etage6_atteignabilite_multi_unites):
+              etage2_within_domaine_id, etage3_multi_unites, etage4_empreinte_retranchee_en_entier,
+              etage5_domaine_tuile_insensible_a_units, etage6_atteignabilite_multi_unites,
+              etage7_pas_d_override_de_returns_only_units):
         try:
             rc |= f()
         except Exception as exc:                                    # noqa: BLE001

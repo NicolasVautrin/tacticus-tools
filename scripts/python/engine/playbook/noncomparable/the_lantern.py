@@ -128,13 +128,21 @@ class TheLanternPlaybook(NonComparablePlaybook):
 
     # ------------------------------------------------------------------ la ZONE
     @staticmethod
-    def _ring(ctx: NCContext, centers, radius: int, exclude_main) -> set:
+    def _ring(ctx: NCContext, centers, radius: int, exclude) -> set:
         """`DSLSelectors$$SurroundingTiles(origin, includeCenter = 0, range, onlyMovable = 0,
         includeNonWalkable = 0)` -- transpose en geometrie de DECISION.
 
-        `centers` = l'empreinte de l'origine (`IterateTiles`), `exclude_main` = la MAIN TILE seule
-        (`op_Subtraction Tiles(origin)` du natif ne retranche QUE celle-la, pas les pieds
-        secondaires). Les DEUX filtres de `TileUtil$$IsTileValidForList` sont appliques dans l'ordre
+        `centers` = l'empreinte de l'origine (`IterateTiles`), `exclude` = ce que retranche
+        `op_Subtraction Tiles(origin)` -- **TOUTE l'empreinte quand l'origine est un ensemble de
+        TUILES** (`CasterTiles`), pas sa seule main tile. `IdunBattle.DSL.TargetsSelector$$SelectAllUnits`
+        ouvre par `if (this.<klass+0x278 = get_ReturnsOnlyUnits>()) return list;` et `CasterTiles`
+        est de ce regime-la : aucune resolution TUILE -> OCCUPANT, donc chaque entite-tuile est SA
+        PROPRE main tile (3e branche d'`EntityExtensions$$GetMainTileId`).
+        ⚠ Ce parametre s'appelait `exclude_main` et valait `feet[:1]` : MESURE #10023-r3 (`1094
+        TheLantern` sur `deathBossMortarion`, board `GB_Mortarion_05`, cible `(1,7)` -> 9 tuiles
+        marquees, l'aire de CE regime, contre 10 pour l'autre). Les deux faces divergeaient d'une
+        tuile ; c'est la face COMBAT qui a ete alignee sur celle-ci, il fallait l'inverse.
+        Les DEUX filtres de `TileUtil$$IsTileValidForList` sont appliques dans l'ordre
         natif : le MUR d'abord (INCONDITIONNEL), puis la marchabilite (armee parce que
         `includeNonWalkable == 0`). Un substrat absent laisse la tuile passer -- meme degradation
         conservatrice que le noeud runner."""
@@ -149,7 +157,7 @@ class TheLanternPlaybook(NonComparablePlaybook):
                 if w is False:
                     continue                                   # `checkWalkable = (incl == 0)`
                 out.add(p)
-        return out - set(exclude_main or ())
+        return out - set(exclude or ())
 
     def _measured_feet(self, ctx: NCContext) -> list:
         """Les pieds du caster A L'ORIGINE, LUS dans `obs_units` (une ligne par pied). Liste vide
@@ -215,7 +223,8 @@ class TheLanternPlaybook(NonComparablePlaybook):
         feet = self._caster_footprint(ctx, position)
         ring1 = self._ring(ctx, [tile], 1, [tile])
         ring2 = self._ring(ctx, [tile], 2, [tile])
-        cring1 = self._ring(ctx, feet, 1, feet[:1])
+        #: op_Subtraction Tiles(CasterTiles) retranche TOUTE l'empreinte (#10023-r3, mesure).
+        cring1 = self._ring(ctx, feet, 1, feet)
         return {tile} | ring1 | (ring2 & cring1)
 
     # ------------------------------------------------------------------ l'UTILITE

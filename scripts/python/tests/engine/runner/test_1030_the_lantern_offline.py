@@ -161,26 +161,30 @@ def _zone_attendue(caster_pos=CASTER_POS, target=TARGET_POS) -> set:
     autrement que le port (ensembles Python purs, aucun noeud DSL), pour qu'une faute du port ne
     puisse pas se recopier dans son oracle.
 
-    ⚠ DEUX LECTURES, TOUTES DEUX RELUES AU DECOMPILE (#10023), et elles ne se compensent pas :
+    ⚠ DEUX LECTURES, TOUTES DEUX RELUES AU DECOMPILE, et elles ne se compensent pas :
 
     * `cring1 = SurroundingTiles(CasterTiles, ...)` porte l'EMPREINTE, pas la main tile --
       `IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext`
       ouvre par `foreach (tile in EntityExtensions.IterateTiles(center, state))`, donc le disque
       d'une origine MULTI-HEX est l'UNION des disques de TOUS ses pieds ;
-    * `includeCenter == 0` retranche `Tiles(origin)`, et `Tiles` resout d'abord chaque tuile en son
-      OCCUPANT (`IdunBattle.DSL.TargetsSelector$$SelectUnit` : `IsUnitFoot || IsTile -> GetUnit`)
-      avant `GetMainTile`. Les sept pieds rendent SEPT FOIS Mortarion -> UNE seule tuile retranchee.
-      Les SIX pieds secondaires RESTENT donc dans l'anneau, et l'un d'eux ((6,5) dans ce montage)
-      entre dans la zone.
+    * `includeCenter == 0` retranche `Tiles(origin)`, et `Tiles` = `GetMainTile` PAR ENTITE. Sous
+      `ReturnsOnlyUnits == true` -- ce que `CasterTiles` DECLARE, **mesure #10023-r3** --
+      `IdunBattle.DSL.TargetsSelector$$SelectAllUnits` rend la liste TELLE QUELLE : il n'y a AUCUNE
+      resolution TUILE -> OCCUPANT, et la 3e branche d'`EntityExtensions$$GetMainTileId` fait de
+      chaque tuile SA PROPRE main tile. **Les SEPT pieds sont donc retranches.**
 
-    C'est cet ecart d'exactement UNE TUILE qui a fait diverger les deux faces : le port COMBAT
-    retranchait les sept, la face DECISION (`TheLanternPlaybook.target_area`, `feet[:1]`) en
-    retranchait une. Le decompile donne raison a la seconde."""
+    ⚠ CET ORACLE A PORTE LA LECTURE INVERSE, et c'est le LIVE qui l'a tranchee, pas une relecture :
+    `1094 TheLantern` sur `deathBossMortarion` (SEPT hex, board `GB_Mortarion_05`, cible `(1,7)`)
+    marque **9** tuiles -- exactement l'aire « empreinte retranchee » -- contre **10** pour l'aire
+    « main tile seule », l'ecart etant le pied non-main `(3,8)` a distance 2 de la cible.
+    L'explication concurrente (un filtre d'OCCUPATION) est ecartee au decompile ET par un bras de
+    controle qui laisse MARQUEE une tuile qu'on vient d'occuper.
+    `probe_10023r3_caster_tiles_regime_live.py`."""
     d = hexgeo.distance
     feet = _empreinte_7(caster_pos)
     ring1 = {p for p in hexgeo.disk(target[0], target[1], 1) if p != target}
     ring2 = {p for p in hexgeo.disk(target[0], target[1], 2) if p != target}
-    cring = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - {feet[0]}
+    cring = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - set(feet)
     dans = lambda s: {p for p in s if 0 <= p[0] < COLS and 0 <= p[1] < ROWS}   # noqa: E731
     assert d(caster_pos, target) == 3, "le montage n'a plus la distance qu'il documente"
     return dans({target} | ring1 | (ring2 & cring))
@@ -195,10 +199,12 @@ DEHORS = (12, 12)
 def _dedans(zone: set, target=TARGET_POS, caster_pos=CASTER_POS) -> tuple:
     """Une tuile de la zone ou POSER un ennemi -- ni la cible, ni un PIED DU CASTER.
 
-    ⚠ L'exclusion de l'empreinte n'est pas cosmetique (#10023) : depuis que l'exclusion du centre
-    ne retranche qu'UNE tuile, les six pieds SECONDAIRES sont dans `cring1`, donc dans la zone. Y
-    poser un ennemi le superpose au caster -- `GetUnit(tuile)` rend alors le caster, `Enemies` le
-    filtre par team, et l'etage 3 constate un `Pinned` absent qu'il attribuerait au PORT."""
+    ⚠ L'exclusion de l'empreinte reste ECRITE ICI bien qu'elle soit devenue REDONDANTE (#10023-r3 :
+    les sept pieds sortent de `cring1`, donc aucun n'est dans la zone). On la garde parce qu'elle
+    protege du regime INVERSE : si un jour `CasterTiles` declarait `ReturnsOnlyUnits == false`, les
+    six pieds secondaires reviendraient dans la zone et y poser un ennemi le superposerait au caster
+    -- `GetUnit(tuile)` rendrait le caster, `Enemies` le filtrerait par team, et l'etage 3
+    constaterait un `Pinned` absent qu'il attribuerait au PORT."""
     libres = sorted(zone - {target} - set(_empreinte_7(caster_pos)))
     assert libres, "aucune tuile de la zone n'est libre du caster : montage a revoir"
     return libres[0]
@@ -354,33 +360,36 @@ def test_e2_contre_epreuve_union_au_lieu_d_intersection():
     assert got > _zone_attendue()
 
 
-def test_e2_contre_epreuve_l_exclusion_du_centre_ne_retranche_QU_UNE_tuile():
-    """CONTRE-EPREUVE de l'exclusion du centre (#10023) -- l'axe sur lequel les DEUX FACES du port
-    ont diverge, et que seule une origine MULTI-HEX peut montrer.
+def test_e2_contre_epreuve_l_exclusion_du_centre_retranche_TOUTE_l_empreinte():
+    """CONTRE-EPREUVE de l'exclusion du centre -- l'axe sur lequel les DEUX FACES du port ont
+    diverge, et que seule une origine MULTI-HEX peut montrer.
 
     `includeCenter == 0` vaut `SurroundingTiles(origin, includeCenter: 1) op_Subtraction
     Tiles(origin)`. `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` itere le slot 3
-    de son inner (`SelectAllUnits`), et `IdunBattle.DSL.TargetsSelector$$SelectUnit` y resout
-    d'abord `IsUnitFoot || IsTile -> GetUnit` : les SEPT entites-TUILE de l'empreinte rendent SEPT
-    FOIS Mortarion, donc `GetMainTile` UNE tuile. Les six pieds SECONDAIRES restent dans l'anneau.
+    de son inner (`SelectAllUnits`), qui ouvre par `if (this.<klass+0x278 = get_ReturnsOnlyUnits>())
+    return list;` -- et `CasterTiles` est de ce regime-la (**mesure LIVE #10023-r3**). Les SEPT
+    entites-TUILE traversent donc SANS resolution, chacune etant sa propre main tile : les SEPT
+    sont retranchees, et les six pieds secondaires SORTENT de l'anneau.
 
-    Le port retranchait les sept (l'exclusion vivait DANS la boucle sur les origines). Ce test
-    garde la difference EXACTE que ça faisait : la zone mutee est STRICTEMENT plus petite, et
-    l'ecart est exactement l'ensemble des pieds secondaires qui tombent dans `ring2`."""
+    ⚠ CE TEST GARDAIT L'ASSERTION INVERSE, et il etait VERT -- parce que le port portait la meme
+    lecture que son oracle. C'est exactement le regime ou un cliquet ne peut rien voir : seule une
+    mesure EXTERIEURE (le live) pouvait le rouvrir. La mutation gardee ici est donc desormais
+    l'ANCIENNE lecture (`cring` prive de la seule main tile), et la zone mutee est STRICTEMENT plus
+    GRANDE -- l'ecart etant exactement les pieds SECONDAIRES qui tombent dans `ring2`."""
     zone = _zone_attendue()
     feet = _empreinte_7()
     ring2 = {p for p in hexgeo.disk(*TARGET_POS, 2) if p != TARGET_POS}
-    #: LA LECTURE REFUTEE : `cring` prive de TOUTE l'empreinte, pas de la seule main tile.
-    cring_mute = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - set(feet)
+    #: LA LECTURE REFUTEE PAR LE LIVE : `cring` prive de la seule MAIN TILE.
+    cring_mute = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - {feet[0]}
     ring1 = {p for p in hexgeo.disk(*TARGET_POS, 1) if p != TARGET_POS}
     dans = {p for p in ({TARGET_POS} | ring1 | (ring2 & cring_mute))
             if 0 <= p[0] < COLS and 0 <= p[1] < ROWS}
-    perdues = zone - dans
-    assert perdues, (
+    gagnees = dans - zone
+    assert gagnees, (
         "la mutation ne mord pas sur ce montage : la contre-epreuve ne prouve rien. Il faut une "
         "cible dont `ring2` touche un pied SECONDAIRE du caster -- c'est le cas des six directions")
-    assert perdues <= set(feet) - {feet[0]}, perdues
-    assert dans < zone
+    assert gagnees <= set(feet) - {feet[0]}, gagnees
+    assert zone < dans
     #: ... et le PORT rend bien la zone NON mutee (le cran qui accuse une regression du noeud).
     from engine.runner.abilities.deathguard import the_lantern_area_selector
     from engine.runner.abilities.behaviours.context import entities_from_state

@@ -71,7 +71,7 @@ _LIAISONS = ("engine.dsl.base._main_tiles",
              "engine.entities.selectors.accessors._main_tiles")
 
 
-def _resolution_occupant(origin, board=None, units=None) -> list:
+def _resolution_occupant(origin, board=None, units=None, only_units=True) -> list:
     """LA THESE QUE LA MESURE LIVE A REFUTEE : resoudre chaque entite-TUILE en son OCCUPANT
     (`TargetsSelector$$SelectUnit` -> `UnitExtensions$$GetUnit`) avant `GetMainTile`.
 
@@ -95,7 +95,7 @@ def _resolution_occupant(origin, board=None, units=None) -> list:
     return out
 
 
-def _ts0_partout(origin, board=None, units=None) -> list:
+def _ts0_partout(origin, board=None, units=None, only_units=True) -> list:
     """Le port d'AVANT, STRICT : la premiere tuile de l'origine aplatie, quel que soit le domaine.
 
     En domaine TUILE il coincide avec le port courant (c'est ce que la mesure valide) ; en domaine
@@ -104,7 +104,7 @@ def _ts0_partout(origin, board=None, units=None) -> list:
     return B._origin_tiles(origin, board)[:1]
 
 
-def _sans_board(origin, board=None, units=None) -> list:
+def _sans_board(origin, board=None, units=None, only_units=True) -> list:
     """Le port d'AVANT tel que l'appelait `dsl/base._within` : `_main_tile(center)`, SANS `board`.
 
     Mutation DISTINCTE des deux autres, et il en faut trois : la faute de `_within` n'etait pas
@@ -150,7 +150,7 @@ def test_e0_les_call_sites_passent_board_et_units():
     P.etage1bis_pied_secondaire,
     P.etage2_within_domaine_id,
     P.etage3_multi_unites,
-    P.etage4_non_regression_10023,
+    P.etage4_empreinte_retranchee_en_entier,
     P.etage5_domaine_tuile_insensible_a_units,
 ], ids=lambda f: f.__name__)
 def test_le_port_tient(etage):
@@ -161,6 +161,13 @@ def test_le_port_tient(etage):
     P.etage1_tuile_vide,                        # la tuile VIDE cesserait d'etre retranchee
     P.etage1bis_pied_secondaire,                # la MAIN TILE serait coupee a la place du pied
     P.etage5_domaine_tuile_insensible_a_units,  # la sortie se mettrait a dependre de `units`
+    #: ⚠ ENTRE ICI DEPUIS #10023-r3, et c'est le cran qui manquait. Tant que l'etage 4 assertionnait
+    #: « UNE SEULE tuile retranchee », la resolution d'occupant y rendait le MEME resultat (les sept
+    #: pieds resolvent vers la meme unite) : l'etage SURVIVAIT a la mutation, ce que le test
+    #: `..._survivent_a_la_RESOLUTION` enregistrait comme un fait. Depuis que l'etage porte la
+    #: mesure LIVE (SEPT retranchees), la mutation MORD -- la contre-epreuve a gagne un etage
+    #: exactement la ou le port avait tort.
+    P.etage4_empreinte_retranchee_en_entier,
 ], ids=lambda f: f.__name__)
 def test_la_RESOLUTION_D_OCCUPANT_fait_ROUGIR_l_etage(etage, mutation_resolution):
     """LE cliquet de cette tranche : la these REFUTEE ne doit pas pouvoir revenir en silence.
@@ -177,10 +184,17 @@ def test_la_RESOLUTION_D_OCCUPANT_fait_ROUGIR_l_etage(etage, mutation_resolution
         % etage.__name__)
 
 
-def test_le_PORT_D_AVANT_fait_ROUGIR_l_etage3(mutation_ts0):
-    """En domaine UNITE, `ts[0]` ne rend qu'UNE main tile la ou la boucle native en rend N."""
+@pytest.mark.parametrize("etage", [
+    P.etage3_multi_unites,                          # domaine UNITE : N main tiles, pas une
+    #: ⚠ ET LE DOMAINE TUILE AUSSI, DEPUIS #10023-r3 : `ts[0]` sur les SEPT entites-tuile d'une
+    #: empreinte n'en retranche qu'UNE. C'est EXACTEMENT le port d'avant cette tranche, et c'est le
+    #: cran qui empeche qu'il revienne -- la mesure live l'a refute.
+    P.etage4_empreinte_retranchee_en_entier,
+], ids=lambda f: f.__name__)
+def test_le_PORT_D_AVANT_fait_ROUGIR_l_etage(etage, mutation_ts0):
+    """`ts[0]` ne rend qu'UNE tuile la ou la boucle native en rend N -- dans les DEUX domaines."""
     mutation_ts0()
-    assert P.etage3_multi_unites() == 1
+    assert etage() == 1
 
 
 def test_SANS_BOARD_fait_ROUGIR_l_etage2(mutation_sans_board):
@@ -193,17 +207,20 @@ def test_SANS_BOARD_fait_ROUGIR_l_etage2(mutation_sans_board):
     assert P.etage2_within_domaine_id() == 1
 
 
-@pytest.mark.parametrize("etage", [P.etage2_within_domaine_id, P.etage3_multi_unites,
-                                   P.etage4_non_regression_10023],
+@pytest.mark.parametrize("etage", [P.etage2_within_domaine_id, P.etage3_multi_unites],
                          ids=lambda f: f.__name__)
 def test_ces_etages_survivent_a_la_RESOLUTION_et_c_est_MESURE(etage, mutation_resolution):
     """Le pendant du test precedent : il faut DIRE ce que la mutation `resolution` ne montre pas.
 
     `etage2` : sa faute est l'argument manquant, pas la fonction. `etage3` : son origine est en
-    domaine UNITE, ou la resolution est un no-op. `etage4` (non-regression #10023) : les sept
-    entites-tuile resolvent TOUTES vers la meme unite, donc la resolution y rend AUSSI une seule
-    tuile -- c'est exactement pourquoi #10023 ne pouvait pas distinguer les deux theses, et
-    pourquoi il a fallu un call-site a tuile VIDE pour trancher."""
+    domaine UNITE, ou la resolution est un no-op.
+
+    ⚠ `etage4` ETAIT DANS CETTE LISTE, et son depart est le fait le plus instructif de #10023-r3 :
+    tant qu'il assertionnait « UNE SEULE tuile retranchee », la resolution d'occupant y rendait le
+    MEME resultat (les sept pieds resolvent vers la meme unite), donc l'etage survivait -- et ce
+    test enregistrait cette survie comme une propriete du natif. C'etait en realite la signature
+    d'un ORACLE et d'un PORT qui portaient la MEME erreur ; aucun cliquet ne pouvait la voir, il a
+    fallu une mesure exterieure."""
     mutation_resolution()
     assert etage() == 0
 

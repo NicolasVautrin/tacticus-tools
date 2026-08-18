@@ -12,6 +12,10 @@ import hexgeo
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
                          _effect_field, resolve_unit, _origin_tiles, _main_tiles, _select_tile)
+# FORME B (`import X` puis `X.foo()`) -- la seule des trois qui MORDE sous `monkeypatch.setattr`,
+# cf. CLAUDE.md. L'arete `selectors -> dsl.base` existe deja par l'import ci-dessus : aucun cycle
+# neuf, et rien de DIFFERE ici (import de niveau module).
+from ...dsl import base as dsl_base
 
 
 # --- Accesseurs SELECTEUR (mirror `DSLFactory.X` -> tuiles/entites/sujet natifs ; kind S). ---
@@ -419,14 +423,20 @@ class SurroundingTiles(TargetsSelector):
         #: (`the_lantern.TheLanternPlaybook.target_area`, qui exclut `feet[:1]`) le disait deja --
         #: les deux faces divergeaient d'exactement une tuile.
         #: ⚠ SUR UNE ORIGINE TUILE, LE NATIF NE RESOUT PAS L'OCCUPANT -- mesure LIVE de #10023-r1
-        #: (`probe_10023r1_squig_pool_live.py`, 11 casts sur 11 de `1201 SquigMine`, dont le masque
-        #: `TargetTileIsFree` garantit une tuile ciblee VIDE) : la tuile EST retranchee. L'enonce
-        #: du residu disait l'inverse ; la porte `klass+0x278` de
-        #: `IdunBattle.DSL.TargetsSelector$$SelectAllUnits` l'explique, et elle n'est pas portee
-        #: (`#10023-r3`). `units` ne sert donc plus qu'a reconnaitre une origine-UNITE, ou
-        #: `GetMainTile` s'applique bien PAR ENTITE.
+        #: (`probe_10023r1_squig_pool_live.py`, 19 casts sur 19 de `1201 SquigMine`, dont le masque
+        #: `TargetTileIsFree` garantit une tuile ciblee VIDE) : la tuile EST retranchee. La porte
+        #: `klass+0x278` (= `get_ReturnsOnlyUnits`, slot 20) de
+        #: `IdunBattle.DSL.TargetsSelector$$SelectAllUnits` l'explique.
+        #: ⚠⚠ ET ELLE RETRANCHE **TOUTE** L'EMPREINTE, PAS SA SEULE MAIN TILE (#10023-r3) : sous ce
+        #: regime chaque entite-tuile est SA PROPRE main tile (3e branche de
+        #: `EntityExtensions$$GetMainTileId`). Mesure : `1094 TheLantern` sur `deathBossMortarion`
+        #: (SEPT hex, `GB_Mortarion_05`, cible `(1,7)`) marque **9** tuiles -- l'aire de ce
+        #: regime -- et non les 10 qu'aurait donnees une exclusion reduite a la main tile.
+        #: Le regime est desormais commande par le NOEUD (`returns_only_units(self.center)`), pas
+        #: par le domaine de la valeur : c'est le critere NATIF.
         if not self.include_center:
-            excluded.update(_main_tiles(raw, board, getattr(ctx, "units", None)))
+            excluded.update(_main_tiles(raw, board, getattr(ctx, "units", None),
+                                        dsl_base.returns_only_units(self.center)))
         for origin in origins:
             if origin is None:
                 continue

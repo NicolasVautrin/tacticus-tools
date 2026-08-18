@@ -29,9 +29,33 @@ tranche, pas le rayon :
     `if (!tiles.Contains(a))` -> l'EMPREINTE ENTIERE est retranchee ;
   * `DSLSelectors$$SurroundingTiles(origin, includeCenter: 0, ...)` =
     `SurroundingTiles(origin, 1, ...) op_Subtraction Tiles(origin)`, et `Tiles` =
-    `UnitsMainTilesSelector$$Select` = `GetMainTile` par ENTITE -> UNE SEULE tuile, donc une
-    origine multi-hex se selectionne elle-meme par un pied secondaire.
-  Les deux axes sont RECIPROQUES : le meme montage doit rendre des verdicts OPPOSES.
+    `UnitsMainTilesSelector$$Select` = `GetMainTile` par ENTITE.
+
+⚠ **CE FICHIER A TESTE LA RECIPROQUE SUR LA MAUVAISE ORIGINE, ET IL SE CONTREDISAIT LUI-MEME**
+(corrige par #10023-r3). « `GetMainTile` par ENTITE -> UNE SEULE tuile » n'est vrai que si
+l'origine n'ENUMERE QU'UNE entite. Or `test_target_tile_returns_the_whole_footprint`, deux tests
+plus haut, etablit que `TargetTile()` en rend **TROIS** -- et `TargetsSelector$$SelectAllUnits`
+ouvre par `if (this.<klass+0x278 = get_ReturnsOnlyUnits>()) return list;`, donc sous ce regime les
+trois entites-TUILE traversent SANS resolution et `EntityExtensions$$GetMainTileId` fait de chacune
+SA PROPRE main tile (3e branche). Trois tuiles retranchees, pas une.
+
+DEUX mesures INDEPENDANTES l'etablissent, et la seconde est ce qui autorise a transporter la
+premiere :
+
+  1. **LIVE** -- `1094 TheLantern` sur `deathBossMortarion` (SEPT hex, `GB_Mortarion_05`) :
+     `Tiles(CasterTiles)` retranche les SEPT tuiles, pas la seule main tile (9 tuiles marquees
+     contre 10 ; `probe_10023r3_caster_tiles_regime_live.py`). Donc
+     `CasterTileSelector.ReturnsOnlyUnits == VRAI`.
+  2. **METADATA** -- `global-metadata.dat`, indexee par TYPE (donc immunisee a la deduplication de
+     CODE qui aveugle `frida/methods.tsv`) : `CasterTileSelector` et `TargetTilesSelector` derivent
+     TOUTES DEUX de `IdunBattle.DSL.TargetsSelector` et ne declarent QUE `.ctor` et `Select` --
+     **aucun override de `get_ReturnsOnly*`**. Elles heritent donc de la MEME valeur, et la mesure
+     faite sur l'une vaut pour l'autre. Cran executable : `probe_10023r1...` etage 7.
+
+⇒ **LA RECIPROQUE EXISTE, MAIS SUR L'ORIGINE EN DOMAINE UNITE.** `Adjacent`/`Surrounding` rendent
+des verdicts OPPOSES quand l'origine est `Target()` (UNE entite-unite : `SelectTiles` la deplie en
+son empreinte -> tout retranche, tandis que `Tiles` rend `GetMainTile(unite)` -> une seule), et ils
+COINCIDENT quand elle est `TargetTile()` (N entites-tuile). Les deux faits sont gardes ci-dessous.
 
 ITEM 2 (`#457-r1`) -- `MovementQuery$$IsAdjacent` et la branche `feetCount == 7` de
 `MovementQuery$$GetPossibleTileListsFromMovableTiles` sont le MEME appel a l'octet pres (meme slot
@@ -48,7 +72,8 @@ from __future__ import annotations
 import hexgeo
 from engine.dsl.base import Const, DslContext, _select_tile, _within
 from engine.entities.pathfinding.board import Board
-from engine.entities.selectors.accessors import CasterTile, OwnerTile, SelectTile, TargetTile
+from engine.entities.selectors.accessors import (CasterTile, OwnerTile, SelectTile, Target,
+                                                 TargetTile)
 from engine.entities.selectors.tiles import AdjacentTiles
 from engine.entities.selectors.units import AdjacentUnits, SurroundingUnits
 from engine.services import movement_query as MQ
@@ -195,13 +220,58 @@ def test_adjacent_excludes_the_whole_footprint():
     assert ring == []
 
 
-def test_surrounding_excludes_only_the_main_tile():
-    """RECIPROQUE du precedent, MEME montage, MEME rayon : `- Tiles(origin)` = `GetMainTile` par
-    ENTITE, donc l'origine multi-hex SE selectionne elle-meme par un pied secondaire. Retrancher
-    toute l'empreinte ici serait une seconde erreur, pas une correction."""
+def test_surrounding_also_excludes_the_footprint_on_a_TILE_domain_origin():
+    """MEME montage, MEME rayon que le precedent -- et MEME verdict, parce que l'origine ENUMERE
+    ici TROIS entites-TUILE.
+
+    ⚠ CE TEST ASSERTIONNAIT `[tgt]`, ET IL ETAIT VERT parce que `_main_tiles` prenait
+    `_origin_tiles(origin, board)[:1]`. Oracle et port portaient la MEME lecture : aucun cliquet ne
+    pouvait la voir. Ce qui l'a retournee est une mesure EXTERIEURE (#10023-r3, en-tete de module),
+    doublee de la metadata qui autorise a la transporter d'un selecteur a l'autre.
+
+    Sous `ReturnsOnlyUnits == VRAI`, `Tiles(TargetTile())` = `GetMainTileId` de chacune des trois
+    entites-tuile = elles-memes. L'origine ne peut donc PAS se selectionner elle-meme."""
     tgt = _multi()
     ring = SurroundingUnits(TargetTile(), Const(1)).evaluate(_ctx(_flat_board(), [tgt], target=tgt))
-    assert [u["id"] for u in ring] == [tgt["id"]]
+    assert [u["id"] for u in ring] == []
+
+
+def test_the_two_exclusions_DIVERGE_on_a_UNIT_domain_origin():
+    """LE GARDE QUI REMPLACE l'ancienne reciproque -- deplace sur l'origine qui la PORTE.
+
+    `Target()` n'enumere qu'UNE entite-unite, et c'est la que les deux formes se separent :
+
+      * `AdjacentTilesSelector` resout son origine par `SelectTiles` -> l'EMPREINTE -> tout
+        retranche, donc l'unite ne ressort pas ;
+      * `- Tiles(origin)` applique `GetMainTile` a l'unique entite -> `GetMainTile(unite)` = UNE
+        tuile, donc l'unite SE SELECTIONNE elle-meme par un pied secondaire.
+
+    C'est exactement ce que l'ancien test voulait garder ; il le cherchait sur `TargetTile()`, qui
+    enumere l'empreinte et ou les deux formes coincident."""
+    tgt = _multi()
+    ctx = _ctx(_flat_board(), [tgt], target=tgt)
+    adj = [u["id"] for u in AdjacentUnits(Target()).evaluate(ctx)]
+    sur = [u["id"] for u in SurroundingUnits(Target(), Const(1)).evaluate(ctx)]
+    assert adj == [], "l'empreinte entiere doit etre retranchee du cote ADJACENT"
+    assert sur == [tgt["id"]], "une SEULE main tile doit etre retranchee du cote SURROUNDING"
+    assert adj != sur, "le montage ne discrimine plus les deux formes -- il ne garde plus rien"
+
+
+def test_the_unit_domain_montage_is_not_vacuous():
+    """LE CRAN ANTI-VIDAGE du retournement ci-dessus : sans lui, un `Target()` qui rendrait `None`
+    (ou une empreinte) ferait passer les DEUX assertions precedentes sur un montage DEGENERE.
+
+    On assertionne donc ce qui les rend discriminantes : `Target()` enumere UNE entite quand
+    `TargetTile()` en enumere TROIS, et les pieds sont voisins entre eux (sans quoi l'origine ne
+    pourrait de toute facon pas se selectionner elle-meme)."""
+    tgt = _multi()
+    board = _flat_board()
+    ctx = _ctx(board, [tgt], target=tgt)
+    assert TargetTile().evaluate(ctx) == FEET and len(FEET) == 3
+    cible = Target().evaluate(ctx)
+    assert isinstance(cible, dict) and cible["id"] == tgt["id"], (
+        "`Target()` doit rendre UNE entite-unite -- sinon les deux formes ne peuvent pas diverger")
+    assert board.id_at(*FEET[1]) in board.neighbours_native(board.id_at(*FEET[0]))
 
 
 def test_both_exclusions_coincide_on_a_mono_hex_origin():
