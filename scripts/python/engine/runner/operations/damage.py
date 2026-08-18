@@ -129,6 +129,8 @@ from .minimal_health import record_attacked
 from .refresh_effects import refresh_stat_modifier_effects
 from ...entities.kill_unit_step import KillUnitStep
 from .remove_effects import remove_effects_operation
+from . import remove_unit as _remove_unit   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.operations.remove_unit` en process frais ne charge pas ce module.
 from ...dsl.event_trigger_type import EventTriggerType
 from engine.entities.effects.loki.supa_cybork_body import CTX_COUNT_OF as _CTX_ADJACENT_ENEMIES_OF   # #1042-r5
 from engine.entities.effects.loki.nether_realm_casket import CTX_COUNT_OF as _CTX_ADJACENT_FRIENDLY_MECHANICAL_UNITS_OF   # #1042-r5
@@ -837,9 +839,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # La chaine native etait annoncee « non identifiee » (#10015-r2) ; elle etait invisible d'un
         # recensement qui ne lisait que la forme DISPATCHER de l'appel d'interface -- detail et
         # mesure dans l'en-tete de `runner/operations/remove_unit.py`.
-        from .remove_unit import RemoveUnitOperation           # noqa: PLC0415
-        _retrait = RemoveUnitOperation.execute(state, int(target_id), remove_effects=False,
-                                               allow_already_dead=True)
+        _retrait = _remove_unit.RemoveUnitOperation.execute(state, int(target_id),
+                                                            remove_effects=False,
+                                                            allow_already_dead=True)
         if _retrait is not None:
             out = out + [{"kill_remove_unit": _retrait}]
         out = out + [{"kill_remove_effects": {

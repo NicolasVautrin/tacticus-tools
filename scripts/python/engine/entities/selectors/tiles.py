@@ -22,6 +22,9 @@ from ..pathfinding.tile_blocking import (TILE_MOVEMENT_BLOCKING_EFFECT_TYPES,
 from ..traits.unit_trait import has_any_trait
 from ..traits.unit_trait import unit_trait_names
 from ..traits.unit_trait import UnitTrait          # `Steppable` (0x1b) de la branche allowSteppable
+from .. import triggered_ability_type as _tat   # FORME B (liaison de MODULE). Arete GRATUITE
+#     (#485) : `import engine.entities.triggered_ability_type` en process frais ne charge pas ce
+#     module -- aucune boucle a rompre, le differe de `_power_up_ids` etait une scorie.
 
 
 def _tile_items(node: TargetsSelector, ctx) -> list:
@@ -891,7 +894,9 @@ def _power_up_ids() -> frozenset:
     LUS un a un dans le `.cctor` (suite de `local_res10[0] = <ordinal> ; HashSet.Add(...)`), jamais
     derives du prefixe `PowerUp_` du nom -- et ecrits par leur MEMBRE, pas par leur ordinal (regle
     d'enum du `CLAUDE.md` : `TriggeredAbilityType` partage 458 ordinaux avec `EffectType`)."""
-    from ..triggered_ability_type import TriggeredAbilityType as _T
+    #: ABREVIATION locale, pas un import : le binding de MODULE `_tat` est au preambule (forme B),
+    #: donc l'attribut est resolu A L'APPEL et un `monkeypatch.setattr` sur le foyer MORD encore.
+    _T = _tat.TriggeredAbilityType
     return frozenset(int(x) for x in (
         _T.PowerUp_Armor, _T.PowerUp_Damage, _T.PowerUp_Health, _T.PowerUp_Hits,
         _T.PowerUp_MeleeHits, _T.PowerUp_Reinforcement, _T.PowerUp_ReinforcementShield,

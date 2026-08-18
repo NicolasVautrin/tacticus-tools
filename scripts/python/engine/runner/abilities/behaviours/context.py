@@ -9,6 +9,9 @@ from .... import battle_query as _bq
 # `ctx.has_ranged_weapon`, lu par le selecteur `UnitsWithoutRangedWeapons`).
 from ....services import battle_query as _sbq
 from ....dsl.base import DslContext
+from ... import components as _RC   # FORME B (liaison de MODULE). Le module est DEJA charge par la
+#     ligne suivante -- l'ajout ne coute AUCUN module et ne ferme aucune boucle ; il rend inutile
+#     le differe redondant de `_is_effect_target` (#485) et garde son foyer substituable.
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent, get_unit_feet, ActiveAbilitiesComponent,
                           ShieldComponent)
@@ -865,8 +868,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # foyer runner (`runner/components.is_effect_target` -> `entities/effect_targets.py`). TRI-ETAT
     # transmis TEL QUEL : c'est le NOEUD qui porte la direction de sa degradation.
     def _is_effect_target(unit_id, effect_type):
-        from ...components import is_effect_target as _iet
-        return _iet(state, int(unit_id), int(effect_type))
+        return _RC.is_effect_target(state, int(unit_id), int(effect_type))
 
     # `ctx.only_targets` : `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(unit)` = la liste du
     # `ForcedAttackTargetsComponent`, celle-la meme que lit la regle `TargetIsAllowedForCaster`

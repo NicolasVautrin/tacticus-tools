@@ -66,6 +66,12 @@ from ..components import (PositionComponent, UnitComponent, StatsComponent, Owne
                           record_tiles_moved)
 from .base import Operation
 from .movement import MoveUnitOperation
+from . import movement as _movement   # FORME B (liaison de MODULE). Le module est DEJA charge par
+#     la ligne au-dessus -- donc le "cycle displace <-> movement" annonce au site n'est pas ce que
+#     l'instruction differee protegeait, et la mesure le confirme (GRATUIT, #485). La forme B est
+#     ICI OBLIGATOIRE : `migrate_485r1_barils_reexport.py morsure` classe
+#     `_kill_steppable_kill_unit` HISSAGE_DESARMERAIT -- trois probes le substituent, et un
+#     hissage en forme A (`from .movement import _kill_steppable_kill_unit`) les rendrait INERTES.
 from ...battle_query import get_distance
 from ...entities.pathfinding.board import EVENQ_EVEN, EVENQ_ODD
 from ...entities.traits.unit_trait import UnitTrait, has_any_trait
@@ -701,8 +707,8 @@ class DisplaceUnitOperation(Operation):
             # FOYER UNIQUE du crush (`operations/movement.py::_kill_steppable_kill_unit`, #462-...) :
             # `KillUnitOperation$$Execute` en entier sous `ForSteppable` -- meme corps que la mort
             # par degat, `DamageReason.Steppable`, cinq evenements, trois `RemoveEffects`.
-            from .movement import _kill_steppable_kill_unit    # cycle displace <-> movement (PORTEUR)
-            death = _kill_steppable_kill_unit(state, int(self.pushed_id), int(self.pusher_id)) or []
+            death = _movement._kill_steppable_kill_unit(
+                state, int(self.pushed_id), int(self.pusher_id)) or []
             return {"moved": False, "reason": "steppable crushed",
                     "killed": [int(self.pushed_id)], "death": death}
         dest: tuple[int, int] | None = None

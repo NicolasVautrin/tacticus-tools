@@ -117,6 +117,9 @@ import engine.entities.traits.unit_trait as _unit_trait   # FORME B (#547-r2), e
 from ....entities.traits.unit_trait import UnitTrait
 from ....entities.triggers import HasTrait
 from ..base import ActiveAbility
+from .. import base as _abase   # FORME B (liaison de MODULE) -- le module est DEJA charge par la
+#     ligne au-dessus, donc l'ajout ne coute AUCUN module et ne ferme aucune boucle. Il rend le
+#     differe de `attempted_possession_damage_vars` inutile (critere REDONDANCE, #485).
 from ..behaviours.ai_control import PerformAIAbility
 from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddBondEffect, RemoveEffect
@@ -226,9 +229,8 @@ def attempted_possession_damage_vars(state: "State", caster_id: int) -> tuple:
     `operations/triggers/loki/power_up.py`, `serene_unifier.py` l'ecrivent toutes ainsi.
     C'est value-identique au `ConfigVar` natif tant que `(level, mult)` est celui de l'ability
     castee, ce que le foyer garantit."""
-    from ..base import active_ability_state
-    level, mult = active_ability_state(state, int(caster_id),
-                                       int(ActiveAbilityType.AttemptedPossession))
+    level, mult = _abase.active_ability_state(state, int(caster_id),
+                                              int(ActiveAbilityType.AttemptedPossession))
     max_dmg = int(ability_var(ABILITY_ID, AbilityVariableType.maxDmg.name, level,
                               multiplier_pct=mult) or 0)
     dmg_pct = int(ability_var(ABILITY_ID, AbilityVariableType.dmgPct.name, level,

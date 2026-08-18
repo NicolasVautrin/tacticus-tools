@@ -20,6 +20,12 @@ from ...operations.damage import AttackDamageOperation
 from ...operations.remove_unit import RemoveUnitOperation
 from ...operations.remove_unit_from_tiles import RemoveUnitFromTilesOperation
 from ....dsl.event_trigger_type import EventTriggerType
+from ...operations import re_add_machine as _re_add_machine   # FORME B (liaison de MODULE).
+from ....entities import active_abilities as _AA              # FORME B. La raison qui vivait au
+#     site de `_unit_has_triggered_ability` ("`entities.active_abilities` tire
+#     `engine.entities.abilities.*`, dont la cascade re-entre dans `runner.abilities`") est
+#     REFUTEE par la mesure : ces deux modules charges SEULS ne tirent pas celui-ci. Aretes
+#     GRATUITES (#485) -- il n'y a plus de boucle a rompre depuis la vidange des barils.
 
 
 class KillDeadUnits(AbilityBehaviour):
@@ -282,7 +288,6 @@ class ReAddMachine(AbilityBehaviour):
         self.reset_flags_trigger = reset_flags_trigger
 
     def execute(self, entities, ectx):
-        from ...operations.re_add_machine import ReAddMachineOperation
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -295,7 +300,7 @@ class ReAddMachine(AbilityBehaviour):
             # l'operation du tout. Aucun call-site du build n'est dans ce cas, mais le gate est LU.
             return OperationResult.ok()
         reset = bool(self.reset_flags_trigger.evaluate(entities))
-        res = ReAddMachineOperation.execute(state, int(uid), reset_flags=reset)
+        res = _re_add_machine.ReAddMachineOperation.execute(state, int(uid), reset_flags=reset)
         if res is not None:
             ectx.emit("ReAddMachine", machine=int(uid), reset_flags=reset,
                       flags_cleared=res["flags_cleared"])
@@ -473,10 +478,6 @@ def _unit_has_triggered_ability(state, unit_id, ability_type: int) -> bool:
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
     vid = getattr(ctx, "visual_id", None) if ctx is not None else None
-    # DIFFERE et PORTEUR : `entities.active_abilities` tire `engine.entities.abilities.*`, dont la
-    # cascade re-entre dans `runner.abilities` -- hisser fermerait le cycle. (Meme forme que les
-    # autres differes de ce module.)
-    from ....entities.active_abilities import entity_active_ability_ids
     from ....entities.triggered_ability_type import (TRIGGERED_ABILITY_USES_ACTIVE_CONFIG,
                                                      TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG)
     vus: set[int] = set()
@@ -485,7 +486,7 @@ def _unit_has_triggered_ability(state, unit_id, ability_type: int) -> bool:
         vus.add(t)
         a = TRIGGERED_ABILITY_USES_ACTIVE_CONFIG.get(t)
         if a is not None:                                                    # [1]
-            return int(a) in set(entity_active_ability_ids(ctx, vid))
+            return int(a) in set(_AA.entity_active_ability_ids(ctx, vid))
         if t in set(entity_triggered_ability_ids(ctx, vid)):                 # [2]
             return True
         nxt = TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG.get(t)

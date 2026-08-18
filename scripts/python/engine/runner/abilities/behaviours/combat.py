@@ -18,6 +18,13 @@ from ....streams.tag_key import TagKey
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
 from ..base import ability_attack_params
+from .. import base as _abase   # FORME B (liaison de MODULE). Le module est DEJA charge par la
+#     ligne au-dessus -- l'ajout ne coute AUCUN module et ne ferme aucune boucle (l'arete
+#     `behaviours.combat -> abilities.base` est d'ailleurs PORTEUSE, elle reste). Il rend inutile
+#     le differe redondant d'`execute`, ET garde MORDANT le `monkeypatch.setattr` de
+#     `probe_910_relic_bolt_pistol_live` sur `ability_pierce_effect_bonus`, qu'un hissage en
+#     forme A (`from ..base import ability_pierce_effect_bonus`) rendrait INERTE
+#     (`migrate_485r1_barils_reexport.py morsure` -> HISSAGE_DESARMERAIT).
 from ...operations.damage import AttackDamageOperation
 from ..base import profile_pierce
 from ..attack_type import is_regular_attack
@@ -904,7 +911,6 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         # cible -> il est RE-CALCULE dans la boucle, pas ici. Le `pierce` rendu par
         # `ability_attack_params` ci-dessous n'est donc plus consomme (seules les BORNES le sont,
         # et elles ne dependent pas du percage).
-        from ..base import ability_pierce_effect_bonus
         bmin, bmax, _pierce_sans_bonus, _cfg_hits = ability_attack_params(
             state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
             min_key=self.min_key, max_key=self.max_key)
@@ -923,8 +929,9 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             # (il l'appelle) : sans bonus actif, `_pierce == _pierce_sans_bonus` a l'identique.
             _pierce = profile_pierce(
                 _cctx, self.profile, ranged=not self.is_melee,
-                effect_bonus=ability_pierce_effect_bonus(state, caster, tgt, self.ability_type,
-                                                         is_ranged=not self.is_melee))
+                effect_bonus=_abase.ability_pierce_effect_bonus(state, caster, tgt,
+                                                                self.ability_type,
+                                                                is_ranged=not self.is_melee))
             atk = AttackDamageOperation.execute_ability_attack(
                 state, caster, tgt, bmin, bmax, _pierce, hits,
                 damage_profile=self.profile, is_melee=self.is_melee,
