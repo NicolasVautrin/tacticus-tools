@@ -48,9 +48,9 @@ NATIF. Le decompile de `ADecoysAndMisdirectionAbility$$GetValidDeadDecoys` (relu
 `rnca9r7q6c`) porte cinq conjoints :
 
     Filter( AllDeadUnits,
-              AreFriends(sel@0x30 owner, sel@0x68 it)
-            & HasTrait(sel@0x68 it, 0x41d = 1053 Decoy)
-            & IsKilledThisTurn(sel@0x68 it)                        <-- NON PORTE
+              AreFriends(sel@0x30 owner, sel@0x68 ActiveTarget)
+            & HasTrait(sel@0x68 ActiveTarget, 0x41d = 1053 Decoy)
+            & IsKilledThisTurn(sel@0x68 ActiveTarget)                        <-- NON PORTE
             & AreEqual(Killer(it), sel@0x40)                       <-- NON PORTE
             & Contains(Tiles(sel@0x40), MainTileOfUnits(it)) )
 

@@ -224,7 +224,7 @@ def test_avec_parasite_laura_vaut_extraDmg_du_niveau_de_relique(env):
 
 # ------------------------------------------------------------------- 3. le SELECTEUR, terme a terme
 def test_le_beneficiaire_doit_etre_Psyker_ou_Summon(env):
-    """`HasTrait(It@+0x68, 0x3ea = Psyker) | HasTrait(It@+0x68, 0x2 = Summon)`. Contre-epreuve par
+    """`HasTrait(ActiveTarget@+0x68, 0x3ea = Psyker) | HasTrait(ActiveTarget@+0x68, 0x2 = Summon)`. Contre-epreuve par
     RETRAIT du trait sur le substrat d'ENTITE que lit le gate."""
     st = _state(env, "apres")
     a = _unit(st, ALLY)

@@ -213,7 +213,7 @@ def test_arbre_du_premier_disjoint_ancre_sur_la_CIBLE():
     assert int(sel.radius.evaluate(None)) == 1        # ring-1 : `AdjacentTiles`
     pred = tree.trigger
     assert type(pred).__name__ == "HasFaction"
-    assert isinstance(pred.unit, Subject), "le predicat lit l'ELEMENT COURANT (`It@+0x68`)"
+    assert isinstance(pred.unit, Subject), "le predicat lit l'ELEMENT COURANT (`ActiveTarget@+0x68`)"
     assert int(pred.faction) == FACTION_TYRANIDS
 
 

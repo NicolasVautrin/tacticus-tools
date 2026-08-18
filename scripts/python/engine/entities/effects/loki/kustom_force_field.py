@@ -36,7 +36,7 @@ targets = Owner@+0x30, ...)` : les DEUX effets-entites vivent sur le PORTEUR ; c
 corps, **sans** le `IdunBattle.DSL.AbilityTrigger$$op_LogicalNot`.
 
   * `DSLSelectors$$Filter(entities, trigger)` delegue litteralement a `FromTrigger(entities,
-    trigger, 0)` ; `Subject()` = `It@DSLSelectors+0x68`, l'element courant du filtre (meme slot
+    trigger, 0)` ; `Subject()` = `ActiveTarget@DSLSelectors+0x68`, l'element courant du filtre (meme slot
     que `entities/effects/loki/daemonic_patrons.py`).
   * `IdunBattle.Entities.Triggers.HasFactionTrigger$$ShouldTrigger` resout son selecteur par UNE
     unite, puis `IdunBattle.Entities.UnitExtensions$$HasFaction(unit, faction)` -- qui compare

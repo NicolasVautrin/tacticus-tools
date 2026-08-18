@@ -193,7 +193,7 @@ def step_re() -> int:
     print("")
     print("CE QU'ON A LU SUR LA CIBLABILITE D'UN OBJET (les deux autres call-sites du foyer) :")
     print("  * `KillMaimBurnAbility$$GetNextTarget` =")
-    print("      FromTrigger(validNextTargets, NOT IsObjectOrSteppable(It@+0x68))")
+    print("      FromTrigger(validNextTargets, NOT IsObjectOrSteppable(ActiveTarget@+0x68))")
     print("        .Otherwise(validNextTargets)")
     print("    -- le repli `Otherwise` n'a de SENS que si `validNextTargets` (des cibles d'attaque")
     print("    LEGITIMES) peut etre INTEGRALEMENT composee d'Object/Steppable.")

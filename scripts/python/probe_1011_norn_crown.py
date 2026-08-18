@@ -4,9 +4,10 @@
 LA QUESTION BINAIRE. `IdunBattle.Entities.Effects.Loki.NornCrownEffect$$CreateEffectDamageBonus-
 ForAttack` = `ForAddition(get_OwnerIsCaster & HasEffect(Target@+0x60, 0x4c2 = Neuroparasite,
 onlyActive: false, 6 = Both), ConfigVar(0x8 = extraDmg, GetAbilityState(effect)))`, et son
-`$$CreateTargetSelector` = `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, It@+0x68, ByCurrentTeam,
-false) & IsInTeamSynapseRange(It@+0x68, Owner@+0x30) & (HasTrait(It, Psyker) | HasTrait(It,
-Summon)))`. DEUX choses en decoulent, et une seule est ecrite dans l'i2 :
+`$$CreateTargetSelector` = `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, ActiveTarget@+0x68,
+ByCurrentTeam, false) & IsInTeamSynapseRange(ActiveTarget@+0x68, Owner@+0x30)
+& (HasTrait(ActiveTarget, Psyker) | HasTrait(ActiveTarget, Summon)))`. DEUX choses en decoulent,
+et une seule est ecrite dans l'i2 :
 
   (a) un ALLIE `Psyker`/`Summon` dans la bulle Synapse gagne `+extraDmg` contre une cible
       Neuroparasitee -- c'est le << Other friendly Psykers ... >> de l'i2 ;

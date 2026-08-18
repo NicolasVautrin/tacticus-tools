@@ -1800,7 +1800,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `Sum(TurnsFromRounds(nrOfRounds), Const(1))` tours. Leur BASE native commune
     # `ADaemonicPatronsEffect` porte le seul etage qui les rend dynamiques :
     #     n = Count(Filter(AdjacentEnemies(Owner@0x30, unique: 1, selectionType: 3),
-    #                      HasEffect(It@0x68, 27 Taunted_OnlySpecificTargets, onlyActive: 0, 6)))
+    #                      HasEffect(ActiveTarget@0x68, 27 Taunted_OnlySpecificTargets, onlyActive: 0, 6)))
     # -- les ennemis adjacents TAUNTES, pas les ennemis adjacents. La meme grandeur sert la
     # `CreateActiveCondition` (`AmountIsGreaterThanZero(n)`) et les deux magnitudes, donc elles ne
     # peuvent pas diverger ; foyer unique `runner/components.py::adjacent_taunted_enemies_count`,
@@ -1926,8 +1926,8 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # a voir avec la relique ; et `EffectType.NornCrown` (1492) n'est PAS `TriggeredAbilityType.
     # NornCrown` (1495) malgre le nom identique.
     # `IdunBattle.Entities.Effects.Loki.NornCrownEffect$$CreateTargetSelector` =
-    # `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, It@+0x68, ByCurrentTeam, false)
-    #         & IsInTeamSynapseRange(It@+0x68, Owner@+0x30)
+    # `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, ActiveTarget@+0x68, ByCurrentTeam, false)
+    #         & IsInTeamSynapseRange(ActiveTarget@+0x68, Owner@+0x30)
     #         & (HasTrait(It, 0x3ea = Psyker) | HasTrait(It, 0x2 = Summon)))` -- le PORTEUR n'est
     # PAS exclu (`BattleQuery$$AreFriends` -> `UnitExtensions$$IsFriend`, qui n'ecarte pas
     # l'egalite), d'ou les DEUX pattes disjointes de la classe (self + aura), meme arbitrage que

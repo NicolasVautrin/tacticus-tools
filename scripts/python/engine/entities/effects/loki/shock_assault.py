@@ -30,8 +30,8 @@ lue au decompile, NON PORTEE ici (l'ability 1002 est un item distinct, cf. la do
                         <overrideMovement>, <utilityEntity>, customUtility = b__1_1 )
 
 `GetAffectedUnits(origin)` = `EntitiesWithoutEffects( Filter( AdjacentUnits(origin, unique: 1,
-sel: 3), IsUnitWithVisualId(It@DSLSelectors+0x68, GetStringConstant(config, 0 = unitId))
-& AreFriends(Caster@DSLSelectors+0x48, It@+0x68) ), [0x4b9 = 1209 AttemptedPossession_Possessed] )`
+sel: 3), IsUnitWithVisualId(ActiveTarget@DSLSelectors+0x68, GetStringConstant(config, 0 = unitId))
+& AreFriends(Caster@DSLSelectors+0x48, ActiveTarget@+0x68) ), [0x4b9 = 1209 AttemptedPossession_Possessed] )`
 -- les Inceptors AMIS adjacents au Bellator qui ne sont pas possedes.
 
 STAT ET MAGNITUDE VIENNENT DU COMPOSANT, PAS DE LA CLASSE.

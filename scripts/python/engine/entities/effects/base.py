@@ -1202,6 +1202,36 @@ class BaseEffect:
             `WayOfTheShortBladeEffect`). Un porteur qui n'a pas de gate de vecteur l'ignore."""
         return None
 
+    def aura_armor_penetration_for_ally(self, ctx: Mapping | None = None) -> int | None:
+        """Le MÊME slot natif que `get_armor_penetration` — `<Effect>.IgnoreArmor`, virtuel
+        `<vtable +0x718>` — mais LU DEPUIS LA BOUCLE D'AURA (#1019-r1, hissé par #1019-r4).
+
+        Le natif n'a qu'UN slot ; ce qui distingue les deux méthodes de port, c'est l'ITÉRATION
+        depuis laquelle `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` (slot `0x16`)
+        l'appelle. Ce corps-là écrit `AbilityEntities+0x18 (Owner) <- la cible courante du
+        `CreateTargetSelector`` avant d'évaluer le trigger de son `EffectBonus`, puis — SOUS ce test
+        — appelle `this.IgnoreArmor()` et range `pen.Calculate(entities)` dans `DamageBonus+0x38`,
+        que `CalculateAttackerModifiersForPrediction` accumule dans `DamageModifiers+0x28`. Donc,
+        pour un effet d'AURA, `Owner` vaut le **BÉNÉFICIAIRE**, pas le porteur.
+
+        Le port, lui, découpe par LISTE : `_attacker_effect_bonuses` ne voit que les effets de
+        l'ATTAQUANT (→ `get_armor_penetration`), tandis que `aura_attack_damage_bonus_from_allies`
+        ne voit que ceux de ses ALLIÉS porteurs (→ ce slot-ci). Deux méthodes pour un seul slot
+        natif, exactement comme `create_effect_damage_bonus_for_attack` coexiste avec
+        `create_aura_attack_damage_bonus_for_ally`.
+
+        ⚠ **Ne PAS rabattre un porteur d'aura sur `get_armor_penetration`** : un effet dont le
+        sélecteur EXCLUT son porteur (`SurroundingFriends` sans `+ Owner`, cas de
+        `WayOfTheShortBladeEffect` 1499) donnerait alors ses `armorIgnored` points à Farsight
+        lui-même, que le natif ferme par `get_OwnerIsCaster`.
+
+        AUCUNE gate ici : l'agrégateur n'appelle ce slot que lorsque
+        `create_aura_attack_damage_bonus_for_ally` a déjà rendu un bonus — comme le natif, qui
+        n'évalue `+0x718` que sous le test du trigger, et ne le re-teste pas.
+
+        Défaut `None` = ce porteur n'ouvre pas l'axe ARMURE depuis la face AURA."""
+        return None
+
     def additional_hit_groups(self, ctx: Mapping | None = None) -> "list[dict] | None":
         """`<Effect>.CreateAdditionalHits` (`IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`) — coups ADDITIONNELS
         HETEROGENES a degat/profil PROPRE ajoutes a l'attaque du PORTEUR (trigger natif OwnerIsActor/

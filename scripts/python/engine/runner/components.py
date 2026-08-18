@@ -4035,7 +4035,7 @@ def adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
 
 def synaptic_insight_adjacent_tyranid(state, owner_id: int, target_id) -> "Optional[bool]":
     """`Any( AdjacentFriends(unit = Owner@<DSLSelectors+0x30>, unitTile = Target@<DSLSelectors+0x60>,
-    unique: true), HasFaction(It@<DSLSelectors+0x68>, UnitFaction.Tyranids = 0xc, 3) )` -- le PREMIER
+    unique: true), HasFaction(ActiveTarget@<DSLSelectors+0x68>, UnitFaction.Tyranids = 0xc, 3) )` -- le PREMIER
     disjoint de `IdunBattle.Entities.Effects.Loki.SynapticInsight_ExtraHitsEffect$$
     CreateEffectHitsBonusForAttack`, evalue pour le couple (PORTEUR, CIBLE DU COUP) (#1073).
 
