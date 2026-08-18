@@ -889,8 +889,25 @@ def get_multi_hit_attack_prediction(
         def _ghit(prev: "BlockScenario", _pre=_pre, _amt=_amt, _gp=_grp.get("pierce_pct", pierce_pct),
                   _gpt=_grp.get("profile_type", profile_type), _gm=_grp.get("mods"),
                   _gtl=_gtl) -> DamagePredictionResult:
+            # #884-r1 : `extra_max` (stat `0x19 EXTRA_MAX_DAMAGE`) DESCEND aussi aux groupes -- il
+            # ne descendait qu'aux coups d'ARME, d'ou la borne MAX courte mesuree sur
+            # `thousTzaangor` portant `1207 RealityUnbound_ExtraMaxDamage` : natif `(4601, 7233)`
+            # contre port `(4601, 6901)`, contribution du groupe `(+666, +1330)` contre
+            # `(+666, +998)` -- borne MIN exacte des deux cotes, ecart `332` = l'extra-max exact.
+            #
+            # ⚠ ET C'EST LA VOIE QUI DECIDE, PAS LE GROUPE. `IdunBattle.Core.Services.
+            # DamagePrediction$$GetBaseDamageFix64(damage, isMaxOut, extraMaxDamage)`, LU verbatim :
+            #     min = isMaxOut ? slot9(damage) + extraMax : slot8(damage)
+            #     max = slot9(damage) + extraMax                     # INCONDITIONNEL
+            # -- l'extra-max n'existe QUE sur cette voie. L'autre voie de `PredictAttackRaw`, celle
+            # que le byte `AttackPredictionRequest+0x6a` ouvre a `0`, batit une cellule PLATE
+            # `MinMaxDamageFix64(damage, maxOverride ?? damage)` et ne touche JAMAIS
+            # `ExtraMaxDamage`. Or `predefined` EST cette cellule plate cote port : le passer ici
+            # est donc fidele sur LES DEUX formes, puisque `predict_attack_raw` ne consomme
+            # `extra_max` que dans sa branche `get_base_damage_fix64` (forme `amount`).
             return predict_attack_raw(
-                prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
+                prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, extra_max=extra_max,
+                mods=_gm, hit_mult=hit_mult,
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
                 target_limits=_gtl, predefined=_pre, might_crit=might_crit,
