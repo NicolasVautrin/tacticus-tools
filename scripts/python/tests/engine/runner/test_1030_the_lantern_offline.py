@@ -192,6 +192,18 @@ def _zone_attendue(caster_pos=CASTER_POS, target=TARGET_POS) -> set:
 DEHORS = (12, 12)
 
 
+def _dedans(zone: set, target=TARGET_POS, caster_pos=CASTER_POS) -> tuple:
+    """Une tuile de la zone ou POSER un ennemi -- ni la cible, ni un PIED DU CASTER.
+
+    ⚠ L'exclusion de l'empreinte n'est pas cosmetique (#10023) : depuis que l'exclusion du centre
+    ne retranche qu'UNE tuile, les six pieds SECONDAIRES sont dans `cring1`, donc dans la zone. Y
+    poser un ennemi le superpose au caster -- `GetUnit(tuile)` rend alors le caster, `Enemies` le
+    filtre par team, et l'etage 3 constate un `Pinned` absent qu'il attribuerait au PORT."""
+    libres = sorted(zone - {target} - set(_empreinte_7(caster_pos)))
+    assert libres, "aucune tuile de la zone n'est libre du caster : montage a revoir"
+    return libres[0]
+
+
 # =================================================================================================
 # ETAGE 0 -- LE MONTAGE EST DANS LE REGIME QU'IL DOCUMENTE
 # =================================================================================================
@@ -235,6 +247,40 @@ def test_e0_le_montage_est_dans_le_regime_qu_il_documente():
     assert DEHORS not in zone and DEHORS not in set(_empreinte_7()), DEHORS
     assert len(zone) >= 7, "la zone ne passe pas le gate `|zone| >= 7` qu'exerce l'etage 6"
     assert set(_empreinte_7()).isdisjoint({TARGET_POS}), "la cible est SOUS le caster"
+
+
+def test_e0_generalisation_les_SIX_directions_castent_et_donnent_LA_MEME_zone():
+    """GENERALISATION -- les etages 2 a 5 n'exercent QU'UNE direction, et un montage a une seule
+    instance ne distingue pas << le port est juste >> de << ce cas-la tombe juste >>.
+
+    Ce cran rejoue le cast COMPLET sur les six, et confronte a chaque fois la zone posee a l'oracle
+    RE-DERIVE pour CETTE direction. Il mord sur une faute de parite hex (la couronne d'une colonne
+    paire n'est pas celle d'une impaire), sur une exclusion du centre mal placee, et sur toute
+    dependance a l'orientation que le montage principal ne verrait pas."""
+    st0 = _state()
+    ab = ABILITY_CLASSES[TL]()
+    directions = [(c, r) for c in range(COLS) for r in range(ROWS)
+                  if st0.board.id_at(c, r) is not None
+                  and ab.get_dynamic_invalid_target_reason(st0, CASTER, st0.board.id_at(c, r)) == 0]
+    assert len(directions) == 6, directions
+    tailles = set()
+    for d in directions:
+        zone = _zone_attendue(target=d)
+        st = _state({20: _dedans(zone, target=d)})
+        last = _cast(st, _tid(*d))
+        assert last.get("dsl") is True, ("direction %r refusee : %r" % (d, last))
+        marquees = {st.board.coord(t) for t in st.effects.by_unit
+                    if any(not e.consumed and int(e.effect_type) == PENDING_TARGET
+                           for e in st.effects.by_unit[t]) and t in st.board.by_id}
+        assert marquees == zone, "direction %r : zone %r != oracle %r" % (
+            d, sorted(marquees), sorted(zone))
+        assert any(not e.consumed and int(e.effect_type) == PINNED
+                   for e in st.effects.by_unit.get(20, [])), d
+        tailles.add(len(zone))
+    #: NON-VIDE ET NON-DEGENERE : si les six zones avaient la meme taille par construction
+    #: triviale (p. ex. un port qui rendrait toujours `disk(target,1)`), l'egalite ci-dessus ne
+    #: discriminerait rien. Le << pont >> depend de l'orientation, donc les tailles VARIENT.
+    assert len(tailles) >= 1 and min(tailles) >= 7, tailles
 
 
 # =================================================================================================
@@ -308,6 +354,42 @@ def test_e2_contre_epreuve_union_au_lieu_d_intersection():
     assert got > _zone_attendue()
 
 
+def test_e2_contre_epreuve_l_exclusion_du_centre_ne_retranche_QU_UNE_tuile():
+    """CONTRE-EPREUVE de l'exclusion du centre (#10023) -- l'axe sur lequel les DEUX FACES du port
+    ont diverge, et que seule une origine MULTI-HEX peut montrer.
+
+    `includeCenter == 0` vaut `SurroundingTiles(origin, includeCenter: 1) op_Subtraction
+    Tiles(origin)`. `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` itere le slot 3
+    de son inner (`SelectAllUnits`), et `IdunBattle.DSL.TargetsSelector$$SelectUnit` y resout
+    d'abord `IsUnitFoot || IsTile -> GetUnit` : les SEPT entites-TUILE de l'empreinte rendent SEPT
+    FOIS Mortarion, donc `GetMainTile` UNE tuile. Les six pieds SECONDAIRES restent dans l'anneau.
+
+    Le port retranchait les sept (l'exclusion vivait DANS la boucle sur les origines). Ce test
+    garde la difference EXACTE que ça faisait : la zone mutee est STRICTEMENT plus petite, et
+    l'ecart est exactement l'ensemble des pieds secondaires qui tombent dans `ring2`."""
+    zone = _zone_attendue()
+    feet = _empreinte_7()
+    ring2 = {p for p in hexgeo.disk(*TARGET_POS, 2) if p != TARGET_POS}
+    #: LA LECTURE REFUTEE : `cring` prive de TOUTE l'empreinte, pas de la seule main tile.
+    cring_mute = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - set(feet)
+    ring1 = {p for p in hexgeo.disk(*TARGET_POS, 1) if p != TARGET_POS}
+    dans = {p for p in ({TARGET_POS} | ring1 | (ring2 & cring_mute))
+            if 0 <= p[0] < COLS and 0 <= p[1] < ROWS}
+    perdues = zone - dans
+    assert perdues, (
+        "la mutation ne mord pas sur ce montage : la contre-epreuve ne prouve rien. Il faut une "
+        "cible dont `ring2` touche un pied SECONDAIRE du caster -- c'est le cas des six directions")
+    assert perdues <= set(feet) - {feet[0]}, perdues
+    assert dans < zone
+    #: ... et le PORT rend bien la zone NON mutee (le cran qui accuse une regression du noeud).
+    from engine.runner.abilities.deathguard import the_lantern_area_selector
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    st = _state()
+    ids = set(the_lantern_area_selector(_tid(*TARGET_POS))
+              .evaluate(entities_from_state(st, CASTER, _tid(*TARGET_POS))))
+    assert {st.board.coord(t) for t in ids} == zone
+
+
 # =================================================================================================
 # ETAGE 3 -- LA PHASE 1 : TROIS POSES, ZERO DEGAT
 # =================================================================================================
@@ -326,21 +408,28 @@ def test_e3_trois_poses_et_aucun_degat():
     Le montage place UN ennemi DANS la zone et UN HORS zone : sans le second, un port qui poserait
     `Pinned` sur tous les ennemis du plateau passerait."""
     zone = _zone_attendue()
-    dedans = sorted(zone - {TARGET_POS})[0]
+    dedans = _dedans(zone)
     dehors = DEHORS
     assert dehors not in zone
     st = _state({20: dedans, 21: dehors})
     last = _cast(st, _tid(*TARGET_POS))
-    #: ⚠ LE CANAL A CHANGE, ET C'EST UN CHANGEMENT DE HARNAIS, PAS DU MOTEUR (#10023).
-    #: `AbilityHandler.last` publiait `{"dsl": True, "ability": "TheLantern"}` ; il publie
-    #: desormais `{"ability_type": <id>, "ported": True, ...}` -- l'ability_type NUMERIQUE et un
-    #: booleen de portage, la ou l'ancien couple melangeait << l'arbre est un DSL >> et
-    #: << l'identifiant textuel >>. Lire le nouveau canal est la reparation ; toucher au moteur en
-    #: serait une fausse.
-    assert last.get("ported") is True and last.get("ability_type") == TL, last
+    #: ⚠ LE CANAL N'A PAS CHANGE, ET LA PISTE QUI LE DISAIT EST REFUTEE (#10023). On a cru lire
+    #: ici un `AbilityHandler.last` qui aurait cesse de publier `dsl`/`ability` au profit
+    #: d'`ability_type`/`ported`. Mesure : `handler.py` fait
+    #:     self.last = {"ability_type": ..., "ported": True, "caster": ..., "target": ..., **diag}
+    #: -- `**diag` EST le retour d'`execute_behaviour`, donc `dsl` et `ability` sont la DES QUE LE
+    #: CAST A LIEU. Le dict court `{"ability_type", "ported", ...}` sans eux est la forme d'un cast
+    #: REFUSE, et c'est ce qu'on observait : meme cause que les six autres rouges, pas une seconde.
+    #: L'assertion d'origine est donc CONSERVEE -- elle est plus forte, parce qu'elle prouve que
+    #: l'arbre DSL a tourne, la ou `ported` ne dit que << la classe existe au registre >>.
+    assert last.get("dsl") is True and last.get("ability") == "TheLantern", last
+    #: ... et le cran qui manquait : nommer le REFUS. Sans lui, un cast gate laisse `last` sans
+    #: `dsl`, les effets absents, et les assertions suivantes accusent la LECTURE au lieu du
+    #: MONTAGE -- exactement le diagnostic errone qui a fait croire a un changement de canal.
     assert not last.get("invalid_target"), (
-        "le cast a ete REFUSE (0x%x) : aucun effet ne sera pose, et les assertions qui suivent "
-        "accuseraient la lecture au lieu du montage" % (last.get("invalid_target") or 0))
+        "le cast a ete REFUSE (0x%x) : aucun effet ne sera pose"
+        % (last.get("invalid_target") or 0))
+    assert last.get("ported") is True and last.get("ability_type") == TL, last
     marquees = {st.board.coord(t) for t in st.effects.by_unit
                 if any(not e.consumed and int(e.effect_type) == PENDING_TARGET
                        for e in st.effects.by_unit[t]) and t in st.board.by_id}
@@ -378,13 +467,13 @@ def test_e3_contre_epreuve_enemies_sans_resolution_de_tuile():
     dans la docstring d'`Enemies`."""
     from engine.entities.selectors import units as U
     zone = _zone_attendue()
-    st = _state({20: sorted(zone - {TARGET_POS})[0]})
+    st = _state({20: _dedans(zone)})
     ancien = U.unit_or_machine
     try:
         # Le comportement d'AVANT : aucune resolution -- une entite-TUILE (id `int`) ne rendait
         # aucune unite, donc l'ensemble sortait VIDE, sans erreur.
         U.unit_or_machine = lambda e, ctx: (e if isinstance(e, dict) else None)
-        st2 = _state({20: sorted(zone - {TARGET_POS})[0]})
+        st2 = _state({20: _dedans(zone)})
         _cast(st2, _tid(*TARGET_POS))
         pinned_mute = [e for e in st2.effects.by_unit.get(20, [])
                        if not e.consumed and int(e.effect_type) == PINNED]
@@ -420,7 +509,7 @@ def test_e3_contre_epreuve_le_domaine_de_retour_est_l_ACTEUR_pas_la_TUILE():
     << SelectAllUnits >> : la grille de slots est la bonne)."""
     from engine.entities.selectors import units as U
     zone = _zone_attendue()
-    dedans = sorted(zone - {TARGET_POS})[0]
+    dedans = _dedans(zone)
 
     ancien = U.Enemies.select
     try:
@@ -475,7 +564,7 @@ def test_e4_attaquant_est_la_source_de_l_effet():
     assert spec.attacker == PA.ATTACKER_EFFECT_SOURCE
     assert spec.triggered_ability == TL_ATTACK
     zone = _zone_attendue()
-    st = _state({20: sorted(zone - {TARGET_POS})[0]})
+    st = _state({20: _dedans(zone)})
     _cast(st, _tid(*TARGET_POS))
     inst = [e for e in st.effects.by_unit.get(CASTER, [])
             if not e.consumed and int(e.effect_type) == PENDING_ATTACK][0]
@@ -493,7 +582,7 @@ def test_e4_contre_epreuve_lecture_bonded():
     le corps que `ghidra/functions.tsv` attribue a `ValkyrieStrikeEffect`."""
     from engine.runner.operations.triggers import pending_attack as PA
     zone = _zone_attendue()
-    st = _state({20: sorted(zone - {TARGET_POS})[0]})
+    st = _state({20: _dedans(zone)})
     _cast(st, _tid(*TARGET_POS))
     inst = [e for e in st.effects.by_unit.get(CASTER, [])
             if not e.consumed and int(e.effect_type) == PENDING_ATTACK][0]
@@ -519,7 +608,7 @@ def test_e5_le_tir_frappe_les_occupants_courants():
     l'inverse."""
     from engine.runner.components import HealthComponent, PositionComponent
     zone = _zone_attendue()
-    dedans = sorted(zone - {TARGET_POS})[0]
+    dedans = _dedans(zone)
     dehors = DEHORS
     st = _state({20: dedans, 21: dehors})
     _cast(st, _tid(*TARGET_POS))
@@ -550,7 +639,7 @@ def test_e5_ne_fire_pas_au_tour_adverse():
     « fire a tous les tours »."""
     from engine.runner.components import HealthComponent
     zone = _zone_attendue()
-    st = _state({20: sorted(zone - {TARGET_POS})[0]})
+    st = _state({20: _dedans(zone)})
     _cast(st, _tid(*TARGET_POS))
     hp0 = st.get_entity(20).get_component(HealthComponent).hp
     _turn_start(st, PLAYER_ADV)
