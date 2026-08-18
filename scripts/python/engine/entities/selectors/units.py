@@ -85,7 +85,10 @@ class SurroundingUnits(TargetsSelector):
         # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`), cf. `_tile_enum_rank`
         out = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
                       include_center=self.include_center,
-                      board=getattr(ctx, "board", None), order="surrounding")
+                      board=getattr(ctx, "board", None), order="surrounding",
+                      #: `op_Subtraction Tiles(origin)` : le regime est une propriete du NOEUD
+                      #: (`ReturnsOnlyUnits`, slot 20), pas du domaine de la valeur (#10023-r3).
+                      center_node=self.center)
         st = self.selection_type
         # le natif filtre DANS son `Units` interne : PAR ELEMENT, apres resolution de l'occupant
         return out if st is None else [u for u in out if _selection_ok(u, st, ctx)]
@@ -1635,7 +1638,9 @@ class SurroundingEnemies(TargetsSelector):
     def select(self, ctx):
         # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`) -- R28-1
         ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
-                       board=getattr(ctx, "board", None), order="surrounding")
+                       board=getattr(ctx, "board", None), order="surrounding",
+                       #: cf. `SurroundingUnits` : le regime de `Tiles(origin)` vient du NOEUD.
+                       center_node=self.center)
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         ct = (ref or {}).get("team")
         st = self.selection_type
@@ -1653,7 +1658,9 @@ class SurroundingFriends(TargetsSelector):
     def select(self, ctx):
         # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`) -- R28-1
         ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
-                       board=getattr(ctx, "board", None), order="surrounding")
+                       board=getattr(ctx, "board", None), order="surrounding",
+                       #: cf. `SurroundingUnits` : le regime de `Tiles(origin)` vient du NOEUD.
+                       center_node=self.center)
         ct = (ctx.caster or {}).get("team")
         st = self.selection_type
         # `selection_type` = le DERNIER argument NATIF (#585-r3). Comme pour `SurroundingEnemies`, les

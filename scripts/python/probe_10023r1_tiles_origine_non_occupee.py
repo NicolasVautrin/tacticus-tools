@@ -362,9 +362,22 @@ def etage3_multi_unites() -> int:
 
 
 # --------------------------------------------------------------------------------------------
-# ETAGE 4 -- NON-REGRESSION #10023 : les SEPT tuiles de Mortarion retranchent UNE tuile
+# ETAGE 4 -- les SEPT entites-tuile de Mortarion retranchent SEPT tuiles (#10023-r3, MESURE LIVE)
 # --------------------------------------------------------------------------------------------
-def etage4_non_regression_10023() -> int:
+def etage4_empreinte_retranchee_en_entier() -> int:
+    """LE CALL-SITE DE `1094 TheLantern`, ET LE SEUL DES SIX ETAGES QUE LE LIVE A RETOURNE.
+
+    `cring1 = SurroundingTiles(CasterTile(as_ids=True), 1, includeCenter: 0)` sur une empreinte de
+    SEPT tuiles. Sous `ReturnsOnlyUnits == true` -- ce que `CasterTiles` declare, MESURE #10023-r3 --
+    `TargetsSelector$$SelectAllUnits` rend la liste TELLE QUELLE, chaque entite-tuile etant sa
+    propre main tile (3e branche d'`EntityExtensions$$GetMainTileId`) : **les SEPT sont
+    retranchees**.
+
+    ⚠ CET ETAGE ASSERTIONNAIT L'INVERSE (« UNE SEULE retranchee »), et il etait VERT -- le port
+    portait la meme lecture que lui. Aucun cliquet ne pouvait le voir : il a fallu une mesure
+    EXTERIEURE. `1094 TheLantern` sur `deathBossMortarion` (board `GB_Mortarion_05`, cible `(1,7)`)
+    marque 9 tuiles, l'aire de CE regime, contre 10 pour l'autre.
+    `probe_10023r3_caster_tiles_regime_live.py`."""
     b = _board()
     centre = (4, 4)
     empreinte = [centre] + [(c, r) for (c, r) in hexgeo.disk(centre[0], centre[1], 1)
@@ -377,14 +390,23 @@ def etage4_non_regression_10023() -> int:
     union = set()
     for p in empreinte:
         union |= {b.id_at(c, r) for (c, r) in hexgeo.disk(p[0], p[1], 1)}
-    attendu = union - {b.id_at(*centre)}
-    print("[E4] origine = les SEPT entites-tuile de l'empreinte (#10023)")
-    print("     attendu %d tuiles (UNE SEULE retranchee) ; port %d" % (len(attendu), len(sortie)))
-    if sortie != attendu:
-        print("[E4] ECHEC : %d tuile(s) retranchee(s) au lieu d'une" % (len(union) - len(sortie)))
+    attendu = union - set(ids)
+    print("[E4] origine = les SEPT entites-tuile de l'empreinte (#10023-r3)")
+    print("     attendu %d tuiles (les SEPT retranchees) ; port %d" % (len(attendu), len(sortie)))
+    #: NON-VIDE de la mesure : sans ce cran, un montage ou l'empreinte couvrirait tout le disque
+    #: rendrait `attendu` vide et l'egalite serait vraie sans rien prouver.
+    if not attendu or len(union) - len(attendu) != len(ids):
+        print("[E4] ECHEC (montage) : l'ecart entre les deux regimes n'est pas de %d tuiles"
+              % len(ids))
         return 1
-    print("[E4] OK : une seule main tile retranchee, les six pieds secondaires gardes.")
+    if sortie != attendu:
+        print("[E4] ECHEC : %d tuile(s) retranchee(s) au lieu de %d"
+              % (len(union) - len(sortie), len(ids)))
+        return 1
+    print("[E4] OK : les sept entites-tuile retranchees, le reste de l'union garde.")
     return 0
+
+
 
 
 # --------------------------------------------------------------------------------------------
@@ -489,7 +511,7 @@ def etage6_atteignabilite_multi_unites() -> int:
 def main() -> int:
     rc = 0
     for f in (etage0_recensement, etage1_tuile_vide, etage1bis_pied_secondaire,
-              etage2_within_domaine_id, etage3_multi_unites, etage4_non_regression_10023,
+              etage2_within_domaine_id, etage3_multi_unites, etage4_empreinte_retranchee_en_entier,
               etage5_domaine_tuile_insensible_a_units, etage6_atteignabilite_multi_unites):
         try:
             rc |= f()
