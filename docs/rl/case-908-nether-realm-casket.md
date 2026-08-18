@@ -220,10 +220,23 @@ l'écart (les deux critères y coïncident) : un seul board n'aurait jamais fait
 * **`#908-r1`** — le `CreateTrigger` de `NetherRealmCasketAbility` n'est pas lisible (dédup IL2CPP
   probable). Sans conséquence sur le port actuel : les effets entrent dans l'état par la **capture**.
   Il le deviendrait si l'on voulait porter la **POSE** offline.
-* **`#908-r2`** — la POSE n'est pas portée. Même régime, même cause et même foyer que
-  `#589-r1-r1-r2-r1-r1` (`spawn.py::_seed_ability_owner_effects` ne connaît ni la relique équipée ni
-  `relicAbilities`). La tranche est le **chemin de seed**, commun à toute relique posant un
-  owner-effect à l'init — pas une entrée de registre.
+* ~~**`#908-r2`**~~ — **FERMÉ (#10035, 2026-08-18).** La fiche avait raison de dire « même cause que
+  `#589-r1-r1-r2-r1-r1` », elle se trompait sur **laquelle**. Ce n'était ni le registre (les deux
+  entrées sont posées depuis le 2026-08-15) ni la lecture de la relique (acquise depuis #1005), mais
+  un **ordre de passes** dans `snapshot.load_state` : `_load_stats_and_effects`, qui porte la boucle
+  `_seed_ability_owner_effects`, tourne **avant** `_load_tertiary_abilities`, seul écrivain de
+  `ctx.tertiary_ability`. Corrigé par `snapshot._seed_tertiary_owner_effects`, placée entre
+  l'écrivain et le re-bake. `necroSpyder` porte cette relique **dans le seed BC** — c'est le seul des
+  9 registres relique dans ce cas, donc le seul rayon immédiat de la passe. Détail :
+  `docs/rl/case-10035-pose-tertiaire-au-chargement.md`.
+  ⚠ **NON CONFRONTÉ LIVE sur le dégât, et c'est structurel** : à `n = 0` l'effet ne verse rien, à
+  `n > 0` il est ACTIF donc déjà capté — le dégât est identique avant/après, sur les deux bras.
+  Résidu **`#10035-r1`**.
+* **`#10035-r2`** — `probe_908_nether_realm_casket_crit_live.py --n 0,1 --level 1` est **ROUGE**, et
+  il l'était **déjà** avant #10035 (vérifié en restaurant `snapshot.py` : sortie strictement
+  identique). Son bras mutant `PASSIF` retire `tertiary_ability_state_of` du **contexte**
+  `_crit_board`, mais depuis #1009 le couple TERTIAIRE est baké **dans l'instance** : l'effet lit son
+  propre couple et le mutant ne mord plus. Pour redevenir discriminant, il doit viser le **re-bake**.
 * **`#589-r1-r1-r2-r1-r3`** (préexistant) — la face PRÉDICTION ignore les canaux CRIT :
   `services/damage_prediction.py` n'appelle pas `crit_damage_bonus_from_effects`, donc la réduction
   de 1455 n'entre pas dans la prédiction. Les deux faces divergent sur tout porteur.

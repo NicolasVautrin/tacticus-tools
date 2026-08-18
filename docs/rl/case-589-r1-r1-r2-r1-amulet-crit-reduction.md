@@ -221,12 +221,18 @@ le dernier palier.
 
 ## 9. Ce qui n'est PAS couvert
 
-* **La POSE offline n'est pas portée** — résidu **`#589-r1-r1-r2-r1-r1`**. L'effet n'entre dans
-  l'état du port que par la capture live. Poser `ABILITY_INIT_OWNER_EFFECTS["AmuletOfTheVoidwyrm"]`
-  serait **INERTE** : `spawn.py::_seed_ability_owner_effects` lit
-  `gameconfig.units[vid].{activeAbilities,passiveAbilities}` et **ne connaît ni la relique équipée
-  (`UnitContext.tertiary_ability`) ni `relicAbilities`**. Même arbitrage que
-  `StructuralAnalyserVisualEffect` : on ne pose pas d'entrée que rien ne lit.
+* ~~**La POSE offline n'est pas portée** — résidu **`#589-r1-r1-r2-r1-r1`**~~ — **FERMÉ (#10035,
+  2026-08-18), et la prémisse ci-dessous était périmée DEUX FOIS.** « Poser
+  `ABILITY_INIT_OWNER_EFFECTS["AmuletOfTheVoidwyrm"]` serait INERTE » est faux depuis **#1005**
+  (`spawn.py::_seed_ability_owner_effects` lit `ctx.tertiary_ability` et l'ajoute à sa liste
+  d'abilities, au couple TERTIAIRE) ; l'entrée elle-même est posée depuis le **2026-08-15**. Le
+  mécanisme était donc entier — et pourtant rien n'arrivait dans l'état chargé. La cause est un
+  **ordre de passes** dans `snapshot.load_state` : `_load_stats_and_effects`, qui porte la boucle de
+  seed, tourne **avant** `_load_tertiary_abilities`, seul écrivain de `ctx.tertiary_ability`. Corrigé
+  par `snapshot._seed_tertiary_owner_effects`, placée entre l'écrivain et le re-bake de #1009.
+  Le probe de cette case-doc reste **PASS** après le correctif (3 accords, les deux contre-épreuves
+  mordent exactement où attendu), et `test_amulet_voidwyrm_crit_reduction_live.py` reste **9 passed**.
+  Détail : `docs/rl/case-10035-pose-tertiaire-au-chargement.md`.
 * **L'union du compteur ne dédoublonne PAS, et ce n'est pas observable sur ce build** — résidu
   **`#589-r1-r1-r2-r1-r2`**. `TargetsSelector$$op_Addition` construit un `CombinedSelector` de
   mode **1**, et `CombinedSelector$$SelectUnion` est littéralement
