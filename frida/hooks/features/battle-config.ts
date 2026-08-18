@@ -14,7 +14,22 @@
 //     +0x68  Board                          BattleConfigBoardConfiguration
 //     +0x80  Units                          List<UnitConfiguration>  (templates)
 //     +0x88  Tiles                          List<BattleConfigTileConfiguration> (palette)
-//     +0xE7  RandomizeAiInput               bool
+//
+//   ⚠ LES NEUF BOOLEENS SONT CONSECUTIFS A PARTIR DE +0xE0, ET SE RESSEMBLENT TOUS.
+//   Cette ligne a porte `+0xE7 RandomizeAiInput` — c'est FAUX d'un octet, `+0xE7` est
+//   `DisableRandomness` (#10022-r1). L'erreur etait INVISIBLE parce que les deux valent
+//   `false` au seed : un accord en regime degenere. Chaque ligne cite ci-dessous l'ancre
+//   NOMMEE qui la fixe ; les positions sans ancre sont deduites de l'ordre de
+//   serialisation Newtonsoft de `data/seed-bc.json`, encadre par deux ancres.
+//     +0xE0  UseGroupForAddUnit         bool   IdunBattle.Core.Services.BattleQuery$$get_UseGroupForAddUnit
+//     +0xE1  NoAutomaticUnitTurns       bool   IdunBattle.Core.Services.BattleQuery$$get_NoAutomaticUnitTurns
+//     +0xE2  EnableIdunAbilities        bool   (position)
+//     +0xE3  IsTestBattle               bool   (position)
+//     +0xE4  DisableTimeouts            bool   (position)
+//     +0xE5  DisableAnimatorRecovery    bool   (position)
+//     +0xE6  DisableActiveAbilitiesOnAI bool   IdunBattle.Runner.IdunRunner$$Initialize -> param `disableActiveAbilities`
+//     +0xE7  DisableRandomness          bool   idun.IdunMainView$$ShowBattle (gate du seed horloge)
+//     +0xE8  RandomizeAiInput           bool   IdunBattle.Runner.IdunRunner$$Initialize -> param `configurationRandomizeAiInput`
 //
 //   PredefinedUnits (per-player squad)      class
 //     +0x10  Id                             PlayerId (enum int)
@@ -133,7 +148,10 @@ const PMOW_OFF_UNIT_ID = 0x10;
 const BC_OFF_BOARD = 0x68;
 const BC_OFF_UNITS = 0x80;       // List<UnitConfiguration>
 const BC_OFF_TILES = 0x88;       // List<BattleConfigTileConfiguration>
-const BC_OFF_RANDOMIZE_AI = 0xE7;
+// #10022-r1 : etait 0xE7 — c'est `DisableRandomness`, pas `RandomizeAiInput`. Voir la table
+// des neuf booleens en tete de fichier. En ECRITURE, l'octet fautif figeait le seed de la
+// bataille au lieu de randomiser l'ordre d'activation IA.
+const BC_OFF_RANDOMIZE_AI = 0xE8;
 
 const LIST_OFF_ITEMS = 0x10;
 const LIST_OFF_SIZE = 0x18;
