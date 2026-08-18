@@ -81,7 +81,7 @@
 
 import {
     class_get_name, findClassAnywhere, findCtorByParamCount, findMethod,
-    findMethodByParamClasses, findMethodByParamCount, methodParamClass,
+    findMethodByParamClasses, findMethodByParamCount, getFieldOffset, methodParamClass,
     methodParamClassName, readIl2cppString, s as cstr,
 } from "../il2cpp/helpers.js";
 import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
@@ -93,6 +93,18 @@ import { executeurVivant, Refus as RefusVue } from "./view-command.js";
 import { champPointeur, estRefus, refus } from "./lecture-champs.js";
 import { getCapturedUniverse } from "./unit-visual-resolve.js";
 import { Ctx } from "../controller.js";
+
+/** La source FORGEE, retenue entre appels -- et ENRACINEE, sinon le GC la ramasse.
+ *  Exposee pour que la delegation du HUD puisse emprunter A LA SOURCE DU MODE plutot qu'a la
+ *  campagne : `SandboxGameModeSource$$GetGameModeSpecificDeploymentHudOptions` rend un objet NU
+ *  (`supportsMachinesOfWar` reste false), et emprunter a la campagne importerait SES restrictions
+ *  -- meme vice que le roster imperial sur un montage PvP. */
+let sourceForgeeGw: NativePointer | null = null;
+
+/** La `GuildWarsGameModeSource` forgee, pour les modules qui doivent lui DELEGUER un appel. */
+export function sourceGuildWarForgee(): NativePointer | null {
+    return sourceForgeeGw;
+}
 
 /** Le namespace de la fabrique et de ses satellites. */
 const NS_VIEW = "Idun.Source.IdunBattle.View";
@@ -258,9 +270,17 @@ function progressionPhase(): NativePointer | RefusVue {
  * serait FAUX. Il enveloppe ensuite le tuple dans un `Nullable` de 24 octets, dont il relit les
  * trois mots avant de le passer.
  *
- * Disposition, lue sur ces memes trois mots : `{ Item1 : String @0, Item2 : Int32 @8,
- * hasValue @0x10 }`. Une zone a ZERO vaut donc « pas d'adresse » -- c'est ce que ce module
- * passait jusqu'ici, et c'est un appel LEGAL qui rend simplement un roster non adresse.
+ * ⚠ ET `hasValue` EST EN TETE, PAS EN QUEUE -- L'ADRESSE DE LA FAUTE L'A ETABLI.
+ * La disposition « naturelle » (`{ value @0 ; hasValue @0x10 }`) fait lever
+ * `access violation accessing 0x11`, mesure du 2026-08-18. Ce `0x11` n'est pas du bruit : c'est
+ * `0x1 + 0x10`, soit le natif prenant le `slotIndex` (valeur 1, ecrite a `+8`) pour un `String*`
+ * et lisant sa longueur au `+0x10` d'un `System.String`. Il lit donc `Item1` a `+8`, ce qui ne
+ * laisse qu'une place pour le drapeau : la tete. C'est aussi ce que dit la source .NET, ou
+ * `Nullable<T>` declare `private readonly bool hasValue;` AVANT `internal readonly T value;`.
+ *
+ * Disposition retenue : `{ hasValue @0 (bourre a 8), Item1 : String @8, Item2 : Int32 @0x10 }`.
+ * Une zone a ZERO vaut « pas d'adresse » dans les DEUX lectures -- c'est pourquoi le buffer nul
+ * que ce module passait jusqu'ici n'a jamais fauté, et n'a jamais rien prouve non plus.
  */
 function adresseBataille(warZoneId?: string, slotIndex = 0): NativePointer {
     const p = Memory.alloc(24);
@@ -268,9 +288,9 @@ function adresseBataille(warZoneId?: string, slotIndex = 0): NativePointer {
     if (warZoneId !== undefined) {
         const s = createManagedString(warZoneId);
         gcRoot.add(s);                       // la boite n'est PAS une racine GC : l'ancrer
-        p.writePointer(s);
-        p.add(8).writeS32(slotIndex);
-        p.add(0x10).writeU8(1);              // hasValue
+        p.writeU8(1);                        // hasValue, EN TETE
+        p.add(8).writePointer(s);            // ValueTuple.Item1 : String
+        p.add(0x10).writeS32(slotIndex);     // ValueTuple.Item2 : Int32
     }
     return p;
 }
@@ -317,6 +337,24 @@ function rosterDeGuerre(k: NativePointer, sur: NativePointer, inclureMow: boolea
             + "NULS -- roster vide, la fabrique produirait un catalogue vide");
     }
     return { utilisables, epuisees: boite.add(0x18).readPointer() };
+}
+
+/** L'element `i` d'une `List<T>` managee. `+0x10` = tableau, `+0x18` = taille ; les elements
+ *  commencent a `+0x20` du tableau. Rend un refus NOMME plutot que de lire hors bornes. */
+function elementDeListe(lst: NativePointer, i: number): NativePointer | RefusVue {
+    if (lst.isNull()) return refus("liste NULLE");
+    const arr = lst.add(0x10).readPointer();
+    const n = lst.add(0x18).readS32();
+    if (arr.isNull()) return refus("liste sans tableau interne");
+    if (i < 0 || i >= n) return refus(`index ${i} hors bornes (taille ${n})`);
+    return arr.add(0x20 + i * Process.pointerSize).readPointer();
+}
+
+/** Le champ NOMME d'un objet manage, en refusant par son nom quand il n'existe pas. */
+function champ(obj: NativePointer, nom: string): NativePointer | RefusVue {
+    const p = champPointeur(obj, nom);
+    if (estRefus(p)) return p;
+    return p as NativePointer;
 }
 
 /** Invoque une methode d'instance NOMMEE et rend son retour, ou un refus NOMME. */
@@ -660,6 +698,340 @@ export function register(ctx: Ctx): void {
             pret: kB !== null && m !== null && ctorVals !== null && mFrom !== null
                 && !estRefus(deps) && univers !== null && isSerializerReady(),
         };
+    });
+
+    /**
+     * FORGE une `GuildWarsGameModeSource` -- ET C'EST LA VOIE QUI NE PASSE PLUS PAR NOS INGREDIENTS.
+     *
+     * ⚠ POURQUOI FORGER PLUTOT QU'APPELER LA FABRIQUE. `guildWarBuildBc` appelle
+     * `GetGuildWarsConfig` en lui passant NOS 14 arguments : le catalogue, les environment
+     * abilities, l'ammo, la carte. Chacun est une occasion de se tromper, et plusieurs l'etaient.
+     * Une source FORGEE, elle, va chercher les 14 toute seule dans `LoadBattleInternal` -- c'est
+     * exactement ce que fait `guild-boss-config.ts`, et c'est pourquoi cette sandbox-la marche.
+     *
+     * ⚠ LE CTOR DE LA SOURCE EXIGE LE RECORD ET LE DEREFERENCE. Il lit `battleData+0x28`
+     * (Enemies), `+0x30` (MoW adverse, dont le `+0x10` doit etre non nul), `+0x10` (WarZoneId) et
+     * `+0x1c` (SlotIndex), et il LEVE si le pointeur est nul. On construit donc d'abord le record
+     * par SON ctor a 12 arguments.
+     *
+     * ⚠ LES ENNEMIS NE SONT PAS RECONSTRUITS -- ce sont les OBJETS VIVANTS de la zone, ceux-la
+     * memes que le jeu passerait. On les atteint par `GetWarZone(String)` puis par champs NOMMES.
+     *
+     * ⚠ TROIS CHAMPS RESTENT NULS, ET C'EST MESURE, PAS NEGLIGE. `Buffs` (+0x50), `EnemyPlayer`
+     * (+0x58) et, si l'appelant ne le donne pas, `RarityCap` (+0x44) ne sont lus NI par le ctor de
+     * la source NI par `LoadBattleInternal` : le premier sert au HUD, le second aux metadonnees de
+     * replay, le troisieme au seul
+     * `GetGameModeSpecificDeploymentHudOptionsInternal`. Les remplir a l'aveugle serait inventer.
+     *
+     * ⚠ AUCUN CONTACT SERVEUR. `StartMatch` n'est PAS appele -- et c'est lui, et lui seul, qui
+     * conduit a `SendLoadBattleGameEventInternal`. Le ctor n'envoie rien.
+     */
+    ctx.rpc.guildWarSourceForger = (body?: {
+        warZoneId?: string; zonePartIndex?: number; slotIndex?: number;
+        boardId?: string; spawnPointsSet?: number; rarityCap?: number; confirmer?: boolean;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        if (!body?.warZoneId) return refus("`warZoneId` manquant");
+        if (!body?.boardId) return refus("`boardId` manquant -- le derive de `guildWarZoneConfigs`");
+        const part = body.zonePartIndex ?? 0;
+        const slotIdx = body.slotIndex ?? 0;
+
+        const exec = executeurVivant();
+        if (estRefus(exec)) return exec;
+        const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
+        if (!kExec) return refus("classe `ViewCommandExecutor` introuvable");
+        const prog = progressionPhase();
+        if (estRefus(prog)) return prog;
+        const kProg = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                        "GuildWarPhaseProgression");
+        if (!kProg) return refus("classe `GuildWarPhaseProgression` introuvable");
+
+        // --- les ennemis VIVANTS, pris dans la zone -----------------------------------------
+        const mZone = findMethodByParamClasses(kProg, "GetWarZone", ["String"]);
+        if (!mZone) return refus("`GetWarZone(String)` INTROUVABLE -- chemin PERIME");
+        let zone: NativePointer;
+        try { zone = invokeMethod(mZone.info, prog as NativePointer,
+                                  [createManagedString(body.warZoneId)]); }
+        catch (e) { return refus("`GetWarZone` a LEVE : " + (e as Error).message); }
+        if (zone.isNull()) return refus(`zone \`${body.warZoneId}\` INCONNUE de la progression`);
+        gcRoot.add(zone);
+
+        const nomPart = part === 0 ? "zonePart1" : "zonePart2";
+        const pPart = champ(zone, nomPart);
+        if (estRefus(pPart)) return pPart;
+        if ((pPart as NativePointer).isNull()) return refus(`\`${nomPart}\` est NUL sur la zone`);
+        const pSlots = champ(pPart as NativePointer, "warZoneSlots");
+        if (estRefus(pSlots)) return pSlots;
+        const pSlot = elementDeListe(pSlots as NativePointer, slotIdx);
+        if (estRefus(pSlot)) return refus(`slot ${slotIdx} : ` + (pSlot as RefusVue).error);
+        // ⚠ `Enemies` N'EST PAS LA LISTE BRUTE DU SLOT, et l'y mettre fait LEVER le ctor de la
+        // source (« system error », mesure du 2026-08-19). La popup passe
+        // `WarZoneSlotDtoExtensions$$GetLineUpModels(slot, unitProgression, out totalPower)`, qui
+        // rend un `List<UnitModelWithHealth>` : pour chaque `defendingUnits[i]`, elle construit un
+        // `CalculatedStatsUnitModel(unitDto, xp, unitProgression, initStaticStats: true, isNpc)`
+        // puis l'enveloppe avec maxHp/remainingHp/power lus a `+0x18`/`+0x1c`/`+0x20`. C'est cette
+        // liste-la que le ctor de la source passe a `ListExtensions$$FilterMap`.
+        //
+        // ⚠ ET ON LA CALCULE SUR LE SLOT DE `GetWarZone`, PAS SUR CELUI DE `GetWarZoneSlot`.
+        // `GetLineUpModels` lit les PV dans les elements de `slot+0x18` ; or `GetWarZoneSlot` rend
+        // un slot dont `remainingHp` vaut 0 la ou `GetWarZone` le peuple (mesure anterieure : 0
+        // contre 3204, meme unite). Prendre la voie de la popup a la lettre monterait des ennemis
+        // MORTS -- on garde donc SA fonction, mais sur NOTRE slot.
+        const kExt = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                       "WarZoneSlotDtoExtensions");
+        if (!kExt) return refus("classe `WarZoneSlotDtoExtensions` introuvable");
+        const mLineup = findMethodByParamCount(kExt, "GetLineUpModels", 3);
+        if (!mLineup) {
+            return refus("`WarZoneSlotDtoExtensions$$GetLineUpModels(3)` INTROUVABLE -- signature "
+                + "CHANGEE sur ce build");
+        }
+        const pUnitProg = champ(exec as NativePointer, "_unitProgression");
+        if (estRefus(pUnitProg)) return pUnitProg;
+        const outPower = Memory.alloc(4);
+        outPower.writeS32(0);
+        let enemies: NativePointer;
+        try {
+            enemies = invokeMethod(mLineup.info, NULL,
+                                   [pSlot as NativePointer, pUnitProg as NativePointer, outPower]);
+        } catch (e) { return refus("`GetLineUpModels` a LEVE : " + (e as Error).message); }
+        if (enemies.isNull()) return refus("`GetLineUpModels` a rendu NUL");
+        gcRoot.add(enemies);
+        const nbEnnemis = enemies.add(0x18).readS32();
+        const puissanceLineup = outPower.readS32();
+
+        // ⚠ LA MoW ADVERSE RESTE NULLE POUR L'INSTANT, ET C'EST DIT. Le record l'attend sous la
+        // meme forme MODELE (la popup la tire de `GetMachineOfWarUnits`), pas sous la forme DTO du
+        // slot. Le ctor de la source TOLERE le nul (il ne construit alors pas `this+0xe8`), donc
+        // `overrideOpponentPlayerMachine` sera nul : la bataille se monte SANS MoW adverse.
+        // Passer le DTO brut ferait lever, exactement comme la liste brute ci-dessus.
+        const mowPtr: NativePointer = NULL;
+        const mowUtilisable = false;
+
+        // --- l'identifiant de guerre ----------------------------------------------------------
+        const gwId = appeler(kProg, prog as NativePointer,
+                             "GetGuildWarIdEvenIfItHasntStartedYet", 0, []);
+        if (estRefus(gwId)) return gwId;
+
+        // --- un `EnvironmentAbilities` REELLEMENT INITIALISE ----------------------------------
+        // ⚠ Un objet nu ne suffit PAS : `ApplyEnvironmentAbilitiesFromProgression` le passe en
+        // ACCUMULATEUR a `BattleEnvironmentAbilityExtensions$$Apply`, qui ECRIT dedans. Ses trois
+        // membres (`Abilities`, `EnhancementAbilities`, `AbilitiesConfigurations`) doivent donc
+        // exister. Le ctor natif ne les cree pas -- c'est l'appelant qui le fait, verifie au
+        // decompile de la popup. On les fait creer par Newtonsoft, qui connait leurs generiques.
+        const kEnv = findClassAnywhere(NS_CFG, "EnvironmentAbilities");
+        if (!kEnv) return refus("classe `IdunBattle.Configuration.EnvironmentAbilities` introuvable");
+        let env: NativePointer;
+        try {
+            env = deserializeFromJson(
+                '{"Abilities":[],"EnhancementAbilities":[],"AbilitiesConfigurations":{}}', kEnv);
+        } catch (e) { return refus("`EnvironmentAbilities` : " + (e as Error).message); }
+        if (env.isNull()) return refus("`EnvironmentAbilities` deserialise en NUL");
+        gcRoot.add(env);
+
+        // --- les 17 dependances de la source, resolues PAR NOM --------------------------------
+        const NOMS_EXEC = ["_unitProgression", "_itemProgression", "_modifierProgression",
+                           "_gameConfigData", "_logger", "_featureUnlocker", "_onlineFeatureDecider",
+                           "_coroutineStarter", "_resourceProgression",
+                           "_battleReconciliationProgression", "_questEventHandler",
+                           "_menuSystems"] as const;
+        const dep: Record<string, NativePointer> = {};
+        const absents: string[] = [];
+        const nuls: string[] = [];
+        for (const n of NOMS_EXEC) {
+            const off = getFieldOffset(kExec, n);
+            if (off < 0) { absents.push(n); continue; }
+            const p = (exec as NativePointer).add(off).readPointer();
+            if (p.isNull()) nuls.push(n);
+            dep[n] = p;
+        }
+        if (absents.length > 0) {
+            return refus("champs ABSENTS de `ViewCommandExecutor` sur ce build : "
+                + absents.join(", ") + " -- chemin PERIME");
+        }
+        // Les trois HUD vivent sur `MenuSystems`. On les prend PAR NOM et on PUBLIE leur offset :
+        // le decompile de `StartGuildWarsMatch` lit `+0x188`, `+0x3c8` et `+0xf8`, donc un ecart
+        // signale un renommage ou un renumerotage AU LIEU de le subir en silence.
+        const HUDS: Array<{ arg: string; nom: string; attendu: number }> = [
+            { arg: "deploymentHud", nom: "unitDeploymentHud",    attendu: 0x188 },
+            { arg: "hud",           nom: "GuildWarInBattleHud",  attendu: 0x3c8 },
+            { arg: "gameHud",       nom: "idunGameHud",          attendu: 0xf8 },
+        ];
+        const menus = dep["_menuSystems"];
+        let kMenus: NativePointer = NULL;
+        try { kMenus = menus.readPointer(); } catch { /* publie plus bas */ }
+        const hudRes: Record<string, { offset: number; attendu: number; concorde: boolean }> = {};
+        const hudPtr: Record<string, NativePointer> = {};
+        for (const h of HUDS) {
+            const off = kMenus.isNull() ? -1 : getFieldOffset(kMenus, h.nom);
+            hudRes[h.arg] = { offset: off, attendu: h.attendu, concorde: off === h.attendu };
+            hudPtr[h.arg] = off < 0 ? NULL : menus.add(off).readPointer();
+        }
+        const hudManquants = HUDS.filter((h) => hudRes[h.arg].offset < 0).map((h) => h.nom);
+
+        if (body.confirmer !== true) {
+            return { ok: true, lecture: true,
+                     zone: zone.toString(), zonePart: nomPart, slotIndex: slotIdx,
+                     enemies: enemies.toString(), nbEnnemis, puissanceLineup,
+                     machineOfWarEnemy: mowPtr.toString(), mowUtilisable,
+                     guildWarId: (gwId as NativePointer).toString(),
+                     champsNuls: nuls, hud: hudRes, hudManquants,
+                     note: "`confirmer: true` exige : ce RPC ALLOUE un `GuildWarBattleData` puis "
+                         + "une `GuildWarsGameModeSource`. `StartMatch` n'est PAS appele, donc "
+                         + "aucune tentative n'est consommee et rien ne part au serveur." };
+        }
+        if (hudManquants.length > 0) {
+            return refus("HUD INTROUVABLES sur `MenuSystems` : " + hudManquants.join(", ")
+                + " -- les noms ont change sur ce build, on ne devine pas un remplacant");
+        }
+        if (nuls.length > 0) {
+            return refus("dependances NULLES sur l'executeur : " + nuls.join(", ")
+                + " -- la source serait construite incomplete et le natif leverait plus tard "
+                + "sans rien nommer");
+        }
+
+        // --- le RECORD, par son ctor a 12 arguments -------------------------------------------
+        // ⚠ SA CLASSE NE SE CHERCHE PAS PAR NOM. `GuildWarBattleData` est IMBRIQUEE dans
+        // `GuildWarsGameModeSource` : `findClassAnywhere` passe par `image_get_class`, qui
+        // n'indexe pas les classes imbriquees -- mesure du 2026-08-19, refus « introuvable » sur
+        // les deux formes de namespace essayees. On la prend donc la ou elle est DECLAREE : c'est
+        // le PARAMETRE 0 du ctor de la source. Zero nom devine, et un renommage inter-build se
+        // resout tout seul.
+        const kSrcPourRec = findClassAnywhere("IdunBattle.ViewLogic.BattleSource",
+                                              "GuildWarsGameModeSource");
+        if (!kSrcPourRec) return refus("classe `GuildWarsGameModeSource` introuvable");
+        const ctorSrcPourRec = findCtorByParamCount(kSrcPourRec, 17);
+        if (!ctorSrcPourRec) {
+            return refus("`GuildWarsGameModeSource..ctor(17)` INTROUVABLE -- signature CHANGEE");
+        }
+        const kRec = methodParamClass(ctorSrcPourRec.info, 0);
+        if (!kRec || kRec.isNull()) {
+            return refus("classe du parametre 0 de `GuildWarsGameModeSource..ctor` illisible "
+                + "-- c'est elle qui porte `GuildWarBattleData`");
+        }
+        const ctorRec = findCtorByParamCount(kRec, 12);
+        if (!ctorRec) {
+            return refus("`GuildWarBattleData..ctor(12)` INTROUVABLE -- la signature a CHANGE ; "
+                + "on ne devine pas une arite de remplacement");
+        }
+        const i32 = (v: number) => { const p = Memory.alloc(4); p.writeS32(v); return p; };
+        const rec = il2cpp_object_new(kRec);
+        if (rec.isNull()) return refus("allocation du `GuildWarBattleData` a rendu NUL");
+        gcRoot.add(rec);
+        try {
+            invokeMethod(ctorRec.info, rec, [
+                createManagedString(body.warZoneId),      // WarZoneId
+                i32(part),                                // ZonePartIndex
+                i32(slotIdx),                             // SlotIndex
+                gwId as NativePointer,                    // GuildWarId
+                enemies,                                  // Enemies -- modeles, voie de la popup
+                mowUtilisable ? mowPtr : NULL,            // MachineOfWarEnemy -- nul, cf. ci-dessus
+                createManagedString(body.boardId),        // BoardId
+                i32(body.spawnPointsSet ?? 0),            // SpawnPointsSet
+                i32(body.rarityCap ?? 0),                 // RarityCap    -- HUD seul
+                env,                                      // EnvironmentAbilities
+                NULL,                                     // Buffs        -- HUD seul
+                NULL,                                     // EnemyPlayer  -- replay seul
+            ]);
+        } catch (e) { return refus("`GuildWarBattleData..ctor` a LEVE : " + (e as Error).message); }
+
+        // --- LA SOURCE, par son ctor a 17 arguments -------------------------------------------
+        const kSrc = kSrcPourRec;
+        const ctorSrc = ctorSrcPourRec;
+        const src = il2cpp_object_new(kSrc);
+        if (src.isNull()) return refus("allocation de la source a rendu NUL");
+        gcRoot.add(src);
+        try {
+            invokeMethod(ctorSrc.info, src, [
+                rec,                                      // guildWarsBattleData
+                dep["_unitProgression"],                  // unitProgression
+                dep["_itemProgression"],                  // itemProgression
+                prog as NativePointer,                    // guildWarPhaseProgression
+                dep["_modifierProgression"],              // modifierProgression
+                exec as NativePointer,                    // viewCommandExecutor
+                dep["_gameConfigData"],                   // gameConfig
+                dep["_logger"],                           // logger
+                dep["_featureUnlocker"],                  // featureUnlocker
+                dep["_onlineFeatureDecider"],             // onlineFeatureDecider
+                hudPtr["deploymentHud"],                  // deploymentHud
+                dep["_coroutineStarter"],                 // coroutineStarter
+                dep["_resourceProgression"],              // resourceProgression
+                dep["_battleReconciliationProgression"],  // battleReconciliationProgression
+                hudPtr["hud"],                            // hud
+                hudPtr["gameHud"],                        // gameHud
+                dep["_questEventHandler"],                // questEventHandler
+            ]);
+        } catch (e) {
+            return refus("`GuildWarsGameModeSource..ctor` a LEVE : " + (e as Error).message);
+        }
+        sourceForgeeGw = src;
+        return {
+            ok: true, action: "FORGEE", record: rec.toString(), instance: src.toString(),
+            classe: (() => { try { return cstr(class_get_name(src.readPointer()) as NativePointer); }
+                             catch { return null; } })(),
+            hud: hudRes, mowUtilisable,
+            // Ce que le ctor a lui-meme rempli : le lineup mappe et le roster ADRESSE.
+            opponentLineup: src.add(0xe0).readPointer().toString(),
+            availableMainPlayerUnits: src.add(0xf0).readPointer().toString(),
+            note: "`StartMatch` n'a PAS ete appele -- aucune bataille demarree, aucune tentative "
+                + "consommee, rien envoye au serveur.",
+        };
+    });
+
+    /**
+     * LA BC DU JEU, PRODUITE PAR LA SOURCE ELLE-MEME.
+     *
+     * ⚠ AUCUNE TENTATIVE CONSOMMEE, et c'est le decompile qui l'etablit : `LoadBattleInternal`
+     * construit la BC et la rend ; `SendLoadBattleGameEventInternal` est un override virtuel
+     * SEPARE, appele par le squelette `AGameModeSource` -- jamais par celui-ci.
+     *
+     * ⚠ On INVOQUE `LoadBattleInternal`, donc on ne l'ANCRE nulle part : ancrer ce qu'on invoque
+     * gele le jeu.
+     */
+    ctx.rpc.guildWarSourceBc = (body?: {
+        confirmer?: boolean; isRestart?: boolean;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        const src = sourceForgeeGw;
+        if (src === null || src.isNull()) {
+            return refus("aucune `GuildWarsGameModeSource` forgee -- appeler "
+                + "`guildWarSourceForger {confirmer:true}` d'abord");
+        }
+        let classe: string | null = null;
+        try { classe = cstr(class_get_name(src.readPointer()) as NativePointer); } catch { /* nomme */ }
+        if (classe !== "GuildWarsGameModeSource") {
+            return refus(`l'instance retenue est une \`${classe}\`, PAS une `
+                + "`GuildWarsGameModeSource` -- invoquer dessus executerait du natif sur une "
+                + "disposition memoire etrangere");
+        }
+        if (body?.confirmer !== true) {
+            return { ok: true, lecture: true, instance: src.toString(), classe,
+                     note: "`confirmer: true` exige : ce RPC INVOQUE "
+                         + "`GuildWarsGameModeSource$$LoadBattleInternal`. Il ne depense RIEN, "
+                         + "mais il ECRIT `_currentBattle` sur la source forgee." };
+        }
+        const m = findMethodByParamCount(
+            findClassAnywhere("IdunBattle.ViewLogic.BattleSource",
+                              "GuildWarsGameModeSource") as NativePointer,
+            "LoadBattleInternal", 1);
+        if (!m) return refus("`LoadBattleInternal(1)` INTROUVABLE -- chemin PERIME");
+        const b8 = Memory.alloc(1);
+        b8.writeU8(body?.isRestart === true ? 1 : 0);
+        let bc: NativePointer;
+        try { bc = invokeMethod(m.info, src, [b8]); }
+        catch (e) { return refus("`LoadBattleInternal` a LEVE : " + (e as Error).message); }
+        if (bc.isNull()) return refus("`LoadBattleInternal` a rendu NUL");
+        gcRoot.add(bc);
+        if (!isSerializerReady()) {
+            return refus("serialiseur Newtonsoft non resolu -- la BC existe (" + bc.toString()
+                + ") mais reste illisible");
+        }
+        let json: string | null;
+        try { json = serializeToJson(bc); }
+        catch (e) { return refus("serialisation de la BC : " + (e as Error).message); }
+        if (json === null) {
+            return refus("serialisation NULLE -- la BC EXISTE (" + bc.toString()
+                + ") mais Newtonsoft ne l'a pas rendue");
+        }
+        return { ok: true, instance: src.toString(), bc: bc.toString(),
+                 configJson: json, bytes: json.length };
     });
 
     /** Fabrique la BC d'un match de guild war et la rend en JSON. AUCUN montage, AUCUN reseau.
