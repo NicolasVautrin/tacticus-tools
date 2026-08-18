@@ -557,7 +557,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return (state.effects is not None
                 and state.effects.has_effect(int(tile_id), effect_type=int(effect_type)))
 
-    # `ctx.has_effect` (`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType, activeOnly,
+    # `ctx.has_effect` (`IdunBattleLogic.Entities.DSLTriggers$$HasEffect(unit, effectType, activeOnly,
     # sourceFlags)` -> `IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger` ->
     # `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`) : l'unite porte-t-elle un effet du type ?
     # (source-flag 6 = owned|incoming -> offline on ne distingue pas la source, toutes les instances

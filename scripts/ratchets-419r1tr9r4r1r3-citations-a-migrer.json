@@ -1,0 +1,30 @@
+{
+  "_": [
+    "#419-r1-tr9-r4-r1-r3 -- BASE ATTESTEE des citations DSL* MIGRABLES encore ecrites dans l'arbre.",
+    "Une citation est MIGRABLE quand UNE SEULE des cinq classes DSL declare la methode et que le",
+    "site en nomme une AUTRE (typiquement l'ancienne orthographe `DSLFactory$$`, heritee du build de",
+    "mai ou cette classe declarait tout le DSL -- cf. #1032-r3, SCISSION DE CLASSE).",
+    "",
+    "CE FICHIER NE DOIT QUE DECROITRE. Le cliquet",
+    "`tests/engine/test_419r1tr9r4r1r3_citations_dsl_offline.py` exige que l'ensemble MESURE soit un",
+    "SOUS-ENSEMBLE de celui-ci : toute citation NEUVE rougit, toute reparation le laisse vert (on",
+    "elague alors la ligne, on ne la garde pas par confort -- un troisieme cran le verifie).",
+    "",
+    "POURQUOI UNE BASE PLUTOT QU'UN ZERO. Les douze entrees restantes vivent toutes dans",
+    "`engine/entities/effects/loki/status.py`, tenu par une autre tranche au moment ou ce cliquet a",
+    "ete pose (2026-08-18) : les migrer ici aurait fabrique un conflit sur un fichier partage. Le",
+    "zero est l'objectif, la base attestee est ce qui empeche le gisement de se ROUVRIR entre-temps.",
+    "Reparation : `python probe_419r1tr9r4r1r3_symboles_cites_absents.py --corrige`."
+  ],
+  "sites": {
+    "scripts/python/engine/entities/effects/loki/status.py": [
+      "IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect",
+      "IdunBattleLogic.Entities.DSLFactory$$HealthPctIsBelowOrEqual",
+      "IdunBattleLogic.Entities.DSLFactory$$IsCharging",
+      "IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack",
+      "IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack",
+      "IdunBattleLogic.Entities.DSLFactory$$OnOwnerSpecificAbilityInit",
+      "IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus"
+    ]
+  }
+}
