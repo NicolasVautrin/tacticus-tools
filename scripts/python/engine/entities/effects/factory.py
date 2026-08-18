@@ -34,7 +34,9 @@ from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'A
 from .loki.heal_blocking import FuryOfTheAncientsEffect, MischiefMakersEffect   # #927, #1077
 from .loki.machine_vengeance import MachineVengeanceEffect   # 1365, pile ArcScourge (#1081)
 from .loki.counter_attack import (GrimRetributionCounterAttackEffect,
+                                  SmashaSquigJawsCounterAttackEffect,      # 1104 (#946-r3)
                                   UnwaveringSentinelCounterAttackEffect,
+                                  WarConstructCounterAttackEffect,         # 1286 (#946-r3)
                                   WireweaveNetCounterAttackEffect)
 from .loki.crit_aura import PathOfCommandExtraCritEffect
 from .loki.summary_execution import (SummaryExecutionBaseEffect,       # #955 (astraYarrick)
@@ -1314,6 +1316,24 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`EFFECT_TRIGGERS[1439]` + `CUSTOM_TRIGGERED_ABILITIES[1449]`,
     # `runner/operations/triggers/loki/unwavering_sentinel.py`). (#946)
     "UnwaveringSentinel_CounterAttack": UnwaveringSentinelCounterAttackEffect,
+    # SmashaSquigJaws (PASSIF 1105) : effet-RIPOSTE 1104, MEME motif d'inscription -- nommer la
+    # classe NATIVE et porter les litteraux du `.ctor` (`turnsEnabled=1`, `activationFrequency=1`,
+    # source `TriggeredAbilityType` 1105 via `set_TriggeredAbility`). ⚠ Sa gate est
+    # `get_OwnerOrOwnerTileIsTarget & IsMeleeAttack` : le 1er nœud accepte AUSSI une attaque visant
+    # la TUILE du porteur, axe qu'aucun des trois membres precedents ne portait. AUCUN `Triggered()`
+    # cable : 0 porteur sur les 5 voies derivables ET ability ABSENTE du gameconfig (donc aucune
+    # magnitude a lire) -> NON CONFRONTE, jamais « morte » (#323). (#946-r3)
+    "SmashaSquigJaws_CounterAttack": SmashaSquigJawsCounterAttackEffect,
+    # WarConstruct : effet-RIPOSTE 1286, et le membre qui ROMPT le patron sur quatre axes -- source
+    # `ActiveAbilityType` 1133 (`set_ActiveAbility`, seul de la famille), `activationFrequency = 0`
+    # donc `hasAutomaticActivation = TRUE` et AUCUN bloc d'armement par tour, `turnsEnabled = 2`
+    # donc aucune restriction de camp, et un `CreateActiveCondition` PROPRE
+    # (`AmountIsZero(AdjacentEnemies(Owner))`). Son `GetCounterAttackBehaviour` fait un
+    # `UseActiveAbility` (l'attaque NORMALE du porteur), pas un `AttackDamage` -- et son `GetDamage`
+    # LEVE `NotImplementedException`, ce qui interdit le chemin par ecrit. Porteurs : 2 unites
+    # `npc` (`eldarNpc4Wraithguard*`), gameconfig sans variable ni constante -> NON CONFRONTE.
+    # (#946-r3)
+    "WarConstruct_CounterAttack": WarConstructCounterAttackEffect,
     # 1255 MartialSuperiority_Visual (case-366-r1) : MARQUEUR « riposte armee » du passif
     # `MartialSuperiority` (1092) de `templChampion`, pose a l'init par
     # `MartialSuperiorityAddEffectAbility` (`AOwnerEffectTriggeredAbility`, corps de BASE). Sa SEULE

@@ -131,7 +131,13 @@ def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: 
         if db is not None:
             db.native_face = e.ATTACK_BONUS_NATIVE_FACE     # #437-r1-r1-r1 (cf. BaseEffect)
             bonuses.append(db)
-        pen = e.get_armor_penetration(is_normal_attack)
+        # #1008-r5 -- `is_ranged` EST threade ici, et ce n'est pas du zele : le trigger de
+        # l'`EffectBonus` que `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` evalue
+        # AVANT d'appeler `IgnoreArmor()` n'est PAS le meme d'un porteur a l'autre --
+        # `PowerTrip_IgnoreArmorEffect` porte `IsNormalAttack`, `KanOpenerEffect` porte
+        # `IsMeleeAttack`. Sans ce parametre, la gate de vecteur serait INEXPRIMABLE et le port
+        # appliquerait la condition de l'un a l'autre, en silence.
+        pen = e.get_armor_penetration(is_normal_attack, is_ranged=is_ranged)
         if pen is not None:
             # Axe ARMURE : le natif SOMME `@0x28` des DEUX accumulateurs avant
             # `GetBaseDamageWithFixedPiercedArmor` -> face sans consequence arithmetique.

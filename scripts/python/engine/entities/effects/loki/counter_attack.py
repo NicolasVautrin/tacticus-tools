@@ -13,9 +13,17 @@ Chaine de classes, lue dans `data/symbols/<build>/frida/classes.tsv` (pas devine
 
 Les cinq membres de la famille sur ce build : `GrimRetribution_CounterAttackEffect`,
 `SmashaSquigJaws_CounterAttackEffect`, `UnwaveringSentinel_CounterAttackEffect`,
-`WarConstruct_CounterAttackEffect`, `WireweaveNet_CounterAttackEffect`. TROIS sont portes
-(`WireweaveNet` #366-r1b, puis `GrimRetribution` + `UnwaveringSentinel` #946) ; restent
-`SmashaSquigJaws_CounterAttackEffect` (1104) et `WarConstruct_CounterAttackEffect` (1286).
+`WarConstruct_CounterAttackEffect`, `WireweaveNet_CounterAttackEffect`. **LES CINQ SONT PORTES**
+(`WireweaveNet` #366-r1b, `GrimRetribution` + `UnwaveringSentinel` #946, puis
+`SmashaSquigJaws` (1104) + `WarConstruct` (1286) en #946-r3).
+
+⚠ **UNE ADRESSE N'EST PAS UN CRITERE D'IDENTIFICATION DE SURCHARGE, ET CE MODULE EN PORTAIT DEUX.**
+Les docstrings de `WireweaveNet` et `GrimRetribution` ci-dessous designent la surcharge
+d'`op_Implicit` par une VA (`+0x181669f80`) : cette adresse est celle d'un build ANTERIEUR, et elle
+ne resout plus rien sur `t6dpr4k06g`. Le critere qui SURVIT est le CORPS : chaque surcharge
+d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit` se distingue par le setter qu'elle appelle
+(`set_TriggeredAbility` / `set_ActiveAbility` / `set_Effect`), et c'est ce qu'il faut lire. Sur ce
+build, les cinq membres se repartissent **4 + 1**, et le 1 change tout (cf. `WarConstruct`).
 
 ================================================================================================
 CE QUE LE PATRON NE DIT PAS -- les ecarts MESURES entre les trois membres portes (#946)
@@ -54,6 +62,10 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
+# #946-r3 -- `WarConstruct_CounterAttackEffect` est le SEUL membre dont le `.ctor` passe son id par
+# la surcharge d'`op_Implicit` qui ecrit `set_ActiveAbility` : son id vit dans un AUTRE enum que
+# celui des quatre autres, et l'importer est ce qui rend la difference visible au lecteur.
+from ....entities.active_ability_type import ActiveAbilityType
 
 
 class WireweaveNetCounterAttackEffect(BaseEffect):
@@ -200,3 +212,175 @@ class UnwaveringSentinelCounterAttackEffect(BaseEffect):
     ACTIVATION_FREQUENCY = 1       # -> Activate@TurnStart(ennemi) / Deactivate@TurnEnd(ennemi)
     HAS_AUTOMATIC_ACTIVATION = False   # `BaseEffect$$.ctor(hasAutomaticActivation = (freq == 0))`
     SOURCE_TRIGGERED_ABILITY = TriggeredAbilityType.UnwaveringSentinel   # 1449 (set_TriggeredAbility)
+
+
+class SmashaSquigJawsCounterAttackEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.SmashaSquigJaws_CounterAttackEffect`
+    (`EffectType.SmashaSquigJaws_CounterAttack` = 0x450 = 1104) -- 4e membre de la famille (#946-r3).
+
+    LES LITTERAUX DU `.ctor`, lus a l'ASSEMBLEUR (le decompilateur masque les immediats) :
+
+        xor  r8d, r8d
+        lea  rcx, [rsp+0x30]
+        mov  edx, 0x451                     ; 1105
+        call IdunBattle.Core.AbilityOrEffect$$op_Implicit   ; corps -> `set_TriggeredAbility`
+        ...
+        mov  edx, 1                         ; turnsEnabled       = 1
+        mov  r8d, edx                       ; activationFrequency = 1
+        call IdunBattle.Entities.Effects.CounterAttackEffect$$.ctor
+
+    ⚠ **`0x451` = 1105 EST L'ABILITY SOURCE, PAS L'EFFET** -- l'effet vaut 1104. Contrairement a
+    `WireweaveNet` (ou `0x457` vaut des DEUX cotes), les deux ordinaux different d'UNE unite ici,
+    ce qui est exactement le regime ou un lecteur presse recopie le mauvais. Et la qualification
+    MORD dans les deux sens : `EffectType 1105` = `Dakka_ExtraHits`, `ActiveAbilityType 1105` =
+    `CrushingClaws` -- deux noms qui n'ont rien a voir avec ce kit.
+
+    ## LA GATE -- `SmashaSquigJaws_CounterAttackEffect$$GetCounterAttackCondition`, corps PROPRE
+
+        get_OwnerOrOwnerTileIsTarget & IsMeleeAttack
+
+    ⚠ **`get_OwnerOrOwnerTileIsTarget`, PAS `get_OwnerIsTarget`** : le premier nœud accepte aussi
+    une attaque visant la TUILE du porteur (les attaques de zone / de tuile), la ou les trois
+    membres portes n'acceptent que l'unite. C'est un axe que le patron ne couvrait pas.
+
+    ## LE TRIGGER -- corps PARTAGE avec `WarConstruct`, et la table nomme l'AUTRE proprietaire
+
+    Le slot `GetCounterAttackTrigger` de cette classe tombe sur le corps que `frida/methods.tsv`
+    attribue a `WarConstruct_CounterAttackEffect$$GetCounterAttackTrigger` -- une RVA qui vit
+    pourtant DANS le bloc d'adresses de `SmashaSquigJaws` (entre son `GetCounterAttackCondition` et
+    son `.ctor`). Fusion ICF : les deux classes partagent le meme corps, la table n'en nomme qu'un.
+    C'est « l'ABSENCE d'une methode dans les tables ne prouve RIEN » pris par l'autre bout.
+    Corps : `CounterAttackEffect$$GetDirectTargetAbilityTrigger(this, isPreAttack = 0)` =
+
+        On(EventTriggerType.UnitAbility = 0xb, ownerNeedsToBeAlive = true)
+          & IsDirectTargetAttack(<DSLSelectors+0x88>)
+          & NOT IsDirectTargetAttack(<DSLSelectors+0x98>)
+
+    (`isPreAttack = 1` y donnerait `On(PreUnitAbility = 0x2a)`, la riposte AVANT le coup -- c'est
+    le regime de `WireweaveNet`. Ici c'est APRES.)
+
+    ## PORTEUR -- AUCUN, et une SECONDE SOURCE le corrobore
+
+    `unit_map.py find --ability SmashaSquigJaws` rend **0 unite** sur les cinq voies derivables, et
+    l'ability est **ABSENTE du gameconfig** (`gameconfig.ability('SmashaSquigJaws') is None`) : il
+    n'existe donc aucune config d'ou lire une magnitude, ce qui est une seconde source INDEPENDANTE
+    du recensement d'unites. Les quatre voies non couvertes par `unit_map` (`trait`, `liveevent`,
+    `summon`, `tile`) restent formellement ouvertes (#323) -> le verdict est **NON CONFRONTE**,
+    jamais « morte ». Cette classe est inscrite au registre pour NOMMER le natif et porter ses
+    litteraux ; aucun `Triggered()` n'est cable, faute de porteur ET de magnitude."""
+
+    TURNS_ENABLED = 1              # `PlayerTurnEffect.TurnsEnabled` -> `NOT IsTurnOf(Owner)`
+    ACTIVATION_FREQUENCY = 1       # -> Activate@TurnStart(ennemi) / Deactivate@TurnEnd(ennemi)
+    HAS_AUTOMATIC_ACTIVATION = False   # `BaseEffect$$.ctor(hasAutomaticActivation = (freq == 0))`
+    SOURCE_TRIGGERED_ABILITY = TriggeredAbilityType.SmashaSquigJaws   # 1105 (set_TriggeredAbility)
+
+
+class WarConstructCounterAttackEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.WarConstruct_CounterAttackEffect`
+    (`EffectType.WarConstruct_CounterAttack` = 0x506 = 1286) -- 5e membre, et **celui qui rompt le
+    patron sur QUATRE axes** (#946-r3). Une recopie d'un des quatre autres aurait ete fausse sur
+    chacun.
+
+    LES LITTERAUX DU `.ctor`, lus a l'ASSEMBLEUR :
+
+        xor  r8d, r8d                       ; activationFrequency = 0     <- ECART
+        lea  rcx, [rsp+0x30]
+        mov  edx, 0x46d                     ; 1133
+        call IdunBattle.Core.AbilityOrEffect$$op_Implicit   ; corps -> `set_ActiveAbility`  <- ECART
+        ...
+        mov  edx, 2                         ; turnsEnabled = 2            <- ECART
+        call IdunBattle.Entities.Effects.CounterAttackEffect$$.ctor
+
+    ### ECART 1 -- l'ability source est une ability **ACTIVE**, seule de la famille
+
+    La surcharge d'`op_Implicit` appelee ici ecrit `IdunBattle.Core.AbilityOrEffect$$set_ActiveAbility`,
+    la ou les quatre autres membres passent par celle qui ecrit `set_TriggeredAbility`. Donc
+    `0x46d` = **`ActiveAbilityType.WarConstruct` = 1133**, et l'effet n'est pas pose a l'init d'un
+    passif : il l'est au CAST d'une active. **Seconde source, independante du decompile** : le
+    namespace de la classe d'ability est `IdunBattleLogic.Entities.Abilities.**Active**.Loki.
+    WarConstructAbility` (les quatre autres vivent sous `...Abilities.Triggered.Loki`), et
+    `WarConstructAbility` declare un `ExecuteBehaviour` -- la signature d'une active.
+    ⚠ La qualification MORD : `TriggeredAbilityType 1133` = `CyclicIonBlaster`, `EffectType 1133` =
+    `MV71SniperDroneSquad_ResetInitialDmg`. Lire cet ordinal dans le mauvais enum n'aurait leve
+    AUCUNE erreur.
+
+    ### ECART 2 -- `activationFrequency = 0` => `hasAutomaticActivation = TRUE`, seul de la famille
+
+    `CounterAttackEffect$$.ctor` -> `PlayerTurnEffect$$.ctor` passe
+    `hasAutomaticActivation = (activationFrequency == 0)` a `BaseEffect$$.ctor` : les quatre autres
+    membres valent `False` (freq 1 ou 2), celui-ci vaut **`True`** -- il s'arme DES LA POSE.
+
+    ### ECART 3 -- AUCUNE fenetre d'armement par tour
+
+    `PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal` n'a que deux blocs, gardes par
+    `freq == 1` et `freq == 2`. Avec `freq == 0`, **NI L'UN NI L'AUTRE ne s'execute** : aucune paire
+    `ActivateEffect`/`DeactivateEffect` n'est enfilee, donc pas de « une riposte par tour ennemi »
+    ni « par cycle ». Le seul disjoint restant est celui que la methode ajoute apres les deux blocs,
+    sous un predicat virtuel (`<vtable +0x728>`) :
+    `On(EventTriggerType.UnitResurrected = 0x2e) & get_OwnerIsTarget -> ActivateEffect(<Sel+0x38>)`.
+
+    ### ECART 4 -- `turnsEnabled = 2` => aucune restriction de tour
+
+    `PlayerTurnEffect$$IsEnabledTurnType` a TROIS branches, lues verbatim : `== 2` rend
+    `<DSLTriggers+0x70>` (la constante VRAIE), `== 0` rend `<DSLTriggers+0x28>` = `IsTurnOf(Owner)`,
+    et tout le reste rend `op_LogicalNot(<+0x28>)` = `NOT IsTurnOf(Owner)`. Les quatre autres
+    membres portent `1` (tour ENNEMI) ; celui-ci porte **`2`** -- la riposte n'est bornee par aucun
+    camp. (Ce nœud n'est de toute facon consomme que par les deux blocs de l'ECART 3, qui ne
+    tournent pas ici : la lecture est donc redondante avec `freq == 0`, et c'est ce qui la rend
+    verifiable.)
+
+    ## CREATE_ACTIVE_CONDITION -- corps PROPRE, unique dans la famille
+
+        `WarConstruct_CounterAttackEffect$$CreateActiveCondition` =
+            AmountIsZero( AdjacentEnemies(Owner@<DSLSelectors+0x30>, unique = 1, 3) )
+
+    L'effet n'est ACTIF que si le porteur n'a AUCUN ennemi adjacent -- meme idee que l'i2 de
+    `GrimRetribution` (« if there is no enemy adjacent to Sarquael »), mais portee ici par un nœud
+    PROPRE de l'effet et non par la condition de riposte.
+
+    ## LA GATE -- `WarConstruct_CounterAttackEffect$$GetCounterAttackCondition`, le 4e PROFIL
+
+        NOT HasAdjacentEnemies(Owner@<+0x30>, Tiles(Owner@<+0x30>), 0, false)
+          & ( get_OwnerIsTarget
+              | Contains( UnitsFromFaction( AdjacentFriends(Owner@<+0x30>, unique = 1, 0),
+                                            8 = UnitFaction.Aeldari ),
+                          Target@<DSLSelectors+0x60> ) )
+          & IsInAttackRange(Owner@<+0x30>, <DSLSelectors+0x48>, 3)
+
+    Trois axes qu'aucun des quatre autres membres ne porte : `HasAdjacentEnemies` (le porteur doit
+    etre au large), la DISJONCTION « le porteur OU un ami Aeldari adjacent est la cible », et
+    `IsInAttackRange`. L'ordre des `op_BitwiseAnd` est celui du decompile.
+
+    ## LE COMPORTEMENT -- `UseActiveAbility`, PAS `AttackDamage` ; et `GetDamage` LEVE
+
+        `...$$GetCounterAttackBehaviour` =
+            UseActiveAbility( unit    = Owner@<DSLSelectors+0x30>,
+                              target  = <DSLSelectors+0x48>,
+                              ability = UnitNormalAttackType(Owner@<+0x30>),
+                              source  = AbilityOrEffect(EffectType.WarConstruct_CounterAttack
+                                                        = 0x506)   ; via `set_Effect`
+                              , null, null )
+
+    ⚠ **`...$$GetDamage` a pour corps ENTIER un `throw new NotImplementedException()`** -- ce n'est
+    pas un override mort au sens d'`UnwaveringSentinel` (qui rend une formule jamais lue) : ici le
+    natif DECLARE que le chemin est interdit. C'est la confirmation ecrite dans le binaire que
+    `CounterAttackEffect$$AttackDamage` (seul consommateur du slot) n'est JAMAIS emprunte par cette
+    classe -- son comportement passe par l'attaque normale du porteur, dont le degat vient de
+    l'arme, pas de l'effet. Le port ne peut donc pas cabler ce canal, et ne doit pas essayer.
+
+    ## PORTEUR -- 2 unites, toutes deux `npc` ; magnitude INEXISTANTE
+
+    `unit_map.py find --ability WarConstruct` rend `eldarNpc4Wraithguard` et
+    `eldarNpc4WraithguardSurv` (voie `active`) -- coherent avec le `UnitFaction.Aeldari = 8` de la
+    gate. Le gameconfig porte l'ability avec **zero variable et zero constante**, ce qui rend la
+    GREFFE npc (`docs/rl/case-92-catalog-injection.md` §5bis) plausible -- son utilite ne peut lire
+    aucune config -- mais le comportement `UseActiveAbility` n'a pas de socle runner (celui de ce
+    module est `AttackDamage`). Verdict : **NON CONFRONTE**, residu nomme."""
+
+    TURNS_ENABLED = 2              # `PlayerTurnEffect.TurnsEnabled` -> `<DSLTriggers+0x70>` (VRAI)
+    ACTIVATION_FREQUENCY = 0       # -> AUCUN bloc de `CreateHandleTriggerAbilitiesInternal`
+    HAS_AUTOMATIC_ACTIVATION = True    # `BaseEffect$$.ctor(hasAutomaticActivation = (freq == 0))`
+    #: ⚠ SEUL membre dont la source est une ability **ACTIVE** (`set_ActiveAbility`) : l'attribut
+    #: n'est donc PAS `SOURCE_TRIGGERED_ABILITY`, et le confondre reintroduirait l'ordinal dans le
+    #: mauvais enum (`TriggeredAbilityType 1133` = `CyclicIonBlaster`).
+    SOURCE_ACTIVE_ABILITY = ActiveAbilityType.WarConstruct             # 1133 (set_ActiveAbility)

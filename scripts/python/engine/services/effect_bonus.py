@@ -74,9 +74,33 @@ def for_percent_decrease(owner_is_caster: bool, value: int,
 
 
 # IdunBattle.Entities.Effects.EffectBonus$$ForAddition — +value plat (additif). Écrit le champ DamageBonus (+5) de
-# l'EffectBonus → `IdunBattle.Core.Services.DamageModifiers$$Add` fait `additif @+0x10 += FromInt(v)`, appliqué
-# APRÈS perçage/armure (`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`). Il n'existe PAS de canal
-# additif « de base » pré-perçage dans le natif (cf. #69 : kind « BaseAddition » inventé retiré).
+# l'EffectBonus → `IdunBattle.Core.Services.DamageModifiers$$Add` fait `additif @+0x10 += FromInt(v)`.
+#
+# ⚠ CE COMMENTAIRE A DIT « APRÈS perçage/armure » PENDANT DES MOIS, ET C'ÉTAIT FAUX DEPUIS #70/#75.
+# Corrigé et RE-MESURÉ le 2026-08-18 sur `t6dpr4k06g` (#1005-r1), par deux sources indépendantes :
+#
+#   1. DÉCOMPILÉ — `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
+#      (l'étage POST-perçage) lit, sur chacun des deux `Nullable<DamageModifiers>`, EXACTEMENT :
+#      `Piercing@+0x20`, `IgnoreArmor@+0x28` (les deux sommés par `Fix64.op_Addition` et passés en
+#      dernier argument de `$$GetBaseDamageWithFixedPiercedArmor`), la liste `@+0x18` via le slot
+#      `0x11` `ApplyCappedModifiers`, `Multiplier@+0x30` via le slot `0x10`, puis l'`Override` du
+#      défenseur. **`Addition@+0x10` n'y est lu NULLE PART.** Un additif attaquant ne PEUT donc pas
+#      être consommé après le perçage : il entre dans le `baseDamage` que cette fonction REÇOIT.
+#   2. RECENSEMENT du port — les 17 call-sites d'`apply_pierce_and_modifiers` sous `engine/**`
+#      passent TOUS `attacker_additive_pre=True` ; **aucun** ne passe `False` (le `False` n'est plus
+#      qu'un défaut de signature, que sa propre docstring déclare « chemin legacy plus utilisé »).
+#
+# ⇒ IL N'Y A QU'UN SEUL PLACEMENT, ET IL EST PRÉ-PERÇAGE, pour TOUT `ForAddition` de l'ATTAQUANT.
+# Le placement n'est PAS une propriété de l'`EffectBonus` : `for_addition` ne le porte pas, c'est le
+# CALCULATEUR (`services/damage_prediction.apply_pierce_and_modifiers`) qui le fixe, uniformément.
+# Lire une docstring d'effet (`SmashaEad` vs `FeederTendrils`) comme désignant « deux canaux » est
+# donc un contresens : elles décrivent le même canal, et seules certaines l'écrivaient à jour.
+# CONSÉQUENCE OBSERVABLE, qui est le vrai discriminant : un additif pré-perçage traverse le perçage
+# PUIS la %-list, donc il ressort SCALÉ par les %-mods — un additif post-perçage, lui, ressortirait
+# NU. Un écart mesuré supérieur à la valeur nominale de la variable n'est donc pas une anomalie à
+# fitter, c'est la signature attendue de ce placement.
+#
+# Reste vrai de la ligne d'origine : il n'existe pas de kind « BaseAddition » côté natif (#69).
 def for_addition(owner_is_caster: bool, value: int) -> EffectBonus:
     return EffectBonus("Addition", value, owner_is_caster)
 

@@ -2133,7 +2133,11 @@ class PowerTripIgnoreArmorEffect(BaseEffect):
     `armorReduction` (full-health) = axe SÉPARÉ (debuff stateful de la stat FixedArmor cible, hors
     prédiction — la prédiction lit l'armure courante) → non porté ici (cf. PowerTrip_OnAttackAbility)."""
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True,
+                              is_ranged: bool | None = None) -> int | None:
+        # trigger natif `IsNormalAttack & get_OwnerIsCaster & !get_OwnerIsTarget` -- AUCUN noeud de
+        # VECTEUR ici (contraste `KanOpenerEffect`, qui porte `IsMeleeAttack` a cette place) : le
+        # parametre `is_ranged` est donc volontairement IGNORE, pas oublie (#1008-r5).
         # Gate ATTAQUE NORMALE (i2 : « Normal attacks ignore X Armour ») — GROUND TRUTH step-13 :
         # DakkaDakkaDakka (spéciale, même porteur u90) per-coup natif 404/728 vs 78 = armure PLEINE
         # (2208), la pénétration 499 ne s'applique qu'au normal (per-coup 416/1598).
@@ -2147,14 +2151,68 @@ class PowerTripIgnoreArmorEffect(BaseEffect):
 
 
 class KanOpenerEffect(BaseEffect):
-    """`KanOpenerEffect` (triggered) — `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KanOpenerEffect$$IgnoreArmor = `ConfigVar(key 0x40)` = pénétration
-    d'armure per-niveau (axe armure, contrairement à PowerTrip dont la réduction est stateful on-attack).
-    ⚠ KillaKan n'a PAS KanOpener (kit = PowerTrip) ; clé 0x40 → nom var gameconfig non résolu pour les
-    unités qui l'ont → pénétration None tant qu'inconnue (à mapper quand on porte une unité KanOpener)."""
+    """`KanOpenerEffect` — `EffectType` 1102 `KanOpener`, axe PÉNÉTRATION D'ARMURE (contrairement à
+    `armorReduction`, qui est un debuff STATEFUL de la stat de la cible et un axe SÉPARÉ).
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
-        # TODO: mapper la clé 0x40 → var gameconfig (per-niveau) puis return ability_var(..., self.level).
-        return None
+    ## LES DEUX CORPS NATIFS, LUS VERBATIM (#1008-r5, build `t6dpr4k06g`)
+
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KanOpenerEffect$$CreateEffectDamageBonusForAttack`
+    est un `EffectBonus` **CONDITION-SEULE** — les onze qwords de la structure sont mis à zéro et
+    seul le trigger est écrit dans le `Nullable<EffectBonus>` rendu :
+
+        trigger = IsMeleeAttack & get_OwnerIsCaster & !get_OwnerIsTarget
+
+    ⚠ **Un `EffectBonus` sans aucune valeur n'est PAS un no-op** : c'est LE PORTEUR DE LA GATE que
+    `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` (slot `0x16`) évalue AVANT
+    d'appeler `this.IgnoreArmor()` (`<vtable +0x718>`) et de ranger le résultat dans
+    `DamageBonus+0x38` → `DamageModifiers+0x28`. C'est la leçon centrale de #1008-r2, ici du côté
+    ATTAQUANT.
+
+    `<Effect>.IgnoreArmor` = `ConfigVar(0x40 = armorIgnored, BaseEffect.GetAbilityState(this),
+    cfg@this+0x60)` — corps **DÉDUPLIQUÉ**, partagé par les cinq porteurs d'`armorIgnored`
+    (6 xrefs DATA sur le seul corps, que la table nomme `WayOfTheShortBladeEffect$$IgnoreArmor`).
+    `AbilityVariableType.64 = armorIgnored` est LU dans `frida/enums.tsv`, pas déduit du nom.
+
+    ## ⚠ LA GATE N'EST PAS CELLE DE POWERTRIP — la recopier par analogie écrirait une condition FAUSSE
+
+    `IdunBattle.Entities.Effects.Loki.PowerTrip_IgnoreArmorEffect$$CreateEffectDamageBonusForAttack`
+    porte `IsNormalAttack & get_OwnerIsCaster & !get_OwnerIsTarget` ; celui-ci porte
+    **`IsMeleeAttack`** à la place du PREMIER nœud, les deux autres étant identiques. Or **rien
+    hors du décompilé ne distingue les deux** : les deux abilities portent la MÊME paire de
+    variables (`armorIgnored` + `armorReduction`), toutes deux listées dans
+    `variablesAffectedByRarityBonus`, et les deux effets vivent dans le même kit orky. Une
+    généralisation « les pénétrations d'armure sont normal-only » aurait donc été silencieusement
+    fausse ici — c'est précisément la faute que ce module documentait comme risque.
+
+    ## PORTEUR — AUCUN sur les cinq voies dérivables, donc NON CONFRONTÉ (et pas « mort »)
+
+    `unit_map.py find --ability KanOpener` rend **0 unité** sur les cinq voies dérivables du
+    gameconfig (`active`, `passive`, `relic`, `mythic`, `item`) ; `KillaKan` porte `PowerTrip`, pas
+    `KanOpener`. Le zéro ne prouve pas la mort (#323 : quatre voies restent non couvertes — `trait`,
+    `liveevent`, `summon`, `tile`), donc le port reste FIDÈLE et GARDÉ OFFLINE, et le verdict
+    s'écrit **NON CONFRONTÉ**, jamais « non pertinent ». La magnitude, elle, est pleinement
+    résoluble : `gameconfig.ability('KanOpener').variables['armorIgnored']` porte 65 niveaux."""
+
+    def get_armor_penetration(self, is_normal_attack: bool = True,
+                              is_ranged: bool | None = None) -> int | None:
+        """Trigger natif `IsMeleeAttack & get_OwnerIsCaster & !get_OwnerIsTarget`, puis la magnitude.
+
+        `get_OwnerIsCaster & !get_OwnerIsTarget` est STRUCTUREL sur ce canal — `_attacker_effect_bonuses`
+        ne parcourt QUE les effets de l'attaquant, donc `Owner` y est déjà le caster et jamais la
+        cible ; les deux nœuds n'ont pas de terme propre, exactement comme pour `PowerTrip`.
+
+        `IsMeleeAttack` est TRI-ÉTAT : seul `is_ranged is False` OUVRE. `None` (nature du coup non
+        mesurée) FERME — le port ne devine pas le vecteur, même convention que
+        `WayOfTheShortBladeEffect._is_valid_attack_for_bonus` pour le nœud symétrique
+        `IsRangedAttack`. `is_normal_attack` n'a **aucun** terme ici : le natif ne l'écrit pas."""
+        if is_ranged is not False:                      # IsMeleeAttack (tri-etat, None FERME)
+            return None
+        # `armorIgnored` indexe par le niveau de l'ABILITY (passive), scale par le multiplier de
+        # rarete de l'unite (la variable EST dans `variablesAffectedByRarityBonus`) -- meme
+        # resolution que `PowerTripIgnoreArmorEffect` ci-dessus, seule la GATE differe.
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        return ability_var("KanOpener", "armorIgnored", lvl,   # ConfigVar(0x40 = armorIgnored)
+                           multiplier_pct=self.ability_variables_multiplier)
 
 
 class DefenderOfTheGreaterGoodExtraHitsEffect(BaseEffect):

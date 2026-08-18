@@ -140,14 +140,16 @@ class HelspearIgnoreArmorEffect(BaseEffect):
             return None
         return for_addition(False, 0)          # `EffectBonus` a formules NULLES -- la gate seule
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True,
+                              is_ranged: bool | None = None) -> int | None:
         """`IgnoreArmor()` -- le slot virtuel `+0x718`, evalue par `BaseEffect$$DamageMalusForDefense`
         et range dans `DamageBonus+0x38`, que le natif accumule dans `DamageModifiers+0x28`.
 
-        ⚠ AUCUN gate `is_normal_attack` ICI, et c'est LU, pas omis : le corps natif evalue la
-        formule sans consulter la nature du coup. Le parametre existe pour les penetrations de la
-        face ATTAQUANT qui, elles, sont gatees (`PowerTrip` : << NORMAL attacks ignore X Armour >>).
-        La gate de CET effet est ailleurs -- dans le trigger du malus ci-dessus."""
+        ⚠ AUCUN gate `is_normal_attack` NI `is_ranged` ICI, et c'est LU, pas omis : le corps natif
+        evalue la formule sans consulter la nature du coup. Les deux parametres existent pour les
+        penetrations dont le trigger porte un tel noeud -- `PowerTrip` (`IsNormalAttack`,
+        << NORMAL attacks ignore X Armour >>) et `KanOpener` (`IsMeleeAttack`, #1008-r5). La gate de
+        CET effet est ailleurs -- dans le trigger du malus ci-dessus."""
         return self.ignore_armor()
 
     def applies_to_incoming_attack(self, attacker_id: Optional[int] = None) -> bool:

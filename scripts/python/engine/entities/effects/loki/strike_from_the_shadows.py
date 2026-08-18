@@ -133,14 +133,16 @@ class StrikeFromTheShadowsEffect(BaseEffect):
         # resoudre une attaque CONTRE le porteur de cet effet (c'est la liste qu'il balaie).
         return for_addition(False, 0)          # `EffectBonus` a formules NULLES -- la gate seule
 
-    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True,
+                              is_ranged: bool | None = None) -> int | None:
         """`IgnoreArmor()` -- le slot virtuel `+0x718`, evalue par `BaseEffect$$DamageMalusForDefense`
         et range dans `DamageBonus+0x38`, que le natif accumule dans `DamageModifiers+0x28`.
 
-        ⚠ AUCUN gate `is_normal_attack` ICI, et c'est LU : le corps natif evalue la formule sans
-        consulter la nature du coup. Le parametre existe pour les penetrations de la face ATTAQUANT
-        qui, elles, sont gatees (`PowerTrip` : << NORMAL attacks ignore X Armour >>). La gate de CET
-        effet est ailleurs -- dans le trigger du malus ci-dessus, comme pour `Helspear`."""
+        ⚠ AUCUN gate `is_normal_attack` NI `is_ranged` ICI, et c'est LU : le corps natif evalue la
+        formule sans consulter la nature du coup. Les deux parametres existent pour les penetrations
+        dont le trigger porte un tel noeud -- `PowerTrip` (`IsNormalAttack`) et `KanOpener`
+        (`IsMeleeAttack`, #1008-r5). La gate de CET effet est ailleurs -- dans le trigger du malus
+        ci-dessus, comme pour `Helspear`."""
         return self.ignore_armor()
 
     def ignore_armor(self, unit_state: Mapping | None = None) -> Optional[int]:
