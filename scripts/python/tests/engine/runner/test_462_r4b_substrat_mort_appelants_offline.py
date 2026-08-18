@@ -221,15 +221,32 @@ def test_tout_porteur_fire_on_death_est_trie():
 
     Ce test exige que CHAQUE porteur `fire_on_death` tombe dans l'une des trois cases instruites.
     Un porteur NEUF qui ecoute autre chose que sa propre mort rougit ici, et c'est exactement le
-    moment ou la question doit etre re-posee."""
+    moment ou la question doit etre re-posee.
+
+    ⚠ LE TRI PORTE SUR LA VALEUR DE L'EVENEMENT, PLUS SUR SON TEXTE (#547-r11). Il comparait
+    `ast.unparse(event_id)` a des libelles `"EventTriggerType.UnitDeath"` : un site qui ecrit une
+    CONSTANTE DE MODULE (`event_id = _ON_UNIT_DEATH`, forme majoritaire) n'en contient aucun, si
+    bien que `RelicOfLostCadiaSummonUnitAbility` -- qui ecoute `UnitDeath(0)`, SA PROPRE MORT --
+    etait accuse a tort. Le probe resout desormais la valeur sur la classe (`_events_de`) et le
+    predicat est `ecoute_sa_propre_mort` (un `all()`, pas un `any()` : un porteur qui ecoute la mort
+    ET autre chose peut encore tirer par le second vecteur)."""
     lst = P.porteurs_fire_on_death()
     assert lst, "aucun porteur `fire_on_death` trouve : le recenseur ne visite plus rien."
+    # NON-VIDE DU TRI LUI-MEME : si plus aucun evenement ne se resolvait (enum renomme, attribut
+    # deplace), `_events_de` rendrait `None` partout -- `ecoute_sa_propre_mort` serait FAUX partout,
+    # donc le cliquet rougirait, jamais l'inverse. On garde neanmoins le compte des NON RESOLUS,
+    # parce qu'un `None` massif accuserait le RESOLVEUR et pas les porteurs.
+    non_resolus = [nom for _r, nom, _e, _es, _f, evs in lst if evs is None]
+    assert not non_resolus, (
+        "%d porteur(s) dont l'evenement ne se RESOUT PAS en valeur : %r. C'est le resolveur "
+        "(`_events_de`) qui est casse, pas le registre -- diagnostiquer AVANT de lire le verdict "
+        "des autres etages." % (len(non_resolus), non_resolus))
     non_tries = []
-    for rel, nom, evid, evids, face in lst:
-        ev = evid or evids or ""
+    for rel, nom, evid, evids, face, evs in lst:
+        ev = "%s = %s" % (evid or evids or "", sorted(evs) if evs else "NON RESOLU")
         if face == "EFFET":
             continue                          # `_owner_gate_applies` est FAUX : aucun gate d'owner
-        if any(k in ev for k in P._EVENTS_DE_SA_PROPRE_MORT):
+        if P.ecoute_sa_propre_mort(evs):
             continue                          # l'evenement a deja eu lieu avant la capture
         if nom in P.REGISTRE_HORS_MORT:
             continue                          # instruit, avec sa consequence mesuree
@@ -239,6 +256,34 @@ def test_tout_porteur_fire_on_death_est_trie():
         "pas instruits : %r. Un tel porteur DIVERGE du natif sur un cadavre-au-chargement (le port "
         "ne l'inscrit meme pas au registre). Le trier -- ou nommer sa consequence dans "
         "`REGISTRE_HORS_MORT`." % (len(non_tries), non_tries))
+
+
+def test_le_tri_des_evenements_lit_la_valeur_et_non_le_texte():
+    """CONTRE-EPREUVE du correctif d'inventaire (#547-r11), et elle est NECESSAIRE : le cliquet
+    ci-dessus est VERT aussi bien avec le tri par texte qu'avec le tri par valeur, du moment que le
+    porteur mal trie a fini par entrer dans `REGISTRE_HORS_MORT`. Rien n'y garderait donc la
+    REPARATION -- un retour au tri par sous-chaine passerait inapercu jusqu'au prochain porteur qui
+    ecrit une constante de module.
+
+    Ce test FIGE le fait mesure : il existe au moins un porteur dont l'expression ECRITE au site ne
+    contient AUCUN libelle `EventTriggerType.<mort>` alors que sa VALEUR en est une. Sur cet arbre
+    c'est `RelicOfLostCadiaSummonUnitAbility` (`_ON_UNIT_DEATH` = `UnitDeath(0)`), et il
+    assertionne son propre NON-VIDE : si ce temoin disparaissait, le test le DIT au lieu de passer
+    au vert sur un ensemble vide."""
+    libelles = tuple("EventTriggerType." + e.name for e in
+                     (__import__("engine.dsl.event_trigger_type", fromlist=["EventTriggerType"])
+                      .EventTriggerType(v) for v in sorted(P.EVENTS_DE_SA_PROPRE_MORT)))
+    temoins = []
+    for rel, nom, evid, evids, _face, evs in P.porteurs_fire_on_death():
+        ecrit = "%s %s" % (evid or "", evids or "")
+        if P.ecoute_sa_propre_mort(evs) and not any(k in ecrit for k in libelles):
+            temoins.append((nom, ecrit.strip(), sorted(evs)))
+    print("\n[547-r11 temoins tri-par-valeur] %r" % (temoins,))
+    assert temoins, (
+        "AUCUN porteur ne distingue plus le tri par VALEUR du tri par TEXTE : ce test ne mesure "
+        "plus rien (tous les sites ecrivent-ils desormais `EventTriggerType.<x>` en clair ?). "
+        "Libelles cherches : %r -- re-etablir un temoin ou retirer ce cran en le disant."
+        % (libelles,))
 
 
 # ================================================================================================
@@ -320,7 +365,7 @@ def test_la_face_des_porteurs_est_resolue_par_la_MRO_pas_par_le_nom_de_base():
     << NON TRIE >>, un faux rouge que seule la vraie MRO dissout. Ce test fige que le recenseur
     resout la face pour de bon -- c'est la meme faute de forme que << l'absence dans une table ne
     prouve rien >>."""
-    faces = {nom: face for _r, nom, _e, _es, face in P.porteurs_fire_on_death()}
+    faces = {nom: face for _r, nom, _e, _es, face, _v in P.porteurs_fire_on_death()}
     assert faces.get("RitesOfMorkaiReviveTrigger") == "EFFET", (
         "`RitesOfMorkaiReviveTrigger` n'est plus reconnue comme face EFFET (vu %r). Si sa base a "
         "change, le gate d'owner la concerne desormais et son verdict doit etre re-instruit ; si "

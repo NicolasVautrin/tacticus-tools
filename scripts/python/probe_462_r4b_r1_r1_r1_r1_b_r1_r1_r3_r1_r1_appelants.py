@@ -40,6 +40,11 @@ if str(ICI) not in sys.path:
 
 ENGINE = ICI / "engine"
 
+# #547-r11 : le tri des porteurs `fire_on_death` se fait sur des MEMBRES, plus sur des libelles
+# (cf. `EVENTS_DE_SA_PROPRE_MORT`). Import de TETE, forme A assumee : un enum est une feuille, il
+# n'ouvre aucun cycle et aucun test ne le substitue.
+from engine.dsl.event_trigger_type import EventTriggerType   # noqa: E402
+
 
 # ================================================================================================
 # INVENTAIRE -- AST, jamais grep
@@ -113,8 +118,15 @@ def cle(s) -> tuple:
 #   INERTE-VIVANT  le sujet est un COMBATTANT du coup en cours (attaquant / defenseur / caster /
 #                  cible) : il est vivant par construction du vecteur qui appelle
 #   INERTE-AMONT   un gate ANTERIEUR (dans la meme fonction) refuse le cadavre avant la lecture
-#   INERTE-AVAL    la lecture est atteinte, mais le CONSOMMATEUR ne lit aucun effet degrade
-#   ATTEIGNABLE    le sujet PEUT etre un cadavre-au-chargement, et rien dans la fonction ne l'ecarte
+#   INERTE-AVAL    la lecture est atteinte pour un cadavre, mais AUCUN OBSERVABLE n'en depend --
+#                  soit le consommateur ne lit aucun effet degrade, soit son verdict est le meme
+#                  dans les deux branches, soit LE NATIF SUIT LE MEME CHEMIN (#547-r11 : sur la
+#                  face EFFET, `_owner_gate_applies` est FAUX des DEUX cotes)
+#   ATTEIGNABLE    le sujet PEUT etre un cadavre-au-chargement, rien dans la fonction ne l'ecarte,
+#                  ET LE PORT DIVERGE DU NATIF. ⚠ Ce verdict DECLARE UNE DETTE : le cliquet
+#                  `test_aucun_verdict_ATTEIGNABLE_ne_reste_sans_gate` exige alors un gate au
+#                  registre `BALAYAGES`. Ne l'ecrire que si la divergence est MESUREE -- un site
+#                  que le natif atteint AUSSI est INERTE-AVAL, pas une dette
 #   NON-VENTILE    face DECISION -- enumere, pas trie (residu, cf. l'en-tete de `step_ventilation`)
 VENTILATION = {
     # ---- face COMBAT : les sujets qui sont des COMBATTANTS ------------------------------------
@@ -171,6 +183,67 @@ VENTILATION = {
                         "`snapshot._load_stats_and_effects` les seede dans `EffectsState`. "
                         "TRAITE PAR CETTE TRANCHE (gate `uc.alive`, cf. `--step gates`) ; ce que le "
                         "gate ferme et ce qu'il ne ferme PAS : `--step gisement`"),
+
+    # ---- #547-r11 : TROIS APPELANTS NEUFS de la face COMBAT ------------------------------------
+    # Le cliquet d'exhaustivite a mordu comme il devait : trois sites `active_effects` sont apparus
+    # sans ventilation. Un par un, avec le gate qui tranche.
+    ("runner/components.py", "_has_active_movement_blocker", "active_effects"):
+        ("INERTE-AVAL", "sujet = `unit_id` de `unit_extensions_can_move` (`UnitExtensions$$CanMove`, "
+                        "4e etage = `MovementComponent$$IsAllowedToMove`). ⚠ La lecture EST atteinte "
+                        "pour un cadavre-au-chargement : `unit_extensions_can_move` lit "
+                        "`sc = get_component(StatsComponent)` mais NE RETOURNE PAS quand `sc is "
+                        "None` -- il poursuit avec `traits = None`. Les TROIS appelants la rendent "
+                        "neanmoins inerte, et ils ne le font pas de la meme facon : "
+                        "(1) `operations/turnflow.py::VerifyUnitsTurnFinishedOperation."
+                        "verify_unit_turn_ended` porte `if uc is not None and not uc.alive: return "
+                        "{reason: dead}` AVANT `_can_act` -> `has_tiles_to_move_to` (gate AMONT, "
+                        "mirror du `TryGetComponent<HealthComponent> && IsDead()` natif) ; "
+                        "(2) `operations/movement.py::_is_allowed_to_move` appelle `CanMove` AVANT "
+                        "son propre `if uc is not None and not uc.alive: return False` -- la "
+                        "lecture est donc bien atteinte, mais le verdict est `False` dans les DEUX "
+                        "branches (bloqueur trouve -> `return False` ; aucun bloqueur -> le gate "
+                        "`alive` qui suit rend `False`), donc AUCUN observable ne depend du "
+                        "resultat : c'est le sens exact d'INERTE-AVAL ; "
+                        "(3) `runner/abilities/loki/attempted_possession.py` porte `possessed_id`, "
+                        "la CIBLE d'une active -- le ciblage ne rend pas un mort cible legale "
+                        "(`IsDeadUnitAndNotAllowedByAbility`, porte par #429-r1)"),
+    ("runner/operations/triggers/loki/close_combat_weakness.py", "_owner_active_effect_names",
+     "active_effects"):
+        ("INERTE-AVAL", "sujet = `self.owner_id` d'un EFFECT-trigger "
+                        "(`CloseCombatWeaknessMarkStartedTurnAdjacent`), et RIEN ne l'ecarte : "
+                        "`collect_effect_triggers` balaie `state.effects.by_unit` SANS aucun gate "
+                        "de vivacite (seul `consumed` exclut, et c'est FIDELE -- le rail natif "
+                        "`EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities` ne lit "
+                        "jamais `EffectComponent+0x5c`), puis `matches` n'exige que POSITION et "
+                        "EQUIPE (`close_combat_weakness_adjacent_enemies_count` : `oc.team is None "
+                        "or pc is None -> None`), que le cadavre-au-chargement possede. "
+                        "⚠ MAIS CE N'EST PAS UNE DIVERGENCE PORT/NATIF, et c'est la difference avec "
+                        "`defender_fixed_armor` : sur la face EFFET `_owner_gate_applies` est FAUX "
+                        "-- le natif n'a AUCUN gate d'owner ici, donc lui aussi evalue ce trigger "
+                        "pour un cadavre. PORT ET NATIF CONCORDENT : il n'y a pas de dette de "
+                        "fidelite a ouvrir, et c'est ce qui interdit d'ecrire ATTEIGNABLE ici (ce "
+                        "verdict-la DECLARE une dette, cf. `VERDICTS_A_TRAITER` et son cliquet). "
+                        "Le seul ecart residuel est la degradation permissive du substrat "
+                        "(`traits` absent -> les conditions de trait sur-evaluent), et sa "
+                        "direction est RESTRICTIVE ici : `owner_effect_names` s'elargit, donc "
+                        "`NOT HasEffect(Owner, 0x478 SuppressCloseCombatWeakness)` a plus de "
+                        "chances de FERMER. L'unique observable serait donc un marqueur `1129` NON "
+                        "pose sur un MORT -- or son seul lecteur est la condition de `1130`, le "
+                        "malus de degat du porteur, qu'un mort ne subit ni n'inflige. Aucun gate a "
+                        "poser : en inventer un DIVERGERAIT du natif"),
+    ("services/movement_query.py", "get_range_bonus_for_unit", "active_effects"):
+        ("INERTE-VIVANT", "sujet = `unit_id` du seul appelant, `get_movable_tiles_for` "
+                          "(`MovementQuery$$GetMovableTilesFor`), dont les quatre call-sites "
+                          "portent tous un CASTER ou un MOVER : `runner/abilities/genestealer.py` "
+                          "(x3, `caster_id`), `runner/abilities/targeting.py` (l'unite dont on "
+                          "planifie le deplacement), `runner/operations/triggers/loki/betrayer.py` "
+                          "(`owner_id` du cast), et la voie `engine.ai.state_bridge._move_tiles` "
+                          "empruntee par `turnflow.has_tiles_to_move_to`, qui porte deja le gate "
+                          "`uc.alive` de `verify_unit_turn_ended` en amont. Un mort ne caste ni ne "
+                          "bouge. ⚠ Le PRE-FILTRE de ce foyer ne protege PAS : il teste la "
+                          "SURCHARGE de `create_range_bonus_for_movement` sur la liste BRUTE "
+                          "`by_unit`, que le cadavre-au-chargement possede -- c'est le sujet, pas "
+                          "le pre-filtre, qui rend le site inerte"),
 
     # ---- face DECISION : le pendant du substrat ------------------------------------------------
     ("playbook/scene.py", "effects", "unit_state"):
@@ -333,8 +406,42 @@ def porteurs_fire_on_death() -> list:
                     champs[st.targets[0].id] = ast.unparse(st.value)
             if champs.get("fire_on_death") == "True":
                 out.append((rel, n.name, champs.get("event_id"), champs.get("event_ids"),
-                            _face_de(rel, n.name)))
+                            _face_de(rel, n.name), _events_de(rel, n.name)))
     return out
+
+
+def _events_de(rel: str, nom: str) -> "frozenset | None":
+    """Les evenements ECOUTES, en VALEURS -- resolus sur la classe, jamais lus au TEXTE du site.
+
+    ⚠ POURQUOI (#547-r11). Le tri se faisait par SOUS-CHAINE sur l'expression ECRITE
+    (`ast.unparse(event_id)`), confrontee a des libelles `"EventTriggerType.UnitDeath"`. Un site qui
+    ecrit une CONSTANTE DE MODULE -- `event_id = _ON_UNIT_DEATH`, forme majoritaire -- ne contient
+    aucune de ces sous-chaines : `RelicOfLostCadiaSummonUnitAbility` ecoute `UnitDeath(0)`, donc SA
+    PROPRE MORT, et sortait pourtant en << NON TRIE >>. Le recenseur ne mesurait pas ce qu'il
+    croyait mesurer : il comparait des TEXTES la ou la question porte sur des VALEURS.
+
+    Le probe IMPORTE deja le module pour resoudre la FACE (`_face_de`), donc lire l'attribut ne
+    coute rien de plus et supprime toute grammaire. `None` = NON RESOLU (classe absente, attribut
+    manquant, valeur non entiere) -- jamais un ensemble VIDE, qui se lirait comme << n'ecoute
+    rien >> et ferait taire le cliquet."""
+    import importlib
+    mod = importlib.import_module("engine." + rel[:-3].replace("/", "."))
+    cls = getattr(mod, nom, None)
+    if cls is None:
+        return None
+    brut = []
+    un = getattr(cls, "event_id", None)
+    if un is not None:
+        brut.append(un)
+    plusieurs = getattr(cls, "event_ids", None)
+    if plusieurs:
+        brut.extend(plusieurs)
+    if not brut:
+        return None
+    try:
+        return frozenset(int(x) for x in brut)
+    except (TypeError, ValueError):
+        return None
 
 
 def _face_de(rel: str, nom: str) -> str:
@@ -356,11 +463,29 @@ def _face_de(rel: str, nom: str) -> str:
 # Un porteur `fire_on_death` DIVERGE (port vs natif) sur un cadavre-au-chargement seulement si son
 # evenement peut se produire APRES sa mort. Tous ceux dont l'evenement EST leur propre mort sont
 # structurellement inertes : l'evenement a deja eu lieu avant la capture, il ne se reproduira pas.
-_EVENTS_DE_SA_PROPRE_MORT = (
-    "EventTriggerType.PreUnitDeath", "EventTriggerType.PreUnitDeath_2",
-    "EventTriggerType.UnitDeath", "EventTriggerType.UnitDefeated",
-    "EventTriggerType.PendingDeathAdded",
-)
+#
+# ⚠ EN MEMBRES D'ENUM, PAS EN SOUS-CHAINES (#547-r11). Ces cinq-la etaient des LIBELLES confrontes
+# au TEXTE ecrit au site : un `event_id = _ON_UNIT_DEATH` (constante de module) n'en contient aucun,
+# donc `RelicOfLostCadiaSummonUnitAbility` -- qui ecoute `UnitDeath(0)`, sa propre mort -- sortait
+# << NON TRIE >>. Le membre se compare a la VALEUR resolue par `_events_de`, ce que la doctrine
+# << un ENTIER qui DESIGNE quelque chose passe par un ENUM >> demandait deja.
+EVENTS_DE_SA_PROPRE_MORT = frozenset(int(x) for x in (
+    EventTriggerType.UnitDeath,          # 0
+    EventTriggerType.PreUnitDeath,       # 1
+    EventTriggerType.PreUnitDeath_2,     # 2
+    EventTriggerType.PendingDeathAdded,  # 3
+    EventTriggerType.UnitDefeated,       # 54
+))
+
+
+def ecoute_sa_propre_mort(events: "frozenset | None") -> bool:
+    """VRAI si TOUS les evenements ecoutes sont des evenements de la mort du porteur.
+
+    `None` (non resolu) -> FAUX : un porteur qu'on n'a pas su lire doit rougir, jamais etre range
+    en INERTE par defaut. `all()` et non `any()` : un porteur qui ecoute la mort ET autre chose
+    (ex. `event_ids = [UnitDeath, NormalAttack]`) peut encore tirer APRES sa mort par le second
+    vecteur -- le classer inerte sur le premier serait exactement le faux negatif qu'on repare."""
+    return bool(events) and events.issubset(EVENTS_DE_SA_PROPRE_MORT)
 
 # Les porteurs qui ecoutent AUTRE CHOSE, nommes un par un avec leur consequence mesuree.
 REGISTRE_HORS_MORT = {
@@ -374,6 +499,80 @@ REGISTRE_HORS_MORT = {
          "`turn_defeated is not None`, que rien ne seede au chargement. Ce qui reste OUVERT est le "
          "cas ou le SEUL porteur Ambush du plateau est un cadavre-au-chargement -- residu "
          "`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1`"),
+    # ============================================================================================
+    # #547-r11 -- LES CINQ PORTEURS ENTRES AVEC #10015, tous le MEME JOUR que ce cliquet a rougi.
+    #
+    # C'est le patron annonce, verifie : ce gisement est alimente par NOTRE PROPRE CADENCE. #10015
+    # a mecanise l'appariement port <-> natif (9 -> 130 classes confrontees) et pose `fire_on_death`
+    # sur cinq classes, chaque valeur LUE dans `metadata/allow_for_dead_owner.tsv` (`b0 01 c3` =
+    # `mov al,1 ; ret`). Poser la valeur juste REOUVRE mecaniquement cette table : le port
+    # n'inscrit toujours pas un cadavre-au-chargement au registre (`collect_triggered_abilities`,
+    # `if sc is None: continue`), alors que le natif l'y garde et le trie a la LECTURE.
+    #
+    # LE DISCRIMINANT EST LE MEME POUR LES QUATRE PREMIERS, et il est STRUCTUREL : leur `matches`
+    # exige que le PORTEUR soit l'ACTEUR (`get_OwnerIsActor` / `get_OwnerIsCaster`). Un
+    # cadavre-au-chargement n'agit JAMAIS -- il n'entre pas dans `toActivate`
+    # (`VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended` rend `reason: dead` avant tout
+    # `_can_act`), et il n'a joue aucun `KillUnitOperation` dans CE run, donc aucune attaque
+    # post-mortem `FinalJustice` n'a pu ecrire `AbilityEntities+0x60` pour lui. C'est EXACTEMENT le
+    # raisonnement deja ecrit pour `SynapticLinchpinAbility` ci-dessous.
+    # ============================================================================================
+    "ControlEdictAbility":
+        ("SANS CONSEQUENCE -- L'OWNER MORT NE PEUT PAS ETRE L'ACTEUR",
+         "`On(NormalAttack = 38)`, evenement qui se reproduit a chaque coup : le natif evalue donc "
+         "bien ce trigger pour un cadavre-au-chargement, la ou le port ne l'inscrit meme pas. "
+         "AUCUNE consequence -- le corps ENTIER de `matches` est `return ev.actor_id == "
+         "self.owner_id` (le mirror de `get_OwnerIsCaster` : Tan est l'attaquant). Un "
+         "cadavre-au-chargement ne porte aucune attaque normale, donc le predicat est FAUX pour "
+         "lui dans tous les etats atteignables. Le regime divergent est vide."),
+    "LightImUpAbility":
+        ("SANS CONSEQUENCE -- L'OWNER MORT NE PEUT PAS ETRE L'ACTEUR",
+         "`On(NormalAttack = 38, ownerNeedsToBeAlive: 0)`. ⚠ Les DEUX gates sont DISTINCTS et "
+         "#10015 les separe : le litteral `ownerNeedsToBeAlive: 0` vit dans le PREDICAT du noeud "
+         "DSL `On`, `get_AllowForDeadOwner` vit EN AMONT dans `IdunBattle.Operations."
+         "EvaluateTriggerOperation$$CanGetAbilityTrigger` -- le port n'avait que le premier. "
+         "Une fois le second pose, le cadavre-au-chargement reste ecarte par le SEUL conjoint du "
+         "`CreateTrigger` : `get_OwnerIsActor` = `AreEqual(Owner@0x148, Actor@0x158)`, que "
+         "`matches` mirroite par `if self.owner_id != ev.actor_id: return False`. Regime vide."),
+    "LordOfTempestsAddIceAbility":
+        ("SANS CONSEQUENCE -- L'OWNER MORT NE PEUT PAS ETRE L'ACTEUR",
+         "DEUX evenements (`On(NormalAttack = 38)` et `On(Attack = 9)` gate par le kind d'attaque "
+         "normale 0x3f5, le smite Psyker), donc le tri par `all()` d'`ecoute_sa_propre_mort` ne "
+         "peut pas le ranger inerte sur un seul. Il l'est par le PREMIER conjoint, commun aux deux "
+         "branches : `matches` ouvre sur `if ev.actor_id != self.owner_id: return False` "
+         "(`get_OwnerIsCaster`). Un cadavre-au-chargement n'attaque pas. Regime vide."),
+    "CursedPlagueBellAttackAbility":
+        ("SANS CONSEQUENCE -- LA DISJONCTION EXIGE UNE CIBLE, ET UN MORT N'EN EST PAS UNE",
+         "`On(Attack = 9)`, et c'est le SEUL des cinq dont le porteur n'a PAS besoin d'etre "
+         "l'acteur : le 2e conjoint natif est `OwnerIsTarget | OwnerIsAlive`, donc un porteur MORT "
+         "y passe par le membre GAUCHE. Le regime divergent exige donc qu'un cadavre-au-chargement "
+         "soit la CIBLE d'une attaque -- et il ne peut pas l'etre : "
+         "`IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` est "
+         "PORTE (#429-r1) au rang natif, son gate est le virtuel slot 0x11 "
+         "`CanContinueOnDeadTarget` dont l'inventaire des overrides est VIDE, et le bit 38 "
+         "`AllowDeadTarget` n'a qu'UN porteur dans tout le binaire "
+         "(`GreatFrostAxeAbility$$GetTargetingOptionsForContinue`), qui vise une TUILE. S'y "
+         "ajoutent deux gates que ce porteur unique ne satisfait pas : "
+         "`CurrentAttackDamageProfilesContain(0xd = Psychic)` et `HasTrait(Actor, 0x3ea = Psyker)`. "
+         "Ce qui DIVERGE reellement, et c'est le regime que #10015 a ouvert, est le mort DU RUN "
+         "(tue par le coup en cours) -- lui a son `StatsComponent`, donc il EST au registre."),
+    # ---- LE SEUL DES CINQ DONT LE REGIME DIVERGENT N'EST PAS VIDE -------------------------------
+    "LifewardsAbility":
+        ("DIVERGENT-REEL -- residu #547-r12",
+         "`On(PreDamageTaken = 57)`, et le porteur n'est NI l'acteur NI la cible : le "
+         "`CreateTrigger` contraint `AreEqual(Target@<DSLSelectors+0x60>, Parent(Owner@+0x30))`, "
+         "c.-a-d. que la victime est CELESTINE et le porteur la GEMINAE. Aucun des deux "
+         "discriminants des quatre autres ne s'applique. Et le 2e conjoint est precisement la "
+         "disjonction `IsAlive(Owner@+0x30) | HasEffect(Owner@+0x30, 0x4d8 = 1240, onlyActive: 0, "
+         "6)` : une Geminae MORTE qui porte encore le marqueur 1240 protege ENCORE Celestine. Ce "
+         "regime est ATTEIGNABLE sur un cadavre-au-chargement, et c'est MESURE : "
+         "`decisionView.units[]` conserve les morts AVEC leurs effets (cf. `etat_cadavre`), "
+         "tandis que `combatSnapshot` ne les enumere pas -- donc l'entite porte 1240 sans porter "
+         "de `StatsComponent`, et `collect_triggered_abilities` la saute. Le natif absorbe le "
+         "coup, le port le laisse passer : Celestine encaisse des degats que le natif lui epargne. "
+         "CE N'EST PAS FERME PAR CETTE TRANCHE (le remede est un cran plus bas -- inscrire au "
+         "registre le cadavre-au-chargement pour les seules `fire_on_death`), d'ou un residu "
+         "NOMME plutot qu'un verdict d'innocuite."),
     "SynapticLinchpinAbility":
         ("SANS CONSEQUENCE -- L'OWNER MORT NE PEUT PAS ETRE L'ACTEUR",
          "Entre ici avec #937-r1, qui pose `fire_on_death = True` sur la foi d'une valeur LUE : "
@@ -552,18 +751,21 @@ def step_registre() -> int:
     print("PORTEURS `fire_on_death` (= mirror de `get_AllowForDeadOwner`), et leur evenement :")
     print("")
     rc = 0
-    for rel, nom, evid, evids, face in lst:
+    for rel, nom, evid, evids, face, evs in lst:
         ev = evid or evids or "<aucun au niveau classe>"
+        # L'expression ECRITE reste affichee (elle est lisible), mais le TRI porte sur les VALEURS
+        # resolues : les deux sont montrees cote a cote pour que l'ecart saute aux yeux (#547-r11).
+        ev = "%s = %s" % (ev, sorted(evs) if evs else "NON RESOLU")
         if _est_effect_trigger(face):
             etat = "INERTE-FACE  (EffectTrigger : `_owner_gate_applies` est FAUX, aucun gate)"
-        elif any(k in (ev or "") for k in _EVENTS_DE_SA_PROPRE_MORT):
+        elif ecoute_sa_propre_mort(evs):
             etat = "INERTE-EVENT (l'evenement EST sa propre mort : deja eu lieu avant la capture)"
         elif nom in REGISTRE_HORS_MORT:
             etat = "%s" % REGISTRE_HORS_MORT[nom][0]
         else:
             etat = "NON TRIE  <-- ROUGE : evenement hors mort, non instruit"
             rc = 1
-        print("  %-34s %-46s %s" % (nom, ev, etat))
+        print("  %-38s %-52s %s" % (nom, ev, etat))
         print("        %s" % rel)
     print("")
     for nom, (_e, motif) in sorted(REGISTRE_HORS_MORT.items()):
