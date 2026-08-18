@@ -68,7 +68,22 @@ DECLENCHEUR = {
 }
 
 EPS = P.EPS
-_LOGS = Path(__file__).resolve().parents[3] / "logs"
+#: `<racine>/logs` -- le SEUL foyer de sorties de run (`data/` = ce qu'on LIT, `logs/` = ce qu'on
+#: ECRIT). Ce fichier vit dans `scripts/python/tests/engine/`, donc la racine est a `parents[4]`.
+_LOGS = Path(__file__).resolve().parents[4] / "logs"
+# CRAN. Un compte de `parents` FAUX est SILENCIEUX : `parents[3]` ecrivait `scripts/logs`, un
+# repertoire que rien ne designe et que `mkdir(parents=True)` cree sans broncher. Seul
+# `probe_273_gitignored_inputs.py --only-scan` l'a vu -- et il ne le voit que parce que la forme
+# `Path(__file__)...parents[N] / "logs"` est ECRITE ICI, litteralement : la deriver dans un helper
+# la rendrait invisible a son balayage. On CONFRONTE donc deux derivations independantes de la
+# racine : la profondeur de CE fichier, et celle du probe jumeau -- qui vit dans `scripts/python/`,
+# a une profondeur qui ne bouge pas quand un test change de sous-repertoire. Un ecart leve ICI, au
+# chargement du module, plutot que d'ecrire a cote pendant des mois.
+if _LOGS != Path(P.__file__).resolve().parents[2] / "logs":
+    raise RuntimeError(
+        "sorties de run mal ancrees : ce fichier derive %s, le probe jumeau derive %s -- "
+        "le compte de `parents` est faux (cf. `probe_273_gitignored_inputs.py --only-scan`)"
+        % (_LOGS, Path(P.__file__).resolve().parents[2] / "logs"))
 
 
 def _case(live_session, rpc, build_runner, bras: str):
