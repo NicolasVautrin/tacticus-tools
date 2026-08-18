@@ -36,6 +36,23 @@ if str(PYDIR) not in sys.path:
 import engine.entities.effects as EFF  # noqa: E402
 from engine.entities.effects.base import BaseEffect  # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/__init__.py",
+        "scripts/python/engine/entities/effects/loki/way_of_the_short_blade.py",
+        # L'etage << seul implementeur >> balaye TOUS les descendants de `BaseEffect` : c'est le
+        # registre qui les charge, donc une classe NEUVE qui surchargerait le slot passerait par la.
+        "scripts/python/engine/entities/effects/factory.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Rien ici ne lit le build : ni ordinal, ni table de symboles. Le verdict ne depend que "
+              "du slot declare sur `BaseEffect`, de l'agregateur qui l'appelle, de son unique "
+              "implementeur et du registre qui charge les classes d'effet.",
+}
+
 SLOT = "aura_armor_penetration_for_ally"
 
 

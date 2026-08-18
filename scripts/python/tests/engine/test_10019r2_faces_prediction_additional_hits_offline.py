@@ -51,6 +51,23 @@ from engine.entities.effects.loki.hits import (AstartesBannerExtraHitEffect,  # 
 from engine.services.attack_hits_formula import attack_hits_with_modifiers  # noqa: E402
 from symbols_layout import build_dir  # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/loki/hits.py",
+        "scripts/python/engine/entities/effects/__init__.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/services/attack_hits_formula.py",
+        "scripts/python/engine/services/effect_bonus.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "L'etage 1 FIGE la signature native de `EffectAdditionalHits$$Create` (8 parametres, "
+              "`predictionDamageFormula` en 7e) lue dans `frida/methods.tsv` du build qui fait foi : "
+              "un renommage ou un reordonnancement cote build rendrait la prose fausse sans toucher "
+              "aucun des chemins ci-dessus. Les autres etages ne lisent que les foyers listes.",
+}
+
 #: `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` -- l'ORDRE des parametres, LU.
 CREATE_PARAMS = ("trigger", "damageFormula", "additionalHitsType", "damageProfileType",
                  "hitsFormula", "forceOverkill", "predictionDamageFormula", "maxDamage")
