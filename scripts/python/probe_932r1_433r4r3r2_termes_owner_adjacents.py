@@ -112,11 +112,32 @@ MONTAGES = {
         "carrier": "votanIronmaster",
         "carrier_arg": "votanIronmaster",
         "explicit_stats": None,
-        "p_units": "votanIronmaster,admecRuststalker,astraBullgryn",
+        # CINQ unites, et le compte est MESURE : chaque passe de craft consomme UN ami mobile (une
+        # unite qui a bouge a agi). Le seul ami QUALIFIANT etant l'E-Cog, immobile, il faut autant
+        # d'amis NON qualifiants que de tuiles a retirer du sommet avant que la bande de 30 points
+        # n'atteigne une tuile voisine de l'E-Cog.
+        "p_units": "votanIronmaster,admecRuststalker,astraBullgryn,necroWarden,orksNob",
         "a_units": "worldKharn,templChampion",
         "faction": None,                                             # gate = PARENT, pas faction
         "parent_is_carrier": True,                                   # `GetParent(u) == case.Unit`
         "seed_bc": "AUGMENTE",                                       # porteur HORS pool
+        # `RemainingHealth` : la cible doit etre ENDOMMAGEE, sinon `EntityCanBeRepaired` refuse et
+        # l'E-Cog n'apparait pas. `Movement` : meme levier de montage que les deux autres.
+        "unit_stat": "admecRuststalker:RemainingHealth=1200;votanIronmaster:Movement=20;"
+                     "admecRuststalker:Movement=20;astraBullgryn:Movement=20;"
+                     "necroWarden:Movement=20;orksNob:Movement=20",
+        # ⚠ La cible de reparation porte AU SEED la relique `TertiaryAbility = 1457`
+        # (`KardiocoreGalvanus`), dont la face NON-OWNER verse +20 aux tuiles adjacentes a son
+        # porteur sous le gate `IsMechanical(case.Unit)`. Le mover ici est `votanIronmaster`, qui
+        # est mecanique : le terme se superposerait au notre. On DESEQUIPE, comme #433-r4-r3.
+        "desequiper": "admecRuststalker",
+        # Le seul ami QUALIFIANT est l'E-Cog, et il est immobile (#291). Le montage passe donc par
+        # la phase OCCUPER, qui retire une tuile de tete a chaque passe : il en faut plusieurs pour
+        # amener le sommet dans la bande de 30 points ou l'E-Cog decide.
+        "passes_craft": 4,
+        # VOIE ATTAQUE, MESUREE comme pour `psychicfortress` : `votanIronmaster` porte
+        # `GravitonRifle` et propose `[MoveUnitMessage, ActiveAbilityMessage]`.
+        "voie": "attaque",
     },
 }
 
@@ -125,6 +146,9 @@ DEFAULT_SEED = "777"
 #: `admecRuststalker` a le trait `Mechanical` -> `AttackQuery$$EntityCanBeRepaired`. C'est la
 #: REPARATION qui fait apparaitre l'E-Cog (trigger `On(0x30 = UnitRepaired) & OwnerIsCaster`).
 ECOG_REPAIREE = "admecRuststalker"
+#: `ActiveAbilityType.Repair` -- l'active DERIVEE du trait `Mechanic`, que le porteur n'a pas dans
+#: ses `activeAbilities` gameconfig (il n'y porte que `GravitonRifle`).
+REPAIR_ABILITY = 28
 
 
 def _r(sid, m, b, t=120):
@@ -326,12 +350,19 @@ def _crafter(sid, rid, ctx, cfg, carrier, off, w, wt) -> "tuple | None":
     leaf = tile_leaf_ctx(ctx)
     elev = leaf.get("elev_by_pos")
     neigh = bq.neigh_map(leaf)
-    amis = [u for u in (leaf.get("friend_units") or ()) if _qualifie(cfg, u, carrier)]
-    if not amis:
-        return None
+    tous = list(leaf.get("friend_units") or ())
+    amis = [u for u in tous if _qualifie(cfg, u, carrier)]
     mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 90)
     joignables = {u.get("unitId"): {(t["col"], t["row"]) for t in (u.get("tiles") or ())}
                   for u in (mov.get("units") or ())}
+    # ⚠ Un SUMMON n'a AUCUNE tuile dans `aiMovableTiles` -- son tour est termine des son apparition
+    # (`SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` -> `FinishUnitTurn(isTerminated: true)`,
+    # #291). Sur le montage `EcogSupport`, le seul ami QUALIFIANT est donc IMMOBILE : la premiere
+    # phase (deplacer des amis vers T2) est structurellement vide, et c'est la phase OCCUPER qui
+    # porte le montage -- elle n'a pas besoin d'un ami qualifiant, seulement d'un ami MOBILE.
+    mobiles = [u for u in tous if joignables.get(u.get("id"))]
+    if not amis and not mobiles:
+        return None
     occupees = {tuple(p) for p in (list(ctx.epos or ()) + list(ctx.fpos or ()))}
 
     order = sorted(off.items(), key=lambda kv: -kv[1])
@@ -371,7 +402,7 @@ def _crafter(sid, rid, ctx, cfg, carrier, off, w, wt) -> "tuple | None":
     # qui est tres souvent une EGALITE (trois tuiles a la meme distance d'ennemi). Une egalite se
     # tranche avec UN seul ami, quel que soit l'ecart d'origine. C'est ce qui rend un poids de 5
     # observable la ou l'ecart de tete vaut 30.
-    for u in amis:
+    for u in mobiles:
         if t1 in (joignables.get(u.get("id")) or set()):
             return t1, None, [(u.get("id"), t1)]
     return None
@@ -393,23 +424,33 @@ def confronter(nom, seed=DEFAULT_SEED, board=DEFAULT_BOARD, verbose=True) -> dic
     seed_bc = None
     if cfg.get("seed_bc") == "AUGMENTE":
         import catalog_inject
+        bc = catalog_inject._load_seed(None)
+        if cfg.get("desequiper"):
+            catalog_inject.unequip_relic(bc, cfg["desequiper"])
         seed_bc = ROOT / "logs" / "runners" / ("probe932r1-bc-%s.json" % uuid.uuid4().hex[:8])
         seed_bc.parent.mkdir(parents=True, exist_ok=True)
-        catalog_inject.write_augmented_seed_bc(str(seed_bc), [cfg["carrier"]])
+        catalog_inject.write_augmented_seed_bc(str(seed_bc), [cfg["carrier"]], seed_bc=bc)
 
-    rid, _state, err = _build(seed, board, cfg, seed_bc)
+    rid, state, err = _build(seed, board, cfg, seed_bc)
     if rid is None:
-        return {"error": "build KO : %s" % err}
+        return {"terme": nom, "error": "build KO : %s" % err}
     try:
         dv0 = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
         ids = {u.get("visualId"): u.get("id") for u in (dv0.get("units") or []) if u.get("ctrl")}
         carrier = ids.get(cfg["carrier"])
         if carrier is None:
-            return {"error": "porteur %s absent de la bataille (ids=%r)" % (cfg["carrier"], ids)}
+            res = {"terme": nom, "error": "porteur %s absent de la bataille (ids=%r)"
+                                          % (cfg["carrier"], sorted(ids))}
+            if verbose:
+                _dire(res)
+            return res
 
         if nom == "ecogsupport":
-            out = _spawn_ecog(sid, rid, ids)
+            out = _spawn_ecog(sid, rid, ids, state)
             if out is not None:
+                out.setdefault("terme", nom)
+                if verbose:
+                    _dire(out)
                 return out
 
         # GARDE DE SOURCE : le kit DECLENCHE que le dispatcher va iterer porte-t-il l'ability ?
@@ -453,7 +494,7 @@ def confronter(nom, seed=DEFAULT_SEED, board=DEFAULT_BOARD, verbose=True) -> dic
         # DEUX passes : la premiere cherche un couple (T1, T2) que des amis peuvent renverser ; si
         # elle echoue, la seconde OCCUPE le sommet et retente sur l'egalite qui apparait dessous.
         res["craft"] = []
-        for _passe in (0, 1):
+        for _passe in range(cfg.get("passes_craft", 2)):
             if res["renverse"]:
                 break
             plan = _crafter(sid, rid, ctx, cfg, carrier, off, w, wt)
@@ -520,20 +561,51 @@ def confronter(nom, seed=DEFAULT_SEED, board=DEFAULT_BOARD, verbose=True) -> dic
         _dispose(sid, rid)
 
 
-def _spawn_ecog(sid, rid, ids):
-    """Fait REELLEMENT apparaitre l'E-Cog : le trigger natif est `On(0x30 = UnitRepaired)`, donc il
-    faut une reparation, pas un debut de bataille (`ECogSupport_InitAbility` ne fait qu'un
-    `AddFlag(0x18)`). Rend `None` si tout va bien, un dict d'erreur sinon."""
+def _spawn_ecog(sid, rid, ids, state):
+    """Fait REELLEMENT apparaitre l'E-Cog, PUIS rend la main a son invocateur.
+
+    Le trigger natif est `On(0x30 = EventTriggerType.UnitRepaired) & OwnerIsCaster`
+    (`ECogSupportAbility$$CreateTrigger`) : c'est la REPARATION qui fait apparaitre le summon, pas
+    le debut de bataille (`ECogSupport_InitAbility` ne fait qu'un `AddFlag(0x18)`). Le porteur n'a
+    qu'une active (`GravitonRifle`) -- la reparation vient de son trait `Mechanic`, donc
+    `ActiveAbilityType.Repair = 28`, et la cible doit etre MECANIQUE **et endommagee**
+    (`AttackQuery$$EntityCanBeRepaired`).
+
+    ⚠ Le porteur a AGI en reparant : son tour est fini, donc il n'a plus de tuile candidate. Le
+    terme OWNER se mesure sur SON sweep -- il faut donc boucler un tour complet pour le retrouver
+    activable, l'E-Cog etant desormais sur le plateau. C'est la difference de fond avec la face
+    NON-OWNER de #433-r4-r3, ou le MOVER etait le summon (jamais dans `toActivate`, #291) : ici le
+    mover est un HERO, et c'est ce qui rend la face OWNER confrontable.
+
+    Rend `None` si tout va bien, un dict d'erreur sinon."""
     cible = ids.get(ECOG_REPAIREE)
     porteur = ids.get(MONTAGES["ecogsupport"]["carrier"])
     if cible is None or porteur is None:
-        return {"error": "montage ECog : %s ou le porteur absent" % ECOG_REPAIREE}
-    ab = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": porteur}, 120)
-    rep = [a for a in (ab.get("abilities") or []) if (a.get("targets") or a.get("fromHere"))]
-    _r(sid, "applyAction", {"runnerId": rid, "action": {
-        "kind": "ability", "unitId": porteur, "abilityId": (rep[0].get("abilityId") if rep else None),
-        "targetId": cible}}, 120)
-    return None
+        return {"error": "montage ECog : %s ou le porteur absent (ids=%r)"
+                         % (ECOG_REPAIREE, sorted(ids))}
+    res = _r(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": porteur, "targetId": cible,
+        "abilityType": REPAIR_ABILITY}}, 180)
+    act = (res.get("actions") or [{}])[0]
+    if not act.get("ok"):
+        return {"error": "cast Repair KO : %r" % res}
+    if not [c for c in (act.get("changes") or []) if c.get("appeared")]:
+        return {"error": "aucun summon apparu au Repair -- `On(UnitRepaired)` n'a pas tire"}
+    # Boucler le tour : fin de MON tour, puis le tour de l'IA ADVERSE. On passe par les
+    # sous-commandes `rl_duel act endturn` / `aiturn` et NON par `aiPlayByUnit` en direct : ce RPC
+    # joue l'equipe du joueur COURANT, et l'appeler sans avoir verifie la bascule fait jouer MA
+    # team (mesure : `turnsPlayed=9` et bataille terminee des le premier tour). `cmd_aiturn` porte
+    # precisement la garde de bascule (quirk H19 : le `endturn` ne flippe pas toujours).
+    for _ in range(4):
+        for cmd in (["act", "endturn"], ["aiturn"]):
+            subprocess.run([sys.executable, "rl_duel.py"] + cmd + ["--state-file", str(state)],
+                           cwd=str(PYDIR), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        dv = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 120)
+        # ⚠ `toActivate` est une liste d'IDS (des entiers), pas de dicts -- mesure.
+        if porteur in [int(x) for x in (dv.get("toActivate") or []) if isinstance(x, int)]:
+            return None
+    return {"error": "le porteur n'est pas redevenu activable apres 4 bascules de tour"}
 
 
 def _dire(res):
