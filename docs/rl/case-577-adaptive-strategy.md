@@ -192,16 +192,26 @@ Deux écarts subsistent, et aucun des deux n'a été imputé « à l'IA » sur p
   (xrefs : **UN** appelant), lui-même appelé par le seul `Core.Services.OperationProcessor$$EndTurn`.
   ⇒ **une instance `turns = 1` ne peut disparaître QUE par une FIN DE TOUR D'ÉQUIPE.**
 
-  **CE QUI N'EST PAS ENCORE MESURÉ, et ce que ça change.** Le montage consomme la dernière action
-  amie (l'Overlord a casté 1009, le Warden bouge puis caste 1005), donc l'hypothèse à départager
-  est : le côté LIVE a joué une fin de tour d'équipe que le rejeu offline
-  (`Runner.apply(ActiveAbilityMessage)`) ne joue pas. Si oui, l'écart est un **artefact du
-  MONTAGE** — on compare N+1 opérations natives à N opérations portées — et `#577-r1` n'accuse
-  aucun port. Sinon, le port manque une transition que le natif fait. **L'étage qui tranche est
-  ÉCRIT** (`probe_577` E9 : `observeBattle.currentPlayer` avant/après le cast live, plus les
-  `hasAction`), et E8 mesure la conséquence sur la stat MOUVEMENT des porteurs divergents — un
-  observable de CONSÉQUENCE, là où la liste des porteurs n'est qu'un observable de STRUCTURE.
-  **NON JOUÉ à ce jour : le budget de runners du host était saturé (50/50).**
+  **MESURÉ — ET C'EST UN ARTEFACT DU MONTAGE (2026-08-18, `probe_577` E9 puis E10).**
+
+  * **E9, le fait** : `observeBattle.currentPlayer` passe de `3` à `4` pendant le pas que le rejeu
+    offline joue sans lui. Le montage consomme la **dernière action amie** — l'Overlord a déjà
+    casté 1009, le summon naît `NoActionAvailable`, le Warden bouge puis caste — donc le jeu
+    **bascule tout seul** et `EndTurnOperation$$RefreshEffects` tique les durées.
+    `hasAction` avant `[77, 79, 81]`, après `[77, 79]` : les deux restants sont les ADVERSAIRES.
+    On ne comparait pas la même chose des deux côtés : **N+1 opérations natives contre N portées**.
+  * **E10, la contre-épreuve par SUBSTITUTION** : même cast sur une copie FRAÎCHE de l'état
+    capturé, puis `EndTurnMessage` — rien d'autre, ni formule ni pipeline touché. Les **deux**
+    observables rejoignent le natif exactement : porteurs de 1011 `[]` contre `[]`, et stat
+    MOUVEMENT `{83: 3, 100: 2}` contre `{83: 3, 100: 2}` (le port gardait `4` et `3`).
+
+  ⇒ **le port porte DÉJÀ la mécanique ; c'est le harnais qui ne la jouait pas.** `#577-r1`
+  n'accuse aucun port sur ce vecteur, et le probe rend `PROBE OK`.
+
+  ⚠ **CE QUI A PERMIS DE TRANCHER EST L'OBSERVABLE DE CONSÉQUENCE, PAS CELUI DE STRUCTURE.** La
+  liste des porteurs dit *qu'*il y a un écart ; la stat MOUVEMENT dit *combien* il vaut (+1 sur
+  deux unités) et, surtout, montre qu'il se **ferme exactement**. Trois énoncés successifs ont
+  survécu à l'observable de structure ; aucun n'aurait survécu à celui-ci.
 
 Autre limite **nommée** : `state.rng is None` sur un état rechargé (`load_state` ne restitue pas
 l'état interne du Mersenne Twister), donc `RandomAmount` prend sa dégradation documentée — la borne
@@ -225,9 +235,14 @@ tient est donc la **transcription** (E0), qui est le bon cran pour un booléen l
 
 ## 7. Résidus NOMMÉS
 
-* **#577-r1** — le port n'expire pas les effets à durée 1 tour quand une unité joue sous
-  `ComputerActionOperation` (le natif le fait via `ApplyAiMessages` → `FinishUnitTurn`). Mesuré
-  disjointement de 1005 : l'écart préexiste. Foyer : `engine/runner/operations/summon_ai.py`.
+* ~~**#577-r1**~~ — **CLOS le 2026-08-18 : ARTEFACT DU MONTAGE** (cf. §5). Son énoncé a été démontré
+  faux **trois fois** — expiration par `FinishUnitTurn`, puis re-ciblage par `RefreshEffectsOperation`,
+  puis « aucun `CreateActiveCondition` n'existe » — avant que la mesure ne montre que le côté LIVE
+  jouait une **fin de tour d'équipe** que le rejeu offline ne jouait pas. Le port porte déjà la
+  mécanique. ⚠ Les deux premiers énoncés ont tenu si longtemps parce qu'ils s'appuyaient sur une
+  ABSENCE dans les tables de symboles : `RelentlessMarchEffect` **déclare** `CreateTargetSelector`
+  et `CreateActiveCondition` (lues au `global-metadata.dat`), les deux étant des corps ICF
+  dédupliqués — c'est exactement le faux négatif que le CLAUDE.md nomme.
 * **#577-r2** — face **DÉCISION** (`IdunBattle.AI.Playbook.Loki.AdaptiveStrategyPlaybook`) non
   portée. La RE est faite (cf. §8) ; ce qui bloque est un point **structurel** non tranchable
   offline.
