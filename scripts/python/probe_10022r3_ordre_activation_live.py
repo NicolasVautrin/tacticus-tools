@@ -66,7 +66,7 @@ if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                              # noqa: E402
-from rl_collect_batch import _resolve_session, _rpc                        # noqa: E402
+from rl_collect_batch import _resolve_session, _rpc, PLAYER_ID_HUMAN       # noqa: E402
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 from engine.entities.pathfinding.ignore_terrain_pathfinder import (        # noqa: E402
     get_path_node_counts)
@@ -107,18 +107,49 @@ def seed_bc_randomise():
     return dst
 
 
-def build(seed, board, places_ia, place_moi, state_file, seed_bc=None):
+#: MODE MULTI-HEX (#10022-r7) -- le SEUL porteur d'empreinte du jeu est un BOSS, et son empreinte
+#: vient du BOARD (`BossPlatforms`), pas de l'unite : `SetupGameOperation$$AddBossUnit` est la seule
+#: voie qui pose un porteur sur une LISTE de tuiles, `AddPredefinedUnits` n'en pose qu'UNE (mesure
+#: #10018-r1). Le boss entre donc cote JOUEUR, comme CIBLE des clones IA -- le mettre du cote de
+#: l'IA casserait la neutralisation des buckets (`bucket 1 = PreferNonBoss` departagerait avant le 6).
+#: Deux porteurs mesures, l'un 7-hex l'autre 3-hex. `deathBossMortarion` porte une aura de degats
+#: (`ContagionsOfNurgle`) qui TUE au montage tout clone place a portee -- mesure #10022-r7 : le
+#: clone A ressortait `alive = false` du `decisionView` INITIAL, avant toute activation, et
+#: `--hp-target` ne le sauvait pas. `admecBossBelisarius` (3 hex, board `GB_Belisarius_01`, la voie
+#: mesuree par #10018-r1) n'en porte pas.
+MULTIHEX_PORTEURS = {
+    "belisarius": {"boss": "admecBossBelisarius", "board": "GB_Belisarius_01",
+                   "bouche_trou": "admecMarshall"},
+    "mortarion": {"boss": "deathBossMortarion", "board": "GB_Mortarion_05",
+                  "bouche_trou": "admecMarshall"},
+}
+MULTIHEX = MULTIHEX_PORTEURS["belisarius"]
+
+
+def seed_bc_bossunit(dest, unit_id):
+    """Copie du seed BC partage avec `BossUnit` renseigne cote HUMAIN. N'ECRIT JAMAIS le partage."""
+    import copy
+    bc = copy.deepcopy(json.loads((ROOT / "data" / "seed-bc.json").read_text(encoding="utf-8")))
+    bc["BossUnit"] = {"Id": PLAYER_ID_HUMAN, "UnitId": unit_id, "Health": None,
+                      "RemainingHealth": None, "Modifiers": []}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(bc), encoding="utf-8")
+    return dest
+
+
+def build(seed, board, places_ia, place_moi, state_file, seed_bc=None, p_units=None, extra=None):
     """`rl_duel build` avec placements EXACTS des deux camps. `--a-place` sort l'unite de
     `BC.PredefinedUnits` et la pose par `AddUnitMessage` sur la tuile demandee : c'est ce qui
     permet de faire varier la geometrie SANS consommer l'action d'une unite (un `act move` la
     marquerait comme ayant bouge et changerait ce qu'on mesure)."""
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
             "--state-file", str(state_file), "--no-ai",
-            "--p-units", CLONE, "--a-units", ",".join([CLONE] * max(1, len(places_ia)))]
+            "--p-units", p_units or CLONE,
+            "--a-units", ",".join([CLONE] * max(1, len(places_ia)))] + list(extra or [])
     #: `place_moi is None` = build SONDE : on ne veut que le `boardGraph` (pour DERIVER les
     #: geometries), donc aucun placement -- et donc aucun refus possible d'`AddUnitOperation`.
     if place_moi is not None:
-        argv += ["--place", "%s:%d,%d" % (CLONE, place_moi[0], place_moi[1])]
+        argv += ["--place", "%s:%d,%d" % (p_units or CLONE, place_moi[0], place_moi[1])]
     if seed_bc is not None:
         argv += ["--seed-bc", str(seed_bc)]
     for p in places_ia:
@@ -131,16 +162,40 @@ def build(seed, board, places_ia, place_moi, state_file, seed_bc=None):
 
 
 def positions_et_teams(sid, rid):
-    """`{unitId: (pos, team)}` depuis `decisionView`, plus la liste `toActivate` (l'ORDRE
-    D'ITERATION ECS -- l'ENTREE du picker, jamais sa sortie)."""
+    """`{unitId: (mainTile, team)}` depuis `decisionView`, plus `toActivate` (l'ORDRE D'ITERATION
+    ECS -- l'ENTREE du picker, jamais sa sortie) et l'EMPREINTE par unite.
+
+    ⚠ **LA MAIN TILE EST `feet[0]`, PAS `pos`** -- et ce site lisait `pos`. Deux lectures le
+    disent, et elles concordent :
+      * `IdunBattle.Entities.EntityExtensions$$GetMainTileId`, 2e branche : sur une entite a PIEDS,
+        il prend litteralement `set[0]` de l'`OrderedSet` du composant et RECURSE ;
+      * `runner/snapshot.py::_load_feet` documente que `decisionView.units[].pos` est le DERNIER
+        pied projete. MESURE sur `deathBossMortarion` : `feet = [(4,8), ..., (3,8)]` et
+        `pos = (3,8)` -- le dernier, pas le premier.
+    Sur une unite MONO-hex les deux coincident (c'est tout ce que le montage historique portait),
+    donc la faute etait INVISIBLE tant qu'aucune unite multi-hex n'entrait. Repli sur `pos` quand
+    le canal `feet` est muet : c'est une DEGRADATION nommee, exacte en mono-hex."""
     dv = _r(sid, "decisionView", {"runnerId": rid}, 90) or {}
-    par_id = {}
+    par_id, empreintes, vivants_dv = {}, {}, set()
     for u in (dv.get("units") or []):
+        feet = [(int(f["col"]), int(f["row"])) for f in (u.get("feet") or [])
+                if isinstance(f, dict) and f.get("col") is not None]
         p = u.get("pos") or {}
-        if p.get("col") is None:
+        pos = (int(p["col"]), int(p["row"])) if p.get("col") is not None else None
+        main = feet[0] if feet else pos
+        if main is None:
             continue
-        par_id[int(u["id"])] = ((int(p["col"]), int(p["row"])), int(u.get("team") or 0))
-    return par_id, list(dv.get("toActivate") or []), dv
+        uid = int(u["id"])
+        par_id[uid] = (main, int(u.get("team") or 0))
+        empreintes[uid] = feet or [main]
+        if u.get("alive") is not False:
+            vivants_dv.add(uid)
+    #: ⚠ LES DEUX ROLES N'ONT PAS LE MEME FILTRE, ET C'EST LU. Un CANDIDAT doit etre vivant
+    #: (`AnAiGroupOperator$$GetValidUnits`), un ENNEMI n'a pas a l'etre :
+    #: `StateExtensions$$GetAllEnemyUnitsOfPlayer` ne retient que DEUX conditions -- team differente
+    #: et pas `UnitTrait.Steppable` (0x1b) -- et aucune ne porte sur la vie. `par_id` garde donc les
+    #: cadavres (ils comptent comme cibles) et `vivants_dv` restreint les CANDIDATS.
+    return par_id, list(dv.get("toActivate") or []), dv, empreintes, vivants_dv
 
 
 def predire(board_obj, par_id, ids_ia, team_ia):
@@ -175,6 +230,84 @@ def predire(board_obj, par_id, ids_ia, team_ia):
                                     hex_distance=lambda a, b: hexgeo.distance(a, b),
                                     path_node_count=path_node_count)
             for uid in ids_ia}
+
+
+def ecart_main_vs_empreinte(board_obj, feet, occupants) -> dict:
+    """`{pathCount(q -> main) - min_f pathCount(q -> f)}` -> nombre de tuiles, pour l'empreinte
+    donnee. **C'est la mesure qui dit si l'axe MAIN TILE / FOOTPRINT est OBSERVABLE.**
+
+    Il ne peut valoir que `0` ou `1` des que la main tile est ADJACENTE a un pied de coût minimal
+    -- ce que toute empreinte du jeu garantit (7-hex = centre + ses six voisins ; 3-hex = triangle
+    compact). Or un basculement STRICT de l'argmax exigerait deux unites `A`, `B` avec
+    `d_main(A) < d_main(B)` ET `d_emp(A) > d_emp(B)`, c'est-a-dire `d_main(B) - 1 < d_main(A) <
+    d_main(B)` : IMPOSSIBLE en entiers. L'ordre d'activation ne peut donc PAS distinguer les deux
+    lectures -- c'est un resultat, pas un echec de montage, et il est RE-DERIVE ici plutot que
+    suppose."""
+    idof = {(t["col"], t["row"]): t["id"] for t in board_obj.by_id.values()}
+    tid_main = idof.get(feet[0])
+    if tid_main is None:
+        return {}
+    c_main = get_path_node_counts(board_obj, tid_main, occupants)
+    c_emp = {}
+    for f in feet:
+        tf = idof.get(f)
+        if tf is None:
+            continue
+        for t, n in get_path_node_counts(board_obj, tf, occupants).items():
+            if t not in c_emp or n < c_emp[t]:
+                c_emp[t] = n
+    hist = {}
+    for t, n in c_main.items():
+        if t in c_emp:
+            e = int(n) - int(c_emp[t])
+            hist[e] = hist.get(e, 0) + 1
+    return hist
+
+
+def geometries_multihex(board_obj, feet, pos_dv, occupants, n=4):
+    """Placements qui DISCRIMINENT `GetMainTile` (= `feet[0]`) de `pos` (= le DERNIER pied projete).
+
+    C'est l'axe multi-hex REELLEMENT observable par l'ordre d'activation : la lecture
+    MAIN-TILE / FOOTPRINT ne l'est pas (`ecart_main_vs_empreinte` le demontre), mais `pos` peut
+    etre a distance 2 de `feet[0]` sur une empreinte 7-hex -- deux pieds opposes -- donc un
+    basculement STRICT y est possible.
+
+    On cherche deux clones `A`, `B` tels que `cA_main < cB_main` ET `cA_pos > cB_pos`, plus un
+    troisieme strictement plus LOIN dans les DEUX lectures (il ne doit jamais gagner). Le
+    `pathCount` vient du meme mirror que celui qu'on teste ; aucune distance n'est devinee."""
+    idof = {(t["col"], t["row"]): t["id"] for t in board_obj.by_id.values()}
+    if feet[0] not in idof or pos_dv not in idof:
+        return []
+    c_main = get_path_node_counts(board_obj, idof[feet[0]], occupants)
+    c_pos = get_path_node_counts(board_obj, idof[pos_dv], occupants)
+    libres = [t for t in sorted(board_obj.by_id)
+              if board_obj.walkable(t) and board_obj.coord(t) not in set(feet)
+              and t in c_main and t in c_pos]
+    out = []
+    #: Les DEUX sens de la paire. Ne balayer que `libres[i+1:]` testait `c_main[ta] < c_main[tb]`
+    #: pour le seul ordre des IDS de tuile, donc ratait tout couple dont le discriminant vit dans
+    #: l'autre sens -- un montage muet qui se serait lu « ce board ne discrimine pas ».
+    for ta in libres:
+        if len(out) >= n:
+            break
+        for tb in libres:
+            if tb == ta:
+                continue
+            if not (c_main[ta] < c_main[tb] and c_pos[ta] > c_pos[tb]):
+                continue
+            loin = [t for t in libres
+                    if c_main[t] > max(c_main[ta], c_main[tb])
+                    and c_pos[t] > max(c_pos[ta], c_pos[tb])]
+            if not loin:
+                continue
+            tc = loin[len(loin) // 2]
+            places = [board_obj.coord(tb), board_obj.coord(tc), board_obj.coord(ta)]
+            out.append((places, None,
+                        {"A": (board_obj.coord(ta), c_main[ta], c_pos[ta]),
+                         "B": (board_obj.coord(tb), c_main[tb], c_pos[tb]),
+                         "C": (board_obj.coord(tc), c_main[tc], c_pos[tc])}))
+            break
+    return out
 
 
 def detour_max(board_obj, par_id, ids_ia) -> int:
@@ -226,10 +359,12 @@ def premiere_activation(sid, rid):
 
 # --------------------------------------------------------------------------------------------- #
 
-def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=None):
+def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=None,
+               p_units=None, extra=None):
     state_file = ROOT / "logs" / ("_probe10022r3-%d-%d.json" % (os.getpid(), idx))
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    rid, err = build(seed, board_id, places_ia, place_moi, state_file, seed_bc=seed_bc)
+    rid, err = build(seed, board_id, places_ia, place_moi, state_file, seed_bc=seed_bc,
+                     p_units=p_units, extra=extra)
     if rid is None:
         rapport.append("config %d : BUILD ECHOUE -- %s" % (idx, (err or "")[-400:]))
         return None
@@ -239,7 +374,7 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
             rapport.append("config %d : boardGraph VIDE -- non mesure" % idx)
             return None
         board_obj = Board(bg["tiles"], adjacency="native_sym")
-        par_id, to_activate, _dv = positions_et_teams(sid, rid)
+        par_id, to_activate, _dv, empreintes, vivants_dv = positions_et_teams(sid, rid)
         teams = {t for (_p, t) in par_id.values()}
         if len(teams) < 2:
             rapport.append("config %d : une seule team vue (%r) -- non mesure" % (idx, teams))
@@ -251,7 +386,8 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
         for _uid, (_p, t) in par_id.items():
             comptes[t] = comptes.get(t, 0) + 1
         team_ia = max(comptes, key=lambda t: comptes[t])
-        ids_ia = sorted([u for u, (_p, t) in par_id.items() if t == team_ia])
+        #: CANDIDATS = les unites de la team IA qui sont VIVANTES (cf. positions_et_teams).
+        ids_ia = sorted([u for u, (_p, t) in par_id.items() if t == team_ia and u in vivants_dv])
         if len(ids_ia) < 2:
             rapport.append("config %d : moins de 2 unites IA (%r) -- rien a departager"
                            % (idx, ids_ia))
@@ -262,16 +398,24 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
         if not vivants:
             rapport.append("config %d : toutes les utilites sont HORS COURSE -- non mesure" % idx)
             return None
-        # argmax, ex-aequo tranche par l'ordre d'iteration ECS (comparaison STRICTE `>` du natif
-        # dans `CalculateUtilitiesForCasesEnumerated` : le PREMIER a atteindre le max garde `best`).
-        ordre_ecs = [u for u in to_activate if u in vivants] or sorted(vivants)
+
+        active, to_activate_avant, stop = premiere_activation(sid, rid)
+        ecs_avant = [u for u in (to_activate_avant or to_activate) if u in vivants]
+        # ⚠ L'ARGMAX SE PREND SUR L'ENTREE DU PICKER, PAS SUR TOUTE LA TEAM. Le natif choisit dans
+        # `AnAiGroupOperator$$GetValidUnits` ; une unite hors de cet ensemble ne peut PAS etre
+        # activee, donc la predire est une faute de HARNAIS et le desaccord qui en sort n'accuse
+        # rien du port. MESURE qui l'a montre (#10022-r7) : sur le montage multi-hex, un clone
+        # place a portee de l'aura `ContagionsOfNurgle` de Mortarion arrivait MORT (`alive=false`)
+        # -- il gardait une utilite (sa position est publiee) et sortait argmax, pendant que le
+        # picker ne voyait que les deux autres. Trois DESACCORDS, zero faute du port.
+        # Ex-aequo tranche par l'ordre d'iteration ECS (comparaison STRICTE `>` du natif dans
+        # `CalculateUtilitiesForCasesEnumerated` : le PREMIER a atteindre le max garde `best`).
+        ordre_ecs = ecs_avant or [u for u in to_activate if u in vivants] or sorted(vivants)
         meilleur = None
         for u in ordre_ecs:
             if meilleur is None or vivants[u] > vivants[meilleur]:
                 meilleur = u
-
-        active, to_activate_avant, stop = premiere_activation(sid, rid)
-        ecs_avant = [u for u in (to_activate_avant or to_activate) if u in vivants]
+        hors_picker = sorted(u for u in vivants if ecs_avant and u not in ecs_avant)
         # TROIS etats, pas deux. Un `toActivate` VIDE ne veut pas dire « non degenere » : il veut
         # dire qu'on N'A PAS MESURE l'ordre d'iteration ECS, donc qu'on ne peut RIEN dire de la
         # degenerescence. Le rabattre sur « discriminant » gonflerait le compte du bras positif
@@ -287,11 +431,12 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
                 "ECS_INCONNU": " (ECS NON MESURE : degenerescence indeterminee)"}.get(statut, "")
         detour = detour_max(board_obj, par_id, ids_ia)
         rapport.append(
-            "config %d : places=%s | utilites=%s | ECS=%s | predit=%s | active=%s | detour=%d | %s%s"
+            "config %d : places=%s | utilites=%s | ECS=%s | hors_picker=%s | predit=%s | "
+            "active=%s | detour=%d | %s%s"
             % (idx, places_ia,
                {u: (round(float(v), 1) if v is not OUT_OF_RUNNING else "HORS") for u, v in
                 sorted(util_par_id.items())},
-               ecs_avant, meilleur, active, detour,
+               ecs_avant, hors_picker, meilleur, active, detour,
                "ACCORD" if ok else "DESACCORD", note))
         return {"ok": ok, "statut": statut, "active": active, "predit": meilleur, "stop": stop,
                 "detour": detour}
@@ -376,11 +521,120 @@ def geometries_derivees(board_obj, n=6):
     return out
 
 
+def volet_multihex(sid, a, porteur=None) -> int:
+    """AXE (a) de #10022-r7 : une unite MULTI-HEX au bout de la mesure.
+
+    DEUX questions distinctes, et une seule est observable par l'ordre d'activation :
+
+      1. **MAIN TILE vs FOOTPRINT** -- ce qui separe cette utilite de
+         `MinDistanceToClosestEnemyUtility` (17). `ecart_main_vs_empreinte` le RE-DERIVE sur
+         l'empreinte reellement montee : l'ecart ne prend que les valeurs `0` et `1`, donc aucun
+         basculement STRICT de l'argmax n'est possible (il exigerait `d(B)-1 < d(A) < d(B)`).
+         **NON OBSERVABLE par cet oracle** -- imprime, jamais rabattu sur un vert.
+      2. **MAIN TILE vs `decisionView.pos`** -- observable, elle : `pos` est le DERNIER pied
+         projete, a distance 2 de `feet[0]` sur une 7-hex, donc l'argmax peut basculer. C'est la
+         lecture que ce probe faisait AVANT (`positions_et_teams`), et c'est elle qu'on confronte.
+    """
+    P = porteur or MULTIHEX
+    sf = ROOT / "logs" / ("_probe10022r7-bc-%d.json" % os.getpid())
+    seed_bc = seed_bc_bossunit(sf, P["boss"])
+    #: `--hp-target` eleve : MESURE (#10022-r7) -- sans lui, l'aura `ContagionsOfNurgle` de
+    #: Mortarion tue les clones places a portee AVANT la premiere activation (`alive = false` des
+    #: le `decisionView` initial). Un clone mort garde une position, donc une utilite, mais sort de
+    #: `GetValidUnits` : la prediction designe alors une unite que le picker ne voit pas.
+    extra = ["--explicit-stats", P["boss"] + ":4", "--hp-target", "500000"]
+    os.environ.setdefault("TACTICUS_ALLOW_ROSTER_DEFICIT", "1")
+    board_id = P["board"]
+
+    sonde = ROOT / "logs" / ("_probe10022r7-sonde-%d.json" % os.getpid())
+    rid, err = build(a.seed, board_id, [], None, sonde, seed_bc=seed_bc,
+                     p_units=P["bouche_trou"], extra=extra)
+    if rid is None:
+        print("[10022-r7-multihex] NON MESURE : build SONDE KO (%s) -- rc 2" % (err or "")[-400:])
+        return 2
+    try:
+        bg = _r(sid, "boardGraph", {"runnerId": rid}, 120) or {}
+        par_id, _ta, dv, empreintes, _viv = positions_et_teams(sid, rid)
+        boss = next((u for u in (dv.get("units") or [])
+                     if len(u.get("feet") or []) > 1 and u.get("alive")), None)
+    finally:
+        _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+    if not bg.get("tiles") or boss is None:
+        print("[10022-r7-multihex] NON MESURE : aucune unite MULTI-HEX au montage "
+              "(BC.BossUnit non consomme ?) -- rc 2")
+        return 2
+    board_obj = Board(bg["tiles"], adjacency="native_sym")
+    feet = empreintes[int(boss["id"])]
+    p = boss.get("pos") or {}
+    pos_dv = (int(p["col"]), int(p["row"]))
+    #: Les OCCUPANTS reels : `IgnoreTerrainPathfinder$$WeightCost` = `10 + IsFilled(to)`, donc une
+    #: tuile occupee COUTE plus cher sans jamais bloquer (`IsValidPathNode` n'a aucun test
+    #: d'occupant -- sa signature native n'a meme pas de parametre `unit`). Les passer ici met la
+    #: DERIVATION dans le meme regime que la PREDICTION, qui les passe deja.
+    idof0 = {(t["col"], t["row"]): t["id"] for t in board_obj.by_id.values()}
+    occ = {idof0[f]: int(boss["id"]) for f in feet if f in idof0}
+    print("[10022-r7-multihex] boss u%s feet=%d %s | main(feet[0])=%s | pos(dv)=%s"
+          % (boss["id"], len(feet), feet, feet[0], pos_dv))
+
+    hist = ecart_main_vs_empreinte(board_obj, feet, occ)
+    print("[10022-r7-multihex] AXE 1 -- ecart `pathCount(main) - min pathCount(empreinte)` : %s"
+          % sorted(hist.items()))
+    if hist and max(hist) <= 1:
+        print("[10022-r7-multihex] AXE 1 = NON OBSERVABLE par l'ordre d'activation : l'ecart vaut "
+              "0 ou 1 partout, et un basculement STRICT exigerait `d(B)-1 < d(A) < d(B)`. La "
+              "distinction MAIN TILE / FOOTPRINT est donc indiscriminable par CET oracle -- pas "
+              "par manque de montage, par ARITHMETIQUE.")
+    elif hist:
+        print("[10022-r7-multihex] AXE 1 : ecart max = %d > 1 -- un basculement EST possible, la "
+              "conclusion ci-dessus ne tient pas sur cette empreinte." % max(hist))
+
+    geoms = geometries_multihex(board_obj, feet, pos_dv, occ, a.configs)
+    if not geoms:
+        print("[10022-r7-multihex] AXE 2 NON MESURE : aucun couple de tuiles ne discrimine "
+              "`feet[0]` de `pos` sur ce board -- rc 2")
+        return 2
+    print("[10022-r7-multihex] AXE 2 -- %d configuration(s) discriminant `feet[0]` de `pos`"
+          % len(geoms))
+
+    rapport, resultats = [], []
+    for i, (places, _moi, detail) in enumerate(geoms, 1):
+        print("  config %d : A=%s(main=%d,pos=%d) B=%s(main=%d,pos=%d) C=%s(main=%d,pos=%d)"
+              % (i, detail["A"][0], detail["A"][1], detail["A"][2],
+                 detail["B"][0], detail["B"][1], detail["B"][2],
+                 detail["C"][0], detail["C"][1], detail["C"][2]))
+        r = une_config(sid, a.seed, board_id, places, None, i, rapport, seed_bc=seed_bc,
+                       p_units=P["bouche_trou"], extra=extra)
+        if r is not None:
+            resultats.append(r)
+    print("")
+    for l in rapport:
+        print("[10022-r7-multihex] " + l)
+    disc = [r for r in resultats if r["statut"] == "DISCRIMINANT"]
+    acc = [r for r in disc if r["ok"]]
+    print("")
+    print("[10022-r7-multihex] BILAN AXE 2 : %d mesuree(s), %d discriminante(s), %d accord(s)"
+          % (len(resultats), len(disc), len(acc)))
+    if not disc:
+        print("[10022-r7-multihex] ROUGE : aucune configuration discriminante -- echec de montage.")
+        return 1
+    if len(acc) != len(disc):
+        print("[10022-r7-multihex] ROUGE : %d desaccord(s) -- le natif ne lit pas `feet[0]`, ou "
+              "un autre etage intervient." % (len(disc) - len(acc)))
+        return 1
+    print("[10022-r7-multihex] VERT : sur une unite MULTI-HEX, le natif lit bien la MAIN TILE "
+          "(`feet[0]`), pas `decisionView.pos` (le DERNIER pied projete).")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--configs", type=int, default=len(GEOMETRIES))
+    ap.add_argument("--multihex", nargs="?", const="belisarius", default=None,
+                    choices=sorted(MULTIHEX_PORTEURS),
+                    help="AXE (a) de #10022-r7 : monte une unite MULTI-HEX (boss, via "
+                         "`BC.BossUnit`) comme CIBLE et confronte la lecture de sa MAIN TILE.")
     ap.add_argument("--deriver", action="store_true",
                     help="DERIVER les geometries du boardGraph meme sur le board historique "
                          "(controle : les deux modes doivent conclure pareil).")
@@ -399,6 +653,10 @@ def main(argv=None):
     if sid is None:
         print("[10022-r3-live] NON MESURE : aucune session running -- rc 2")
         return 2
+    # ---------------------------------------------------------------- axe MULTI-HEX (#10022-r7)
+    if a.multihex:
+        return volet_multihex(sid, a, MULTIHEX_PORTEURS[a.multihex])
+
     # ---------------------------------------------------------------- quelles geometries ?
     #: Les coordonnees figees sont celles de `MC1_67` : sur tout autre board elles designeraient des
     #: tuiles quelconques (voire hors plateau), et le probe mesurerait une geometrie qu'il n'a pas
