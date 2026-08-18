@@ -220,3 +220,53 @@ def test_etage3_branches_non_normal_ignorent_la_position(monkeypatch, rt, attend
     st = _state(uid, (0, 0), (0, 6))               # NON adjacent -- et pourtant `Melee` rend True
     monkeypatch.setattr("engine.services.battle_query.attack_range_type", lambda _n: rt)
     assert BQS.is_melee_attack(st, "PeuImporte", 1, 2) is attendu
+
+
+# --------------------------------------------------------------------------------------------
+# ETAGE 4 -- GENERALISATION : la valeur corrigee ARRIVE-t-elle au consommateur ?
+# Une valeur juste qui ne remonte pas est un fix INVISIBLE. Le consommateur est
+# `BattleQuery$$GetMultiHitAttackPrediction` (`operations/attack_prediction`), a qui
+# `_prediction_fields` passe `is_melee=` -- et de la, `attacker_modifiers(is_ranged=...)` et
+# `defender_modifiers(is_melee=...)`, c.-a-d. TOUS les gates de nature de coup de la cle de tri.
+# La substitution MORD parce que `damage_utility` importe le module (forme B), pas le nom.
+# --------------------------------------------------------------------------------------------
+
+def _capture_is_melee(monkeypatch) -> list:
+    vus = []
+
+    def _faux(state, attacker_id, target_id, amount, hits, damage_profile, pierce, **kw):
+        vus.append(kw.get("is_melee"))
+        return None            # `None` -> `_prediction_fields` rend None, l'appelant degrade
+
+    monkeypatch.setattr(
+        "engine.runner.operations.attack_prediction.multi_hit_attack_prediction", _faux)
+    return vus
+
+
+def test_etage4_la_nature_corrigee_arrive_a_la_prediction(monkeypatch):
+    uid = _pick("melee_only")
+    st = _state(uid, (0, 0), (0, 6))
+    vus = _capture_is_melee(monkeypatch)
+    DU._prediction_fields(st, 1, 2, amount=100, hits=1, ability_type=None, is_melee=None)
+    assert vus == [False], (
+        "le consommateur `GetMultiHitAttackPrediction` doit recevoir is_melee=False "
+        "(cible NON adjacente, branche Normal(3)) -- recu %r" % vus)
+
+
+def test_etage4_temoin_au_contact(monkeypatch):
+    uid = _pick("melee_only")
+    st = _state(uid, (0, 0), (1, 0))
+    vus = _capture_is_melee(monkeypatch)
+    DU._prediction_fields(st, 1, 2, amount=100, hits=1, ability_type=None, is_melee=None)
+    assert vus == [True]
+
+
+def test_etage4_is_melee_fourni_court_circuite_le_slot(monkeypatch):
+    """Quand l'appelant CONNAIT l'ability (noeud `+0x28` du selecteur non nul), le natif n'appelle
+    PAS `GetNormalAttackType` : la valeur de l'appelant passe telle quelle. Contre-epreuve du
+    cablage -- un fix qui recalculerait TOUJOURS ecraserait cette voie."""
+    uid = _pick("melee_only")
+    st = _state(uid, (0, 0), (0, 6))
+    vus = _capture_is_melee(monkeypatch)
+    DU._prediction_fields(st, 1, 2, amount=100, hits=1, ability_type=1216, is_melee=True)
+    assert vus == [True]
