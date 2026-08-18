@@ -45,6 +45,14 @@ from ...entities.effects.factory import (get_derived_abilities_for_trait,
 from ...entities.effects.factory import (get_owner_effects_added_on_ability_init,
                                              get_effect_to_be_added_to_owner_for_ability)
 from ...entities.effects.factory import get_effect_to_be_added_to_owner_for_trait
+from ...entities.effects import factory as _factory   # FORME B (liaison de MODULE) -- OBLIGATOIRE
+#     ici : `migrate_485r1_barils_reexport.py morsure` classe
+#     `get_owner_bond_effects_added_on_ability_init` HISSAGE_DESARMERAIT (substitue par
+#     `test_963r5_bond_a_l_init_offline`), donc un hissage en forme A le rendrait INERTE. Le
+#     module est deja charge par les lignes au-dessus : aucun module de plus.
+from .. import components as _RC   # FORME B, meme raison de cout nul (`..components` est deja
+#     charge par le preambule). Rend inutiles les differes REDONDANTS de
+#     `_seed_ability_owner_effects` et `_add_owner_flag_on_ability_init` (#485).
 from ...entities.effects.magnitude import ability_var
 from ...entities.stats import UnitStats, StatType, StatPart
 from ...utilities.tile import sort_tiles_by_utility
@@ -953,10 +961,6 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
       * `StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` (dict `ActiveAbility` +0x50,
         `ABILITY_OWNER_EFFECTS`) — chemin DIRECT, ex. GravitonRifle -> GravitonRifle_ExtraPierce (#113)."""
     import gameconfig as GC
-    from ...entities.effects.factory import (BOND_PARENT_OF_OWNER,
-                                             get_owner_bond_effects_added_on_ability_init,
-                                             get_owner_flags_added_on_ability_init)
-    from ..components import parent_of
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
     # QUATRIEME source de la MEME boucle native (#1005) : l'ability TERTIAIRE, c.-a-d. l'item
@@ -977,7 +981,7 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
     # -> `DSLBehaviors$$AddFlag(Owner@+0x30, <UnitFlag>)`. Meme trigger `OnOwnerSpecificAbilityInit`
     # que les owner-effects ci-dessous, autre mutation. Cf. `ABILITY_INIT_OWNER_FLAGS`.
     for ab in abilities:
-        for flag in get_owner_flags_added_on_ability_init(ab):
+        for flag in _factory.get_owner_flags_added_on_ability_init(ab):
             _add_owner_flag_on_ability_init(state, unit_id, int(flag))
     # ⚠ LE COUPLE (niveau, multiplicateur) D'UNE RELIQUE N'EST PAS CELUI DES PASSIFS, et c'est
     # MESURE (#1005, RPC `unitAbilityStates` sur `bloodMephiston` porteur de `Vitarus`) : son
@@ -1013,10 +1017,10 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
     # la (avec son `bondedEntityId` publie par `readBondLink`) et le gate `has_effect` rend un no-op
     # exact -- ce seed ne peut donc pas ecraser une mesure.
     for ab in abilities:
-        for name, selector in get_owner_bond_effects_added_on_ability_init(ab):
+        for name, selector in _factory.get_owner_bond_effects_added_on_ability_init(ab):
             bonded = None
-            if selector == BOND_PARENT_OF_OWNER:
-                p = parent_of(state, int(unit_id))
+            if selector == _factory.BOND_PARENT_OF_OWNER:
+                p = _RC.parent_of(state, int(unit_id))
                 bonded = p.id if p is not None else None
             if _materialize_owner_effect(state, unit_id, name, _couple(ab)[0],
                                          ability_level=_couple(ab)[1],
@@ -1031,13 +1035,12 @@ def _add_owner_flag_on_ability_init(state: State, unit_id: int, flag: int) -> bo
     Le `OrderedSet` natif rend l'operation IDEMPOTENTE : re-seeder la meme unite (atterrissage
     deep-strike, re-chargement d'etat) ne pose pas deux fois le drapeau. Le composant est cree s'il
     manque -- le natif en a un d'office sur toute entite-unite."""
-    from ..components import UnitFlagsComponent
     e = state.get_entity(int(unit_id))
     if e is None:
         return False
-    c = e.get_component(UnitFlagsComponent)
+    c = e.get_component(_RC.UnitFlagsComponent)
     if c is None:
-        c = UnitFlagsComponent()
+        c = _RC.UnitFlagsComponent()
         e.add_component(c)
     c.add(int(flag))
     return True

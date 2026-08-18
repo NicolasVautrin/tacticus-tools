@@ -38,6 +38,11 @@ from ...selectors.accessors import Owner
 from ...selectors.tiles import Parent
 from ...triggers import IsAdjacent
 from ...unit_selection_type import UnitSelectionType
+from ....runner.abilities.behaviours import context as _bctx   # FORME B (liaison de MODULE).
+#     La raison qui vivait au SITE ("`context` importe `runner.components`, qui importe CE module,
+#     hisser fermerait le cycle") est REFUTEE par la mesure : `import
+#     engine.runner.abilities.behaviours.context` en process frais ne charge PAS ce module. La
+#     vidange des barils (#485-r1-r1) a supprime l'arete de retour ; l'arete est GRATUITE (#485).
 
 #: `IsAdjacent(..., 3)` -- le `selectionType` du call-site natif, PAS un rayon.
 BOND_ADJACENCY_SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)
@@ -62,8 +67,5 @@ def evaluate_lifewards_bond_adjacent(state, unit_id: int) -> bool:
     ⚠ `Parent(Owner)` rend `[]` pour toute unite du roster initial (`UnitComponent.parent_id` nul),
     et `IsAdjacentAbilityTrigger$$ShouldTrigger` rend FALSE sur un ensemble vide -- mirror exact.
     Une instance de 1060 posee sur une unite SANS parent est donc INERTE, cote natif comme ici."""
-    from ....runner.abilities.behaviours.context import entities_from_state  # DIFFERE, PORTEUR :
-    #     `runner.abilities.behaviours.context` importe `runner.components`, qui importe CE module
-    #     (cle paresseuse). Hisser fermerait le cycle.
-    ents = entities_from_state(state, int(unit_id), int(unit_id), owner_id=int(unit_id))
+    ents = _bctx.entities_from_state(state, int(unit_id), int(unit_id), owner_id=int(unit_id))
     return bool(lifewards_bond_active_condition().should_trigger(ents))

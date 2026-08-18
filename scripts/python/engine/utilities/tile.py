@@ -125,6 +125,8 @@ from ..entities.active_abilities import entity_active_ability_ids
 from ..entities.tile_extensions import get_steppable_unit
 from .. import battle_query as _bq
 from ..weights import load as _load_weights
+from ..entities.pathfinding import ignore_terrain_pathfinder as _itp   # FORME B (liaison de
+#     MODULE). Arete GRATUITE (#485) : charge SEUL, ce module ne tire pas `engine.utilities.tile`.
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
@@ -2633,7 +2635,6 @@ def _movetowards_pathdist_by_pos(lc: dict) -> dict:
     memo = lc.get(_MOVETOWARDS_MEMO)
     if memo is not None and memo[0] == sig:
         return memo[1]
-    from ..entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts_by_pos
     out: dict = {}
     if any(tp is not None for _ident, tp in sig):
         # `TileContentComponent.IsFilled(to)` du `WeightCost` -- un COUT, jamais un gate.
@@ -2646,7 +2647,7 @@ def _movetowards_pathdist_by_pos(lc: dict) -> dict:
         for ident, tp in sig:
             if tp is None:
                 continue
-            out[ident] = get_path_node_counts_by_pos(
+            out[ident] = _itp.get_path_node_counts_by_pos(
                 tp, neigh_by_pos=neigh, walkable_by_pos=lc.get("walkable_by_pos"),
                 elev_by_pos=lc.get("elev_by_pos"), occupied_positions=occ)
     lc[_MOVETOWARDS_MEMO] = (sig, out)

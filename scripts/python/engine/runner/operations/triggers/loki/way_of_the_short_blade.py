@@ -97,6 +97,8 @@ from ....abilities.behaviours.flags import AddFlag, RemoveFlag
 from ....components import is_effect_target as _is_effect_target
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
+from .... import components as _RC   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.components` en process frais ne charge pas ce module.
 
 #: CLE du registre `ABILITY_TRIGGERS` = le nom gameconfig du passif, pris au MEMBRE de l'enum et non
 #: recopie en chaine (meme geste que `CALL_IN_REINFORCEMENTS_KEY`) : un renumerotage du build ferait
@@ -142,11 +144,10 @@ class WayOfTheShortBladeAttackAbility(TriggeredAbility):
         # `AreFriends(Caster@<+0x48>, Owner@<+0x30>, 0 = ByCurrentTeam)`. L'attaquant peut etre le
         # porteur lui-meme (Farsight est ami de lui-meme, et le selecteur de 1500 l'inclut
         # explicitement par son `op_Addition Owner`) -- aucune soustraction `- Owner` ici.
-        from ....components import OwnerComponent
         a = state.get_entity(int(ev.actor_id))
         o = state.get_entity(int(self.owner_id))
-        ao = a.get_component(OwnerComponent) if a is not None else None
-        oo = o.get_component(OwnerComponent) if o is not None else None
+        ao = a.get_component(_RC.OwnerComponent) if a is not None else None
+        oo = o.get_component(_RC.OwnerComponent) if o is not None else None
         if ao is None or oo is None or ao.team != oo.team:
             return False
         # `IsEffectTarget(Caster@<+0x48>, 0x5dc)` -- TRI-ETAT, `None` REFUSE (cf. l'en-tete).

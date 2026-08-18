@@ -35,6 +35,9 @@ from ..components import HealthComponent, StatsComponent
 from ..damage_model import (attacker_modifiers, defender_modifiers, defender_fixed_armor,
                             apply_elevation_bonus, apply_trench_reduction, target_trait_names)
 from .damage import AttackDamageOperation
+from ...services import damage_modifiers as _dm   # FORME B (liaison de MODULE). Le "cycle
+#     services<->runner" annonce au site est REFUTE par la mesure : `import
+#     engine.services.damage_modifiers` en process frais ne charge PAS ce module. GRATUIT (#485).
 
 
 def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount: int, hits: int,
@@ -72,8 +75,7 @@ def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount:
     ahc = att.get_component(HealthComponent) if att is not None else None
     _ranged = (not is_melee) if is_melee is not None else None
     if asc is None:
-        from ...services.damage_modifiers import DamageModifiers   # differe PORTEUR : cycle services<->runner
-        mods, active = DamageModifiers(), []
+        mods, active = _dm.DamageModifiers(), []
     else:
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None,
                                           target_id=target_id, is_ranged=_ranged,

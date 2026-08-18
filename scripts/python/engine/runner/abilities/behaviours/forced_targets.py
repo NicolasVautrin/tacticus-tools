@@ -22,6 +22,9 @@ from __future__ import annotations
 from ....dsl.base import TargetsSelector, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import ForcedAttackTargetsComponent
+from ...operations import refresh_effects as _refresh_effects   # FORME B (liaison de MODULE).
+#     Arete GRATUITE (#485) : `import engine.runner.operations.refresh_effects` en process frais
+#     ne charge pas ce module -- aucune boucle a rompre.
 
 
 def _targets_of(sel: TargetsSelector, entities) -> list:
@@ -154,10 +157,10 @@ class RefreshEffects(AbilityBehaviour):
         self.refresh_trigger = int(refresh_trigger)
 
     def execute(self, entities, ectx):
-        from ...operations.refresh_effects import refresh_stat_modifier_effects
         if ectx.state is None:
             ectx.emit("RefreshEffects", trigger=self.refresh_trigger, rewritten=None)
             return OperationResult.ok()
-        rewritten = refresh_stat_modifier_effects(ectx.state, refresh_trigger=self.refresh_trigger)
+        rewritten = _refresh_effects.refresh_stat_modifier_effects(
+            ectx.state, refresh_trigger=self.refresh_trigger)
         ectx.emit("RefreshEffects", trigger=self.refresh_trigger, rewritten=rewritten)
         return OperationResult.ok()

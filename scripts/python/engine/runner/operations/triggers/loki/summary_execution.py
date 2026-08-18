@@ -95,6 +95,8 @@ from ....abilities.behaviours.lifecycle import Kill
 from ....components import OwnerComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
+from ... import aura_stat_mods as _asm   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.operations.aura_stat_mods` en process frais ne charge pas ce module.
 
 ABILITY_ID = "SummaryExecution"
 _ON_PRE_UNIT_FLED = int(EventTriggerType.PreUnitFled)                 # `On(0x33, ownerAlive = true)`
@@ -189,8 +191,7 @@ class SummaryExecutionAbility(TriggeredAbility):
         # `ApplyEffectsForTargets` le fait cote natif.
         immunised: list = []
         if any(p.get("placed") for p in placed):
-            from ...aura_stat_mods import refresh_aura_stat_modifiers
-            refresh_aura_stat_modifiers(state)
+            _asm.refresh_aura_stat_modifiers(state)
             # Trace : les cibles du selecteur qui portent effectivement l'immunite apres le reveil.
             immunised = [uid for uid in _immunisable_targets(state, self.owner_id)
                          if state.effects is not None and state.effects.has_effect(

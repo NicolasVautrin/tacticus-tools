@@ -136,6 +136,8 @@ from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import IsInTeamAura
 from .....entities.unit_selection_type import UnitSelectionType
 from ..base import TriggeredAbility, TriggerEvent, triggered_ability_state
+from .....services import battle_query as _sbq   # FORME B (liaison de MODULE). Arete GRATUITE
+#     (#485) : `import engine.services.battle_query` en process frais ne charge pas ce module.
 
 #: Le NOM gameconfig du passif -- la config que lisent les DEUX faces a magnitude (2 et 4).
 FLOATING_DEATH = TriggeredAbilityType.FloatingDeath.name              # "FloatingDeath"
@@ -317,8 +319,8 @@ class FloatingDeathChainAbility(TriggeredAbility):
         # `forall` du noeud se reduit donc a l'unique paire. Foyer : `battle_query.are_tiles_adjacent`
         # via le meme service que le noeud DSL homonyme (porte d'elevation + court-circuit d'identite).
         _ = _CHAIN_ADJACENCY_SELECTION         # 0 = Any -- litteral natif, QUALIFIE
-        from .....services.battle_query import are_tiles_adjacent as _adj
-        return bool(_adj((op_.col, op_.row), (mp.col, mp.row), board=getattr(state, "board", None)))
+        return bool(_sbq.are_tiles_adjacent((op_.col, op_.row), (mp.col, mp.row),
+                                            board=getattr(state, "board", None)))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)

@@ -21,6 +21,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from ...services.effect_bonus import EffectBonus
+from ...services import range_bonus as _rb   # FORME B (liaison de MODULE). Arete GRATUITE : charger
+#     `engine.services.range_bonus` seul ne tire pas ce module (mesure #485). Le paquet `services`
+#     est deja execute par la ligne au-dessus -- hisser ne coute donc AUCUN module de plus.
 from ..effect_type import EffectType
 # FEUILLE PURE (n'importe rien de `engine.*`), et c'est ce qui rend cet import possible AU NIVEAU
 # MODULE : l'enum vivait dans `runner/operations/remove_effects.py`, dont la cascade traverse ce
@@ -653,16 +656,15 @@ class BaseEffect:
         Le gate `Trigger` est porté par FIDÉLITÉ : aucun effet du build n'en pose (le seul
         implémenteur rend `Trigger = null`), donc il est INERTE aujourd'hui — mais un port qui
         l'omettrait laisserait passer un bonus conditionnel le jour où il apparaît, en silence."""
-        from ...services.range_bonus import RangeBonus       # FEUILLE (aucun import du paquet)
         b = self.create_range_bonus_for_movement(mctx)
         if b is None:
             return None
         trg = getattr(b, "trigger", None)
         if trg is not None and not trg(mctx):
             return None
-        return RangeBonus(extra_range=int(getattr(b, "extra_range", 0) or 0),
-                          extra_range_condition=getattr(b, "extra_range_condition", None),
-                          reduce_range=getattr(b, "reduce_range", None))
+        return _rb.RangeBonus(extra_range=int(getattr(b, "extra_range", 0) or 0),
+                              extra_range_condition=getattr(b, "extra_range_condition", None),
+                              reduce_range=getattr(b, "reduce_range", None))
 
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,

@@ -39,6 +39,9 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
+from .... import components as _RC   # FORME B (liaison de MODULE). Aretes GRATUITES (#485) :
+#     `import engine.runner.components` en process frais ne charge pas ce module -- les deux
+#     differes qui vivaient dans `_owner_active_effect_names` et `matches` etaient des scories.
 from .....entities.effect_type import EffectType
 from .....entities.effects.loki import close_combat_weakness as _ccw_effect
 from .....dsl.event_trigger_type import EventTriggerType
@@ -66,9 +69,8 @@ def _owner_active_effect_names(state: State, unit_id: int) -> frozenset:
     eff = getattr(state, "effects", None)
     if eff is None:
         return frozenset()
-    from ....components import unit_state_for_effects   # DIFFERE: cf. `matches` ci-dessous
     return frozenset(e.name for e in eff.active_effects(
-        int(unit_id), unit_state_for_effects(state, int(unit_id))) if e.name)
+        int(unit_id), _RC.unit_state_for_effects(state, int(unit_id))) if e.name)
 
 
 class CloseCombatWeaknessMarkStartedTurnAdjacent(EffectTrigger):
@@ -142,8 +144,7 @@ class CloseCombatWeaknessMarkStartedTurnAdjacent(EffectTrigger):
         d'abord parce que le gate en CONSOMME le compteur (`HasAdjacentEnemies(Caster, CasterTile)`
         de la condition, MEME arbre). Le verdict est une CONJONCTION, donc l'ordre ne le change
         pas -- et calculer l'arbre deux fois serait le seul autre choix."""
-        from ....components import close_combat_weakness_adjacent_enemies_count
-        n = close_combat_weakness_adjacent_enemies_count(state, self.owner_id)
+        n = _RC.close_combat_weakness_adjacent_enemies_count(state, self.owner_id)
         if n is None or int(n) < 1:                 # AmountIsEqualOrGreater(<ennemis>, Direct(1))
             return False
         return self._instance_is_active(state, int(n))

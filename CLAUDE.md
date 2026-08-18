@@ -301,16 +301,43 @@ l'architecture. La PR #738 a ajouté une arête `battle_query -> entities.traits
 compte est tombé à 429 et `probe_433_r1_identity_shortcircuit.py`, **versionné**, est passé de
 `rc 0` à `rc 1`. Trouvé à la relecture, par flair — aucun cliquet ne le voyait.
 
-⚠ **Le 430/430 est TENU PAR les différés — ce n'est pas un certificat de graphe sain.** Mesuré
-après le sweep #485-r1-r1 : **169** différés vers `engine.*` dans `engine/**` (contre 314 avant),
-dont **166 PORTEURS** et **3 GRATUITS**. « Pas de différés » est donc inatteignable, et le
-prescrire serait de la prose contre un fait. Ce qui est exigible : **chaque différé DÉCLARE sa
-classe**, et le compte des gratuits ratchette au plus bas atteint. Le cliquet d'import isolé garde
-« **aucun NOUVEAU cycle** », jamais « aucun cycle ».
-⚠ **Les 3 gratuits restants ne sont pas un reliquat à finir** : ce sont des imports OPTIONNELS
-sous `try/except` (`entities/effects/magnitude.py`, `playbook/nonattack.py`,
-`services/custom_normal_attack.py`). Les hisser déplacerait l'échec du site d'appel — où il est
-rattrapé — vers le chargement du module.
+⚠ **Le 430/430 est TENU PAR les différés — ce n'est pas un certificat de graphe sain.** « Pas de
+différés » est inatteignable, et le prescrire serait de la prose contre un fait. Ce qui est
+exigible : **chaque différé DÉCLARE sa classe**, et le compte des gratuits ratchette au plus bas
+atteint. Le cliquet d'import isolé garde « **aucun NOUVEAU cycle** », jamais « aucun cycle ».
+**Re-dériver les comptes, jamais les citer** :
+
+```powershell
+python scripts/python/probe_485_imports_differes.py              # recensés / porteurs / gratuits
+python scripts/python/probe_485_imports_differes.py --porteurs   # la raison de CHAQUE porteur
+```
+
+⚠ **Un plancher de gratuits se REMONTE tout seul, et c'est mesuré.** Ce fichier a porté « 169
+différés, 166 porteurs, **3 gratuits** » ; **dix jours plus tard le même probe rendait 51 gratuits
+neufs**, alimentés par notre propre cadence — exactement l'imitation décrite plus bas. Un chiffre
+écrit ici n'est donc pas un état, c'est une photo qui se périme en silence et **fait renoncer à
+une réparation juste**. Le gisement est **RATCHETÉ** (`scripts/ratchets-485-differes-attestes.json`,
+qui ne doit que DÉCROÎTRE), pas résolu.
+
+⚠ **Les gratuits ATTESTÉS ne sont pas un reliquat à finir** : ce sont des imports OPTIONNELS sous
+`try/except`. Les hisser déplacerait l'échec du site d'appel — où il est rattrapé — vers le
+chargement du module. La base attestée les nomme ; le probe les distingue des NEUFS.
+
+⚠ **`from PKG import NOM` ne charge PAS que `PKG` — et le confondre a fait réclamer un hissage qui
+CASSE.** Quand `NOM` désigne un sous-module, Python charge `PKG` **puis** `PKG.NOM` : la fermeture
+d'un hissage est celle du MODULE. Le recenseur ne rendait que le paquet, donc il classait GRATUITS
+des différés réellement PORTEURS — et ça visait précisément les sites écrits en **forme B**, celle
+que cette section prescrit. Corrigé le 2026-08-18 (`_resoudre` résout le sous-module, et `classer`
+décide **par INSTRUCTION** : une ligne qui charge N modules est porteuse dès qu'**un** tire
+l'appelant). Ce qu'il faut en retenir : **la mesure d'un cliquet se contre-éprouve, elle aussi** —
+un `import <cible>` dans un process frais, à la main, sur le couple qu'il accuse.
+
+⚠ **Une RAISON ÉCRITE au site est au moins aussi trompeuse qu'une raison absente** : elle survit à
+la disparition de son objet, et elle décourage la vérification. Mesuré le 2026-08-18 — **8 raisons
+sur 8** annonçaient un cycle nommément décrit ; les **8** ont rendu `APPELANT_ABSENT` en process
+frais, la vidange des barils (#485-r1-r1) ayant supprimé les arêtes de retour sans que personne ne
+relise les commentaires qui les invoquaient. Écrire la raison reste utile (c'est ce qui arrête
+l'imitation), mais **la raison qui fait foi est celle que `--porteurs` DÉRIVE**.
 
 ⚠ **HISSER, OUI — MAIS EN FORME B, ET C'EST LA SEULE DES TROIS QUI TIENNE.** Mesuré sous
 `monkeypatch.setattr("src_x.foo", stub)` : **A** `from X import foo` au niveau module **NE MORD
@@ -327,11 +354,15 @@ désarmeraient un patch déjà posé. Il ne le disait pas — deux angles morts,
 module tiers masquait le site C qu'on allait hisser), et sa base de gratuits était **ATTESTÉE**,
 donc en retard d'une vidange — or un différé est gratuit **par rapport à un arbre**.
 
-⚠ **Le gisement se propage par IMITATION, et c'est mesuré** : avant le sweep, **32 des 52
-gratuits (62 %)** vivaient dans un module portant DÉJÀ un différé légitime. S'y ajoute que
-**126 des 166 porteurs n'écrivent AUCUNE raison** : un lecteur ne peut pas distinguer
-« structurel, n'y touche pas » de « scorie », donc il recopie. Écrire la raison n'est pas de la
-politesse — c'est ce qui arrête la propagation.
+⚠ **Le gisement se propage par IMITATION, et c'est mesuré deux fois** : avant le sweep #485-r1-r1,
+**32 des 52 gratuits (62 %)** vivaient dans un module portant DÉJÀ un différé légitime ; et le
+sweep suivant a retrouvé un gisement du même ordre au même endroit. S'y ajoute qu'une large
+majorité des porteurs n'écrit **aucune raison** : un lecteur ne peut pas distinguer « structurel,
+n'y touche pas » de « scorie », donc il recopie. Écrire la raison n'est pas de la politesse — c'est
+ce qui arrête la propagation. ⚠ Mais **ne la recopie pas en masse** : réécrire des centaines de
+raisons dans des fichiers partagés est le sweep que la doctrine interdit (conflit garanti), et il
+faudrait le refaire à chaque vidange. Annote **ce que tu touches**, et pour le reste sers-toi de
+`--porteurs`.
 
 ⚠ **VIDER UN BARIL : l'ACCÈS ATTRIBUTAIRE est une voie de consommation, et il ne laisse AUCUNE
 trace dans un recensement d'`ImportFrom`.** `from engine.playbook import noncomparable as NC` lie

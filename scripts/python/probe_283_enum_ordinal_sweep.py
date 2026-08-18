@@ -77,7 +77,8 @@ REPO = PYDIR.parents[1]
 sys.path.insert(0, str(PYDIR))
 
 import repo_read  # noqa: E402
-from symbols_layout import archived_builds, current_build  # noqa: E402
+from symbols_layout import (archived_builds, build_generated, builds_sans_date,  # noqa: E402
+                            current_build)
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
 #:
@@ -134,13 +135,16 @@ DECLENCHEUR_PAR_ENTREE = {
     # `LU hors perimetre : scripts/python/symbols_layout.py`. Sous l'UNION, cette faute etait
     # STRUCTURELLEMENT invisible : `**/*.py` couvre tout.
     "probe_283:diff": {
-        "chemins": ("scripts/python/repo_read.py", "scripts/python/symbols_layout.py"),
+        "chemins": ("scripts/python/repo_read.py", "scripts/python/symbols_layout.py",
+                    "scripts/python/il2cpp_provenance.py"),
         "build": True,
         "toujours": False,
         "raison": "`step_diff` n'ouvre AUCUN fichier de code : il ne lit que "
                   "`data/symbols/<build>/frida/enums.tsv` des deux builds archives, apporte "
-                  "par `build: True`. Restent les deux modules que le CHARGEMENT du fichier "
-                  "importe (`repo_read`, `symbols_layout`) -- MESURES, pas supposes.",
+                  "par `build: True`. Restent les modules que le CHARGEMENT du fichier "
+                  "importe -- MESURES, pas supposes : `repo_read`, `symbols_layout`, et depuis "
+                  "#10023-r2 `il2cpp_provenance`, dont `symbols_layout` tire l'estampille qui "
+                  "ORDONNE les archives (un changement du parseur change donc `previous_build`).",
     },
     "probe_283:mirror": {
         "chemins": ("*.py", "**/*.py"),
@@ -436,11 +440,30 @@ def previous_build() -> "str | None":
     `test_enum_ordinal_ratchet_offline.py` rouges sur `master` -- dont trois auto-controles qui
     disaient exactement << le detecteur ne mord plus : l'exemption ne prouverait rien >>.
 
+    ⚠ << LE PLUS RECENT >> EST DESORMAIS UNE MESURE, ET NE L'ETAIT PAS (#10023-r2). Ce foyer lit
+    `reversed(archived_builds())`, dont l'ordre venait du NOM du repertoire -- or un hash de build
+    est ALEATOIRE. L'accord des deux ordres etait une COINCIDENCE, et il est deja rompu sur le
+    depot (`kqkbjqfb6c`, entre le 2026-08-06, precede `rnca9r7q6c`, entre le 2026-07-29, sous le
+    tri par nom). Depuis, `symbols_layout.archived_builds()` ordonne par l'estampille de
+    provenance des tables. Ici le resultat ne CHANGE pas -- `kqkbjqfb6c` etait deja ecarte par le
+    filtre `frida/enums.tsv` -- mais il est FONDE au lieu d'etre chanceux.
+
+    ⚠ ET UN BUILD NON DATABLE N'EST PLUS ELU EN SILENCE : `archived_builds()` place les non-dates
+    EN FIN par convention de tri total, donc `reversed(...)` les visite EN PREMIER. Les elire y
+    serait exactement le faux vert qu'on repare. Ils sont sautes, et `builds_sans_date()` les
+    ENUMERE. Le cas est structurellement rare (l'estampille vit DANS `frida/enums.tsv`, donc un
+    build qui porte la table la porte aussi) mais pas impossible : une table produite AVANT la
+    mise en place de la provenance n'en a pas, et `il2cpp_provenance.read_stamp` le dit en toutes
+    lettres.
+
     Le filtre porte sur la TABLE, pas sur une liste de hashs a la main : un futur archivage
     partiel (meme motif, autre binaire) sera ecarte tout seul. Et ce qui est ecarte est
     ENUMERABLE (`builds_sans_table_enums`) -- un filtre muet redeviendrait le meme faux vert.
     """
+    sans_date = set(builds_sans_date())
     for b in reversed(archived_builds()):
+        if b in sans_date:
+            continue                       # non ordonnable -> jamais elu << le plus recent >>
         if (REPO / "data" / "symbols" / b).joinpath(*_TABLE_ENUMS).is_file():
             return b
     return None
@@ -1943,8 +1966,17 @@ def main(argv) -> int:
     global _ESPION
     _ESPION = args.verifier_cache
 
-    print("[283] build courant : %s ; archives : %s"
-          % (current_build(), ", ".join(archived_builds()) or "-"))
+    #: L'ORDRE EST DIT, pas suppose (#10023-r2) : chaque archive sort avec l'horodatage qui la
+    #: classe, et un `?` la ou il n'y en a pas. Un libelle qui n'affiche qu'une liste laisse
+    #: croire qu'elle est chronologique -- c'est precisement ce que ce residu reprochait.
+    _arch = archived_builds()
+    print("[283] build courant : %s ; archives (ordre CHRONOLOGIQUE par estampille) : %s"
+          % (current_build(),
+             ", ".join("%s(%s)" % (b, build_generated(b) or "? NON DATE") for b in _arch) or "-"))
+    _sd = [b for b in builds_sans_date() if b in set(_arch)]
+    if _sd:
+        print("      %d archive(s) NON DATABLE(s), placee(s) en fin par convention de tri et "
+              "jamais elue(s) comme << la plus recente >> : %s" % (len(_sd), ", ".join(_sd)))
     ko = 0
     if args.step in ("all", "diff"):
         step_diff(args.verbose)

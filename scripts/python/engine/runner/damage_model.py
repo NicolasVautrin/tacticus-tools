@@ -125,6 +125,9 @@ from ..services.damage_modifiers import (add_modifier, calculate_trench_reductio
 from ..services.damage_modifiers import add_modifier
 from ..services.static_battle_rules import is_tile_status_effect
 from ..utilities.tile import terrain_tile_effects
+from . import components as _RC   # FORME B (liaison de MODULE). Le module est DEJA charge par les
+#     lignes ci-dessus -- aucun module de plus, aucune boucle fermee ; rend inutile le differe
+#     redondant d'`_adjacent_unit_profiles` (#485).
 from .components import PersistentDataComponent
 from .components import charged_unit_ids
 from engine.entities.effects.loki.headwoppas_killchoppa import CTX_ATT_VISUAL_ID as _CTX_ATT_VISUAL_ID   # #1042-r5
@@ -814,8 +817,7 @@ def _adjacent_unit_profiles(state: State, unit_id: Optional[int]):
     FERME cote effet. Un tuple VIDE, lui, est une MESURE : << aucun voisin >>."""
     if unit_id is None:
         return None
-    from .components import adjacent_unit_ids
-    ids = adjacent_unit_ids(state, int(unit_id))
+    ids = _RC.adjacent_unit_ids(state, int(unit_id))
     if ids is None:
         return None
     return tuple((int(i), _unit_team(state, i), _unit_visual_id(state, i), _unit_rarity(state, i),

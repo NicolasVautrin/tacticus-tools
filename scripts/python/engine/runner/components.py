@@ -52,6 +52,12 @@ from ..entities.effects.loki import enmity_for_the_unworthy as _enmity
 # TETE, en FORME B (on lie le MODULE) : le differe qu'il portait dans `turnflow` etait GRATUIT ici,
 # MESURE -- charger `instinctive_behaviour` SEUL dans un process frais ne tire pas ce module-ci.
 from ..entities.effects.loki import instinctive_behaviour as _instinctive
+from ..entities.effects import aura_selectors as _ASel              # FORME B (liaison de MODULE).
+from ..entities.effects.loki import synaptic_insight as _si         # Aretes GRATUITES (#485) :
+from ..entities.effects.loki import close_combat_weakness as _ccw   # charges SEULS, ces trois
+#     modules ne tirent pas `engine.runner.components` -- rien a rompre, les differes qui vivaient
+#     dans `faction`, `synaptic_insight_adjacent_tyranid` et
+#     `close_combat_weakness_adjacent_enemies_count` etaient des scories.
 
 if TYPE_CHECKING:
     from ..entities.unit_context import UnitContext
@@ -3472,7 +3478,6 @@ class _RunnerEffectTargetWorld:
         `dark_angels_passives._faction_of` y delegue deja). Rend le `FactionId` GAMECONFIG (chaine),
         que l'appelant confronte au NOM du membre d'enum (`entities/unit_faction.UNIT_FACTION_NAMES`)
         -- jamais a un ordinal."""
-        from ..entities.effects import aura_selectors as _ASel
         return _ASel.faction_of(self.state, int(uid))
 
     def neigh_by_pos(self):
@@ -4041,8 +4046,7 @@ def synaptic_insight_adjacent_tyranid(state, owner_id: int, target_id) -> "Optio
         if oc is None or oc.team is None or pc is None:
             return None
     from .abilities.behaviours.context import entities_from_state
-    from ..entities.effects.loki.synaptic_insight import adjacent_tyranid_friend_trigger
-    return bool(adjacent_tyranid_friend_trigger()
+    return bool(_si.adjacent_tyranid_friend_trigger()
                 .evaluate(entities_from_state(state, int(owner_id), int(target_id))))
 
 
@@ -4097,7 +4101,6 @@ def close_combat_weakness_adjacent_enemies_count(state, unit_id: int) -> Optiona
     pc = ent.get_component(PositionComponent) if ent is not None else None
     if oc is None or oc.team is None or pc is None:
         return None
-    from ..entities.effects.loki import close_combat_weakness as _ccw
     from .abilities.behaviours.context import entities_from_state
     return len(_ccw.has_adjacent_enemies_selector().evaluate(
         entities_from_state(state, int(unit_id))) or ())

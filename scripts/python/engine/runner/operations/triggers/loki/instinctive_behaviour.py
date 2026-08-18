@@ -137,6 +137,8 @@ from ....components import OwnerComponent, UnitComponent
 from ....state import State
 from ...refresh_effects import RefreshEffectTrigger
 from ..base import TriggeredAbility, TriggerEvent
+from .... import components as _RC   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.components` en process frais ne charge pas ce module.
 
 ABILITY_ID = "InstinctiveBehaviour"
 INSTINCTIVE_BEHAVIOUR = int(TriggeredAbilityType.InstinctiveBehaviour)          # 0x413 = 1043
@@ -272,8 +274,7 @@ class InstinctiveBehaviourUpdateTargetAbility(TriggeredAbility):
         # (`None`) -> on NE conclut PAS au taunt : le port continuerait a maintenir la liste, ce
         # qu'il faisait deja avant cette tranche. `is_effect_target` n'a pas de geometrie portee
         # pour 27 -> ce gate est INERTE aujourd'hui, et c'est dit ici plutot que tu.
-        from ....components import is_effect_target as _iet
-        if _iet(state, int(self.owner_id), TAUNTED) is True:
+        if _RC.is_effect_target(state, int(self.owner_id), TAUNTED) is True:
             return False
         # `$$HasTargetChanged` = `op_LogicalNot(AreEquivalent(ForcedAttackTargets(Owner),
         # GetUpdatedForcedTarget()))` -- `DSLTriggers$$AreEquivalent` compare deux SELECTIONS ;

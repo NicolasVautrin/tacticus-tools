@@ -111,6 +111,8 @@ from ....entities.effect_type import EffectType
 from ....entities.effects.magnitude import ability_var
 from ....entities.selectors.accessors import Target
 from ....entities.selectors.tiles import Caster
+from ....ai import action_generators as _actgen   # FORME B (liaison de MODULE). Arete GRATUITE
+#     (#485) : `import engine.ai.action_generators` en process frais ne charge pas ce module.
 
 if TYPE_CHECKING:                                    # pragma: no cover
     from ...state import State
@@ -253,7 +255,6 @@ class RevealAbility(ActiveAbility):
         MESURE par `probe_1033_reveal_live.py` (`killerId` = l'id du tueur, `death_source` = `None`).
         Le gate etait donc STRUCTURELLEMENT aveugle a toute mort survenue hors du runner Python, et
         rendait `0` la ou le natif compte. `snapshot._load_death_sources` seede desormais ce canal."""
-        from ....ai.action_generators import _faction          # noqa: PLC0415
         # Import DIFFERE, classe PORTEUR (mesure) : charger `engine.ai.action_generators` seul dans
         # un process FRAIS fait deja atterrir `engine.runner.abilities.base` -- dont ce module herite
         # -- dans `sys.modules`, donc hisser fermerait un cycle. MEME differe, MEME raison, que celui
@@ -268,7 +269,7 @@ class RevealAbility(ActiveAbility):
                 continue
             if int(kid) != int(killer_id):                     # `get_KillerId(ds) == killer.Id`
                 continue
-            if _faction(uc.visual_id) != AELDARI_FACTION:      # `HasFaction(unit, 8 = Aeldari)`
+            if _actgen._faction(uc.visual_id) != AELDARI_FACTION:  # `HasFaction(unit, 8 = Aeldari)`
                 continue
             if not units_are_friends(state, uid, caster_id):   # `IsFriend(unit, caster, entities)`
                 continue

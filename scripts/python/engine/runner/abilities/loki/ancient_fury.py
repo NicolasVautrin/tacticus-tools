@@ -150,6 +150,10 @@ from ....entities.triggers import IsMeleeAttack
 from ....entities.unit_selection_type import UnitSelectionType
 from ..behaviours.context import entities_from_state
 from ....services.custom_normal_attack import substitutes_normal_attack
+from ...operations import damage as _damage_ops   # FORME B (liaison de MODULE). Le "cycle
+#     abilities<->damage" annonce au site de `execute_widened_normal_attack` est REFUTE par la
+#     mesure : `import engine.runner.operations.damage` en process frais ne charge PAS ce module.
+#     Arete GRATUITE (#485).
 
 if TYPE_CHECKING:
     from ...state import State
@@ -317,12 +321,11 @@ def execute_widened_normal_attack(state: "State", caster_id: int, target_id: Opt
 
     Le `On(PreAttack = 5)` et le `On(Attack = 9)` restent, EUX, par cible : ils viennent des slots
     `0x3a StartAttack` / `0x3b FinishAttack` que la boucle pousse a chaque tour."""
-    from ...operations.damage import AttackDamageOperation      # lazy : cycle abilities<->damage
     out = []
     for tid in additional_target_ids(state, caster_id, target_id, entry, is_melee):
-        atk = AttackDamageOperation.execute(state, caster_id, tid, spread_pct,
-                                            in_attack_loop=True,
-                                            weapon_ref_target_id=target_id)
+        atk = _damage_ops.AttackDamageOperation.execute(state, caster_id, tid, spread_pct,
+                                                        in_attack_loop=True,
+                                                        weapon_ref_target_id=target_id)
         if atk is not None:
             out.append({"target": tid, "attack": atk})
     return out

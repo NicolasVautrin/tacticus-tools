@@ -41,11 +41,27 @@ ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SYMBOLS = REPO / "data" / "symbols"
 CURRENT_FILE = SYMBOLS / "CURRENT"
+
+#: Ce module est importe par des outils qui vivent AILLEURS (probes, tests, `symbols_sync`), et
+#: son repertoire n'est donc pas garanti sur `sys.path`. On l'y met plutot que de RECOPIER le
+#: parseur d'estampille : deux implementations jumelles du meme format divergeraient.
+_ICI = Path(__file__).resolve().parent
+if str(_ICI) not in sys.path:
+    sys.path.insert(0, str(_ICI))
+
+import il2cpp_provenance as _prov   # noqa: E402  -- FORME B (liaison de MODULE)
+
+#: Les tables ou l'estampille de provenance (`generated=<iso8601>`) est POSEE, dans l'ordre ou on
+#: les interroge. Seules les tables `frida/` en portent une : `ghidra/functions.tsv` et
+#: `fingerprints/functions.tsv` ont une 1re ligne `# build=...` qui n'est PAS ce format -- mesure
+#: du 2026-08-18 sur les quatre builds versionnes, `read_stamp` y leve `ProvenanceError`.
+_TABLES_ESTAMPILLEES = (("frida", "enums.tsv"), ("frida", "classes.tsv"), ("frida", "methods.tsv"))
 
 
 class LayoutError(RuntimeError):
@@ -97,7 +113,62 @@ def build_dir(build: str | None = None) -> Path:
     return p
 
 
+def build_generated(build: str) -> "str | None":
+    """L'horodatage `generated=<iso8601>` des tables d'un build, ou `None` = PAS MESURE.
+
+    TRI-ETAT, jamais une chaine vide ni une date inventee : `None` veut dire << ce build ne porte
+    aucune table estampillee >>, ce qui est un ETAT REEL du depot (mesure du 2026-08-18 :
+    `kqkbjqfb6c`, archive par `630a9c59` pour conserver l'empreinte STRUCTURELLE d'un binaire
+    disparu, n'a ni `frida/enums.tsv` ni aucune autre table estampillee).
+
+    Les trois tables sont interrogees dans l'ordre et la PREMIERE lisible fait foi : elles sont
+    produites par la meme passe, donc portent le meme horodatage -- verifie sur les trois builds
+    qui en ont (`gqfc5mff6c` 2026-07-27T16:19:50, `rnca9r7q6c` 2026-07-29T13:08:41,
+    `t6dpr4k06g` 2026-08-15T00:15:00, identiques entre `enums`, `classes` et `methods`).
+    """
+    rep = SYMBOLS / build
+    for rel in _TABLES_ESTAMPILLEES:
+        p = rep.joinpath(*rel)
+        if not p.is_file():
+            continue
+        try:
+            g = _prov.read_stamp(p).get("generated")
+        except _prov.ProvenanceError:
+            continue                      # table anterieure a la provenance : pas une date
+        if g:
+            return g
+    return None
+
+
+def builds_sans_date() -> list[str]:
+    """Les builds versionnes dont l'horodatage n'est PAS mesurable. ENUMERABLES, jamais tus.
+
+    Meme patron que `probe_283.builds_sans_table_enums` : un filtre MUET redevient un faux vert.
+    Un appelant qui ordonne par date doit pouvoir NOMMER ce qu'il n'a pas su ordonner.
+    """
+    return [d.name for d in _build_dirs() if build_generated(d.name) is None]
+
+
 def archived_builds() -> list[str]:
-    """Les builds versionnes AUTRES que celui qui fait foi -- conserves pour le diff."""
+    """Les builds versionnes AUTRES que celui qui fait foi -- conserves pour le diff.
+
+    ⚠ L'ORDRE EST CHRONOLOGIQUE QUAND IL EST MESURABLE, ET JAMAIS PRESENTE COMME TEL SINON
+    (#10023-r2). Jusqu'au 2026-08-18 il venait de `sorted(SYMBOLS.iterdir())`, donc du NOM -- or
+    un hash de build est ALEATOIRE, et rien ne garantissait l'accord des deux ordres. Ce n'etait
+    pas une inquietude theorique : les deux ordres DIVERGENT DEJA sur le depot. `kqkbjqfb6c` est
+    entre dans l'arbre le 2026-08-06 (`630a9c59`), soit APRES `rnca9r7q6c` (2026-07-29), et le
+    tri par nom le place pourtant AVANT. La ligne de backlog qui ouvrait ce residu affirmait
+    l'inverse (<< se trouvent etre dans l'ordre de sortie du jeu >>) : mesure, c'est faux.
+
+    La date vient de l'estampille de provenance DEJA POSEE dans les tables (`generated=`), pas
+    d'un fichier neuf : c'est la meme source que `symbols_sync._reference_la_plus_recente`, qui
+    ordonnait deja par la. Un build NON DATABLE (`build_generated` -> `None`) ne peut pas etre
+    ordonne : il est place EN FIN et reste ENUMERE par `builds_sans_date()`. On ne lui invente
+    ni une date, ni un rang -- sa position en fin est une CONVENTION de tri total, pas une mesure,
+    et tout consommateur qui en depend doit interroger `builds_sans_date()`.
+    """
     courant = current_build()
-    return [d.name for d in _build_dirs() if d.name != courant]
+    noms = [d.name for d in _build_dirs() if d.name != courant]
+    #: Cle de tri TOTALE et DETERMINISTE : (pas de date ?, date, nom). Le nom departage deux
+    #: builds de meme horodatage et rend l'ordre stable d'une execution a l'autre.
+    return sorted(noms, key=lambda n: (build_generated(n) is None, build_generated(n) or "", n))
