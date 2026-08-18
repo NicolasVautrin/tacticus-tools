@@ -168,12 +168,39 @@ def volet_flee(verbose: bool = True) -> dict:
     (`UnitFlag.Removed`) n'ayant qu'UN poseur dans le binaire. Le port ne posait que le 9.
 
     Ce volet est OFFLINE et n'a besoin d'AUCUN runner : il fait fuir une unite construite a la
-    main et regarde les trois observables (`Removed`, `alive`, le service)."""
+    main et regarde les trois observables (`Removed`, `alive`, le service).
+
+    ## SECOND ETAGE (#429-r1-r3-r1-r2-r1) -- LA POSITION NE DOIT PAS BOUGER
+
+    Le premier montage n'a NI board NI ennemi, donc `FleeOperation._safest_tile` y rendait `None`
+    et le deplacement du port restait INVISIBLE. L'etage `position_*` monte le regime ou il MORD :
+    un board, un ennemi, une unite a portee de fuite.
+
+    Ce qui est LU dans `IdunBattle.Operations.FleeOperation$$Execute` (decompile relu en entier) --
+    la sequence, sans rien entre les etapes :
+
+        <slot 81 = EvaluateAbilities>(unit, unit, unit, 0x33 = PreUnitFled, triggeringAbilityOrEffect)
+        if (UnitExtensions.IsDead(unit)) return;
+        ActorStatisticsComponent.RegisterDefeatedUnit / RegisterFledUnit   // si le tueur est un Actor
+        <telemetrie 0x29> ; FleeOperation.RecordFlee(...) ; FleeOperation.RemoveEffects(unit, 0)
+        <slot 6 = RemoveUnit>(unit, removeEffects: 0, param4: 1)
+        <slot 0x31 = AddToPools>(unit, [1 = DefeatedUnits])
+        UnitFlagsComponent.Add(unit, 9 = Fled)  ;  RemoveEffects(unit, 1)
+        <slot 81>(..., 0x34 = UnitFled)  ;  <slot 81>(..., 0x36 = UnitDefeated)
+        RemoveEffects(unit, 2)  ;  <slot 0x55 = UnregisterEntityFromTriggers>(unit)
+
+    **Aucun appel au slot `MoveUnit`, aucun a `SetUnitPosition`** -- et le natif ne met RIEN a la
+    place : l'unite est RETIREE du plateau, sa position n'a plus de lecteur legitime. Le port, lui,
+    la MUTAIT vers `_safest_tile`, un pathfinding qu'aucune fonction native n'exerce ici."""
     from engine.runner.state import State                               # noqa: PLC0415
     from engine.runner.components import (UnitComponent, UnitFlagsComponent,   # noqa: PLC0415
-                                          HealthComponent, unit_extensions_is_alive,
+                                          HealthComponent, OwnerComponent, PositionComponent,
+                                          unit_extensions_is_alive,
                                           unit_is_alive, unit_is_dead, is_alive_and_not_fled)
-    from engine.runner.operations.behaviour import FleeOperation        # noqa: PLC0415
+    # FORME B (`import <module>`) et c'est LOAD-BEARING : l'etage 2 SUBSTITUE
+    # `behaviour.MoveUnitOperation`, ce qui exige de tenir le MODULE, pas une liaison figee.
+    from engine.runner.operations import behaviour as _behaviour        # noqa: PLC0415
+    FleeOperation = _behaviour.FleeOperation
 
     st = State()
     e = st.add_entity(42)
@@ -194,10 +221,87 @@ def volet_flee(verbose: bool = True) -> dict:
     res["apres_health_is_alive"] = unit_is_alive(e)
     res["apres_unit_is_dead"] = unit_is_dead(e)
     res["apres_is_alive_and_not_fled"] = is_alive_and_not_fled(e)
+    # ---- ETAGE 2 (#429-r1-r3-r1-r2-r1) : la POSITION, sur un montage ou le deplacement MORD -----
+    # Bande de 6 tuiles alignees, toutes marchables et reliees a leurs deux voisines : le fuyard est
+    # en (2,0), l'ennemi en (0,0), donc `_safest_tile(movement=3)` visait (5,0). Un montage sans
+    # board ni ennemi ne peut RIEN voir ici -- c'est ce qui rendait ce volet aveugle.
+    from engine.entities.pathfinding.board import Board                 # noqa: PLC0415
+
+    tiles = [{"id": c + 1, "col": c, "row": 0, "elevation": 0, "walkable": True, "isWall": False,
+              "neighbours": [x + 1 for x in (c - 1, c + 1) if 0 <= x < 6],
+              "connectivity": [x + 1 for x in (c - 1, c + 1) if 0 <= x < 6]}
+             for c in range(6)]
+    st2 = State()
+    st2.board = Board(tiles, adjacency="evenq")
+    fuyard = st2.add_entity(42)
+    fuyard.add_component(UnitComponent(visual_id="astraNpc1Guardsman", alive=True))
+    fuyard.add_component(HealthComponent(hp=1000, hp_max=1000))
+    fuyard.add_component(OwnerComponent(team=0, player=2))
+    fuyard.add_component(PositionComponent(2, 0))
+    ennemi = st2.add_entity(7)
+    ennemi.add_component(UnitComponent(visual_id="u7", alive=True))
+    ennemi.add_component(HealthComponent(hp=1000, hp_max=1000))
+    ennemi.add_component(OwnerComponent(team=1, player=3))
+    ennemi.add_component(PositionComponent(0, 0))
+    # TEMOIN NON DEGENERE : sans lui, << la position n'a pas bouge >> serait indistinguable de
+    # << le montage ne permettait aucun deplacement >>. Il ne passe PAS par le code retire : il
+    # joue un `MoveUnitOperation` nu sur un etat FRAIS, et exige qu'il bouge vraiment.
+    st_temoin = State()
+    st_temoin.board = Board(tiles, adjacency="evenq")
+    t42 = st_temoin.add_entity(42)
+    t42.add_component(UnitComponent(visual_id="astraNpc1Guardsman", alive=True))
+    t42.add_component(HealthComponent(hp=1000, hp_max=1000))
+    t42.add_component(OwnerComponent(team=0, player=2))
+    t42.add_component(PositionComponent(2, 0))
+    from engine.runner.events import EventBus                           # noqa: PLC0415
+    from engine.runner.operations.movement import MoveUnitOperation     # noqa: PLC0415
+    MoveUnitOperation(42, (5, 0), emit_after_move=False,
+                      enforce_native_gates=False).execute(st_temoin, EventBus())
+    tpc = t42.get_component(PositionComponent)
+    res["temoin_le_montage_autorise_un_move"] = (tpc.col, tpc.row) == (5, 0)
+
+    # ⚠ LE CRAN QUI MORD EST L'APPEL, PAS LA POSITION -- et c'est une MESURE, pas un choix.
+    # Mesure du 2026-08-18 : la position est DEJA inchangee aujourd'hui, donc l'assertion que la
+    # fiche `#429-r1-r3-r1-r2-r1` annoncait comme rouge est VERTE. La cause est un ACCIDENT DE
+    # COLLAPSE : `RemoveUnitOperation` pose `UnitComponent.alive = False` (son collapse du retrait
+    # de plateau), et le `MoveUnitOperation` qui suit tombe alors sur le bras `IsDead` du gate
+    # d'override (`last_abandoned == "override-unit-dead"`, LU :
+    # `if (!ovr.HasValue || UnitExtensions.IsDead(unit)) { RemoveReservation ; return }`).
+    # Or `IdunBattle.Entities.UnitExtensions$$IsDead` teste `HasFlag(unit, 6 = Dead)` -- PAS
+    # `Removed` -- et une ENFUIE garde ses PV : cote natif ce gate ne mordrait pas. Le port est
+    # donc juste PAR ACCIDENT, et pour une raison FAUSSE. Un cran sur la position seule serait vert
+    # aujourd'hui et le resterait apres n'importe quelle regression du collapse.
+    # Ce qui se garde, c'est ce que le decompile DIT : `FleeOperation$$Execute` ne construit AUCUN
+    # `MoveUnitOperation`. On COMPTE les constructions.
+    #
+    # LA SUBSTITUTION PORTE SUR LA CLASSE, PAS SUR UN MODULE, et c'est le point qui la rend
+    # SURVIVANTE au retrait : `behaviour.py` liait `MoveUnitOperation` en forme A
+    # (`from .movement import MoveUnitOperation`), donc patcher l'attribut du module `behaviour`
+    # aurait cesse de mordre a l'instant meme ou l'import disparait -- un cran qui devient vert
+    # PARCE QUE sa cible a disparu ne garde plus rien. Patcher `__init__` sur la CLASSE atteint
+    # TOUTES les liaisons, quelle que soit la forme d'import de l'appelant.
+    compteur = {"n": 0}
+    vrai_init = MoveUnitOperation.__init__
+
+    def _init_espion(self, *a, **kw):
+        compteur["n"] += 1
+        return vrai_init(self, *a, **kw)
+
+    MoveUnitOperation.__init__ = _init_espion
+    try:
+        _behaviour.FleeOperation.execute(st2, 42)
+    finally:
+        MoveUnitOperation.__init__ = vrai_init
+    res["moveunit_construits_par_flee"] = compteur["n"]
+    pc = st2.get_entity(42).get_component(PositionComponent)
+    res["position_apres_fuite"] = None if pc is None else (pc.col, pc.row)
+    res["position_inchangee"] = res["position_apres_fuite"] == (2, 0)
     attendu = {"avant_is_alive": True, "retrait_rendu": True, "flag_fled": True,
                "flag_removed": True, "uc_alive": False, "hp_intact": 1000,
                "apres_unit_extensions_is_alive": False, "apres_health_is_alive": True,
-               "apres_unit_is_dead": False, "apres_is_alive_and_not_fled": False}
+               "apres_unit_is_dead": False, "apres_is_alive_and_not_fled": False,
+               "position_inchangee": True, "moveunit_construits_par_flee": 0,
+               "temoin_le_montage_autorise_un_move": True}
     for k, v in attendu.items():
         if res[k] != v:
             res["ok"] = False

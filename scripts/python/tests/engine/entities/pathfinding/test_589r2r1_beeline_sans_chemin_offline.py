@@ -15,21 +15,27 @@ Le port ecrivait `for mid in (sub or [])[1:-1]` : il AVALAIT l'absence et compta
 que chaque mesure exigeait une CAPTURE LIVE (le champ `connectivity` n'existe que sur une bataille
 montee).
 
-## Ce que ce fichier garde, sur trois etages
+## Ce que ce fichier garde, sur quatre etages
 
   1. **LA LEVEE** -- le port ne compte plus 1 quand la beeline ne rend rien. C'est le seul cran qui
      vise la faute ; sa contre-epreuve est le retour a `(sub or [])`, qui rend `1` la ou le natif
      jette. Il ne depend d'AUCUNE entree versionnee et tourne partout.
   2. **L'INERTIE, MESUREE** -- sur le seul board du corpus qui porte une poche isolee, aucun
      MOUVEMENT LEGAL ne fait naitre le saut en cause. C'est ce qui rend la levee sure, et c'est
-     rejoue ici, pas recopie.
+     rejoue ici, pas recopie. **Un cran de VENTILATION s'y ajoute (#589-r2-r1-r1)** : il garde que
+     ce qui ferme le regime est le DEPART, et PAS le gate de destination -- l'enonce du residu
+     visait le mauvais cote, et un test qui ne verrait que le total le laisserait croire.
   3. **LE BALAYAGE** -- les 779 boards de `data/boards/**` sont MESURES (aucune cle de tuile hors
      table), et l'ensemble des boards a connectivite morcelee est exactement celui que la mesure a
      nomme. Un board neuf, ou un masque qui bouge, fait rougir ici.
+  4. **LE GATE, JOUE** (#589-r2-r1-r1) -- `MoveUnitOperation` refuse une destination NON MARCHABLE
+     avec la raison `tiles-not-walkable`, gates armes, et l'accepte gates eteints. C'est ce qui
+     rend EXECUTABLE l'argument par lequel la destination d'un `MoveUnit` DSL est marchable ; sans
+     lui, cet argument ne serait qu'une prose dans une docstring.
 
 Les etages 2 et 3 lisent l'entree versionnee `data/symbols/<build>/metadata/tile_edges.tsv` et
-skippent en le disant si elle manque ; l'etage 1 tourne toujours, donc ce fichier ne peut jamais
-rendre `passed == 0 and skipped > 0` (le regime que #455 fait rougir).
+skippent en le disant si elle manque ; les etages 1 et 4 tournent toujours, donc ce fichier ne peut
+jamais rendre `passed == 0 and skipped > 0` (le regime que #455 fait rougir).
 
 ASCII only (console cp1252).
 """
@@ -176,10 +182,8 @@ def test_sur_le_seul_board_a_poche_aucun_MOUVEMENT_LEGAL_n_atteint_la_levee():
     """Etage 2 -- ce qui rend la levee SURE, rejoue et non recopie.
 
     Le regime est GEOMETRIQUEMENT REEL sur ce board (la beeline echoue sur des centaines de
-    couples, et des dizaines de sauts de vol ne sont pas recousus), mais
-    `MovementQuery$$GetConnectedPathTo` n'est appele que par
-    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, donc APRES un deplacement : ses deux
-    extremites sont MARCHABLES par construction. Sous cette contrainte, le compte tombe a zero.
+    couples, et des dizaines de sauts de vol ne sont pas recousus), mais aucun MOUVEMENT LEGAL ne
+    le fait naitre : les deux extremites d'un deplacement sont MARCHABLES.
 
     ⚠ TEMOIN NON DEGENERE, et il est indispensable : sans lui, << 0 mouvement legal >> serait
     indistinguable de << la mesure ne sait rien voir sur ce board >>. On exige donc que les etages
@@ -194,3 +198,89 @@ def test_sur_le_seul_board_a_poche_aucun_MOUVEMENT_LEGAL_n_atteint_la_levee():
         "%d saut(s) SANS chemin naissent d'un mouvement legal -- la levee de "
         "`get_connected_path_to` est ATTEIGNABLE en jeu, ce que la tranche a mesure faux : %s"
         % (r["sauts_sans_legaux"], r["legaux"][:3]))
+
+
+def test_ce_qui_ferme_le_regime_est_le_DEPART_et_PAS_le_gate_de_destination():
+    """Etage 2 bis (#589-r2-r1-r1) -- LA VENTILATION, parce que l'enonce du residu visait le
+    MAUVAIS COTE.
+
+    `#589-r2-r1-r1` demandait d'etablir que la DESTINATION d'un `MoveUnit` DSL est marchable. Elle
+    l'est, et par LECTURE : `IdunBattle.Operations.MoveUnitOperation$$TilesAreWalkable` est le 3e
+    des sept gates inconditionnels de `IdunBattle.Operations.MoveUnitOperation$$Execute`, seul
+    appelant de `$$CalculatePaths`, lui-meme seul appelant moteur du slot `GetConnectedPathTo`.
+
+    Mais cette hypothese-la NE FERME PAS le regime, et c'est ce que ce cran garde : sous elle
+    SEULE il reste des dizaines de sauts. Ce qui les exclut est le DEPART -- les sauts non recousus
+    partent TOUS de la poche. Un test qui n'asserterait que `sauts_sans_legaux == 0` laisserait
+    croire que le gate lu suffit, et ferait accepter n'importe quel regime ou une unite part d'une
+    tuile non marchable (residu **#589-r3**).
+
+    ⚠ Le NON-VIDE de `sauts_sans_dest` est ASSERTIONNE : c'est lui qui rend ce cran discriminant.
+    S'il tombait a zero, l'assertion suivante (`sauts_sans_depart == 0`) deviendrait vacante."""
+    P = _probe()
+    bd, why = P.board_derive("Waves_Xenos_13")
+    assert bd is not None, why
+    r = P.mesurer_regime(bd)
+    assert r["sauts_sans_dest"] > 0, (
+        "le gate `TilesAreWalkable` SUFFIRAIT a fermer le regime -- si c'est vrai, c'est une "
+        "MESURE qui change la conclusion de #589-r2-r1-r1, pas un detail : %r" % (r,))
+    assert r["sauts_sans_depart"] == 0, (
+        "%d saut(s) SANS chemin naissent d'un mouvement dont le DEPART est marchable. Le "
+        "raisonnement qui ferme #589-r2-r1 reposait sur l'inverse : %s"
+        % (r["sauts_sans_depart"], r["legaux"][:3]))
+
+
+def test_le_gate_TilesAreWalkable_est_EXECUTABLE_dans_le_port_pas_une_prose():
+    """Etage 4 (#589-r2-r1-r1) -- LE GATE, joue.
+
+    La conclusion << la destination est marchable >> ne vaut que si le PORT joue effectivement le
+    gate. `MoveUnitOperation.execute` ne le joue que sous `enforce_native_gates` (defaut `True`) --
+    et c'est exactement le parametre qu'un call-site peut eteindre. On exerce donc les DEUX cotes
+    sur le meme montage :
+
+      * gates ARMES (le defaut, celui des feuilles DSL `MoveUnit`/`FlyUnit`) : le mouvement vers
+        une tuile NON MARCHABLE est REFUSE avec la raison `tiles-not-walkable`, et la position
+        n'a pas bouge -- donc `get_connected_path_to` n'est jamais atteint avec cette destination ;
+      * gates ETEINTS : le mouvement passe. C'est la CONTRE-EPREUVE -- sans elle, << ca refuse >>
+        serait compatible avec un montage ou rien ne bouge jamais.
+
+    Ce cran est OFFLINE et n'a besoin d'aucune entree versionnee."""
+    from engine.runner.state import State
+    from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
+                                          PositionComponent)
+    from engine.runner.operations.movement import MoveUnitOperation
+    from engine.runner.events import EventBus
+
+    # Bande de 3 tuiles : la tuile d'arrivee (2,0) est NON MARCHABLE (un `Block`), les deux autres
+    # le sont. Le voisinage relie les trois, donc seule la marchabilite peut refuser.
+    tiles = [{"id": c + 1, "col": c, "row": 0, "elevation": 0, "walkable": c != 2,
+              "isWall": False,
+              "neighbours": [x + 1 for x in (c - 1, c + 1) if 0 <= x < 3],
+              "connectivity": [x + 1 for x in (c - 1, c + 1) if 0 <= x < 3]}
+             for c in range(3)]
+
+    def _etat():
+        st = State()
+        st.board = Board(tiles, adjacency="evenq")
+        u = st.add_entity(1)
+        u.add_component(UnitComponent(visual_id="u1", alive=True))
+        u.add_component(HealthComponent(hp=1000, hp_max=1000))
+        u.add_component(OwnerComponent(team=0, player=2))
+        u.add_component(PositionComponent(0, 0))
+        return st
+
+    arme = _etat()
+    op = MoveUnitOperation(1, (2, 0))                      # defaut : `enforce_native_gates=True`
+    op.execute(arme, EventBus())
+    pc = arme.get_entity(1).get_component(PositionComponent)
+    assert op.last_abandoned == "tiles-not-walkable", op.last_abandoned
+    assert (pc.col, pc.row) == (0, 0), (pc.col, pc.row)
+
+    # CONTRE-EPREUVE : sans le gate, la MEME destination non marchable est acceptee.
+    eteint = _etat()
+    op2 = MoveUnitOperation(1, (2, 0), enforce_native_gates=False)
+    op2.execute(eteint, EventBus())
+    pc2 = eteint.get_entity(1).get_component(PositionComponent)
+    assert (pc2.col, pc2.row) == (2, 0), (
+        "la contre-epreuve ne MORD pas : le montage refuse le mouvement pour une autre raison "
+        "que le gate, donc l'assertion du dessus ne prouve rien (abandon=%r)" % op2.last_abandoned)

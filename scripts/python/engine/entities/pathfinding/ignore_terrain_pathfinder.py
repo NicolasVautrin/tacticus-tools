@@ -149,6 +149,21 @@ def get_path_node_counts_by_pos(target, neigh_by_pos=None, walkable_by_pos=None,
     ci-dessus exige `|dElev| <= 1` -- il refuse donc exactement les aretes que le champ omet.
     C'est le MEME argument que celui ecrit dans `get_path_node_counts` pour son propre repli.
 
+    ⚠ **ET CE N'EST PAS QU'UN NO-OP : LE CHOIX EST LOAD-BEARING QUAND `elev_by_pos` MANQUE.** Ce
+    site est le seul de la famille `BasePathfinder$$AddNeighbours` que `#448-r1-r1-r1-r1-r2-r1` n'a
+    PAS rebranche sur le canal, et ce n'est pas un oubli -- c'est MESURE (cran
+    `test_le_JUMEAU_EN_DOMAINE_POSITION_reste_sur_le_champ_AMPUTE_et_c_est_LOAD_BEARING` de
+    `tests/engine/entities/pathfinding/test_448r1r1r1r1r2_connectivity_channel_offline.py`) :
+
+      * `elev_by_pos` FOURNI -> les deux canaux rendent le MEME resultat (le no-op ci-dessus) ;
+      * `elev_by_pos` ABSENT -> ils DIVERGENT, et le canal SUR-ATTEINT. La porte d'elevation ne
+        peut alors pas etre rejouee par le port, alors que le champ herite la porte DEJA (le
+        capteur passe par `TileQuery$$IterateAdjacentTiles`). Lire le canal ici compterait
+        joignable une tuile que le natif refuse.
+
+    Rebrancher ce site << par coherence >> ne gagnerait donc rien dans le premier regime et
+    casserait le second.
+
     Parcours INVERSE (il part de `target`), comme le jumeau `Board` et pour la meme raison : une
     passe rend la distance de TOUTES les tuiles candidates vers la meme destination. L'argument de
     symetrie est celui de `get_path_node_counts` (predicat symetrique, ecart de cout constant a
