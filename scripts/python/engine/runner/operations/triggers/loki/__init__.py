@@ -33,8 +33,9 @@ from .betrayer import (
     _betrayer_target, _betrayer_stop_tile, _betrayer_take_turn, THEBETRAYER_EFFECT
 )
 from .arcane_shield import ArcaneShieldAbility, _arcaneshield_target, _arcaneshield_grant
-from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljustice_attack,
-                            _normal_attack_damage_node, _damage_utility_weights)
+from .final_justice import (
+    FinalJusticeAbility, _finaljustice_target, _normal_attack_damage_node, _damage_utility_weights
+)
 from .control_edict import ControlEdictAbility
 from .rad_saturation import RadSaturationAbility
 from .on_toxic_damage import OnToxicDamageAbility
@@ -49,7 +50,6 @@ __all__ = [
     "TheBetrayerTakeTurnAbility", "_add_betrayer_effect", "_betrayer_target",
     "_betrayer_stop_tile", "_betrayer_take_turn", "THEBETRAYER_EFFECT", "ArcaneShieldAbility",
     "_arcaneshield_target", "_arcaneshield_grant", "FinalJusticeAbility", "_finaljustice_target",
-    "_finaljustice_attack", "_normal_attack_damage_node", "_damage_utility_weights",
-    "ControlEdictAbility", "RadSaturationAbility", "OnToxicDamageAbility",
-    "LordOfTempestsAddIceAbility",
+    "_normal_attack_damage_node", "_damage_utility_weights", "ControlEdictAbility",
+    "RadSaturationAbility", "OnToxicDamageAbility", "LordOfTempestsAddIceAbility",
 ]

@@ -50,8 +50,7 @@ from .psychic_maelstrom import PsychicMaelstromAbility
 from .bio_minefield import BioMinefieldAbility
 from .might_from_below import MightFromBelowAbility
 from .quickening import TheQuickeningAbility
-from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
-                     sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
+from .facade import SorcerousFacadeAbility
 from .foul_infusion import FoulInfusionAbility
 from .attempted_possession import AttemptedPossessionAbility
 from .mind_control import MindControlAbility
@@ -71,7 +70,6 @@ __all__ = [
     "MV71SniperDroneSquadAttackAbility", "WallOfMirrorsAbility", "wall_of_mirrors_possible_tiles",
     "wall_of_mirrors_range", "StormcallerAbility", "PsychicMaelstromAbility",
     "BioMinefieldAbility", "MightFromBelowAbility", "TheQuickeningAbility",
-    "SorcerousFacadeAbility", "sorcerous_facade_tree", "sorcerous_facade_switch_tree",
-    "sorcerous_facade_target_selector", "FoulInfusionAbility", "AttemptedPossessionAbility",
+    "SorcerousFacadeAbility", "FoulInfusionAbility", "AttemptedPossessionAbility",
     "MindControlAbility", "InstrumentsOfVengeanceAbility",
 ]

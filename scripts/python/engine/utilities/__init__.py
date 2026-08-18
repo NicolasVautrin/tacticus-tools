@@ -13,4 +13,4 @@ from __future__ import annotations
 
 from .damage import damage_composite  # noqa: F401
 from .tile import tile_composite  # noqa: F401
-from .move import MinDistanceToClosestEnemyUtility, MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401
+from . import move  # noqa: F401  -- ENREGISTREUR : l'import EST l'effet (registre)

@@ -148,8 +148,49 @@ def morts_du_baril(paquet: str) -> list[str]:
     return sorted(s for s in reexports(paquet) if not lus.get(s))
 
 
+def _cible_absolue(mod: str, est_paquet: bool, n: ast.ImportFrom) -> str | None:
+    """La cible ABSOLUE d'un `ImportFrom`, `level` compris.
+
+    ⚠ SANS CETTE RESOLUTION, LE RECENSEUR DECLARE MORT CE QU'IL NE SAIT PAS LIRE, et c'est le
+    vice symetrique de celui que `probe_270r1` a du corriger (un recenseur ne rend pas zero sur
+    ce qu'il ne visite pas ; ici il rend MORT). L'ancienne forme exigeait `n.level == 0`, donc
+    elle ne voyait AUCUN import relatif -- or c'est la forme dominante DANS `engine/**`, ou
+    presque tout consommateur est un voisin de paquet. Mesure du 2026-08-18, avant vidange :
+    **177** re-exports annonces morts sur les cinq barils, **141** reellement morts, soit
+    **36 FAUX MORTS** -- 24 sur `engine.runner.abilities.loki` (reclames par
+    `runner/abilities/handler.py`, qui ecrit `from .loki import (...)`) et 12 sur
+    `engine.runner.operations.triggers.loki` (reclames par
+    `runner/operations/triggers/dispatch/registry.py`). Agir sur le chiffre d'avant aurait
+    retire des noms que `handler.py` importe : `ImportError` au chargement, donc
+    `ABILITY_CLASSES` entier hors service.
+
+    `level` compte les points ; pour un `__init__.py`, le paquet de reference est le paquet
+    LUI-MEME, pas son parent -- d'ou `est_paquet`. Confondre les deux decalerait TOUTES les
+    cibles relatives d'un cran, ce qui ne rate pas un cas : ca en invente d'autres.
+    """
+    if not n.level:
+        return n.module
+    bouts = mod.split(".")
+    montee = n.level - 1 if est_paquet else n.level
+    if len(bouts) < montee:
+        return None
+    base = bouts[:len(bouts) - montee] if montee else bouts
+    return ".".join(base + ([n.module] if n.module else []))
+
+
+def _nom_module(p: Path) -> str:
+    """Nom de module absolu d'un fichier, `__init__.py` rendu comme SON paquet."""
+    rel = p.relative_to(ICI).with_suffix("")
+    bouts = list(rel.parts)
+    if bouts and bouts[-1] == "__init__":
+        bouts = bouts[:-1]
+    return ".".join(bouts)
+
+
 def consommateurs(paquet: str = PAQUET) -> dict[str, set[str]]:
-    """`{symbole: {fichiers}}` -- LES DEUX VOIES, `ImportFrom` ET acces attributaire."""
+    """`{symbole: {fichiers}}` -- LES DEUX VOIES, `ImportFrom` ET acces attributaire.
+
+    L'`ImportFrom` est compte qu'il soit ABSOLU ou RELATIF (`_cible_absolue`)."""
     out: dict[str, set[str]] = defaultdict(set)
     for p in sorted(ICI.rglob("*.py")):
         if "__pycache__" in str(p) or p.resolve() == Path(__file__).resolve():
@@ -159,9 +200,13 @@ def consommateurs(paquet: str = PAQUET) -> dict[str, set[str]]:
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         rel = str(p.relative_to(ICI))
+        mod, est_paquet = _nom_module(p), p.name == "__init__.py"
+        #: Le baril ne se reclame pas lui-meme : ses propres `from .enfant import X` visent ses
+        #: ENFANTS, jamais lui -- mais l'`__init__.py` d'un SOUS-paquet, si.
         alias: set[str] = set()
         for n in ast.walk(arbre):
-            if isinstance(n, ast.ImportFrom) and n.module == paquet and n.level == 0:
+            if isinstance(n, ast.ImportFrom) and mod != paquet \
+                    and _cible_absolue(mod, est_paquet, n) == paquet:
                 for a in n.names:
                     out[a.name].add(rel)
             elif isinstance(n, ast.Import):
@@ -293,6 +338,34 @@ def _un_enregistreur() -> str | None:
     return None
 
 
+#: AUTO-TEST DU RESOLVEUR RELATIF -- `(module, est_paquet, level, module_cite, attendu)`.
+#: Une erreur de UN CRAN sur `level` ne rate pas des consommateurs : elle en INVENTE d'autres,
+#: donc elle rendrait des morts FAUX dans les deux sens sans qu'aucun compte n'ait l'air anormal.
+#: Le seul controle qui la voit est un jeu de cas ECRIT, joue a chaque run.
+_CAS_RESOLVEUR = (
+    ("engine.runner.abilities.handler", False, 1, "loki", "engine.runner.abilities.loki"),
+    ("engine.runner.abilities", True, 1, "loki", "engine.runner.abilities.loki"),
+    ("engine.runner.abilities.genestealer", False, 2, "abilities.loki",
+     "engine.runner.abilities.loki"),
+    ("engine.runner.abilities.loki", True, 1, "summon", "engine.runner.abilities.loki.summon"),
+    ("engine.playbook.base", False, 0, "engine.utilities", "engine.utilities"),
+    ("engine.utilities.move", False, 1, None, "engine.utilities"),
+    ("engine", True, 1, None, "engine"),
+)
+
+
+def _auto_test_resolveur() -> list[str]:
+    """Rend les cas EN ECHEC. Un jeu vide serait un vert creux -- l'appelant l'asserte."""
+    faux = []
+    for mod, paquet, level, cite, attendu in _CAS_RESOLVEUR:
+        n = ast.ImportFrom(module=cite, names=[], level=level)
+        rendu = _cible_absolue(mod, paquet, n)
+        if rendu != attendu:
+            faux.append("%s (level %d, `%s`) -> %r, attendu %r"
+                        % (mod, level, cite, rendu, attendu))
+    return faux
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -303,6 +376,17 @@ def main(argv: list[str]) -> int:
     if not RACINE_PAQUET.is_dir():
         print("  paquet INTROUVABLE (%s)." % RACINE_PAQUET)
         return EX_PAS_MESURE
+
+    if not _CAS_RESOLVEUR:
+        print("  AUTO-TEST VIDE -- ce n'est pas un vert, c'est un capteur muet.")
+        return EX_PAS_MESURE
+    faux = _auto_test_resolveur()
+    print("  auto-test du resolveur relatif : %d/%d cas, %d en echec"
+          % (len(_CAS_RESOLVEUR) - len(faux), len(_CAS_RESOLVEUR), len(faux)))
+    for f in faux:
+        print("      ECHEC %s" % f)
+    if faux:
+        return EX_ROUGE
 
     #: ⚠ ETAGE [0] -- INVENTAIRE, JAMAIS BLOQUANT hors de `PAQUET`. Les quatre autres barils a
     #: registre sont des foyers d'autres tranches : un cliquet qui rougirait sur ce qu'on n'a pas
@@ -319,10 +403,11 @@ def main(argv: list[str]) -> int:
         total_hors += 0 if b == PAQUET else len(mts)
         print("      %-42s re-exports %3d   MORTS %3d%s"
               % (b, len(ex), len(mts), "   <- BLOQUANT" if b == PAQUET else ""))
-    print("      %d re-export(s) mort(s) hors `%s` -- gisement OUVERT, residu #485-r3."
-          % (total_hors, PAQUET))
-    print("      Meme forme que celui que cette tranche vient de fermer ici (29 morts -> -15")
-    print("      differes PORTEURS) : ce sont des re-exports, pas des enregistreurs.")
+    print("      %d re-export(s) mort(s) hors `%s`." % (total_hors, PAQUET))
+    print("      Ce compte a ete SUREVALUE de 36 tant que le recenseur exigeait `level == 0` :")
+    print("      il ne voyait AUCUN import relatif, donc il declarait morts des symboles que")
+    print("      `runner/abilities/handler.py` et `triggers/dispatch/registry.py` importent")
+    print("      (#485-r3, 2026-08-18). Le gisement REEL etait 141, pas 177.")
 
     exposes = reexports()
     if not exposes:
