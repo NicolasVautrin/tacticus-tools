@@ -208,9 +208,16 @@ def mortis_round_tree() -> AtomicGroup:
     pass-through (RE #201). `PushUnit` est DETERMINISTE (aucun tirage rng) -> ne decale PAS l'ordre RNG de
     l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->push.
 
-    Overload d'attaque : le call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3 appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
-    (famille ATTACK, resolu par XREF — PAS le nom ; IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage != le IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage de ThunderousAssault, mais
-    MEME famille attack, precedents portes ScythingTalons/Executioner) -> `native_factory="attack"` (defaut,
+    Overload d'attaque : le call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3 appelle
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage(hits:IdunBattle.DSL.IAmountFormula)`
+    (famille ATTACK, resolu par XREF — PAS le nom). ⚠ #1032-r5 -- CE CONTRASTE ETAIT DEVENU UNE
+    TAUTOLOGIE (`X != le X de ThunderousAssault`) : la migration VA -> SYMBOLE a fondu DEUX
+    surcharges sur le meme nom. Elles se separent par UN parametre, et la difference est LUE au
+    decompile, pas deduite du nom : celle de MortisRound passe `hits` DIRECTEMENT a
+    `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$.ctor` (c'est un NOEUD `IAmountFormula`),
+    tandis que celle de ThunderousAssault EMBALLE d'abord un `System.Int32` dans un montant
+    constant avant de le passer. Meme `AttackDamageBehaviour` en sortie, donc
+    MEME famille attack, precedents portes ScythingTalons/Executioner -> `native_factory="attack"` (defaut,
     resolve slot-8 gaspille = 2 tirages/coup a cc=0). Profil `HeavyRound` (constants.damageProfile), attaque
     RANGED (attackRangeType=Ranged, range 3) -> `is_melee=False`. `nrOfHits` ABSENT de la config (constants
     n'a que damageProfile) -> `ability_attack_params` rend hits=1 (== i2 « 1x »). `ability_type=1004` threade

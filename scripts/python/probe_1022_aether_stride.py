@@ -374,6 +374,17 @@ def main() -> int:
                   "de l'ATTAQUE.")
         pre_dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
         pre_ob = rpc(sid, "observeBattle", {"runnerId": rid})
+        # ⚠ `combatSnapshot` EST OBLIGATOIRE ICI, ET SON ABSENCE A FABRIQUE UN FAUX ETAGE (#1022-r4).
+        # `load_state` gate TOUT `_load_stats_and_effects` sur `snapshot is not None` -- donc sans
+        # lui AUCUNE entite ne recoit de `StatsComponent`, et en particulier `_load_machine_stats`
+        # ne pose pas celui de la MoW. Or c'est LUI qui porte l'`AbilityState` d'une Machine of War
+        # (`_machine_ability_state`, canal `decisionView.mows[].abilities[].level/multiplier`), le
+        # seul canal qui indexe ses variables de config (#174). Consequence MESUREE : la feuille
+        # `Spawn` lisait `level = None` -> `summonHp[0] = 60` / `summonDmg[0] = 7` au lieu de
+        # `summonHp[49] x 180 % = 5983` / `summonDmg[49] x 180 % = 698`, et le residu #1022-r4 a
+        # d'abord ete ecrit comme un defaut de PORT (« le port fait naitre le summon sur les valeurs
+        # BRUTES du gameconfig ») alors que le port n'avait simplement PAS l'entree.
+        pre_sn = rpc(sid, "combatSnapshot", {"runnerId": rid})
         # Dump du Mersenne Twister PRIS AVANT LE CAST : c'est ce qui rend le rejeu offline
         # comparable au live des que le summon frappe pour de bon (cf. l'etage C).
         pre_rng = rpc(sid, "dumpRng", {"runnerId": rid})
@@ -423,7 +434,7 @@ def main() -> int:
         from engine.runner.components import MachineComponent, StatsComponent
         from engine.runner.snapshot import load_state
         from engine.services import movement_query as MQ
-        st = load_state(pre_dv, pre_ob, board=board)
+        st = load_state(pre_dv, pre_ob, pre_sn, board=board)
         # ⚠ LE MT DOIT ETRE CALE DES QUE LE SUMMON PEUT FRAPPER (#1022-r3). Tant qu'aucun ennemi
         # n'etait au contact, `PerformAIAttack` n'atteignait jamais `AttackDamageOperation` et
         # `state.rng is None` passait inapercu ; avec l'ennemi pose, le rejeu tire pour de bon et
@@ -522,6 +533,36 @@ def main() -> int:
                   % ((ligne_n or {}).get("entityId"), (ligne_n or {}).get("visualId"),
                      json.dumps((ligne_n or {}).get("unitConfig") or {})[:220],
                      json.dumps({k: v for k, v in list(stats_n.items())[:10]})[:300]))
+
+            # --- ETAGE H : L'ENTREE de l'etage G -- l'`AbilityState` du CASTER (#1022-r4) ---------
+            # `...AetherStrideAbility$$ExecuteBehaviour(this, abilityState, entities)` transmet son
+            # 2e parametre a `SpawnUnitOptions$$WithStatsFromConfig(config, abilityState, 0, 0)` :
+            # c'est CE couple qui indexe `summonHp`/`summonDmg`/`summonArmor`. On le met cote a
+            # cote des deux sources, et on RECALCULE les trois stats attendues -- trois egalites
+            # valent mieux qu'un facteur, qui se fitterait.
+            from engine.runner.abilities.base import active_ability_state as _aas
+            from engine.runner.abilities.base import ability_var as _av
+            lvl_p, mult_p = _aas(st, caster, AETHER_STRIDE)
+            ab_n = next((x for x in (pre_dv.get("mows") or [{}])[0].get("abilities") or []
+                         if x.get("id") == AETHER_STRIDE), {}) if pre_dv.get("mows") else {}
+            lvl_n, mult_n = ab_n.get("level"), ab_n.get("multiplier")
+            print("[H] AbilityState de 1208 -- port=(%s, %s) natif=(%s, %s) : %s"
+                  % (lvl_p, mult_p, lvl_n, mult_n,
+                     "ACCORD" if (lvl_p, mult_p) == (lvl_n, mult_n) else "DESACCORD"))
+            for cle, sn in (("summonHp", "health"), ("summonDmg", "attack"),
+                            ("summonArmor", "fixedArmor")):
+                att = _av("AetherStride", cle, lvl_n, multiplier_pct=mult_n) if lvl_n else None
+                print("    %-12s natif=%-6s attendu(%s,%s)=%-6s %s"
+                      % (cle, stats_n.get(sn), lvl_n, mult_n, att,
+                         "ACCORD" if att is not None and int(att) == int(stats_n.get(sn) or -1)
+                         else "DESACCORD"))
+            # L'`AbilityState` sous lequel les abilities du SUMMON sont MONTEES (`opts+0x30`), lu au
+            # canal `unitAbilityStates` -- axe DISTINCT des stats, et il ne se devine pas.
+            uas = rpc(sid, "unitAbilityStates", {"runnerId": rid}) or {}
+            ligne_s = next((r for r in (uas.get("units") or [])
+                            if r.get("entityId") in set(squads)), None)
+            print("[H] summon NATIF -- unitAbilityStates : %s"
+                  % json.dumps(ligne_s or {})[:600])
         print("PROBE OK")
         return 0
     finally:

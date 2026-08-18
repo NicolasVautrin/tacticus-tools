@@ -1029,10 +1029,18 @@ class _DamageHitsMixin:
                 # (`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` : Next(v, v+1) SANS gate largeur-1). C'EST le
                 # tirage « fantôme » mesuré par #220/#205 — le fix du désync multi-coups cc=0.
                 # `is_attack_damage_op` = LA FAMILLE DE FACTORY NATIVE (deux operations distinctes) :
-                #   True  = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage/350/
-                #           520/6b0) -> AttackDamageBehaviour -> AttackDamageOperation.ExecuteHit
+                # ⚠ #1032-r5 -- REPARE : ces deux lignes disaient `X (+overloads X/350/520/6b0)` et
+                # `X/X -> core X`. La migration VA -> SYMBOLE avait fondu les surcharges sur un seul
+                # nom, effacant le contraste et laissant trois demi-adresses orphelines. Le
+                # parametre qui separe les surcharges est LU dans `frida/methods.tsv`.
+                #   True  = les CINQ surcharges de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`,
+                #           qui ne different que par `damageProfile` (`IdunBattle.DSL.IDamageProfileSelector`
+                #           ou `System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>`) et `hits`
+                #           (`IdunBattle.DSL.IAmountFormula` ou `System.Int32`)
+                #           -> AttackDamageBehaviour -> AttackDamageOperation.ExecuteHit
                 #           IdunBattle.Operations.AttackDamageOperation$$ExecuteHit -> le resolve slot-8 consomme (2 tirages/coup a cc=0) ;
-                #   False = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+                #   False = une ENVELOPPE `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+                #           deleguant au COEUR `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
                 #           -> AbilityDamageBehaviour -> IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits
                 #           (GetDamage par coup) + IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage (0 RNG) : AUCUN
                 #           resolve -> 1 tirage/coup. Mesure live : Stormcaller 3-hit bit-exact SANS

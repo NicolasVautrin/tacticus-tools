@@ -20,7 +20,11 @@ ExecuteAtomic) :
       → attaque 3x Psychic CHAQUE ennemi debout sur une tuile GLACÉE — évalué APRÈS [1] (le
         behaviour-seq s'exécute dans l'ordre) donc la zone fraîche compte, ET toute AUTRE glace
         déjà posée (LordOfTempests, cast antérieur) : la cible n'est PAS le seul bénéficiaire.
-        Overload IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage → core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage (xref call-site 18120cdfc) = LE MÊME nœud que
+        Enveloppe `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:IdunBattle.DSL.IDamageProfileSelector, hits:IdunBattle.DSL.IAmountFormula)`
+        → cœur `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
+        (#1032-r5 : la ligne disait `X → core X` ; les quatre surcharges se séparent par ces
+        paramètres, lus dans `frida/methods.tsv`, et l'enveloppe visée est tranchée par la XREF
+        entrante) = LE MÊME nœud que
         `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour+0x19f` → même pipeline porté
         `execute_ability_attack` (MinMax roll + crit + block[NoBlocking] + after-hit), bit-exact
         SpiritLeech-validé.
@@ -93,7 +97,9 @@ def stormcaller_tree():
       `Enemies(<dsl>+0x30 = Owner, <dsl>+0x20, 3)`, et `<dsl>+0x20` est le champ partage
       `AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`), PAS `DSLSelectors$$AllUnits` (#514).
     - attaque = feuille `AttackWithAttackDamage` en mode `multi` (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` : sélecteur → N cibles, OrderBy = ordre de lecture == tri par id) — MÊME overload
-      natif (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage → IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage) que SpiritLeech → `execute_ability_attack` (crit/block,
+      natif (l'enveloppe `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:IdunBattle.DSL.IDamageProfileSelector, hits:IdunBattle.DSL.IAmountFormula)`
+      → le cœur `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`,
+      #1032-r5) que SpiritLeech → `execute_ability_attack` (crit/block,
       Psychic = NoBlocking + pierce 100). `ability_type=1113` = l'arg natif `AbilityOrEffect
       (this+0x10)`, threadé aux events after-hit (≠1013 → la branche smite LordOfTempests reste
       muette, fidèle).

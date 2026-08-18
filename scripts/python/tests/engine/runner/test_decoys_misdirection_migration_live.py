@@ -4,7 +4,10 @@ Passif natif = DEUX abilities-triggers (split par faction, PAS par event) :
   - `DamageEnemies` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateTrigger, behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour) : `On(0x1d=UnitPositionChanged_2) &
     AreEnemies(owner, actor) & AmountIsGreaterThanZero(GetValidDeadDecoys)` -> `Repeat(AttackWithAbilityDamage(
     owner, stepper, MinMaxDamage, Blast, hits=1), Count(dead decoys))`. Feuille = `AttackBehaviour(
-    AbilityDamageBehaviour)` (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour + factory IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage VERIFIES : pipeline
+    AbilityDamageBehaviour)` (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour + factory :
+    l'enveloppe `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>, hits:System.Int32)`
+    -> le COEUR `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`,
+    tranchee par la XREF entrante ; #1032-r5, cette ligne disait `X->X`. VERIFIES : pipeline
     crit/block COMPLET) -> leaf port `AttackWithAttackDamage` (execute_ability_attack).
   - `BuffFriends` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) : `(On(0x2e = UnitResurrected)|On(0x1d)) & AreFriends(owner,
     actor) & ...` -> `AddEffect(1379 +582, on=stepper)` + `If(HasFaction(stepper, GenestealerCults),

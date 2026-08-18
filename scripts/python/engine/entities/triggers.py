@@ -1765,9 +1765,17 @@ class IsRangedAttack(AbilityTrigger):
 
 
 class IsNormalAttack(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` → `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` : l'ability courante == ActiveAbilityType
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack` — la surcharge SANS OPERANDE `()`, qui
+    délègue à `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack(ability:IdunBattleLogic.Entities.AbilityTypeSelector.IAbilityTypeSelector)`
+    en lui passant `<DSLSelectors+0x88>` : l'ability courante == ActiveAbilityType
     normal (0x3f5 = 1013, `op_Implicit` lu). `ctx.attack_ability_type == NORMAL_ATTACK_KIND`
     (nouveau slot ; défaut None → False).
+
+    #1032-r5 -- LES DEUX SURCHARGES SONT NOMMÉES PAR LEUR SIGNATURE, ET C'EST UNE RÉPARATION. Cette
+    ligne disait `X → X`, une tautologie : la migration VA → SYMBOLE avait fondu deux VAs distinctes
+    (le wrapper et son cœur) sur le même nom, effaçant le CONTRASTE que la phrase portait. Les
+    signatures viennent de `data/symbols/<build>/frida/methods.tsv`, et la délégation est LUE au
+    décompilé (le corps sans opérande n'a qu'un appel : lui-même, avec l'opérande).
 
     #270-r4 -- POURQUOI `NORMAL_ATTACK_KIND` ET NON `ActiveAbilityType.PrecisionShot_Attack`.
     L'ordinal 1013 est bien un membre valide d'`ActiveAbilityType` (`PrecisionShot_Attack`), et

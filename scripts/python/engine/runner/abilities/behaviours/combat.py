@@ -275,7 +275,7 @@ def _emettre_finish_attack_de_noeud(state, actor_id: int, target_id: int, ectx, 
 
 
 class AttackWithAttackDamage(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
     l'attaque d'une ability (bornes `MinMaxDamage(minDmg/maxDmg[level])`, profil `GetDamageProfile`, nb de
     coups `GetNumberConstant(0x2f)=nrOfHits`) portee sur la cible. Wrapper MINCE au-dessus de l'Operation
     DEJA bit-exact `AttackDamageOperation.execute_ability_attack` (meme pipeline reduce/crit/block/after-hit
@@ -399,7 +399,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # #419-r3 : `attack_state0` = l'etat de l'`OngoingAttack` HERITEE (`+0x30` index de coup,
         # `+0x40` `isCriticalDamageAllowed`, `+0x48` `FailedBlockIds`), au format rendu par
         # `operations/damage_hits.attack_state_out`. `None` (defaut) = attaque NEUVE, ce qui est la
-        # semantique de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : cette
+        # semantique de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` : cette
         # factory-la finit par `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor`, donc pousse
         # un `OngoingAttack` neuf par cible (`StartAttackOperation$$Execute`).
         # On le RENSEIGNE quand la feuille tient lieu d'un `IdunBattleLogic.Entities.DSLBehaviors$$
@@ -432,18 +432,31 @@ class AttackWithAttackDamage(AbilityBehaviour):
         self.ability_type = ability_type
         # `native_factory` = LA FACTORY NATIVE de la feuille (cas fable rngcrit-1202) — deux operations
         # natives DISTINCTES avec des consommations RNG per-coup differentes :
-        #   "attack"  (defaut) = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage/
-        #             350/520/6b0) -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
+        # ⚠ #1032-r5 -- LES DEUX LIGNES CI-DESSOUS ONT ETE REPAREES : la migration VA -> SYMBOLE
+        # avait fondu les surcharges sur un seul nom, laissant `X (+overloads X/350/520/6b0)` et
+        # `X/X -> core X` -- des tautologies, dont l'une trainait meme trois demi-adresses orphelines.
+        # Les surcharges se nomment par le PARAMETRE qui les separe, lu dans `frida/methods.tsv`.
+        #   "attack"  (defaut) = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, dont
+        #             CINQ surcharges construisent l'`AttackDamageBehaviour` ; elles se distinguent par
+        #             `damageProfile` (`IdunBattle.DSL.IDamageProfileSelector` ou
+        #             `System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>`) et par `hits`
+        #             (`IdunBattle.DSL.IAmountFormula`, passe TEL QUEL au ctor, ou `System.Int32`,
+        #             EMBALLE d'abord dans un montant constant) -- lu au decompile, jamais deduit du
+        #             nom, que le pseudo-C affiche identique pour les cinq.
+        #             -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
         #             IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : valeur BRUTE (GetDamage-top) + resolve slot-8 GASPILLE = 2 tirages/
         #             coup a cc=0 (mesure bit-exact VigilanceEternal, 5 seeds x 2 cibles).
-        #   "ability" = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+        #   "ability" = une ENVELOPPE `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+        #             (celle a `damageProfile`/`hits`) qui delegue au COEUR
+        #             `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`,
+        #             seule des QUATRE a construire l'`AbilityDamageBehaviour`
         #             -> AbilityDamageBehaviour -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
         #             GetDamage par coup SEUL (IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage = 0 RNG) = 1 tirage/
         #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de
         #             l'`ExecuteBehaviour` natif de l'ability (quelle factory est appelee), JAMAIS au juge.
         self.native_factory = native_factory
         # `force_overkill` = flag « always overkilled » (Nullable<bool>=true, 8e arg de
-        # `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) : force `overkill=True` par coup ->
+        # `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`) : force `overkill=True` par coup ->
         # BYPASSE le cap Resilient (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`). No-op cible
         # non-Resilient. Porteur : FlailSwing (1042, deathBlightlord). Defaut False. Mode bornes
         # uniquement (route par `execute_ability_attack`).
@@ -454,7 +467,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # de `nrOfHits`). Defaut None = coups lus de la config (`hits_key`, comportement historique). Mode bornes
         # uniquement (le mode `amount` a deja un `hits` explicite). Exclusif avec `hits` (Executioner).
         # Accepte un INT (valeur deja resolue par la classe d'ability) **ou un NOEUD `AAmountFormula`** :
-        # le 6e argument natif d'`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` est un NOEUD
+        # le 6e argument natif d'`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` est un NOEUD
         # (`AttackDamageBehaviour+0x80`, EVALUE par
         # `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`) — passer le noeud le laisse
         # s'evaluer A L'EXECUTION contre l'`entities` du behaviour, ce qu'exige un arbre dont un `Cache` a ete
@@ -1079,7 +1092,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (LU) -> `IdunBattle.Entities.Behaviours.
     AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` : famille ABILITY
     (`IdunBattle.Operations.AbilityDamageOperation`), factory NATIVE DISTINCTE de
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (l'attaque d'ability crit/block ci-dessus). #149
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (l'attaque d'ability crit/block ci-dessus). #149
     slice-19 : la classe Python homonyme precedente mirrorait en realite `AttackWithAttackDamage` et a
     ete RENOMMEE (directive « coller au natif ») — cette classe-ci est la VRAIE `AttackWithAbilityDamage`.
 
@@ -1399,7 +1412,7 @@ class InformWeapon(AbilityBehaviour):
 
 
 class EvaluateAbilities(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$EvaluateAbilities` -> `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`) : EVALUE les abilities DECLENCHEES du CASTER pour un
+    """`IdunBattleLogic.Entities.DSLBehaviors$$EvaluateAbilities` -> `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`) : EVALUE les abilities DECLENCHEES du CASTER pour un
     `EventTriggerType`, INLINE dans un behaviour-tree. Noeud DSL GENERIQUE du natif (callers : NormalAttack
     `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4a=AttackInAtomicGroup)`, ArmouredMight/
     TheQuickening). Wrapper MINCE au-dessus de la couche dispatch runner (`evaluate_abilities_for_event`) qui

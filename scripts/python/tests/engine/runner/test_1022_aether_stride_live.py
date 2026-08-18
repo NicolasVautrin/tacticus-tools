@@ -49,6 +49,12 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/selectors/units.py",            # AdjacentFriends / UnitsWithTrait
         "scripts/python/engine/entities/triggers.py",                   # ActorHasTriggeredAbility
         "scripts/python/engine/entities/behaviours.py",                 # If / Seq (op_and, op_add)
+        # #1022-r4 -- le SUBSTRAT DE STATS du summon : `WithStatsFromConfig` (build_summon_context),
+        # le foyer qui resout l'`AbilityState` de l'ability CASTEE, et le seed qui le pose sur une
+        # MoW (`_load_machine_stats`, seul canal du niveau d'une Machine of War).
+        "scripts/python/engine/runner/operations/spawn.py",             # build_summon_context
+        "scripts/python/engine/runner/abilities/base.py",               # active_ability_state (#890)
+        "scripts/python/engine/runner/snapshot.py",                     # _load_machine_stats (#174)
         "scripts/python/probe_1022_aether_stride.py",                   # le MONTAGE (greffe) partage
         "scripts/python/catalog_inject.py",                             # graft_active_ability
     ),
@@ -177,6 +183,11 @@ def aether(rpc, build_runner):
 
     pre_dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True})
     pre_ob = rpc("observeBattle", {"runnerId": rid})
+    # ⚠ `combatSnapshot` FAIT PARTIE DE LA CAPTURE, et son absence a fabrique un faux etage
+    # (#1022-r4) : `load_state` gate TOUT `_load_stats_and_effects` sur `snapshot is not None`,
+    # donc sans lui aucune entite n'a de `StatsComponent` -- et en particulier `_load_machine_stats`
+    # ne pose pas celui de la MoW, seul porteur de son `AbilityState` (#174).
+    pre_sn = rpc("combatSnapshot", {"runnerId": rid})
     # Le MT est dumpe AVANT le cast : des que le summon frappe pour de bon, le rejeu offline doit
     # consommer le MEME flux que le natif, sinon `damage_ops/normal.py` REFUSE (`state.rng non
     # cale`) -- un refus explicite, jamais un degat invente.
@@ -193,10 +204,21 @@ def aether(rpc, build_runner):
     touches = {s: int(pv_avant[s]) - int(pv_apres[s]) for s in pv_avant
                if s in pv_apres and pv_apres[s] is not None and pv_avant[s] is not None
                and pv_apres[s] < pv_avant[s]}
+    # L'`AbilityState` de 1208 SUR LA MoW, tel que le natif l'expose -- c'est l'argument
+    # `abilityState` de `...AetherStrideAbility$$ExecuteBehaviour`, celui que le corps transmet a
+    # `SpawnUnitOptions$$WithStatsFromConfig`. Capture ici pour que l'etage de substrat soit
+    # confrontable SANS re-interroger le runner apres le cast.
+    ab_state = next((x for x in (mows[0].get("abilities") or []) if x.get("id") == AETHER_STRIDE),
+                    {}) or {}
+    snap_apres = rpc("combatSnapshot", {"runnerId": rid})
+    stats_summon = next((u.get("stats") or {} for u in (snap_apres.get("units") or [])
+                         if u.get("entityId") in {n.get("squadId") for n in neufs}), {})
     return {"rid": rid, "caster": caster, "board": board, "anchor": anc, "tile": cible,
-            "occ": occ, "regle": regle, "psyker": psyker, "pre": (pre_dv, pre_ob),
+            "occ": occ, "regle": regle, "psyker": psyker, "pre": (pre_dv, pre_ob, pre_sn),
             "res": res, "feet": feet_from_events(res.get("actions") or [], board),
-            "neufs": neufs, "ennemi": ennemi, "rng": pre_rng, "touches": touches}
+            "neufs": neufs, "ennemi": ennemi, "rng": pre_rng, "touches": touches,
+            "ability_state": (ab_state.get("level"), ab_state.get("multiplier")),
+            "stats_summon": stats_summon}
 
 
 def _port_cast(aether, pre=None):
@@ -208,8 +230,8 @@ def _port_cast(aether, pre=None):
     de MT ne se voyait pas."""
     from engine.runner.abilities.thousandsons import AetherStrideAbility
     from engine.runner.prng import IntBasedMersenneTwister
-    pre_dv, pre_ob = pre or aether["pre"]
-    state = load_state(pre_dv, pre_ob, board=aether["board"])
+    pre_dv, pre_ob, pre_sn = pre or aether["pre"]
+    state = load_state(pre_dv, pre_ob, pre_sn, board=aether["board"])
     dump = aether.get("rng") or {}
     if isinstance(dump, dict) and dump.get("mt"):
         mt = IntBasedMersenneTwister()
@@ -372,7 +394,7 @@ def test_port_perform_ai_attack_fires_only_with_an_adjacent_psyker_friend(aether
         ("avec un allie Psyker au contact de l'empreinte, le noeud PerformAIAttack DOIT "
          "s'executer -- psyker pose en %s, empreinte %s" % (aether["psyker"], aether["feet"]))
     # CONTRE-EPREUVE : meme etat, psyker ECARTE (on ne retire PAS le noeud, on retire sa CAUSE).
-    pre_dv, pre_ob = aether["pre"]
+    pre_dv, pre_ob, pre_sn = aether["pre"]
     dv2, ob2 = copy.deepcopy(pre_dv), copy.deepcopy(pre_ob)
     loin = max(aether["board"].by_coord)
     for src in (dv2.get("units") or []):
@@ -381,7 +403,7 @@ def test_port_perform_ai_attack_fires_only_with_an_adjacent_psyker_friend(aether
     for src in (ob2.get("units") or []):
         if src.get("squadId") == aether["psyker"][0]:
             src["col"], src["row"] = loin
-    _s2, diag2 = _port_cast(aether, pre=(dv2, ob2))
+    _s2, diag2 = _port_cast(aether, pre=(dv2, ob2, pre_sn))
     assert any(hexgeo.distance(loin, f) > 1 for f in diag2["feet"]), \
         "la contre-epreuve doit VRAIMENT eloigner le psyker de l'empreinte"
     assert not diag2["ai_attacks"], \
@@ -424,37 +446,76 @@ def test_le_summon_frappe_LA_MEME_cible_que_le_natif(aether):
         % (cibles_port, cibles_natif, aether["touches"]))
 
 
-def test_la_magnitude_du_summon_DIVERGE_et_l_etage_est_NOMME(aether):
-    """CLIQUET INVERSE, et il est ecrit pour etre LEVE, pas pour durer.
+def test_le_substrat_de_stats_du_summon_vient_de_l_AbilityState_de_1208(aether):
+    """L'ETAGE D'ENTREE, confronte AVANT le degat -- et sur TROIS grandeurs, pas une (#1022-r4).
 
-    La cible concorde (test precedent), la MAGNITUDE non : mesure du 2026-08-18 sur ce montage
-    meme, port **29** contre natif **2761**. La cause n'est ni la formule de degat ni le choix de
-    cible -- c'est le SUBSTRAT DE STATS du summon, decompose par etage :
+    `...AetherStrideAbility$$ExecuteBehaviour(this, abilityState, entities)` transmet son 2e
+    parametre VERBATIM a `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig(
+    config, abilityState, abilitiesLevel: null, variableMultiplierPercentage: null)`. Cette
+    surcharge a 4 arguments delegue a celle a 5 avec `ordinal = 1`, et les DEUX `null` retombent sur
+    `abilityState.level` / `abilityState.mult` (branches `if (x == null)` du corps). Les SEPT
+    `SetStatFromConfig(this, config, abilityState, <baseVariableType>, ordinal, <StatType>)` qui
+    suivent -- `0x29 -> 5 Health`, `0x2a -> 0 Attack`, `0x2b -> 0x10 FixedArmor`, `0x56 -> 7`,
+    `0x55 -> 8`, `0x54 -> 9`, `0x57 -> 10` -- indexent donc les variables `summon*` SOUS CET ETAT.
 
-        grandeur   | port | natif
-        attack     |    7 |   698
-        health     |   60 |  5983
-        level      |    0 |     1
+    POURQUOI TROIS GRANDEURS ET PAS UN FACTEUR. Un ecart de magnitude se ferme trivialement en
+    fittant un scalaire ; trois egalites exactes issues de TROIS tableaux de gameconfig differents
+    ne se fittent pas. Mesure (MC1_67 / 777, `AbilityState = (50, 180)`) :
 
-    Le port fait naitre le summon sur les valeurs BRUTES du gameconfig, la ou
-    `IdunBattle.Entities.Factories.UnitFactory` lui donne les stats calculees du match
-    (`unitConfig.level = 1`, `abilityVariablesMultiplier = 100`). Le rapport des degats (95x) suit
-    celui des attaques (99,7x) : c'est un etage d'ENTREE, pas un ecart de pipeline.
+        variable      | natif | summon*[50] x 180 %
+        summonHp      |  5983 | 3324 x 1,80 = 5983
+        summonDmg     |   698 |  388 x 1,80 =  698
+        summonArmor   |  1595 |  886 x 1,80 = 1595
 
-    ⚠ Ce n'est PAS un defaut general de `build_summon_context` : sur un AUTRE porteur (#577,
-    `necroNpc1Warrior`), le `hp` du summon concorde a l'unite pres des deux cotes. C'est le
-    call-site de 1208 qui n'apporte pas le niveau.
+    ⚠ CE QUI ETAIT FAUX DANS L'ENONCE DU RESIDU. Il disait « le port fait naitre le summon sur les
+    valeurs BRUTES du gameconfig ». Le port SAIT scaler -- il n'avait pas l'ENTREE : le montage
+    appelait `load_state(pre_dv, pre_ob)` SANS `combatSnapshot`, or `load_state` gate tout
+    `_load_stats_and_effects` sur `snapshot is not None`, donc `_load_machine_stats` ne posait pas
+    le `StatsComponent` de la MoW -- et c'est LUI, et lui seul, qui porte l'`AbilityState` d'une
+    Machine of War (#174). La feuille lisait alors `level = None` -> index 0 -> `summonHp[0] = 60`.
+    L'ecart etait un DEFAUT DE MONTAGE, pas de port."""
+    state, diag = _port_cast(aether)
+    from engine.runner.components import StatsComponent
+    lvl_n, mult_n = aether["ability_state"]
+    assert lvl_n and mult_n, (
+        "TEMOIN DEGENERE : `decisionView.mows[].abilities[]` ne publie pas l'AbilityState de 1208 "
+        "(level=%s mult=%s) -- rien a confronter" % (lvl_n, mult_n))
+    assert (lvl_n, mult_n) != (1, 100), (
+        "TEMOIN DEGENERE : l'AbilityState natif est le NEUTRE (1, 100), donc le scaling ne separe "
+        "rien -- un port qui ignorerait le niveau passerait ce test")
+    sid = (diag.get("spawned") or [None])[0]
+    assert sid is not None, "le port n'a pose aucun summon -- rien a confronter"
+    ctx = getattr(state.get_entity(sid).get_component(StatsComponent), "ctx", None)
+    assert (ctx.active_ability_level, ctx.ability_variables_multiplier) == (lvl_n, mult_n), (
+        "l'`AbilityState` transmis a `WithStatsFromConfig` diverge : port=(%s, %s) natif=(%s, %s)"
+        % (ctx.active_ability_level, ctx.ability_variables_multiplier, lvl_n, mult_n))
+    stats_n = aether["stats_summon"]
+    assert stats_n, "TEMOIN DEGENERE : `combatSnapshot` ne rend aucune stat pour le summon natif"
+    for nom, valeur_portee in (("attack", ctx.attack), ("health", ctx.health),
+                               ("fixedArmor", ctx.fixed_armor)):
+        assert int(stats_n.get(nom)) == int(valeur_portee), (
+            "stat `%s` du summon : port=%s natif=%s (AbilityState %s/%s)"
+            % (nom, valeur_portee, stats_n.get(nom), lvl_n, mult_n))
 
-    Ce test rougit des que l'ecart se ferme -- et c'est voulu : il faut alors le remplacer par
-    l'assertion d'ACCORD, pas le rendre plus permissif. Residu **#1022-r4**."""
+
+def test_la_magnitude_du_summon_CONCORDE_avec_le_natif(aether):
+    """L'ACCORD DE MAGNITUDE, qui a REMPLACE un cliquet INVERSE (#1022-r4).
+
+    Ce test etait ecrit `degat_port != degat_natif` et disait de lui-meme : « il rougit des que
+    l'ecart se ferme -- il faut alors le remplacer par l'assertion d'ACCORD, pas le rendre plus
+    permissif ». L'ecart est ferme (port **29** -> **2761**, natif **2761**), et c'est l'egalite
+    qui est desormais gardee.
+
+    L'etage d'ENTREE est confronte separement par le test ci-dessus : si celui-ci rougit alors que
+    l'autre passe, la cause n'est PAS le substrat de stats du summon mais le pipeline de degat."""
     _state, diag = _port_cast(aether)
     att = _attaques_du_port(diag)
     assert att and aether["touches"], "regime degenere -- cf. le test precedent"
     degat_port = sum(int(x.get("total") or 0) for x in att)
     degat_natif = sum(int(v) for v in aether["touches"].values())
     assert degat_port > 0 and degat_natif > 0, (
-        "TEMOIN DEGENERE : un des deux degats est nul (port=%s natif=%s), l'inegalite ci-dessous "
+        "TEMOIN DEGENERE : un des deux degats est nul (port=%s natif=%s), l'egalite ci-dessous "
         "serait vraie pour une mauvaise raison" % (degat_port, degat_natif))
-    assert degat_port != degat_natif, (
-        "L'ECART DE MAGNITUDE S'EST FERME (port=%s natif=%s) -- #1022-r4 est resolu : REMPLACER ce "
-        "cliquet inverse par l'assertion d'ACCORD, ne pas l'assouplir" % (degat_port, degat_natif))
+    assert degat_port == degat_natif, (
+        "la magnitude du summon diverge : port=%s natif=%s (degats natifs par cible %s)"
+        % (degat_port, degat_natif, aether["touches"]))

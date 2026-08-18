@@ -110,8 +110,11 @@ def sanctorum_missile_tree():
     **FACTORY NATIVE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `native_factory="attack"`** : CLASSIFIE PAR LES
     XREFS de l'ExecuteBehaviour natif (tip #2 / piege rngcrit-1202 -- attaque MULTI-COUPS), PAS au nom du
     template. Les DEUX call-sites `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f` (main) et `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff` (splash) referencent `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`
-    (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`/`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` = la famille
-    "ability"). `native_factory="attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve
+    (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs des enveloppes de la famille
+    "ability" -- `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:IdunBattle.DSL.IDamageProfileSelector, hits:IdunBattle.DSL.IAmountFormula)`
+    et `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>, hits:System.Int32)`
+    -- comme du COEUR `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
+    auquel elles deleguent ; #1032-r5, cette parenthese disait `X`/`X`). `native_factory="attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve
     slot-8 GASPILLE = **2 tirages/coup a cc=0** (defaut `is_attack_damage_op=True`). Un port copie a l'aveugle
     ("ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
 
@@ -147,7 +150,9 @@ class SanctorumMissileAbility(ActiveAbility):
     `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$GetAdjacentDamageTargetsAll`). Le SPLASH est un SEUL `AttackWithAttackDamage(selecteur-multi)`
     (== le natif, PAS un `Foreach`) : `AttackBehaviour.Execute` resout la liste + `OrderBy` par id. FACTORY
     `native_factory="attack"` (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage, PROUVE par XREFS des call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -- CONTRASTE
-    la famille "ability" IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/coup a cc=0.
+    la famille "ability", dont les enveloppes deleguent au COEUR
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
+    -- #1032-r5, cette ligne disait `X/X` -- ; piege rngcrit-1202/tip #2) => 2 tirages/coup a cc=0.
 
     GAP flagge : band TILE `EmptyOrHasSteppableUnit IdunBattle.Entities.Selectors.EmptyOrHasSteppableUnitTilesSelector$$Select` du selecteur natif (tuiles vides/steppables)
     NON porte -- INERTE pour le degat-unite en duel (0 degat sur tuile vide ; aucune scenery Steppable), et le

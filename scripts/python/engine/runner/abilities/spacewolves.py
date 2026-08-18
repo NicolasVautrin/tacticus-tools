@@ -152,7 +152,11 @@ def great_frost_axe_tree():
     (AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit`) = 2 tirages/coup a cc=0 (valeur brute +
     resolve slot-8 GASPILLE, cf. cas fable rngcrit-1202 / tip #2). CLASSE PAR LES XREFS : `GreatFrostAxe
     Ability$$ExecuteBehaviour` appelle IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage (from_address 1811e367f, UNCONDITIONAL_CALL) -- l'ATTACK
-    family, PAS l'ability family (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage) qu'utilise Stormcaller. Multi-coups (4 hits) ->
+    family, PAS l'ability family qu'utilise Stormcaller -- laquelle enchaine l'ENVELOPPE
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:IdunBattle.DSL.IDamageProfileSelector, hits:IdunBattle.DSL.IAmountFormula)`
+    sur le COEUR `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`,
+    seule des quatre surcharges a construire l'`AbilityDamageBehaviour` (#1032-r5 : la ligne disait
+    `X->X`, les deux VAs d'origine ayant fondu sur le meme nom). Multi-coups (4 hits) ->
     per-hit desync des le coup 2 si mal classe : ici c'est bien "attack" (verifie XREF).
 
     `ability_type=1089` = l'arg natif `AbilityOrEffect(this+0x10)` (= ActiveAbilityType.GreatFrostAxe),

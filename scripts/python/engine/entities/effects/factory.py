@@ -1352,7 +1352,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    Direct(-1))) ; selector IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateTargetSelector Friends(SurroundingUnits range 1, exclut porteur)). Jumeau structurel
     #    de DaughterOfTheAbyss_Owner/Nightshroud -> flat_reductions pre-percage.
     #  - ExtraBlock (0x3ef=1007) : source de BLOCK +blockChance(=50)% de blockDmg[ablvl]xmult Damage
-    #    (IdunBattleLogic.Entities.DSLFactory$$AddExtraBlockEffectToOwner, MultiValueStat 7/8 hors GetStat, comme BeastSlayer).
+    #    (IdunBattleLogic.Entities.DSLBehaviors$$AddExtraBlockEffectToOwner, MultiValueStat 7/8 hors GetStat, comme BeastSlayer).
     "PsychicFortress_DmgReduction": PsychicFortressDmgReductionEffect,
     "PsychicFortress_ExtraBlock": PsychicFortressExtraBlockEffect,
     # CamoCloak_DmgReduction (0x3f6=1014, passif CamoCloak 0x3eb=1003 de `ultraEliminatorSgt` et du
