@@ -317,6 +317,27 @@ def _appelle(fonction, nom: str) -> bool:
                for n in ast.walk(arbre))
 
 
+def _appelle_qualifie(fonction, nom: str) -> bool:
+    """Meme chose, mais QUALIFIE compris (`mod.nom(...)` autant que `nom(...)`).
+
+    ⚠ CE HELPER N'EST PAS UN CONFORT. `_appelle` ne voit que la FORME A (`from X import nom`), et
+    la doctrine impose la FORME B (`import X` puis `X.nom()`) partout ou le symbole est SUBSTITUE
+    par un instrument de mesure -- ce qui est exactement le cas de `finish_attack_triggers`
+    (`probe_437*` le remplace sur le module). Un cliquet ecrit avec `_appelle` seul devient donc
+    VERT-SUR-RIEN des qu'un site respecte la doctrine : il ne trouve plus l'appel et, si
+    l'assertion est negative, il passe."""
+    src = inspect.getsource(fonction)
+    arbre = ast.parse("if 1:\n" + "\n".join("    " + l for l in src.splitlines()))
+    for n in ast.walk(arbre):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if (isinstance(f, ast.Name) and f.id == nom) or \
+                (isinstance(f, ast.Attribute) and f.attr == nom):
+            return True
+    return False
+
+
 def test_etage4_la_famille_ABILITY_ne_thread_PAS_le_bonus_de_percage():
     """FIDELITE, pas oubli. `CalculateAbilityDamage` passe `attackModifiers` memset a 0 ->
     `additionalPiercing = Fix64.Zero` dans `GetBaseDamageWithFixedPiercedArmor`. Y ajouter le
@@ -336,44 +357,67 @@ def test_etage4_les_DEUX_noeuds_de_la_famille_ATTACK_le_threadent():
 # ==================================================================================================
 
 def test_etage5_la_voie_ability_emet_deja_On9():
-    """`after_hit_ability_attack` construit un `TriggerEvent(EventTriggerType.Attack, ...)`, et
-    `damage_ops/ability.py` l'appelle a chaque attaque d'ability. Le residu #512-r3 lisait le NOM
-    de `finish_attack_triggers` (qui n'a bien qu'un call-site) au lieu de l'EVENEMENT."""
-    from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.runner.operations.triggers.dispatch import attack as A
+    """LE FAIT GARDE EST INCHANGE : la voie ability emet bien `On(9)`, contre le residu #512-r3 qui
+    lisait le NOM de `finish_attack_triggers` au lieu de l'EVENEMENT et en concluait le contraire.
+
+    #512-r7 -- SEUL L'EMETTEUR A CHANGE DE FONCTION, et c'est une lecture du natif, pas une
+    reecriture de confort. `after_hit_ability_attack` est le mirror d'`IdunBattle.Operations.
+    ADamageOperation$$EvaluateAfterHitTriggers`, qui n'emet que `On(0x3c)` puis `On(8)` -- relu
+    verbatim au build `t6dpr4k06g`. `On(9)`, lui, sort de `FinishAttackOperation$$Execute`, atteint
+    par le slot 59 que `AttackBehaviour$$Execute` pousse **APRES** le behaviour enfant. Le tenir
+    dans la facade after-hit le faisait donc partir AVANT `On(8)` et AVANT le `On(0x42)` de
+    `RegisterFinalDamage` -- un RANG faux que #512-r4 n'avait pas vu parce qu'il ne gardait que la
+    CARDINALITE.
+
+    On vise donc desormais la FACADE D'ATTAQUE, pas le vecteur after-hit : c'est elle qui clot."""
     from engine.runner.operations.damage_ops import ability as AB
 
-    src = inspect.getsource(A.after_hit_ability_attack)
-    arbre = ast.parse("if 1:\n" + "\n".join("    " + l for l in src.splitlines()))
-    events = [n.args[0] for n in ast.walk(arbre)
-              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-              and n.func.id == "TriggerEvent" and n.args]
-    noms = [a.attr for a in events if isinstance(a, ast.Attribute)]
-    assert EventTriggerType.Attack.name in noms, noms
-
-    # ... et ce vecteur-la EST appele par la voie ability (sinon l'assertion ci-dessus serait
-    # vraie sur du code mort).
-    assert _appelle(AB._AbilityAttack.execute_ability_attack, "after_hit_ability_attack")
+    # l'emission est dans la facade, et elle passe par le foyer `finish_attack_triggers`.
+    assert _appelle_qualifie(AB._AbilityAttack.execute_ability_attack, "finish_attack_triggers")
+    # ... et la facade appelle TOUJOURS le vecteur after-hit, qui porte les DEUX evenements de
+    # l'OPERATION (`On(0x3c)`, `On(8)`) -- les confondre avec la cloture est ce que #512-r4 evitait
+    # et ce que #512-r7 acheve : ils ne partent plus du meme etage, mais ils partent tous les deux.
+    assert _appelle_qualifie(AB._AbilityAttack.execute_ability_attack, "after_hit_ability_attack")
 
 
-def test_etage5_finish_attack_triggers_a_DEUX_foyers_et_pas_un_de_plus():
-    """#512-r4 -- CE CLIQUET A CHANGE D'INVARIANT, ET C'EST DELIBERE.
+def test_etage5_tout_site_qui_CLOT_une_attaque_doit_aussi_l_OUVRIR():
+    """#512-r7 -- CE CLIQUET A CHANGE D'INVARIANT UNE SECONDE FOIS, ET LA LISTE A DISPARU.
 
-    Il gardait « UN SEUL call-site », comme moitie VRAIE de #512-r3 : lire le NOM
-    `finish_attack_triggers` au lieu de l'EVENEMENT `On(9)` faisait croire que la voie ability ne
-    l'emettait pas, et ajouter un second emetteur y aurait DOUBLE l'evenement. Cette prudence-la
-    est REMPLIE autrement depuis #512-r4 : l'emission par FEUILLE est desormais GATEE par
-    `is_outside_attack` (cf. l'etage 6), donc un foyer de NOEUD n'ajoute rien -- il DEPLACE.
+    CE QU'IL GARDAIT, ET POURQUOI CA NE POUVAIT PLUS TENIR. Il exigeait la LISTE
+    `["combat.py", "normal.py"]`, au motif que « le slot 59 est pousse par les NOEUDS de l'arbre,
+    jamais par une operation de degat ». La topologie native est exacte -- mais la conclusion en
+    liste supposait que les seuls mirrors de NOEUD du port soient ces deux fichiers. C'est FAUX, et
+    c'est MESURE : `execute_ability_attack` et `execute_normal_like` ont **8 appelants imperatifs**
+    hors de `combat.py` (`loki/splash.py` x2, `loki/summon.py`, `operations/summon_ai.py`,
+    `triggers/genestealer.py`, `triggers/loki/{destroyer_hive,hailstrike,haze_of_corruption}.py`),
+    **tous** au defaut `is_outside_attack = True`. Pour eux, la facade ne mirroite pas seulement
+    l'OPERATION : elle COLLAPSE le couple `AttackBehaviour` + `AttackDamageBehaviour` que leur
+    factory native (`DSLBehaviors$$AttackWithAttackDamage`) construit d'un bloc. Le drapeau
+    `is_outside_attack` EST le marqueur de ce collapse -- `True` veut dire « cet appel tient lieu du
+    NOEUD aussi ». Deplacer la cloture dans le seul `combat.py` aurait donc retire `On(9)` a ces
+    huit-la, en silence.
 
-    Le nouvel invariant est la topologie NATIVE : le slot 59 (`FinishAttack`) est pousse par les
-    NOEUDS de l'arbre et par la voie MESSAGE, jamais par une operation de degat. Cote port, cela
-    fait exactement DEUX foyers -- `damage_ops/normal.py` (la voie normale/overwatch, mirror du
-    `Attack(...)` de `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`) et
-    `abilities/behaviours/combat.py::_emettre_finish_attack_de_noeud` (le foyer de NOEUD, appele par
-    `SortedAttackSeries` et par `HazeOfCorruption`). Un TROISIEME nom de fichier ici veut dire qu'un
-    emetteur a ete recable ailleurs qu'au foyer -- c'est ce qu'on refuse."""
+    LE NOUVEL INVARIANT EST LA SYMETRIE NATIVE, ET IL BORNE PLUS QUE LA LISTE. Dans
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`, l'ouverture et la fermeture sont deux
+    `if` SYMETRIQUES du meme etage :
+
+        if (prev == null || prev != cur)  <slot 0x3a = 58 StartAttack>   -> On(5)
+        <behaviour ENFANT>
+        if (next == null || next != cur)  <slot 0x3b = 59 FinishAttack>  -> On(9), On(10)
+
+    => **un site qui CLOT est un site qui OUVRE**. La reciproque est FAUSSE cote port, et
+    volontairement : un site peut ouvrir lui-meme et deleguer la fermeture au foyer de NOEUD
+    (`combat.py::_emettre_finish_attack_de_noeud`) -- c'est exactement ce que fait
+    `haze_of_corruption.py`, qui appelle `pre_attack_triggers` sans appeler `finish_attack_triggers`.
+
+    CE QUE CETTE BORNE REFUSE, ET QUE LA LISTE NE REFUSAIT PAS MIEUX : un emetteur de cloture pose
+    dans un module qui n'ouvre aucune attaque -- c'est-a-dire precisement le « recable ailleurs
+    qu'au foyer » que l'ancienne redaction visait. Elle est en outre DERIVEE (aucun nom de fichier
+    en dur), donc elle survit a un renommage et ne se perime pas quand un mirror de noeud legitime
+    apparait. Elle est STRICTEMENT PLUS FORTE sur l'axe qui compte : la liste autorisait
+    `normal.py` a clore sans ouvrir, cette borne non."""
     racine = pathlib.Path(__file__).resolve().parents[2] / "engine"
-    sites = []
+    ouvrent, closent = set(), set()
     for chemin in racine.rglob("*.py"):
         arbre = ast.parse(chemin.read_text(encoding="utf-8"))
         for n in ast.walk(arbre):
@@ -381,8 +425,16 @@ def test_etage5_finish_attack_triggers_a_DEUX_foyers_et_pas_un_de_plus():
             nom = (fn.id if isinstance(fn, ast.Name)
                    else fn.attr if isinstance(fn, ast.Attribute) else None)
             if nom == "finish_attack_triggers":
-                sites.append(chemin.name)
-    assert sorted(sites) == ["combat.py", "normal.py"], sites
+                closent.add(chemin.name)
+            elif nom == "pre_attack_triggers":
+                ouvrent.add(chemin.name)
+    # TEMOIN DE NON-VACUITE : une mesure vide passerait pour verte.
+    assert len(closent) >= 2, closent
+    assert len(ouvrent) >= 2, ouvrent
+    clot_sans_ouvrir = sorted(closent - ouvrent)
+    assert not clot_sans_ouvrir, (
+        "ces modules CLOTURENT une attaque sans jamais l'OUVRIR -- `FinishAttack` y est donc "
+        "recable ailleurs que sur l'etage qui pousse `StartAttack` : %r" % (clot_sans_ouvrir,))
 
 
 def test_etage5_le_vecteur_On9_de_la_feuille_est_GATE_par_is_outside_attack():
@@ -394,25 +446,46 @@ def test_etage5_le_vecteur_On9_de_la_feuille_est_GATE_par_is_outside_attack():
     HellfyreMissileRack`) ou une feuille nue dans le `Attack(...)` d'une autre attaque (le FOLD de
     l'attaque normale, les N transferts d'`HazeOfCorruption`).
 
-    On garde le GATE, pas son ecriture : les deux facades doivent thread `emit_finish_attack`
-    depuis leur `is_outside_attack`, et `after_hit_ability_attack` doit en faire une CONDITION."""
-    from engine.runner.operations.triggers.dispatch import attack as A
+    #512-r7 -- LE GATE SURVIT, SON RELAIS DISPARAIT, ET UN SEUL DES DEUX CRANS DOIT RESTER.
+    L'ecriture gardee ici etait `after_hit_ability_attack(emit_finish_attack=<is_outside_attack>)`,
+    c'est-a-dire un PARAMETRE-RELAIS : la facade passait son `is_outside_attack` a la fonction
+    after-hit, qui en faisait une condition. Ce relais n'a plus d'objet -- l'emission ayant quitte
+    la fonction after-hit (elle partait au mauvais RANG, cf.
+    `test_etage5_la_voie_ability_emet_deja_On9`), le gate est desormais DIRECT, dans la facade
+    elle-meme. Exiger encore le parametre ferait de ce cliquet et de
+    `test_512r7_ordre_cloture_offline.py` deux gardes CONTRADICTOIRES, dont l'un devrait etre
+    desarme pour que l'autre passe.
+
+    LE FAIT GARDE EST STRICTEMENT LE MEME, et il est meme mesure PLUS PRES : l'emission de `On(9)`
+    doit etre sous une condition portant `is_outside_attack`, dans les DEUX facades. On le lit
+    desormais sur le `ast.If` qui ENGLOBE l'appel -- pas sur un mot-cle passe a un tiers, qui
+    pouvait etre arme et toujours vrai."""
     from engine.runner.operations.damage_ops import ability as AB
     from engine.runner.operations.damage_ops import normal_like as NL
 
-    src = inspect.getsource(A.after_hit_ability_attack)
-    arbre = ast.parse("if 1:\n" + "\n".join("    " + l for l in src.splitlines()))
-    gardes = [n for n in ast.walk(arbre)
-              if isinstance(n, ast.If) and isinstance(n.test, ast.Name)
-              and n.test.id == "emit_finish_attack"]
-    assert gardes, "`On(9)` n'est plus sous le gate `emit_finish_attack` dans la facade after-hit"
-    # ... et le gate doit etre ALIMENTE par `is_outside_attack` aux DEUX call-sites, sinon il est
-    # arme mais toujours vrai (degradation silencieuse, exactement le regime d'avant).
     for fn in (AB._AbilityAttack.execute_ability_attack, NL._NormalLike.execute_normal_like):
         s = inspect.getsource(fn)
         a = ast.parse("if 1:\n" + "\n".join("    " + l for l in s.splitlines()))
-        kw = [k for n in ast.walk(a) if isinstance(n, ast.Call)
-              for k in (n.keywords or []) if k.arg == "emit_finish_attack"]
-        assert kw, "%s ne thread pas `emit_finish_attack`" % fn.__qualname__
-        assert any("is_outside_attack" in ast.unparse(k.value) for k in kw), \
-            "%s thread `emit_finish_attack` sans le derier d'`is_outside_attack`" % fn.__qualname__
+        sous_gate = []
+        for n in ast.walk(a):
+            if not isinstance(n, ast.If) or "is_outside_attack" not in ast.unparse(n.test):
+                continue
+            for m in ast.walk(n):
+                f = m.func if isinstance(m, ast.Call) else None
+                nom = (f.id if isinstance(f, ast.Name)
+                       else f.attr if isinstance(f, ast.Attribute) else None)
+                if nom == "finish_attack_triggers":
+                    sous_gate.append(ast.unparse(n.test))
+        assert sous_gate, (
+            "%s : l'appel a `finish_attack_triggers` n'est pas sous une condition portant "
+            "`is_outside_attack` -- une feuille NUE cloturerait l'attaque de son parent"
+            % fn.__qualname__)
+    # ... et LE RELAIS NE DOIT PAS REVENIR. Le parametre `emit_finish_attack` avait un defaut
+    # VRAI : le re-introduire tout en gardant l'emission dans la facade rearmerait un second
+    # emetteur d'`On(9)`, donc la CARDINALITE double que #512-r4 avait precisement fermee. Ce cran
+    # negatif est ce qui remplace l'ancienne exigence positive -- il n'y a plus deux gardes qui se
+    # contredisent, il y en a un qui interdit le retour de l'autre.
+    from engine.runner.operations.triggers.dispatch import attack as A
+    assert "emit_finish_attack" not in inspect.signature(A.after_hit_ability_attack).parameters, \
+        ("`after_hit_ability_attack` a retrouve son parametre `emit_finish_attack` : si elle emet "
+         "de nouveau `On(9)`, la facade l'emet DEUX fois, et au mauvais rang la premiere")
