@@ -18,6 +18,15 @@ montage n'appartient a aucun des trois, et `abilities/targeting.py` -- ou vivent
 NE reecrit PAS quand il reecrit actor/caster/target/tuiles. Les appelants qui n'ont pas d'ancre
 d'ability passent `None` et le module lit la position REELLE -- ce qui est correct partout ou les
 deux coincident, et NOMME la ou elles pourraient diverger (residu `#419-r1-tr14-r4-r3`).
+
+⚠ **ET CETTE POSITION EST UNE EMPREINTE, PAS UNE MAIN TILE (#10024).** Le 3e parametre est type
+`IdunBattle.Core.UnitPosition`, un `System.ValueType` a UN champ -- une `List<IEntity>` de tuiles
+(`$$.ctor(tile)` construit la liste, `$$get_MainTile` rend `list[0]`, `$$NullPosition` rend la liste
+vide). Et `IdunBattle.Entities.EntityExtensions$$GetUnitPosition(unit, state)`, ce que passe tout
+appelant sans ancre, a pour corps ENTIER `return GetTiles(unit, state);`. Le module lisait la MAIN
+TILE des deux cotes : il refusait donc une adjacence que le natif accorde des qu'une des deux unites
+est multi-hex. `unit_tiles` est le mirror de `GetUnitPosition` ; `unit_position` reste la main tile,
+hors du chemin du predicat.
 """
 from __future__ import annotations
 
@@ -26,16 +35,44 @@ from typing import Optional
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.unit_flag import UnitFlag
 from ..services.battle_query import is_melee_attack as _svc_is_melee_attack
-from .components import PositionComponent, UnitFlagsComponent
+from .components import PositionComponent, UnitFlagsComponent, get_unit_feet
 
 
 def unit_position(state, unit_id) -> Optional[tuple]:
-    """`IdunBattle.Entities.EntityExtensions$$GetUnitPosition(unit)` reduit a sa MAIN TILE --
-    la tuile que les appelants du slot 2 passent en `casterPosition` quand aucune ancre d'ability
-    ne la leur donne. `None` = pas de `PositionComponent` (entite morte ou hors board)."""
+    """La MAIN TILE de l'unite = `IdunBattle.Core.UnitPosition$$get_MainTile` applique a
+    `IdunBattle.Entities.EntityExtensions$$GetUnitPosition(unit)`, c'est-a-dire `GetTiles(unit)[0]`.
+
+    ⚠ **CE N'EST PAS `GetUnitPosition`** -- et l'avoir cru l'etait est exactement l'ecart `#10024`.
+    Le corps entier de `GetUnitPosition(unit, state)` est `return GetTiles(unit, state);` : il rend
+    l'EMPREINTE, pas une tuile. Le mirror de `GetUnitPosition` est `unit_tiles` ci-dessous, et c'est
+    lui que le slot 2 consomme. Celui-ci reste pour les appelants qui veulent VRAIMENT une tuile
+    unique (une ancre scalaire, un affichage) -- il n'est plus dans le chemin du predicat.
+
+    `None` = pas de `PositionComponent` (entite morte ou hors board)."""
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     pc = e.get_component(PositionComponent) if e is not None else None
     return (pc.col, pc.row) if pc is not None else None
+
+
+def unit_tiles(state, unit_id) -> list:
+    """`IdunBattle.Entities.EntityExtensions$$GetUnitPosition(unit, state)` -- MIRROR ENTIER, et son
+    corps natif tient en une ligne :
+
+        return IdunBattle.Entities.EntityExtensions.GetTiles(unit, state);
+
+    Donc l'**EMPREINTE COMPLETE**. C'est ce que tout appelant du slot 2 sans ancre d'ability passe
+    en `casterPosition`, et c'est aussi ce que la surcharge
+    `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(tiles:IList<IEntity>, unit:IEntity)`
+    reconstruit du cote CIBLE (`tiles2 = GetTiles(unit, state)`).
+
+    DELEGUE a `runner.components.get_unit_feet`, foyer UNIQUE de `GetTiles`/`IterateTiles` cote
+    ECS -- on ne re-derive rien ici. Une unite mono-tuile rend `[(col, row)]` (son
+    `UnitComponent.feet` n'est pas materialise, cf. `snapshot._load_feet`), une multi-hex rend ses
+    N pieds DANS L'ORDRE, `feet[0]` etant la main tile. Entite sans tuile -> `[]`, ce qui rend
+    `AreTilesAdjacent(IList, IList)` faux par boucle vide -- le natif fait pareil."""
+    if unit_id is None:
+        return []
+    return list(get_unit_feet(state, int(unit_id)))
 
 
 def force_ranged_attack(state, unit_id) -> bool:
@@ -96,15 +133,23 @@ def is_melee_attack(state, ability_name: Optional[str], caster_id, target_id,
     `engine.services.battle_query.is_melee_attack` -- ici on ne fait que lui donner son substrat.
 
     `caster_position` = l'ancre d'ability (`AbilityEntities.CasterPosition`) quand l'appelant en a
-    une ; `None` -> la position REELLE du caster (cf. l'avertissement d'en-tete).
+    une ; `None` -> la position REELLE du caster, c.-a-d.
+    `IdunBattle.Entities.EntityExtensions$$GetUnitPosition(caster, state)` = **son EMPREINTE**
+    (`unit_tiles`, cf. sa docstring), et non sa main tile -- c'est la correction `#10024`. L'ancre
+    est acceptee sous ses DEUX formes (tuile candidate ou empreinte), `as_unit_position` la
+    normalisant comme le fait `AbilityEntities$$get_CasterPosition`.
+
+    La CIBLE entre elle aussi par son EMPREINTE : la surcharge que le natif appelle est
+    `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(tiles:IList<IEntity>, unit:IEntity)`,
+    dont la premiere instruction est `tiles2 = EntityExtensions.GetTiles(unit, state)`.
 
     Cible absente / positions absentes -> `False` : le natif deref sans garde, on ne mirroir pas une
     levee, et l'absence de position ne peut pas valoir « au contact »."""
     if target_id is None:
         return False
-    cpos = caster_position if caster_position is not None else unit_position(state, caster_id)
-    tpos = unit_position(state, target_id)
-    if cpos is None or tpos is None:
+    cpos = caster_position if caster_position is not None else unit_tiles(state, caster_id)
+    tpos = unit_tiles(state, target_id)
+    if not cpos or not tpos:
         return False
     neigh, elev = board_maps(state)
     return bool(_svc_is_melee_attack(ability_name, cpos, tpos, elev_by_pos=elev,
@@ -125,4 +170,4 @@ def normal_attack_is_melee(state, caster_id, target_id,
 
 
 __all__ = ["board_maps", "force_ranged_attack", "is_melee_attack", "normal_attack_is_melee",
-           "normal_attack_name", "unit_position"]
+           "normal_attack_name", "unit_position", "unit_tiles"]
