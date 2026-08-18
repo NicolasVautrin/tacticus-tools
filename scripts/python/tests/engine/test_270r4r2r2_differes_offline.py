@@ -150,16 +150,54 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 #   * le plafond INCONDITIONNEL reste a **187**, INCHANGE -- la mesure (186) tient encore sous
 #     lui, donc il n'y a aucune raison de le desserrer. Un ratchet ne se relache que sur l'axe ou
 #     il est demontre intenable, jamais << au passage >>.
-#: MESURE le 2026-08-12 (#962), APRES rebase sur `origin/master` : 290 instructions, dont 186
-#: inconditionnelles. Les plafonds ne SONT pas la mesure, ils la bornent.
-MESURE_DIFFERES, MESURE_INCONDITIONNELS = 290, 186
-#: MARGE = 12, RESSERREE (18 avant) : le relevement du plafond total se paie par une marge plus
-#: courte, donc par une re-mesure plus frequente.
+# ⚠⚠ 2026-08-18 (#485-r5) -- LA MESURE INSCRITE CI-DESSOUS ETAIT DEJA FAUSSE A SON PROPRE COMMIT,
+# et c'est ce qu'il faut lire en premier : `869b9760` (#962) a inscrit `290` en le disant << mesure
+# APRES rebase sur origin/master >>, alors que SON arbre en porte **294**. L'ecart de 4 n'est pas une
+# derive posterieure -- c'est une mesure prise sur un arbre qui n'a pas ete livre. Consequence
+# CHIFFREE : la marge annoncee de 12 n'en valait reellement que **8**, et la re-mesure est arrivee
+# d'autant plus tot. Un seuil ecrit A LA MAIN ne peut pas dire s'il juge l'arbre qu'on livre ; le
+# rendre verifiable est le residu **#485-r6**. En attendant, la regle d'ecriture est explicite : la
+# mesure s'inscrit APRES le rebase de la branche, jamais avant.
+#
+# CE QUI A ETE MESURE AVANT DE RELEVER, dans l'ordre :
+#   * l'OUTIL n'a pas bouge -- il fallait l'etablir avant d'attribuer quoi que ce soit au code.
+#     `git diff 869b9760 HEAD -- probe_270r4r2r2_tri_differes.py` est VIDE, et les QUATRE
+#     croisements (outil ancien/neuf x arbre ancien/neuf) rendent les memes couples 294/186 et
+#     331/218. Le delta est INTEGRALEMENT du code.
+#   * ATTRIBUTION : 860 commits entre `869b9760` (2026-08-12) et cet arbre, pour +37 instructions --
+#     soit **0,043 par commit**, CINQ A SIX FOIS SOUS le debit qui a justifie les relevements
+#     precedents (0,23 ; 0,27 ; 0,24). La derive ne s'accelere pas, elle a nettement ralenti.
+#   * DISPERSION : 34 modules montent (+54), 12 baissent (-17) ; la plus grosse contribution vaut
+#     **+6** (`runner.components`, `runner.abilities.behaviours.context`). Aucun module ne remonte
+#     le plafond a lui seul -- il faudrait +29. Les deux reprises de MASSE au dossier valent 625 et
+#     122 instructions : une marge de 12 n'en masque aucune.
+#   * le GISEMENT HISSABLE est EPUISE au critere DOCTRINAL, et c'est lui qui fait foi :
+#     `probe_485_imports_differes` rend **0 gratuit hors base** (les 3 restants sont les imports
+#     OPTIONNELS sous `try/except` de la base attestee). Les 4 derniers gratuits ont ete hisses en
+#     FORME B dans cette tranche meme (#485-r5), etage 1 remis a ZERO.
+#   * la partition EXHAUSTIVE (`--mesurer`, 331 sites) rend 71 TYPE_CHECKING, 165 brise-cycle,
+#     42 conditionnel, 22 placement -- et 31 `hissable`. Ces 31 NE SONT PAS un gisement : leur
+#     critere (<< l'import reste vert dans les 2 ordres essayes >>) est un FAUX POSITIF connu
+#     (#962, contre-epreuve `battle_query.py:340`), et `probe_485` les classe PORTEURS par la
+#     mesure en process frais. `migrate_270r4r2r2_hisser_differes` REFUSE d'ailleurs de les
+#     traiter : l'arbre porte 4 SCC module-level -- **PRE-EXISTANTS**, temoin pris sur
+#     `origin/master` `8b2a2e35` qui rend les MEMES 4 SCC avec les MEMES membres.
+#   * DONC le compte ne descend plus par hissage : il se ferme en DEPLACANT le code partage
+#     (doctrine (1)), ce que porte le residu `#270-r4-r2-r2-r4`.
+#: MESURE le 2026-08-18 (#485-r5), APRES rebase sur `origin/master` `8b2a2e35` ET apres les quatre
+#: hissages de la tranche : 331 instructions, dont 218 inconditionnelles. C'est la mesure de
+#: l'arbre LIVRE, pas d'un arbre intermediaire. Les plafonds ne SONT pas la mesure, ils la bornent.
+MESURE_DIFFERES, MESURE_INCONDITIONNELS = 331, 218
+#: MARGE = 12, INCHANGEE, et desormais JUSTIFIEE PAR LA CADENCE MESUREE : 12 / 0,043 par commit
+#: = ~280 commits, soit ~2 jours au rythme constate (860 commits en 6 jours, ~143/jour). La
+#: resserrer davantage ferait rougir la PR suivante pour une derive qu'elle n'a pas creusee ;
+#: l'elargir masquerait ce que ce seuil surveille.
 _MARGE = 12
 PLAFOND_DIFFERES = MESURE_DIFFERES + _MARGE
-#: INCHANGE a 187 (l'ancien `169 + 18`) : la mesure inconditionnelle tient encore dessous, donc ce
-#: plafond-la ne remonte PAS. Il n'est volontairement PAS derive de `_MARGE`.
-PLAFOND_INCONDITIONNELS = 187
+#: DERIVE de `_MARGE` desormais (il etait un litteral tant qu'il ne remontait pas). Le deriver
+#: ferme un trou d'ecriture : on ne peut plus desserrer CE plafond-la sans relever la MESURE,
+#: c'est-a-dire sans inscrire un chiffre que l'etage 3 confronte a l'arbre.
+PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + _MARGE
 
 
 @pytest.fixture(scope="module")
