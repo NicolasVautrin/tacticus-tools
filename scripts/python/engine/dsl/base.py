@@ -858,9 +858,22 @@ def _main_tiles(origin, board=None, units=None, only_units: bool = True) -> list
             if (tile != null) result.Add(tile);
         }
 
-    ⚠ LE DISCRIMINANT DES DEUX REGIMES EST UNE PROPRIETE DU **NOEUD**, PAS LE DOMAINE DE LA VALEUR
-    (#10023-r3). `TargetsSelector$$SelectAllUnits` ouvre par une porte VIRTUELLE, relue VERBATIM
-    sur `t6dpr4k06g` :
+    ⚠ **DEUX CHOSES COMMANDENT CE QUI EST RETRANCHE, ET IL FAUT LES TENIR SEPAREES** (#10023-r3) :
+
+      1. **la PROPRIETE DU NOEUD** `ReturnsOnlyUnits` decide s'il y a RESOLUTION tuile -> occupant ;
+      2. **ce que le noeud ENUMERE** decide du NOMBRE de main tiles -- `GetMainTile` s'applique PAR
+         ENTITE. `Caster()`/`Target()` enumerent UNE entite-unite -> UNE tuile ;
+         `CasterTile()`/`TargetTile()` enumerent l'EMPREINTE (N entites-tuile) -> N tuiles.
+
+    Ecrire « le discriminant est le NOEUD, pas le domaine de la valeur » etait donc trop large :
+    c'est le noeud qui decide du REGIME, et son ENUMERATION qui decide du COMPTE. Les deux
+    ensemble expliquent que `Adjacent` et `Surrounding` COINCIDENT sur une origine en domaine
+    TUILE et DIVERGENT sur une origine en domaine UNITE -- ce que garde
+    `test_459_tile_accessors_offline.py`, dont le montage visait la bonne propriete sur la
+    mauvaise origine.
+
+    `TargetsSelector$$SelectAllUnits` ouvre par une porte VIRTUELLE, relue VERBATIM sur
+    `t6dpr4k06g` :
 
         list = this.<slot 0x17 = Select>(entities);
         if (this.<klass+0x278>()) return list;        // <- rendu TEL QUEL, aucune resolution

@@ -97,6 +97,84 @@ ventilation A/B reste comme **diagnostic** du régime.
   garde. La mutation patche les **DEUX** liaisons (`accessors.py` importe `_main_tiles` en forme A,
   donc patcher le seul foyer laisserait le call-site intact et la contre-épreuve serait vacante).
 
+## 3ter. `#459` disait l'INVERSE — et la résolution n'est ni « lui » ni « moi »
+
+`test_459_tile_accessors_offline.py::test_surrounding_excludes_only_the_main_tile` assertait
+`SurroundingUnits(TargetTile(), 1)` == `[tgt]` sur une origine multi-hex, docstring à l'appui :
+« retrancher toute l'empreinte ici serait une seconde erreur, pas une correction ». Il est tombé
+sur ce correctif. **Les deux ne pouvaient pas être vrais.**
+
+### Ce qui tranche : la metadata, pas un arbitrage
+
+`global-metadata.dat` est indexée **par TYPE**, donc la déduplication de CODE qui aveugle
+`frida/methods.tsv` ne l'atteint pas. Lecture (`il2cpp_metadata.type_methods`) :
+
+| type | méthodes DÉCLARÉES | override `get_ReturnsOnly*` |
+|---|---|---|
+| `IdunBattle.DSL.TargetsSelector` | 27 | déclare les **quatre** |
+| `CasterTileSelector` | `.ctor`, `Select` | **aucun** |
+| `TargetTilesSelector` | `.ctor`, `Select` | **aucun** |
+| `UnitsMainTilesSelector` | `.ctor`, `Select` | **aucun** |
+| `AdjacentTilesSelector` | 4 | `ReturnsOnlyTiles`, `ReturnsOnlyUnique` |
+
+`CasterTileSelector` et `TargetTilesSelector` dérivent toutes deux de `TargetsSelector`, même taille
+(24), et **n'overrident rien** : elles héritent de la MÊME valeur. La mesure live faite sur l'une
+vaut donc pour l'autre — et c'est **lu**, plus supposé.
+
+### La faute de `#459` est dans son MONTAGE, pas dans son intention
+
+Son raisonnement — « `Tiles(origin)` = `GetMainTile` par ENTITÉ → UNE SEULE tuile » — n'est vrai que
+si l'origine n'énumère **qu'une** entité. Or `#459` établit lui-même, deux tests plus haut
+(`test_target_tile_returns_the_whole_footprint`), que `TargetTile()` en rend **TROIS**. Le fichier se
+contredisait.
+
+**La réciproque qu'il gardait est VRAIE — elle vit sur l'origine en domaine UNITÉ** :
+
+| origine | `AdjacentUnits` | `SurroundingUnits` | |
+|---|---|---|---|
+| `TargetTile()` — N entités-**tuile** | `[]` | `[]` | coïncident |
+| `Target()` — 1 entité-**unité** | `[]` | `[tgt]` | **divergent** |
+
+Côté `Adjacent`, `SelectTiles(Target)` déplie l'entité en son empreinte ⇒ tout retranché ; côté
+`Surrounding`, `Tiles(Target)` applique `GetMainTile` à l'unique entité ⇒ **une** tuile. Le
+call-site `SurroundingUnits(Target())` existe pour de vrai (`abilities/bloodangels.py`) : ce n'est
+pas un cas d'école.
+
+### Ce que ça corrige dans MA propre conclusion
+
+« Le discriminant est le NŒUD, pas le domaine de la valeur » était **trop large**. Deux choses
+commandent, et il faut les tenir séparées :
+
+1. la **propriété du nœud** (`ReturnsOnlyUnits`) décide s'il y a **résolution** tuile → occupant ;
+2. ce que le nœud **ÉNUMÈRE** décide du **nombre** de main tiles — `GetMainTile` s'applique PAR
+   ENTITÉ.
+
+Le port faisait déjà exactement cela (`_main_tiles` boucle sur `_origin_entities`) ; c'est la prose
+qui était fausse, des deux côtés.
+
+### Le retournement, et ce qui le garde
+
+Patron `case-589-r2` : (a) la **mesure** — les deux ci-dessus ; (b) un **garde qui remplace** —
+`test_the_two_exclusions_DIVERGE_on_a_UNIT_domain_origin` porte la réciproque sur l'origine qui
+l'exerce, et le fichier garde désormais **les deux** faits (coïncidence en domaine tuile, divergence
+en domaine unité) au lieu d'un seul ; (c) un **cran anti-vidage** —
+`test_the_unit_domain_montage_is_not_vacuous` asserte que `Target()` rend bien UNE entité là où
+`TargetTile()` en rend TROIS, sans quoi les deux assertions passeraient sur un montage dégénéré.
+
+**Contre-épreuve JOUÉE** — les deux mutations mordent sur le test retourné, et sur lui seul :
+
+| mutation de `_main_tiles` | résultat |
+|---|---|
+| port d'avant (`[:1]` partout) | 1 failed / 21 passed → `..._on_a_TILE_domain_origin` |
+| résolution d'occupant | 1 failed / 21 passed → le même |
+| revert | **22 passed** |
+
+**Et un cran de plus, en amont** : `probe_10023r1` **étage 7** vérifie qu'aucun des trois sélecteurs
+n'override `get_ReturnsOnlyUnits`. C'est *ce fait* qui autorise à transporter la mesure ; s'il
+changeait, le transport deviendrait faux **en silence**. Il rend `NON MESURÉ` (jamais un rouge
+fabriqué) quand le jeu n'est pas installé, et il assertionne son propre non-vide (la base doit
+déclarer la propriété, sinon l'étage ne garde rien).
+
 ## 4. Ce qu'aucun cliquet ne pouvait voir
 
 `probe_10023r1` étage 4 assertionnait « UNE SEULE tuile retranchée » et il était **VERT** — l'oracle
@@ -114,9 +192,12 @@ est désormais plus GRANDE).
 
 - **Le régime `ReturnsOnlyUnits == False` est porté, jamais exercé** : aucun nœud du dépôt ne le
   déclare. Il est écrit parce que c'est le natif.
-- **Deux slots mesurés sur N.** `Target` et `CasterTiles` concordent ; les autres accesseurs
-  (`Owner`, `Actor`, `TargetTile`, …) prennent le défaut sans mesure propre. Un nœud qui rendrait
-  `False` doit l'ÉCRIRE avec la mesure qui l'établit.
+- **Deux slots MESURÉS ; trois sélecteurs COUVERTS par héritage LU.** `Target` et `CasterTiles`
+  concordent en live ; `TargetTilesSelector` et `UnitsMainTilesSelector` sont couverts parce que la
+  metadata établit qu'ils n'overrident pas (étage 7). Les **autres** classes de sélecteur prennent
+  le défaut **sans être vérifiées** : l'étage 7 ne balaie que ces trois-là. Un nœud qui rendrait
+  `False` doit l'ÉCRIRE avec la mesure qui l'établit — et l'ajouter à `HERITIERS_SANS_OVERRIDE`
+  s'il doit être couvert.
 - **Le régime « N unités distinctes »** reste inerte : 35 instanciations, aucune origine multi-unité.
 - Le montage n'a qu'**une** cible discriminante par run (`abilityTargets.fromHere` n'en déclare que
   2, le gate dynamique `|A ∩ B| == 1` de #1030-r1 étant très restrictif).
