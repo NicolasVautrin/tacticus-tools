@@ -58,6 +58,24 @@
 // donc le cap ne s'applique pas -- et si on veut etre fidele, on filtre soi-meme la liste qu'on
 // passe ici. Ne PAS aller chercher un gate de rarete dans la BC : il n'y en a pas.
 //
+// ⚠ LE CATALOGUE NE SE CHOISIT PAS -- IL SE LIT. C'ETAIT LE BLOCAGE #10038.
+// `GuildWarsGameModeSource$$LoadBattleInternal` passe a la fabrique, VERIFIE AU DECOMPILE :
+//   - `availableMainPlayerUnits` = `this+0xf0`, que le ctor remplit par
+//     `GetUsableAndExhaustedUnits(includeMachinesOfWar: TRUE, (WarZoneId, SlotIndex))` ;
+//   - `mainPlayerUnits` = **0**, litteralement -- la phase de deploiement choisit.
+// Ce module passait la MEME liste choisie aux deux positions, et `includeMow = 0`. Consequences
+// mesurees : `BC.Units` ne portait que ces ids, donc toute unite posee au deploiement devenait une
+// entite SANS DEFINITION (elle se deplace au premier tour, puis la partie ne progresse plus), et
+// aucune Machine of War n'entrait au catalogue. C'est mot pour mot le vice que
+// `guild-boss-config.ts` documente en tete : « construire avec des arguments CHOISIS produit une BC
+// dont le catalogue ne contient que ce qu'on a passe, alors que le HUD, lui, offre les unites
+// deployables du mode ». La sandbox guild boss ne l'a jamais eu parce qu'elle appelle
+// `LoadBattleInternal` sur une source FORGEE, qui fait ce remplissage elle-meme.
+//
+// ⚠ ET L'ADRESSE DU ROSTER EST (WarZoneId, SLOT), PAS (WarZoneId, ZonePart). Le record porte les
+// deux (`+0x18` = ZonePartIndex, `+0x1c` = SlotIndex) et le ctor lit `+0x1c`. Le choix naturel est
+// donc le mauvais.
+//
 // ⚠ CE MODULE NE MONTE RIEN. Il rend un JSON. Le montage reste le geste separe et confirme de
 // `sandbox.ts` (`sandboxStartBattle`), qui ECRASE le match courant -- d'ou `confirmer` la-bas.
 
@@ -229,6 +247,76 @@ function progressionPhase(): NativePointer | RefusVue {
         return refus("`_guildWarPhaseProgression` est NUL sur l'executeur vivant");
     }
     return p as NativePointer;
+}
+
+/**
+ * L'ADRESSE DE BATAILLE que le jeu passe au roster : `Nullable<ValueTuple<String, Int32>>`.
+ *
+ * ⚠ RELEVEE AU DECOMPILE, PAS DEDUITE. `GuildWarsGameModeSource$$.ctor` construit un
+ * `ValueTuple` a partir de `battleData+0x10` (WarZoneId) et `battleData+0x1c` (SlotIndex) --
+ * donc (zone, SLOT), et surtout PAS `ZonePartIndex` (`+0x18`), qui serait le choix naturel et
+ * serait FAUX. Il enveloppe ensuite le tuple dans un `Nullable` de 24 octets, dont il relit les
+ * trois mots avant de le passer.
+ *
+ * Disposition, lue sur ces memes trois mots : `{ Item1 : String @0, Item2 : Int32 @8,
+ * hasValue @0x10 }`. Une zone a ZERO vaut donc « pas d'adresse » -- c'est ce que ce module
+ * passait jusqu'ici, et c'est un appel LEGAL qui rend simplement un roster non adresse.
+ */
+function adresseBataille(warZoneId?: string, slotIndex = 0): NativePointer {
+    const p = Memory.alloc(24);
+    p.writeByteArray(new Array(24).fill(0));
+    if (warZoneId !== undefined) {
+        const s = createManagedString(warZoneId);
+        gcRoot.add(s);                       // la boite n'est PAS une racine GC : l'ancrer
+        p.writePointer(s);
+        p.add(8).writeS32(slotIndex);
+        p.add(0x10).writeU8(1);              // hasValue
+    }
+    return p;
+}
+
+/**
+ * LE ROSTER DE GUERRE TEL QUE LA FABRIQUE LE RECOIT -- celui du JEU, jamais celui qu'on choisit.
+ *
+ * ⚠ C'EST LE FOYER DU BLOCAGE #10038, ET LE DECOMPILE LE NOMME. `LoadBattleInternal` passe en
+ * `availableMainPlayerUnits` le champ `this+0xf0` de la source, que son ctor remplit par
+ * `GetUsableAndExhaustedUnits(includeMachinesOfWar: TRUE, adresse)`. Ce module passait a la place
+ * une `List<IUnitModel>` batie sur les ids CHOISIS par l'appelant, et `includeMow = 0`. Deux
+ * consequences, toutes deux mesurees :
+ *
+ *   - `BC.Units` (le CATALOGUE) ne contenait que ces ids. Poser au deploiement une unite absente
+ *     du catalogue cree une entite SANS DEFINITION : elle se deplace au premier tour et la partie
+ *     ne progresse plus. C'est le vice que `guild-boss-config.ts` documente en tete -- meme cause,
+ *     meme signature.
+ *   - aucune Machine of War n'entrait dans le catalogue, d'ou le slot MoW vide.
+ *
+ * ⚠ Le retour est un `ValueTuple` a trois champs, donc un TYPE VALEUR : `il2cpp_runtime_invoke`
+ * le rend BOXE, et les references vivent a `+0x10` (utilisables), `+0x18` (epuisees), `+0x20`.
+ */
+function rosterDeGuerre(k: NativePointer, sur: NativePointer, inclureMow: boolean,
+                        warZoneId?: string, slotIndex = 0):
+    { utilisables: NativePointer; epuisees: NativePointer } | RefusVue {
+    const m = findMethodByParamCount(k, "GetUsableAndExhaustedUnits", 2);
+    if (!m) {
+        return refus("`GuildWarPhaseProgression$$GetUsableAndExhaustedUnits` a 2 parametres "
+            + "INTROUVABLE -- chemin PERIME, on ne bricole pas un roster de remplacement");
+    }
+    const mow = Memory.alloc(1);
+    mow.writeU8(inclureMow ? 1 : 0);
+    let boite: NativePointer;
+    try {
+        boite = invokeMethod(m.info, sur, [mow, adresseBataille(warZoneId, slotIndex)]);
+    } catch (e) {
+        return refus("`GetUsableAndExhaustedUnits` a LEVE : " + (e as Error).message);
+    }
+    if (boite.isNull()) return refus("`GetUsableAndExhaustedUnits` a rendu NUL");
+    gcRoot.add(boite);
+    const utilisables = boite.add(0x10).readPointer();
+    if (utilisables.isNull()) {
+        return refus("`GetUsableAndExhaustedUnits` a rendu un tuple dont les UTILISABLES sont "
+            + "NULS -- roster vide, la fabrique produirait un catalogue vide");
+    }
+    return { utilisables, epuisees: boite.add(0x18).readPointer() };
 }
 
 /** Invoque une methode d'instance NOMMEE et rend son retour, ou un refus NOMME. */
@@ -574,10 +662,21 @@ export function register(ctx: Ctx): void {
         };
     });
 
-    /** Fabrique la BC d'un match de guild war et la rend en JSON. AUCUN montage, AUCUN reseau. */
+    /** Fabrique la BC d'un match de guild war et la rend en JSON. AUCUN montage, AUCUN reseau.
+     *
+     *  DEUX REGIMES, ET LE DEFAUT EST CELUI DU JEU
+     *  --------------------------------------------
+     *  - `warZoneId` fourni (VOIE NORMALE) : le CATALOGUE vient de
+     *    `GetUsableAndExhaustedUnits(true, (warZoneId, slotIndex))`, exactement comme
+     *    `GuildWarsGameModeSource$$.ctor` le remplit, et `mainPlayerUnits` reste NUL -- donc la
+     *    phase de deploiement choisit, comme en jeu.
+     *  - `playerUnits` fourni SANS `warZoneId` (voie DEGRADEE, conservee pour les montages
+     *    deterministes) : le catalogue se limite a ces ids. ⚠ Toute unite posee hors de cette
+     *    liste sera une entite SANS DEFINITION -- c'est le blocage #10038. */
     ctx.rpc.guildWarBuildBc = (body?: {
         id?: string; boardId?: string; spawnPointsSet?: number;
-        playerUnits?: string[]; enemyLineupJson?: string;
+        warZoneId?: string; slotIndex?: number;
+        playerUnits?: string[]; preDeployedUnits?: string[]; enemyLineupJson?: string;
         playerAmmo?: number; randomizeAiInput?: boolean;
         environmentAbilitiesJson?: string; enemyMachineJson?: string;
     }): Promise<unknown> | unknown => {
@@ -587,7 +686,11 @@ export function register(ctx: Ctx): void {
                 + "`PredefinedUnit` du camp adverse, celle qu'un guild war oppose" };
         }
         const joueurs = body.playerUnits ?? [];
-        if (joueurs.length === 0) return { ok: false, error: "`playerUnits` vide" };
+        if (!body.warZoneId && joueurs.length === 0) {
+            return { ok: false, error: "il faut `warZoneId` (le catalogue vient alors du JEU, "
+                + "MoW comprises -- voie normale) OU `playerUnits` (catalogue restreint a ces "
+                + "ids -- voie degradee, cf. #10038)" };
+        }
 
         return queueOnMainThread(() => {
             const kB = findClassAnywhere(NS_VIEW, "BattleConfigBuilder");
@@ -660,11 +763,43 @@ export function register(ctx: Ctx): void {
                 envAb = e as NativePointer;
             }
 
-            const dispo = listeDeModeles(mi, 6, d.prog, joueurs);
-            if (estRefus(dispo)) return { ok: false, error: (dispo as RefusVue).error };
+            // --- arg 6 : LE CATALOGUE. Du JEU quand on a l'adresse de la zone. ----------------
+            let dispo: NativePointer;
+            let catalogueSource: string;
+            let nbEpuisees: number | null = null;
+            if (body.warZoneId) {
+                const prog = progressionPhase();
+                if (estRefus(prog)) return { ok: false, error: (prog as RefusVue).error };
+                const kProg = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                                "GuildWarPhaseProgression");
+                if (!kProg) {
+                    return { ok: false, error: "classe `GuildWarPhaseProgression` introuvable" };
+                }
+                const r = rosterDeGuerre(kProg, prog as NativePointer, true,
+                                         body.warZoneId, body.slotIndex ?? 0);
+                if (estRefus(r)) return { ok: false, error: (r as RefusVue).error };
+                dispo = r.utilisables;
+                catalogueSource = "GetUsableAndExhaustedUnits(includeMachinesOfWar: true, "
+                    + `("${body.warZoneId}", ${body.slotIndex ?? 0}))`;
+                try { nbEpuisees = r.epuisees.isNull() ? 0 : r.epuisees.add(0x18).readS32(); }
+                catch { nbEpuisees = null; }
+            } else {
+                const l = listeDeModeles(mi, 6, d.prog, joueurs);
+                if (estRefus(l)) return { ok: false, error: (l as RefusVue).error };
+                dispo = l as NativePointer;
+                catalogueSource = "playerUnits (voie DEGRADEE -- catalogue restreint, cf. #10038)";
+            }
 
-            const mainIds = depuisJson(mi, 8, JSON.stringify(joueurs));
-            if (estRefus(mainIds)) return { ok: false, error: (mainIds as RefusVue).error };
+            // --- arg 8 : `mainPlayerUnits`. NUL par defaut, COMME LE JEU. ---------------------
+            // ⚠ `LoadBattleInternal` passe `0` a cette position -- verifie au decompile. Y mettre
+            // une liste PRE-PLACE les unites et court-circuite la phase de deploiement ; c'est ce
+            // que faisait ce module, et c'est la seconde moitie du blocage #10038.
+            let mainIds: NativePointer = NULL;
+            if (body.preDeployedUnits && body.preDeployedUnits.length > 0) {
+                const p = depuisJson(mi, 8, JSON.stringify(body.preDeployedUnits));
+                if (estRefus(p)) return { ok: false, error: (p as RefusVue).error };
+                mainIds = p as NativePointer;
+            }
 
             let enemyMachine: NativePointer = NULL;
             if (body.enemyMachineJson) {
@@ -727,7 +862,16 @@ export function register(ctx: Ctx): void {
                 return { ok: false, error: "la serialisation a rendu NUL -- la BC EXISTE mais "
                     + "Newtonsoft ne l'a pas rendue", bc: bc.toString() };
             }
-            return { ok: true, bc: bc.toString(), configJson: json, bytes: json.length };
+            return {
+                ok: true, bc: bc.toString(), configJson: json, bytes: json.length,
+                // CE QUI A REELLEMENT ALIMENTE LE CATALOGUE -- publie parce que c'est le seul
+                // discriminant entre une BC jouable et la BC tronquee du blocage #10038.
+                catalogue: catalogueSource,
+                epuiseesEcartees: nbEpuisees,
+                mainPlayerUnits: mainIds.isNull()
+                    ? "NUL -- la phase de deploiement choisit, comme en jeu"
+                    : "PRE-PLACEES (" + (body.preDeployedUnits ?? []).length + ")",
+            };
         });
     };
 }
