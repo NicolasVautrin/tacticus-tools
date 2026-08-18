@@ -255,13 +255,13 @@ disant qu'il REFUTE `#10022-r1`.
   HETEROGENES exigerait `#10022-r2` d'abord.
 - **Seule la PREMIERE activation est confrontee.** Apres elle, l'unite a bouge et les distances ont
   change ; predire la sequence complete exigerait de re-simuler chaque deplacement.
-- **Un seul board (`MC1_67`) et un seul seed.** La discipline de generalisation du depot demande
-  deux couples (board, seed) des qu'une mecanique touche a la geometrie — le probe prend `--board`
-  et `--seed`, mais aucun second couple n'a ete joue.
 - **L'exception TELEPORTEURS** de `IgnoreTerrainPathfinder$$IsValidPathNode` (section 2) : non
   portee en amont, donc non exercee ici.
-- **Aucune unite MULTI-HEX** dans le montage : la distinction MAIN TILE / footprint (section 1)
-  n'est donc pas confrontee, alors que c'est precisement ce qui separe cette utilite de
-  `MinDistanceToClosestEnemy`.
-- **Aucun ennemi NON CIBLABLE** (deep-strike, Environment, taunt) : l'absence de filtre de
-  ciblabilite est LUE au decompile, pas mesuree.
+
+⚠ **LES TROIS AUTRES PUCES QUI VIVAIENT ICI SONT LEVEES par `#10022-r7`** — second couple
+(board, seed), unite MULTI-HEX, ennemi non ciblable. Chiffres et verdicts (dont **UNE** face
+qu'aucun montage ne peut trancher par cet oracle, residu `#10022-r8`) :
+`docs/rl/case-10022r7-trois-axes-de-generalisation.md`. Le probe y a gagne **trois gardes**, tous
+nes d'un FAUX ROUGE : l'argmax se prend sur l'ENTREE DU PICKER, un CANDIDAT doit etre vivant la ou
+un ENNEMI n'a pas a l'etre, et `team_ia` n'est plus la team MAJORITAIRE (indeterminee a effectifs
+egaux).
