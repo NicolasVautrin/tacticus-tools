@@ -25,6 +25,14 @@ sure-kill. Il ne peut pas montrer :
      `Stormcaller` n'a ni l'un ni l'autre. Un compte errone fait sur-estimer le rayon de souffle
      d'un fix -- c'est ce qui avait fait DIFFERER celui-ci.
 
+     ⚠ #566-r1-r2 -- TROIS XREFS NATIVES NE FONT PAS TROIS MODULES PYTHON, et c'est ce glissement
+     qui a rendu `master` rouge. Le corps COMDAT `VexillaMagnificaPlaybook$$ShouldEvaluate` est
+     partage par `HammerOfWrath` : les trois xrefs ci-dessus se portent en QUATRE modules. Le
+     quatrieme (`graviton_rifle`, #975) etait deja NOMME dans ce paragraphe et absent de
+     l'assertion. L'effectif Python n'etant contraint par rien de stable, le recensement est
+     desormais garde par un CRITERE (adossement au symbole natif + non-confusion), pas par un
+     compte.
+
 ASCII only. Aucun runner, aucun RPC : plans SYNTHETIQUES.
 """
 from __future__ import annotations
@@ -40,6 +48,10 @@ DECLENCHEUR = {
         "scripts/python/engine/playbook/noncomparable/hammer_of_wrath.py",
         "scripts/python/engine/playbook/noncomparable/vexilla_magnifica.py",
         "scripts/python/engine/playbook/noncomparable/supreme_commander.py",
+        # #566-r1-r2 -- le QUATRIEME lecteur, porte par #975 (`f6e2674b`). Il manquait ici EN MEME
+        # TEMPS qu'il manquait a l'assertion du recensement : un declencheur derive de la liste
+        # attestee herite exactement des angles morts de cette liste.
+        "scripts/python/engine/playbook/noncomparable/graviton_rifle.py",
         "scripts/python/engine/playbook/noncomparable/_base.py",
         "frida/hooks/features/ai-step/projection.ts",
         "frida/hooks/game/damage-prediction.ts",
@@ -50,6 +62,7 @@ DECLENCHEUR = {
               "depend que du foyer Python et du champ que le hook publie.",
 }
 
+import ast
 import sys
 from pathlib import Path
 
@@ -149,38 +162,156 @@ def test_une_cible_hors_de_l_etat_suivi_est_ignoree_sans_salir_le_tri_etat():
 # --------------------------------------------------- 3. le foyer est PARTAGE par ses 3 lecteurs
 
 def test_les_trois_should_evaluate_portes_passent_par_LE_MEME_foyer():
-    """`HammerOfWrath` (1153), `VexillaMagnifica` (1183) et `SupremeCommander` (1160) appellent tous
-    `_enemy_killed_by_normal_attack`. Substituer le FOYER doit donc renverser les trois d'un coup --
-    trois corps auraient ete un fork du meme corps natif (`BasePlaybook$$ShouldEvaluate` COMDAT).
+    """`HammerOfWrath` (1153), `VexillaMagnifica` (1183), `SupremeCommander` (1160) et, depuis #975,
+    `GravitonRifle` (1206) appellent tous `_enemy_killed_by_normal_attack`. Substituer le FOYER doit
+    donc les renverser d'un coup -- des corps separes auraient ete un fork du meme corps natif
+    (`BasePlaybook$$ShouldEvaluate` COMDAT).
 
-    `SupremeCommander` a d'AUTRES gates en aval (`AllDeadUnits`, `FillUpStatComponent`) : on ne
-    verifie donc chez lui QUE le sens qui court-circuite (`gate vrai => False`)."""
+    `SupremeCommander` (`AllDeadUnits`, `FillUpStatComponent`) et `GravitonRifle`
+    (`HasAnyRepairTarget`) ont d'AUTRES gates en aval : on ne verifie donc chez eux QUE le sens qui
+    court-circuite (`gate vrai => False`), le seul que le foyer commande a lui seul."""
+    from engine.playbook.noncomparable.graviton_rifle import GravitonRiflePlaybook
     from engine.playbook.noncomparable.hammer_of_wrath import HammerOfWrathPlaybook
     from engine.playbook.noncomparable.supreme_commander import SupremeCommanderPlaybook
     from engine.playbook.noncomparable.vexilla_magnifica import VexillaMagnificaPlaybook
 
     sure = _ctx([{"col": 1, "row": 1, "dmgMin": 10, "dmgMax": 10, "killSure": True}])
     pas_sure = _ctx([{"col": 1, "row": 1, "dmgMin": 50, "dmgMax": 50, "killSure": False}])
-    for cls in (HammerOfWrathPlaybook, VexillaMagnificaPlaybook, SupremeCommanderPlaybook):
+    for cls in (HammerOfWrathPlaybook, VexillaMagnificaPlaybook, SupremeCommanderPlaybook,
+                GravitonRiflePlaybook):
         assert cls().should_evaluate(sure) is False, cls.__name__
     for cls in (HammerOfWrathPlaybook, VexillaMagnificaPlaybook):
         assert cls().should_evaluate(pas_sure) is True, cls.__name__
 
 
-def test_le_recensement_des_lecteurs_du_foyer_est_EXHAUSTIF():
-    """Le rayon de souffle se MESURE. Un balayage du paquet `noncomparable` doit rendre EXACTEMENT
-    les trois modules ci-dessus -- ni `bloody_fury`, ni `stormcaller`, ni `vigilance_eternal`, ni
-    `black_rage` (que la fiche #566 §6 comptait), qui n'ont pas ce gate cote NATIF non plus.
+#: Le symbole natif dont `_enemy_killed_by_normal_attack` est le port. C'est LUI le discriminant,
+#: pas le nombre de modules : `EnemyCouldBeKilledWithNormalAttack` (le corps SOUS-JACENT, par cible)
+#: est cite par `_base` et `holy_duel`, qui n'appellent pas ce gate.
+SYMBOLE_DU_GATE = "EnemyWillBeKilledWithNormalAttack"
 
-    `stormcaller` et `kill_maim_burn` lisent l'AUTRE corps natif -- `WillNormalAttackKill`, par
-    CIBLE --, dont le foyer (`engine.playbook.base.will_normal_attack_kill`) porte deja les deux
-    crans #372. Les confondre ferait croire le gisement plus large qu'il n'est."""
-    import re
+#: Le foyer de l'AUTRE corps natif (`WillNormalAttackKill`, par CIBLE), dont les deux crans #372
+#: vivent dans `engine.playbook.base`. Aucun module ne doit lire les deux : les confondre ferait
+#: croire le gisement plus large qu'il n'est.
+FOYER_VOISIN = "will_normal_attack_kill"
+
+#: Les lecteurs MESURES, avec ce qui atteste chacun cote NATIF. Cette table n'est PAS le critere
+#: (cf. `test_le_recensement_...`) : elle est le TEMOIN de non-rétrécissement.
+LECTEURS_ATTESTES = {
+    "hammer_of_wrath": "corps COMDAT partage avec `VexillaMagnificaPlaybook$$ShouldEvaluate`",
+    "vexilla_magnifica": "`VexillaMagnificaPlaybook$$ShouldEvaluate`",
+    "supreme_commander": "`SupremeCommanderPlaybook$$ShouldEvaluate`",
+    # #566-r1-r2 -- QUATRIEME lecteur, porte par #975 (`f6e2674b`). La docstring de ce fichier le
+    # NOMMAIT DEJA en tete des trois xrefs natives ; seule l'assertion ne l'avait pas, parce que le
+    # module n'existait pas encore a l'ecriture. Une liste ecrite ne peut pas montrer le port qui
+    # arrivera apres elle.
+    "graviton_rifle": "`GravitonRiflePlaybook$$ShouldEvaluate`",
+}
+
+
+def _appels(arbre):
+    """Les NOMS de fonction REELLEMENT appeles (`f(...)` et `o.f(...)`), par AST.
+
+    ⚠ PAR AST, JAMAIS PAR TEXTE -- meme durcissement que `probe_498r3._appels` et que le §5 de
+    `case-589-r2`. Le critere d'origine etait un `re.search(r"<nom>\\s*\\(")` sur la source entiere :
+    une docstring qui EXPLIQUE le gate (`... rend `_enemy_killed_by_normal_attack(ctx)` ...`) aurait
+    suffi a faire d'un module un lecteur. Mesure du 2026-08-18 : sur l'arbre courant les deux
+    criteres COINCIDENT (0 module credite par la seule prose), donc ce durcissement ne change aucun
+    verdict AUJOURD'HUI -- il ferme la porte, il ne repare pas un faux. C'est dit pour que personne
+    ne le lise comme la cause du rouge."""
+    out = set()
+    for n in ast.walk(arbre):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Name):
+            out.add(f.id)
+        elif isinstance(f, ast.Attribute):
+            out.add(f.attr)
+    return out
+
+
+def _recenser_les_lecteurs():
+    """{module: {"foyer", "voisin", "cite"}} sur TOUT le paquet `noncomparable`, par AST."""
     base = PYDIR / "engine" / "playbook" / "noncomparable"
-    lecteurs = set()
+    out = {}
     for f in sorted(base.glob("*.py")):
         src = f.read_text(encoding="utf-8")
-        # L'APPEL, pas l'import : `hammer_of_wrath` se cite lui-meme dans ses docstrings.
-        if re.search(r"_enemy_killed_by_normal_attack\s*\(", src):
-            lecteurs.add(f.stem)
-    assert lecteurs == {"hammer_of_wrath", "supreme_commander", "vexilla_magnifica"}, lecteurs
+        ap = _appels(ast.parse(src))
+        out[f.stem] = {"foyer": "_enemy_killed_by_normal_attack" in ap,
+                       "voisin": FOYER_VOISIN in ap,
+                       "cite": SYMBOLE_DU_GATE in src}
+    return out
+
+
+def test_le_recensement_des_lecteurs_du_foyer_est_EXHAUSTIF():
+    """Le rayon de souffle se MESURE -- mais il se mesure par un CRITERE, pas par un effectif.
+
+    L'assertion d'origine gelait TROIS noms. Elle est tombee au quatrieme port legitime
+    (`graviton_rifle`, #975) -- alors meme que la docstring de ce fichier NOMME
+    `GravitonRiflePlaybook$$ShouldEvaluate` en tete des xrefs natives. La cause n'est pas le
+    chiffre : **TROIS xrefs natives ne font pas TROIS modules Python**, puisque
+    `VexillaMagnificaPlaybook$$ShouldEvaluate` est le corps COMDAT que `HammerOfWrath` partage.
+    L'effectif Python n'est donc contraint par rien de stable.
+
+    Ce qui EST stable, et que les quatre crans ci-dessous gardent :
+
+      1. NON-RETRECISSEMENT -- les lecteurs attestes le restent (perdre le foyer viderait
+         `test_les_trois_should_evaluate_portes_passent_par_LE_MEME_foyer`) ;
+      2. ADOSSEMENT NATIF -- tout lecteur, y compris un futur cinquieme, CITE le symbole du corps
+         natif qu'il porte. C'est ce qui remplace l'effectif fige : un port fait sans lire le
+         decompile ne passe pas ;
+      3. NON-CONFUSION -- aucun module ne lit ce foyer ET celui de `WillNormalAttackKill` (l'AUTRE
+         corps natif, par CIBLE, dont les crans #372 vivent dans `engine.playbook.base`). C'est le
+         fond de ce test : `stormcaller`, `bloody_fury`, `vigilance_eternal`, `black_rage` et
+         `kill_maim_burn` ne sont PAS de ce gisement ;
+      4. NON-VACUITE -- le balayage a bien visite le paquet."""
+    rec = _recenser_les_lecteurs()
+    # 4. NON-VACUITE D'ABORD : les trois assertions qui suivent portent sur des ensembles, et un
+    #    paquet non visite les rendrait toutes vraies SANS RIEN AVOIR MESURE.
+    assert len(rec) >= 20, (
+        "le balayage n'a visite que %d module(s) de `noncomparable` -- les criteres ci-dessous "
+        "seraient satisfaits sans rien avoir lu" % len(rec))
+    lecteurs = {m for m, d in rec.items() if d["foyer"]}
+    assert lecteurs, "aucun lecteur du foyer -- le gate a-t-il ete recable ?"
+
+    # 1. NON-RETRECISSEMENT.
+    perdus = set(LECTEURS_ATTESTES) - lecteurs
+    assert not perdus, (
+        "lecteur(s) atteste(s) qui n'appelle(nt) plus le foyer : %s -- le gate a ete recable ou "
+        "duplique ; les bras de ce fichier ne mesurent alors plus ce qu'ils croient" % sorted(perdus))
+
+    # 2. ADOSSEMENT NATIF -- le critere qui remplace l'effectif fige.
+    sans_symbole = sorted(m for m in lecteurs if not rec[m]["cite"])
+    assert not sans_symbole, (
+        "lecteur(s) du foyer qui ne cite(nt) PAS `%s` : %s -- un port de ce gate se lit dans le "
+        "decompile ; sans la citation, rien n'atteste que la xref native a ete verifiee."
+        % (SYMBOLE_DU_GATE, sans_symbole))
+
+    # 3. NON-CONFUSION -- les deux corps natifs ne se melangent pas.
+    melange = sorted(m for m, d in rec.items() if d["foyer"] and d["voisin"])
+    assert not melange, (
+        "module(s) lisant les DEUX foyers : %s -- `%s` est l'AUTRE corps natif "
+        "(`WillNormalAttackKill`, par CIBLE) ; les confondre fait croire le gisement plus large "
+        "qu'il n'est, et c'est l'erreur que la fiche #566 §6 avait commise (SIX lecteurs annonces)"
+        % (melange, FOYER_VOISIN))
+
+
+def test_CONTRE_EPREUVE_le_critere_de_lecteur_est_AST_et_non_TEXTUEL():
+    """SANS CE TEST, LE DURCISSEMENT AST DU PRECEDENT NE SERAIT GARDE PAR RIEN -- il resterait vert
+    si quelqu'un remettait un `re.search` sur la source.
+
+    On soumet au recenseur une source dont la DOCSTRING nomme le foyer avec ses parentheses, sans
+    l'appeler. Le critere textuel d'origine la classerait lectrice ; le critere AST ne doit pas."""
+    prose = ast.parse(
+        'def _piege(ctx):\n'
+        '    """Ce module NE lit PAS le gate : il ne fait aucun\n'
+        '    `_enemy_killed_by_normal_attack(ctx)`, et ne touche pas non plus a\n'
+        '    `will_normal_attack_kill(ctx, cible)`. Il le DIT, il ne le FAIT pas."""\n'
+        '    return False\n')
+    assert "_enemy_killed_by_normal_attack" not in _appels(prose), (
+        "le foyer est credite depuis une DOCSTRING -- le critere est redevenu textuel")
+    assert FOYER_VOISIN not in _appels(prose)
+    # ...et la contre-epreuve de la contre-epreuve : l'APPEL REEL, lui, doit compter.
+    vrai = ast.parse('def _vrai(ctx):\n    return _enemy_killed_by_normal_attack(ctx)\n')
+    assert "_enemy_killed_by_normal_attack" in _appels(vrai), (
+        "le critere AST ne voit plus l'appel ECRIT -- il ne mesurerait plus rien")
