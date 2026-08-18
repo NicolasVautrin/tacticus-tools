@@ -145,9 +145,21 @@ def test_early_warning_emitted_action_changes_with_the_gate():
         la 1re position qui verse `+50` est `d = 4`, d'ou `50 - 40 = 10` (et non plus `d = 2`,
         `30`, qui supposait le `threshold` fige a 1) ;
       * AVEC canal -> `|dElev| = 2` -> branche A, zone d'ability de portee 5 : AUCUNE position du
-        sweep (`d <= 4`) n'est hors portee, donc aucun `+50`, l'utilite reste NEGATIVE et
-        `MIN_UTILITY` la rejette -> AUCUNE action (et non plus `10`, qui supposait la zone
-        limitee a la portee d'ARME 3)."""
+        sweep (`d <= 4`) n'est hors portee, donc aucun `+50`, l'utilite reste NEGATIVE.
+
+    ⚠ **RE-ETALONNE UNE SECONDE FOIS par `#433-r4-r2-r3`, ET LA PREMISSE PRECEDENTE ETAIT FAUSSE.**
+    Ce test attendait `on == []` -- << l'utilite reste NEGATIVE et `MIN_UTILITY` la rejette >>. Or
+    `EarlyWarningOverridePlaybook` n'a AUCUNE borne : son `Bucket` est construit par la surcharge a
+    DEUX arguments de `Bucket<T>$$.ctor` (donc `minUtility.HasValue == false`, et `AddAction`
+    accepte TOUT), et la classe ne declare que trois methodes -- personne ne lit le `Fix64(1)` de
+    son `.cctor`. Le natif EMET donc l'action a utilite negative, ce que `ncEvaluate` mesurait deja
+    (`best` negatif a chaque position du sweep) sans que le port le reproduise.
+
+    Ce que ce test garde reste EXACTEMENT le meme : la porte d'elevation BASCULE le consommateur
+    d'une branche a l'autre, et cela se lit sur l'action EMISE. Le discriminant `on != off` est
+    inchange ; seule la valeur attendue du bras `on` passe de << rien >> a << l'action a l'utilite
+    de la branche A >>. C'est la difference entre un test qui garde une MECANIQUE et un test qui a
+    fige un SEUIL faux."""
     pb = EarlyWarningOverridePlaybook()
     nb = _neighbours(O)
     high = nb[1]
@@ -168,8 +180,14 @@ def test_early_warning_emitted_action_changes_with_the_gate():
     assert on != off, "la porte n'a aucun effet sur l'action emise -- montage a re-etalonner"
     assert off and off[0]["pred"] == 10.0, \
         "branche B attendue SANS canal (threshold 3 -> 50 - 10*4 = 10), obtenu %r" % (off,)
-    assert on == [], \
-        "branche A attendue AVEC canal (zone de portee 5 : aucun +50 sur d <= 4), obtenu %r" % (on,)
+    # Branche A AVEC canal : la zone d'ability porte a 5, aucune position du sweep (`d <= 4`) n'est
+    # hors portee -> aucun `+50`, l'utilite est PUREMENT le terme de distance. L'action est EMISE
+    # quand meme -- ce playbook n'a aucune borne d'utilite (`#433-r4-r2-r3`, cf. la docstring).
+    assert on and on[0]["pred"] < 0.0, \
+        "branche A attendue AVEC canal (aucun +50 sur d <= 4 -> utilite NEGATIVE emise), obtenu %r" % (on,)
+    assert on[0]["pred"] == -10.0 * min(hexgeo.distance(P, high) for P in reach), \
+        ("l'utilite de la branche A doit etre `-10 x d` a la MEILLEURE position du sweep, "
+         "obtenu %r" % (on,))
 
 
 # --------------------------------------------------------------------------- 2. Tutelaries

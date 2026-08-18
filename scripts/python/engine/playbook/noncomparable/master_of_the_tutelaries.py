@@ -5,7 +5,8 @@ import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook
+from ._base import (NCContext, NonComparablePlaybook, eligible_target_tiles,
+                    tiles_in_native_order)
 
 
 class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
@@ -74,10 +75,32 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         `hexgeo.distance(T, ST) == 1` ne portait aucun des deux etages (ecart PERMISSIF).
         ⚠ Les deux autres comparaisons de ce corps sont des RING-2 (`nE2`, le bonus de 100) : elles
         mirrorent `GetUnitsAtDistance`/`GetDistance`, qui passent par `GetTilesAtDistance` --
-        geometriques par construction, elles ne se branchent PAS (#614 §1)."""
-        spawn_tiles = self._eligible_spawn_tiles(ctx)
+        geometriques par construction, elles ne se branchent PAS (#614 §1).
+
+        ⚠ **L'ORDRE DES TUILES DE SPAWN EST DERIVE PAR POSITION** (`#971-r4`). Ce corps balayait
+        l'ordre de l'UNION du RPC (`abilityTargets.targets`, l'agregat sur toutes les tuiles de
+        move), **qui n'est celui d'AUCUNE position** -- exactement l'ecart mesure et ferme sur
+        `IronkinSteeljackPlaybook` (#971, `MC1_67`/4242 : 11 classes natives contre 10 portees,
+        deux positions retenant la MEME tuile cote port et DEUX tuiles distinctes cote natif, a
+        utilite EGALE). Le foyer partage `_base.tiles_in_native_order` rend `fromHere` a l'ORIGINE
+        (la reponse par-position du RPC) et, ailleurs, l'ordre de `ctx.neigh_by_pos[T]` -- la liste
+        d'adjacence STOCKEE que parcourt la chaine native. La transposition est legitime parce que
+        `...MasterOfTheTutelariesAbility$$.ctor`, `...GrotTankAbility$$.ctor` et
+        `...IronkinSteeljackAbility$$.ctor` sont IDENTIQUES OCTET POUR OCTET (relus le 2026-08-18 :
+        `TargetingOptions..ctor(&opts, 0, <TargetingRange statics>+0x30, 1, 0x1040, 0, 0)` puis
+        `AActiveAbility..ctor(this, &opts, 2)`), donc la chaine d'enumeration est la MEME.
+
+        Et l'ordre du selecteur est bien celui que `Bucket$$AddAction` consomme : le corps de
+        `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` (relu) empile ses
+        `AbilityEntities` dans l'ordre EXACT de la liste que rend `IBattleQuery` slot 0x42 =
+        `GetValidTargets(caster, UnitPosition(possibleCasterTile), abilityType)`, apres un
+        `idun.shared.extensions.ListExtensions$$Remove` qui filtre EN PLACE (donc preserve l'ordre)
+        -- aucun tri, aucun `OrderedSet` intermediaire."""
+        from_here, union = eligible_target_tiles(ctx, self.ABILITY_ID)
+        spawn_tiles = from_here or union
         if not spawn_tiles or ctx.origin is None:
             return []
+        eligibles = set(from_here) | set(union)
         # nE2 : ennemis a distance hex EXACTEMENT 2 de la tuile REELLE (constant sur le sweep).
         n_e2 = sum(1 for p in (ctx.epos or [])
                    if hexgeo.distance(ctx.origin, (p[0], p[1])) == 2)
@@ -92,7 +115,10 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         neigh = bq.neigh_map(ctx)
         best = None                                          # (target_tile, position, util)
         for T in ctx.reach_nc:                               # positions candidates (ordre movable natif)
-            for ST in spawn_tiles:
+            # `#971-r4` : ordre PAR POSITION (fromHere a l'origine, voisinage STOCKE ailleurs),
+            # jamais l'ordre de l'UNION -- a utilite EGALE, `AddAction` est keep-first, donc
+            # l'ORDRE **est** la decision.
+            for ST in tiles_in_native_order(ctx, T, from_here, union, eligibles):
                 if not bq.is_adjacent(T, ST, ctx.elev_by_pos, neigh):
                     continue                                 # spawn = hex ADJACENT a T au sens du SELECTEUR
                 n_free = bq.adjacent_addable_count(ST, ctx.neigh_by_pos, ctx.walkable_by_pos,

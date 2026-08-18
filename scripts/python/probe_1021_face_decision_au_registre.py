@@ -141,12 +141,12 @@ DETTE: dict[int, tuple[str, str]] = {
     1032: ("SANS_VERDICT",
            "CatalystPlaybook -- EvaluateNonComparable, GetUseProbability. COMBAT : CatalystAbility "
            "(tyranids). 1 porteur (npc)."),
-    1052: ("SANS_VERDICT",
-           "CallRipperSwarmsPlaybook -- EvaluateNonComparable, GetMaxSummons. COMBAT : "
-           "CallRipperSwarmsAbility (tyranids, #1032). 1 porteur (npc, "
-           "tyranBossHiveTyrantLeviathan). L'utilite du corps natif est CONSTANTE (le statique du "
-           "`.cctor`), la seule variable etant l'enumeration de `GetEligibleTargetsSelectable` -- "
-           "residu #1032-r1."),
+    # 1052 `CallRipperSwarms` -- TRANCHE par #1032-r1, ligne RETIREE : sa face DECISION est PORTEE
+    # (`engine/playbook/noncomparable/call_ripper_swarms.py`, registre `PLAYBOOKS`), y compris le
+    # `GetUseProbability` de sa base `ABossSummonAbilityPlaybook<T>` (`StartedTurns < 2 -> 1/2`,
+    # sinon `1 - 0.8 x enfants vivants / GetMaxSummons()`). Le retrait est ce qui la fait tomber
+    # sous le CRAN A -- si le port disparaissait, l'item rougirait au lieu d'etre couvert par une
+    # vieille ligne de dette.
     # 1076 `MV71SniperDroneSquadAttack` -- TRANCHE par #1021, ligne RETIREE (et non passee a
     # `TRANCHE`) : le retrait est ce qui la fait tomber sous le CRAN A, donc ce qui la protege
     # DESORMAIS. Attestation `RIEN_A_PORTER` au ledger (c'est une attaque NORMALE concrete, dont le
@@ -209,12 +209,11 @@ DETTE: dict[int, tuple[str, str]] = {
     1186: ("SANS_VERDICT",
            "WallOfMirrorsPlaybook -- EvaluateNonComparable, GetUseProbability. COMBAT : "
            "WallOfMirrorsAbility (wall_of_mirrors). 2 porteurs (npc, summons)."),
-    1193: ("SANS_VERDICT",
-           "NovaChargePlaybook -- EvaluateNonComparable, GetUseProbability, ResetCaches, "
-           "ShouldEvaluate. COMBAT : NovaChargeAbility (tau, #1032). 1 porteur (npc, "
-           "tauBossRiptide). L'utilite du corps natif est `100 * CountEnemiesOnTiles(GetLineTiles) "
-           "+ Count(GetLineTiles)` -- elle REUTILISE `NovaChargeAbility$$GetLineTiles`, que la "
-           "face COMBAT vient de porter (`tau.nova_charge_line_tiles`) ; residu #1032-r1."),
+    # 1193 `NovaCharge` -- TRANCHE par #1032-r1, ligne RETIREE : sa face DECISION est PORTEE
+    # (`engine/playbook/noncomparable/nova_charge.py`, registre `PLAYBOOKS`), avec sa geometrie
+    # PARTAGEE avec la face COMBAT (`tau.nova_charge_line_tiles`, desormais parametre) et son gate
+    # PROPRE au slot 4 (`HasMinimumRemainingTurns(unit, 2)`). Le retrait est ce qui la fait tomber
+    # sous le CRAN A.
     # 1200 `SquigLaunchas` -- TRANCHE par #970-r3, ligne RETIREE : sa face DECISION est PORTEE
     # (`engine/playbook/noncomparable/squig_launchas.py`, registre `PLAYBOOKS`). Le retrait est ce
     # qui la fait tomber sous le CRAN A -- si le port disparaissait, l'item rougirait au lieu
