@@ -123,6 +123,8 @@ from .....entities.behaviours import op_and
 from .....entities.pathfinding import board as _board
 from ..... import battle_query as _bq
 from ....components import StatsComponent, UnitComponent
+from .... import components as _RC   # FORME B (liaison de MODULE) -- module DEJA charge par la
+#     ligne au-dessus, cout nul ; rend inutile le differe REDONDANT d'`_adjacent` (#485).
 from ....state import State
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect
@@ -312,10 +314,9 @@ def _adjacent(state: State, a_id: int, b_id: int) -> bool:
 
     Board absent (`State.board is None`, board de test) -> `(None, None)` -> le foyer retombe sur
     son repli geometrique NOMME, le comportement d'avant ce cablage."""
-    from ....components import PositionComponent
     ea, eb = state.get_entity(int(a_id)), state.get_entity(int(b_id))
-    pa = ea.get_component(PositionComponent) if ea is not None else None
-    pb = eb.get_component(PositionComponent) if eb is not None else None
+    pa = ea.get_component(_RC.PositionComponent) if ea is not None else None
+    pb = eb.get_component(_RC.PositionComponent) if eb is not None else None
     if pa is None or pb is None:
         return False
     board = getattr(state, "board", None)

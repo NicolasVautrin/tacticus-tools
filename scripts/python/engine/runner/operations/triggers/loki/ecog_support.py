@@ -145,6 +145,8 @@ from ....abilities.behaviours.ai_control import PerformAIAbility
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.summon import Spawn
 from ....components import UnitComponent
+from .... import components as _RC   # FORME B -- module DEJA charge par la ligne au-dessus.
+from ....abilities import targeting as _targeting   # FORME B, arete GRATUITE (#485).
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
 
@@ -230,8 +232,7 @@ def _repair_type_of(state: State, unit_id: int) -> Optional[int]:
     Meme FOYER que le noeud VALEUR `entities/formulas.UnitNormalRepairType` (qui y arrive par
     `ctx.normal_repair_type`) : une seule derivation du champ, deux points d'appel -- le filtre de
     selection, puis l'ability que l'IA joue."""
-    from ....abilities.targeting import normal_repair_type_for
-    return normal_repair_type_for(state, int(unit_id))
+    return _targeting.normal_repair_type_for(state, int(unit_id))
 
 
 def ecog_support_tree(max_summons: int, ability_state: tuple | None = None) -> If:
@@ -290,9 +291,8 @@ class ECogSupportAbility(TriggeredAbility):
         """L'`AbilityState` du PASSIF du porteur -- celui que `CreateBehaviour` recoit et qui part
         dans `SpawnUnitOptions$$WithStatsFromConfig`. Sans lui, l'E-Cog lirait ses stats a
         l'index 0 (mode de panne #174)."""
-        from ....components import StatsComponent
         e = state.get_entity(self.owner_id)
-        sc = e.get_component(StatsComponent) if e is not None else None
+        sc = e.get_component(_RC.StatsComponent) if e is not None else None
         ctx = getattr(sc, "ctx", None)
         level = getattr(ctx, "passive_ability_level", None)
         if level is None:

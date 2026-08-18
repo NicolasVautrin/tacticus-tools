@@ -191,6 +191,8 @@ from .....entities.triggers import (
 )
 from .....services import battle_query as _svc_bq
 from ..base import TriggeredAbility, TriggerEvent
+from .... import components as _RC   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.components` en process frais ne charge pas ce module.
 
 #: La cle du registre `ABILITY_TRIGGERS` = le NOM gameconfig du passif.
 OPTIMIZED_GAIT = "OptimizedGait"
@@ -413,13 +415,12 @@ def _owner_is_in_melee(state: State, owner_id: int, target_id) -> bool:
     Position d'un des deux inconnue -> `False` : le natif deref sans garde, on ne mirroir pas une
     levee et l'absence de position ne peut pas valoir << au contact >>. Meme convention que
     `additional_targets.is_melee_position`."""
-    from ....components import PositionComponent
     if target_id is None:
         return False
     oe = state.get_entity(int(owner_id))
     te = state.get_entity(int(target_id))
-    op = oe.get_component(PositionComponent) if oe is not None else None
-    tp = te.get_component(PositionComponent) if te is not None else None
+    op = oe.get_component(_RC.PositionComponent) if oe is not None else None
+    tp = te.get_component(_RC.PositionComponent) if te is not None else None
     if op is None or tp is None:
         return False
     return bool(_svc_bq.are_tiles_adjacent((op.col, op.row), (tp.col, tp.row), state.board))

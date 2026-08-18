@@ -13,6 +13,9 @@ from ....dsl.base import TargetsSelector, _units_of, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import UnitComponent, MachineComponent, is_machine_of_war
 from ....entities.triggered_ability_type import entity_triggered_ability_ids
+from ....entities import triggered_ability_type as _tat   # FORME B -- module DEJA charge par la
+#     ligne au-dessus, cout nul ; rend inutile le differe REDONDANT de
+#     `_unit_has_triggered_ability` (#485).
 from ...components import ForcedAttackTargetsComponent
 from ...components import HealthComponent, UnitFlagsComponent
 from ...components import StatsComponent
@@ -478,18 +481,16 @@ def _unit_has_triggered_ability(state, unit_id, ability_type: int) -> bool:
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
     vid = getattr(ctx, "visual_id", None) if ctx is not None else None
-    from ....entities.triggered_ability_type import (TRIGGERED_ABILITY_USES_ACTIVE_CONFIG,
-                                                     TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG)
     vus: set[int] = set()
     t = int(ability_type)
     while t not in vus:                       # la RECURSION de [3] ; `vus` borne un cycle de table
         vus.add(t)
-        a = TRIGGERED_ABILITY_USES_ACTIVE_CONFIG.get(t)
+        a = _tat.TRIGGERED_ABILITY_USES_ACTIVE_CONFIG.get(t)
         if a is not None:                                                    # [1]
             return int(a) in set(_AA.entity_active_ability_ids(ctx, vid))
         if t in set(entity_triggered_ability_ids(ctx, vid)):                 # [2]
             return True
-        nxt = TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG.get(t)
+        nxt = _tat.TRIGGERED_ABILITY_USES_TRIGGERED_CONFIG.get(t)
         if nxt is None:                                                      # [3] `Nullable` VIDE
             return False
         t = int(nxt)

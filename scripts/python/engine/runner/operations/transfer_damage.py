@@ -53,6 +53,9 @@ from ...services.damage_combat import calculate_damage_operation
 from ...services.trait_damage_limits import apply_group_unit_damage_limit
 from ..components import HealthComponent, UnitComponent
 from ..state import State
+from . import damage as _damage_ops   # FORME B (liaison de MODULE). Le "cycle damage <-> transfert"
+#     annonce au site est REFUTE par la mesure : `import engine.runner.operations.damage` en
+#     process frais ne charge PAS ce module. Arete GRATUITE (#485).
 
 
 def consume_pending_damage(state: State, original_target_id: int):
@@ -132,7 +135,6 @@ def transfer_damage_operation(state: State, caster_id: Optional[int], original_t
     (cf. `abilities/behaviours/transfer.py`).
 
     Rend `{original_target, transfer_target, profile, requested, health, shield}` ou `None`."""
-    from .damage import AttackDamageOperation          # lazy : rompt le cycle damage <-> transfert
     pend = consume_pending_damage(state, original_target_id)
     if pend is None:
         return None
@@ -153,7 +155,7 @@ def transfer_damage_operation(state: State, caster_id: Optional[int], original_t
                 "profile": pend.profile, "requested": amount, "health": 0, "shield": 0}
     # Split BOUCLIER d'abord puis PV, sans block ni evasion (0 tirage) -- meme etage que le
     # knockback (`displace.py`), qui route lui aussi un montant deja resolu.
-    _shc, shield_total = AttackDamageOperation._target_shield(tgt)
+    _shc, shield_total = _damage_ops.AttackDamageOperation._target_shield(tgt)
     dmg = calculate_damage_operation(amount, shield=shield_total)
     # La depletion du bouclier du PROTECTEUR appartient au chokepoint (#1020-r1) : le natif
     # descend `DirectDamage` -> `ApplyDamageOperation$$Execute`, et c'est LA que vit
@@ -164,7 +166,7 @@ def transfer_damage_operation(state: State, caster_id: Optional[int], original_t
     # donc `AttributeError: 'ShieldComponent' object has no attribute 'shield'` -- crash dur,
     # jamais atteint parce que les six porteurs de `SaviorProtocols` sont des drones T'au sans
     # bouclier, et que rien ne montait ce regime.
-    AttackDamageOperation._apply_damage_pipeline(
+    _damage_ops.AttackDamageOperation._apply_damage_pipeline(
         state, int(transfer_target_id), caster_id, tgt, thc, dmg.health, pend.profile,
         dmg.shield, dmg.armor, is_attack=False,
         # #1020-r2 : `attackAbility` -> 5e argument `abilityOrEffect` du slot `64 = DirectDamage`.

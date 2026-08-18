@@ -426,6 +426,14 @@ def main(argv: list[str]) -> int:
                     help="REGENERE la base attestee depuis la mesure courante. A n'employer "
                          "qu'en connaissance de cause : la base est VERSIONNEE et ne doit que "
                          "DECROITRE.")
+    ap.add_argument("--porteurs", action="store_true",
+                    help="IMPRIME chaque PORTEUR avec la mesure qui l'etablit (le module que "
+                         "`import <cible>` charge et qui EST l'appelant). L'etage 3 compte les "
+                         "porteurs sans raison ECRITE ; ce mode-ci rend la raison DERIVABLE, ce "
+                         "qui est le seul remede tenable a l'echelle : recopier 188 raisons dans "
+                         "des fichiers partages est le sweep de masse que la doctrine interdit, "
+                         "et une raison RECOPIEE se perime sans que rien ne le dise -- mesure du "
+                         "2026-08-18, 8 raisons ecrites sur 8 annoncaient un cycle DISPARU.")
     ap.add_argument("--resume-cache", action="store_true",
                     help="etat du cache versionne et nombre d'interpreteurs lances (#486-r17) -- "
                          "HORS du regime normal, dont la sortie doit etre identique froid/chaud")
@@ -531,6 +539,20 @@ def main(argv: list[str]) -> int:
         print("      C'est le cas NORMAL apres une reparation : retire ces entrees de %s"
               % BASE.name)
         print("      DANS LE MEME COMMIT. Une base qui ne decroit pas n'est plus un cliquet.")
+
+    if a.porteurs:
+        print()
+        print("  PORTEURS -- la mesure qui les etablit (raison DERIVEE, jamais recopiee) :")
+        vus = set()
+        for mod, cible, ligne, raison in sorted(porteurs):
+            if (mod, ligne, cible) in vus:
+                continue                            # un import en fonction IMBRIQUEE compte 2 fois
+            vus.add((mod, ligne, cible))
+            print("      %-56s:%-5d -> %-46s raison ecrite : %s"
+                  % (mod, ligne, cible, "oui" if raison else "NON"))
+        print("      Lire : << `import <cible>` en process frais met `<mod>` dans `sys.modules`,")
+        print("      donc hisser refermerait la boucle >>. Re-derivable a tout moment ; une raison")
+        print("      RECOPIEE au site, elle, survit a la disparition du cycle qu'elle invoque.")
 
     sans_raison = [x for x in porteurs if not x[3]]
     print("\n  [3] INFORMATIF -- porteurs sans raison REPERABLE : %d / %d"

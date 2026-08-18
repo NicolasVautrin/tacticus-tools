@@ -49,6 +49,8 @@ from ..abilities.loki.swarm import on_group_unit_hp_changed
 from .movement import _kill_steppable_units, _tiles_are_walkable
 from .tile_reservation import is_tile_reserved_for_another_unit
 from ..abilities.attack_query import can_be_resurrected
+from . import turnflow as _turnflow   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.operations.turnflow` en process frais ne charge pas ce module.
 
 
 def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:
@@ -344,8 +346,8 @@ class ResurrectUnitOperation:
             # `unit_resurrected_triggers`. L'ancien appel ne posait qu'un flag muet ; celui-ci
             # PUBLIE (`On(0x28 = UnitFinishedTurn)`, et le step `Events`). Le natif l'emet APRES
             # `On(0x2e = UnitResurrected)` -- ordre du decompile, desormais reproduit.
-            from .turnflow import FinishUnitTurnOperation
-            finish_turn = FinishUnitTurnOperation.execute(state, int(unit_id), forced=True)
+            finish_turn = _turnflow.FinishUnitTurnOperation.execute(state, int(unit_id),
+                                                                    forced=True)
             no_action = finish_turn.get("no_action")
         return {"resurrected": int(unit_id), "tile": (int(dest_coord[0]), int(dest_coord[1])) if dest_coord else None,
                 "hp": int(hp) if hp is not None else None, "crushed_decoy": crushed,

@@ -68,6 +68,10 @@ from .stat_ops import apply_stat_override
 from .stat_ops import remove_stat_override
 from .stat_ops import revert_change_stat
 from .change_unit_owner import ChangeUnitOwnerOperation
+from . import change_unit_owner as _cuo                       # FORME B (liaison de MODULE) -- le
+from ...entities.effects import aura_selectors as _aura       # module est deja charge par la ligne
+#     au-dessus pour le premier, et l'arete du second est GRATUITE (#485) : `import
+#     engine.entities.effects.aura_selectors` en process frais ne tire pas ce module.
 from .traits import apply_traits_of_effect
 
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsUpdatable` : la fonction
@@ -451,11 +455,10 @@ class AddEffectOperation:
         vit encore. Le port reproduit ce quirk (`remove_effect_instance` retire NU lui aussi) plutot
         que de le << reparer >>. Residu `#433-r5` : dans ce regime le canal EFFET et le canal FLAG
         divergent, et `entities/unit_selection_type.py::selection_ok_from_ctx` les lit en OU."""
-        from ...entities.effects import aura_selectors as _aura   # forme B (#485-r1-r1) : le
-        # domaine reste substituable par un `monkeypatch.setattr` sur son foyer. PORTEUR : charger
-        # `aura_selectors` seul ne charge pas ce module, mais l'inverse est vrai par la cascade
-        # `operations` -> `entities.effects` (meme classement que l'import du meme domaine dans
-        # `remove_effects.py`, qui le fait au niveau module parce que sa cascade le permet).
+        # `_aura` (forme B) est lie au PREAMBULE (#485) : le domaine reste substituable par un
+        # `monkeypatch.setattr` sur son foyer. Le differe qui vivait ici se declarait PORTEUR ; la
+        # mesure dit GRATUIT -- charger `aura_selectors` seul ne charge pas ce module, et
+        # `remove_effects.py` importe deja le meme domaine au niveau module.
         if int(eff.effect_type or 0) not in {int(t) for t in _aura.UNTARGETABLE_EFFECT_TYPES}:
             return
         ent = state.get_entity(int(target))
@@ -813,8 +816,7 @@ def revert_owner_overrides_of_removed_effects(state: State) -> list:
                 continue
             if not e.overrides_unit_owner():
                 continue
-            from .change_unit_owner import ResetUnitOwnerOperation
-            if ResetUnitOwnerOperation.execute(state, int(uid)):
+            if _cuo.ResetUnitOwnerOperation.execute(state, int(uid)):
                 out.append((int(uid), e.effect_type))
     return out
 

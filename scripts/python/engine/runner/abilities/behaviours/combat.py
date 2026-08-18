@@ -485,6 +485,10 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 # `BaseEffect$$PiercingBonusForAttack` : les effets ACTIFS du caster peuvent ajouter au
                 # ratio de perçage du coup (gates `OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target)`
                 # -> le contexte a besoin de la CIBLE, donc calculé ICI et non dans la config).
+                # DIFFERE et PORTEUR, contrairement a son jumeau d'`execute` que #485 vient de
+                # hisser : celui-ci est CONDITIONNEL (branche `else`), donc le critere REDONDANCE
+                # ne s'y applique pas, et le critere CYCLE le classe porteur -- `import
+                # engine.runner.abilities.base` en process frais charge CE module. Il reste.
                 from ..base import ability_pierce_effect_bonus
                 pbonus = ability_pierce_effect_bonus(state, caster, tgt, self.ability_type,
                                                      is_ranged=not self.is_melee)

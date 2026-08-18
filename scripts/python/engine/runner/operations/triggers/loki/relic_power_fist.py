@@ -112,6 +112,8 @@ from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent, triggered_ability_state
+from .... import components as _RC   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.components` en process frais ne charge pas ce module.
 
 #: Cle du registre `RELIC_ABILITY_TRIGGERS` = le NOM gameconfig de l'ability (item
 #: `R_Crit_RelicPowerFist`, `abilityId = RelicPowerFist`).
@@ -235,9 +237,8 @@ def _active_ability_ids(state: State, owner_id):
 
     `None` = canal NON MESURE (`State` nu, capture rejouee sans transport) -> le noeud se degrade
     en `!= NORMAL_ATTACK_KIND`, PERMISSIF et nomme."""
-    from ....components import StatsComponent
     ent = state.get_entity(int(owner_id)) if owner_id is not None else None
-    sc = ent.get_component(StatsComponent) if ent is not None else None
+    sc = ent.get_component(_RC.StatsComponent) if ent is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
     levels = getattr(ctx, "active_ability_levels", None) if ctx is not None else None
     return set(levels) if levels else None

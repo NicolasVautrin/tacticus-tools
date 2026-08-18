@@ -134,6 +134,9 @@ from .....entities.selectors.units import Enemies, UnitsWithoutTrait
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import IsAlive
+from .....entities import triggers as _triggers   # FORME B (liaison de MODULE) -- le module est
+#     DEJA charge par la ligne au-dessus, donc l'ajout ne coute rien. Le "differe PORTEUR :
+#     triggers <- selectors" annonce au site de `matches` est REFUTE par la mesure (#485).
 from .....entities.unit_selection_type import UnitSelectionType
 from ....abilities.attack_type import ability_has_attack_type
 from ....abilities.behaviours.context import entities_from_state
@@ -231,9 +234,8 @@ class BattleFocusEffectTrigger(EffectTrigger):
             return False
         # `CanMove(Owner@<+0x30>)` -- le noeud du depot (trait `Stationary` porte, `IsAllowedToMove`
         # residu NOMME). `NOT IsMoving(Owner)` : non porte, collapse a VRAI (residu `#1080-r1`).
-        from .....entities.triggers import CanMove       # differe PORTEUR : triggers <- selectors
         ents = entities_from_state(state, int(self.owner_id))
-        return bool(CanMove(Owner()).should_trigger(ents))
+        return bool(_triggers.CanMove(Owner()).should_trigger(ents))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         """`TriggerAbilityDelayed(Owner@<+0x30>, 0x494, OnlyAliveAndTargetable)` -- le porteur

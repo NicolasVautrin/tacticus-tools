@@ -126,6 +126,8 @@ from ..components import UnitFlagsComponent
 from .effects import unregister_name, AddEffectOperation
 from .stat_ops import revert_change_stat
 from .traits import revert_traits_of_effect
+from . import change_unit_owner as _cuo   # FORME B (liaison de MODULE). Arete GRATUITE (#485) :
+#     `import engine.runner.operations.change_unit_owner` en process frais ne charge pas ce module.
 
 
 def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
@@ -181,8 +183,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     # `RevertInternal` natif, et aucun effet connu ne porte les deux -- les enchainer est donc
     # sans interaction (#585 x #590, resolu au rebase).
     if eff.overrides_unit_owner():
-        from .change_unit_owner import ResetUnitOwnerOperation
-        ResetUnitOwnerOperation.execute(state, tgt)
+        _cuo.ResetUnitOwnerOperation.execute(state, tgt)
     # part NON-CIBLABILITE de `<Effect>.RevertInternal` (#433-r3-r2-r1) -- MIRROR de
     # `IdunBattle.Entities.Effects.Common.UntargetableEffect$$RevertInternal`, dont le corps ENTIER
     # est un TAIL CALL NU vers `UnitFlagsComponent$$Remove(0x11)` : **aucun gate** (contrairement a

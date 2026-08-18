@@ -177,6 +177,8 @@ from ....components import StatsComponent, UnitComponent
 from ....components import UnitComponent
 from ...damage import AttackDamageOperation
 from ...left_over_damage import left_over_damages
+from ....abilities.behaviours import combat as _combat   # FORME B (liaison de MODULE). Arete
+#     GRATUITE (#485) : charge SEUL, `abilities.behaviours.combat` ne tire pas ce module.
 
 HAZE_OF_CORRUPTION_ABILITY = "HazeOfCorruption"
 # `AddBondEffect(0x435, ...)` -> EffectType 1077 `HazeOfCorruption_DamageTransfer`.
@@ -563,8 +565,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         # `$$Attack` englobant est un `AbilityOrEffect` MIS A ZERO juste avant l'appel.
         if dmgs and done:
             from types import SimpleNamespace
-            from ....abilities.behaviours.combat import _emettre_finish_attack_de_noeud
-            _emettre_finish_attack_de_noeud(
+            _combat._emettre_finish_attack_de_noeud(
                 state, int(bonded), int(self.owner_id), SimpleNamespace(emitted=journal), 0,
                 ability_type=None,
                 # les feuilles sont des `DSLBehaviors$$AttackDamage` -> famille ATTACK, donc
