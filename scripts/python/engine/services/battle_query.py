@@ -246,6 +246,13 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
           default: throw new NotImplementedException();
         }
 
+    ⚠ **L'ORDRE DES ETAGES EST LOAD-BEARING** (`#10024-r1`) : le natif BRANCHE d'abord et ne lit une
+    position que dans `Normal(3)`. Une ability `attackRangeType: Melee` interrogee SANS position rend
+    donc `true`, et une `Ranged` / `None` rend `false`, sans qu'aucune tuile soit consultee. Une garde
+    de position placee AVANT le switch rabat les trois cases sur `false` -- degradation
+    RESTRICTIVE-EN-MOINS sur `Melee`, silencieuse. Les deux freres (`is_ranged_attack` slot 3,
+    `get_attack_range_type` slot 4) ont toujours porte le bon ordre : l'asymetrie etait ICI.
+
     FOYER UNIQUE de ce predicat : il est consomme par DEUX chemins natifs distincts, et les deux
     passent ici -- la gate `TriggeredAbilityPlaybook<T>$$IsMeleeAttack(case)` (cote DECISION, ex.
     `playbook/light_im_up.py`) et le predicat des effets d'attaquant
@@ -280,21 +287,25 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     ⚠ HOMONYME A NE PAS CONFONDRE : `engine.entities.effects.base.is_melee_attack(is_ranged)` est un
     AUTRE artefact -- le gate TRI-ETAT (`is_ranged is False`) que les effets d'attaquant consomment
     une fois la nature du coup DEJA resolue. Celui-ci la RESOUT."""
-    # ⚠ ECART NOMME, ANTERIEUR A #10024 ET **NON TOUCHE PAR ELLE** : le natif teste `ability.HasValue`
-    # PUIS branche, et ses cases `Melee(1)` / `Ranged(2)` / `None(0)` ne lisent AUCUNE position --
-    # une ability `attackRangeType: Melee` interrogee sans position rend donc `true` cote natif et
-    # `false` ici. Le garder tel quel est un choix : cette tranche porte l'axe MAIN TILE -> EMPREINTE,
-    # et deplacer cette garde changerait un verdict sur un axe DIFFERENT. Residu `#10024-r1`.
-    if caster_position is None or target_position is None:
-        return False
+    # `#10024-r1` : le natif BRANCHE D'ABORD. Les cases `Melee(1)` / `Ranged(2)` / `None(0)` du
+    # decompile ne touchent AUCUNE position -- seule `Normal(3)` appelle `AreEntitiesAdjacent`. La
+    # garde de position ouvrait ce corps-ci, donc une ability `attackRangeType: Melee` interrogee
+    # sans position rendait `false` ici et `true` cote natif. Elle est descendue sur la branche
+    # `Normal(3)`, la SEULE qui lise une position -- exactement l'ordre qu'ont deja les deux freres
+    # `is_ranged_attack` (slot 3) et `get_attack_range_type` (slot 4).
     rt = attack_range_type(ability_name)    # `BattleQuery$$GetAbilityAttackRangeType` (etage separe)
-    if rt == "Melee":                       # `AttackRangeType.Melee` (1)
+    if rt == "Melee":                       # `AttackRangeType.Melee` (1) -- AUCUNE position lue
         return True
-    if rt == "Ranged":                      # `AttackRangeType.Ranged` (2)
+    if rt == "Ranged":                      # `AttackRangeType.Ranged` (2) -- AUCUNE position lue
         return False
-    if rt == "None":                        # `AttackRangeType.None` (0)
+    if rt == "None":                        # `AttackRangeType.None` (0) -- AUCUNE position lue
         return False
     if force_ranged_attack:                 # `HasFlag(caster, 0x15)` -> pas de melee
+        return False
+    # branche `Normal(3)` : positions manquantes -> `False`. Le natif deref sans garde, on ne
+    # mirroir pas une levee, et une position absente ne peut pas valoir « au contact ». MEME
+    # convention et MEME place que `is_ranged_attack` / `get_attack_range_type`.
+    if caster_position is None or target_position is None:
         return False
     # `neigh_by_pos` = la liste STOCKEE (#433-r4-r1-r4-r2). Le substrat de `MovementUtil$$AreTilesAdjacent`
     # est le `ConnectivityComponent` BRUT (`IsNeighbour`) et non le champ `neighbours` gate ; lire
