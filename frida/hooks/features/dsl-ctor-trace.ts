@@ -127,6 +127,8 @@ const completed: Cast[] = [];        // casts termines (retour RPC)
 let seq = 0;
 let totalCalls = 0;
 let armed = false;
+//: #1009-r3 — sous-chaine de NOM DE CLASSE d'ability sur laquelle la porte s'ouvre. `""` = toutes.
+let only = "";
 
 function fqn(k: NativePointer): string {
     const ns = s(class_get_namespace(k) as NativePointer);
@@ -188,7 +190,33 @@ function enumCtorTargets(): CtorTarget[] {
     return out;
 }
 
-/** Enumere les gates : l'override `ExecuteBehaviour` de chaque ability (namespace Abilities.*). */
+/** Enumere les gates : les fabriques d'arbre de chaque ability (namespace Abilities.*).
+ *
+ * #1009-r3 — LA PORTE NE VOYAIT QUE LES ACTIVES, ET C'EST CE QUI RENDAIT LE CAPTEUR AVEUGLE AU CAS
+ * QU'IL AVAIT ETE ECRIT POUR RESOUDRE. Une ability ACTIVE construit son arbre dans
+ * `ExecuteBehaviour`, une ability DECLENCHEE dans `CreateBehaviour` / `CreateTrigger` (appelees a
+ * l'init de l'acteur, `InitializeActorAbilitiesOperation`, jamais depuis un cast). Or les DEUX
+ * SEULS call-sites de `IdunBattleLogic.Entities.DSLTriggers$$IsSpecialActiveAbility` sont
+ * `...RelicPowerFistAbility$$CreateBehaviour` et `...Dw02AdvancedBurstCannonAbility$$CreateTrigger`
+ * -- et ces deux classes ne declarent NI l'une NI l'autre d'`ExecuteBehaviour` (lu dans
+ * `data/symbols/<build>/frida/methods.tsv` : elles n'ont que `CreateTrigger` et `CreateBehaviour`).
+ * La porte ne s'ouvrait donc JAMAIS pendant leur construction, `ctorOnEnter` posait `_cap = false`,
+ * et l'`op_BitwiseAnd` qui porte les deux conjoints n'etait pas enregistre.
+ *
+ * MESURE (2026-08-18, session 11, capteur arme puis desarme) : apres un `rl_duel build` complet,
+ * `dslCtorCasts` rend 17 casts, dont les abilities sont TOUTES des actives
+ * (`BioMinefieldAbility`, `PlagueburstMortarAbility`, `Loki_NormalAttackAbility`,
+ * `FloatingDeath_NormalAttackAbility`) -- AUCUNE construction de declenchee. Le residu #1009-r3
+ * disait << le bloqueur n'est plus le capteur, reste un MONTAGE >> : c'est FAUX, aucun montage
+ * n'aurait pu ouvrir cette porte-la.
+ *
+ * PORTEE DE L'ELARGISSEMENT : les trois noms sont des FABRIQUES D'ARBRE, pas des chemins chauds.
+ * `CreateBehaviour`/`CreateTrigger` tirent UNE FOIS par ability et par acteur, a l'initialisation
+ * de la bataille -- c'est-a-dire encore plus froid qu'`ExecuteBehaviour`, qui tire a chaque cast.
+ * Le `seen` par pointeur dedoublonne les corps partages (une base qui declare la methode sans
+ * l'overrider n'est hookee qu'une fois). */
+const GATE_METHODS = ["ExecuteBehaviour", "CreateBehaviour", "CreateTrigger"];
+
 function enumGates(): GateTarget[] {
     if (gateTargets) return gateTargets;
     const out: GateTarget[] = [];
@@ -205,16 +233,19 @@ function enumGates(): GateTarget[] {
             const k = image_get_class(image, j) as NativePointer;
             const ns = s(class_get_namespace(k) as NativePointer);
             if (!ns.startsWith(ABILITY_NS_PREFIX)) continue;
-            const m = findMethod(k, "ExecuteBehaviour");
-            if (!m || m.ptr.isNull()) continue;
-            const key = m.ptr.toString();
-            if (seen.has(key)) continue;   // override partage (rare) — un seul hook
-            seen.add(key);
-            out.push({ ptr: m.ptr });
+            for (const nm of GATE_METHODS) {
+                const m = findMethod(k, nm);
+                if (!m || m.ptr.isNull()) continue;
+                const key = m.ptr.toString();
+                if (seen.has(key)) continue;   // override partage (rare) — un seul hook
+                seen.add(key);
+                out.push({ ptr: m.ptr });
+            }
         }
     }
     gateTargets = out;
-    log("[dsl-ctor] enumere " + out.length + " gates ExecuteBehaviour (abilities)");
+    log("[dsl-ctor] enumere " + out.length + " gates ("
+        + GATE_METHODS.join("/") + ") sur les abilities");
     return out;
 }
 
@@ -249,6 +280,13 @@ function ctorOnLeave(this: InvocationContext, retval: InvocationReturnValue, nam
 function gateOnEnter(this: InvocationContext, args: InvocationArguments): void {
     let ability = "?";
     try { ability = readMsgClass(args[0]); } catch { /* */ }
+    // #1009-r3 — LE FILTRE EXISTE PARCE QUE LE BUDGET A ETE MESURE SATURE. Un seul `rl_duel build`
+    // sur la session PARTAGEE a rempli `MAX_CALLS` (4000/4000) avec les casts d'AUTRES agents ; en
+    // elargissant la porte aux fabriques de declenchees (une par ability ET par acteur, a chaque
+    // init de bataille), la saturation deviendrait la regle et le cast VISE sortirait tronque.
+    // `only` non vide -> la porte ne s'ouvre QUE sur les abilities dont le nom la contient, donc
+    // `castStack` reste vide ailleurs et `ctorOnEnter` n'enregistre rien (meme chemin qu'avant).
+    if (only !== "" && ability.indexOf(only) < 0) return;
     castStack.push({ ability, calls: [] });
 }
 function gateOnLeave(): void {
@@ -256,9 +294,13 @@ function gateOnLeave(): void {
     if (c) completed.push(c);
 }
 
-/** Arme : hooke les cibles de construction (gated) + les gates ExecuteBehaviour (ouvrent/ferment). */
-function arm(): unknown {
+/** Arme : hooke les cibles de construction (gated) + les gates de fabrique (ouvrent/ferment).
+ *
+ * `only` (#1009-r3) = sous-chaine du NOM DE CLASSE de l'ability ; `""` (defaut) = tout, exactement
+ * le comportement anterieur. Cf. `gateOnEnter` pour la mesure qui l'impose. */
+function arm(opts?: { only?: string }): unknown {
     if (armed) return { ok: false, error: "deja arme — disarm d'abord", hooks: listeners.length };
+    only = String((opts && opts.only) || "");
     const ct = enumCtorTargets();
     const gt = enumGates();
     castStack.length = 0;
@@ -284,7 +326,8 @@ function arm(): unknown {
         } catch { /* skip */ }
     }
     armed = true;
-    return { ok: true, ctorHooks: ct.length, gateHooks: gt.length, totalHooks: listeners.length };
+    return { ok: true, ctorHooks: ct.length, gateHooks: gt.length, totalHooks: listeners.length,
+        only: only || null };
 }
 
 function disarm(): unknown {
@@ -292,6 +335,7 @@ function disarm(): unknown {
     listeners.length = 0;
     castStack.length = 0;
     armed = false;
+    only = "";
     return { ok: true, disarmed: true };
 }
 
@@ -315,7 +359,7 @@ function casts(): unknown {
 }
 
 export function register(ctx: Ctx): void {
-    ctx.rpc.dslCtorArm = () => arm();
+    ctx.rpc.dslCtorArm = (opts?: { only?: string }) => arm(opts);
     ctx.rpc.dslCtorCasts = () => casts();
     ctx.rpc.dslCtorDisarm = () => disarm();
 }
