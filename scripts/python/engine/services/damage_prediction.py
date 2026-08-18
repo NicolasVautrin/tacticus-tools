@@ -550,13 +550,35 @@ def is_attack_max_out_damage(attacker_effects) -> bool:
     IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage`, call site IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a) — les appelants passent les EFFETS de
     l'attaquant (scene.effects / active ECS), pas un flag pre-calcule.
 
-    ⚠ LA SECONDE BRANCHE DU MEME NATIF N'EST PAS ICI, ET CE N'EST PAS UN OUBLI.
+    LA SECONDE BRANCHE DU MEME NATIF N'EST PAS ICI, ET C'EST MESURE.
     `HasTriggeredAbility(1494 ParagonSpear)` est portee cote COMBAT depuis #1013
     (`triggers/loki/weaver_of_fate.is_attack_max_out_damage_on_crit`), parce que le natif y rend le
     champ `isCritical` de l'`AbilityEntities` : elle se decide PAR COUP. Ce foyer-ci, lui, sert a
     `predict_attack_raw`, qui calcule une PREVISION sans coup ni crit tire -- il n'a pas de
-    `isCritical` a lire. Residu NOMME `#1013-r1` : ce que la prediction doit rendre pour un porteur
-    de la lance (le max sur la seule branche crit de la prevision, ou rien) n'est pas mesure.
+    `isCritical` a lire.
+
+    #1013-r1 (2026-08-18) -- LA REPONSE EST << RIEN >>, ET C'EST UNE LECTURE, PAS UN CHOIX.
+    L'offset `+0xf8` que rend cette branche est le parametre **`wasCrit`** d'
+    `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` -- position LUE dans la signature a 32
+    parametres (le ctor y ecrit `*(undefined1 *)(this + 0xf8) = wasCrit`), jamais comptee a l'oeil.
+    Or `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` NE PASSE PAS l'`AbilityEntities`
+    qu'il a recu : il en construit un NEUF -- `memset` a 0 sur ses 0x128 octets, puis `.ctor` avec
+    `caster = actor = <attaquant>`, `target = <cible>` et TOUS les autres parametres a ZERO (les
+    trois `Nullable<AbilityOrEffect>` compris, poses depuis trois locales zeroees). `wasCrit` y vaut
+    donc `0` : la branche `ParagonSpear` rend `false` pour la prevision, quel que soit le porteur.
+    Le wrapper `IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage` (qui recopie
+    l'`AbilityEntities` et appelle `UnitExtensions` avec `this+0x40` comme state) n'a que des xrefs
+    DATA -- `PredictAttackRaw` appelle `UnitExtensions$$IsAttackMaxOutDamage` DIRECTEMENT.
+
+    Cote COMBAT elle EST portee (#1013), sur les deux seuls sites ou un `wasCrit` non nul existe :
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (mirror
+    `damage_hits._run_hits(max_out_on_crit=...)`, PAR COUP et sous `if crit`) et
+    `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` (max-out vrai => le
+    `HitDamage` degenere sur le seul slot 3 `CalculateMax`).
+
+    CONSEQUENCE DE CONTRAT, et elle est load-bearing : ce foyer ne prend QUE les effets. Lui
+    ajouter un canal de KIT (trait, ability declenchee) ferait maxer une prevision que le jeu ne
+    maxe pas. Cliquet : `tests/engine/test_1013r1_max_out_prediction_offline.py`.
     (Le COMBAT runner a son mirror jumeau sur l'EffectsState ECS : `weaver_of_fate.
     is_attack_max_out_damage` — meme fonction native, deux stores.)"""
     return any(getattr(e, "name", None) == "WeaverOfFate_MaxOutDamage"
