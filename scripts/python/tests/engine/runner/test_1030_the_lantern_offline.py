@@ -161,20 +161,26 @@ def _zone_attendue(caster_pos=CASTER_POS, target=TARGET_POS) -> set:
     autrement que le port (ensembles Python purs, aucun noeud DSL), pour qu'une faute du port ne
     puisse pas se recopier dans son oracle.
 
-    ⚠ `cring1 = SurroundingTiles(CasterTiles, includeCenter = 0, range = 1)` porte l'EMPREINTE, pas
-    la main tile (#10023). `IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext`
-    ouvre par `foreach (tile in EntityExtensions.IterateTiles(center, state))` : le disque d'une
-    origine MULTI-HEX est l'UNION des disques de TOUS ses pieds. Et `includeCenter == 0` retranche
-    `Tiles(origin)` = `GetMainTile` PAR ENTITE -- l'origine etant ici une liste de sept
-    entites-TUILE, chacune est sa propre main tile, donc les SEPT sortent de l'anneau.
+    ⚠ DEUX LECTURES, TOUTES DEUX RELUES AU DECOMPILE (#10023), et elles ne se compensent pas :
 
-    L'oracle changeait donc en meme temps que le montage : ecrit pour un caster mono-hex, il
-    n'aurait plus decrit la meme zone une fois les sept pieds poses."""
+    * `cring1 = SurroundingTiles(CasterTiles, ...)` porte l'EMPREINTE, pas la main tile --
+      `IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext`
+      ouvre par `foreach (tile in EntityExtensions.IterateTiles(center, state))`, donc le disque
+      d'une origine MULTI-HEX est l'UNION des disques de TOUS ses pieds ;
+    * `includeCenter == 0` retranche `Tiles(origin)`, et `Tiles` resout d'abord chaque tuile en son
+      OCCUPANT (`IdunBattle.DSL.TargetsSelector$$SelectUnit` : `IsUnitFoot || IsTile -> GetUnit`)
+      avant `GetMainTile`. Les sept pieds rendent SEPT FOIS Mortarion -> UNE seule tuile retranchee.
+      Les SIX pieds secondaires RESTENT donc dans l'anneau, et l'un d'eux ((6,5) dans ce montage)
+      entre dans la zone.
+
+    C'est cet ecart d'exactement UNE TUILE qui a fait diverger les deux faces : le port COMBAT
+    retranchait les sept, la face DECISION (`TheLanternPlaybook.target_area`, `feet[:1]`) en
+    retranchait une. Le decompile donne raison a la seconde."""
     d = hexgeo.distance
-    feet = set(_empreinte_7(caster_pos))
+    feet = _empreinte_7(caster_pos)
     ring1 = {p for p in hexgeo.disk(target[0], target[1], 1) if p != target}
     ring2 = {p for p in hexgeo.disk(target[0], target[1], 2) if p != target}
-    cring = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - feet
+    cring = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - {feet[0]}
     dans = lambda s: {p for p in s if 0 <= p[0] < COLS and 0 <= p[1] < ROWS}   # noqa: E731
     assert d(caster_pos, target) == 3, "le montage n'a plus la distance qu'il documente"
     return dans({target} | ring1 | (ring2 & cring))
