@@ -67,8 +67,19 @@ def final_damage_triggers(state: State, attacker_id: int, target_id: int,
     XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`
     et `IdunBattle.Operations.AbilityDamageOperation$$Execute` — et RIEN d'autre. L'evenement part donc
     UNE fois par ATTAQUE (resp. par degat d'ability), a la SORTIE de l'operation, **jamais** pour un
-    DoT (`execute_direct`) ni un knockback (`displace`). Les deux call-sites du port sont a la meme
-    place (cf. `damage_ops.py`).
+    DoT (`execute_direct`) ni un knockback (`displace`).
+
+    TROIS call-sites cote port, tous a la meme place (apres la facade after-hit, avant la cloture) --
+    et le troisieme manquait (#512-r9, 2026-08-18) : `damage_ops/normal.py` et
+    `damage_ops/ability.py` mirroitent respectivement les deux `Execute` natives, mais
+    `damage_ops/normal_like.py` mirroite AUSSI `AttackDamageOperation$$Execute` (mode `amount`) et
+    n'emettait RIEN. C'est le seul des trois qui portait un `On(0x42)` absent, pas mal ordonne.
+
+    ⚠ AUCUN GATE `is_outside_attack` sur ce vecteur, contrairement a `On(9)`/`On(10)` : celui-la
+    separe ce qu'emet le NOEUD (slot 59, `FinishAttack`) de ce qu'emet l'OPERATION, et
+    `RegisterFinalDamage` est du cote OPERATION. Et l'emission est INCONDITIONNELLE dans le natif --
+    elle vit HORS du `if (0 < totalDamage)` qui garde la liste `currentAttack@+0x60` et le slot
+    d'itable 0x4b, donc un coup a 0 degat emet quand meme l'evenement.
 
     L'`AbilityEntities` construit par `RegisterFinalDamage` est
     `ctor(caster = param_3 = l'ATTAQUANT, owner = actor = target = param_4 = la VICTIME,

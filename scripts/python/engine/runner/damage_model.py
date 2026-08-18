@@ -1744,6 +1744,43 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
         add_modifier(mods, eb)
 
 
+def attacker_modifiers_at_profile(state: State, attacker_id: int, hp: Optional[int],
+                                  target_id: Optional[int], damage_profile: Optional[str],
+                                  is_ranged: Optional[bool] = None, target_traits=None,
+                                  is_normal_attack: bool = True,
+                                  trigger_ability_type: Optional[int] = None,
+                                  is_overwatch: bool = False,
+                                  ability_type: Optional[int] = None):
+    """#488-r3 -- L'ETAGE COMPLET des mods ATTAQUANT POUR UN PROFIL DONNE : la collecte d'effets
+    PLUS les deux feuilles POSITIONNELLES, exactement comme le builder natif partage
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`, qui les
+    porte dans le MEME etage.
+
+    POURQUOI CE FOYER EXISTE. Un groupe additionnel du canal #179 a profil PROPRE est, cote natif,
+    une SOUS-OPERATION entiere : son `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`
+    rebatit un `IdunBattle.Entities.Abilities.AbilityEntities` NEUF dont le `DamageProfile` est
+    celui DU GROUPE, et c'est cet objet que le builder passe a chaque effet. Le port ne le refaisait
+    pas : `execute_additional_hits` recevait `mods` en argument, resolus une fois par la phase
+    d'ARME. Les deux vecteurs qui montent des groupes (`damage_ops/normal.py`,
+    `damage_ops/ability.py`) fabriquent donc ici le RE-COLLECTEUR qu'ils lui passent.
+
+    ⚠ `apply_trench_reduction` PREND LE PROFIL : elle n'est donc pas un simple decor positionnel,
+    elle appartient a l'axe qu'on recalcule. `apply_elevation_bonus` ne le prend pas, mais elle vit
+    dans le meme etage natif -- l'omettre rendrait des mods AMPUTES par rapport a ceux de la phase
+    d'arme, et la comparaison des deux collectes (cf. `execute_additional_hits`) accuserait alors
+    l'elevation au lieu du profil.
+
+    Ne consomme AUCUN RNG : c'est une lecture d'effets et de positions."""
+    mods, _active = attacker_modifiers(
+        state, attacker_id, hp, is_ranged=is_ranged, target_traits=target_traits,
+        target_id=target_id, is_normal_attack=is_normal_attack, damage_profile=damage_profile,
+        trigger_ability_type=trigger_ability_type, is_overwatch=is_overwatch,
+        ability_type=ability_type)
+    apply_elevation_bonus(state, mods, attacker_id, target_id)
+    apply_trench_reduction(state, mods, attacker_id, target_id, damage_profile)
+    return mods
+
+
 def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx) -> int:
     """#45f — `IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack` : bonus crit-sur-Ice.
 

@@ -82,7 +82,10 @@ def no_thread_variant(port=None):
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
               hit_interceptor=None, failed_block0=None, damaging_done0=False,
-              source_ability=None):
+              source_ability=None, attacker_mods_for_profile=None):
+        # #488-r3 : `attacker_mods_for_profile` (re-collecte des mods ATTAQUANT au profil DU
+        # GROUPE) complete la signature du port. Cette variante REIMPLEMENTE le canal et ne fait
+        # varier que le chainage de `failed_block` -- accepte et NON LU, comme `source_ability`.
         # #1020-r6 : `source_ability` (`AbilityEntities+0x60`/`+0x98`) fait partie de la
         # signature du port. Cette variante ne fait varier que le chainage de `failed_block` --
         # le parametre est donc accepte et NON LU, comme `damaging_done0` juste avant.

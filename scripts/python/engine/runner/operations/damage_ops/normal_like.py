@@ -343,10 +343,39 @@ class _NormalLike:
         # d'`HazeOfCorruption`, qui vivent sous UN SEUL `Attack(bonded, Owner@0x148, beh)`.
         # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule) ; `profiles` = le SET
         # des profils de l'attaque (ici le seul profil d'arme -- cette voie n'a pas de groupe #179).
-        # ⚠ NON COUVERT, ET C'EST UN ECART CONNU DE CE VECTEUR (residu #512-r9) : cette facade
-        # n'emet AUCUN `On(0x42 = FinalDamage)`, alors que `RegisterFinalDamage` est appelee par les
-        # DEUX `Execute` natives. Le rang relatif `8` -> `9` repare ici est donc juste ; ce qui
-        # manque est un evenement ENTIER, pas son ordre.
+        #
+        # `On(FinalDamage = 0x42 = 66)` -- #512-r9 : CE VECTEUR NE L'EMETTAIT PAS, et c'etait un
+        # evenement ENTIER qui manquait (pas un ecart d'ORDRE : celui-la, `8` -> `9`, a ete repare
+        # par #512-r7). Le foyer natif `IdunBattle.Operations.ADamageOperation$$RegisterFinalDamage`
+        # est sur la base COMMUNE, et ses xrefs entrantes sont EXHAUSTIVES :
+        # `IdunBattle.Operations.AttackDamageOperation$$Execute` et `IdunBattle.Operations.
+        # AbilityDamageOperation$$Execute`. Ce vecteur mirroite la PREMIERE (mode `amount` d'
+        # `AttackWithAttackDamage`), tout comme `damage_ops/normal.py` -- les deux autres vecteurs
+        # du port l'emettent deja, celui-ci etait le seul a ne pas le faire.
+        #
+        # TROIS LECTURES qui fixent la PLACE et le GATE, toutes trois au decompile de
+        # `AttackDamageOperation$$Execute` (build `t6dpr4k06g`) :
+        #   1. l'appel est la DERNIERE instruction de l'operation, APRES la boucle des groupes
+        #      additionnels et APRES l'agregation `attack@+0x28 += hitGroup@+0x4c` -> donc APRES
+        #      `_apply_damage_pipeline` (le compteur `received_damage_this_turn` que lit le seul
+        #      consommateur est deja incremente) et APRES la facade after-hit ;
+        #   2. il precede `On(9)`/`On(10)`, qui ne sortent PAS d'une operation de degat mais du slot
+        #      59 (`FinishAttack`) que pousse le NOEUD -- donc strictement plus tard ;
+        #   3. l'emission de l'event dans `RegisterFinalDamage` est INCONDITIONNELLE : elle vit HORS
+        #      du `if (0 < totalDamage)` qui garde, lui, la liste `currentAttack@+0x60` et le slot
+        #      d'itable 0x4b. D'ou l'absence de tout gate sur le degat ici.
+        # ⇒ PAS DE GATE `is_outside_attack` non plus : ce dernier separe ce qu'emet le NOEUD de ce
+        # qu'emet l'OPERATION, et `RegisterFinalDamage` est du cote OPERATION. Une feuille
+        # `AttackDamage` NUE (les N transferts d'`HazeOfCorruption`) monte une operation par feuille,
+        # donc N `On(0x42)` pour un seul `On(9)` -- c'est la cardinalite native.
+        # RAYON DE SOUFFLE MESURE avant d'emettre (meme geste que #512-r7 sur `On(9)`, 24 couples) :
+        # `probe_512r9_final_damage_blast_radius.py` -- **1** ecouteur de l'event 66 dans tout le
+        # registre, `RealityUnboundExtraMaxDamageAbility` (passif `RealityUnbound`, porteurs
+        # `thousTzaangor` en lineup + 4 npc). Aucun autre trigger ne peut bouger.
+        from ..triggers.base import _is_ranged_position as _irp512r9
+        attack_dispatch.final_damage_triggers(
+            state, attacker_id, target_id,
+            ranged=_irp512r9(state, attacker_id, target_id), profile=damage_profile)
         if is_outside_attack:
             from ..triggers.base import _is_ranged_position
             after_hit = after_hit + attack_dispatch.finish_attack_triggers(

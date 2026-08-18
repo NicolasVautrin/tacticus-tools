@@ -27,7 +27,10 @@ from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modif
                              defender_modifiers, build_hits_board, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
                              target_trait_names, getstuckin_combat_chance, defender_fixed_armor,
-                             tile_status_effects_by_pos, battle_query_is_charging)
+                             tile_status_effects_by_pos, battle_query_is_charging,
+                             # #488-r3 : l'etage COMPLET des mods attaquant a un profil DONNE
+                             # (collecte + elevation + trench), pour le canal #179.
+                             attacker_modifiers_at_profile as _attacker_mods_at_profile)
 from ....entities.effects import hits_bonus_from_effects
 from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
@@ -852,6 +855,18 @@ class _Normal:
             # `AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`, qui pose
             # le meme bloc en `AbilityEntities+0x60` ET `+0x98`).
             source_ability=_src_ability,
+            # #488-r3 : le RE-COLLECTEUR de mods ATTAQUANT au profil DU GROUPE. Le natif rebatit
+            # un `AbilityEntities` par sous-operation (cf. `additional_hits.py`), donc tout bonus
+            # gate `DamageProfileHasTrait(...)` / `DamageProfileIs(...)` doit y etre reevalue.
+            # MEMES huit axes que la collecte de la phase d'arme ci-dessus, SEUL le profil change
+            # -- c'est ce qui rend la double collecte comparable et l'ecart imputable au profil.
+            # Les DEUX feuilles POSITIONNELLES sont refaites, parce que le builder natif les porte
+            # dans le MEME etage et que `calculate_trench_reduction` lit elle aussi le profil.
+            attacker_mods_for_profile=(
+                lambda _prof: _attacker_mods_at_profile(
+                    state, attacker_id, ahc.hp if ahc else None, target_id, _prof,
+                    is_ranged=_ranged, target_traits=target_trait_names(state, target_id),
+                    is_overwatch=bool(is_overwatch))),
             hit_interceptor=_hit_icept)      # #366-r1 : meme attaque -> meme intercepteur per-coup
         if _ah is not None:
             death = death or _ah.get("death")

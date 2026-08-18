@@ -23,7 +23,10 @@ from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_
                              apply_elevation_bonus, apply_trench_reduction,
                              ice_crit_damage_addition, target_trait_names,
                              getstuckin_combat_chance, defender_fixed_armor,
-                             tile_status_effects_by_pos)
+                             tile_status_effects_by_pos,
+                             # #488-r3 : l'etage COMPLET des mods attaquant a un profil DONNE
+                             # (collecte + elevation + trench), pour le canal #179.
+                             attacker_modifiers_at_profile as _attacker_mods_at_profile)
 from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
@@ -813,7 +816,20 @@ class _AbilityAttack:
                 # #1020-r6 : la MEME `DamageSource` que la phase d'arme de CE cast -- un groupe
                 # additionnel HERITE de l'`AbilityOrEffect` de son attaque (cf.
                 # `AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`).
-                source_ability=_src_ability)
+                source_ability=_src_ability,
+                # #488-r3 : RE-COLLECTEUR de mods ATTAQUANT au profil DU GROUPE (cf.
+                # `additional_hits.py`). Ce bras est deja sous `if is_attack_damage_op`, donc la
+                # famille ABILITY -- dont les mods attaquant sont ZEROES (#226) et qui ne porte NI
+                # elevation NI trench -- ne l'atteint jamais : le canal reste MUET pour elle, et
+                # c'est le bon comportement (une re-collecte y rendrait des mods NON vides que le
+                # natif ne construit pas). MEMES axes que la collecte de la phase d'arme
+                # ci-dessus, `damage_profile` excepte : c'est ce qui rend la double collecte
+                # comparable.
+                attacker_mods_for_profile=(
+                    lambda _prof: _attacker_mods_at_profile(
+                        state, attacker_id, ahc.hp if ahc else None, target_id, _prof,
+                        is_ranged=_ranged, target_traits=_tgt_traits, is_normal_attack=False,
+                        trigger_ability_type=ability_type, ability_type=ability_type)))
         # DE-FORK — la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` 1016,
         # `OnToxicDamageAbility` 1203) N'EST PLUS appelee ici. Leur vecteur natif est
         # `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
