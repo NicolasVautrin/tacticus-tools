@@ -273,16 +273,27 @@ def test_le_detecteur_du_cran_ci_dessous_SEPARE_le_code_de_la_PROSE():
 
 
 def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
-    """Les DEUX porteurs a seuil encore non exerces (`MastersOfManoeuvre`, `SmashaEad`) n'ont
-    AUCUN trigger porte -- leur seuil n'est donc exerce nulle part dans le moteur, et c'est ce qui
-    rend le verdict « aval sature » suffisant pour eux. Tous deux ont un seuil de **2**, donc SOUS
-    la borne : meme exerces, ils ne pourraient pas basculer.
+    """Le porteur a seuil encore non exerce (`SmashaEad`) n'a AUCUN trigger porte -- son seuil
+    n'est donc exerce nulle part dans le moteur, et c'est ce qui rend le verdict « aval sature »
+    suffisant pour lui. Son seuil est le litteral `Direct(2)` de `SmashaEadAbility$$CreateTrigger`,
+    donc SOUS la borne : meme exerce, il ne pourrait pas basculer.
 
     ⚠ `EmpyricAmbush` est SORTI de cette liste en #589-r1-r1, et ce n'est pas un contournement :
     son seuil est desormais EXERCE (l'effet 1578 est porte, cf. `EmpyricAmbushEffect`) et il a ete
     CONFRONTE au natif -- c'est exactement ce que ce cran reclamait. Le garde qui le remplace est
     `test_le_seuil_porte_d_EmpyricAmbush_bascule_a_movement` ci-dessous, plus le cliquet live
-    `tests/engine/runner/test_empyric_ambush_threshold_live.py`."""
+    `tests/engine/runner/test_empyric_ambush_threshold_live.py`.
+
+    ⚠ `MastersOfManoeuvre` en est SORTI de meme, en #589-r2, et pour la MEME raison : son trigger
+    est porte depuis #999-r1 (`MastersOfManoeuvrePlaceOnMove`, branche `<A>`), donc son seuil est
+    EXERCE, et la reconfrontation que ce cran reclamait A ETE FAITE -- elle n'est pas deduite de la
+    borne, elle est MESUREE sur deux boards a `Bridge` : **5253 couples divergents (`n_G != n_C`),
+    0 bascule du gate porte**, avec le TEMOIN non-nul qui empeche de confondre ce zero avec une
+    mesure aveugle (`EmpyricAmbush`, K=4, bascule **1328** fois sur les memes couples).
+    `C1_74` : 326 divergents / 70 bascules temoin ; `C3_14` : 4927 / 1258.
+    Le garde qui le remplace est `test_le_seuil_porte_de_MastersOfManoeuvre_ne_BASCULE_pas`
+    ci-dessous ; la mesure se rejoue par
+    `probe_589r2_masters_of_manoeuvre_aval.py --only GATE --board C1_74`."""
     import pathlib
 
     trig = pathlib.Path(__file__).resolve().parents[4] / "engine" / "runner" / "operations" \
@@ -299,10 +310,17 @@ def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
     assert len(tokens) > 100, (
         "detecteur muet : %d token(s) sur %d fichier(s) -- ce cran ne mesure plus rien"
         % (len(tokens), len(fichiers)))
-    for ab in ("MastersOfManoeuvre", "SmashaEad"):
+    for ab in ("SmashaEad",):
         assert ab not in tokens, (
             "`%s` a maintenant un trigger porte : son seuil est desormais exerce, l'aval de #589 "
             "doit etre RECONFRONTE pour ce consommateur" % ab)
+    # ... et le cran assertionne que sa cible EXISTE encore : si `SmashaEad` disparaissait du
+    # recensement natif, la boucle ci-dessus tournerait a vide et ce test passerait pour VERT sans
+    # rien garder. C'est le meme vice que le `len(tokens) > 100` juste au-dessus, sur l'autre axe.
+    assert "MastersOfManoeuvre" in tokens, (
+        "`MastersOfManoeuvre` n'a PLUS de trigger porte : la sortie de ce cran (#589-r2) reposait "
+        "sur le fait qu'il en avait un. Le garde qui l'a remplace ne mesure donc plus rien -- "
+        "remettre l'ability dans la boucle ci-dessus, ou re-justifier sa sortie.")
 
 
 def test_le_seuil_porte_d_EmpyricAmbush_bascule_a_movement():
@@ -353,3 +371,81 @@ def test_le_seuil_porte_d_EmpyricAmbush_bascule_a_movement():
     # `get_OwnerIsTarget` : un porteur qui n'est PAS le defenseur ne contribue pas.
     assert e.create_effect_crit_chance_bonus_for_attack(
         {**ctx, "owner_id": 5, "tiles_moved_this_turn": k}) is None
+
+
+def _eval_gate_mom(gate, n):
+    """Le gate PORTE de `MastersOfManoeuvre`, evalue sur un `AbilityEntities` MINIMAL dont
+    l'ACTEUR porte `n`. `Actor().select(ctx)` rend `ctx.actor` -- un namespace suffit, et c'est
+    VOULU : on exerce le NOEUD, pas le montage d'un `State`. `n = None` = compteur NON MESURE."""
+    import types
+    actor = {} if n is None else {"tilesMovedThisTurn": int(n)}
+    return bool(gate.should_trigger(types.SimpleNamespace(
+        actor=actor, subject=None, owner=None, caster=None, target=None)))
+
+
+def test_le_seuil_porte_de_MastersOfManoeuvre_ne_BASCULE_pas():
+    """LE GARDE qui remplace l'inscription de `MastersOfManoeuvre` a la liste ci-dessus (#589-r2).
+
+    Son trigger est porte depuis #999-r1 (`MastersOfManoeuvrePlaceOnMove`, branche `<A>`), donc
+    son seuil est EXERCE. Le natif, relu VERBATIM sur `t6dpr4k06g` :
+
+        AmountIsEqualOrGreater( TilesMovedThisTurn( Actor@<DSLSelectors+0x40> ),
+                                Get( GetNumberConstant( config, tilesTraversed = 0x88 ) ) )
+
+    Ce cran garde les DEUX faces, et la seconde est celle que le rouge reclamait :
+      1. le gate bascule a `K` EXACTEMENT (`>=`, pas `>`), `K` RELU du gameconfig ;
+      2. il rend le MEME verdict sur les deux substrats, pour TOUS les couples ou le
+         rebranchement de #589 mord -- c'est la saturation, exercee au lieu d'etre deduite.
+
+    ⚠ LE TEMOIN EST CE QUI EMPECHE CE CRAN D'ETRE VIDE. « aucune bascule » et « la grille ne sait
+    pas produire de bascule » sont indistinguables sans lui : on verifie donc qu'un seuil PLACE
+    AU-DESSUS DE LA BORNE bascule bel et bien sur les MEMES couples. C'est le role que tient
+    `EmpyricAmbush` (K=4) sur les vrais boards ; sur cette grille les longueurs sont petites, donc
+    le temoin est le seuil **3**.
+
+    Mesure live correspondante (`probe_589r2_masters_of_manoeuvre_aval.py --only GATE`), deux
+    boards a `Bridge` : `C1_74` **326** couples divergents / **0** bascule / temoin **70** ;
+    `C3_14` **4927** / **0** / temoin **1258**."""
+    import gameconfig as GC
+    from engine.runner.operations.triggers.loki.masters_of_manoeuvre import (
+        masters_of_manoeuvre_tiles_gate)
+
+    k = int(((GC.ability("MastersOfManoeuvre") or {}).get("constants") or {}).get("tilesTraversed"))
+    assert k <= 2, ("`tilesTraversed` = %d est passe AU-DESSUS de la borne : le consommateur n'est "
+                    "plus sature et l'aval de #589 est ROUVERT pour lui" % k)
+    gate = masters_of_manoeuvre_tiles_gate()
+
+    # --- face 1 : la bascule est a K, et le tri-etat est RESTRICTIF.
+    for n in range(0, k):
+        assert not _eval_gate_mom(gate, n), "n=%d < K=%d ne doit pas ouvrir" % (n, k)
+    for n in (k, k + 1, k + 7):
+        assert _eval_gate_mom(gate, n), "n=%d >= K=%d doit ouvrir" % (n, k)
+    # `TilesMovedThisTurnFormula$$Calculate` rend 0 quand l'entite n'a pas le composant -> ferme.
+    assert not _eval_gate_mom(gate, None)
+
+    # --- face 2 : la SATURATION, exercee sur les couples ou le rebranchement mord.
+    avec, sans = Board(_grid(True), adjacency="evenq"), Board(_grid(False), adjacency="evenq")
+    TEMOIN = 3                      # un seuil AU-DESSUS de la borne, comme `EmpyricAmbush` (K=4)
+    divergents = bascule_temoin = 0
+    for ptype in (PF.PathfinderType.Fly,
+                  getattr(PF.PathfinderType, "TeleportStrikeFly", 7)):
+        for a in range(1, 10):
+            for b in range(1, 10):
+                if a == b:
+                    continue
+                ng, nc = _n_tiles(sans, ptype, a, b), _n_tiles(avec, ptype, a, b)
+                if ng == nc:
+                    continue
+                divergents += 1
+                assert _eval_gate_mom(gate, ng) == _eval_gate_mom(gate, nc), (
+                    "le gate porte de `MastersOfManoeuvre` BASCULE entre les substrats sur "
+                    "(%d,%d) : n_G=%d n_C=%d -- l'aval de #589 le touche, il n'est PAS sature"
+                    % (a, b, ng, nc))
+                if (ng >= TEMOIN) != (nc >= TEMOIN):
+                    bascule_temoin += 1
+    assert divergents, ("aucun couple divergent : la grille ne fait pas mordre le rebranchement, "
+                        "ce cran ne garderait RIEN")
+    assert bascule_temoin, (
+        "le TEMOIN (seuil %d, au-dessus de la borne) ne bascule sur AUCUN des %d couples "
+        "divergents : cette grille ne sait pas produire de bascule, donc le zero de "
+        "`MastersOfManoeuvre` ci-dessus ne prouve rien" % (TEMOIN, divergents))
