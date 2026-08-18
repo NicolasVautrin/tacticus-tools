@@ -1,6 +1,7 @@
 {
   "_": "Cohabitations ATTESTEES pour probe_468_collision_numeros.py. Cle = '<identifiant normalise>|<nom de la case-doc>'. Valeur = la RAISON, non vide. Le statut 'COLLISION-OUVERTE' marque une collision reelle NON resolue : elle est re-imprimee a chaque run et n'est PAS un blanc-seing.",
   "attestations": {
+    "10036|case-10036-churn-des-caches-de-cliquets.md": "la tranche qui OUVRE #10036 (PR #1190) ecrit sa ligne de backlog ET la case-doc qui porte la cause etablie -- meme tache, meme commit",
     "1015r1|case-1015-r1-beast-snagga.md": "troisieme tranche de la MEME tache #1015-r1 (BeastSnagga porte, TwoManTeam reclasse) -- meme convention que les case-docs CloseCombatWeakness et InstinctiveBehaviour deja attestees ; la ligne reste OUVERTE tant que Healer n'est pas traite",
     "1015r1|case-1015-r1-close-combat-weakness.md": "Meme cause et meme arbitrage que la case-doc soeur (case-1015-r1-instinctive-behaviour.md, deja attestee) : la ligne #1015-r1 reste OUVERTE parce qu'elle porte CINQ items ; chaque case-doc n'en documente QU'UN. Rouge de master constate au rebase de la tranche InstinctiveBehaviour.",
     "1015r1|case-1015-r1-healer-heal-derive.md": "Tranche du MEME residu #1015-r1, qui porte CINQ items a foyers disjoints : une case-doc par item traite (CloseCombatWeakness, puis Healer). La ligne de backlog reste OUVERTE tant que les items restants ne sont pas livres.",

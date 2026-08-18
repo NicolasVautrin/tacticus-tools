@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **461** ; kits avec du travail : **30**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **10** · `[CD]` **136**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **8** · `[CD]` **138**
 - Passifs distincts : **177** — portes **143**, non portes **34**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -86,13 +86,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (10)
+## Faces DECISION ouvertes sur des actives EXECUTEES (8)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `CallRipperSwarms`, `Catalyst`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `Catalyst`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -527,7 +527,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tauBossRiptide | 2 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[C-]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | - | - |
+| tauBossRiptide | 2 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[CD]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | - | - |
 | tauNpc6Carnivore | 1 | - | HuntersInstincts | - | - |
 | tauBossAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauBossAunShiInc | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
@@ -597,7 +597,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tyranBossHiveTyrantLeviathan | 2 | CallRipperSwarms(1052)[C-]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
+| tyranBossHiveTyrantLeviathan | 2 | CallRipperSwarms(1052)[CD]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
 | tyranBossDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperCE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperLHE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |

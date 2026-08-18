@@ -1603,7 +1603,7 @@ tauBossMarksmanLHE	Tau	Xenos	None	trait	Hero		1
 tauBossMarksmanLHE	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossMarksmanLHE	Tau	Xenos	None	trait	Camouflage		1	
 tauBossRiptide	Tau	Xenos	None	active	NovaBoost	1192	1	1
-tauBossRiptide	Tau	Xenos	None	active	NovaCharge	1193	1	0
+tauBossRiptide	Tau	Xenos	None	active	NovaCharge	1193	1	1
 tauBossRiptide	Tau	Xenos	None	active	NovaShield	1194	1	1
 tauBossRiptide	Tau	Xenos	None	passif	MultiTracker		0	
 tauBossRiptide	Tau	Xenos	None	passif	TargetLock		0	
@@ -1965,7 +1965,7 @@ tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	Camouflage		1
 tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	TeleportStrike		1	
 tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	Infiltrate		1	
 tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	Terrifying		1	
-tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	CallRipperSwarms	1052	1	0
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	CallRipperSwarms	1052	1	1
 tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	Catalyst	1032	1	0
 tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	StranglethornCannon	1056	1	1
 tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	passif	PrehensilePincerTail		0	
