@@ -467,6 +467,7 @@ scripts/python/engine/runner/abilities/tyranids.py	mirror	cf2778873191adf6723931
 scripts/python/engine/runner/abilities/ultramarines.py	mirror	f81c12334d4c38fdc0fcee9d62d41e3ec75f4a19111c21ec01285613233b462d	{}
 scripts/python/engine/runner/abilities/votann.py	mirror	a0ae2d163074d4750054fbc03fea302e489092bdff4ce91ecda2377e5e468a2e	{}
 scripts/python/engine/runner/abilities/worldeaters.py	mirror	c7885721331f4bac28a2db01a67fe8b3026f98f680c4ebc7691b6c6ec6d8d1ff	{}
+scripts/python/engine/runner/battle_query_state.py	mirror	9999db1983bb499c1c67562342700ee59f0ec4646921872b753f22c0f08e98ad	{}
 scripts/python/engine/runner/caches/__init__.py	mirror	bdf38143937659d8b3792f4ad5cefc65c35a803cf53acb2330b4dd1aa1ce71fd	{}
 scripts/python/engine/runner/caches/ability_and_effect_cache.py	mirror	0a1855211b11b8ad0c6aa703b0e3ea7f3641f787318bec41755594c5e9577663	{}
 scripts/python/engine/runner/components.py	mirror	9a644222fbea4b83a8c9ac5c4b8f33d0a542662a01eb410409dc99db003b40d2	{}
@@ -491,7 +492,7 @@ scripts/python/engine/runner/operations/damage_ops/ability.py	mirror	964569d76a5
 scripts/python/engine/runner/operations/damage_ops/normal.py	mirror	94a5c5a7f2702f8c5e35177ee169e0fa9dea4d9be23f8888eaa581c48a26523c	{}
 scripts/python/engine/runner/operations/damage_ops/normal_like.py	mirror	649959775ee3c56c4d923acc854dd8506d4a49944b5b8507583885dd32bf1848	{}
 scripts/python/engine/runner/operations/damage_prediction_sort.py	mirror	8923ea656860764ec5cf56812498212c9fe98cfa2185e1e65db31b297474d600	{}
-scripts/python/engine/runner/operations/damage_utility.py	mirror	2690f62d550ffe8a05716bfe2e6d2cc2db06ae13005cfeff148f0fff5684b79e	{}
+scripts/python/engine/runner/operations/damage_utility.py	mirror	bf9b30b2ed73c6e6a7789ab0682ca5ca654f26af8baa39d473ea95fb2329daac	{}
 scripts/python/engine/runner/operations/displace.py	mirror	b0e8332e69e9068d5ff92ad6b44256b8773a1e7c9fc6703d96abda15d47835b8	{}
 scripts/python/engine/runner/operations/effects.py	mirror	0b2777d28fc04908120a3999de62b53602a8923d95fe361040a3a336b3a17662	{}
 scripts/python/engine/runner/operations/fill_up_prediction.py	mirror	78b975506ad332a8bdc8ac10679f11631b9d14ec309c466807fa67d77267e86e	{}
@@ -753,7 +754,7 @@ scripts/python/engine/streams/turn_phase.py	mirror	fa89340ff70cf026dce3cc4788cd2
 scripts/python/engine/streams/unit_extensions.py	mirror	1ba6dd8234091e0024c2a835214a322581c1f83a838386304f5c16e04fa48950	{}
 scripts/python/engine/streams/verify_turn_finished.py	mirror	9648202be789692b59bb0fdd1ed21fc8402bcc1f9b05016bbfc7380e5e91f909	{}
 scripts/python/engine/utilities/__init__.py	mirror	c046081d4ed42cc6a24b143614cf4445ac0adaa1af1d61e18577a3a1672f6888	{}
-scripts/python/engine/utilities/base.py	mirror	f792f2976a843ff50b9b8ad0cf6c7f6ab1627f112df43d74501eb0eb11749dae	{}
+scripts/python/engine/utilities/base.py	mirror	c9e768c811e5e556e1e52309c6b5bef2a65c79675ab989be18c9ed357b5a655b	{}
 scripts/python/engine/utilities/damage.py	mirror	7abf34a1019d141b7c73c8a2533863dd22be456de21d7e773ff1389a2c34a2d4	{}
 scripts/python/engine/utilities/decider.py	mirror	5855b842b70f774d1da1ba602b89bfc98a0c170f5287e6e57fc4a2e0944b871c	{}
 scripts/python/engine/utilities/devout_push.py	mirror	998503adf8714bd5bf54769497cffeba65b8b734ef721d54fb5b46bef51b14b6	{}
@@ -765,6 +766,7 @@ scripts/python/engine/utilities/ramming_speed.py	mirror	83722d04e98e4b7e78b4086c
 scripts/python/engine/utilities/repair.py	mirror	eaa59e59aea8d20b5a1d5afb129133cb92469b7b35a40c477ae74938e27c78ad	{}
 scripts/python/engine/utilities/sworn_protector.py	mirror	aeb21247f1b3014cddfb16fd725e12ef333c97da047f11f36b9e6816e53b0702	{}
 scripts/python/engine/utilities/tile.py	mirror	deffbe3a5274daf75c979ba9e3d409e77d464be0d49e07cbbcb938b146c0bbfd	{}
+scripts/python/engine/utilities/unit_picker.py	mirror	4f1072d5cd90dd4ab4e1aa647c0285de5813dbee559640add068520555709d54	{}
 scripts/python/engine/utilities/utility_type.py	mirror	5cbd12e99e77f219db0a236146171c6406803841fbf2d587b5f5ba4a55e764c5	{"UtilityType":{"ActiveAbilities":68,"AddedTileEffects":46,"AdjacentHarmonizedFriend":79,"AdjacentQuickSlash":50,"AttackTargetWithEffect":43,"AttackTile":8,"BioMinefield_MoveTowardsTarget":62,"CapturePoint":25,"Contaminated":26,"Damage":35,"DamageDealt":36,"DanceOfDaggers":49,"DecoysAndMisdirection_AttractToDecoys":65,"DefenderOfTheGreaterGood":22,"DespoiledGround":29,"DevoutPush_AdjacentRangedEnemies":53,"DislikeBoss":44,"DislikeEnvironmentUnits":40,"DislikeObjects":39,"DislikeStartingTilesUtility":28,"DoctrinaImperatives_AttractMechanicals":58,"EarlyWarningOverride_SpawnSummon":57,"EchoesFromTheWarp_FriendliesAvoidGhost":59,"Elevation":9,"EnemyOnTerritoryTile":42,"EnvEndBombardment":32,"Heal":45,"HeroLikeDoorOpening":31,"HypersensoryAbilities_BonusForFirstAttack":64,"KillUnit":37,"KustomForceField":21,"LastAbilities":76,"LeadingTheCharge_ChargeTile":67,"MV71SniperDroneSquad_ClosestToParent":56,"MasterOfTheTutelaries_MoveTowardsTarget":63,"MaxDistanceToEnemies":19,"MaxDistanceToUnitTile":18,"MinDistanceToClosestEnemy":17,"MinPossibleNormalAttackTarget":71,"MoltenForm":24,"MovementSuggestion":33,"NoMovementToTileWithAdjacentEnemies":81,"OnlyImperviousUnitIfCanBeDamaged":41,"OptimizedGait_AdjacentFriends":60,"OverkillUnit":38,"Phantasm_AvoidFriendlyPhantasm":61,"PowerUp":27,"PreferAbilities":74,"PreferFreshlySpawned":70,"PreferNonBoss":69,"PreferSummons":75,"PsychicFortress":80,"RammingSpeed_MostAdjacentEnemies":54,"Random":78,"RangedAdjacentEnemy":16,"Remaining":73,"Repair":47,"RepairedAmount":48,"RoyalGuard_AvoidAdjacentEnemies":51,"STRIPPED":9999,"SaviorProtocols":23,"SingleAdjacency":1,"Spawn":0,"SteppableUnit":20,"SummonDislikeDoorOpening":30,"SwornProtector_AvoidAdjacentEnemies":52,"TemporaryTile":14,"TheArdentBlade_Geminae":66,"Tile":7,"TileDistance":34,"TileEffects":10,"TilePendingBlockableSummon":15,"TriggeredAbilities":2,"TriggeredAbilitiesNonOwner":4,"UnitEffectsAdjacent":11,"UnitEffectsRanged":13,"UnitEffectsSurrounding":12,"UnitMovement":6,"UnitMovementFromTemporary":5,"UnitOrder":77,"UnitSpecificBehaviours":3,"UnitWithShortestPathToEnemy":72,"WireweaveNet_FirstAttack":55}}
 scripts/python/engine/utilities/wireweave_net.py	mirror	b55712fac628c924ed492d53be51802e89f640c69b095477f2d18a49d1109a21	{}
 scripts/python/engine/weights.py	mirror	73ff4b57b1bdd84c780e1c3d9da965dc843a72731b97b5c470c5c10543efccc3	{}
@@ -833,6 +835,9 @@ scripts/python/probe_10019_causal_prediction_hits.py	mirror	3bb9957bc21a9a4c44af
 scripts/python/probe_10019_prediction_hits.py	mirror	aff6520c200353abfef5fb18ca83e8fa5883118f06e5fd2828b923a04d1afd5f	{}
 scripts/python/probe_1001_votann_relics.py	mirror	25f6da84e5c9b7bd41ff0dc8aefc86eea87504ae6724d4916e75f45e169e7794	{}
 scripts/python/probe_10022_unitpicker_inventaire.py	mirror	14b6ce460b13326881728ca07d87c689c3af1985707293e19cf16373ffb52e77	{}
+scripts/python/probe_10022r1_randomize_ai_input.py	mirror	20cbaf058cbd2d0cc6a24c21d749cceeed7b24a81f78b8dfb1b95ba7d12557c3	{}
+scripts/python/probe_10022r3_ordre_activation_live.py	mirror	dc412ba0b794429f5db6bebd6e62f92ee6ee15e0302d0da8d16c36ba4665601a	{}
+scripts/python/probe_10022r3_shortest_path_to_enemy.py	mirror	8139e54dff5002df72a6d0318fa5d02bd6f193a255c48d147bc25a5943f0cced	{}
 scripts/python/probe_1002_reliques_astra_live.py	mirror	268a8c78523512c36c03f1bf978ed068a1a98ed0fa084ca64108afb64618fa63	{}
 scripts/python/probe_1002r3_final_vengeance_stream_step.py	mirror	722ea937b86acc3f877aa0377513b6d7679d75f9053e75359671898adb6280d8	{}
 scripts/python/probe_1003_reliques_death_guard.py	mirror	31e03d572acc649fa83a92d01f44a0ad9f83fd95443e84d37bd6d0eb5ad4fa79	{}
@@ -1368,6 +1373,7 @@ scripts/python/probe_419r1tr14r4_heavy_bolt_pistol_bonus_attack.py	mirror	5a354b
 scripts/python/probe_419r1tr14r4r2_inform_weapon_tags.py	mirror	7959160c2281e91088a06d315c43cbba2c1b061b324a04c1ab66ffdbc83fcea9	{}
 scripts/python/probe_419r1tr14r4r2r1_normal_attack_inform_weapon.py	mirror	4b02cb33e7434edafc31f533d1bee89d2cc38e442f84a2ef568e7c50d19e1eb8	{}
 scripts/python/probe_419r1tr14r4r2r1r1_normal_attack_special_branches.py	mirror	97299e839b60bfbcfa26c1211ddb25b4a84cba8bf5b711ec2d163a99ea6d8ae7	{}
+scripts/python/probe_419r1tr14r4r3_ancrage_caster_position.py	mirror	b7d725ce7a8f582eeb7cc41aea89c996896f31d67a59964988c7c65b511b41a5	{}
 scripts/python/probe_419r1tr14r5_normal_attack_stages.py	mirror	613c65bfe5acf376d264c9a2e58162fa616f1487e3cb5dedcc8f56edf7f13264	{}
 scripts/python/probe_419r1tr14r5_r1r4_normal_attack_table.py	mirror	7d89fb8fe4eafd4b42cda8d3246dc13b6f70de61949f07bb8cc6970ed473c131	{}
 scripts/python/probe_419r1tr14r5r2_active_normal_attack.py	mirror	23a3ad3f8007473c9e85ac53b26ca112ee96c4ffff898650d54d3f0324272b4c	{}
@@ -1645,6 +1651,7 @@ scripts/python/probe_490_psychic_maelstrom.py	mirror	3641762c1896752440ffcf0fa26
 scripts/python/probe_491_seeker_missile_frequency_lock.py	mirror	b4c08056b57984ce5991880e57196941d422d711375fe8a9c179ee55b2dc5fd4	{}
 scripts/python/probe_494_doombolt_sort_order.py	mirror	49e7ebdf2b407f9e9f111c189be2d3cd5da1998f7c977b7a5e87df68f17a1372	{}
 scripts/python/probe_494r1_db4_decompose.py	mirror	dd5ccabf85486084b8bcfc2a001775b3b8bb41a9e921cb56337b3a44a928dfb6	{}
+scripts/python/probe_494r2_attack_range_type_normal.py	mirror	8e9b9ad5c8c908f799c6bdad2a6510ffeeba3803b01a066a446b00789989c625	{}
 scripts/python/probe_497_silent_death.py	mirror	c0c49225163fa8f67579a7e395d0094245d7b8eda0770cc9b1816ae750046437	{}
 scripts/python/probe_498_unstoppable_momentum.py	mirror	b59d8af7c6dc799cfe726922d1033eb5a865142cacfc1fe8d3869b476aae799a	{}
 scripts/python/probe_498r3_is_displaceable_sites.py	mirror	3f646943af27a74e71ab0cad8978bc90f602e95d76a28ba4ca8d014f2927375f	{}
@@ -1829,6 +1836,7 @@ scripts/python/probe_909_decision_actives_kit.py	mirror	85caa9db9a9a25e019808010
 scripts/python/probe_90b_mow_effects.py	mirror	aac4d9eba0256fd3815aff66bf10114112d933e82fb0eabe936ebf3dbbd76c6d	{}
 scripts/python/probe_90bcd_markerlight.py	mirror	5ce627230ab9e1b6909ddb96bb5c132a6c95a11715cb8559849f36e010b5be37	{}
 scripts/python/probe_910_relic_bolt_pistol_live.py	mirror	8fe0cbf0e5fd6ab121c290e0761953d9136d9083e2c2037fafe35e3b97508eff	{}
+scripts/python/probe_910r1_canaux_effect_bonus_face_decision.py	mirror	8b1430a6e5c41ac8d3fc787f186bb74921acb99b907f258224f159f1f873113a	{}
 scripts/python/probe_911_daemonic_patrons.py	mirror	971598a3be63f31d99c0e0f046539087f4ab29a00e13af3b70df5ed7f2379093	{}
 scripts/python/probe_911_mutants.py	mirror	8606915d98f564a8fcc1f1c081b891eb11a66e26a4f372712951a5658d1b1785	{}
 scripts/python/probe_911r1_daemonic_patrons_finale_live.py	mirror	f84ca927c97dda85740800eb7580a630fc6aa158126244bf21957861c980c70e	{}
@@ -2319,6 +2327,7 @@ scripts/python/tests/engine/runner/test_488r1_melta_vehicle_live.py	mirror	21ddb
 scripts/python/tests/engine/runner/test_489_fragstorm_grenade_launcher_offline.py	mirror	4d356df25972ca8f8393ef3bfdb55703a444643ea4431c2a4f6ee3c5b8bafb9d	{}
 scripts/python/tests/engine/runner/test_490_psychic_maelstrom_live.py	mirror	960ecbca3fc9354ca5f41505a844be55ed56e8755a5acdc6f8637e9877455a73	{}
 scripts/python/tests/engine/runner/test_494r1_ordre_cibles_offline.py	mirror	f6e2b62f16c8db7d0cf42bf78c515a519fcef5508c3cc00727c2b7835b915d55	{}
+scripts/python/tests/engine/runner/test_494r2_normal_attack_is_melee_offline.py	mirror	a7baa93daa053995d3da37bd629863d4503c72d9460710b20b0199f951563f10	{}
 scripts/python/tests/engine/runner/test_498r3_is_displaceable_offline.py	mirror	301c5ff9dd707d106f080014d8986d004f6ab9c58178d9b013f4a9d99fab1eaf	{}
 scripts/python/tests/engine/runner/test_498r3_switch_position_gate_live.py	mirror	7a94443f7433fd74a0118eba0197747630339da745a9aa05041775d6131904d3	{}
 scripts/python/tests/engine/runner/test_499_storm_of_wrath_live.py	mirror	76987dab2d1f380b9b5ef5b0289e5a3d6db9d7d7daf28efee1ec88091cd2ba61	{}
