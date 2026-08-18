@@ -263,7 +263,37 @@ donc ni le soin différé ni sa CONSOMMATION ne sont confrontés. Résidu **#966
 
 ## 8. Résidus ouverts
 
-* **#977-r7** — le domaine TUILE d'`ability_targets_offline` est le patron SUMMON ring-1 ; les 10
-  NonComparable à `TargetIsTile` ont besoin du patron AIM à portée.
+* ~~**#977-r7**~~ — le domaine TUILE d'`ability_targets_offline` est le patron SUMMON ring-1 ; les 10
+  NonComparable à `TargetIsTile` ont besoin du patron AIM à portée. **PORTÉ le 2026-08-15.**
+* ~~**#977-r8**~~ — **RÉSOLU le 2026-08-18, et la prémisse de la fiche était FAUSSE sur `b__0`.**
+  Elle annonçait trois `RemoveAll` à porter, `b__0` décrit comme « camp / portée / règles
+  statiques ». Relu sur `t6dpr4k06g`, `b__0` **ouvre** par
+  `if (!IdunBattle.Entities.EntityExtensions$$IsUnit(target)) return false;` — et une TUILE n'est
+  pas une unité (`$$IsTile` est une fonction **distincte**, avec un test distinct : `IsUnit`
+  compare un discriminant à `1`, `IsTile` passe par un `Is<T>` générique sur un autre token). Ses
+  trois tests (`UnitExtensions$$IsAlive`, `TileExtensions$$HasSteppableUnit`, `$$HasPowerup`) ne
+  visent que le domaine UNITÉ. **`b__0` est donc INERTE sur le domaine tuile** : rien à y porter,
+  ce n'est pas une dégradation. Porté : `b__1`, la LIGNE DE VUE — gaté par **aucun** bit, il tourne
+  toujours — via le foyer `targeting_query.target_is_obscured`, encore un **câblage**.
+  Régime re-dérivé : **15** abilities routées `tile_aim` ; **9** sans aucun bit
+  `AllowObscuredTargetBy*` (la LoS y filtre pleinement), **6** avec les deux (l'étage y est inerte,
+  et c'est le natif qui le dit), **8** avec le bit dynamique. Confrontation live :
+  `probe_977r8_ligne_de_vue_live.py` — `natif \ APRÈS` = **vide** (aucun faux négatif introduit),
+  écart symétrique **17 → 16**. Cliquet
+  `tests/engine/test_977r8_ligne_de_vue_du_domaine_tuile_offline.py`, vu rouge par mutation
+  (3 failed / 6 passed).
+* **#977-r10** — le 3ᵉ `RemoveAll` (`b__2`, la règle **dynamique**, gaté par
+  `rules & TargetMatchesDynamicRule`) n'est pas porté côté DÉCISION offline : il délègue par un
+  slot de vtable `+0x18` à `GetDynamicInvalidTargetReason`, que seule la face COMBAT porte.
+  Dégradation permissive. **8 des 15** routées portent ce bit.
+  **FOYER:** `scripts/python/engine/ai/state_bridge.py` — **BLOCAGE:** `etage`
+* **#977-r11** — le domaine reste un **sur-ensemble de 16 tuiles** après #977-r8, et la cause n'est
+  ni `b__1` ni `b__2`. Mesure live : sur `1092 DarkTalonStrike`, le natif rend **1** tuile —
+  exactement celle qu'occupe l'ennemi — quand le port en rend 17 ; or `1092` ne porte aucun bit
+  `AllowObscured*` **ni** `TargetMatchesDynamicRule`. ⚠ Piste non confirmée : l'oracle
+  `abilityTargets` est `AttackQuery$$GetValidTargets` (+ la cascade `GetInvalidTargetReason`), et
+  **pas** `GetPossibleTargetsForOptions` — si c'est cela, ce sont deux artefacts différents, et
+  c'est la QUESTION qu'il faut corriger, pas le port. À trancher avant tout geste.
+  **FOYER:** `scripts/python/engine/ai/state_bridge.py` — **BLOCAGE:** `etage`
 * **#966-r6** — magnitude du soin de `1212` en régime BLESSÉ, soin différé + consommation, et
   l'EMPILEMENT mesuré du marqueur `HealingBalms`.

@@ -377,3 +377,41 @@ Message verbatim :
 ```
 AssertionError: le centre EN BROUILLARD est reste sous includeCenter=1 : [8, 7, 13, 12, 11, 18, 17]
 ```
+
+## `#967-r4` — RÉSOLU (2026-08-18) : le 2ᵉ disjoint du bonus de 500 de `1214 Hailstrike`
+
+`IdunBattle.Entities.UnitExtensions$$HasRangedAbility(unit, query)`, LU sur `t6dpr4k06g` :
+
+```
+foreach (ability in unit.GetComponent<ActiveAbilities>().<+0x20>)
+    if (query.<slot 6>(Nullable<AbilityOrEffect>(ability)) == AttackRangeType.Ranged)
+        return true;
+return false;
+```
+
+Le slot **6** d'`IBattleQuery` est `GetAbilityAttackRangeType`/1 — LU dans
+`data/symbols/<build>/metadata/interface_slots.tsv`, où ses frères d'arité 4 sont les slots 2/3/4
+(`IsMeleeAttack`, `IsRangedAttack`, `GetAttackRangeType`). Le prédicat est donc, mot pour mot,
+`services.battle_query.attack_range_type(<nom>) == "Ranged"` : **l'étage était déjà porté**, seul
+le câblage manquait — le `BLOCAGE: aucun` de la fiche était juste.
+
+**L'écart réparé change la CIBLE, pas seulement le score** : le bonus (500) domine le terme de
+perçage (au plus 100), donc une classe de bonus ne se renverse pas.
+
+**Régime**, re-dérivé du gameconfig du build : **29** unités portent une active `Ranged` **sans**
+arme à `Range` — dont **deux DarkAngels**, c'est-à-dire des alliés naturels du porteur :
+`darkaTerminator` (`PlasmaCannon`) et `darkaStormSpeeder` lui-même (`Hailstrike`).
+
+**Portée du substrat, nommée** : le port lit les `activeAbilities` du gameconfig, soit la voie
+`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`. Restent hors de vue
+`AddActiveAbilityOperation` (ajout en cours de match) et `AddTraitOperation$$AddDerivedAbilities`
+— dégradation restrictive résiduelle, du même sens que celle qu'elle répare mais bien plus
+étroite. ⚠ L'**attaque normale** vit dans *le même* composant natif
+(`UnitFactory$$AddNormalAttackAbility`) et elle est **neutre** — mesure, pas supposition : ses
+**16** ids ont **0** entrée gameconfig, donc `GetAbilityAttackRangeType` y rend `None`, jamais
+`Ranged(2)`.
+
+**Garde** : `tests/engine/playbook/test_967r4_has_ranged_ability_offline.py` (6 étages, 14 tests),
+vu **rouge par mutation** (2 failed / 12 passed). L'étage 2ter exige que la divergence avec le
+régime d'avant soit **exactement** l'ensemble mesuré — ni passoire, ni fix inerte ; l'étage 3
+substitue `attack_range_type` et **vérifie d'abord que la substitution mord**.

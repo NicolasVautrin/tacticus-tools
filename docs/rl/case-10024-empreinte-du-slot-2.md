@@ -170,6 +170,23 @@ se réduit à la paire unique d'avant. Le cliquet le garde (étage 4, « la muta
 
 ## Résidus
 
-* **#10024-r1** — `is_melee_attack` teste ses positions AVANT le switch, le natif après. Une ability
-  `attackRangeType: Melee` / `Ranged` / `None` ne lit **aucune** position côté natif.
-  **FOYER:** `scripts/python/engine/services/battle_query.py` — **BLOCAGE:** `aucun`
+* ~~**#10024-r1**~~ — **RÉSOLU (2026-08-18).** La garde de position est descendue sur la branche
+  `Normal(3)`, la seule qui lise une position. Le décompilé confirme la fiche : `if (iVar1 == 1)
+  return 1;` sort **avant** le `HasFlag(caster, 0x15)`, et `Ranged(2)` / `None(0)` retombent sur le
+  `return` final — aucune de ces trois cases ne touche une position. Seul comportement changé :
+  `attackRangeType: Melee` + position(s) `None` rend désormais `True`. Cliquet
+  `tests/engine/runner/test_10024r1_ordre_des_etages_offline.py` (6 étages, 28 tests), vu **rouge
+  par mutation** (7 failed / 21 passed) — dont l'étage 4, un invariant **AST**, seul capable de
+  mordre sur un réordonnancement, et l'étage 5bis qui exige que la divergence soit *exactement*
+  `Melee` sans position. Résidu ouvert : **#10024-r2**.
+* **#10024-r2** — **le fix de #10024-r1 est INERTE à l'étage des appelants.** Recensement fait
+  pendant la tranche : `runner/battle_query_state.is_melee_attack` (le plus gros rayon — face
+  COMBAT et `damage_utility`) et `playbook/light_im_up.is_melee_attack` portent **leur propre**
+  garde de position, en tête, avant d'entrer dans le foyer ; seul `playbook/heavy_bolt_pistol`
+  appelle sans garde. La faute est donc reproduite un étage plus haut, sur des sites hors du foyer
+  déclaré ici. ⚠ Ce qui reste à établir avant de les déplacer : le natif déréférence
+  `casterPosition` **sans garde**, donc une position absente n'existe pas de son côté (une unité en
+  bataille a toujours des tuiles). Ces gardes protègent un régime **dégénéré du port**, pas un
+  régime natif — les retirer changerait un verdict que rien ne mesure.
+  **FOYER:** `scripts/python/engine/runner/battle_query_state.py`,
+  `scripts/python/engine/playbook/light_im_up.py` — **BLOCAGE:** `porteur`

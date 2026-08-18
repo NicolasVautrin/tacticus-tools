@@ -746,11 +746,28 @@ def _is_machine(entity) -> bool:
     return "Mechanical" in traits
 
 
-def _aim_tiles_in_range(state, ability_id: int, vid: str, caster_tiles: list) -> list:
-    """La zone `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange`, materialisee en TUILES
-    depuis un ensemble de tuiles-caster (#977-r7).
+def _team_by_pos(state) -> dict:
+    """`{(col, row): TeamId}` des unites VIVANTES -- l'occupation que la garde
+    `IdunBattle.Entities.UnitExtensions$$IsFriendOrHasFriendlyUnitOnIt` interroge par
+    `GetUnit(tile, state)`. Une tuile absente du dict est une tuile SANS unite, ce que le natif
+    traite comme `GetUnit(tile) == null` (#433-r4-r2-r1-r2-r2)."""
+    out = {}
+    for e in state.entities.values():
+        u = e.get_component(UnitComponent)
+        o = e.get_component(OwnerComponent)
+        p = e.get_component(PositionComponent)
+        if u is None or not u.alive or o is None or p is None:
+            continue
+        out[(p.col, p.row)] = o.team
+    return out
 
-    DEUX ETAGES, dans l'ordre du natif :
+
+def _aim_tiles_in_range(state, ability_id: int, vid: str, caster_tiles: list,
+                        caster_team=None) -> list:
+    """La zone `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange`, materialisee en TUILES
+    depuis un ensemble de tuiles-caster (#977-r7), PUIS filtree par la LIGNE DE VUE (#977-r8).
+
+    TROIS ETAGES, dans l'ordre du natif :
       1. l'APPARTENANCE A LA ZONE -- `engine.services.ability_range.tiles_in_range_zone_contains`,
          le mirror de la cascade a cinq branches PLUS les deux `AddRange(casterTiles)` que
          `GetPossibleTargetsForOptions` fait juste apres. Il repond a une DISTANCE, donc on
@@ -759,14 +776,34 @@ def _aim_tiles_in_range(state, ability_id: int, vid: str, caster_tiles: list) ->
          de fois sur un `UseWholeBoard` ;
       2. le `RemoveAll` de WALKABILITY -- `engine.services.targeting_query.tile_removed_by_walkability`,
          qui vit DANS `GetTilesInRange` (donc en AMONT des trois predicats) et lit les DEUX volets
-         d'`IsWalkable(t, checkFog: true)` : le champ `walkable` du boardGraph ET `isInFog`.
+         d'`IsWalkable(t, checkFog: true)` : le champ `walkable` du boardGraph ET `isInFog` ;
+      3. le `RemoveAll(b__1)` de LIGNE DE VUE (#977-r8) --
+         `engine.services.targeting_query.target_is_obscured`, qui porte la lambda EN ENTIER
+         (garde `IsFriend`, `GetTilesObscuringTerrain` et ses trois gardes, composition du
+         `ObscuringType`). Ses deux gardes « ami » sont calculees par
+         `friend_gates_for_tile_target` a partir de l'equipe du caster et de l'OCCUPATION de la
+         tuile (`_team_by_pos`). Il n'est gate par AUCUN bit : il tourne TOUJOURS.
 
-    CE QUI N'EST PAS FAIT ICI, et c'est nomme : les trois `RemoveAll` de
-    `GetPossibleTargetsForOptions` (`b__0` camp/portee/regles statiques, `b__1` ligne de vue,
-    `b__2` regle dynamique) ne sont PAS appliques a cette enumeration -- l'ensemble rendu est donc
-    un SUR-ENSEMBLE de la zone native. Degradation PERMISSIVE assumee, du meme ordre que celle que
-    `_ability_kind` documente deja pour la branche `ally`. Elle reste tres au-dessus du statu quo,
-    qui n'emettait QUE le caster.
+    LES DEUX AUTRES `RemoveAll`, ET POURQUOI ILS NE SONT PAS ICI -- LU, pas suppose :
+
+    * **`b__0` est INERTE sur ce domaine**, et la fiche du residu se trompait en le decrivant
+      comme « camp / portee / regles statiques ». Son corps, LU sur `t6dpr4k06g`, commence par
+      `if (!IdunBattle.Entities.EntityExtensions$$IsUnit(target)) return false;` -- et une
+      TUILE n'est pas une unite (`$$IsTile` est une fonction DISTINCTE, avec un test distinct :
+      `IsUnit` compare un discriminant a `1`, `IsTile` passe par un `Is<T>` generique). Les trois
+      tests qui suivent -- `UnitExtensions$$IsAlive`, `TileExtensions$$HasSteppableUnit`,
+      `TileExtensions$$HasPowerup` -- ne visent donc que le domaine UNITE, celui de
+      `GetUnitsInRange`. Rien a porter ici : ce n'est pas une degradation, c'est le natif.
+    * **`b__2` n'est PAS porte**, et c'est une degradation PERMISSIVE nommee. Il est gate par
+      `rules & TargetMatchesDynamicRule` (bit 1) et delegue a la regle DYNAMIQUE de l'ability
+      (`GetDynamicInvalidTargetReason`), qui n'a pas de mirror cote DECISION offline. Regime
+      mesure : **8 des 15** abilities REELLEMENT routees `tile_aim` portent ce bit (et 16 des 32
+      porteuses de `TargetIsTile`, routees ou non). Residu `#977-r10`.
+
+    OU L'ETAGE 3 MORD, mesure sur les 15 routees : **9** ne portent AUCUN des deux bits
+    `AllowObscuredTargetBy*`, donc la ligne de vue y filtre pleinement (elevation ET murs) ; les
+    **6** autres les portent TOUTES LES DEUX, ce qui fait rendre `OBSCURING_TYPE_NONE` a
+    `obscuring_type_for` -- pour celles-la l'etage est inerte, et c'est le natif qui le dit.
 
     `board` absent, ou aucune tuile-caster -> `[]`."""
     board = state.board
@@ -775,6 +812,11 @@ def _aim_tiles_in_range(state, ability_id: int, vid: str, caster_tiles: list) ->
     opts = targeting_options_for(ability_id)
     rules = None if opts is None else int(opts.rules)
     fog = _board_fog_map(board)
+    # `HasTrait(caster, 0x3ed = IndirectFire)` -- le litteral que `GetTilesObscuringTerrain` teste
+    # avant de poser le volet ELEVATION. Foyer UNIQUE `ability_range._has_indirect_fire` : le
+    # re-deriver ici serait un second montage du meme trait, qui deriverait.
+    indirect = _AR._has_indirect_fire(vid)
+    teams = _team_by_pos(state)
     memo: dict = {}
 
     def _dans_la_zone(d: int) -> bool:
@@ -790,6 +832,15 @@ def _aim_tiles_in_range(state, ability_id: int, vid: str, caster_tiles: list) ->
         if not any(_dans_la_zone(hexgeo.distance(T, pos)) for T in caster_tiles):
             continue
         if _TQ.tile_removed_by_walkability(rules, t.get("walkable"), fog.get(pos)):
+            continue
+        # `RemoveAll(b__1)` : la LIGNE DE VUE, par tuile candidate, depuis TOUTES les tuiles-caster
+        # (le natif passe `casterTiles` tel quel a `GetTilesObscuringTerrain`, dont la surcharge
+        # LISTE intersecte les obstructions -- une seule tuile-caster degagee suffit donc).
+        est_ami, a_ami = _TQ.friend_gates_for_tile_target(caster_team, teams.get(pos))
+        if _TQ.target_is_obscured(board, caster_tiles, pos, rules,
+                                  caster_has_indirect_fire=indirect,
+                                  target_is_friend=est_ami,
+                                  target_is_friend_or_has_friendly_unit=a_ami):
             continue
         out.append({"kind": "tile", "targetId": None, "tile": {"col": pos[0], "row": pos[1]}})
     return out
@@ -853,8 +904,11 @@ def _targets_from_caster_tiles(state, uid: int, ability_id: int, kind: str, reac
                 seen.add((col, row))
                 targets.append({"kind": "tile", "targetId": None, "tile": {"col": col, "row": row}})
     elif kind == "tile_aim":
-        # `TargetIsTile` -> `GetTilesInRange`, PAS le ring-1 du patron summon (#977-r7).
-        targets.extend(_aim_tiles_in_range(state, ability_id, vid, caster_tiles))
+        # `TargetIsTile` -> `GetTilesInRange`, PAS le ring-1 du patron summon (#977-r7), puis le
+        # `RemoveAll(b__1)` de LIGNE DE VUE (#977-r8) -- d'ou `my_team`, qui alimente les deux
+        # gardes « ami » de la lambda.
+        targets.extend(_aim_tiles_in_range(state, ability_id, vid, caster_tiles,
+                                           caster_team=my_team))
     return targets
 
 

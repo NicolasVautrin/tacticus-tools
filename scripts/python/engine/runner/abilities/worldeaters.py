@@ -839,6 +839,12 @@ class OverwhelmingWrathAbility(ActiveAbility):
 # ET UN POINT COMMUN LU : `extraHitsAfterTargetKilled` est **null** des deux cotes (1006
 # `MultiThreatEliminator` y met `Get(GetNumberConstant(0x2b = extraHit))`) -- donc AUCUN coup bonus
 # par ennemi tue pour 1129. Le `extraHit` de sa config sert au SNOWBALL, pas au report.
+# ⚠ `DSLFormulas$$Get(amount:System.Int32)` EST `DSLFormulas$$Direct(amount:System.Int32)` : meme
+# `Il2CppClass*`, meme allocateur, meme ctor, meme argument (#512-r5, mesure sur `t6dpr4k06g` par
+# `probe_512r5_get_vs_direct.py`). Les `Get(...)` ecrits plus bas dans ce fichier sont donc le MEME
+# noeud-constante que les `Direct(...)` du decompile cite -- ce n'est pas une equivalence de
+# commodite. ⚠ La resolution passe par la SIGNATURE : `$$Get` porte trois surcharges homonymes, et
+# celles sur `System.String` / `IdunBattle.Utils.Hex.Edge` allouent, elles, d'AUTRES classes.
 #
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$GetNumTotalHits` (MIRROR) :
 #     Sum( Direct(GetNumberConstant(0x2f = nrOfHits)), GetNumExtraHits(this) )

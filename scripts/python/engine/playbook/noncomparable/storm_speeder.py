@@ -61,6 +61,7 @@ from __future__ import annotations
 import gameconfig as _gc
 
 from engine import battle_query as bq
+import engine.services.battle_query as _SBQ    # FORME B : `attack_range_type` = slot 6 (#967-r4)
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.effects.magnitude import ability_var
 from engine.entities.traits.unit_trait import UnitTrait
@@ -351,10 +352,15 @@ class HailstrikePlaybook(NonComparablePlaybook):
        borne HAUTE, **LUE** (9). D'ou le partage ci-dessous -- `RNG_TERM` = 0 (borne basse, jamais
        une moyenne : le classement reste celui du score sans bruit), `RNG_TERM_MAX` = 9 pour le
        seul franchissement du seuil.
-    2. **`HasRangedAbility(target, query)` n'est pas porte** : le mirror offline n'a pas de lecture
-       fiable de « cette unite possede une ability a portee ». Consequence DIRECTIONNELLE : une
-       cible sans arme a distance mais avec une ability a distance perd son bonus de 500 dans le
-       port. Le premier disjoint (`HasRangedWeapon`, gameconfig) est porte. Residu `#967-r4`.
+    2. **`HasRangedAbility(target, query)` EST PORTE depuis `#967-r4`** -- l'ecart annonce ici est
+       ferme. Le corps natif tenait en une boucle sur le composant des actives et une comparaison a
+       `AttackRangeType.Ranged(2)` via le slot **6** d'`IBattleQuery` (`GetAbilityAttackRangeType`,
+       arite 1, LU dans `metadata/interface_slots.tsv`) : c'est exactement l'etage
+       `services.battle_query.attack_range_type`, deja porte. Cf. `_has_ranged_ability`, qui garde
+       la portee de son substrat offline (`activeAbilities` du gameconfig = la voie
+       `UnitFactory$$AddConfiguredAbilities`, hors ajouts en cours de match et abilities derivees
+       d'un trait). Regime mesure : **29** unites du build ont une active `Ranged` sans arme a
+       `Range`, dont **deux DarkAngels** -- `darkaTerminator` et le porteur lui-meme.
     3. `CanAttackAnyUnitFromAnyTileWithAnyAbility(target)` est mirrore par la PRESENCE d'un plan
        d'attaque pour la cible dans `ctx.plans` (le plan natif enumere les paires
        (ability, cible) avec leurs tuiles rankees, donc un plan non vide EST « peut attaquer
@@ -416,14 +422,54 @@ class HailstrikePlaybook(NonComparablePlaybook):
             return 0.0
         return self.PIERCE_BASE - float(ratio)
 
+    @staticmethod
+    def _has_ranged_ability(cfg: dict) -> bool:
+        """`IdunBattle.Entities.UnitExtensions$$HasRangedAbility(unit, query)` -- MIRROR (#967-r4).
+
+        Corps natif, LU sur `t6dpr4k06g` :
+
+            foreach (ability in unit.GetComponent<ActiveAbilities>().<+0x20>)
+                if (query.<slot 6>(Nullable<AbilityOrEffect>(ability)) == AttackRangeType.Ranged)
+                    return true;
+            return false;
+
+        Le slot **6** d'`IBattleQuery` est `GetAbilityAttackRangeType`/1, LU dans
+        `data/symbols/<build>/metadata/interface_slots.tsv` (les slots 2/3/4 sont ses freres
+        `IsMeleeAttack` / `IsRangedAttack` / `GetAttackRangeType`, d'arite 4). Le predicat est
+        donc, mot pour mot, `attack_range_type(<nom>) == "Ranged"` -- le MEME etage que
+        `engine.services.battle_query.attack_range_type`, sur lequel il n'y a rien a re-deriver.
+
+        SUBSTRAT OFFLINE, et sa portee est NOMMEE. Le natif itere le composant d'une unite EN
+        JEU ; le port lit les `activeAbilities` du gameconfig, c'est-a-dire la voie
+        `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`. Ne sont donc PAS
+        vues les actives ajoutees en cours de match (`AddActiveAbilityOperation`) ni celles
+        derivees d'un trait (`AddTraitOperation$$AddDerivedAbilities`) -- degradation
+        RESTRICTIVE residuelle, du meme sens que celle qu'elle repare, mais bien plus etroite.
+
+        ⚠ L'ATTAQUE NORMALE vit dans LE MEME composant (`UnitFactory$$AddNormalAttackAbility`), et
+        elle est NEUTRE ici -- MESURE, pas supposition : les **16** ids d'attaque normale du build
+        ont **0** entree gameconfig, donc `GetAbilityAttackRangeType` y rend `None`, jamais
+        `Ranged(2)`. Ne pas les enumerer ne change donc aucun verdict.
+
+        REGIME re-derive du gameconfig du build : **29** unites portent une active `Ranged` SANS
+        arme a `Range` -- c'est exactement l'ensemble sur lequel ce disjoint change le bonus.
+        Deux d'entre elles sont des DarkAngels, donc des allies naturels du porteur :
+        `darkaTerminator` (`PlasmaCannon`) et `darkaStormSpeeder` lui-meme (`Hailstrike`)."""
+        for nom in (cfg.get("activeAbilities") or []):
+            if _SBQ.attack_range_type(nom) == "Ranged":     # `AttackRangeType.Ranged` (2)
+                return True
+        return False
+
     def _ranged_bonus(self, ctx: NCContext, uid: int, visual_id) -> float:
-        """`HasTrait(Overwatch) ? 500 : (HasRangedAttackAndCanAttackThisTurn ? 500 : 0)`."""
+        """`HasTrait(Overwatch) ? 500 : ((HasRangedWeapon || HasRangedAbility) && slot56 ? 500 : 0)`."""
         cfg = _unit_cfg(visual_id)
         if self.TRAIT_OVERWATCH.name in (cfg.get("traits") or []):
             return self.RANGED_BONUS
         weapons = cfg.get("weapons") or []
-        has_ranged = any(w.get("Range") for w in weapons)
-        # `HasRangedAbility` NON PORTE (#967-r4) -- seul le 1er disjoint est mirrore.
+        # `HasRangedWeapon(target) || HasRangedAbility(target, query)` -- les DEUX disjoints, dans
+        # l'ordre du natif. Le second est un court-circuit : il n'est evalue que si le premier est
+        # faux, comme le `||` du decompile.
+        has_ranged = any(w.get("Range") for w in weapons) or self._has_ranged_ability(cfg)
         if not has_ranged:
             return 0.0
         if ctx.plans:                       # canal MESURE -> le conjoint mord
