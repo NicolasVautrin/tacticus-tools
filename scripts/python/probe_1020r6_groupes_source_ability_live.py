@@ -41,6 +41,16 @@ le MEME avec et sans le canal, seul le RESULTAT change. Trois canaux INDEPENDANT
   * `mti` -- la position du MT en sortie, qui doit etre la MEME dans les deux bras du port
     (si elle differait, l'ecart de PV appartiendrait au FLUX, pas au canal).
 
+## LA VENTILATION EST PAR (CIBLE, ATTAQUANT) -- et c'est LOAD-BEARING (#1020-r11)
+
+Le flux d'UNE action ne contient pas que l'attaque : `SquigHoundSummonUnitAbility` fait
+apparaitre une unite pendant cette action, et cette unite ATTAQUE (noeud
+`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition` range dans les
+`SpawnUnitOptions` du `Spawn`). Sommer les `Amount` par `Target_Id` SEUL compte donc son coup
+comme un coup de l'attaque -- ce qui a fait ecrire, chiffrer et ouvrir un ecart de port
+INEXISTANT. Tout ce que ce probe confronte au port passe par `_events_damage_ventile`, et ce
+qui n'est PAS de l'attaquant est IMPRIME (`HORS ATTAQUANT`), jamais jete ni fondu.
+
 Bras `SANS_CANAL` = le port d'AVANT ce correctif : `execute_additional_hits` recoit
 `source_ability=None`. Il doit DIVERGER du natif la ou le port livre concorde. S'il ne diverge
 pas, le montage n'exerce pas le canal et le probe le DIT (`REFUS`) plutot que de rendre un vert.
@@ -59,7 +69,8 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from probe_1020_savior_protocols_live import (          # noqa: E402
-    DRONE, VICTIME, MontageError, _events_damage, _hp, _r, _sid, stage)
+    DRONE, VICTIME, MontageError, _events_damage, _events_damage_ventile, _hp, _r, _sid,
+    stage)
 from engine.entities.pathfinding.board import Board     # noqa: E402
 from engine.runner.prng import IntBasedMersenneTwister  # noqa: E402
 
@@ -109,7 +120,26 @@ def mesure_native(sid, rid, ids, ab_id):
     coups, transferts = _events_damage(res)
     return {"hp0": hp0, "hp1": hp1, "dv0": dv0, "ob0": ob0, "snap0": snap0, "rng0": rng0,
             "rng1": rng1, "res": res, "events": coups, "transferts": transferts,
+            # #1020-r11 : la MEME donnee, ventilee par `(cible, ATTAQUANT)`. C'est elle qui fait
+            # foi des qu'on compare a une operation de degat du port : le flux d'une action
+            # contient aussi ce que frappent les unites SUMMONEES pendant cette action.
+            "ventile": _events_damage_ventile(res),
             "ok": bool(res.get("ok")) and all(a.get("ok") for a in (res.get("actions") or []))}
+
+
+def _coups_de(nat, uid, att_id) -> list:
+    """Les `Amount` subis par `uid` et infliges par `att_id` -- l'ATTAQUE, rien d'autre."""
+    return list((nat["ventile"].get(int(uid)) or {}).get(int(att_id)) or [])
+
+
+def _hors_attaquant(nat, att_id) -> dict:
+    """Ce que le flux porte et qui N'EST PAS de l'attaquant : `{(cible, attaquant): [Amount]}`.
+
+    IMPRIME plutot que jete : sur ce montage c'est l'attaque de l'unite SUMMONEE par
+    `SquigHoundSummonUnitAbility`, et c'est exactement ce qu'un total par cible confondait
+    avec un coup de l'attaque."""
+    return {(t, a): v for t, m in (nat["ventile"] or {}).items() for a, v in m.items()
+            if a != int(att_id)}
 
 
 def mesure_port(nat, ids, board, canal: bool = True):
@@ -204,13 +234,14 @@ def temoin_drone_loin(seed: int, board_id: str, dmg) -> dict:
             raise MontageError("temoin : applyAction REFUSEE")
         port = mesure_port(nat, ids, board, canal=True)
         r0 = port["attack"] or {}
-        return {"natif": {k: sum(nat["events"].get(int(v), []) or []) for k, v in ids.items()},
+        return {"natif": {k: sum(_coups_de(nat, v, ids["att"])) for k, v in ids.items()},
                 "port": _perdu(port),
                 "transferts_natifs": len(nat["transferts"]),
                 "transferts_port": sum(1 for t in port["transferts"] if t["applique"]),
+                "hors_attaquant": _hors_attaquant(nat, ids["att"]),
                 # LE COMPTE DE COUPS, des deux cotes : c'est lui qui separe << le port applique
                 # moins par coup >> de << le port execute un coup de moins >>.
-                "coups_natif": nat["events"].get(int(ids["victime"])) or [],
+                "coups_natif": _coups_de(nat, ids["victime"], ids["att"]),
                 "coups_port_arme": r0.get("per_hit"),
                 "coups_port_groupe": (r0.get("additional_hits") or {}).get("per_hit")}
     finally:
@@ -240,9 +271,15 @@ def run(seed: int = 777, board_id: str = "MC1_67", dmg: int | None = 900) -> int
         # montage alors que le flux porte trois coups et trois pas `TransferDamage` -- le RPC ne
         # republie pas les PV au grain ou on les attendait. Le flux, lui, est le canal que le natif
         # emet lui-meme.
-        n_perdu = {k: sum(nat["events"].get(int(v), []) or []) for k, v in ids.items()}
+        # #1020-r11 : VENTILE PAR ATTAQUANT. Le total par cible seule additionnait l'attaque de
+        # l'unite SUMMONEE (cf. `_events_damage_ventile`) et faisait accuser le port d'un coup
+        # manquant qu'il n'a jamais eu a executer.
+        n_perdu = {k: sum(_coups_de(nat, v, ids["att"])) for k, v in ids.items()}
+        n_hors = _hors_attaquant(nat, ids["att"])
         n_mti = (nat.get("rng1") or {}).get("mti")
         print("== #1020-r6 %s -> %s (protege par %s)" % (ATTAQUANT, VICTIME, DRONE))
+        print("   HORS ATTAQUANT (cible, attaquant) -> montants = %s"
+              % {str(k): v for k, v in n_hors.items()})
         print("   coups de GROUPE executes par le port = %d (0 => le montage n'exerce PAS le "
               "canal)" % avec["ah_hits"])
         print("   NATIF        amounts=%s transferts(step 35)=%d mti=%s"
@@ -261,7 +298,8 @@ def run(seed: int = 777, board_id: str = "MC1_67", dmg: int | None = 900) -> int
         # manquant >> de << tous les coups un peu bas >>, et c'est exactement ce que les deux
         # canaux ci-dessous tranchent.
         print("   [par coup] NATIF victime=%s drone=%s"
-              % (nat["events"].get(int(ids["victime"])), nat["events"].get(int(ids["drone"]))))
+              % (_coups_de(nat, ids["victime"], ids["att"]),
+                 _coups_de(nat, ids["drone"], ids["att"])))
         for nom, m in (("AVEC", avec), ("SANS", sans)):
             r0 = m["attack"] or {}
             ah = (r0.get("additional_hits") or {})
@@ -324,25 +362,31 @@ def run(seed: int = 777, board_id: str = "MC1_67", dmg: int | None = 900) -> int
             print("!! TEMOIN INVALIDE : le drone hors adjacence transfere quand meme "
                   "(natif=%d port=%d)" % (tem["transferts_natifs"], tem["transferts_port"]))
             rc |= 1
-        # CE QUI RESTE, ET CE QUE CE PROBE N'ACCUSE PAS. Le temoin ci-dessus est BIT-EXACT
-        # (6 coups, natif == port coup par coup), donc le montage lui-meme est reproduit ; mais
-        # DES QUE LE DRONE EST ADJACENT le natif execute UN COUP DE PLUS que le port. Ce coup
-        # supplementaire n'appartient PAS au canal `source_ability` -- le bras SANS canal execute
-        # exactement les MEMES 6 coups -- donc le rendre rouge ICI ferait accuser la mauvaise
-        # cause. Il est NOMME (residu #1020-r11) et chiffre, jamais tu.
+        # #1020-r11 -- FERME (2026-08-18). Ce bloc ANNONCAIT << des que le drone est adjacent, le
+        # natif execute UN COUP DE PLUS que le port >>. C'etait un artefact de VENTILATION : le
+        # total etait pris par `Target_Id` SEUL, donc il additionnait aux coups de l'ATTAQUE ceux
+        # d'une AUTRE unite -- celle que
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility` fait
+        # apparaitre pendant l'action, et qui attaque toute seule (`CreateBehaviour` range un
+        # `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition` dans les
+        # `SpawnUnitOptions` du `Spawn`). Ventile par ATTAQUANT (`_events_damage_ventile`),
+        # l'attaque rend le MEME compte de coups et le MEME total des deux cotes : les deux
+        # controles ci-dessous sont donc des VERDICTS, plus un commentaire.
         ecart_victime = (n_perdu.get("victime") or 0) - (pa.get("victime") or 0)
-        n_coups = len(nat["events"].get(int(ids["victime"])) or [])
+        n_coups = len(_coups_de(nat, ids["victime"], ids["att"]))
         r0 = avec["attack"] or {}
         p_coups = len(r0.get("per_hit") or []) + len(
             (r0.get("additional_hits") or {}).get("per_hit") or [])
+        if n_coups != p_coups:
+            print("!! COUPS : le natif en execute %d sur la victime, le port %d (hors attaquant : "
+                  "%s)" % (n_coups, p_coups, {str(k): v for k, v in n_hors.items()}))
+            rc |= 1
         if ecart_victime:
-            print("   [#1020-r11, HORS de ce canal] ecart VICTIME = %d ; coups NATIF=%d PORT=%d "
-                  "(temoin drone LOIN : ecart %d, coups identiques) -- le bras SANS canal execute "
-                  "les MEMES %d coups, donc ce coup manquant est ETRANGER a `source_ability`."
-                  % (ecart_victime, n_coups, p_coups, ecart_temoin,
-                     len((sans["attack"] or {}).get("per_hit") or [])
-                     + len(((sans["attack"] or {}).get("additional_hits") or {}).get("per_hit")
-                           or [])))
+            print("!! VICTIME : natif=%d port=%d (ecart %d) -- ventile par ATTAQUANT, donc "
+                  "l'ATTAQUE et rien d'autre (temoin drone LOIN : ecart %d)."
+                  % (n_perdu.get("victime") or 0, pa.get("victime") or 0, ecart_victime,
+                     ecart_temoin))
+            rc |= 1
         print("VERDICT: %s" % ("PASS" if rc == 0 else "FAIL rc=%d" % rc))
         return rc
     finally:
