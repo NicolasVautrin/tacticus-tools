@@ -388,26 +388,46 @@ def main(argv: list[str]) -> int:
     if faux:
         return EX_ROUGE
 
-    #: ⚠ ETAGE [0] -- INVENTAIRE, JAMAIS BLOQUANT hors de `PAQUET`. Les quatre autres barils a
-    #: registre sont des foyers d'autres tranches : un cliquet qui rougirait sur ce qu'on n'a pas
-    #: le droit de reparer se ferait desarmer (c'est la lecon de #486-r4 et de `probe_181` d'avant
-    #: #430). Ce qui est exigible, c'est que le gisement soit COMPTE a chaque run -- sans quoi il
-    #: reste invisible, exactement comme les 29 morts de `playbook` l'ont ete jusqu'ici.
-    print("\n=== [0] INVENTAIRE des barils a REGISTRE (bloquant sur `%s` SEUL) ===" % PAQUET)
-    total_hors = 0
+    #: ⚠ ETAGE [0] -- BLOQUANT SUR LES CINQ BARILS DEPUIS #485-r3 (2026-08-18), et le
+    #: RENVERSEMENT est celui du droit de reparer, pas d'un avis. Il etait inventaire parce que
+    #: les quatre barils hors `PAQUET` etaient les foyers d'autres tranches : rougir sur ce qu'on
+    #: n'a pas le droit de reparer fait desarmer un cliquet (lecon de #486-r4 et de `probe_181`
+    #: d'avant #430). Le gisement est ferme -- 149 re-exports morts retires, etage [0] a ZERO
+    #: partout -- donc la meme prudence commande maintenant l'inverse : sans cran, il se
+    #: rouvrirait par notre propre cadence, comme les 29 morts de `playbook` l'avaient fait.
+    #: ⚠ CE CRAN NE MORD PAS SUR UN PORT NEUF, et c'est ce qui le rend tenable : une ability
+    #: qui entre au baril est importee par `handler.py` (ou par `dispatch/registry.py`), donc
+    #: elle est RECLAMEE. Seul un re-export que PERSONNE ne lit rougit -- exactement la faute.
+    print("\n=== [0] RE-EXPORTS MORTS des barils a REGISTRE (BLOQUANT sur les 5) ===")
+    total_hors, introuvables = 0, []
     for b in BARILS_A_REGISTRE:
         if not _racine(b).is_dir():
+            #: Un baril INTROUVABLE n'est pas un zero : c'est un perimetre qui a bouge sous le
+            #: cliquet. Il sort en PAS MESURE, jamais avale.
+            introuvables.append(b)
             print("      %-42s INTROUVABLE (paquet deplace ou renomme)" % b)
             continue
         ex, mts = reexports(b), morts_du_baril(b)
         total_hors += 0 if b == PAQUET else len(mts)
         print("      %-42s re-exports %3d   MORTS %3d%s"
-              % (b, len(ex), len(mts), "   <- BLOQUANT" if b == PAQUET else ""))
+              % (b, len(ex), len(mts), "   <- " + ", ".join(mts) if mts else ""))
+    if introuvables:
+        print("      PAS MESURE : %d baril(s) introuvable(s) -- le zero des autres ne couvre"
+              % len(introuvables))
+        print("      pas ce perimetre-la. Mettre `BARILS_A_REGISTRE` a jour (residu #485-r7).")
+        return EX_PAS_MESURE
     print("      %d re-export(s) mort(s) hors `%s`." % (total_hors, PAQUET))
     print("      Ce compte a ete SUREVALUE de 36 tant que le recenseur exigeait `level == 0` :")
     print("      il ne voyait AUCUN import relatif, donc il declarait morts des symboles que")
     print("      `runner/abilities/handler.py` et `triggers/dispatch/registry.py` importent")
     print("      (#485-r3, 2026-08-18). Le gisement REEL etait 141, pas 177.")
+    if total_hors:
+        print("      ROUGE : un re-export que PERSONNE ne reclame, dans un baril a REGISTRE.")
+        print("      Le retirer se fait par `migrate_485r1_barils_reexport.py vider")
+        print("      --inclure-registres --baril <le baril> --appliquer` : il PROTEGE les imports")
+        print("      chargeurs de registre et les ENREGISTREURS, et convertit a la forme")
+        print("      `from . import <enfant>` ceux dont tous les noms meurent.")
+        return EX_ROUGE
 
     exposes = reexports()
     if not exposes:

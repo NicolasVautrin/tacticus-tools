@@ -113,9 +113,103 @@ L'étage [0] du cliquet balaie les cinq barils et **re-dérive** le compte à ch
 ⚠ L'étage [0] est **non bloquant** hors `playbook` : ces quatre barils sont les foyers d'autres
 tranches, et un cliquet qui rougit sur ce qu'on n'a pas le droit de réparer se fait désarmer.
 
-## 6. Ce qui n'est PAS couvert
+## 6. `#485-r3` FERMÉ — et le tableau du §5 comptait **36 morts qui n'existaient pas**
 
-- Les **262** différés porteurs subsistants (le `430/430` reste **tenu par** eux).
-- **Inscrire `probe_485_imports_differes.py` à la banque** — sans quoi le prochain glissement sera,
-  lui aussi, invisible. C'est le vrai correctif de fond, et il reste ouvert sous `#485-r1-r4`.
-- Les quatre autres barils (`#485-r3`).
+**Le recenseur déclarait mort ce qu'il ne savait pas lire.** `consommateurs()` exigeait
+`n.level == 0` sur ses `ImportFrom` : il ne voyait donc **aucun import relatif**, alors que c'est
+la forme dominante *dans* `engine/**`, où presque tout consommateur est un voisin de paquet.
+Mesuré le 2026-08-18, avant toute vidange :
+
+| baril | re-exports | morts ANNONCÉS | morts RÉELS | faux morts |
+|---|---|---|---|---|
+| `engine.playbook` | 4 | 0 | 0 | 0 |
+| `engine.runner.abilities` | 4 | 4 | 4 | 0 |
+| `engine.runner.abilities.loki` | 106 | 92 | **68** | **24** |
+| `engine.runner.operations.triggers.loki` | 62 | 51 | **39** | **12** |
+| `engine.utilities` | 32 | 30 | 30 | 0 |
+| | | **177** | **141** | **36** |
+
+Les 24 faux morts d'`abilities.loki` sont réclamés par **`runner/abilities/handler.py`**, qui écrit
+`from .loki import (...)` ; les 12 de `triggers.loki` par **`triggers/dispatch/registry.py`**. Agir
+sur le **177** aurait retiré des noms que `handler.py` importe : `ImportError` au chargement, donc
+`ABILITY_CLASSES` **entier** hors service. C'est le vice symétrique de celui que `probe_270r1` a dû
+corriger — *un recenseur ne rend pas zéro sur ce qu'il ne visite pas* ; ici il rendait **MORT**.
+
+`_cible_absolue` résout désormais `level`, et un **auto-test de 7 cas** est joué à chaque run : une
+erreur de **un cran** sur `level` n'omet pas des consommateurs, elle en **invente**, donc aucun
+compte n'aurait l'air anormal. Le jeu de cas **asserte son propre non-vide**.
+
+### Deux défauts du vidangeur, dont un DANGEREUX
+
+**(a) Sûreté — un baril protège ses CHARGEUSES, pas ses ENREGISTREURS.** `vider` gardait les imports
+visant un *baril à registre* (`_cibles_chargeuses_de_registre`) mais ignorait `Baril.enregistreurs`,
+que `derive_barils` remplit pourtant : la cible est un module **feuille** dont le top-level mute un
+conteneur du moteur. Sans ce cran, vider `engine.utilities` **supprime**
+`from .move import MinDistanceToClosestEnemyUtility, MIN_DIST_UTILITY, UNIT_MOVEMENT` — ses trois
+noms sont morts — donc `UTILITY_BY_TYPE[UtilityType.UnitMovement]` n'est plus jamais inscrit et
+`utilities_database()` rend `None` là où elle rendait l'utilité de mouvement. Aucune erreur, aucun
+test rouge : la panne même que l'exclusion en bloc de `#485-r1-r1` devait empêcher, **rouverte par
+le bas** dès qu'on vide baril par baril.
+
+**(b) Précision — un seul `import … as` gelait un baril entier.** `probe_r28_pick_order.py` écrit
+`import engine.runner.abilities.loki as LK` et ne demande que `LK._pick_randomly_n` ; le repli
+conservateur réclamait les **114** symboles, d'où **0 retirable sur 68 morts réels**. Or
+`_table_modules` **suit déjà** cette liaison et `_attributs_lus` rend les attributs exacts plus un
+drapeau d'**échappement**. Le repli n'est donc plus appliqué quand la table résout l'`asname` **vers
+ce module-là** (sinon deux `as` homonymes dans un même fichier se masqueraient, et l'attribution
+deviendrait *fausse* au lieu d'être *large*).
+
+### Ce qui est protégé, c'est l'EXÉCUTION de l'import — pas les noms qu'il lie
+
+Le premier garde gelait *tous* les noms d'un import enregistreur. Or
+`from .facade import (SorcerousFacadeAbility, <3 morts>)` continue de s'exécuter une fois les morts
+retirés, puisqu'un vivant subsiste. Seul l'import dont **tous** les noms meurent doit être préservé —
+et il passe alors à la forme **enregistreur**, `from . import <enfant>  # noqa: F401`, qui *déclare*
+l'effet de bord au lieu de le faire porter par des noms que plus personne ne lit. Le prochain
+dégraissage ne le supprimera donc pas par mégarde. `engine/runner/abilities/__init__.py` est réduit
+à cette seule ligne, `__all__ = []`.
+
+**Bilan : 177 annoncés → 141 réels → 149 retirés (138 + 11) → étage [0] rend 0 mort sur les CINQ
+barils.** Trois imports restent gardés nommément : `loki.facade`, `triggers.loki.final_justice`,
+`utilities.move`.
+
+### Contre-épreuves
+
+- **Registres identiques** avant/après : `TRIGGERED_ABILITY_BEHAVIOURS`,
+  `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS`, `UTILITY_BY_TYPE`, sous **six** points d'entrée, chacun
+  mesuré dans son **propre process frais**.
+- **Le mutant mord, et la multiplicité des entrées est ce qui le fait mordre** : amputer
+  `from .move import …` fait tomber `UTILITY_BY_TYPE` de **7 à 6** sous l'entrée `engine.utilities`
+  — et **pas** sous `engine.runner.abilities.handler`, où un autre chemin tire `move`. Un témoin à
+  point d'entrée unique aurait été vert sur une panne réelle.
+- `probe_477r35` **723/723** modules importables seuls ; `probe_462r5` **0** import non résolu sur
+  3 367 fichiers ; `probe_485r1r1` **7 623** accès attributaires, **0** non résolu.
+
+## 7. `probe_485_imports_differes` est ENTRÉ à la banque
+
+C'était le volet resté ouvert de `#485-r1-r4`. Les trois entrées `485` déjà présentes gardent des
+**conséquences** d'un hissage (cible absente, attribut absent, forme A qui ne mord plus) ; celle-ci
+garde la **population** — le compte des différés gratuits. Mutant : un différé gratuit ajouté dans
+`engine/utilities/heal.py` fait passer le cliquet de `rc=0` à `rc=1` et **nomme** le couple.
+
+⚠ **Portée** : la banque n'est plus obligatoire avant PR (retirée le 2026-08-05 ; elle refuse par
+`rc=64` hors `TACTICUS_ALLOW_RATCHETS`). L'inscription rend le glissement visible aux passes de
+**diagnostic** de l'orchestrateur, pas à chaque PR.
+
+## 8. Ce qui n'est PAS couvert
+
+- **La vidange des quatre barils ne libère AUCUN différé** — `probe_485` rend **273 / 270 / 3**
+  avant comme après. L'énoncé de `#485-r3` (« même gisement, même forme et même remède » que le
+  `−15` de `playbook`) est **réfuté sur l'axe du gain** : il reste vrai sur l'axe du *code mort* et
+  sur celui de la *panne silencieuse*, pas sur celui des porteurs. Ces quatre barils ne sont pas
+  sur les chemins qui ferment les cycles mesurés.
+- Les **270** différés porteurs subsistants (le `723/723` reste **tenu par** eux).
+- **`BARILS_A_REGISTRE` est une liste ATTESTÉE dans le probe**, alors que
+  `migrate_485r1_barils_reexport.derive_barils` la **dérive** (`Baril.registre` = effets de bord ∪
+  enregistreurs). Un sixième baril à registre qui apparaîtrait ne serait donc **pas balayé**, et le
+  `0 mort` ci-dessus se lirait comme exhaustif sur un ensemble incomplet — exactement le vice que
+  l'étage [0] existe pour ne pas commettre. Résidu **`#485-r7`**.
+- **L'angle mort relatif n'a JAMAIS touché l'ACTEUR**, seulement l'inventaire : `vider` passe par
+  `cible_absolue`, qui résout `level` depuis toujours. Les barils vidés par `#485-r1-r1` n'ont donc
+  pas été traités sur un faux compte — c'est vérifié, pas supposé, et c'est ce qui borne la portée
+  de cette correction au **rapport**, pas aux écritures passées.
