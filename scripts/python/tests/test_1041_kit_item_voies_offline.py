@@ -234,6 +234,47 @@ def test_une_pose_dont_le_NATIF_n_a_AUCUNE_classe_est_PORTEE_jamais_partielle():
             "n'existe pas (detail=%s)." % (nom, detail))
 
 
+def test_la_voie_BOND_est_gatee_ET_sa_forme_de_valeur_est_LUE(monkeypatch):
+    """#1084 -- LE GATE D'UNE VOIE DOIT SAVOIR LIRE LA FORME DE SA VALEUR.
+
+    `ABILITY_INIT_OWNER_BOND_EFFECTS` est le pendant BOND de `ABILITY_INIT_OWNER_EFFECTS` : meme
+    trigger d'init, meme boucle de seed, donc MEME gate. Mais sa valeur est
+    `[("<Effet>", "<selecteur>")]` et non `["<Effet>"]` -- un gate qui ne lit que les `str` d'un
+    conteneur n'y trouve AUCUNE cible, donc TOMBE, donc compte PARTIEL un montage complet.
+
+    La mutation le rend visible : en ramenant `_cibles_d_effet` a la lecture des seules `str`
+    (l'etat d'avant), `Lifewards` doit basculer PARTIEL. Sans ce cran, retirer la lecture du tuple
+    degraderait le chiffre de couverture en silence."""
+    voie = next((v for v in KIV.VOIES if v.attr == "ABILITY_INIT_OWNER_BOND_EFFECTS"), None)
+    assert voie is not None, "la voie BOND a quitte le registre -- elle ressortirait MUETTE"
+    assert voie.gate == KIV.GATE_EFFET_CLASSE, (
+        "la voie BOND n'est plus gatee : une pose dont l'effet n'a aucune classe serait creditee "
+        "PORTE, exactement le SUR-comptage que ce gate existe pour fermer")
+    assert KIV.etat("Lifewards")[0] == KIV.PORTE, KIV.etat("Lifewards")
+
+    monkeypatch.setattr(KIV, "_cibles_d_effet",
+                        lambda valeur: [c for c in (valeur if isinstance(
+                            valeur, (list, tuple, set, frozenset)) else [valeur])
+                            if isinstance(c, str)])
+    assert KIV.etat("Lifewards", KIV.voies_par_item())[0] == KIV.PARTIEL, (
+        "sous la mutation << ne lire que les `str` >>, `Lifewards` ne bascule PAS PARTIEL : la "
+        "lecture du tuple n'est donc pas ce qui fait passer son gate, et cet etage ne mesure rien")
+
+
+def test_la_lecture_du_tuple_ne_retient_QUE_le_nom_d_effet():
+    """Contre-epreuve directe de `_cibles_d_effet`, hors monkeypatch : le second membre du tuple
+    (`Parent(Owner)`) est un SELECTEUR natif, pas un `EffectType`. L'y faire entrer donnerait au
+    second cran du gate un mot a juger qui n'en est pas un."""
+    import importlib
+    kiv = importlib.import_module("kit_item_voies")
+    from engine.entities.effects.factory import BOND_PARENT_OF_OWNER
+    assert kiv._cibles_d_effet([("Lifewards_BondEffect", BOND_PARENT_OF_OWNER)]) == \
+        ["Lifewards_BondEffect"]
+    assert kiv._cibles_d_effet(["A", "B"]) == ["A", "B"], "la forme `str` doit rester INTACTE"
+    assert kiv._cibles_d_effet("A") == ["A"], "un scalaire reste accepte"
+    assert kiv._cibles_d_effet([()]) == [], "un tuple vide ne fabrique pas de cible"
+
+
 def test_MUTATION_le_second_cran_est_LOAD_BEARING(monkeypatch):
     """Contre-epreuve du cran neuf : si `classe_d_effet_native` rendait `True` partout (ou `None` =
     NON MESURE), les JETONS retomberaient PARTIEL. Sans cet etage, l'etage precedent pourrait etre

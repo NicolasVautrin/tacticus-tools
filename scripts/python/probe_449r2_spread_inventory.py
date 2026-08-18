@@ -608,6 +608,19 @@ EXPECTED_ZERO = {
         "CreateTargetTriggerBehaviour : chaque feuille est un "
         "IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage dont le 8e argument "
         "Nullable<AttackDamageBehaviourOptions> est VIDE (0x28 octets a zero).",
+    # #1084 -- PHASE 2 de `SolarAtomizer` (la triggered 1297), livree par #894-r2 SANS attestation :
+    # `master` en etait ROUGE. La variance nulle y est JUSTE, et c'est LU sur `t6dpr4k06g`.
+    ("engine/runner/operations/triggers/loki/solar_atomizer_attack.py", "AttackWithAttackDamage"):
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SolarAtomizer_PendingAttackAbility$$"
+        "CreateBehaviour ecrit les CINQ qwords de son `Nullable<AttackDamageBehaviourOptions>` "
+        "(0x28 octets) a ZERO juste avant de le passer en 8e argument a "
+        "IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage -- Nullable VIDE, donc "
+        "l'octet d'aiguillage +6 est nul et "
+        "IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw prend la branche PLATE. Le "
+        "site OMET le mot-cle : c'est le DEFAUT de la signature qui porte la decision (cf. "
+        "EXPECTED_DEFAULT). Contre-preuve du meme decompile : son 5e argument, lui, est un "
+        "Nullable NON vide (`Nullable<T>..ctor(&local_c0, &damageProfile)`) -- la struct a zero "
+        "est donc une ECRITURE, pas un artefact de decompilation.",
 }
 
 # Ce que ces trois entrees ont en commun, et pourquoi le ZERO y est un RESULTAT : le byte

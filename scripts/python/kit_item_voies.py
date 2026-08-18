@@ -278,6 +278,15 @@ VOIES: list[Voie] = [
          "porteur parce qu'il possede l'ability",
          "runner.operations.spawn._seed_ability_owner_effects",
          gate=GATE_EFFET_CLASSE),
+    Voie(_FACTORY, "ABILITY_INIT_OWNER_BOND_EFFECTS", CLE_NOM,
+         "le PENDANT BOND du precedent (#963-r5) : meme trigger d'INIT partage `<DSLTriggers+0x30>` "
+         "et MEME boucle consommatrice, mais le `CreateBehaviour` ecrit `AddBondEffect` au lieu "
+         "d'`AddEffect` -- la valeur nomme donc EN PLUS le selecteur natif du `bondedEntity`. "
+         "Registre SEPARE a dessein (le seed doit resoudre ce selecteur), et c'est cette separation "
+         "qui l'a fait sortir MUET a sa livraison",
+         "runner.operations.spawn._seed_ability_owner_effects (via "
+         "`get_owner_bond_effects_added_on_ability_init`)",
+         gate=GATE_EFFET_CLASSE),
     Voie(_FACTORY, "ABILITY_INIT_OWNER_FLAGS", CLE_NOM,
          "le PENDANT exact du precedent sur l'autre canal d'init (`AddFlag(Owner)` au lieu "
          "d'`AddEffect`), meme trigger natif et meme boucle consommatrice. Chaque entree NOMME son "
@@ -485,6 +494,17 @@ ECARTES: dict[tuple[str, str], str] = {
         "enums ferait basculer `RunsAround` et `ArchContaminator`, deux `TriggeredAbilityType` a "
         "ordinal egal que rien ne monte. Exactement le partage d'ordinaux chiffre en tete de "
         "module.",
+    ("engine.runner.operations.triggers.loki.call_ripper_swarms", "SPAWN_ABILITY_PALIERS"):
+        "FAIT NATIF : les trois bras du fork `...CallRipperSwarms_PendingSummonEffect$$"
+        "GetSpawnAbilityType`, DANS L'ORDRE du decompile (du plus haut palier au plus bas). C'est "
+        "une table de ROUTAGE lue a l'execution -- y figurer ne monte rien : les trois paliers sont "
+        "montes par `ABILITY_TRIGGERS` (voie deja inscrite). Mesure : 0 bascule.",
+    ("engine.runner.operations.triggers.loki.call_ripper_swarms", "SPAWN_ABILITY_CONFIG"):
+        "DONNEE ANNEXE : QUELLE `AbilityConfiguration` (`config@this+0x20`) un palier TRIGGERED "
+        "lit -- l'appariement palier -> active dont il derive, LU dans "
+        "`ActiveAbility$$GetDerivedTriggeredAbilities` (`<statics>+0x30`). C'est une adresse de "
+        "config, exactement le meme statut que `FURY_PERSISTENT_KEY` : le montage, lui, est etabli "
+        "par `ACTIVE_ABILITY_TRIGGERS`/`ABILITY_TRIGGERS`. Mesure : 0 bascule.",
     ("engine.runner.operations.triggers.loki.power_up", "POWER_UP_STAT_BOOST_ABILITIES"):
         "DONNEE ANNEXE : ce n'est PAS ce conteneur qui etablit le montage. Les cinq `PowerUp_*` de "
         "boost sont bien inscrits a `ABILITY_TRIGGERS` (voie deja inscrite), mais par CINQ LIGNES "
@@ -697,6 +717,31 @@ def partition() -> dict:
 #  Ce que les consommateurs (audit_kit_coverage) appellent
 # ============================================================================================
 
+def _cibles_d_effet(valeur) -> list:
+    """Les NOMS D'EFFET que porte la valeur d'une entree de voie gate-ee.
+
+    Deux formes coexistent dans les registres de POSE, et n'en lire qu'une fait TOMBER le gate sur
+    l'autre -- donc compter PARTIEL un montage complet :
+
+      * `["<Effet>", ...]`                  -- `ABILITY_INIT_OWNER_EFFECTS` & co ;
+      * `[("<Effet>", "<selecteur>"), ...]`  -- `ABILITY_INIT_OWNER_BOND_EFFECTS`, dont la valeur
+        nomme EN PLUS le selecteur natif du `bondedEntity` (`Parent(Owner)`).
+
+    ⚠ Du tuple on ne retient que le PREMIER membre. Aplatir tout le tuple ferait entrer
+    `"Parent(Owner)"` dans les cibles, et le second cran du gate (`all(... is False)`) le
+    traiterait comme un `EffectType` sans classe native -- un verdict tire d'un mot qui n'en est
+    pas un. MESURE au 2026-08-18 : les trois autres voies gate-ees ne portent QUE des `str`, donc
+    cette extension est INERTE pour elles."""
+    items = valeur if isinstance(valeur, (list, tuple, set, frozenset)) else [valeur]
+    out = []
+    for c in items:
+        if isinstance(c, str):
+            out.append(c)
+        elif isinstance(c, tuple) and c and isinstance(c[0], str):
+            out.append(c[0])
+    return out
+
+
 def _gate_passe(v: Voie, valeur) -> bool:
     """Le GATE de cette voie passe-t-il pour CETTE entree ? (cf. `GATE_EFFET_CLASSE`.)
 
@@ -712,8 +757,7 @@ def _gate_passe(v: Voie, valeur) -> bool:
     if v.gate is None:
         return True
     from engine.entities.effects.factory import EFFECT_CLASSES
-    cibles = [c for c in (valeur if isinstance(valeur, (list, tuple, set, frozenset))
-                          else [valeur]) if isinstance(c, str)]
+    cibles = _cibles_d_effet(valeur)
     if any(c in EFFECT_CLASSES for c in cibles):
         return True
     return bool(cibles) and all(classe_d_effet_native(c) is False for c in cibles)
