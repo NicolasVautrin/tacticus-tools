@@ -144,6 +144,11 @@ CACHES_VERSIONNES = {
     "probe_175r2_derivation_get_RemoveOnDeathStep": {
         "module": "probe_175r2_can_be_immune_to", "cran": False, "espion": False,
         "pourquoi": "idem `get_CanBeImmuneTo`"},
+    "probe_175r2_derivation_get_KeepOnRevive": {
+        "module": "probe_175r2_can_be_immune_to", "cran": False, "espion": False,
+        "pourquoi": "idem `get_CanBeImmuneTo` -- quatrieme getter du meme deriveur (`IEffect` "
+                    "slot 2, repositionne par `probe_547r13_keep_on_revive.py`), meme cle de "
+                    "build, un fichier par getter"},
     "probe_326_inventaire_natif": {
         "module": "probe_326_dsl_primitive_inventory", "cran": False, "espion": False,
         "pourquoi": "ecrit depuis `native_primitives`, appelee EN BIBLIOTHEQUE par d'autres "
