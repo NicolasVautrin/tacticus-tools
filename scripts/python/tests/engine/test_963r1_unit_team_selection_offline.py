@@ -163,12 +163,34 @@ def test_le_recensement_exhaustif_des_call_sites_natifs():
 
 
 def _ids_de(valeurs):
+    """Les `TRIGGERED_ABILITY_ID` de toutes les classes ATTEIGNABLES dans `valeurs`.
+
+    ⚠ **UNE VALEUR DE DICT EST UNE VOIE D'ATTEINTE**, et l'oublier a rendu `master` ROUGE. Ce
+    balayage descendait dans `list/tuple/set/frozenset` mais PAS dans `dict` : les neuf classes de
+    `PowerUp_*Spawn_*` (#10004) sont FABRIQUEES par `type()` dans une comprehension et n'existent
+    sous AUCUN nom -- elles ne vivent que comme valeurs de `POWER_UP_SPAWN_ABILITIES`, le seul
+    objet que `registry.py` importe. Le balayage dit LARGE en rendait donc 102 quand `_ids_inscrits`
+    -- qui itere `d.values()` explicitement -- en rendait 111. « Un recenseur ne peut pas rendre
+    zero sur ce qu'il ne visite pas », a la lettre : ce n'etait pas une incoherence du port mais un
+    trou du RECENSEUR.
+
+    `vus` garde la recursion finie si une structure se contient elle-meme."""
     classes = set()
+    vus = set()
 
     def _avaler(v):
         if isinstance(v, type):
             classes.add(v)
+            return
+        if id(v) in vus:
+            return
+        if isinstance(v, dict):
+            vus.add(id(v))
+            for cle, val in v.items():          # une CLE peut etre une classe (registre indexe)
+                _avaler(cle)
+                _avaler(val)
         elif isinstance(v, (list, tuple, set, frozenset)):
+            vus.add(id(v))
             for x in v:
                 _avaler(x)
 
@@ -176,6 +198,25 @@ def _ids_de(valeurs):
         _avaler(v)
     return {int(i) for i in (getattr(c, "TRIGGERED_ABILITY_ID", None) for c in classes)
             if isinstance(i, int)}
+
+
+def _ids_par_NOM_de_module():
+    """Les ids des classes de trigger qui sont un attribut DIRECT de `registry` -- donc celles
+    qu'un `import` NOMME.
+
+    Base VOLONTAIREMENT independante de `_ids_de` : elle ne descend dans AUCUN conteneur. Elle ne
+    sert qu'a exhiber la population « atteignable UNIQUEMENT par un conteneur », qui est le regime
+    que le controle de coherence garde -- et qui, sans elle, ne serait plus observable."""
+    from engine.runner.operations.triggers.dispatch import registry as R
+    out = set()
+    for n in dir(R):
+        if n.startswith("__"):
+            continue
+        v = getattr(R, n)
+        i = getattr(v, "TRIGGERED_ABILITY_ID", None) if isinstance(v, type) else None
+        if isinstance(i, int):
+            out.add(int(i))
+    return out
 
 
 def _ids_connus():
@@ -263,7 +304,30 @@ def test_tout_site_by_original_team_PORTE_passe_son_litteral_au_noeud():
     portes, inscrits = _ids_connus(), _ids_inscrits()
     assert portes, "perimetre VIDE : le balayage du registre n'a rien trouve (test auto-invalide)"
     assert inscrits, "perimetre VIDE : aucun dict de registre peuple (test auto-invalide)"
-    assert inscrits <= portes, "un id INSCRIT est absent du balayage LARGE : recenseurs incoherents"
+    # COHERENCE DES DEUX RECENSEURS -- le LARGE doit contenir le STRICT. Il ne le contenait PAS
+    # (rouge de `master`, 9 ids >= 1436 manquants) : `_ids_de` ne descendait pas dans les `dict`,
+    # et les neuf `PowerUp_*Spawn_*` de #10004 sont fabriquees par `type()`, donc atteignables par
+    # AUCUN nom. Rouge de RECENSEUR, aucun defaut de port.
+    assert inscrits <= portes, (
+        "un id INSCRIT est absent du balayage LARGE : recenseurs incoherents -- manquants=%s"
+        % sorted(inscrits - portes))
+    # ...ET LE CRAN QUI EMPECHE L'ASSERTION CI-DESSUS DE REDEVENIR VACANTE. Depuis que `_ids_de`
+    # descend dans les dicts, `inscrits <= portes` est vrai PAR CONSTRUCTION tant que tout registre
+    # est un dict attribut de module : elle ne mord plus par elle-meme. Ce qu'elle gardait, c'est la
+    # VOIE -- une classe atteignable UNIQUEMENT par une valeur de conteneur. On exige donc (a) que
+    # cette voie EXISTE dans l'arbre, sinon le controle n'exerce rien et passerait pour vert sur un
+    # ensemble vide, et (b) que le balayage large la voie. Une regression de `_ids_de` rougit ici
+    # meme si l'assertion precedente reste verte.
+    par_nom = _ids_par_NOM_de_module()
+    seulement_par_conteneur = inscrits - par_nom
+    assert seulement_par_conteneur, (
+        "TEMOIN DEGENERE : plus aucune classe de trigger n'est atteignable UNIQUEMENT par une "
+        "valeur de conteneur. Le regime que ce controle garde (classes fabriquees par `type()` et "
+        "inscrites via un dict -- #10004) a disparu de l'arbre : le controle ne prouve plus rien. "
+        "Le retablir, ou retirer ce cran EN LE DISANT.")
+    assert seulement_par_conteneur <= portes, (
+        "le balayage LARGE ne descend plus dans les conteneurs : %s atteints par un conteneur seul "
+        "et invisibles de `_ids_de`" % sorted(seulement_par_conteneur - portes))
 
     # PRIMITIVE par SYMBOLE, derivee du recensement de l'etage 1 -- jamais reecrite.
     primitive_par_site = {sym: (AreEnemies if court == "AreEnemies" else AreFriends)

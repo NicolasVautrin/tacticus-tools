@@ -29,6 +29,26 @@ coup vient de `FinalJustice`. Les trois bras negatifs le verifient un par un -- 
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+#: `chemins` VIDE, et c'est un RESULTAT, pas un aveu : la fermeture d'imports de ce fichier
+#: (749 modules, derivee par le foyer depuis #531) tient ENTIEREMENT dans la cascade -- il
+#: n'atteint aucun module par `sys.path` que le paquet n'importerait pas.
+#: `build: True` (== `data/symbols/**`) est le seul ajout, et il ne vient PAS des imports :
+#: l'etage `test_l_attribut_vaut_ce_que_le_build_dit` LIT
+#: `data/symbols/*/metadata/allow_for_dead_owner.tsv` par `read_text`, exactement la lecture
+#: qu'une derivation par imports ne peut pas voir -- et c'est elle qui fige le fait du residu
+#: (`SynapticLinchpinAbility$$get_AllowForDeadOwner` rend VRAI, corps `b0 01 c3` PARTAGE avec
+#: `FinalJusticeAbility$$get_AllowForDeadOwner`). Une MAJ du jeu la deplace.
+DECLENCHEUR = {
+    "chemins": (),
+    "build": True,
+    "toujours": False,
+    "raison": "branche `owner MORT + FinalJustice` de `SynapticLinchpin` (1192) : les quatre "
+              "bras de comportement passent par la cascade du paquet `engine`, et le cinquieme "
+              "confronte l'attribut `fire_on_death` a `data/symbols/*/metadata/"
+              "allow_for_dead_owner.tsv`, LU au build -- seule entree hors imports.",
+}
+
 import sys
 from pathlib import Path
 
