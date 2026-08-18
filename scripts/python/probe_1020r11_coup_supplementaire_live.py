@@ -117,10 +117,23 @@ def rejoue_port(nat, ids, board) -> dict:
     vrai_ah = AH.execute_additional_hits
     o_n, o_a = NRM.execute_additional_hits, ABL.execute_additional_hits
 
-    def trace_ah(state, attacker_id, target_id, tgt, thc, groups, *a, **kw):
+    def trace_ah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor,
+                 hit_mult, block_sources, shc, spread_pct=None, extra_pierce=0,
+                 bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
+                 hit_interceptor=None, failed_block0=None, damaging_done0=False,
+                 source_ability=None):
+        """SIGNATURE PLEINE, jamais `*args/**kwargs` : le cliquet #393
+        (`test_additional_hits_variant_signatures_offline.py`) l'exige, et pour une raison qui
+        vaut ici comme ailleurs -- un fourre-tout resterait vert en cessant d'exercer l'etage."""
         groupes.append([{k: g.get(k) for k in ("count", "profile", "min", "max", "amount",
                                                "source")} for g in (groups or [])])
-        return vrai_ah(state, attacker_id, target_id, tgt, thc, groups, *a, **kw)
+        return vrai_ah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor,
+                       hit_mult, block_sources, shc, spread_pct=spread_pct,
+                       extra_pierce=extra_pierce, bonus_hit_chance=bonus_hit_chance,
+                       hit_index0=hit_index0, crit_allowed0=crit_allowed0,
+                       attack_profile=attack_profile, hit_interceptor=hit_interceptor,
+                       failed_block0=failed_block0, damaging_done0=damaging_done0,
+                       source_ability=source_ability)
 
     AttackDamageOperation._run_hits = staticmethod(trace_rh)
     AH.execute_additional_hits = trace_ah

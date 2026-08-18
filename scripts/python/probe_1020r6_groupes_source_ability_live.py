@@ -362,6 +362,12 @@ def run(seed: int = 777, board_id: str = "MC1_67", dmg: int | None = 900) -> int
             print("!! TEMOIN INVALIDE : le drone hors adjacence transfere quand meme "
                   "(natif=%d port=%d)" % (tem["transferts_natifs"], tem["transferts_port"]))
             rc |= 1
+        # Le temoin est le bras SANS consommateur : il garde que la lecture du pending relu est
+        # STRICTEMENT NO-OP quand rien ne le consomme (`kept == demande` a l'identique).
+        t_port = list(tem["coups_port_arme"] or []) + list(tem["coups_port_groupe"] or [])
+        if t_port != list(tem["coups_natif"] or []):
+            print("!! TEMOIN PAR COUP : natif=%s port=%s" % (tem["coups_natif"], t_port))
+            rc |= 1
         # #1020-r11 -- FERME (2026-08-18). Ce bloc ANNONCAIT << des que le drone est adjacent, le
         # natif execute UN COUP DE PLUS que le port >>. C'etait un artefact de VENTILATION : le
         # total etait pris par `Target_Id` SEUL, donc il additionnait aux coups de l'ATTAQUE ceux
@@ -380,6 +386,17 @@ def run(seed: int = 777, board_id: str = "MC1_67", dmg: int | None = 900) -> int
         if n_coups != p_coups:
             print("!! COUPS : le natif en execute %d sur la victime, le port %d (hors attaquant : "
                   "%s)" % (n_coups, p_coups, {str(k): v for k, v in n_hors.items()}))
+            rc |= 1
+        # #1020-r11 -- LE VERDICT COUP PAR COUP, et pas seulement la somme. Le tag `Amount` du
+        # natif est le pending RELU (`ApplyDamageOperation$$Execute` : `GetValueOrDefault` APRES
+        # `On(0x39)`), donc un coup TRANSFERE y vaut 0. Un port qui rapporterait le DEMANDE
+        # tomberait ici tout en gardant la MEME somme et le MEME etat -- exactement le genre
+        # d'ecart qu'aucun test d'ETAT ne voit.
+        p_liste = list(r0.get("per_hit") or []) + list(
+            (r0.get("additional_hits") or {}).get("per_hit") or [])
+        n_liste = _coups_de(nat, ids["victime"], ids["att"])
+        if p_liste != n_liste:
+            print("!! PAR COUP : natif=%s port=%s" % (n_liste, p_liste))
             rc |= 1
         if ecart_victime:
             print("!! VICTIME : natif=%d port=%d (ecart %d) -- ventile par ATTAQUANT, donc "

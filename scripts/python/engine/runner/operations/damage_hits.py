@@ -640,16 +640,24 @@ class _DamageHitsMixin:
         # `IsOverkill` le lit PAR COUP, la ou `HealthComponent.reduce` ne l'ecrit qu'au chokepoint.
         _over_reduce = [int(over_reduce0 or 0)]
 
-        def _amount_applied(dmg: Damage) -> int:
+        def _amount_applied(dmg: Damage, kept: Optional[tuple] = None) -> int:
             """Le tag `Amount` de CE coup + deplacement des PV restants (cf. `damage_amount_applied`)
-            + la queue de `Reduce` (`this[0x24] += Max(0, damage - applied)`, sautee sous plancher)."""
+            + la queue de `Reduce` (`this[0x24] += Max(0, damage - applied)`, sautee sous plancher).
+
+            `kept` (#1020-r11) = le couple `(healthDamage, shieldDamage)` RELU dans
+            `FillUpStatComponent+0x64` APRES l'emission d'`On(0x39 = PreDamageTaken)`, c.-a-d. ce
+            que `IdunBattle.Operations.ApplyDamageOperation$$Execute` donne REELLEMENT a
+            `FillUpStatComponent$$Reduce` / `$$ReduceShield` -- et donc ce qui alimente son
+            accumulateur `Amount`. `None` = aucun sink threade (l'appelant n'a pas de
+            decomposition par coup) -> le DEMANDE, strictement comme avant."""
+            health, shield = ((int(dmg.health), int(dmg.shield)) if kept is None
+                              else (int(kept[0]), int(kept[1])))
             if _hp_left[0] is None:
-                return dmg.get_total()
+                return health + shield + int(dmg.armor)      # `Damage$$GetTotal`
             before = _hp_left[0]
-            amount, _hp_left[0] = damage_amount_applied(
-                dmg.health, dmg.shield, _hp_left[0], hp_floor)
+            amount, _hp_left[0] = damage_amount_applied(health, shield, _hp_left[0], hp_floor)
             if not (hp_floor is not None and int(hp_floor) > 0):
-                _over_reduce[0] += max(0, int(dmg.health) - (before - _hp_left[0]))
+                _over_reduce[0] += max(0, health - (before - _hp_left[0]))
             return amount
 
         def _roll_crit(idx: int) -> bool:
@@ -800,7 +808,6 @@ class _DamageHitsMixin:
             if overkill_hit_emits(_overkilled[0]):
                 _hp_entry = _hp_left[0]           # PV restants AVANT ce coup (arg d'`IsOverkill`)
                 _or_entry = _over_reduce[0]       # `+0x24` AVANT le `Reduce` de ce coup
-                per_hit.append(_amount_applied(dmg))  # `Amount` de l'event = retraits REELS (borne PV)
                 # #1020 -- le pending POSE par ce coup : les champs `+0x04 healthDamage` /
                 # `+0x08 shieldDamage` du `DamageAppliedResult` que le natif ecrit dans
                 # `FillUpStatComponent+0x64`. Le DEMANDE, pas l'applique : le natif construit le
@@ -822,8 +829,25 @@ class _DamageHitsMixin:
                 # ajouter une cle au retour ELARGIT le CONTRAT DE SORTIE de ce canal, et toute
                 # substitution de `_run_hits` restee en arriere leve alors `KeyError` (deux gardes
                 # existantes l'ont attrape, cf. `damage.py::_PreDamageTakenSink`).
+                _kept = None
                 if pending_sink is not None:
-                    pending_sink(int(dmg.health), int(dmg.shield))
+                    _k = pending_sink(int(dmg.health), int(dmg.shield))
+                    # `None` = pending CONSOMME par `IdunBattle.Operations.TransferDamageOperation$$
+                    # GetDamage` -> la RELECTURE `GetValueOrDefault` d'un `Nullable` vide rend la
+                    # struct ZERO, donc `Reduce(0)` et `ReduceShield(0)` : le coup est bien EXECUTE
+                    # et bien EMIS, mais son tag `Amount` vaut 0.
+                    _kept = (0, 0) if _k is None else (int(_k[0]), int(_k[1]))
+                # #1020-r11 -- `Amount` SE LIT SUR LE PENDING RELU, PAS SUR LE DEMANDE, et l'ordre
+                # ci-dessus EST celui du natif : `healthComp[+0x64] = result` -> gate `0 <
+                # get_Damage` -> `On(0x39)` -> `GetValueOrDefault(healthComp[+0x64], &pending)` ->
+                # `amount = Reduce(hp, pending.healthDamage) + ReduceShield(., pending.shieldDamage)`.
+                # Un coup TRANSFERE emet donc `UnitDamaged{Amount = 0}` sur la victime -- MESURE
+                # (`probe_1020r6`, MC1_67/777 : natif `[0, 16, 0, 1509, 0, 2306]`). Le port posait
+                # ici le DEMANDE (`[2581, 16, 11] + [1509, 2316, 2306]`), donc il rapportait un
+                # retrait qui n'a pas eu lieu -- et il faisait DESCENDRE `_hp_left` d'autant, ce qui
+                # borne les coups suivants et alimente `FillUpStatComponent+0x24`.
+                # STRICTEMENT NO-OP sans consommateur : `kept == demande` a l'identique.
+                per_hit.append(_amount_applied(dmg, _kept))
                 # `UnitFlagsComponent$$Add(flags, 8)` : `dar.didOverkill && CanBeOverkilled(target)`.
                 if not _overkilled[0] and overkill_flag_posted_by_hit(
                         dmg.health, denied_before[-1] if denied_before else 0,
