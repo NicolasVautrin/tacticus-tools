@@ -206,7 +206,7 @@ def test_l_ordre_natif_0xb_AVANT_0xc_est_tenu_dans_les_DEUX_branches_du_handler(
 #:     = `On(0xb = UnitAbility) & <DSLTriggers+0x20 = OwnerIsAlive> & get_OwnerIsCaster`, lu au
 #:     decompile et ecrit verbatim en tete d'`operations/triggers/loki/aggressive_onslaught.py`.
 #:   * `BattleFocusEffectTrigger` (#1080) -- `IdunBattle.Entities.Effects.Loki.BattleFocusEffect$$
-#:     CreateTargetTrigger`, RELU sur le build COURANT (#10024) :
+#:     CreateTargetTrigger`, RELU sur le build COURANT (#10027) :
 #:         DSLTriggers$$On(<DSLSelectors+0x88>, 0xb, ownerNeedsToBeAlive: 1)
 #:       & DSLTriggers$$AbilityHasAttackType(CurrentAbility@<+0x88>, 0 = DirectTargetAttack)
 #:       & ( get_OwnerIsTarget | get_OwnerIsCaster )
@@ -222,7 +222,7 @@ CONSOMMATEURS_0XB_ATTESTES = {
     "BattleFocusEffectTrigger",                  # #1080
 }
 
-#: Conteneurs de `registry.py` qui, a la DERIVATION du 2026-08-18 (#10024), portent au moins une
+#: Conteneurs de `registry.py` qui, a la DERIVATION du 2026-08-18 (#10027), portent au moins une
 #: classe a `event_id`. Ce n'est PAS la liste que le balayage visite -- il les DERIVE -- c'est le
 #: TEMOIN de non-degenerescence : si l'un d'eux disparait du module, le recenseur retrecit en
 #: silence, et c'est exactement la faute qu'il vient de commettre (cf. `_ecouteurs`).
@@ -254,7 +254,7 @@ def _ecouteurs(event_id: int):
     """Recense les classes du registre qui ecoutent `event_id`, sur TOUS ses conteneurs.
 
     ⚠ La liste des conteneurs est DERIVEE du module, jamais ecrite a la main. La version ecrite a
-    la main de ce balayage etait FAUSSE sur DEUX axes, mesures le 2026-08-18 (#10024) :
+    la main de ce balayage etait FAUSSE sur DEUX axes, mesures le 2026-08-18 (#10027) :
       * `GLOBAL_TRIGGERS` etait NOMME mais jamais visite (c'est une `list`, et le filtre exigeait un
         `dict`) -- le pire des deux cas : le lecteur croit la couverture acquise ;
       * `POWER_UP_SPAWN_ABILITIES` n'etait pas meme nomme (dict de 9 classes).

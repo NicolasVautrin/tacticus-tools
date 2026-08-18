@@ -35,7 +35,7 @@ la face DECISION hors tests (`engine_validate.py`, `predict_sweep.py`), ni ce qu
 via la fixture d'un autre paquet.
 
 ⚠ LE MONTAGE N'EST PAS DANS LE FICHIER DE TEST -- il est dans le MODULE QU'IL IMPORTE, et c'est
-mesure (#10024, 2026-08-18). `_classe_fichier` avait deja rencontre ce gisement sur l'axe
+mesure (#10027, 2026-08-18). `_classe_fichier` avait deja rencontre ce gisement sur l'axe
 LIVE/OFFLINE (« ils prennent leur fixture dans un module PARTAGE ») et l'avait ferme la ; il
 restait GRAND OUVERT sur l'axe NEUTRALISATION, qui ne lisait que la source du test. Mesure :
 **9 des 39 suspects** portent leur `--unit-stat`/`--crit`/`--block-*` dans un module importe --
@@ -406,7 +406,7 @@ _CACHE_MONTAGE: dict = {}
 
 
 def _montage_importe(src: str, chemin: "Path | None") -> dict[str, list[str]]:
-    """Les stats neutralisees par les MODULES QUE LE TEST IMPORTE (cf. l'en-tete, #10024).
+    """Les stats neutralisees par les MODULES QUE LE TEST IMPORTE (cf. l'en-tete, #10027).
 
     Un seul niveau, et deux emplacements seulement -- `scripts/python/<mod>.py` (les probes de
     montage) et le repertoire du test lui-meme (les helpers `_x.py`). Rend `{module: [stats]}` :

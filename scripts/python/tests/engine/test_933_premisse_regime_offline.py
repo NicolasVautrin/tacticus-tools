@@ -93,7 +93,7 @@ DECLENCHEUR = {
 
 
 # --- BLOC GENERE (`probe_933_premisses_regime.py --attester`) -- ne pas tenir a la main -------
-# ⚠ 8 CHEMINS EN SONT SORTIS le 2026-08-18 (#10024), et c'est un RENFORCEMENT, pas un
+# ⚠ 8 CHEMINS EN SONT SORTIS le 2026-08-18 (#10027), et c'est un RENFORCEMENT, pas un
 # relachement : le recenseur ne lisait le montage que dans le FICHIER DE TEST, alors que 9
 # suspects sur 39 portent leur `--unit-stat`/`--crit`/`--block-*` dans un module IMPORTE. Ils ne
 # sont plus suspects parce que leur montage a ete LU, pas parce qu'on l'a excuse -- et sortir de
@@ -139,7 +139,7 @@ _ATTESTES = (
 
 #: LES FAUX POSITIFS **MESURES** -- distincts d'`_ATTESTES`, et la distinction est le point.
 #: `_ATTESTES` dit « pas tranche » ; ceci dit « tranche, le RECENSEUR a tort », avec la mesure.
-#: Les trois sont entres ensemble (#10024), tous les trois accuses par le meme rouge, et pour
+#: Les trois sont entres ensemble (#10027), tous les trois accuses par le meme rouge, et pour
 #: **trois causes differentes** -- ce qui est exactement pourquoi aucune regle statique ne les
 #: sort tous les trois.
 #:
@@ -161,7 +161,7 @@ _ATTESTES = (
 #:     ⚠ Le remede evident -- une FRONTIERE DE MOT sur `_lit_stats` -- a ete MESURE et ECARTE :
 #:     il fait perdre le statut de lecteur a **7 fichiers** (dont `test_895_nova_boss_riptide`,
 #:     `test_additional_hits_roll_order`, `test_healing_balms_heal_decision`), donc il RETRECIT la
-#:     population du recenseur au lieu d'affiner son critere. Residu `#10024-r1`.
+#:     population du recenseur au lieu d'affiner son critere. Residu `#10027-r1`.
 #:   * `test_martial_apotheosis_live.py` -- il EXERCE le regime crit au lieu de le supposer nul :
 #:     il derive une bande PAR REGIME (`[bmin+cd, bmax+cd]` si le coup crite) et porte un garde de
 #:     non-degenerescence `assert cd > 0` avec sa raison ecrite. **Le remede prescrit par le
@@ -261,7 +261,7 @@ def test_les_deux_listes_sont_DISJOINTES():
 
 
 def test_les_deux_listes_sont_ENCORE_ACCUSEES_par_le_recenseur():
-    """LE CRAN QUI EMPECHE UNE LISTE DE MASQUER (#10024).
+    """LE CRAN QUI EMPECHE UNE LISTE DE MASQUER (#10027).
 
     Une entree qui n'est PLUS suspecte ne protege plus rien -- elle MASQUE : le jour ou le fichier
     reperd son montage, il revient dans `suspects` et la liste l'absorbe en silence. C'est
@@ -320,7 +320,7 @@ def test_la_liste_attestee_ne_couvre_pas_ce_qui_a_ete_repare():
         "engine/runner/test_sentinel_directives_live.py",      # skip « coup non propre »
         "engine/runner/test_heavy_grav_cannon_live.py",        # PREVENTIF (ecart non mesure)
         "engine/runner/test_damage_block_live.py",             # premisse en PROSE perimee
-        # --- #10024 : leur montage etait DEJA la, dans le module qu'ils IMPORTENT. Le recenseur
+        # --- #10027 : leur montage etait DEJA la, dans le module qu'ils IMPORTENT. Le recenseur
         # ne lisait que la source du test ; il la lit desormais aussi dans le probe de montage.
         # Les inscrire ici est ce qui empeche qu'une regeneration mecanique de `_ATTESTES` les y
         # remette -- auquel cas perdre leur `--unit-stat` ne rougirait PLUS.
