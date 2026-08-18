@@ -40,6 +40,14 @@ import engine.playbook.adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#
 # deux paires de variables (`minDmg`/`maxDmg` et `minDmg_2`/`maxDmg_2`) partagent l'arrondi.
 from engine.dsl.base import calculate_average
 from engine.entities.effects.loki.deathwing import CTX_ADJACENT_DA as _CTX_ADJACENT_DARK_ANGELS_FRIENDS   # #1042-r5
+# HISSE de `_talons_second_profile_inputs` (#485-r5). Il y etait DIFFERE au motif ecrit
+# << ce serait une arete `playbook -> runner` que la couche prediction n'a nulle part ailleurs >> --
+# un argument d'ARCHITECTURE, pas un cycle, et la mesure le confirme : `import
+# engine.runner.abilities.custodes` dans un process FRAIS ne met PAS ce module-ci dans `sys.modules`
+# (287 modules `engine.*` charges, celui-ci absent). Hissage simule VERT dans les DEUX ordres
+# d'entree, `probe_477r35_import_isole` VERT apres coup. FORME B (liaison de MODULE) conservee :
+# le point reste substituable par un patcheur.
+import engine.runner.abilities.custodes as CUSTODES
 # ⚠ La forme `from engine.playbook import adjacency` declarerait le PAQUET (elle en lit
 # l'attribut), pas le module -- et `engine.playbook` atteint deja ce module par `.base`, donc
 # l'arete refermait un SCC de 16 (`test_270r4r2_cycles_imports_offline` etage 1, MESURE).
@@ -451,12 +459,8 @@ def _talons_of_the_emperor_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
          `damageProfile`, la branche PAR DEFAUT du natif."""
     if ab is None or cfg is None:
         return {}
-    import engine.runner.abilities.custodes as CUSTODES   # FORME B (liaison de MODULE), et le
-    #   differe est CLASSE GRATUIT : charger `custodes` seul ne fait PAS atterrir ce module-ci dans
-    #   `sys.modules` (mesure #974). Hisse en tete, ce serait une arete `playbook -> runner` que la
-    #   couche prediction n'a nulle part ailleurs ; garde ici, il n'entraine aucune cascade au
-    #   chargement. La liaison de MODULE (jamais `from ... import <nom>`) garde le point
-    #   substituable par un patcheur.
+    # `CUSTODES` est HISSE au preambule (#485-r5) : le differe etait GRATUIT (mesure en process
+    # frais, cf. le motif ecrit la-bas), et la liaison reste de MODULE, donc un patch mord.
     lvl, mult = ab.level, ab.multiplier
     # `GetVariableForLevel(0xc)` = `minDmg`, et RIEN d'autre : pas de moyenne min/max.
     base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)
