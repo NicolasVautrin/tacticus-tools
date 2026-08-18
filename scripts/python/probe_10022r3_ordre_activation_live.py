@@ -114,8 +114,11 @@ def build(seed, board, places_ia, place_moi, state_file, seed_bc=None):
     marquerait comme ayant bouge et changerait ce qu'on mesure)."""
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
             "--state-file", str(state_file), "--no-ai",
-            "--p-units", CLONE, "--a-units", ",".join([CLONE] * len(places_ia)),
-            "--place", "%s:%d,%d" % (CLONE, place_moi[0], place_moi[1])]
+            "--p-units", CLONE, "--a-units", ",".join([CLONE] * max(1, len(places_ia)))]
+    #: `place_moi is None` = build SONDE : on ne veut que le `boardGraph` (pour DERIVER les
+    #: geometries), donc aucun placement -- et donc aucun refus possible d'`AddUnitOperation`.
+    if place_moi is not None:
+        argv += ["--place", "%s:%d,%d" % (CLONE, place_moi[0], place_moi[1])]
     if seed_bc is not None:
         argv += ["--seed-bc", str(seed_bc)]
     for p in places_ia:
@@ -172,6 +175,34 @@ def predire(board_obj, par_id, ids_ia, team_ia):
                                     hex_distance=lambda a, b: hexgeo.distance(a, b),
                                     path_node_count=path_node_count)
             for uid in ids_ia}
+
+
+def detour_max(board_obj, par_id, ids_ia) -> int:
+    """`max(pathCount - hexDist - 1)` sur les couples (unite IA, ennemi) de la configuration.
+
+    POURQUOI ON LE MESURE : l'elagage 1 du natif (`minSteps <= hexDist(unitTile, targetTile)` ->
+    skip) n'est ADMISSIBLE que parce qu'un chemin de `hexDist` aretes compte `hexDist + 1` noeuds.
+    Tant que ce detour vaut **0** partout, l'elagage ne peut pas se distinguer de son absence : le
+    board ne l'EXERCE pas, et un vert ne dit rien de lui. Une valeur > 0 signifie qu'au moins un
+    couple a du CONTOURNER -- c'est l'axe « relief et detour » de #10022-r7, et il est desormais
+    RAPPORTE au lieu d'etre suppose."""
+    idof = {(t["col"], t["row"]): t["id"] for t in board_obj.by_id.values()}
+    occupants = {idof[p]: uid for uid, (p, _t) in par_id.items() if p in idof}
+    pire = 0
+    for uid in ids_ia:
+        p_u, team = par_id[uid]
+        tid = idof.get(p_u)
+        if tid is None:
+            continue
+        comptes = get_path_node_counts(board_obj, tid, occupants)
+        for o, (p_o, t_o) in par_id.items():
+            if t_o == team:
+                continue
+            n = comptes.get(idof.get(p_o))
+            if n is None:
+                continue
+            pire = max(pire, int(n) - hexgeo.distance(p_u, p_o) - 1)
+    return pire
 
 
 def premiere_activation(sid, rid):
@@ -254,14 +285,16 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
         ok = (active == meilleur)
         note = {"DEGENERE": " (DEGENERE : predit == ECS[0], ne prouve rien)",
                 "ECS_INCONNU": " (ECS NON MESURE : degenerescence indeterminee)"}.get(statut, "")
+        detour = detour_max(board_obj, par_id, ids_ia)
         rapport.append(
-            "config %d : places=%s | utilites=%s | ECS=%s | predit=%s | active=%s | %s%s"
+            "config %d : places=%s | utilites=%s | ECS=%s | predit=%s | active=%s | detour=%d | %s%s"
             % (idx, places_ia,
                {u: (round(float(v), 1) if v is not OUT_OF_RUNNING else "HORS") for u, v in
                 sorted(util_par_id.items())},
-               ecs_avant, meilleur, active,
+               ecs_avant, meilleur, active, detour,
                "ACCORD" if ok else "DESACCORD", note))
-        return {"ok": ok, "statut": statut, "active": active, "predit": meilleur, "stop": stop}
+        return {"ok": ok, "statut": statut, "active": active, "predit": meilleur, "stop": stop,
+                "detour": detour}
     finally:
         try:
             _r(sid, "disposeRunner", {"runnerId": rid}, 60)
@@ -272,6 +305,11 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
 # Six geometries. Elles ne sont PAS aleatoires : chacune place les trois clones a des distances
 # de chemin DIFFERENTES de mon unite, et l'ordre de la LISTE (donc l'ordre d'iteration ECS) est
 # volontairement DECORRELE de la proximite -- c'est ce qui rend la configuration discriminante.
+#
+# ⚠ CES COORDONNEES SONT CELLES DE `MC1_67`, ET RIEN NE LE DISAIT. Les ecrire en dur a fige le
+# probe sur UN board, alors que la discipline du depot exige DEUX couples (board, seed) des qu'une
+# mecanique touche a la geometrie (#10022-r7). Elles restent ici comme le montage HISTORIQUE --
+# celui qui a rendu les 5/5 de la case-doc -- et tout autre board passe par `geometries_derivees`.
 GEOMETRIES = [
     ([(6, 8), (6, 7), (2, 6)], (1, 0)),
     ([(2, 6), (6, 8), (6, 7)], (1, 0)),
@@ -281,12 +319,71 @@ GEOMETRIES = [
     ([(6, 7), (3, 6), (6, 8)], (0, 1)),
 ]
 
+#: Le board dont `GEOMETRIES` porte les coordonnees -- LU nulle part ailleurs, donc ecrit ici.
+BOARD_DES_GEOMETRIES_FIGEES = "MC1_67"
+
+
+def geometries_derivees(board_obj, n=6):
+    """`n` configurations DERIVEES du board, au lieu de coordonnees ecrites a la main.
+
+    Le critere est le meme que celui des geometries figees, mais il est desormais EXECUTABLE :
+    trois clones a des `pathCount` DEUX A DEUX DISTINCTS depuis ma tuile (sinon l'argmax est
+    ex-aequo et la configuration ne departage rien), et l'ordre de la LISTE decorrele de la
+    proximite (sinon la configuration est DEGENEREE et le probe l'ecarte de lui-meme).
+
+    Le `pathCount` vient de `ignore_terrain_pathfinder.get_path_node_counts` -- le mirror deja
+    confronte de `IPathfinders.GetPath(PathfinderType.IgnoreTerrain, ...)`, donc la MEME grandeur
+    que celle dont on teste la prediction. On ne devine aucune distance.
+
+    Rend `[(places_ia, place_moi), ...]`, ou `[]` si le board ne porte pas la configuration (ce qui
+    est un resultat, pas une panne : l'appelant le DIT)."""
+    tuiles = sorted(board_obj.by_id)
+    marchables = [t for t in tuiles if board_obj.walkable(t)]
+    if len(marchables) < 8:
+        return []
+    out, vus = [], set()
+    #: On balaie des ANCRES espacees plutot que la premiere tuile venue : deux ancres voisines
+    #: donneraient deux configurations quasi identiques, donc six mesures pour une seule geometrie.
+    pas = max(1, len(marchables) // (n + 2))
+    for k in range(0, len(marchables), pas):
+        if len(out) >= n:
+            break
+        t_moi = marchables[k]
+        moi = board_obj.coord(t_moi)
+        comptes = get_path_node_counts(board_obj, t_moi, {})
+        #: `count` DISTINCTS deux a deux, et assez loin pour que l'ordre puisse etre decorrele.
+        par_compte = {}
+        for t, c in comptes.items():
+            if t != t_moi and board_obj.walkable(t) and c >= 2:
+                par_compte.setdefault(int(c), t)
+        if len(par_compte) < 3:
+            continue
+        cs = sorted(par_compte)
+        choix = [par_compte[cs[len(cs) // 6]], par_compte[cs[len(cs) // 2]],
+                 par_compte[cs[-1 - len(cs) // 6]]]
+        if len(set(choix)) < 3:
+            continue
+        places = [board_obj.coord(t) for t in choix]
+        #: DECORRELATION : le plus PROCHE ne doit pas etre en tete de liste (l'ordre de la liste
+        #: commande l'ordre d'iteration ECS, et une tete deja optimale rend la config degeneree).
+        places = [places[1], places[2], places[0]] if (len(out) % 2 == 0) else \
+                 [places[2], places[0], places[1]]
+        cle = (tuple(places), moi)
+        if cle in vus or moi in places:
+            continue
+        vus.add(cle)
+        out.append((places, moi))
+    return out
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--configs", type=int, default=len(GEOMETRIES))
+    ap.add_argument("--deriver", action="store_true",
+                    help="DERIVER les geometries du boardGraph meme sur le board historique "
+                         "(controle : les deux modes doivent conclure pareil).")
     ap.add_argument("--randomize", action="store_true",
                     help="BRAS NEGATIF : monte les runners depuis un seed BC a "
                          "`RandomizeAiInput = True`. On ATTEND alors des DESACCORDS -- l'ordre "
@@ -302,6 +399,34 @@ def main(argv=None):
     if sid is None:
         print("[10022-r3-live] NON MESURE : aucune session running -- rc 2")
         return 2
+    # ---------------------------------------------------------------- quelles geometries ?
+    #: Les coordonnees figees sont celles de `MC1_67` : sur tout autre board elles designeraient des
+    #: tuiles quelconques (voire hors plateau), et le probe mesurerait une geometrie qu'il n'a pas
+    #: choisie. On DERIVE alors, depuis le `boardGraph` d'un build SONDE.
+    geoms, origine_geoms = GEOMETRIES[:a.configs], "FIGEES (montage historique de %s)" % (
+        BOARD_DES_GEOMETRIES_FIGEES,)
+    if a.board != BOARD_DES_GEOMETRIES_FIGEES or a.deriver:
+        sf = ROOT / "logs" / ("_probe10022r3-sonde-%d.json" % os.getpid())
+        rid, err = build(a.seed, a.board, [], None, sf)
+        if rid is None:
+            print("[10022-r3-live] NON MESURE : build SONDE KO sur %s (%s) -- rc 2"
+                  % (a.board, (err or "")[-400:]))
+            return 2
+        try:
+            bg = _r(sid, "boardGraph", {"runnerId": rid}, 120) or {}
+        finally:
+            _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+        if not bg.get("tiles"):
+            print("[10022-r3-live] NON MESURE : boardGraph SONDE vide sur %s -- rc 2" % a.board)
+            return 2
+        geoms = geometries_derivees(Board(bg["tiles"], adjacency="native_sym"), a.configs)
+        origine_geoms = "DERIVEES du boardGraph de %s" % a.board
+        if not geoms:
+            print("[10022-r3-live] NON MESURE : %s ne porte aucune configuration a trois "
+                  "`pathCount` distincts -- ce board ne peut rien departager. -- rc 2" % a.board)
+            return 2
+    print("[10022-r3-live] geometries : %s -- %d configuration(s)" % (origine_geoms, len(geoms)))
+
     seed_bc = None
     if a.randomize:
         try:
@@ -313,7 +438,7 @@ def main(argv=None):
     print("[10022-r3-live] session=%s board=%s seed=%d" % (sid, a.board, a.seed))
 
     rapport, resultats = [], []
-    for i, (places, moi) in enumerate(GEOMETRIES[:a.configs], 1):
+    for i, (places, moi) in enumerate(geoms, 1):
         t0 = time.time()
         r = une_config(sid, a.seed, a.board, places, moi, i, rapport, seed_bc=seed_bc)
         if r is not None:
@@ -334,8 +459,15 @@ def main(argv=None):
         discriminantes = [r for r in resultats if r["statut"] == "DISCRIMINANT"]
     accords = [r for r in discriminantes if r["ok"]]
     inconnues = len([r for r in resultats if r["statut"] == "ECS_INCONNU"])
+    detours = [r.get("detour", 0) for r in resultats]
     print("[10022-r3-live] BILAN : %d config(s) mesuree(s), %d retenue(s), %d accord(s), "
           "%d a ECS non mesure" % (len(resultats), len(discriminantes), len(accords), inconnues))
+    print("[10022-r3-live] DETOUR exerce (max `pathCount - hexDist - 1`) : %s ; sur %d config(s) "
+          "a detour > 0. %s"
+          % (max(detours) if detours else "n/a", len([d for d in detours if d > 0]),
+             "L'elagage 1 est EXERCE." if any(d > 0 for d in detours) else
+             "L'elagage 1 n'est PAS exerce ici : sur ce board tout chemin vaut la distance hex, "
+             "donc ce couple ne dit RIEN de cette branche."))
 
     if a.randomize:
         # BRAS NEGATIF : le critere s'INVERSE. Un accord parfait ici refuterait #10022-r1.
