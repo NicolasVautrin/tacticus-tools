@@ -627,3 +627,75 @@ Les **quatre** substitutions d'`execute_additional_hits` suivent la signature du
 #393, `test_additional_hits_variant_signatures_offline.py`) ; `probe_949_ltgb_coup_manquant.py`
 TRANSMET le paramètre au lieu de l'avaler, sans quoi son rejeu désarmerait le canal que le port
 livré, lui, garde. 35 passed sur les quatre fichiers offline du canal.
+
+## 14. `#1020-r11` — le « coup en trop » N'EXISTE PAS : c'est une unité SUMMONÉE qui frappe
+
+`#1020-r11` annonçait, chiffres à l'appui, que « dès que le drone est ADJACENT, le natif exécute
+UN COUP DE PLUS que le port » — sept montants sur la victime contre six. **La prémisse est
+FAUSSE**, et sa cause est un défaut de **VENTILATION**, pas de port.
+
+### Ce que le flux dit, ventilé par ATTAQUANT
+
+`probe_1020r11_coup_supplementaire_live.py` dumpe le flux natif ORDONNÉ. Sur `MC1_67`/777, le
+7ᵉ montant porte `Attacker_Id = 100` — **pas** l'attaquant `77` :
+
+```
+ 17 step=29  {Attacker_Id: 77}                                  <- fin de l'attaque
+ 18 step=9   {Unit_IsSummoned: 1, Unit_Parent_Id: 77, ...}       <- SPAWN
+ 30 step=29  {Attack_Weapon_DamageProfile: 1, IsMelee: 1}        <- une AUTRE attaque
+ 31 step=4   {Amount: 1125, Attacker_Id: 100, Attack_Is_First_Hit: 1, DamageProfileType: 1}
+```
+
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateBehaviour`
+range un nœud `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition` dans les
+`SpawnUnitOptions` de son `Spawn` : **l'unité summonée attaque toute seule, dans la même réponse
+RPC**, avec son propre profil d'arme et `Attack_Is_First_Hit = 1`. Le summon a lieu dans les DEUX
+bras ; il n'ATTAQUE que dans le bras adjacent, parce que dans l'autre la victime est déjà morte.
+
+Le sommer par `Target_Id` SEUL compte donc ce coup-là comme un coup de l'ATTAQUE. C'est ce que
+faisait `_events_damage`, et c'est ce qui a fait ouvrir le résidu.
+
+### Ce que le port fait vraiment, ventilé
+
+| bras | natif (attaquant seul) | port |
+|---|---|---|
+| adjacent, seed 777 | victime `[0, 16, 0, 1509, 0, 2306]` = 3831 ; drone `[2581, 11, 1729]` = 4321 ; 3 transferts | **identique** |
+| adjacent, seed 31337 | victime `[0, 0, 0, 0, 1791]` = 1791 ; drone `[12, 15, 15, 1778]` = 1820 ; 4 transferts | **identique** |
+| témoin drone LOIN | `[2581, 12, 13, 2403, 1509, 9]` | **identique** |
+
+**Bit-exact, coup par coup, sur les deux régimes.** `#1020-r11` est **FERMÉ, prémisse RÉFUTÉE**.
+
+### Le VRAI défaut que la ventilation a démasqué — le tag `Amount` d'un coup TRANSFÉRÉ
+
+Une fois les deux listes comparables, il en restait un, et il était **de RAPPORT** : le port
+posait dans `per_hit` le montant **DEMANDÉ** (`[2581, 16, 11]`) là où le natif émet `0` pour un
+coup transféré. Relecture d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` :
+
+```
+healthComp[+0x64] = result ; gate `0 < get_Damage` ; <publish 0x39>
+GetValueOrDefault(healthComp[+0x64], &pending)              <- RELECTURE
+amount  = FillUpStatComponent$$Reduce(hp, pending.healthDamage)
+amount += ApplyDamageOperation$$ReduceShield(., pending.shieldDamage)
+```
+
+Le tag `Amount` se lit donc sur le pending **RELU**, jamais sur le demandé. `damage_hits._one_hit_tail`
+appelle désormais le `pending_sink` **AVANT** de composer `per_hit`, et un pending consommé rend
+`(0, 0)`. Effet mesuré : port `[0, 16, 0]` + `[1509, 0, 2306]` = **la liste native, à l'unité**.
+Second effet, moins visible : `_hp_left` ne descend plus que du **retiré réel**, ce qui borne
+correctement les coups suivants et l'accumulateur `FillUpStatComponent+0x24`.
+**STRICTEMENT NO-OP sans consommateur** (`kept == demandé` à l'identique) — le bras témoin le
+vérifie.
+
+### Ce qui n'est PAS couvert
+
+* **UN SEUL BOARD.** La fixture `stage()` code ses tuiles (`2,3` / `3,3` / `3,4`), et **quatre**
+  autres boards les refusent — `C1_74` accepte le build mais l'attaque n'inflige rien,
+  `MC1_63`/`C1_20`/`C1_44` rendent `NON HONORE ... present @NULLE PART` (`AddUnitOperation` sort
+  nul sur une tuile hors zone de déploiement de l'équipe 2), `MC1_10` est trop petit. La
+  généralisation s'appuie donc sur **deux seeds** au flux nettement différent (6 coups / 3
+  transferts contre 5 coups / 4 transferts), pas sur deux boards. Résidu **`#1020-r12`**.
+* L'attaque de l'unité summonée n'est **pas portée** : `SquigHound` n'a de mirror que pour son
+  effet de coups additionnels (`1292`) et son `IgnoreBattleFatigue` (`1078`) ; ni le `Spawn` ni le
+  `PerformAIAttackFromCurrentPosition` de `SquigHoundSummonUnitAbility` n'existent côté port.
+  C'est **hors** du pipeline de dégât, donc hors de ce foyer, et ce n'est PAS ce que `#1020-r11`
+  décrivait.

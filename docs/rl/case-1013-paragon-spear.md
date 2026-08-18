@@ -121,11 +121,45 @@ Contre-épreuve du mécanisme lui-même : `is_attack_max_out_damage_on_crit` for
 `AssertionError: coup critique : port 10416 vs natif 11292 -- la branche max-out n'est pas suivie`,
 les deux autres bras restant verts.
 
+## 7. `#1013-r1` — côté PRÉDICTION, la branche rend TOUJOURS `false`
+
+La question était « que doit rendre la prévision pour un porteur de la lance ? ». La réponse est
+**rien**, et elle se lit en deux temps.
+
+**(1) Ce que la branche rend.** `<entities + 0xf8>` est le paramètre **`wasCrit`** d'
+`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` — position LUE dans la signature à 32
+paramètres (`*(undefined1 *)(this + 0xf8) = wasCrit`), jamais comptée à l'œil sur les neuf
+`(void *)0x0` consécutifs du call-site.
+
+**(2) Ce que la prévision lui passe.** `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`
+**ne transmet PAS** l'`AbilityEntities` qu'il reçoit : il en construit un NEUF — `memset` à 0 sur
+ses 0x128 octets, puis `.ctor` avec `caster = actor = <attaquant>`, `target = <cible>` et **tous**
+les autres paramètres à ZÉRO (les trois `Nullable<AbilityOrEffect>` compris, posés depuis trois
+locales zéroées). `wasCrit` y vaut donc `0`. Rien entre le `memset` et l'appel ne le réécrit : la
+locale n'est source que de recopies.
+Le wrapper `IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage` n'a que des xrefs
+DATA — `PredictAttackRaw` appelle `UnitExtensions$$IsAttackMaxOutDamage` DIRECTEMENT.
+
+**Confrontation LIVE** (`probe_1013r1_max_out_prediction_live.py`, deux couples `(board, seed)`) —
+`custoKyrus` équipé de `ParagonSpear` niveau 1 contre le MÊME montage sans relique. La relique est
+vérifiée MONTÉE sur le capteur `combatSnapshot.units[].tertiary` (`ability 1494`, `level 1`), pas
+sur `decisionView.abilities` qui ne publie que les ACTIVES :
+
+| couple | AVEC relique | SANS relique |
+|---|---|---|
+| `MC1_67` / 777 | `totalDmg = (3618, 5424)` | `(3618, 5424)` |
+| `C1_74` / 31337 | `totalDmg = (804, 1706)` | `(804, 1706)` |
+
+Prévision **NON dégénérée** et **INCHANGÉE** : la branche est INERTE côté prédiction. (On compare
+`totalDmg`, pas `healthDmg` : ce dernier est capé par les PV restants, et dans le bras AVEC la
+lance a déjà frappé au turn-start.)
+
+**Contrat mis sous cliquet** (`tests/engine/test_1013r1_max_out_prediction_offline.py`) : ce foyer
+ne prend QUE les effets. Lui ajouter un canal de KIT ferait maxer une prévision que le jeu ne maxe
+pas — contre-épreuve jouée (la branche naïve ajoutée fait rougir l'étage 1).
+
 ## Résidus
 
-- **#1013-r1** — la branche `HasTriggeredAbility(1494)` **côté PRÉDICTION**. Le foyer
-  `engine/services/damage_prediction.py::is_attack_max_out_damage` ne porte que la branche effet ;
-  il sert `predict_attack_raw`, qui n'a pas de coup tiré donc pas d'`isCritical` à lire. Ce que la
-  prédiction doit rendre pour un porteur de la lance n'est pas mesuré.
+- ~~**#1013-r1**~~ — **FERMÉ (2026-08-18) : la réponse est « RIEN », et c'est une LECTURE.** Cf. §7.
 - **#1013-r2** — `TheArdentBlade` (relique 1468 d'`adeptCelestine`). RE faite, port non écrit — cf.
   la fiche de backlog.

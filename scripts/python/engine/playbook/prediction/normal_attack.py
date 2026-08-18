@@ -7,7 +7,9 @@ from __future__ import annotations
 from ._shared import *   # vocabulaire commun (GC, hexgeo, get_attack_prediction, ProbableDamageEvent, auras, ...)
 from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defender_mods,
                       _prediction_is_charging, _target_damage_limits, _apply_ally_attack_dmg_bonus,
-                      _round_fix64, _entity_traits, _entity_rarity)
+                      _round_fix64, _entity_traits, _entity_rarity,
+                      # #910-r1 : le jumeau DECISION d'`ability_pierce_effect_bonus`.
+                      prediction_pierce_effect_bonus)
 # SLOT 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage` (division ENTIERE) —
 # le foyer PARTAGE (#339/#350-r3b), consomme ici par le mold RANGED (#446-r1). Ne PAS substituer
 # `MinMaxDamage$$Avg` ni `AActiveAbility$$MinMaxDamageAverage` : ils arrondissent demi-vers-le-PAIR.
@@ -628,6 +630,19 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         ev = ProbableDamageEvent(target=tgt_id, prediction=res)
         return (ev, {"no_weapon": True, "dist": _dist, "is_adjacent": is_adjacent}) if meta else ev
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
+    # #910-r1 -- `BaseEffect$$PiercingBonusForAttack` sur la face DECISION. Le natif somme ces
+    # `EffectBonus` DANS `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`,
+    # qui n'a que des xrefs DATA : c'est le MEME service pour la prediction et pour le combat, donc
+    # le vecteur ne peut pas les distinguer. Le port, lui, ne les faisait descendre que cote
+    # combat -- l'IA scorait ses attaques sans voir le +percage d'AUCUN implementeur.
+    # SECOND APPEL PUR au service (aucun RNG, aucun effet de bord), APRES la resolution de l'arme :
+    # c'est `_ranged` qui alimente les gates `IsRangedAttack` des effets, et le bonus doit entrer
+    # dans le clamp UNIQUE du natif, pas dans un second clamp -- MEME sequence qu'au site COMBAT
+    # (`damage_ops/normal.py`), et pour la meme raison LUE.
+    _pbonus = prediction_pierce_effect_bonus(scene, att_id, tgt_id, is_ranged=bool(_ranged))
+    if _pbonus:
+        pierce, _ranged, whits, prof_name = _weapon_pierce(
+            scene, att_id, is_adjacent, _dist, effect_bonus=_pbonus)
     is_melee = not _ranged
     _hm = prediction_has_moved(scene, att_id, attack_pos)
     # PREDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications

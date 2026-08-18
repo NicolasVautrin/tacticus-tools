@@ -101,6 +101,46 @@ donc `Negative(a).CalculateMin = a.CalculateMin * (-1)`, qui est la borne **HAUT
 Sur un `a` d'amplitude non nulle, le natif rend donc `CalculateMin > CalculateMax`. Ce n'est pas
 un bug a corriger dans le port : c'est le comportement natif, a mirrorer tel quel.
 
+## 2c. LE PORT (2026-08-18) — et la prémisse RE-MESURÉE sur le build chargé
+
+**Recensement RE-DÉRIVÉ, pas recopié** : recherche LITTÉRALE du dispatcher à slot **2**
+(`FUN_180025fb0(2,DAT_18333d6c8`) dans tout le décompilé du build chargé — donc insensible à la
+dedup IL2CPP par adresse. **12** fonctions le portent : les **7 propagateurs** (`SumAmount`,
+`MultiplyAmount`, `MultiplyPercentageRecursively`, `IfAmount`, `ConditionalAmount`, `CacheAmount`,
+`PercentageOf`) et **5 CONSOMMATEURS** (`BaseEffect$$AdditionalHits`,
+`AttackDamageBehaviour$$GetDamage`, `AbilityDamageBehaviour$$GetDamage`,
+`SortTargetsByDamagePredictionSelector`, `SortAttackersByDamagePredictionSelector`).
+`RandomAmount$$CalculateMin` et `FirstHitInCurrentAttackDamageRange` n'y sont PAS — confirmation
+directe du court-circuit. `PercentageOf` relu verbatim : `Calculate` = slot **1** sur `+0x10` ET
+`+0x18` ; `CalculateMin` = slot **2** sur les deux ; même `CalculateInternal`.
+
+**Porté** (`engine/dsl/base.py::invoke_slot` + `engine/entities/formulas.py`) : les **5**
+propagateurs qui ont un mirror (`Sum`, `Multiply`, `If`, `ConditionalAmount`, `PercentageOf`) plus
+les **2** fabriques qui allouent un `MultiplyAmount` déguisé (`Double`, `Negative`). Un seul corps
+par nœud (`_par_slot`), trois points d'entrée — exactement la forme native. Les nœuds SIMPLES
+(`Min`, `Max`, `Divide`, `Half`) gardent le repli d'`AAmountFormula` : c'est un RÉSULTAT, pas un
+oubli, et le cliquet l'assertionne.
+
+**CE QUE LA PROPAGATION CHANGE, ET CE QU'ELLE NE CHANGE PAS.** L'énoncé visait le scalaire-centre
+de la réduction CAPÉE défenseur (`capped_reduction_flat((min+max)/2)`). Or l'arbre de
+`GuardianOrganism` est `Min(PercentageOf(CurrentDamage, pct), cap)` — **sa RACINE est un
+`MinAmount`, nœud SIMPLE**. Le natif lui-même ne le parcourt donc qu'UNE fois, et le scalaire FLAT
+du port (confirmé LIVE deux fois, #91) n'est PAS le gisement de ce résidu. Les deux lectures se
+réconcilient au lieu de se contredire, et le « montage discriminant » proposé (des bornes dont une
+seule dépasse le cap) ne discriminerait **rien** sur ce porteur.
+
+**CONSÉQUENCE OBSERVABLE, mesurée** : `calculate_average` d'un composite ne consomme plus AUCUN
+tirage (avant, il retombait sur `Calculate`, donc sur le tirage de `RandomAmount` — une prévision
+qui consomme le PRNG). Cliquet : `tests/engine/test_920r3_modes_de_formule_offline.py` (6 tests,
+5 étages, contre-épreuve jouée : retirer la propagation de `Sum` fait rougir 3 étages).
+
+**NON EXERCÉ AUJOURD'HUI, et c'est dit** : côté port, le SEUL consommateur des slots min/max est
+`AAmountFormula.calculate_average`, et les deux arbres qui y arrivent
+(`BaseTriggeredAbility.min_max_damage_average` = `Half(Sum(Const, Const))`, et `RandomAmount`) ne
+sont pas des composites à enfant à plage. Le canal `AdditionalHits` du port, lui, résout ses
+bornes impérativement et ne construit pas d'arbre. La propagation est donc **ARMÉE et fidèle**,
+pas confrontée live — il n'existe aujourd'hui aucun montage qui la sépare.
+
 ## 3. Ce qui reste INCERTAIN
 
 - **`DSLFormulas$$Difference`** : declaree dans le dump Il2CppDumper, **0 symbole** cote Ghidra

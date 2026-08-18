@@ -154,12 +154,63 @@ def _entity_rarity(scene, uid):
     return getattr(scene.ctx(uid), "rarity", None)
 
 
-def _weapon_pierce(scene, att_id, is_adjacent, dist=None):
+def _weapon_pierce(scene, att_id, is_adjacent, dist=None, effect_bonus: int = 0):
     """Arme + percage de l'attaque normale — DELEGUE au service PARTAGE `battle_query.select_weapon_pierce`
     (MEME port que le combat/runner ; `is_adjacent` = adjacence HEX native, `dist` = distance HEX pour la
     porte de portee ranged #188, cf. `make_normal_attack_predictions`). Renvoie
-    `(pierce, is_ranged, weapon_hits, profile_name)`."""
-    return select_weapon_pierce(scene.ctx(att_id), is_adjacent, dist)
+    `(pierce, is_ranged, weapon_hits, profile_name)`.
+
+    `effect_bonus` (#910-r1) = le MEME argument que le combat passe deja
+    (`damage_ops/normal.py`), et il entre dans le clamp UNIQUE du natif -- cf.
+    `prediction_pierce_effect_bonus` ci-dessous pour la lecture. Defaut `0` = comportement
+    d'avant, strict."""
+    return select_weapon_pierce(scene.ctx(att_id), is_adjacent, dist, effect_bonus=effect_bonus)
+
+
+def prediction_pierce_effect_bonus(scene, att_id, tgt_id, is_ranged, is_overwatch: bool = False,
+                                   ability_type=None) -> int:
+    """#910-r1 -- JUMEAU DECISION d'`runner/abilities/base.py::ability_pierce_effect_bonus`.
+
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` n'a QUE des xrefs
+    DATA : c'est un service PARTAGE prediction+combat, et il somme les `EffectBonus` de percage
+    DANS son clamp unique. Le port, lui, ne les faisait descendre QUE cote combat : la face
+    DECISION passait `0`, donc l'IA scorait ses attaques sans voir le +percage d'AUCUN
+    implementeur (`GravitonRifle_ExtraPierce`, `Hailstrike_ExtraPierce`,
+    `RelicBoltPistol_ExtraPierce`, ...). Ecart de DECISION pur, donc invisible de tout
+    replay-diff -- c'est ce qui l'a garde ouvert.
+
+    LE CTX EST CELUI DU COMBAT, CLE POUR CLE, et ce n'est pas de la symetrie decorative : un ctx
+    APPAUVRI rend les gates MUETS au lieu de les evaluer, ce qui se lit comme << pas de bonus >>.
+    Les cinq entrees que la face DECISION n'avait pas, et leur substrat `Scene` :
+      * `ability_type`  -- `None` pour l'attaque NORMALE (elle n'a pas d'`AbilityOrEffect`
+        d'ability) : les effets gates `CurrentAbilityIs` se taisent, comme le natif ;
+      * `target_traits` -- substrat d'ENTITE (`entity_trait_names`), PAS le kit gameconfig : le
+        noeud est `IdunBattleLogic.Entities.DSLTriggers$$HasTrait(Target@<DSLSelectors+0x60>, .)`,
+        resolu par `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`. `Xenos`/`Chaos`
+        n'existent dans le kit d'AUCUNE unite (#910) -- lire le kit y rendrait le gate MORT ;
+      * `owner_ctx`     -- `scene.ctx(att_id)` ;
+      * `is_overwatch`  -- une prevision de playbook n'est jamais un tir d'overwatch ;
+      * `unit_ctx_of` / `CTX_TERTIARY_ABILITY_STATE_OF` -- `BaseEffect$$GetAbilityState` : la
+        magnitude d'un effet s'indexe sur l'etat d'ability de CELUI QUI L'A POSE, et pour une
+        relique EQUIPEE c'est l'etat **TERTIAIRE** (foyer #357 ; `scene.triggered_ability_state`
+        est deja le pendant DECISION, deja utilise par les auras mythiques).
+
+    TRI-ETAT conserve : `scene` muet -> `(None, None)` / clefs absentes -> le gate se FERME cote
+    effet, jamais un bonus devine."""
+    if scene is None or att_id is None:
+        return 0
+    effets = scene.effects(att_id)
+    if not effets:
+        return 0
+    return int(piercing_bonus_from_effects(
+        effets, {"owner_id": int(att_id), "att_id": int(att_id),
+                 "ability_type": (int(ability_type) if ability_type is not None else None),
+                 "target_traits": (_entity_traits(scene, tgt_id) if tgt_id is not None else None),
+                 "owner_ctx": scene.ctx(att_id),
+                 "is_ranged": (None if is_ranged is None else bool(is_ranged)),
+                 "is_overwatch": bool(is_overwatch),
+                 "unit_ctx_of": scene.ctx,
+                 _MYTHIC_CTX_ABILITY_STATE: scene.triggered_ability_state}))
 
 
 def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
@@ -609,9 +660,12 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         att_ctx["extra_pierce"] = int(_actx.extra_pierce or 0)
         att_ctx["extra_pierce_dir"] = int((_actx.extra_pierce_melee if is_melee
                                            else _actx.extra_pierce_ranged) or 0)
-    att_ctx["effect_pierce_addition"] = int(piercing_bonus_from_effects(
-        scene.effects(att_id), {"owner_id": att_id, "att_id": att_id,
-                                "is_ranged": (None if is_melee is None else (not is_melee))}))
+    # #910-r1 : MEME foyer de ctx que le percage applique au coup (`prediction_pierce_effect_bonus`)
+    # -- le site ne montait que `{owner_id, att_id, is_ranged}`, donc tout gate portant sur la CIBLE,
+    # sur l'etat d'ability du POSEUR ou sur la nature du coup y etait INEVALUABLE, ce qui se lit
+    # comme << pas de bonus >>. Un ctx appauvri ne ferme pas un gate : il l'empeche d'exister.
+    att_ctx["effect_pierce_addition"] = prediction_pierce_effect_bonus(
+        scene, att_id, tgt_id, is_ranged=(None if is_melee is None else (not is_melee)))
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction

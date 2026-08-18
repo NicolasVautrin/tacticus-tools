@@ -192,6 +192,49 @@ def _events_damage(res: dict):
     return par_cible, transferts
 
 
+def _events_damage_ventile(res: dict) -> dict:
+    """MEME flux que `_events_damage`, mais ventile par `(Target_Id, Attacker_Id)`.
+
+    ⚠ POURQUOI CET AXE EXISTE, et ce que son absence a fait accuser (#1020-r11) : le tag
+    `Target_Id` seul REGROUPE tout ce qui frappe une unite pendant l'action -- **y compris ce
+    que frappe un AUTRE attaquant**. Sur le montage `orksRuntherd`, l'attaque declenche
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility`, dont le
+    `CreateBehaviour` range un noeud
+    `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition` dans les
+    `SpawnUnitOptions` du `Spawn` : l'unite SUMMONEE attaque toute seule, dans la MEME reponse
+    RPC, avec SON `Attacker_Id`, SON profil d'arme et `Attack_Is_First_Hit = 1`. Sommer par
+    cible seule compte donc ce coup-la comme un coup DE L'ATTAQUE -- ce qui a fait ecrire, et
+    chiffrer, un ecart de port qui n'existe pas.
+
+    Rend `{Target_Id: {Attacker_Id: [Amount, ...]}}`, dans l'ordre du flux."""
+    out = {}
+
+    def tags_of(node):
+        t = node.get("tags")
+        if isinstance(t, str):
+            try:
+                return json.loads(t)
+            except ValueError:
+                return {}
+        return t if isinstance(t, dict) else {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            tg = tags_of(node)
+            if "Target_Id" in tg and "Amount" in tg:
+                att = tg.get("Attacker_Id")
+                out.setdefault(int(tg["Target_Id"]), {}).setdefault(
+                    None if att is None else int(att), []).append(int(tg["Amount"]))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(res)
+    return out
+
+
 def _deltas(res: dict):
     """Les `hpDelta` que le RPC rend deja ventiles par `squadId` -- canal INDEPENDANT du flux
     d'events (deux canaux qui doivent concorder ; s'ils divergent, la mesure est fausse)."""

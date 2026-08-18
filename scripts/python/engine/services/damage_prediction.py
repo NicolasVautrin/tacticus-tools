@@ -550,13 +550,35 @@ def is_attack_max_out_damage(attacker_effects) -> bool:
     IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage`, call site IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a) — les appelants passent les EFFETS de
     l'attaquant (scene.effects / active ECS), pas un flag pre-calcule.
 
-    ⚠ LA SECONDE BRANCHE DU MEME NATIF N'EST PAS ICI, ET CE N'EST PAS UN OUBLI.
+    LA SECONDE BRANCHE DU MEME NATIF N'EST PAS ICI, ET C'EST MESURE.
     `HasTriggeredAbility(1494 ParagonSpear)` est portee cote COMBAT depuis #1013
     (`triggers/loki/weaver_of_fate.is_attack_max_out_damage_on_crit`), parce que le natif y rend le
     champ `isCritical` de l'`AbilityEntities` : elle se decide PAR COUP. Ce foyer-ci, lui, sert a
     `predict_attack_raw`, qui calcule une PREVISION sans coup ni crit tire -- il n'a pas de
-    `isCritical` a lire. Residu NOMME `#1013-r1` : ce que la prediction doit rendre pour un porteur
-    de la lance (le max sur la seule branche crit de la prevision, ou rien) n'est pas mesure.
+    `isCritical` a lire.
+
+    #1013-r1 (2026-08-18) -- LA REPONSE EST << RIEN >>, ET C'EST UNE LECTURE, PAS UN CHOIX.
+    L'offset `+0xf8` que rend cette branche est le parametre **`wasCrit`** d'
+    `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` -- position LUE dans la signature a 32
+    parametres (le ctor y ecrit `*(undefined1 *)(this + 0xf8) = wasCrit`), jamais comptee a l'oeil.
+    Or `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` NE PASSE PAS l'`AbilityEntities`
+    qu'il a recu : il en construit un NEUF -- `memset` a 0 sur ses 0x128 octets, puis `.ctor` avec
+    `caster = actor = <attaquant>`, `target = <cible>` et TOUS les autres parametres a ZERO (les
+    trois `Nullable<AbilityOrEffect>` compris, poses depuis trois locales zeroees). `wasCrit` y vaut
+    donc `0` : la branche `ParagonSpear` rend `false` pour la prevision, quel que soit le porteur.
+    Le wrapper `IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage` (qui recopie
+    l'`AbilityEntities` et appelle `UnitExtensions` avec `this+0x40` comme state) n'a que des xrefs
+    DATA -- `PredictAttackRaw` appelle `UnitExtensions$$IsAttackMaxOutDamage` DIRECTEMENT.
+
+    Cote COMBAT elle EST portee (#1013), sur les deux seuls sites ou un `wasCrit` non nul existe :
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (mirror
+    `damage_hits._run_hits(max_out_on_crit=...)`, PAR COUP et sous `if crit`) et
+    `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` (max-out vrai => le
+    `HitDamage` degenere sur le seul slot 3 `CalculateMax`).
+
+    CONSEQUENCE DE CONTRAT, et elle est load-bearing : ce foyer ne prend QUE les effets. Lui
+    ajouter un canal de KIT (trait, ability declenchee) ferait maxer une prevision que le jeu ne
+    maxe pas. Cliquet : `tests/engine/test_1013r1_max_out_prediction_offline.py`.
     (Le COMBAT runner a son mirror jumeau sur l'EffectsState ECS : `weaver_of_fate.
     is_attack_max_out_damage` — meme fonction native, deux stores.)"""
     return any(getattr(e, "name", None) == "WeaverOfFate_MaxOutDamage"
@@ -571,6 +593,21 @@ def attacker_could_crit(attacker_ctx) -> bool:
         MightCrit = GetStat(attacker, 9 = CritChance) >= 1  ET  GetStat(attacker, 10 = CritDamage) > 0
 
     Le store est INCONDITIONNEL (le seul `if` englobant est le null-guard C# du champ service).
+
+    #589-r1-r1-r2-r1-r3 / #910-r1 -- LA PREVISION NE CONSULTE **AUCUN** CANAL CRIT D'EFFET, et
+    c'est desormais etabli par ENUMERATION, pas par une absence de nom. Un grep de noms sur un
+    decompile ne peut PAS refuter un appel dispatche par INTERFACE : il ne le voit pas. On enumere
+    donc les dispatches eux-memes. `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`
+    (2778 lignes, build charge) n'invoque que **TROIS** slots d'`IDamageCalculations` --
+    `0 CalculateBlockChances`, `7 CouldCrit`, `12 CalculateDamageBlockedByShield`
+    (`data/symbols/<build>/metadata/interface_slots.tsv`, table LUE). Les deux slots crit du meme
+    contrat, `5 ApplyCritDamage` et `6 RollCritical`, n'y sont **PAS** ; et aucun appel DIRECT
+    nomme `CalculateCriticalDamage` / `GetCritChanceBonusFromEffects` /
+    `GetCritDamageBonusFromEffects` n'y figure non plus (un appel intra-classe, lui, sort par son
+    NOM -- `GetBaseDamageFix64` et `IsAttackMaxOutDamage` y sont bien visibles).
+    => le port, qui ne passe pas ces canaux non plus, est **FIDELE** sur cet axe. Les fermer
+    ferait mordre le canal PLUS LARGE que le jeu. Cliquet :
+    `tests/engine/test_589r3_prediction_sans_canaux_crit_offline.py`.
     ⚠ **`CouldCrit` lit `GetStat` NU** — PAS la couche calc-time `GetCritChanceBonusFromEffects` /
     `GetCritDamageBonusFromEffects` que le COMBAT ajoute (`AttackDamageOperation._crit_params`).
     `ctx.crit_chance` / `ctx.crit_damage` SONT `GetStat(Current)` (stat-modifications incluses), donc
@@ -611,6 +648,26 @@ def predict_attack_raw(
     # #202 WeaverOfFate : le flag max-out est evalue ICI, foyer unique (mirror natif : PredictAttackRaw
     # appelle IsAttackMaxOutDamage IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a lui-meme) puis passe a `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64`
     # -> min = max (bornes degenerees). Un `predefined` (bornes d'ability RandomAmount) est degenere pareil.
+    # #449-r3 -- `predefined` EST le mirror du byte `AttackPredictionRequest+0x6a`, et le ROUTAGE
+    # natif est desormais LU EN ENTIER (build charge). `PredictAttackRaw` choisit sa cellule ainsi :
+    #
+    #     if (!request.<+0x6a>)                       -> cellule PLATE
+    #     else if (configuration.<+0x31>)             -> cellule PLATE     # IgnoreDamageSpread
+    #     else -> GetBaseDamageFix64(damage, IsAttackMaxOutDamage(.), extraMaxDamage)
+    #
+    # ou la cellule PLATE est `MinMaxDamageFix64(damage, maxOverride ?? damage)` -- `damage` =
+    # `Math.Max(0, GetValueOrDefault(request+0x58))`, `maxOverride` = un `Nullable` relu juste
+    # avant. `configuration+0x31` est `BattleConfiguration.Damage.IgnoreDamageSpread` (#449-r2-r4).
+    # TROIS consequences, toutes portees ici : le SPREAD, l'EXTRA-MAX (#884-r1) et le MAX-OUT
+    # (#202/#1013-r1) n'existent QUE sur la voie `GetBaseDamageFix64` -- une cellule `predefined`
+    # n'en voit AUCUN, et c'est pour ca que `extra_max` peut etre passe sans condition par les
+    # appelants : cette ligne-ci le filtre deja.
+    # ⚠ CE QUI RESTE OUVERT (#449-r3) : le NOM du champ. `IdunBattle.Core.Services.
+    # AttackPredictionRequest` est un `System.ValueType` de 0xb8 octets qui ne declare **AUCUNE**
+    # methode (ni ctor, ni accesseur) dans `data/symbols/<build>/frida/methods.tsv`, et n'a AUCUN
+    # symbole ghidra : ses noms de champ ne vivent que dans la table de champs de la metadonnee
+    # IL2CPP, que nos dumps ne portent pas. Le nommer exige donc un AXE D'OUTILLAGE neuf, pas une
+    # relecture -- et le deviner depuis le role serait une hypothese, pas une lecture.
     is_max_out = is_attack_max_out_damage(attacker_effects)
     mm = predefined if predefined is not None \
         else get_base_damage_fix64(initial_damage, extra_max, spread_pct, is_max_out=is_max_out)
@@ -867,8 +924,25 @@ def get_multi_hit_attack_prediction(
         def _ghit(prev: "BlockScenario", _pre=_pre, _amt=_amt, _gp=_grp.get("pierce_pct", pierce_pct),
                   _gpt=_grp.get("profile_type", profile_type), _gm=_grp.get("mods"),
                   _gtl=_gtl) -> DamagePredictionResult:
+            # #884-r1 : `extra_max` (stat `0x19 EXTRA_MAX_DAMAGE`) DESCEND aussi aux groupes -- il
+            # ne descendait qu'aux coups d'ARME, d'ou la borne MAX courte mesuree sur
+            # `thousTzaangor` portant `1207 RealityUnbound_ExtraMaxDamage` : natif `(4601, 7233)`
+            # contre port `(4601, 6901)`, contribution du groupe `(+666, +1330)` contre
+            # `(+666, +998)` -- borne MIN exacte des deux cotes, ecart `332` = l'extra-max exact.
+            #
+            # ⚠ ET C'EST LA VOIE QUI DECIDE, PAS LE GROUPE. `IdunBattle.Core.Services.
+            # DamagePrediction$$GetBaseDamageFix64(damage, isMaxOut, extraMaxDamage)`, LU verbatim :
+            #     min = isMaxOut ? slot9(damage) + extraMax : slot8(damage)
+            #     max = slot9(damage) + extraMax                     # INCONDITIONNEL
+            # -- l'extra-max n'existe QUE sur cette voie. L'autre voie de `PredictAttackRaw`, celle
+            # que le byte `AttackPredictionRequest+0x6a` ouvre a `0`, batit une cellule PLATE
+            # `MinMaxDamageFix64(damage, maxOverride ?? damage)` et ne touche JAMAIS
+            # `ExtraMaxDamage`. Or `predefined` EST cette cellule plate cote port : le passer ici
+            # est donc fidele sur LES DEUX formes, puisque `predict_attack_raw` ne consomme
+            # `extra_max` que dans sa branche `get_base_damage_fix64` (forme `amount`).
             return predict_attack_raw(
-                prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
+                prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, extra_max=extra_max,
+                mods=_gm, hit_mult=hit_mult,
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
                 target_limits=_gtl, predefined=_pre, might_crit=might_crit,
