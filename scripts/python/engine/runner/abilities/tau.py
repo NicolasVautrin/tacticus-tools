@@ -1826,8 +1826,16 @@ class NovaBoostAbility(ActiveAbility):
                                   null x N)                 # contexte VOLONTAIREMENT PAUVRE
             sel = NovaBoostAbility$$GetMarkedTilesSelector(this)
             enemies = DSLSelectors.Enemies(<dsl>+0x90, <dsl>+0x90+0x48 = Caster, sel, 3)
-            n = enemies.<vslot 0x2b8 = ITargetsSelector.Count>(ents)
+            n = enemies.<vslot 0x2b8 = IdunBattle.DSL.TargetsSelector$$Count>(ents)
             return (1 < n) ? 0 : 4
+
+        ⚠ CETTE LIGNE A PORTE `ITargetsSelector.Count`, ET C'EST UN CROISEMENT DE REFERENTIELS
+        (#10034-r1). L'OFFSET est juste, l'ETIQUETTE ne l'etait pas : `0x2b8` est un rang de la
+        vtable de CLASSE (`klass+0x138 + rang*0x10`, donc `(0x2b8 - 0x138) / 0x10` = rang **24**),
+        alors que dans l'INTERFACE `ITargetsSelector`, `Count` est au rang **2**. Ecrire le rang de
+        classe sous le nom de l'interface fait un couple (recepteur, slot) que
+        `probe_477r24r1` confronte a la table `ITargetsSelector` -- ou il est FAUX. Le nom de
+        classe le remet dans le seul referentiel ou `0x2b8` veut dire quelque chose.
 
         Soit : **AU MOINS DEUX** ennemis dans la couronne du caster, sinon `broken(4)`. Le `4` est
         le litteral `TargetingRule.CasterMatchesDynamicRule` (le natif rend le code de la DELEGUE

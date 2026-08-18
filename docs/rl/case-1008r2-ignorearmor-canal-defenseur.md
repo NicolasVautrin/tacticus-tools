@@ -109,7 +109,7 @@ si !bonus.HasValue                          -> Nullable<DamageBonus> VIDE
 si !bonus.Value.trigger.<slot 0>(entities)  -> Nullable<DamageBonus> VIDE      # <<< LA GATE
 sinon:
    DamageBonus+0x00..+0x1f = bonus+0x30..+0x4f       (flags + Nullable<AbilityOrEffect>)
-   DamageBonus+0x20 = eval(bonus+0x08)               # IAmountFormula, slot 1 = Calculate(entities)
+   DamageBonus+0x20 = eval(bonus+0x08)               # IAmountFormula, slot 1 = Calculate(entities, ?)
    DamageBonus+0x28 = eval(bonus+0x10)
    DamageBonus+0x30 = eval(bonus+0x18)
    DamageBonus+0x38 = eval( this.IgnoreArmor() )     # <<< vtable +0x718, PAS un champ du bonus

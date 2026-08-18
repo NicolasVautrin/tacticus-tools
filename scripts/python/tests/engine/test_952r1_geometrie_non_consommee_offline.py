@@ -49,16 +49,21 @@ DECLENCHEUR = {
     "toujours": False,
     "raison": "Il garde un REFUS : la geometrie de 1190 est lue mais NON consommee, et le gate du "
               "malus porte sur un AUTRE sujet. Inscrire l'une en croyant brancher l'autre ne leve "
-              "rien et deplace le malus des attaquants vers les cibles.",
-    # REGIME BALAYAGE -- l'etage << chaque entree du registre a un LECTEUR >> DERIVE ses sites de
-    # tout `engine/**/*.py` (cf. `test_toute_entree_du_registre_a_un_LECTEUR_porte`). Aucune
-    # enumeration ne peut le borner : le lecteur d'une entree FUTURE vit dans un fichier qui
-    # n'existe pas encore -- c'est precisement le gisement garde.
-    "hors_confrontation":
-        "Il BALAIE `scripts/python/engine/**/*.py` pour resoudre, effect_type par effect_type, le "
-        "site qui passe cet ordinal a `IsEffectTarget`/`is_effect_target`. Ce dont son VERDICT "
-        "depend est nomme dans `chemins` (le registre, l'effet refuse, le mirror d'enum) ; ce "
-        "qu'il LIT est le paquet moteur.",
+              "rien et deplace le malus des attaquants vers les cibles. "
+              "REGIME BALAYAGE : l'etage << chaque entree du registre a un LECTEUR >> DERIVE ses "
+              "sites de tout `engine/**/*.py` -- il BALAIE le paquet moteur pour resoudre, "
+              "effect_type par effect_type, le site qui passe cet ordinal a "
+              "`IsEffectTarget`/`is_effect_target`. Mais ce dont son VERDICT depend est bien ce "
+              "qui est nomme dans `chemins` (le registre, l'effet refuse, le mirror d'enum).",
+    # ⚠ PAS DE `hors_confrontation` ICI, ET C'EST UNE MESURE, PAS UN OUBLI (#10027 -> #10034).
+    # Cette entree a existe : elle invoquait le regime BALAYAGE ci-dessus pour se declarer non
+    # confrontable. `test_486r24_bypass_confrontation_offline` l'a mesuree MASQUANT ZERO CHEMIN --
+    # `chemins` couvrait deja toute la fermeture -- et a rendu `master` ROUGE au merge de #1175,
+    # sur DEUX de ses etages. Un bypass qui ne masque rien n'est pas neutre : il eteint la
+    # confrontation pour un gisement qui, lui, est couvert. Retiree ICI, au merge.
+    # ⚠ Le regime BALAYAGE reste VRAI, et c'est ce qui rend le retrait re-examinable : le jour ou
+    # le lecteur d'une entree NEUVE vivra hors des trois `chemins`, c'est `chemins` qu'il faudra
+    # elargir -- pas le bypass qu'il faudra remettre. Le cliquet le dira.
 }
 
 HBD = int(EffectType.HuntersBeyondDeath)                              # 0x4a6 = 1190
