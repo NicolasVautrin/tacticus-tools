@@ -284,6 +284,23 @@ $Ratchets = @(
        Seul = 'un import HISSE qui a glisse de la forme B (`import X` puis `X.foo()`) vers la forme A (`from X import foo` au niveau module) : le nom est alors resolu UNE fois a l import, donc tout `monkeypatch.setattr("X.foo", stub)` pose ensuite est ignore EN SILENCE -- aucune erreur, aucun test rouge, juste une contre-epreuve qui ne mord plus. Aucun cliquet d imports ne peut le voir : probe_365 lit la CIBLE, probe_462r5 le NOM absent, probe_485r1r1 l ATTRIBUT absent, et ici la cible existe, le nom existe et l attribut existe. probe_485_imports_differes, lui, classe le differe (porteur/gratuit) et ne dit rien de la forme de son remplacant. Il garde les quatre sites hisses par #485-r5 et exige de son propre TEMOIN qu il montre les deux formes DIVERGER (A ne mord pas, B mord) : sans ce cran il serait vert sur un mecanisme casse'
        Doc  = 'docs/rl/case-485-r5-quatre-differes-declares-cycle-et-mesures-gratuits.md' }
 
+    # LE CLIQUET DE LA FAMILLE, ET IL N'ETAIT PAS DANS LA BANQUE (#485-r1-r4). Les trois entrees
+    # ci-dessus gardent des CONSEQUENCES d'un hissage (cible absente, attribut absent, forme A) ;
+    # celle-ci garde la POPULATION elle-meme -- le compte des differes GRATUITS, c'est-a-dire des
+    # contournements de cycle qui n'en contournent aucun. Mesure #485-r1-r4 : le probe existait,
+    # etait VERSIONNE, et rendait ROUGE sur `master` avec 53 gratuits neufs sans que rien ne le
+    # joue ; le plancher annonce dans `CLAUDE.md` (3 gratuits) s'etait remonte tout seul en dix
+    # jours, alimente par notre propre cadence. Un cliquet qu'il faut PENSER a lancer est un
+    # inventaire, pas un cran.
+    # ⚠ Il porte un CACHE VERSIONNE (`scripts/cliquets-cache/probe_485_imports_differes.tsv`) et
+    # rend `rc=6` quand ce cache est en retard sur l'arbre -- meme regime que `probe_283` et
+    # `probe_313`, deja dans la banque : le verdict reste JUSTE, c'est l'artefact qui se regenere
+    # et se commite. La cle de ce cache agrege un terme GLOBAL, donc elle churne a chaque commit
+    # touchant `engine/` : c'est le residu #10036, pas une faute de cette entree.
+    @{ Id = 'probe_485'; Argv = @('probe_485_imports_differes.py')
+       Seul = 'un import DIFFERE vers `engine.*` ecrit dans `engine/**` qui ne contourne AUCUN cycle -- charger sa cible SEULE dans un process frais ne tire pas l appelant, donc le differe est GRATUIT et se hisse. Aucun autre cliquet ne le voit : probe_477r35 verifie que chaque module s importe SEUL, ce qui reste vrai PRECISEMENT PARCE QUE les differes sont la ; probe_462r5 lit un nom disparu, probe_485r1r1 un attribut absent, probe_485r5 la FORME du remplacant -- ici la cible existe, le nom existe, l attribut existe et la forme est bonne. Le gisement se propage par IMITATION (mesure : 32 des 52 gratuits vivaient dans un module portant DEJA un differe legitime) et il n a pas de fond : le plancher remonte seul. Le vert dit << aucun NOUVEAU cycle contourne >>, jamais << aucun cycle >> -- la base attestee (`scripts/ratchets-485-differes-attestes.json`) nomme les gratuits OPTIONNELS sous try/except, qui ne doivent que DECROITRE'
+       Doc  = 'docs/rl/case-485-r1-r1-executer-le-sweep.md ; docs/rl/case-485r1r4-baril-a-registre.md' }
+
     @{ Id = 'probe_431'; Argv = @('probe_431_build_literals.py', '--cliquet')
        Seul = 'un hash de build ecrit en dur qui RESOUT un artefact du jeu (chemin de GameAssembly.dll, table de symboles, defaut de --build) HORS du foyer build_pin : le litteral court-circuite a la fois data/symbols/CURRENT et le binaire installe, donc symbols_sync peut etre VERT pendant que le script lit un autre build. Depuis #458 il voit AUSSI son propre perimetre : toute extension presente dans l arbre et hors des trois seaux le fait rougir. Ce second axe est ce qui le rendait creux -- ses globs passaient par Path.match, qui ne developpe pas ** : 967 fichiers versionnes tombaient dans AUCUN seau (tout scripts/python/engine, tout tests/, et par le HAUT frida/host/router.ts et frida/hooks/main.ts), lus puis jetes en silence sous un denominateur qui se lisait comme une couverture'
        Doc  = 'docs/rl/case-431-litteraux-de-build.md ; docs/rl/case-458-perimetre-derive-du-cliquet-431.md' }

@@ -12,9 +12,6 @@ DÉRIVE les effets posés (au lieu d'un appel direct à AddEffectOperation).
 """
 from __future__ import annotations
 
-from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
-                   ScarabSummonAbility, GetEmRuntzAbility)
+from . import loki  # noqa: F401  -- ENREGISTREUR : l'import EST l'effet (registre)
 
-__all__ = [
-    "ThunderousAssaultAbility", "ScarabHiveAbility", "ScarabSummonAbility", "GetEmRuntzAbility",
-]
+__all__ = []

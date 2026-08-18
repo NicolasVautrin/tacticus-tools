@@ -11,18 +11,6 @@ Wrappers minces `tile_composite`/`damage_composite` conservés pour les appelant
 """
 from __future__ import annotations
 
-from .base import BaseUtility, ComposedUtility  # noqa: F401
-from .utility_type import UtilityType  # noqa: F401
-from .decider import (  # noqa: F401
-    WeightedUtility, UtilityBucket, UtilityDefinition, calculate_utility)
-from .ramming_speed import (  # noqa: F401
-    RammingSpeed_MostAdjacentEnemies, RAMMING_SPEED_MOST_ADJACENT_ENEMIES)
-from .damage import (  # noqa: F401
-    damage_composite, DamageUtility, KillUnitUtility, OverkillUnitUtility, DAMAGE_UTILITY)
-from .tile import (  # noqa: F401
-    tile_composite, TILE_LEAVES, TILE_LEAF_IDS, TILE_UTILITY, UTILITY_BY_TYPE,
-    utilities_database, sort_tiles_by_utility, first_tile_by_utility)
-from .move import MinDistanceToClosestEnemyUtility, MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401
-from .heal import HealUtility, HEAL_UTILITY  # noqa: F401
-from .repair import RepairedAmountUtility, REPAIR_UTILITY  # noqa: F401
-from .effect import AddedEffectUtility, ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401
+from .damage import damage_composite  # noqa: F401
+from .tile import tile_composite  # noqa: F401
+from . import move  # noqa: F401  -- ENREGISTREUR : l'import EST l'effet (registre)

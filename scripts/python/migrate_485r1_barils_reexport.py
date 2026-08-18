@@ -1238,6 +1238,9 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         mod = nom_module(p, racine)
+        #: LA TABLE DES LIAISONS DE MODULE, LUE UNE FOIS ET AVANT la boucle -- c'est elle qui
+        #: rend le repli en bloc EVITABLE quand une forme PRECISE existe (cf. plus bas).
+        table = _table_modules(arbre, mod, racine)
         for n in ast.walk(arbre):
             if isinstance(n, ast.ImportFrom):
                 cible = cible_absolue(mod, n, racine)
@@ -1256,9 +1259,24 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
                 # `import engine.entities as E` puis `E.StatType` : l'acces est ATTRIBUTAIRE,
                 # invisible d'un recensement d'`ImportFrom`. On reclame alors TOUT le baril
                 # plutot que de vider sous les pieds d'un acces qu'on ne sait pas suivre.
+                #
+                # ⚠ SAUF QUAND LA FORME `as` EST DEJA SUIVIE PRECISEMENT, et ce repli-la
+                # COUTAIT LE GISEMENT ENTIER D'UN BARIL (#485-r3). `_table_modules` lie
+                # `import engine.X as E` -> `E`, et `_attributs_lus` rend alors les attributs
+                # EXACTS plus un drapeau d'ECHAPPEMENT : le bloc ci-dessous s'applique
+                # (conservateur) des que le nom echappe. Mesure du 2026-08-18 : UN SEUL
+                # `import engine.runner.abilities.loki as LK` dans `probe_r28_pick_order.py`
+                # -- qui ne demande que `LK._pick_randomly_n` -- reclamait les **114**
+                # symboles du baril, donc `vider` y rendait **0 retirable** sur 68 morts
+                # reels. Le repli n'est leve que si la table resout `asname` VERS CE MODULE
+                # (sinon deux `as` homonymes dans le meme fichier se masqueraient l'un
+                # l'autre, et l'attribution deviendrait fausse au lieu d'etre large).
                 for al in n.names:
-                    if al.name in barils:
-                        reclames[al.name] |= set(barils[al.name].exports)
+                    if al.name not in barils:
+                        continue
+                    if al.asname and table.get(al.asname) == al.name:
+                        continue          # traite finement par `_table_modules` ci-dessous
+                    reclames[al.name] |= set(barils[al.name].exports)
         #: ⚠ LA MEME LIAISON DE MODULE EXISTE EN `ImportFrom`, ET ELLE ETAIT LE TROU. Le cas
         #: ci-dessus (`import X as E`) ne couvre qu'UNE des deux ecritures : `from engine.playbook
         #: import noncomparable as NC` lie AUSSI un module, et tout ce qu'on lui demande ensuite
@@ -1269,7 +1287,7 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         #: `engine.dsl` -- 4 couples, dont DEUX lus par `engine/**` lui-meme
         #: (`ai/action_generators.py`, `playbook/tile_targets.py`), qu'aucun des tests tombes ne
         #: montrait. Cliquet : `probe_485r1r1_acces_attributaires.py`.
-        for local, vise in _table_modules(arbre, mod, racine).items():
+        for local, vise in table.items():
             if vise not in barils:
                 continue
             attrs, echappe = _attributs_lus(arbre, local)
@@ -1286,13 +1304,46 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         utilises = _noms_references(arbre, avec_all=False)
         demandes = reclames.get(nom, set())
         retirables = {s for s in b.exports if s not in demandes and s not in utilises}
-        #: Les noms apportes par un import CHARGEUR DE REGISTRE restent lies au module (son
-        #: import n'est pas retire) : les oter d'`__all__` creerait une incoherence entre ce
-        #: que le baril expose et ce qu'il declare.
+        #: LES DEUX FAMILLES D'IMPORTS INTOUCHABLES D'UN BARIL, ET LA SECONDE MANQUAIT.
+        #:   * CHARGEUR DE REGISTRE (`chargeuses`) -- la cible est elle-meme un baril a
+        #:     registre, ou l'ancetre d'un tel baril ;
+        #:   * ENREGISTREUR (`b.enregistreurs`) -- la cible est un module FEUILLE dont le
+        #:     top-level MUTE un conteneur du moteur. C'est le meme effet de bord, un cran
+        #:     plus bas, et `vider` ne le regardait PAS : `derive_barils` remplit pourtant
+        #:     ce champ. Mesure du 2026-08-18 -- sans ce cran, vider `engine.utilities`
+        #:     SUPPRIME `from .move import ...` (ses trois noms sont morts), donc
+        #:     `UTILITY_BY_TYPE[UtilityType.UnitMovement]` n'est plus jamais inscrit :
+        #:     `utilities_database()` rend `None` la ou elle rendait l'utilite de mouvement,
+        #:     sans erreur et sans qu'un test rougisse. Exactement la panne que l'exclusion
+        #:     en bloc de #485-r1-r1 devait empecher, et qu'un vidage baril par baril
+        #:     rouvre par le bas.
+        proteges = set(chargeuses) | set(b.enregistreurs)
+        #: ⚠ CE QUI EST PROTEGE, C'EST L'EXECUTION DE L'IMPORT -- PAS LES NOMS QU'IL LIE, et
+        #: confondre les deux fige des morts pour rien. Un import protege dont il reste AU
+        #: MOINS UN nom vivant s'execute toujours apres qu'on a retire les morts : c'est le
+        #: cas de `from .facade import (SorcerousFacadeAbility, <3 morts>)`, ou
+        #: `SorcerousFacadeAbility` est reclame par `handler.py`. Seul l'import dont TOUS les
+        #: noms meurent doit etre preserve -- et on le convertit alors a la forme
+        #: ENREGISTREUR (`from . import <enfant>`), qui declare l'intention au lieu de la
+        #: faire porter par des noms que plus personne ne lit (cf. `_forme_enregistreur`).
+        a_convertir: dict[int, str] = {}
         for n in arbre.body:
-            if isinstance(n, ast.ImportFrom) and (
-                    cible_absolue(nom, n, racine) or "") in chargeuses:
-                retirables -= {a.asname or a.name for a in n.names}
+            if not isinstance(n, ast.ImportFrom):
+                continue
+            vise = cible_absolue(nom, n, racine) or ""
+            if vise not in proteges:
+                continue
+            noms = {a.asname or a.name for a in n.names}
+            if noms - retirables:
+                continue                      # un vivant subsiste : le `from` s'execute encore
+            enfant = vise[len(nom) + 1:] if vise.startswith(nom + ".") else ""
+            if enfant and "." not in enfant and not n.names[0].asname:
+                a_convertir[n.lineno] = enfant
+            else:
+                #: Cible qui n'est pas un ENFANT DIRECT (ou import aliase) : la forme
+                #: `from . import <x>` n'existe pas pour elle. On garde tout, et le compte
+                #: le dit -- un vidage qui ne sait pas ecrire son remplacant ne devine pas.
+                retirables -= noms
         if not retirables:
             bilan.append((nom, 0, len(b.exports)))
             continue
@@ -1301,12 +1352,22 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         for n in arbre.body:
             if not isinstance(n, ast.ImportFrom):
                 continue
-            #: L'import qui CHARGE un registre reste INTACT, meme si plus personne ne lui
-            #: reclame de symbole : c'est son EXECUTION qui compte, pas ce qu'il expose.
+            #: L'import qui CHARGE un registre -- ou qui tire un module ENREGISTREUR -- garde
+            #: son EXECUTION, meme si plus personne ne lui reclame de symbole. Quand tous ses
+            #: noms meurent, il passe a la forme ENREGISTREUR ; sinon il se degraisse comme
+            #: les autres, puisqu'il continue de s'executer.
             vise = cible_absolue(nom, n, racine) or ""
-            if vise in chargeuses:
+            if n.lineno in a_convertir:
                 garde_registre.add(vise)
+                seg = "\n".join(lignes[n.lineno - 1:n.end_lineno])
+                fin_com, intercale = _commentaires(seg)
+                if intercale:
+                    continue
+                edits.append((n.lineno - 1, n.end_lineno,
+                              [_forme_enregistreur(a_convertir[n.lineno], fin_com)]))
                 continue
+            if vise in proteges:
+                garde_registre.add(vise)
             gardes = [(a.name, a.asname) for a in n.names
                       if (a.asname or a.name) not in retirables]
             if len(gardes) == len(n.names):
@@ -1345,6 +1406,21 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         print("  imports GARDES parce qu'ils CHARGENT un registre : %s"
               % ", ".join(sorted(garde_registre)))
     return bilan
+
+
+def _forme_enregistreur(enfant: str, fin_com: str = "") -> str:
+    """`from . import <enfant>  # noqa: F401` -- LA forme qui DECLARE un import a effet de bord.
+
+    C'est le vocabulaire deja en usage dans le depot (`probe_485r1r4` la nomme ENREGISTREUR, et
+    `derive_barils` la classe << effet de bord PUR >>). Un `from .<enfant> import <noms morts>`
+    fait la meme chose, mais il le fait par accident : le premier lecteur qui constate que plus
+    personne ne lit ces noms les retire, et le registre se vide en silence. Ecrire la forme
+    enregistreur, c'est rendre l'intention RESISTANTE au prochain degraissage."""
+    marque = "  # noqa: F401  -- ENREGISTREUR : l'import EST l'effet (registre)"
+    #: La forme PORTE deja son `noqa`. Reporter celui de la ligne d'origine le DOUBLERAIT
+    #: (`... (registre)  # noqa: F401`) -- on ne reporte que ce qui dit autre chose.
+    reste = "" if (not fin_com or fin_com.lstrip("# ").startswith("noqa")) else "  " + fin_com
+    return ("from . import %s%s%s" % (enfant, marque, reste))
 
 
 def _ligne_all(noms: list[str]) -> list[str]:
