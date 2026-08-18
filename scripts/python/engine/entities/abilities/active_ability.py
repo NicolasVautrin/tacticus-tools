@@ -992,6 +992,70 @@ class FragBombAbility(AActiveAbility):
         return self._AOE.evaluate(ctx)
 
 
+class ExplosivePresentsAbility(AActiveAbility):
+    """`ExplosivePresents` (1170, `orksRedGobbo`) — le SET de sa prédiction (#909-r7).
+
+    `IdunBattle.AI.Playbook.Loki.ExplosivePresentsPlaybook$$MakeDamagePredictions` fait **UN SEUL**
+    appel, et c'est à
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateAttackPredictions`
+    — pas à la sœur multi-coups :
+
+        targets = IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility$$GetTargets()
+        damage  = <X>Ability$$GetDamage(abilityState)          # corps DEDUPLIQUE, etiquete
+                                                               # `VigilanceEternalAbility$$GetDamage`,
+                                                               # relu = `AActiveAbility$$MinMaxDamage(
+                                                               #   this, &state, isPrediction: 0)`
+        return GenerateAttackPredictions(caster, casterPosition, target, targets, damage,
+                                         <16 octets nuls>, 0, 0)
+
+    TROIS lectures que le décompilé impose :
+
+    1. **AUCUN batch `<Target>` séparé** — le sélecteur PORTE la cible, et le natif ne boucle que sur
+       lui. D'où l'appartenance à `_MAKE_DMG_SELECTOR_ONLY` : sans elle le port DOUBLERAIT la cible
+       (un event `<Target>` en tête PUIS le même dans la boucle).
+    2. **Le SET est `Target ∪ AdjacentUnits(Target) \\ Caster`**, mirror mot pour mot de
+       `...ExplosivePresentsAbility$$GetTargets` :
+
+           op_Subtraction( op_Addition( <DSLSelectors+0x60> = Target,
+                                        AdjacentUnits(<DSLSelectors+0x60>, unique: 1, sel: 3) ),
+                           <DSLSelectors+0x48> = Caster )
+
+       AUCUN wrapper `Enemies` (contraste `MassDriverAcceleratorAbility$$GetAdjacentAttackTargets`,
+       qui en a un) ⇒ **friendly-fire** : les alliés adjacents à la cible sont prédits, et leur event
+       est `friendly` — utilité NÉGÉE. Même artefact que `FragBombAbility`, et MESURÉ live (#909-r7 :
+       l'allié `orksNob` figure bien dans les cinq événements du natif).
+       L'`op_Addition` est une CONCATÉNATION dédoublonnée : l'ordre natif est donc `[cible, puis le
+       voisinage]`, ce que `dsl.Union` mirrore par construction (mesuré : `[77, 87, 79, 81, 83]`).
+    3. **UN SEUL COUP, quel que soit `nrOfHits`.** `GenerateAttackPredictions` appelle
+       `IBattleQuery` slot `0x24` = `GetAttackPrediction` ; sa sœur multi-coups appelle le slot
+       `0x28` = `GetMultiHitAttackPrediction`, dont le corps EST `GetAttackPrediction` suivi de
+       `hits - 1` répétitions (`IdunBattle.Core.Services.DamagePredictionResult$$Add`). Le chemin
+       plain vaut donc exactement `hits = 1`. Le chemin générique du port, lui, passe par
+       `ab.get_special_hits` = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits`,
+       qui AJOUTE la stat `ExtraHits` du caster — que ce playbook n'ajoute pas. Surcharge portée par
+       `engine.playbook.prediction.abilities._explosive_presents_inputs`.
+       ⚠ INERTE sur la config courante (`nrOfHits = 1`, `ExtraHits = 0` sur le porteur) : c'est un
+       mirror de STRUCTURE, pas un correctif de valeur — même forme que `#957-r3` sur `1197`.
+
+    Ce que le port faisait AVANT : le chemin générique, donc **le seul event de la cible**. Mesuré
+    live sur le porteur RÉEL (`orksRedGobbo:5` via `--explicit-stats`) — natif **5** événements,
+    port **1**. Sous-prédiction MUETTE, sans erreur ni crash.
+    ⚠ Ce que le port faisait DÉJÀ bien, et qui n'est donc PAS surchargé ici : la MAGNITUDE. Mesurée
+    aux deux bornes d'armure (0 → 5822/8734, 3000 → 2822/5734), natif == port au chiffre près sur la
+    cible principale — donc aucun `_PLAYBOOK_PROFILE_OVERRIDE` à écrire, le profil `Blast` de la
+    config étant bien celui du natif."""
+
+    # `...ExplosivePresentsAbility$$GetTargets` — `radius = 1` : le natif n'a qu'UNE surcharge
+    # d'`AdjacentUnits` (`(this, origin, unique, selectionType)`), dont le corps est
+    # `Units(AdjacentTiles(origin)) op_Subtraction origin` — l'anneau 1 exact (même convention que
+    # `FragBombAbility._AOE`).
+    _AOE = dsl.Sub(dsl.Union(dsl.Target(), dsl.AdjacentUnits(dsl.TargetTile(), dsl.Const(1))),
+                   dsl.Caster())
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
 class HadesAutocannonsAbility(AActiveAbility):
     """`HadesAutocannons` (1147, MoW `blackForgefiend`) — le volet **AoE** de sa prédiction (#359).
 
@@ -1362,6 +1426,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "MassDriverAccelerator": MassDriverAcceleratorAbility,
     "FragBomb": FragBombAbility,                     # #957 — volet SPLASH (`GetAdjacentTargets`)
     "TacticalPrecision": TacticalPrecisionAbility,   # #976 — sélecteur à DEUX branches (WillBeCharging)
+    "ExplosivePresents": ExplosivePresentsAbility,   # #909-r7 — SET `Target u AdjacentUnits \ Caster`
 }
 
 
