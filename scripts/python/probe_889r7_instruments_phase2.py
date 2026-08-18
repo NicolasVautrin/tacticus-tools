@@ -313,6 +313,110 @@ def monter_scenario(sid: int, *, seed: str = "777", board: str = BOARD,
     return rid, dispose
 
 
+def _forme_selecteur(sel, profondeur: int = 4) -> str:
+    """La CHAINE de classes d'un selecteur, en descendant `source`/`inner`/`a`. C'est ce qui NOMME
+    un vivier sans avoir a le reconnaitre a son contenu (le contenu, lui, est ce qu'on mesure)."""
+    noms, cur = [], sel
+    for _ in range(profondeur):
+        if cur is None:
+            break
+        noms.append(type(cur).__name__)
+        cur = next((getattr(cur, a) for a in ("source", "inner", "a", "sel", "src")
+                    if getattr(cur, a, None) is not None), None)
+    return "/".join(noms)
+
+
+def _etages_selecteur(G, sel, ctx, profondeur: int = 4) -> dict:
+    """Chaque ETAGE d'un vivier, evalue SEPAREMENT -- `UnitsDamagedThisPhase` d'abord, puis
+    `AdjacentTiles`, puis `CanAddUnit`. C'est ce qui separe la cause (ii) de la cause (iii) : un
+    ecart deja present au premier etage n'a rien a voir avec le `HasAdjacentEnemies` du dernier.
+
+    ⚠ ON N'EVALUE JAMAIS UN ETAGE ALEATOIRE : un `Randomize`/`PickRandomly` intermediaire
+    consommerait du PRNG et la mesure changerait ce qu'elle mesure. On l'ARRETE et on le DIT."""
+    out, cur = {}, sel
+    for _ in range(profondeur):
+        if cur is None:
+            break
+        nom = type(cur).__name__
+        if isinstance(cur, G.PickRandomly):
+            out[nom] = "NON EVALUE (aleatoire -- l'evaluer consommerait du PRNG)"
+            break
+        try:
+            out[nom] = sorted(int(x) for x in G._units_of(cur, ctx))
+        except Exception as exc:                  # une lecture de diagnostic ne casse pas la mesure
+            out[nom] = "ERREUR: %s" % (exc,)
+        cur = next((getattr(cur, a) for a in ("source", "inner", "a", "sel", "src")
+                    if getattr(cur, a, None) is not None), None)
+    return out
+
+
+class _TraceViviers:
+    """#889-r11 -- LE MONTAGE QUI TRANCHE : comparer les tuiles de CHAQUE VIVIER separement,
+    AVANT l'union `(t2 + t1) + t3` et AVANT le `First(..., nrOfSummons)`.
+
+    Le cardinal des summons accorde TOUJOURS (4/4) ; c'est la POSITION qui diverge, et seulement sur
+    une seed. Trois causes etaient NON DEPARTAGEES : (i) la consommation de PRNG des trois
+    `Randomize` ; (ii) le contenu d'`UnitsDamagedThisPhase` (le coup differe qui PRECEDE ne blesse
+    pas forcement dans le meme ordre des deux cotes) ; (iii) le vivier `t3` et son
+    `HasAdjacentEnemies`. Un releve pris sur l'UNION ne peut pas les separer -- une tuile presente
+    dans l'union ne dit pas DE QUEL vivier elle vient, ni si l'ecart tient au contenu ou a l'ordre.
+
+    On enregistre donc, par appel de `Randomize.select` : la FORME du selecteur source (qui NOMME le
+    vivier), le pool AVANT melange, et la permutation APRES. Le comportement n'est pas modifie --
+    on appelle le `select` d'origine, donc la consommation PRNG est INCHANGEE (une mesure qui
+    perturberait le tirage mesurerait autre chose que ce qui se joue)."""
+
+    def __init__(self):
+        self.appels: list = []
+
+    def __enter__(self):
+        from engine.entities.selectors import geometry as G
+        self._G = G
+        self._orig = G.Randomize.__dict__.get("select")     # None -> herite de `PickRandomly`
+        trace = self
+
+        def select(self_sel, ctx):
+            avant = list(G._units_of(self_sel.source, ctx))
+            etages = _etages_selecteur(G, self_sel.source, ctx)
+            apres = G.PickRandomly.select(self_sel, ctx)
+            trace.appels.append({"vivier": _forme_selecteur(self_sel.source),
+                                 "avant": [int(x) for x in avant],
+                                 "apres": [int(x) for x in (apres or [])],
+                                 "etages": etages})
+            return apres
+
+        G.Randomize.select = select
+        return self
+
+    def __exit__(self, *exc):
+        if self._orig is None:
+            del self._G.Randomize.select
+        else:
+            self._G.Randomize.select = self._orig
+        return False
+
+
+def _tid(board, pos):
+    """`(col, row)` -> id de tuile. `None` quand la position n'est pas sur le plateau : on rend le
+    tri-etat plutot qu'un 0 (une tuile inconnue n'est PAS la tuile 0)."""
+    if not pos or pos[0] is None or pos[1] is None:
+        return None
+    return board.id_at(int(pos[0]), int(pos[1]))
+
+
+def _classer_par_vivier(tuiles, appels) -> dict:
+    """Pour chaque tuile CHOISIE (natif ou port), DE QUEL vivier elle vient -- l'appartenance est
+    prise sur le pool AVANT melange, donc elle est INDEPENDANTE de l'ordre.
+
+    Une tuile qui n'appartient a AUCUN vivier du port sort en `HORS_VIVIERS` : c'est le verdict le
+    plus fort possible, il exclut la cause (i) et accuse le CONTENU (ii ou iii)."""
+    out = {}
+    for t in tuiles:
+        dedans = [a["vivier"] for a in appels if int(t) in a["avant"]]
+        out[int(t)] = dedans or ["HORS_VIVIERS"]
+    return out
+
+
 def _mesure(sid: int, rid: int) -> dict:
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.operations.triggers.dispatch.turn import delayed_attack_triggers
@@ -342,7 +446,8 @@ def _mesure(sid: int, rid: int) -> dict:
     # LES DEUX LIGNES, resolues AVANT la phase 2 (apres, le `ClearAllPersistentData` les a vidées).
     from engine.entities.pathfinding.board import Board
     bg = rpc(sid, "boardGraph", {"runnerId": rid}, 60)
-    lignes = _lignes_port(state, Board(bg["tiles"], adjacency="evenq"))
+    board = Board(bg["tiles"], adjacency="evenq")
+    lignes = _lignes_port(state, board)
     occupants = {}
     for u in (dec1.get("units") or []):
         p = u.get("pos") or {}
@@ -363,10 +468,21 @@ def _mesure(sid: int, rid: int) -> dict:
     tours["apres_endturn_1"] = dec2.get("currentPlayer")
     # Le port joue la MEME bascule, pour le MEME joueur que celui a qui le natif vient de donner la
     # main -- lu APRES la bascule, jamais devine d'apres le nom du pas.
-    off_phase2 = delayed_attack_triggers(state, dec2.get("currentPlayer"))
+    # #889-r11 -- LE MONTAGE QUI TRANCHE : on enregistre CHAQUE vivier separement pendant que la
+    # phase 2 s'execute. Cf. `_TraceViviers` : pool AVANT melange, permutation APRES, etages.
+    with _TraceViviers() as trace:
+        off_phase2 = delayed_attack_triggers(state, dec2.get("currentPlayer"))
+    viviers = trace.appels
 
     hp_l1, hp_o1 = hp_live(sid, rid), hp_off(state)
     unites_l1, unites_o1 = unites_live(sid, rid), unites_off(state)
+
+    spawn_pos_natif = sorted(
+        (int(c["squadId"]), (int((c.get("to") or {}).get("col")),
+                             int((c.get("to") or {}).get("row"))))
+        for a in (act2.get("actions") or []) for c in (a.get("changes") or [])
+        if c.get("appeared") and (c.get("to") or {}).get("col") is not None)
+    spawn_pos_port = sorted(_pos_off(state, int(e)) for e in (unites_o1 - unites_o0))
 
     return {
         "rid": rid, "caster": caster_id, "mon_joueur": mon_joueur, "tours": tours,
@@ -397,14 +513,19 @@ def _mesure(sid: int, rid: int) -> dict:
         # LES TUILES de spawn, des DEUX cotes. C'est l'etage qui separe « le coup differe diverge »
         # de « les SUMMONS ne sont pas nes au meme endroit, donc ils n'ont pas frappe pareil » --
         # les deux se presentent comme un simple ecart de PV.
-        "spawn_pos_natif": sorted(
-            (int(c["squadId"]), (int((c.get("to") or {}).get("col")),
-                                 int((c.get("to") or {}).get("row"))))
-            for a in (act2.get("actions") or []) for c in (a.get("changes") or [])
-            if c.get("appeared") and (c.get("to") or {}).get("col") is not None),
-        "spawn_pos_port": sorted(_pos_off(state, int(e)) for e in (unites_o1 - unites_o0)),
+        "spawn_pos_natif": spawn_pos_natif,
+        "spawn_pos_port": spawn_pos_port,
         "marques_apres_phase2": marques_off(state),
         "events_bascule": len(act2.get("actions") or []),
+        # #889-r11 -- LES TROIS VIVIERS, SEPARES. `viviers` = un enregistrement par `Randomize`
+        # (forme du selecteur, pool AVANT melange, permutation APRES, etages). `classement_*` dit
+        # de QUEL vivier vient chaque tuile effectivement occupee -- natif et port -- ce qui separe
+        # « le contenu du vivier differe » (causes ii/iii) de « seul l'ordre differe » (cause i).
+        "viviers": viviers,
+        "classement_natif": _classer_par_vivier(
+            [t for t in (_tid(board, p) for _sq, p in spawn_pos_natif) if t is not None], viviers),
+        "classement_port": _classer_par_vivier(
+            [t for t in (_tid(board, p) for _e, p in spawn_pos_port) if t is not None], viviers),
     }
 
 
@@ -459,6 +580,23 @@ def main() -> int:
     print("        port  = %s" % m["spawn_port"])
     print("        tuiles natif = %s" % m["spawn_pos_natif"])
     print("        tuiles port  = %s" % m["spawn_pos_port"])
+    # #889-r11 -- LES VIVIERS, AVANT L'UNION ET AVANT LE `First`. C'est le releve qui separe les
+    # trois causes NON DEPARTAGEES ; un releve pris sur l'union ne le peut pas.
+    print("[889r7] [C] VIVIERS (chaque `Randomize`, dans l'ordre d'evaluation) :")
+    for i, a in enumerate(m.get("viviers") or []):
+        print("        v%d %s | AVANT(%d)=%s" % (i, a["vivier"], len(a["avant"]), a["avant"]))
+        print("           APRES(%d)=%s" % (len(a["apres"]), a["apres"]))
+        for nom, val in (a.get("etages") or {}).items():
+            print("           etage %-24s = %s" % (nom, val))
+    if not (m.get("viviers") or []):
+        print("        AUCUN `Randomize` INTERCEPTE -- le releve est MUET, il ne prouve rien "
+              "(la phase 2 n'a pas atteint le volet SPAWN, ou le traceur n'a pas mordu).")
+    print("        classement natif (tuile -> viviers du PORT) = %s" % m.get("classement_natif"))
+    print("        classement port  (tuile -> viviers du PORT) = %s" % m.get("classement_port"))
+    _hors = sorted(t for t, v in (m.get("classement_natif") or {}).items() if v == ["HORS_VIVIERS"])
+    if _hors:
+        print("        -> %d tuile(s) NATIVE(s) HORS de tout vivier du port : %s. La cause n'est "
+              "donc PAS l'ordre des tirages (i) mais le CONTENU d'un vivier (ii/iii)." % (len(_hors), _hors))
     print("[889r7] MARQUES 1518 (port) : apres cast = %d cles, apres phase 2 = %d cles"
           % (sum(1 for v in m["marques_apres_cast"].values() if IOV_LOCATION_TARGET in v),
              sum(1 for v in m["marques_apres_phase2"].values() if IOV_LOCATION_TARGET in v)))

@@ -39,6 +39,10 @@ ETAGES
       (le noeud (4) retire ce que le noeud (2) a pose).
   E4  ANTI-TAUTOLOGIE : le cast a REELLEMENT execute cote port (ability au registre, gate non
       declenche, au moins un override pose et une action jouee).
+  E5/E6 DECOMPOSITION de l'ecart de TUILE (sensibilite au montant, borne du PRNG).
+  E7  le noeud (1) sur un observable PERSISTANT : les porteurs de 1011.
+  E8  le RE-CIBLAGE de 1011 sur son observable de CONSEQUENCE -- la stat MOUVEMENT des unites que
+      le natif a SORTIES du selecteur geometrique (#577-r1).
 
 ⚠ Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268). Sorties ASCII, aucune VA en dur.
 RE : `docs/rl/case-577-adaptive-strategy.md`.
@@ -215,6 +219,51 @@ def port_carriers_of(st, effect_type: int) -> list:
     return sorted(uid for uid, effs in (st.effects.by_unit or {}).items()
                   if any(int(getattr(x, "effect_type", -1)) == int(effect_type) and not x.consumed
                          for x in effs))
+
+
+# ------------------------------------------------------- E8 : l'observable STAT du re-ciblage
+
+def native_stat(cap, uid: int, stat_type: int):
+    """La valeur RESOLUE d'un stat cote NATIF, lue dans `combatSnapshot`.
+
+    `combatSnapshot.units[].stats` est un dict {NOM -> Current} et `combatSnapshot.statTypes` le
+    mapping {NOM -> index `StatType`} (cf. `engine/entities/stats.seed_unit_stats`, dont c'est la
+    signature). On resout donc le NOM par l'index -- jamais l'inverse, et jamais un nom devine :
+    une renumerotation d'enum se verrait, un nom en dur non.
+
+    Rend `None` quand la mesure n'a pas pu etre prise (tri-etat : `None` != 0)."""
+    snap = cap.get("snap") or {}
+    ids = snap.get("statTypes") or {}
+    names = [n for n, i in ids.items() if _as_int(i) == int(stat_type)]
+    if not names:
+        return None
+    for su in (snap.get("units") or []):
+        if _as_int(su.get("entityId")) != int(uid):
+            continue
+        s = su.get("stats") or {}
+        for n in names:
+            if s.get(n) is not None:
+                return _as_int(s[n])
+        return None
+    return None
+
+
+def _as_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def port_stat(st, uid: int, stat_type: int):
+    """La valeur RESOLUE du MEME stat cote PORT (`UnitStats.get_stat(<type>, CURRENT)`)."""
+    from engine.runner.components import StatsComponent
+    e = st.get_entity(int(uid))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    us = getattr(getattr(sc, "ctx", None), "stats", None) if sc is not None else None
+    if us is None:
+        return None
+    return int(us.get_stat(int(stat_type)))
 
 
 # --------------------------------------------------------------------------- etages
@@ -568,33 +617,88 @@ def run() -> dict:
         if summon not in d_port:
             fails.append("E7 le PORT n'a pose AUCUN %d sur le summon %d (delta=%r) -- le noeud (1) "
                          "n'a pas mordu" % (MARCH_EFFECT, summon, d_port))
-        # VERDICT (2) : l'ECART avec le natif doit etre IMPUTABLE a l'etage (3), et on le MESURE.
-        # Fait : le natif rend `[]` APRES le cast alors qu'il portait `[83]` AVANT -- il a donc
-        # EXPIRE les instances a duree 1 TOUR pendant que le summon jouait
-        # (`AiControl$$ApplyAiMessages` -> `FinishUnitTurn` -> vecteur de fin de tour d'unite). Le
-        # port, lui, ne rejoue pas ce vecteur sous `decide_and_apply`. La contre-epreuve est
-        # DISJOINTE de 1005 : on joue `ComputerActionOperation.execute(summon)` SEUL, sans le cast,
-        # et on regarde si le port expire quand meme. S'il CONSERVE `[83]`, l'ecart PREEXISTE au
-        # port de 1005 et vit sous le noeud (3) ; s'il l'expire, alors c'est bien mon arbre qui
-        # empeche l'expiration et le probe doit ROUGIR.
-        if march_nat_after != march_port_after:
-            if solo_march is not None and not (set(march_port_before) - set(solo_march)):
-                print("[E7] ECART IMPUTE a l'etage (3) : le natif expire les instances a duree "
-                      "1 tour quand l'unite joue (`ApplyAiMessages` -> `FinishUnitTurn`) ; le port "
-                      "ne le fait NI sous 1005 NI sous `ComputerActionOperation` SEUL (porteurs "
-                      "apres l'IA seule = %r, entree = %r). RESIDU #577-r1."
-                      % (solo_march, march_port_before))
-            else:
-                fails.append("E7 porteurs de %d apres : natif=%r port=%r -- et l'etage IA SEUL, "
-                             "lui, EXPIRE (%r depuis %r) : l'ecart n'est donc PAS impute a l'etage "
-                             "(3), c'est l'arbre de 1005 qui empeche l'expiration"
-                             % (MARCH_EFFECT, march_nat_after, march_port_after, solo_march,
-                                march_port_before))
+        # VERDICT (2) : l'ECART avec le natif est un RE-CIBLAGE, et on le MESURE.
+        # ⚠ L'IMPUTATION ECRITE ICI JUSQU'AU 2026-08-18 -- « le natif a EXPIRE les instances a
+        # duree 1 tour pendant que le summon jouait (`ApplyAiMessages` -> `FinishUnitTurn`) » --
+        # EST FAUSSE, et deux fois. (a) `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`
+        # n'expire RIEN : le SEUL ecrivain decroissant de `Duration@+0x64` est
+        # `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn`, enfile par
+        # `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`. (b) Le natif POSE 1011 sur le
+        # summon pendant ce cast MEME puis le retire dans la meme cascade -- un effet pose a
+        # l'instant ne peut pas avoir expire.
+        # LE MECANISME REEL EST UN RE-CIBLAGE : les cibles de 1011 sont un SELECTEUR GEOMETRIQUE
+        # (`UnitsWithoutTrait(Friends(AdjacentUnits(Owner)), 0x418 Stationary)`) que
+        # `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` recalcule a chaque
+        # refresh via `$$GetDesiredEffectTargets` (qui rejoue le slot `IEffect+0xd` de l'effet), puis
+        # DIFFERENCE (`$$GetTargetsToRemove` -> `$$RemoveTargetsFromEffect` -> `$$RevertEffects
+        # ForTargets` -> `RevertInternal`). Les deux porteurs sortent du selecteur parce que le
+        # montage a DEPLACE le Warden puis le summon.
+        # La contre-epreuve DISJOINTE de 1005 reste jouee (`ComputerActionOperation.execute(summon)`
+        # SEUL) : elle etablit que l'ecart NE VIENT PAS de l'arbre de 1005.
+        if march_nat_after != march_port_after and solo_march is not None \
+                and (set(march_port_before) - set(solo_march)):
+            fails.append("E7 porteurs de %d apres : natif=%r port=%r -- et l'etage IA SEUL, "
+                         "lui, RETIRE (%r depuis %r) : l'ecart n'est donc PAS un re-ciblage "
+                         "general, c'est l'arbre de 1005 qui l'empeche"
+                         % (MARCH_EFFECT, march_nat_after, march_port_after, solo_march,
+                            march_port_before))
         print("[E7] %d RelentlessMarch_Effect -- avant: natif=%r port=%r | apres: natif=%r "
               "port=%r | DELTA natif=%r port=%r | temoin canal: %d ligne(s), %d typee(s), "
               "types=%r"
               % (MARCH_EFFECT, march_nat_before, march_port_before, march_nat_after,
                  march_port_after, d_nat, d_port, cens["n"], cens["typed"], cens["types"]))
+
+        # --- E8 : LE RE-CIBLAGE SUR SON OBSERVABLE LE PLUS DISCRIMINANT -- LA STAT ---------------
+        # La liste des porteurs est un observable de STRUCTURE ; la STAT est l'observable de
+        # CONSEQUENCE, et c'est celui qui dit si l'ecart COUTE quelque chose.
+        # `IdunBattle.Entities.Effects.Loki.RelentlessMarchEffect$$ApplyInternal` fait
+        # `ChangeStat(Entity(target), Stat(1 = Movement, 5 = Modification), Modify, Direct(1), ...)`
+        # et `$$RevertInternal` rejoue le meme appel en `Stat(1 = Movement, 6 = ResetModification)`.
+        # Une unite que le natif a SORTIE du selecteur a donc perdu son +1 Mouvement ; si le port la
+        # garde, elle vaut UN de plus -- et cette unite peut atteindre une tuile que le natif lui
+        # interdit. C'est mesurable sans rien deviner.
+        # ⚠ TEMOIN NON NUL OBLIGATOIRE : la mesure ne vaut que si le canal REND une valeur. Un
+        # `None` des DEUX cotes serait un accord en regime degenere -- on le fait ROUGIR.
+        from engine.entities.stats import StatType as _ST
+        sortis = sorted(set(march_port_after) - set(march_nat_after))
+        moves = {}
+        for u in sortis:
+            moves[u] = (native_stat(cap2, u, int(_ST.MOVEMENT)), port_stat(st, u, int(_ST.MOVEMENT)))
+        temoin = native_stat(cap2, warden, int(_ST.MOVEMENT))
+        if temoin is None:
+            fails.append("E8 CANAL MUET : `combatSnapshot` ne rend AUCUN Mouvement pour le Warden "
+                         "%d -- un accord sur `None` ne prouverait RIEN" % (warden,))
+        for u, (nm, pm) in sorted(moves.items()):
+            if nm is None or pm is None:
+                fails.append("E8 Mouvement non mesure sur u%d : natif=%r port=%r" % (u, nm, pm))
+            elif nm != pm:
+                fails.append("E8 u%d garde le +%d Mouvement de %d cote PORT alors que le natif l'a "
+                             "RETIRE (re-ciblage) : Mouvement natif=%d port=%d"
+                             % (u, pm - nm, MARCH_EFFECT, nm, pm))
+        print("[E8] sortis du selecteur (port garde, natif a retire) = %r | Mouvement natif/port = "
+              "%r | temoin Warden(Mouvement natif) = %r" % (sortis, moves, temoin))
+
+        # --- E9 : LE TOUR D'EQUIPE A-T-IL CHANGE ? -- l'etage QUI DEPARTAGE ----------------------
+        # Le SEUL ecrivain decroissant de `EffectComponent.RemainingTurns @+0x64` est
+        # `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn` (xrefs : UN appelant),
+        # enfile par `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`, dont l'appelant est
+        # `IdunBattle.Operations.EndTurnOperation$$Execute`, lui-meme appele par le SEUL
+        # `IdunBattle.Core.Services.OperationProcessor$$EndTurn`. Un effet `turns = 1` ne peut donc
+        # disparaitre QUE si un TOUR D'EQUIPE se termine.
+        # Ce bras mesure exactement ca -- `observeBattle.currentPlayer` avant/apres le cast LIVE --
+        # et il DEPARTAGE les deux explications concurrentes : si le joueur courant a CHANGE, le
+        # natif a joue une fin de tour que le rejeu offline (`Runner.apply(ActiveAbilityMessage)`)
+        # ne joue pas ; si le joueur courant est le MEME, aucune fin de tour n'a eu lieu et la
+        # disparition de 1011 a une AUTRE cause, qu'il faut alors chercher ailleurs.
+        cp_avant = (cap.get("ob") or {}).get("currentPlayer")
+        cp_apres = (cap2.get("ob") or {}).get("currentPlayer")
+        act_avant = sorted(u for u, v in us1.items() if v.get("hasAction"))
+        nat_apres = units(rid)
+        act_apres = sorted(u for u, v in nat_apres.items() if v.get("hasAction"))
+        print("[E9] currentPlayer natif : avant=%r apres=%r (CHANGE=%s) | hasAction avant=%r "
+              "apres=%r | port.current_player_id=%r"
+              % (cp_avant, cp_apres, cp_avant != cp_apres, act_avant, act_apres,
+                 getattr(st, "current_player_id", None)))
 
         moved = (port_after[summon]["pos"] != before_port[summon]["pos"])
         print("[E2/E3/E4] natif=%r | port=%r | 1012 natif=%r port=%r | summon a bouge=%s"
