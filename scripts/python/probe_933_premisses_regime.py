@@ -31,8 +31,21 @@ CE QU'IL VISITE, ET CE QU'IL NE VISITE PAS -- imprime, jamais tu
 -----------------------------------------------------------------
 Il visite TOUS les `test_*.py` de `scripts/python/tests/`, classe live/offline par les memes
 marqueurs de harnais que #419-r6, et pour chaque LIVE derive ses comparaisons. Il ne visite PAS
-les probes `scripts/python/probe_*.py`, ni la face DECISION hors tests (`engine_validate.py`,
-`predict_sweep.py`), ni ce qu'un test atteint via la fixture d'un autre paquet.
+la face DECISION hors tests (`engine_validate.py`, `predict_sweep.py`), ni ce qu'un test atteint
+via la fixture d'un autre paquet.
+
+⚠ LE MONTAGE N'EST PAS DANS LE FICHIER DE TEST -- il est dans le MODULE QU'IL IMPORTE, et c'est
+mesure (#10027, 2026-08-18). `_classe_fichier` avait deja rencontre ce gisement sur l'axe
+LIVE/OFFLINE (« ils prennent leur fixture dans un module PARTAGE ») et l'avait ferme la ; il
+restait GRAND OUVERT sur l'axe NEUTRALISATION, qui ne lisait que la source du test. Mesure :
+**9 des 39 suspects** portent leur `--unit-stat`/`--crit`/`--block-*` dans un module importe --
+`test_1001_votann_relics_live.py` en tete, dont le `probe_1001_votann_relics.py` ecrit
+`--unit-stat votanUthar:CritChance=<0|100>` et le DOCUMENTE (« n'est pas un confort : sans lui
+Uthar peut CRITER pendant... »). Le recenseur les accusait donc de ne pas declarer un regime
+qu'ils declarent. `_montage_importe` suit ces imports, sur **UN SEUL niveau** (le module importe
+par le TEST, pas ce que ce module importe a son tour) : le cout d'une fermeture transitive n'est
+pas justifie tant qu'aucune victime ne l'exige, et ce qui est suivi est IMPRIME
+(`neutralise_via`), donc l'angle mort restant est visible.
 
 Aucune assertion : c'est un probe, il MESURE. La garde vit dans
 `tests/engine/test_933_premisse_regime_offline.py`.
@@ -365,7 +378,64 @@ def _stats_concernees(lectures: list[str]) -> set[str]:
     return out
 
 
-def _classe_fichier(src: str, nom: str = "") -> dict:
+#: Les imports d'un fichier de test qui peuvent PORTER son montage. On ne resout pas des paquets :
+#: un test importe son montage comme un module PLAT (`import probe_1001_votann_relics as P`,
+#: `from _pierce_floor_regime import ...`), et ce module vit soit a cote du probe
+#: (`scripts/python/`), soit a cote du test.
+_RE_IMPORT_PLAT = re.compile(
+    r"^\s*(?:import\s+([A-Za-z_][A-Za-z0-9_]*)|from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import)", re.M)
+
+
+def _neutralise_de_source(src: str) -> set:
+    """Les stats dont le montage ECRIT la base, lues dans UNE source (test OU module importe)."""
+    out: set = set()
+    if _RE_NEUTRALISE.search(src):
+        out |= set(_RE_NEUTRALISE_STAT.findall(src))
+    if _RE_NEUTRALISE_LEVIER.search(src):
+        out |= {"Health", "FixedArmor", "Armor"}
+    for cle, rex in _RE_FACE.items():
+        if rex.search(src):
+            out |= ({"CritChance", "CritDamage"} if cle.startswith("crit")
+                    else {"BlockChance", "BlockDamage"})
+    return out
+
+
+#: Cache `chemin -> stats neutralisees`. Un meme probe de montage est importe par plusieurs tests,
+#: et le recensement balaie ~900 fichiers : sans lui, le cliquet passe de 30 s a 125 s (mesure).
+_CACHE_MONTAGE: dict = {}
+
+
+def _montage_importe(src: str, chemin: "Path | None") -> dict[str, list[str]]:
+    """Les stats neutralisees par les MODULES QUE LE TEST IMPORTE (cf. l'en-tete, #10027).
+
+    Un seul niveau, et deux emplacements seulement -- `scripts/python/<mod>.py` (les probes de
+    montage) et le repertoire du test lui-meme (les helpers `_x.py`). Rend `{module: [stats]}` :
+    la PROVENANCE est imprimee, parce qu'un elargissement de perimetre qui ne dit pas d'ou il tire
+    sa conclusion est indistinguable d'un relachement du critere.
+    """
+    trouve: dict[str, list[str]] = {}
+    voisins = [_HERE] + ([chemin.parent] if chemin is not None else [])
+    for m in _RE_IMPORT_PLAT.findall(src):
+        mod = m[0] or m[1]
+        if not mod or mod in ("os", "re", "sys", "json", "pytest", "engine", "typing", "pathlib",
+                              "subprocess", "collections", "math", "random", "time", "itertools",
+                              "__future__"):
+            continue
+        for base in voisins:
+            p = base / (mod + ".py")
+            if not p.exists():
+                continue
+            cle = str(p)
+            if cle not in _CACHE_MONTAGE:
+                _CACHE_MONTAGE[cle] = sorted(
+                    _neutralise_de_source(p.read_text(encoding="utf-8", errors="replace")))
+            if _CACHE_MONTAGE[cle]:
+                trouve[mod] = list(_CACHE_MONTAGE[cle])
+            break
+    return trouve
+
+
+def _classe_fichier(src: str, nom: str = "", chemin: "Path | None" = None) -> dict:
     """LIVE = marqueur de harnais OU suffixe `_live.py`.
 
     Le suffixe n'est pas une commodite : mesure du 2026-08-11, se fier aux SEULS marqueurs de
@@ -396,10 +466,15 @@ def _classe_fichier(src: str, nom: str = "") -> dict:
     # sinon classe LIVE et se recenserait -- un recenseur qui se compte lui-meme derive.
     live = (not nom.endswith("_offline.py")
             and (any(m in src for m in _MARQUEURS_LIVE) or nom.endswith("_live.py")))
+    # Le montage DELEGUE a un module importe compte autant que celui ecrit ici (cf. l'en-tete).
+    via = _montage_importe(src, chemin) if live else {}
+    for stats in via.values():
+        neutralise_stats |= set(stats)
     return {
         "live": live,
         "neutralise": sorted(neutralise_stats),
         "partielles": partielles,
+        "neutralise_via": via,
     }
 
 
@@ -414,7 +489,7 @@ def recenser(racine: "Path | None" = None) -> dict:
         src = p.read_text(encoding="utf-8", errors="replace")
         rel = str(p.relative_to(racine)).replace("\\", "/")
         vus["fichiers"] += 1
-        c = _classe_fichier(src, p.name)
+        c = _classe_fichier(src, p.name, p)
         if not c["live"]:
             vus["offline"] += 1
             continue
@@ -442,7 +517,8 @@ def recenser(racine: "Path | None" = None) -> dict:
             roles[e["role"]] += 1
         if prem:
             par_fichier[rel] = {"premisses": prem, "neutralise": c["neutralise"],
-                                "lectures": lectures, "partielles": c.get("partielles") or []}
+                                "lectures": lectures, "partielles": c.get("partielles") or [],
+                                "neutralise_via": c.get("neutralise_via") or {}}
     return {"vus": vus, "roles": roles, "par_fichier": par_fichier, "scalaires": scalaires}
 
 

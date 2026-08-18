@@ -63,6 +63,8 @@ from pathlib import Path
 
 import pytest
 
+# FORME B (module + acces attributaire) : le foyer UNIQUE des chemins d'artefact par build.
+import build_pin
 from engine.entities.selectors.accessors import Target
 from engine.entities.selectors.tiles import Caster
 from engine.entities.triggers import AreEnemies, AreFriends
@@ -146,8 +148,13 @@ def test_les_deux_slots_d_itargetsselector_sont_ceux_qu_on_a_lus():
 
     Sans cet etage, l'affirmation << le slot 8 est `SelectActor` >> ne serait qu'une phrase de
     docstring ; avec lui, elle rougit si le build renumerote l'interface."""
-    build = (RACINE / "data" / "symbols" / "rnca9r7q6c" / "BUILD").read_text().strip()
-    tsv = RACINE / "data" / "symbols" / build / "metadata" / "interface_slots.tsv"
+    # #10027 -- le build se DEMANDE, il ne s'ecrit pas. La ligne d'avant lisait le marqueur `BUILD`
+    # DANS `data/symbols/rnca9r7q6c/` : un chemin en dur qui court-circuite `data/symbols/CURRENT`.
+    # Elle a survecu a deux mises a jour du jeu, si bien que ce test confrontait les slots ATTENDUS
+    # a la table d'un binaire qui n'est plus charge -- son vert ne disait plus rien du build courant,
+    # ce qui est exactement l'inverse de ce que sa docstring promet.
+    build = build_pin.versioned_build()
+    tsv = build_pin.build_dir(build) / "metadata" / "interface_slots.tsv"
     assert tsv.exists(), "table de slots ABSENTE pour le build %s -- NON MESURE" % build
     lus = {}
     for ligne in tsv.read_text(encoding="utf-8").splitlines():

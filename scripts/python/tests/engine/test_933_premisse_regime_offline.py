@@ -93,6 +93,13 @@ DECLENCHEUR = {
 
 
 # --- BLOC GENERE (`probe_933_premisses_regime.py --attester`) -- ne pas tenir a la main -------
+# ⚠ 8 CHEMINS EN SONT SORTIS le 2026-08-18 (#10027), et c'est un RENFORCEMENT, pas un
+# relachement : le recenseur ne lisait le montage que dans le FICHIER DE TEST, alors que 9
+# suspects sur 39 portent leur `--unit-stat`/`--crit`/`--block-*` dans un module IMPORTE. Ils ne
+# sont plus suspects parce que leur montage a ete LU, pas parce qu'on l'a excuse -- et sortir de
+# cette liste les fait passer du regime « dette toleree » au regime « si le levier disparait, le
+# cliquet ROUGIT ». `test_la_liste_attestee_est_encore_ACCUSEE` garde cette propriete pour toutes
+# les entrees restantes.
 _ATTESTES = (
     # ⚠ ENTRE AU REBASE DE #933-r4, exactement comme `test_928_legacy_of_combat_live.py` avant lui :
     # il est arrive par un merge pendant la tranche (`#966-r3`, `1212 HealingBalms`), il LIT
@@ -102,15 +109,9 @@ _ATTESTES = (
     # ete mesure ici, et l'inscrire ne dit rien de la tenue de sa premisse.
     "engine/test_966r3_execution_du_cast_live.py",
     "engine/runner/test_448r2dr2_titanhammer_active_live.py",
-    "engine/runner/test_499_storm_of_wrath_live.py",
     "engine/runner/test_503r1_overwhelming_wrath_phase2_live.py",
-    "engine/runner/test_566_vexilla_magnifica_live.py",
     "engine/runner/test_895_nova_boss_riptide_live.py",
     "engine/runner/test_919_icon_of_obstinacy_live.py",
-    "engine/runner/test_920_maw_claws_of_thyrax_live.py",
-    "engine/runner/test_922_intoxicating_elixir_crit_live.py",
-    "engine/runner/test_928_legacy_of_combat_live.py",
-    "engine/runner/test_additional_hits_roll_order_live.py",
     "engine/runner/test_beast_slayer_block_live.py",
     "engine/runner/test_beast_slayer_extradmg_live.py",
     "engine/runner/test_case231_charge_forcecrit_live.py",
@@ -129,18 +130,58 @@ _ATTESTES = (
     "engine/runner/test_spirit_leech_combat_live.py",
     "engine/runner/test_summon_spawn_live.py",
     "engine/runner/test_thrill_seekers_live.py",
-    "engine/test_345_shield_prediction_formula_live.py",
     "engine/test_419r5_canal_crit_ouvert_live.py",
-    "engine/test_419r6r1_face_decision_live.py",
     "engine/test_890_hive_tyrant_live.py",
     "engine/test_healing_balms_heal_decision_live.py",
     "engine/test_min_distance_move_leaf_live.py",
 )
 # --- FIN DU BLOC GENERE -----------------------------------------------------------------------
 
+#: LES FAUX POSITIFS **MESURES** -- distincts d'`_ATTESTES`, et la distinction est le point.
+#: `_ATTESTES` dit « pas tranche » ; ceci dit « tranche, le RECENSEUR a tort », avec la mesure.
+#: Les trois sont entres ensemble (#10027), tous les trois accuses par le meme rouge, et pour
+#: **trois causes differentes** -- ce qui est exactement pourquoi aucune regle statique ne les
+#: sort tous les trois.
+#:
+#:   * `test_1001_votann_relics_live.py` -- il ECRIT son regime crit
+#:     (`probe_1001_votann_relics.py` : `--unit-stat votanUthar:CritChance=<100 si reset sinon 0>`,
+#:     avec la raison au site) mais n'ecrit pas `CritDamage`, que `_stats_concernees` exige EN
+#:     PAIRE. Or le fichier ne mesure AUCUN jet de critique : il compare des **DELTAS** de stat
+#:     (`native_delta`, `cc_delta`, `cd_delta`), invariants par translation de la base BiS. Sa
+#:     docstring le dit : « On ne mesure AUCUN jet de critique -- on lit les STATS ».
+#:     ⚠ La regle « une stat de la paire suffit » a ete ECARTEE : `ForceCrit` (trait `Charge`,
+#:     cf. `test_case231_charge_forcecrit_live.py`) fait critter A `CritChance = 0`, donc la
+#:     chance ne rend PAS le degat inerte, et l'exigence de paire est JUSTE en general.
+#:   * `test_1009_reliques_dark_angels_live.py` -- il ne LIT PAS la stat `BlockChance`. La
+#:     detection est une SOUS-CHAINE (`_lit_stats` cherche `blockchance` dans la source en
+#:     minuscules) et elle mord sur `BlockChanceInfo` -- le champ `entityId` de l'effet 1540, et
+#:     sur la variable de gameconfig `blockChance`, dont le fichier dit lui-meme qu'elle est
+#:     « CONSTANTE (10) sur les dix paliers ». Ses assertions accusees portent sur des ids et des
+#:     paliers de config (`== 10`, `== 1540`, `== 50`, `== "MonsterSlayerOfCaliban"`).
+#:     ⚠ Le remede evident -- une FRONTIERE DE MOT sur `_lit_stats` -- a ete MESURE et ECARTE :
+#:     il fait perdre le statut de lecteur a **7 fichiers** (dont `test_895_nova_boss_riptide`,
+#:     `test_additional_hits_roll_order`, `test_healing_balms_heal_decision`), donc il RETRECIT la
+#:     population du recenseur au lieu d'affiner son critere. Residu `#10027-r2`.
+#:   * `test_martial_apotheosis_live.py` -- il EXERCE le regime crit au lieu de le supposer nul :
+#:     il derive une bande PAR REGIME (`[bmin+cd, bmax+cd]` si le coup crite) et porte un garde de
+#:     non-degenerescence `assert cd > 0` avec sa raison ecrite. **Le remede prescrit par le
+#:     cliquet (`--unit-stat <u>:CritDamage=0`) le rendrait ROUGE par cette assertion meme** --
+#:     c'est le renversement complet, et aucune liste ne doit le pousser vers ce montage.
+_FAUX_POSITIFS_MESURES = (
+    "engine/runner/test_1001_votann_relics_live.py",
+    "engine/runner/test_1009_reliques_dark_angels_live.py",
+    "engine/runner/test_martial_apotheosis_live.py",
+)
+
+
+_CACHE_SUSPECTS: dict = {}
+
 
 def _suspects_courants() -> set[str]:
-    return set(P._suspects(P.recenser()))
+    """Memoise : le recensement balaie ~900 fichiers et DEUX tests l'exigent desormais."""
+    if "v" not in _CACHE_SUSPECTS:
+        _CACHE_SUSPECTS["v"] = set(P._suspects(P.recenser()))
+    return _CACHE_SUSPECTS["v"]
 
 
 def test_le_jeu_de_stats_est_coherent_et_non_vide():
@@ -201,10 +242,43 @@ def test_le_recenseur_voit_la_victime_connue(tmp_path):
 
 def test_la_liste_attestee_ne_pourrit_pas():
     """Chaque chemin atteste EXISTE. Une liste qui garde des fantomes se relit comme une mesure."""
-    manquants = [rel for rel in _ATTESTES if not (P._TESTS / rel).exists()]
+    manquants = [rel for rel in tuple(_ATTESTES) + _FAUX_POSITIFS_MESURES
+                 if not (P._TESTS / rel).exists()]
     assert not manquants, (
         "chemins attestes DISPARUS (renommes ? supprimes ?) -- regenerer le bloc par "
         "`python scripts/python/probe_933_premisses_regime.py --attester` : %r" % (manquants,))
+
+
+def test_les_deux_listes_sont_DISJOINTES():
+    """`--attester` imprime TOUS les suspects, faux positifs mesures COMPRIS : une regeneration
+    mecanique les remettrait dans `_ATTESTES`, ou ils perdraient leur mesure et redeviendraient de
+    la dette muette. Le doublon doit donc ROUGIR, pas passer."""
+    double = sorted(set(_ATTESTES) & set(_FAUX_POSITIFS_MESURES))
+    assert not double, (
+        "chemin(s) dans les DEUX listes : %r. `--attester` ne connait pas `_FAUX_POSITIFS_MESURES` "
+        "-- apres une regeneration, RETIRER de `_ATTESTES` les chemins qui y figurent deja avec "
+        "leur mesure." % (double,))
+
+
+def test_les_deux_listes_sont_ENCORE_ACCUSEES_par_le_recenseur():
+    """LE CRAN QUI EMPECHE UNE LISTE DE MASQUER (#10027).
+
+    Une entree qui n'est PLUS suspecte ne protege plus rien -- elle MASQUE : le jour ou le fichier
+    reperd son montage, il revient dans `suspects` et la liste l'absorbe en silence. C'est
+    exactement ce qui serait arrive aux 8 chemins sortis par la lecture du montage IMPORTE si on
+    les y avait laisses << au cas ou >>.
+
+    Le remede n'est PAS de retirer le cran : c'est de retirer l'ENTREE. Un fichier qui a cesse
+    d'etre suspect est un fichier REPARE, et sa place est dans `test_la_liste_attestee_ne_couvre_
+    pas_ce_qui_a_ete_repare`, pas dans une allowlist."""
+    courants = _suspects_courants()
+    assert courants, "le recenseur ne rend AUCUN suspect : il ne mesure plus rien"
+    inutiles = sorted((set(_ATTESTES) | set(_FAUX_POSITIFS_MESURES)) - courants)
+    assert not inutiles, (
+        "%d entree(s) de liste ne sont PLUS accusees par le recenseur : %s\n"
+        "Elles ne protegent plus rien et MASQUENT une regression future. Les RETIRER (et, si "
+        "elles ont ete reparees, les inscrire dans le tuple `repares` du test voisin)."
+        % (len(inutiles), inutiles))
 
 
 def test_aucun_NOUVEAU_fichier_a_premisse_de_regime_non_declaree():
@@ -214,7 +288,7 @@ def test_aucun_NOUVEAU_fichier_a_premisse_de_regime_non_declaree():
     `assert <stat de crit/block> == 0` sans poser son levier le rouvre, et il ne rougira que le
     jour ou quelqu'un rebasculera un defaut de harnais -- des mois plus tard, en accusant le port.
     """
-    nouveaux = sorted(_suspects_courants() - set(_ATTESTES))
+    nouveaux = sorted(_suspects_courants() - set(_ATTESTES) - set(_FAUX_POSITIFS_MESURES))
     assert not nouveaux, (
         "PREMISSE DE REGIME NON DECLAREE dans %d fichier(s) : %s\n"
         "Ces fichiers LISENT une stat a zero ouvert (%s) et COMPARENT a 0 / a un positif, sans "
@@ -246,6 +320,18 @@ def test_la_liste_attestee_ne_couvre_pas_ce_qui_a_ete_repare():
         "engine/runner/test_sentinel_directives_live.py",      # skip « coup non propre »
         "engine/runner/test_heavy_grav_cannon_live.py",        # PREVENTIF (ecart non mesure)
         "engine/runner/test_damage_block_live.py",             # premisse en PROSE perimee
+        # --- #10027 : leur montage etait DEJA la, dans le module qu'ils IMPORTENT. Le recenseur
+        # ne lisait que la source du test ; il la lit desormais aussi dans le probe de montage.
+        # Les inscrire ici est ce qui empeche qu'une regeneration mecanique de `_ATTESTES` les y
+        # remette -- auquel cas perdre leur `--unit-stat` ne rougirait PLUS.
+        "engine/runner/test_499_storm_of_wrath_live.py",       # probe_499_storm_of_wrath
+        "engine/runner/test_566_vexilla_magnifica_live.py",    # probe_566_vexilla_magnifica[_decision]
+        "engine/runner/test_920_maw_claws_of_thyrax_live.py",  # probe_920_maw_claws_of_thyrax_live
+        "engine/runner/test_922_intoxicating_elixir_crit_live.py",  # probe_922_intoxicating_elixir_live
+        "engine/runner/test_928_legacy_of_combat_live.py",     # probe_928_legacy_of_combat
+        "engine/runner/test_additional_hits_roll_order_live.py",    # probe_r6b_additional_hits_order
+        "engine/test_345_shield_prediction_formula_live.py",   # probe_345_shield_prediction_formula
+        "engine/test_419r6r1_face_decision_live.py",           # probe_419r6r1_face_decision
     )
     restes = [rel for rel in repares if rel in _ATTESTES]
     assert not restes, (

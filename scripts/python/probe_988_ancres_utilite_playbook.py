@@ -44,8 +44,28 @@ PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 ROOT = PYDIR.parents[1]
 
-BUILD = "rnca9r7q6c"
-GHIDRA_TSV = ROOT / "data" / "symbols" / BUILD / "ghidra" / "functions.tsv"
+import build_pin                                           # noqa: E402  (apres `sys.path`)
+
+
+def _build_courant() -> str:
+    """Le build qui FAIT FOI, jamais un hash ecrit ici (#10027).
+
+    Ce probe confronte une adresse de capteur a celle que `ghidra/functions.tsv` donne pour le
+    MEME symbole : les deux DOIVENT venir du build charge. Le hash etait en dur (`rnca9r7q6c`) et
+    a survecu a deux mises a jour du jeu -- la confrontation lisait donc une table qui ne decrit
+    plus le binaire, et son accord comme son desaccord ne voulaient plus rien dire."""
+    try:
+        return build_pin.versioned_build()
+    except build_pin.BuildPinRefused:
+        return "?"
+
+
+def _ghidra_tsv():
+    """`Path` de la table du build courant, ou `None` -- NON MESURE, jamais un chemin devine."""
+    try:
+        return build_pin.functions_tsv()
+    except build_pin.BuildPinRefused:
+        return None
 
 #: Les quatre methodes d'utilite que le capteur sait ancrer, et ce qu'elles rendent.
 ANCHOR_METHODS = (
@@ -90,9 +110,10 @@ def ghidra_addresses() -> dict:
     """`symbole -> adresse` pour toutes les ancres du namespace Playbook. Derive de la table
     VERSIONNEE, jamais d'une constante recopiee."""
     out = {}
-    if not GHIDRA_TSV.exists():
+    tsv = _ghidra_tsv()
+    if tsv is None or not tsv.exists():
         return out
-    with io.open(str(GHIDRA_TSV), "r", encoding="utf-8", errors="replace") as f:
+    with io.open(str(tsv), "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             p = line.rstrip("\n").split("\t")
             if len(p) < 2:
@@ -196,7 +217,7 @@ def step0_layout(rpc, sid, verbose: bool = True) -> dict:
 def step1_ancres(rpc, sid, verbose: bool = True) -> dict:
     table = ghidra_addresses()
     if not table:
-        return {"ok": None, "skipped": "table ghidra/functions.tsv absente pour le build " + BUILD}
+        return {"ok": None, "skipped": "table ghidra/functions.tsv absente pour le build " + _build_courant()}
     # `interfaceSlotProbe` exige une interface ; on prend `IPlaybook`. Si la classe ne
     # l'implemente pas, `interfaceOffset` sort a `None` et les slots rendus sont ceux de la
     # vtable BRUTE -- ce qui est exactement ce qu'on veut balayer ici.
@@ -439,7 +460,7 @@ def main() -> int:
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
-    res = {"build": BUILD}
+    res = {"build": _build_courant()}
     try:
         resolve_session, rpc = _rpc_mod()
         sid = resolve_session()

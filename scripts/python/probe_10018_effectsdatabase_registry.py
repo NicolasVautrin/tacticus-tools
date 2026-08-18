@@ -27,10 +27,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
-BUILD_ATTENDU = "t6dpr4k06g"
+_PYDIR = Path(__file__).resolve().parent
+if str(_PYDIR) not in sys.path:
+    sys.path.insert(0, str(_PYDIR))
+
+# FORME B (module + acces attributaire) : le foyer UNIQUE des chemins d'artefact par build.
+import build_pin                                            # noqa: E402  (apres `sys.path`)
+
 
 SYM_FONCTION = "IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects"
 NOM_ENUM = "IdunBattle.Entities.Enum.EffectType"
@@ -69,20 +76,36 @@ CLASSES_LUES = {
 }
 
 
+def build_epingle() -> str:
+    """Le build contre lequel `CLASSES_LUES` a ete transcrit -- CONFRONTE, jamais suppose.
+
+    #10027. Un `BUILD_ATTENDU = "<hash>"` servait a CONSTRUIRE les chemins
+    (`data/symbols/<hash>/...`, `games/<hash>/GameAssembly.dll`), ce que le foyer `build_pin`
+    existe precisement pour interdire : un chemin en dur court-circuite `data/symbols/CURRENT` ET
+    le binaire installe, donc aucune garde de synchronisation ne peut le voir.
+
+    Le litteral RESTE -- il declare l'origine des six ordinaux lus a la main dans ghidra -- mais il
+    ne resout plus rien : il est passe a `require_pinned`, qui REFUSE des qu'il ne colle plus au
+    build charge.
+
+    ⚠ IL EST ECRIT **DANS L'APPEL**, et ce n'est pas un detail de style : `probe_431` reconnait le
+    foyer par un critere LOCAL ET EXACT (l'argument doit etre un litteral du `Call`), par refus
+    assume de lire un contexte. Le sortir dans une constante de module, meme passee a
+    `require_pinned` deux lignes plus bas, le fait donc reclasser RESOLUTION -- mesure du
+    2026-08-18, c'est le dernier des quatre rouges de cette tranche, et il n'est tombe qu'a
+    l'inlining."""
+    return build_pin.require_pinned(
+        "t6dpr4k06g", "les 6 ordinaux de `CLASSES_LUES`, transcrits d'une session ghidra",
+        "les relire dans `EffectsDatabase$$InitializeEffects` sur le build courant")
+
+
 def chemin_build() -> tuple[str, Path]:
     """(hash du build, chemin de GameAssembly.dll). Refuse si le dump et le jeu divergent."""
-    marqueur = RACINE / "data" / "symbols" / BUILD_ATTENDU / "BUILD"
-    if not marqueur.exists():
-        raise SystemExit("table de symboles absente pour %s" % BUILD_ATTENDU)
-    jeux = Path.home() / "AppData" / "Local" / "tacticus" / "games"
-    dll = jeux / BUILD_ATTENDU / "GameAssembly.dll"
-    if not dll.exists():
-        raise SystemExit("GameAssembly.dll introuvable pour le build %s : %s" % (BUILD_ATTENDU, dll))
-    return BUILD_ATTENDU, dll
+    return build_epingle(), build_pin.game_dll()
 
 
 def table_ghidra() -> Path:
-    return RACINE / "data" / "symbols" / BUILD_ATTENDU / "ghidra" / "functions.tsv"
+    return build_pin.functions_tsv()
 
 
 def symboles_tries() -> list[tuple[int, str]]:
@@ -121,7 +144,7 @@ def lambdas_par_indice() -> dict[int, int]:
 
 def effect_types_declares() -> list[tuple[int, str]]:
     """(valeur, nom) dans l'ORDRE DE DECLARATION du dump IL2CPP -- source independante du code."""
-    chemin = RACINE / "data" / "symbols" / BUILD_ATTENDU / "frida" / "enums.tsv"
+    chemin = build_pin.build_dir() / "frida" / "enums.tsv"
     with chemin.open("r", encoding="utf-8", errors="replace") as fh:
         for ligne in fh:
             p = ligne.rstrip("\n").split("\t")

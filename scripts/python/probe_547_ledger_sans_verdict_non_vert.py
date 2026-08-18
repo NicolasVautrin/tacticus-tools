@@ -134,7 +134,8 @@ NON_VERTS_DECLARES: dict[str, str] = {
         "pour les trois slots du groupe atomique ; ce sont ceux de `Core.Services.IMatchState` "
         "(10 `TryDequeueBattleEvent`, 20 `IncreaseAtomicModeCounter`, 21 "
         "`DecreaseAtomicModeCounter`), LUS dans "
-        "`data/symbols/rnca9r7q6c/metadata/interface_slots.tsv`. Aucun nom devine : le triplet "
+        "`data/symbols/<build>/metadata/interface_slots.tsv` (mesure prise sur le build alors "
+        "courant, rnca9r7q6c). Aucun nom devine : le triplet "
         "tombe sur la MEME interface et sa semantique concorde avec le decompile. Residu #962-r1.",
     # ⚠ TROIS LIGNES SONT SORTIES D'ICI PAR LE CRAN 2, ET C'EST LA PREMIERE FOIS QU'ELLES SORTENT
     # SUR UNE MESURE FRAICHE (#547-r5). Elles y etaient toutes les trois parce que le ledger ne se
