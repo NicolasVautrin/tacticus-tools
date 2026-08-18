@@ -495,6 +495,24 @@ def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool, attack_sta
     Un SEUL artefact natif, un SEUL port : le cleave l'appelle avec la cible courante du `Foreach`
     (`Subject()`), le fold primaire avec `Target@0x60` (`Target()`).
 
+    ⚠ #419-r1-tr9-r4-r3 -- **ENONCE REFUTE** (RE re-conduite au build `t6dpr4k06g`). Le residu
+    annoncait « la face COMBAT du fold additional-damage n'est pas portee ; aucun mirror de
+    `Boltstorm_NormalAttackAbility$$GetAdditionalDamageBehaviour` / `$$ExecuteBoltstorm` ». Cette
+    fonction EST ce mirror, `primary_fold_tree` celui de `$$GetCustomNormalAttackBehaviour`, et
+    `execute_additional_targets_attacks` celui de `$$ExecuteBoltstorm`. Le foyer que la fiche
+    nommait (`operations/additional_hits.py`) est celui du canal #179
+    (`DSLBehaviors$$ExecuteAdditionalHitsWithDamageProfileType`), qui est le **`b3`** du
+    `Attack(...)` -- un TROISIEME volet, FRERE du fold, jamais son foyer.
+    Ce que la RE ajoute, et qui est desormais garde par
+    `tests/engine/runner/test_419r1tr9r4r3_boltstorm_fold_combat_offline.py` :
+      * le fold part **DEUX** fois par cast (cible PRIMAIRE sous `If(IsRangedPosition)`, puis UNE
+        fois par cible ADDITIONNELLE, **sans gate de position**) ;
+      * `hits = Direct(GetNumberConstant(0x2f = nrOfHits))` = **3** pour `Boltstorm`, et ces 3 coups
+        **REPASSENT** par `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` -> slot 182
+        d'`IBattleQuery`, parce que l'octet +3 des options (`BypassHitModifiers`) est FAUX. C'est la
+        regression silencieuse la plus probable d'un port naif : `skip_hits_modifiers` doit rester
+        a son defaut.
+
     `is_melee` = la nature de l'arme CHOISIE (`FindAttackWeapon(...).IsMelee`), threadee telle
     quelle : c'est elle qui pilote `ExtraPierceMelee` vs `ExtraPierceRanged` dans `profile_pierce`.
     On ne la re-derive pas d'une adjacence.

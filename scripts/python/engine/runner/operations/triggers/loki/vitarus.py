@@ -193,17 +193,21 @@ class VitarusAbility(TriggeredAbility):
         port, `ability_type = None` EST la voie normale (`finish_attack_triggers` :
         « `ability_type` reste None sur la voie NORMALE »).
 
-        ⚠ RESIDU NOMME, et il est du cote PERMISSIF : `FuryOfTheAncientsAbility` (#927) construit
-        son `ChainAttackDamage` **sans passer `ability_type`**, donc son attaque arrive ici avec
-        `None` et entre par le PREMIER disjoint au lieu du SECOND. L'OBSERVABLE est identique sur ce
-        porteur -- les deux disjoints acceptent, et les trois seules sources d'attaque de melee de
-        `bloodMephiston` (attaque normale, l'attaque normale GRATUITE de `TheQuickening` 1151, et
-        `FuryOfTheAncients`) sont toutes acceptees par la disjonction NATIVE. Ce qui manquerait, ce
-        serait une QUATRIEME attaque de melee d'ability qui, elle aussi, n'annonce pas son kind : le
-        port l'accepterait, le natif non. Threader `ability_type = 1247` dans
-        `loki/fury_of_the_ancients.py` fermerait le residu, mais changerait l'ATTRIBUTION de degat
-        de cette ability (`AttackDamageOperation._damage_source_ability`) -- hors perimetre de cette
-        tranche, et ca se mesure avant de le faire."""
+        ⚠ #1005-r3 -- FERME. `FuryOfTheAncientsAbility` (#927) construisait son `ChainAttackDamage`
+        **sans passer `ability_type`** : son attaque arrivait ici avec `None` et entrait par le
+        PREMIER disjoint au lieu du SECOND, ce qui rendait `AreEqual(CurrentAbility, 1247)`
+        INATTEIGNABLE et `IsNormalAttack` PERMISSIF. L'observable etait identique SUR CE PORTEUR
+        (les trois seules sources de melee de `bloodMephiston` -- attaque normale, l'attaque normale
+        GRATUITE de `TheQuickening` 1151, et `FuryOfTheAncients` -- sont toutes acceptees par la
+        disjonction NATIVE) ; ce qui manquait, c'etait une QUATRIEME attaque de melee d'ability qui
+        n'annonce pas son kind, que le port aurait acceptee et le natif refusee.
+        L'id est desormais threade (`fury_of_the_ancients.py`, `abilityType = AbilityOrEffect(this)`
+        du natif). RAYON DE SOUFFLE MESURE AVANT (`probe_1005r3_fury_ability_type.py`) : sur les
+        lecteurs portes d'`ev.ability_type`, **0 divergence de verdict** ; le SEUL changement est
+        `AttackDamageOperation._damage_source_ability(1247, None)` = `1247` au lieu de `None` --
+        c'est-a-dire l'attribution que le natif publie deja (`StaticBattleRules$$
+        GetDamageSourceAbility` rend `currentAbility` des lors qu'elle n'est pas une attaque
+        REGULIERE)."""
         if ability_type is None:
             return True
         return int(ability_type) == FURY_OF_THE_ANCIENTS

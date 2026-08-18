@@ -325,26 +325,47 @@ class _NormalLike:
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
-        from ..triggers.dispatch.attack import after_hit_ability_attack
+        # lazy + forme MODULE : `finish_attack_triggers` est SUBSTITUE par `probe_437*` -- une
+        # liaison `from ... import` (forme A) desarmerait ces mesures en SILENCE.
+        from ..triggers.dispatch import attack as attack_dispatch
+        # #512-r7 -- LA FACADE AFTER-HIT N'EMET PLUS QUE LES VECTEURS DE L'OPERATION
+        # (`On(0x3c = UnitBlocked)`, `On(8 = AttackHit)`), qui sortent d'`IdunBattle.Operations.
+        # ADamageOperation$$EvaluateAfterHitTriggers`, appelee PAR COUP depuis `ExecuteHit`. La
+        # CLOTURE (`On(9)`) vient du slot 59 que pousse le NOEUD, donc APRES -- elle est emise juste
+        # en dessous.
+        after_hit = attack_dispatch.after_hit_ability_attack(
+            state, attacker_id, target_id, r["did_crit"],
+            profile=damage_profile, did_block=r["did_block"])
+        # `On(Attack = 9)` — cloture, `IdunBattle.Operations.FinishAttackOperation$$Execute`.
+        # #512-r4 (gate INCHANGE, seule sa PLACE bouge) : MEME gate que l'`On(PreAttack = 5)` de
+        # cette facade (#925-r2) -- une feuille NUE ne pousse ni `StartAttack` ni `FinishAttack`,
+        # donc ni `On(5)` ni `On(9)`. Porte ici pour les N feuilles de transfert
+        # d'`HazeOfCorruption`, qui vivent sous UN SEUL `Attack(bonded, Owner@0x148, beh)`.
         # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule) ; `profiles` = le SET
         # des profils de l'attaque (ici le seul profil d'arme -- cette voie n'a pas de groupe #179).
-        after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             profile=damage_profile, ability_type=ability_type,
-                                             did_block=r["did_block"],
-                                             health_damage=int(r["total"] or 0),
-                                             profiles={damage_profile} - {None},
-                                             # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) =
-                                             # `currentAttack@+0x2c` : pose par la seule
-                                             # `AttackDamageOperation$$Execute` -> la famille de
-                                             # factory, comme dans `damage_ops/ability.py`.
-                                             attack_used_attack_damage=bool(is_attack_damage_op),
-                                             # #512-r4 : MEME gate que l'`On(PreAttack = 5)` de
-                                             # cette facade (#925-r2) -- une feuille NUE ne pousse
-                                             # ni `StartAttack` ni `FinishAttack`, donc ni `On(5)`
-                                             # ni `On(9)`. Porte ici pour les N feuilles de
-                                             # transfert d'`HazeOfCorruption`, qui vivent sous UN
-                                             # SEUL `Attack(bonded, Owner@0x148, beh)`.
-                                             emit_finish_attack=bool(is_outside_attack))
+        # ⚠ NON COUVERT, ET C'EST UN ECART CONNU DE CE VECTEUR (residu #512-r9) : cette facade
+        # n'emet AUCUN `On(0x42 = FinalDamage)`, alors que `RegisterFinalDamage` est appelee par les
+        # DEUX `Execute` natives. Le rang relatif `8` -> `9` repare ici est donc juste ; ce qui
+        # manque est un evenement ENTIER, pas son ordre.
+        if is_outside_attack:
+            from ..triggers.base import _is_ranged_position
+            after_hit = after_hit + attack_dispatch.finish_attack_triggers(
+                state, attacker_id, target_id,
+                ranged=_is_ranged_position(state, attacker_id, target_id),
+                profile=damage_profile,
+                is_crit=bool(r["did_crit"]), profiles={damage_profile} - {None},
+                health_damage=int(r["total"] or 0), was_block=bool(r["did_block"]),
+                # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2
+                # LordOfTempests AddIce #35).
+                ability_type=ability_type,
+                # `!IsNormalAttack(CurrentAbility@<DSLSelectors+0x88>)` : ce vecteur n'est jamais
+                # l'attaque normale (`is_normal_attack=False` est deja ce que passent ses appels a
+                # `defender_modifiers` / `_crit_params`).
+                is_normal_attack=False,
+                # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) = `currentAttack@+0x2c` : pose
+                # par la seule `AttackDamageOperation$$Execute` -> la famille de factory, comme
+                # dans `damage_ops/ability.py`.
+                attack_used_attack_damage=bool(is_attack_damage_op))
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

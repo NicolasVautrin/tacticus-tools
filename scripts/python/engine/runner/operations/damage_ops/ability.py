@@ -822,74 +822,86 @@ class _AbilityAttack:
         # imperatif 3/6, cf. la docstring de `damage_dealt_triggers`). Les deux abilities sont
         # desormais des consommatrices GLOBALES du bus (`GLOBAL_TRIGGERS`), donc couvertes pour les
         # DEUX familles d'attaque sans cablage par famille.
-        from ..triggers.dispatch.attack import after_hit_ability_attack  # lazy : cycle damage<->triggers
-        # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — reset ActOfFaith au crit (#138) + tout
-        # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
+        # lazy + forme MODULE : `finish_attack_triggers` est SUBSTITUE par `probe_437*` /
+        # `probe_437r1*` -- une liaison `from ... import` (forme A) desarmerait ces mesures en
+        # SILENCE. Meme raison qu'au site jumeau de `damage_ops/normal.py`.
+        from ..triggers.dispatch import attack as attack_dispatch  # lazy : cycle damage<->triggers
+        # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — after-hit trigger (#140 : splash
+        # Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
         # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule, bouclier defalque) ;
         # `profiles` = le SET des profils de CETTE attaque (arme + groupes bonus #179), lu par
-        # `CurrentAttackDamageProfilesContainOtherThan`.
+        # `CurrentAttackDamageProfilesContainOtherThan`. Les deux servent desormais le payload de
+        # CLOTURE, quelques lignes plus bas.
         _profs432 = {damage_profile} - {None}
         _profs432 |= set((_ah or {}).get("profiles") or [])
-        after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             profile=damage_profile, ability_type=ability_type,
-                                             did_block=r["did_block"],
-                                             health_damage=int(r["total"] or 0),
-                                             profiles=_profs432,
-                                             # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) =
-                                             # `currentAttack@+0x2c`, pose par la SEULE
-                                             # `AttackDamageOperation$$Execute` -> cote port c'est
-                                             # exactement la famille de factory.
-                                             attack_used_attack_damage=bool(is_attack_damage_op),
-                                             # #512-r4 -- `On(9 = Attack)` sort de
-                                             # `FinishAttackOperation$$Execute`, atteint par le slot
-                                             # 59 que pousse un NOEUD de l'arbre, jamais une
-                                             # operation de degat. Une feuille NUE
-                                             # (`isOutsideAttack = 0`) n'ouvre ni ne FERME
-                                             # d'attaque : c'est le MEME gate que celui d'`On(5)`
-                                             # quelques centaines de lignes plus haut, et il
-                                             # manquait a la cloture. Les deux autres evenements de
-                                             # cette facade (`On(0x3c)`, `On(8)`) restent emis :
-                                             # eux viennent d'`ADamageOperation$$
-                                             # EvaluateAfterHitTriggers`, donc de l'OPERATION.
-                                             emit_finish_attack=bool(is_outside_attack))
+        # #512-r7 -- CETTE FACADE N'EMET PLUS QUE LES VECTEURS DE L'OPERATION (`On(0x3c)`, `On(8)`).
+        # `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` est appelee PAR COUP
+        # depuis `ExecuteHit`, donc STRICTEMENT AVANT le `RegisterFinalDamage` qui clot l'Operation
+        # -- et a plus forte raison avant le slot 59 que le NOEUD pousse ENSUITE
+        # (`AttackBehaviour$$Execute` : `StartAttack` -> behaviour enfant -> `FinishAttack`).
+        # La paire de cloture (`On(9)` puis `On(10)`) est donc emise APRES `final_damage_triggers`.
+        after_hit = attack_dispatch.after_hit_ability_attack(
+            state, attacker_id, target_id, r["did_crit"],
+            profile=damage_profile, did_block=r["did_block"])
         # `On(FinalDamage = 0x42 = 66)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
         # ADamageOperation$$RegisterFinalDamage` : `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la
         # base commune `ADamageOperation` et les deux `Execute` l'appellent — contraste avec `On(10)`
         # ci-dessous, qui est bien gate par famille.
-        from ..triggers.dispatch.attack import final_damage_triggers
+        # ⚠ #512-r7 : c'est la DERNIERE instruction des deux `Execute` natives (lu verbatim :
+        # `RegisterFinalDamage(...)` puis `return` dans `AbilityDamageOperation$$Execute`), donc elle
+        # precede TOUTE la cloture. Elle la precedait deja ici ; ce qui manquait, c'est que la
+        # cloture, elle, partait AVANT cette ligne, depuis `after_hit_ability_attack`.
         from ..triggers.base import _is_ranged_position as _irp
-        final_damage_triggers(state, attacker_id, target_id,
-                              ranged=_irp(state, attacker_id, target_id), profile=damage_profile)
-        # `On(AttackDamageAttack = 10)` : `FinishAttackOperation$$Execute` l'emet APRES `On(9)` et
-        # SEULEMENT si `currentAttack@+0x2c` est pose, c'est-a-dire si l'attaque a traverse
-        # `AttackDamageOperation$$Execute`. Cote port, ce gate EST `is_attack_damage_op` (famille de
-        # factory : `AttackWithAttackDamage` vs `AttackWithAbilityDamage`). Une attaque d'ability de la
-        # famille ABILITY n'emet donc RIEN ici, comme le natif.
-        # #512-r6 : SECOND gate, `is_outside_attack`, strictement jumeau de l'`emit_finish_attack`
-        # de son frere `On(9)` ci-dessus. Les DEUX evenements sortent du MEME
-        # `FinishAttackOperation$$Execute`, atteint par le slot 59 que pousse un NOEUD -- jamais une
-        # operation de degat. Une feuille NUE (`isOutsideAttack = 0`) ne ferme pas l'attaque, donc
-        # elle n'emet NI 9 NI 10 ; c'est le noeud parent qui les emet tous les deux, dans l'ordre
-        # natif (`combat.py::_emettre_finish_attack_de_noeud`). Sans ce gate, `1088
-        # HellfyreMissileRack` (deux feuilles sur la MEME cible) emettait DEUX `On(10)` la ou le
-        # natif en emet UN, et le `On(9)` du noeud partait APRES eux.
-        if is_attack_damage_op and is_outside_attack:
-            from ..triggers.dispatch.attack import attack_damage_attack_triggers
+        attack_dispatch.final_damage_triggers(
+            state, attacker_id, target_id,
+            ranged=_irp(state, attacker_id, target_id), profile=damage_profile)
+        # `On(Attack = 9)` puis `On(AttackDamageAttack = 10)` — LA PAIRE DE CLOTURE, emise ICI
+        # (#512-r7) et non plus depuis la facade after-hit. Les deux sortent du MEME
+        # `IdunBattle.Operations.FinishAttackOperation$$Execute`, atteint par le slot 59 que pousse
+        # un NOEUD de l'arbre (`AttackBehaviour$$Execute`, APRES le behaviour enfant) -- jamais une
+        # operation de degat.
+        #   * GATE COMMUN `is_outside_attack` (#512-r4 / #512-r6, INCHANGE, seule sa PLACE bouge) :
+        #     une feuille NUE (`isOutsideAttack = 0`) n'ouvre ni ne FERME d'attaque, c'est le noeud
+        #     parent qui emet les deux (`combat.py::_emettre_finish_attack_de_noeud`). Sans lui,
+        #     `1088 HellfyreMissileRack` (deux feuilles sur la MEME cible) en emettait DEUX.
+        #   * GATE SUPPLEMENTAIRE d'`On(10)`, et de lui seul : `if (currentAttack@+0x2c != 0)`,
+        #     octet pose par la SEULE `AttackDamageOperation$$Execute` -> cote port c'est exactement
+        #     `is_attack_damage_op` (famille de factory : `AttackWithAttackDamage` vs
+        #     `AttackWithAbilityDamage`). La famille ABILITY clot donc SANS `On(10)`.
+        # `ranged` POSITION-based (mirror `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack`),
+        # resolu UNE fois pour les deux : le natif construit UNE seule `AbilityEntities`.
+        if is_outside_attack:
             from ..triggers.base import _is_ranged_position
-            # `ranged` POSITION-based, comme le vecteur frere `after_hit_ability_attack` (mirror
-            # `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack`) — aucun consommateur d'`On(10)` ne
-            # le lit aujourd'hui, mais le payload reste coherent entre les deux events de cloture.
-            attack_damage_attack_triggers(state, attacker_id, target_id,
-                                          ranged=_is_ranged_position(state, attacker_id, target_id),
-                                          profile=damage_profile,
-                                          # `!IsNormalAttack(CurrentAbility@0x88)` : MEME donnee que
-                                          # celle passee a `attack_hits_with_modifiers` ci-dessus
-                                          # (`is_normal_attack=False`, vecteur ABILITY) -- un seul
-                                          # point de resolution de la nature du vecteur.
-                                          is_normal_attack=False,
-                                          triggering_effect=state.trigger_ability_type)
+            _cl_ranged = _is_ranged_position(state, attacker_id, target_id)
+            _fa = attack_dispatch.finish_attack_triggers(
+                state, attacker_id, target_id,
+                ranged=_cl_ranged, profile=damage_profile,
+                is_crit=bool(r["did_crit"]), profiles=_profs432,
+                health_damage=int(r["total"] or 0),
+                was_block=bool(r["did_block"]),
+                # `ability_type` = AbilityOrEffect du coup (payload d'event natif, lu par les gates
+                # kind type `DirectAbilitySelector`) -- threade par la feuille
+                # `AttackWithAttackDamage` (ex. smite Psyker = 0x3f5 = 1013 -> branche 2 de
+                # `LordOfTempests` AddIce #35). `None` (callers historiques) = gates kind muets.
+                ability_type=ability_type,
+                # `!IsNormalAttack(CurrentAbility@<DSLSelectors+0x88>)` : MEME donnee que celle
+                # passee a `attack_hits_with_modifiers` ci-dessus (vecteur ABILITY) -- un seul point
+                # de resolution de la nature du vecteur.
+                is_normal_attack=False,
+                # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) = `currentAttack@+0x2c`, pose
+                # par la SEULE `AttackDamageOperation$$Execute` -> la famille de factory.
+                attack_used_attack_damage=bool(is_attack_damage_op))
+            # La cle `after_hit` du retour reste le JOURNAL de cette attaque, dans l'ordre
+            # d'emission : `[0x3c?, 8]` de l'operation, PUIS `[9]` de la cloture.
+            after_hit = after_hit + _fa
+            if is_attack_damage_op:
+                attack_dispatch.attack_damage_attack_triggers(
+                    state, attacker_id, target_id,
+                    ranged=_cl_ranged, profile=damage_profile,
+                    is_normal_attack=False,
+                    triggering_effect=state.trigger_ability_type)
         # NB (de-fork) : les cles diagnostiques `fire`/`toxic` ont disparu de ce retour -- la pose
         # on-hit ne passe plus par ici mais par le bus `On(0x10)` emis dans `_apply_damage_pipeline`.
         # L'observable reste `state.effects` (la tuile porte l'effet), qui est la VRAIE source et celle
