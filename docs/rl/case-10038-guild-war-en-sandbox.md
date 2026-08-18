@@ -1,7 +1,11 @@
 # #10038 — Le guild war en sandbox, sans un octet vers le serveur
 
-**État : RÉSOLU** (2026-08-19). Cycle complet éprouvé — déploiement héros + Machine of War,
-poses converties en unités réelles, clear fonctionnel, retraite fonctionnelle.
+**État : DÉPLOIEMENT RÉSOLU, BATAILLE PARTIELLE** (2026-08-19).
+
+⚠ **Une première version de cette ligne annonçait « RÉSOLU » tout court. C'était FAUX**, et l'écart
+est instructif : le cycle de déploiement était bien éprouvé (héros + MoW, poses converties, clear,
+retraite), et j'en ai conclu la tranche finie sans avoir joué un seul tour. Ce qui est acquis
+s'arrête au START.
 
 ## 1. La voie, et pourquoi c'est celle-là
 
@@ -96,6 +100,35 @@ appelants, la première liste n'en portait que trois.
 ⚠ **Et une conclusion tirée d'un écran incomplet est fausse.** « Aucun chemin MoW ne tire, donc il
 n'y a pas de bascule » a été démenti par l'utilisateur qui la voyait à l'écran. Une fois la chaîne
 complète, les mêmes compteurs montent tous.
+
+## 5bis. LA BATAILLE — ce qui tourne, ce qui ne tourne pas
+
+**Tourne** : les poses deviennent des unités réelles, la résolution de dégâts fonctionne (PV qui
+descendent des deux côtés), la retraite sort proprement, aucun doublon.
+
+**L'IA ADVERSE N'EST PAS CONDUITE.** Mesuré : la main passe au joueur adverse
+(`currentPlayer = 4`, ses 5 unités dans `toActivate`) et **rien ne se produit**. `cheatRunAi`
+la fait jouer correctement (`delta 6`, ennemis avancés de la rangée 9 aux rangées 5–7, actions
+consommées, main rendue au joueur). Donc le moteur et l'IA vont bien : il manque **le déclencheur
+automatique**. En sandbox le jeu est en hotseat — il attend qu'on joue les deux camps — alors qu'un
+guild war veut un adversaire piloté. Remède à écrire : un relais qui appelle l'IA quand le tour
+bascule sur un joueur `PlayerType = AI`.
+
+⚠ **DEUX PIÈGES DE LECTURE, tous deux payés cher dans cette tranche.**
+
+1. **`ctrl` de `decisionView` n'est PAS « contrôlé par l'humain ».** C'est
+   `UnitExtensions$$IsControlledByCurrentPlayer(entity, state)` — donc **« appartient au joueur dont
+   c'est le tour »**. J'en ai déduit une « inversion du contrôle » qui n'existait pas, et j'ai bâti
+   deux hypothèses dessus (`GameMode`, puis les paramètres de la source) avant d'aller lire le code
+   qui produit le champ. **Lire le producteur du champ avant de l'interpréter.**
+2. **Un relais de déploiement qui reste armé PENDANT le combat est un suspect.**
+   `deploymentPlafondArmer` tirait encore 16 fois en pleine bataille, en écrivant dans
+   `VisualBattleQuery` que tous les modes partagent. Ils doivent se désarmer au START.
+
+⚠ **ET LE REJEU DE POSES EST À DOUBLE TRANCHANT.** Avec une BC portant AUSSI un camp joueur,
+`deploymentPoseCommitArmer` produit des **DOUBLONS** : 5 (natif) + 5 (rejeu) + 5 (ennemis) = 15
+unités, dont les copies sortent invalides. Le compte tombe exactement. Sans béquille dans la BC, la
+question de savoir s'il redevient nécessaire est **OUVERTE** — c'est le prochain essai.
 
 ## 6. Reste ouvert
 
