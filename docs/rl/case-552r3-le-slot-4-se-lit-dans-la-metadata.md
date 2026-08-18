@@ -200,13 +200,25 @@ Deux regimes, meme board, meme placement, meme roster, **seuls les PV des a-unit
   mesures identiques sont un ECHEC meme si le port les reproduit : un gate qui ne bascule pas ne
   discrimine rien.
 
-RESULTAT : **NON CONFRONTE -- cap de runners sature.** Le montage a ete joue et refuse par
-`initAndStart: runner cap reached (50)`. Ce n'est ni un porteur non confrontable, ni un regime
-inatteignable : `tauFarsight` s'injecte (mesure faite : catalogue 175 -> 176 entrees, 2 configs
-d'ability ajoutees), et le probe rend `rc 2 PAS MESURE`, jamais un vert. Ventilation du cap au
-moment de la mesure : **45 des 50 runners appartiennent a `.claude/worktrees/merge-tmp3`**, ages
-de 81 a 139 min, plus 4 + 1 de deux worktrees d'agent ages de ~6 h. Un agent ne dispose pas les
-runners d'autrui -- c'est dit au rapport, pas contourne.
+**RESULTAT : CONFRONTE, LE GATE BASCULE, LE PORT SUIT DANS LES DEUX SENS.** Runner MC1_67/777,
+`tauFarsight` injecte au catalogue, `orksNob` place en (5,5) face au caster en (4,5) :
+
+| regime | `--hp-target` | cibles d'attaque normale | natif (slot 4) | port | verdict |
+|---|---|---|---|---|---|
+| A sure-kill | 1 | **2** | `False` | `False` | OK |
+| B survivant | 400000 | **2** | `True` | `True` | OK |
+
+`pbSlots` confirme au passage la classe chargee (`ExemplarOfTheMontkaPlaybook`), le nom du slot 4
+(`ShouldEvaluate`) et son ARITE (`params=1`) -- c'est cette arite que le probe LIT au lieu de la
+supposer.
+
+Les deux controles passent : le TEMOIN est non vide **dans les deux regimes** (2 cibles), donc le
+`False` de A vient bien du sure-kill et pas d'une liste vide ; et le gate BASCULE (`False -> True`),
+donc l'accord porte sur un regime **DISCRIMINANT**, pas sur un regime degenere.
+
+⚠ Premier tir bloque par un cap de runners sature -- ventilation par PROPRIETAIRE : 45 des 50
+appartenaient au worktree de merge (`merge-tmp3`), pas a une concurrence d'agents. Purge par
+l'orchestrateur, puis mesure. C'est cette ventilation qui a evite de chercher du mauvais cote.
 
 ---
 
@@ -233,8 +245,29 @@ sans ce bras ne prouverait rien -- c'est precisement le reproche de `#971-r5`.
 (`from ._base import tiles_in_native_order`), donc substituer `_base.tiles_in_native_order` ne
 mord PAS. Le probe substitue l'attribut du module CONSOMMATEUR.
 
-RESULTAT : **NON CONFRONTE -- meme cause que le §4** (cap de runners sature). Le probe cherche le
-regime sur six montages et rend `rc 2` sans en avoir joue un seul.
+**RESULTAT : REGIME ATTEINT, ORDRE PAR POSITION CONFIRME, ORDRE DE L'UNION REFUTE DANS LE MEME
+ETAT.** Runner MC1_67/4242, `orksBigMek` en (4,5), `orksNob` en (5,5) :
+
+* **29 positions de MOVE balayees, 13 DISCRIMINANTES** -- (3,5), (5,7), (6,6), (6,5), (4,3),
+  (3,4), (2,4), (5,8), (4,7), (3,3), (2,3), (1,5), (1,6). Sur chacune, >= 2 tuiles de spawn sont a
+  utilite MAXIMALE EGALE **et** les deux ordres designent des tuiles differentes -- par exemple en
+  (5,7) : 5 ex aequo a l'utilite 3, l'ordre STOCKE donne (5,8), l'ordre de l'UNION donne (4,7) ;
+* **PARTITION native = 18 classes**, reproduite **EXACTEMENT** par le port avec l'ordre STOCKE ;
+* le meme port avec `tiles_in_native_order` degenere en `list(union)` rend **14 classes** --
+  une partition DIFFERENTE, donc l'ordre de l'union est REFUTE par la mesure, pas seulement par la
+  lecture.
+
+⚠ **LA RECHERCHE DU REGIME N'ETAIT PAS DECORATIVE.** Le premier montage (`C3_14`/4242, le board a
+15 tuiles `Bridge` que `#971-r4` avait employe) balaie 6 positions de move et n'en produit
+**AUCUNE** discriminante : partout les deux ordres s'accordent. Un probe qui aurait suppose le
+regime au lieu de le CHERCHER aurait rendu un vert sur ce montage-la, et ce vert n'aurait rien
+prouve -- c'est exactement ce que `#971-r5` reprochait a la tranche precedente. Deux autres
+montages `C3_14` ont ete refuses au placement (`placement REFUSE: orksBigMek @(3,4)` -- tuile hors
+du `SpawnPointGroup`), ce qui est dit et non maquille.
+
+Ce que ce resultat FERME : la transposition de `#971-r4` (le foyer partage) n'est plus soutenue
+seulement par << les trois ctors sont identiques octet pour octet >>, elle est **mesuree sur le
+consommateur** dans le seul regime ou elle se distingue.
 
 ---
 
@@ -256,7 +289,8 @@ regime sur six montages et rend `rc 2` sans en avoir joue un seul.
 | `#552-r4` mutants | `probe_552r4_mutants.py` | **5/5 MORDENT** |
 | `#552-r4` effet | `probe_552r3_slot4_declare.py --inventaire` | ecarts **20 -> 18** |
 | `#942-r3` RE | `ShouldEvaluate` + `HasNormalAttackTarget`, build `t6dpr4k06g` | relus, inchanges ; slot 4 d'arite 1 |
-| `#942-r3` / `#971-r5` live | cap de runners | **NON CONFRONTE** (rc 2) |
+| `#942-r3` LIVE | `probe_942r3_montka_gate_live.py`, MC1_67/777 | gate BASCULE `False -> True`, port **2/2 OK**, temoin 2 cibles dans les deux regimes |
+| `#971-r5` LIVE | `probe_971r5_ordre_par_position_live.py`, MC1_67/4242 | **13 positions discriminantes** ; partition natif 18 classes == port STOCKE ; port UNION 14 classes (**REFUTE**) |
 
 **Non-regression rejouee** (offline, apres l'entree de 1107 au registre) :
 `test_10037_playbooks_noncomparable_offline`, `test_979_ports_decision_offline`,
@@ -270,8 +304,16 @@ manquante sur 182).
 
 **CE QUI N'EST PAS COUVERT, nomme**
 
-* **`#942-r3` et `#971-r5` restent OUVERTS** : leurs montages sont ECRITS et jouables en une
-  commande, mais aucun n'a tourne. Ne pas les lire comme des accords.
+* **`#971-r5` : la mesure porte sur `GrotTank` (1057) SEUL.** Les deux autres emprunteurs du foyer
+  (`1152 MasterOfTheTutelaries`, `1219 IronkinSteeljack`) ne sont pas re-confrontes ici -- ce qui
+  est mesure, c'est le FOYER, sur un consommateur, dans le regime discriminant. La transposition
+  aux deux autres reste soutenue par les ctors identiques octet pour octet.
+* **`#971-r5` : un seul couple (board, seed) porte le regime.** `C3_14`/4242 ne le produit PAS, et
+  deux montages `C3_14` ont ete refuses au placement. La discipline << au moins deux couples >>
+  n'est donc pas tenue pour CE regime-la.
+* **`#942-r3` : la carte `{position: cibles}` du slot `0x45` reste non publiee.** Le port itere
+  l'UNION et reconstruit les positions par `castFromTiles` -- borne INF nommee dans le module, que
+  cette mesure n'exerce pas (les deux regimes ont la meme geometrie).
 * **`#1033-r2` n'a AUCUNE confrontation live**, et n'en aura pas tant que `#1033-r4` tient : le
   gate dynamique de la face COMBAT rend `GetEligibleTargetsSelectable` VIDE, donc les deux faces
   s'accordent sur le vide. C'est un accord DEGENERE, pas une validation.
