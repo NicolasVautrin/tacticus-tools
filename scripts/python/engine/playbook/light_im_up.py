@@ -248,6 +248,7 @@ from ..entities.traits.factory import TraitFactory
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..services.battle_query import is_melee_attack as _is_melee_attack
 from ..services.damage_prediction import get_attack_prediction
+from .adjacency import iterate_tiles          # `EntityExtensions$$GetTiles` cote DECISION (#10024)
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 from .prediction._shared import (
     _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
@@ -338,8 +339,19 @@ class LightImUpPlaybook:
 
         FOYER (#419-r1-tr14) : le corps a migre dans `services/battle_query.is_melee_attack` --
         `HeavyBoltPistolPlaybook` consomme le MEME slot 2, et le natif n'a qu'UNE fonction. Cette
-        methode reste l'ADAPTATEUR `(ctx, scene, ability_id)` -> `(nom d'ability, elevations)`."""
-        if ability_id is None or attack_tile is None or tgt_pos is None:
+        methode reste l'ADAPTATEUR `(ctx, scene, ability_id)` -> `(nom d'ability, elevations)`.
+
+        `tgt_pos` accepte desormais une TUILE **ou une EMPREINTE** (#10024) : la surcharge que le
+        natif appelle est `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(tiles:IList<IEntity>,
+        unit:IEntity)`, qui commence par `tiles2 = EntityExtensions.GetTiles(unit, state)` -- donc
+        l'empreinte COMPLETE de la cible. Les deux call-sites de ce playbook passent desormais
+        `playbook.adjacency.iterate_tiles`, le foyer DECISION de `GetTiles`.
+        ⚠ `attack_tile`, lui, reste une TUILE et c'est un residu NOMME : le 3e parametre natif est
+        une `IdunBattle.Core.UnitPosition`, et `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFor`
+        rend `IOrderedSet<UnitPosition>` -- pour une unite MULTI-HEX, une position candidate est un
+        ENSEMBLE de tuiles, que la face DECISION du port ne materialise pas. Exact pour tout caster
+        a un pied (le cas de tous les heros), SOUS-ESTIME pour un caster multi-hex."""
+        if ability_id is None or attack_tile is None or not tgt_pos:
             return False
         name = (getattr(ctx, "ab_name_by_id", None) or {}).get(int(ability_id))
         return _is_melee_attack(name, attack_tile, tgt_pos,
@@ -475,7 +487,10 @@ class LightImUpPlaybook:
         (composite Damage standard, hpmax EFFECTIF). `is_melee` est re-evalue POUR CETTE CIBLE
         (en-tete, lecture 4bis) -- c'est le foyer unique des trois call-sites natifs."""
         sc = ctx.scene
-        melee = self.is_melee_attack(ctx, sc, ability_id, attack_tile, sc.pos(tgt_id))
+        # `AreEntitiesAdjacent(casterPosition, target)` prend l'EMPREINTE de la cible (#10024) --
+        # `iterate_tiles` est le foyer DECISION de `EntityExtensions$$GetTiles`, et il degrade
+        # tout seul sur la MainTile quand aucun canal de pieds n'est capte.
+        melee = self.is_melee_attack(ctx, sc, ability_id, attack_tile, iterate_tiles(sc, tgt_id))
         pred = self._predict_extra_vs_target(sc, attacker_uid, tgt_id, amount, hits, attack_tile,
                                              profile_name, melee)
         if pred is None:
@@ -527,7 +542,7 @@ class LightImUpPlaybook:
         sc = getattr(ctx, "scene", None)
         if sc is None or attack_tile is None:
             return 0.0
-        tpos = sc.pos(case_tgt_id)
+        tpos = iterate_tiles(sc, case_tgt_id)      # EMPREINTE de la cible (#10024), pas sa MainTile
         # etat 1 -- `IsMeleeAttack(case)` : l'attaque DU CASE doit etre en melee.
         if not self.is_melee_attack(ctx, sc, ability_id, attack_tile, tpos):
             return 0.0

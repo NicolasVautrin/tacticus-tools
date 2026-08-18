@@ -171,6 +171,7 @@ from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..runner.abilities.attack_type import is_regular_attack
 from ..services.battle_query import is_melee_attack
 from ..services.damage_prediction import get_attack_prediction
+from .adjacency import iterate_tiles          # `EntityExtensions$$GetTiles` cote DECISION (#10024)
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 from .prediction._shared import (
     _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
@@ -350,7 +351,12 @@ class HeavyBoltPistolPlaybook:
         # `IsMeleeAttack` du pipeline de modifiers : re-evalue depuis la TUILE D'ATTAQUE, contre la
         # cible de CETTE prediction (en-tete, lecture 2). `ab_name_by_id` -> le nom gameconfig de
         # `case.AbilityType`, seul canal de `GetAbilityAttackRangeType`.
-        tpos = sc.pos(case_tgt_id)
+        # `AreEntitiesAdjacent(casterPosition, target)` prend l'EMPREINTE de la cible (#10024) : la
+        # surcharge appelee est `(tiles:IList<IEntity>, unit:IEntity)` et sa 1re instruction est
+        # `tiles2 = EntityExtensions.GetTiles(unit, state)`. `iterate_tiles` en est le foyer
+        # DECISION (il degrade seul sur la MainTile quand aucun canal de pieds n'est capte).
+        # `attack_tile` reste une TUILE -- residu NOMME, cf. `light_im_up.is_melee_attack`.
+        tpos = iterate_tiles(sc, case_tgt_id)
         ab_name = (getattr(ctx, "ab_name_by_id", None) or {}).get(int(ability_id))
         melee = is_melee_attack(ab_name, attack_tile, tpos, getattr(sc, "elev_by_pos", None),
                                 neigh_by_pos=bq.neigh_map(sc))
