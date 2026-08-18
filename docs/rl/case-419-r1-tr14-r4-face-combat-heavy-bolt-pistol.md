@@ -313,6 +313,52 @@ Aucun compteur n'est rouvert par cette tranche — vérifié, pas supposé.
   ici. Un port qui lirait la position réelle passerait ces trois crans. Débloqueur : un vecteur où
   l'attaque normale s'exécute depuis une tuile ≠ position réelle. (Jumeau COMBAT de
   `#419-r1-tr14-r2`, qui nomme le même angle mort côté DÉCISION.)
+
+  **[2026-08-18] LE `BLOCAGE: porteur` ÉTAIT FAUX — le débloqueur existe, et il est déjà PORTÉ.**
+  C'est `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$ExecuteBehaviour`
+  (1216, `darkaBossLion`), branche ELSE :
+
+  ```
+  els = DSLBehaviors$$MoveUnit( Owner@+0x30, ClosestPositionToTarget(Owner, Tiles(<cible tirée>)) )
+        op_Addition
+        DSLBehaviors$$UseNormalAttackIfAble( Owner@+0x30, <cible tirée>, … )
+  ```
+
+  Le caster **bouge**, puis son ATTAQUE NORMALE part. Et
+  `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` — le corps de ce nœud —
+  **RECOPIE** la zone `CasterPosition` de l'`AbilityEntities` parente (`entities+0x68..+0x74`) dans
+  les options qu'il passe au processeur : il ne la RECALCULE pas. L'écart est en plus **ORIENTÉ** :
+  `ClosestPositionToTarget` amène le caster AU CONTACT, donc la position réelle dit `melee` pendant
+  que l'ancre héritée dit `ranged`. Le porteur est un GuildBoss, montable par `--explicit-stats`.
+
+  **Le blocage RÉEL est `etage`, et il est nommé** : le mirror `Entities` du DSL
+  (`engine/dsl/base.py`) ne porte AUCUN champ `caster_position` / `caster_tiles`, alors que la carte
+  des sélecteurs cachés du `DSLFactory` en compte deux (`+0x168 CasterTile`, `+0x170 CasterTiles`)
+  et que le commentaire du mirror les CITE sans les porter. Tant que ce champ n'existe pas, aucun
+  consommateur du slot 2 ne peut recevoir l'ancre : ils lisent tous la position réelle.
+  **Point d'ancrage déjà posé** (#494-r2, même tranche) :
+  `engine/runner/battle_query_state.py::is_melee_attack` accepte `caster_position=` — défaut `None`
+  → position réelle, dégradation NOMMÉE. Il ne manque que la SOURCE.
+  Constat figé par `scripts/python/probe_419r1tr14r4r3_ancrage_caster_position.py` (étages 1 et 2).
+* **`#10024` — le prédicat compare des MAIN TILES là où le natif compare des EMPREINTES**, et c'est
+  un écart DISTINCT de l'ancrage ci-dessus, trouvé en relisant le même corps. Signature native LUE
+  (`data/symbols/<build>/frida/methods.tsv`) :
+
+  ```
+  BattleQuery.IsMeleeAttack(ability:Nullable<AbilityOrEffect>, caster:IEntity,
+                            casterPosition:IdunBattle.Core.UnitPosition, target:IEntity)
+  ```
+
+  `UnitPosition` est une **EMPREINTE** (liste de tuiles), et le corps appelle la surcharge
+  `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(tiles:IList<IEntity>, unit:IEntity)` —
+  donc empreinte du caster × empreinte de la cible. Le port
+  (`engine/services/battle_query.py::is_melee_attack`) prend deux TUPLES `(col, row)` et délègue à
+  `engine.battle_query.are_entities_adjacent`, qui compare deux MAIN TILES. Le foyer d'empreinte
+  existe pourtant **dans le même module** (`services/battle_query.are_entities_adjacent(feet_a,
+  feet_b, board)`, dont la docstring dit « elle compare les EMPREINTES COMPLÈTES, pas les main
+  tiles ») — il n'est simplement pas celui que ce prédicat emprunte. Exerçable dès qu'une des deux
+  unités est multi-tuiles. Les DEUX frères du même switch (`is_ranged_attack`,
+  `get_attack_range_type`) ont le MÊME défaut, et quatre consommateurs sont à re-vérifier au fix.
 * **`#478-r3` (déjà ouvert, ÉLARGI)** — le câblage ne couvre que la voie MESSAGE
   (`visit_AttackUnitMessage`), pas les portes qui appellent `AttackDamageOperation.execute`
   directement (overwatch, `UseActiveAbility`, summon AI). Ce site est le TROISIÈME jumeau (après

@@ -48,6 +48,7 @@ PYDIR = Path(__file__).resolve().parents[3]                  # scripts/python
 sys.path.insert(0, str(PYDIR))
 
 import gameconfig as GC                                                    # noqa: E402
+from engine.entities.active_ability_type import ActiveAbilityType          # noqa: E402
 from engine.runner import battle_query_state as BQS                        # noqa: E402
 from engine.runner.components import PositionComponent, StatsComponent     # noqa: E402
 from engine.runner.operations import damage_utility as DU                  # noqa: E402
@@ -268,5 +269,6 @@ def test_etage4_is_melee_fourni_court_circuite_le_slot(monkeypatch):
     uid = _pick("melee_only")
     st = _state(uid, (0, 0), (0, 6))
     vus = _capture_is_melee(monkeypatch)
-    DU._prediction_fields(st, 1, 2, amount=100, hits=1, ability_type=1216, is_melee=True)
+    DU._prediction_fields(st, 1, 2, amount=100, hits=1,
+                          ability_type=int(ActiveAbilityType.MartialExemplar), is_melee=True)
     assert vus == [True]
