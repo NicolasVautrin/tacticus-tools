@@ -53,6 +53,15 @@ if str(PYDIR) not in sys.path:
 import hexgeo                                                              # noqa: E402
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 import engine.services.movement_query as MQ                                # noqa: E402
+# ⚠ EN TETE, ET C'EST LOAD-BEARING POUR LE DECLENCHEUR (#486-r15). L'etage 4 exerce
+# `MoveUnitOperation` ; laisse en import LOCAL, ce foyer de production n'entrerait PAS dans la
+# cascade DERIVEE des imports du fichier, et le declencheur ci-dessous -- qui se repose justement
+# sur cette cascade -- deviendrait aveugle a un changement du gate qu'il garde.
+from engine.runner.state import State                                      # noqa: E402
+from engine.runner.events import EventBus                                  # noqa: E402
+from engine.runner.operations.movement import MoveUnitOperation            # noqa: E402
+from engine.runner.components import (UnitComponent, HealthComponent,      # noqa: E402
+                                      OwnerComponent, PositionComponent)
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
@@ -245,12 +254,6 @@ def test_le_gate_TilesAreWalkable_est_EXECUTABLE_dans_le_port_pas_une_prose():
         serait compatible avec un montage ou rien ne bouge jamais.
 
     Ce cran est OFFLINE et n'a besoin d'aucune entree versionnee."""
-    from engine.runner.state import State
-    from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
-                                          PositionComponent)
-    from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.events import EventBus
-
     # Bande de 3 tuiles : la tuile d'arrivee (2,0) est NON MARCHABLE (un `Block`), les deux autres
     # le sont. Le voisinage relie les trois, donc seule la marchabilite peut refuser.
     tiles = [{"id": c + 1, "col": c, "row": 0, "elevation": 0, "walkable": c != 2,
