@@ -54,8 +54,20 @@ _PIPE = re.compile(r"(?<!\\)\|")
 #:    fiche est de 614 caracteres, aucun ne tient en 60.
 _MODELE_DEBUT = re.compile(r"^\*{0,2}`?\[(?P<tag>[a-z-]+)\]`?")
 _MODELE_LONGUEUR_MAX = 60
-_MARQ_FOYER = re.compile(r"\*{0,2}FOYER\s*:?\*{0,2}")
-_MARQ_BLOCAGE = re.compile(r"\*{0,2}BLOCAGE\s*:?\*{0,2}")
+#: ⚠ **LE DEUX-POINTS EST OBLIGATOIRE, ET C'EST MESURE (#1084).** Il etait `:?` -- optionnel --
+#: donc le marqueur mordait sur toute occurrence du MOT en prose : `**BLOCAGE RE-MESURE ET
+#: CONFIRME**`, `(champs FOYER/BLOCAGE RETIRES : ...)`, `le FOYER reel n'etait pas ...`. Le
+#: parseur AUTORITAIRE rendait alors le premier mot alphabetique qui suivait, c'est-a-dire une
+#: bribe de prose a la place du champ. MESURE sur les 1024 entrees du backlog au 2026-08-18 :
+#: **4** champs `BLOCAGE` hors vocabulaire (`RE` x2, `RETIRES`, `sont`), **1** champ JUSTE mais
+#: PERIME (`#175-r3` rendait `etage` alors que sa MAJ ecrit `aucun`), et **34** entrees dont le
+#: `FOYER` capturait de la prose -- soit **63 chemins FANTOMES** dans l'index derive (1071 -> 1008).
+#: Aucune entree ne PERD un champ reel : les 2 seules dont la ligne porte pourtant un `FOYER:`
+#: l'ont dans une zone BARREE, donc deja retire par la convention du backlog.
+#: Les `**` restent tolerees des DEUX cotes (`**FOYER:**`, `**FOYER**:`, `FOYER :`) -- ce sont des
+#: formes reellement ecrites ; c'est le `:` qui separe un champ d'une phrase.
+_MARQ_FOYER = re.compile(r"\*{0,2}FOYER\*{0,2}\s*:\*{0,2}")
+_MARQ_BLOCAGE = re.compile(r"\*{0,2}BLOCAGE\*{0,2}\s*:\*{0,2}")
 
 # Un chemin de depot, backticke ou nu. On accepte les repertoires (suffixe `/`) et les globs.
 _CHEMIN = re.compile(

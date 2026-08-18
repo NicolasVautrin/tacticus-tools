@@ -35,6 +35,10 @@ DECLENCHEUR = {
         # L'etage [1] SOUS-PROCESSUS le probe : il n'entre donc PAS par la fermeture d'imports,
         # et c'est exactement le cas qu'un declencheur derive ne peut pas voir.
         "scripts/python/probe_1081_premisses_foyer_factory.py",
+        # #1084 -- le PARSEUR AUTORITAIRE du champ. L'etage [1] le sous-processe, et le cran de
+        # temoin derive le SUBSTITUE : ses deux marqueurs de champ decident a eux seuls si le
+        # cliquet lit le champ ou une bribe de prose.
+        "scripts/python/backlog_entries.py",
         # ENTREES LUES AU TEXTE par ce probe, qu'aucun import ne revele : le backlog (les champs
         # `BLOCAGE:` des dix fiches -- l'etage [1] rougit des qu'un mot y change), et les trois
         # fichiers que l'inventaire mesure par SIGNATURE ou par presence d'une cle de contexte.
@@ -75,6 +79,45 @@ def test_1081_le_probe_de_premisses_est_vert():
     # Le probe doit avoir REELLEMENT compare : un recenseur muet passerait pour vert.
     assert "ETAGE 3" in r.stdout and "temoin parseur" in r.stdout, \
         "le probe n'a pas joue son etage de confrontation :\n%s" % r.stdout[-1500:]
+
+
+def test_1081_le_temoin_de_parseur_est_DERIVE_et_MORD(monkeypatch):
+    """#1084 -- LE TEMOIN N'EST PLUS UN COUPLE FIGE, ET LA MUTATION LE MONTRE.
+
+    L'ancien temoin nommait `#943-r7` avec le mot `seeding` ; la fiche a ete resolue trois jours
+    plus tard et son champ est passe a `aucun` -- le cliquet rougissait donc sur un MOUVEMENT
+    LEGITIME du backlog, pas sur le vice qu'il garde. Le temoin derive, lui, tient tant qu'une
+    entree cite l'etiquette en prose.
+
+    On verifie DEUX choses : (a) le gisement de temoins est NON VIDE et DISCRIMINE ; (b) en
+    remettant le deux-points OPTIONNEL dans `backlog_entries` -- l'etat d'avant #1084 -- des champs
+    HORS VOCABULAIRE reapparaissent, c'est-a-dire que ce cran MORD pour de vrai."""
+    import re
+
+    import backlog_entries as B
+    import probe_1081_premisses_foyer_factory as P
+
+    _, entrees = P._lire_backlog()
+    temoins = P.temoins_de_parseur(entrees)
+    assert temoins, ("gisement de temoins VIDE : plus aucune entree ne cite l'etiquette `BLOCAGE` "
+                     "en prose -- le cran ne mesure plus rien, le re-ancrer")
+    hors = [(e.ident, e.blocage) for e in temoins
+            if e.blocage is not None and e.blocage not in B.BLOCAGES]
+    assert not hors, "champ(s) hors vocabulaire rendus par le parseur AUTORITAIRE : %r" % (hors,)
+    discriminants = [e for e in temoins if P._lecture_naive(e.brut) != (e.blocage or None)]
+    assert discriminants, ("temoin DEGENERE : la lecture naive rend partout la meme chose que le "
+                           "parseur, donc ce cran passerait aussi sur un parseur casse")
+
+    # (b) LA MUTATION -- le regime d'AVANT #1084 (`:` optionnel).
+    monkeypatch.setattr(B, "_MARQ_FOYER", re.compile(r"\*{0,2}FOYER\s*:?\*{0,2}"))
+    monkeypatch.setattr(B, "_MARQ_BLOCAGE", re.compile(r"\*{0,2}BLOCAGE\s*:?\*{0,2}"))
+    _, mutees = P._lire_backlog()
+    hors_mute = [(e.ident, e.blocage) for e in P.temoins_de_parseur(mutees)
+                 if e.blocage is not None and e.blocage not in B.BLOCAGES]
+    assert hors_mute, (
+        "sous la mutation << deux-points OPTIONNEL >>, AUCUN champ hors vocabulaire ne "
+        "reapparait : ce cran ne garde donc pas ce qu'il pretend garder. (Il en rendait 4 le "
+        "2026-08-18 : RE x2, RETIRES, sont.)")
 
 
 # --------------------------------------------------------------------------- [2] MischiefMakers

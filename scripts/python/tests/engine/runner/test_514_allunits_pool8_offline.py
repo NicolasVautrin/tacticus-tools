@@ -106,6 +106,42 @@ def test_chaque_site_de_AllUnits_est_ATTRIBUE_a_un_natif_pool8():
     assert not perimes, "declarations PERIMEES dans SITES_POOL8 : %r" % (perimes,)
 
 
+def test_chaque_attribution_cite_un_call_site_du_releve_natif():
+    """Cran 3b (#1084) -- L'ATTRIBUTION N'EST PAS UNE PROSE LIBRE.
+
+    Le cran precedent exige qu'un site `AllUnits(` soit DECLARE ; il ne dit rien de ce que la
+    declaration CITE. Un symbole plausible mais qui n'appelle pas `DSLSelectors$$AllUnits` rendait
+    donc le cliquet vert sur une justification INVENTEE -- pire que l'absence, parce qu'elle a
+    l'air lue. On confronte ici chaque symbole au releve `list_xrefs` du build."""
+    hors = sorted((cle, sym) for cle, sym in P514.SITES_POOL8.items()
+                  if not (sym.startswith("<") and sym.endswith(">"))
+                  and sym not in P514.CALL_SITES_NATIFS_POOL8)
+    assert not hors, (
+        "attribution(s) citant un symbole absent du releve des call-sites natifs pool-8 : %r" % (hors,))
+    # ANTI-VACUITE : un releve vide, ou une table qui ne contiendrait QUE des auto-tests, rendrait
+    # l'assertion ci-dessus vraie sans rien mesurer.
+    reels = [s for s in P514.SITES_POOL8.values() if not s.startswith("<")]
+    assert len(reels) >= 6 and len(P514.CALL_SITES_NATIFS_POOL8) >= 20, (
+        len(reels), len(P514.CALL_SITES_NATIFS_POOL8))
+
+
+def test_MUTATION_un_symbole_INVENTE_fait_rougir_le_cran_3b(monkeypatch):
+    """Contre-epreuve du cran precedent : il doit MORDRE.
+
+    On declare un site avec un symbole PLAUSIBLE (meme namespace, meme forme `$$Methode`) qui
+    n'appelle pas `DSLSelectors$$AllUnits`. Sans le cran 3b, l'etape 3 le trouverait << declare >>
+    et passerait -- c'est le regime ou une attribution INVENTEE ressemble a une attribution LUE."""
+    faux = dict(P514.SITES_POOL8)
+    faux[("engine/runner/abilities/orks.py", "waaagh_attack_tree")] = (
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetInexistantBehaviour")
+    monkeypatch.setattr(P514, "SITES_POOL8", faux)
+    hors = [(cle, sym) for cle, sym in P514.SITES_POOL8.items()
+            if not (sym.startswith("<") and sym.endswith(">"))
+            and sym not in P514.CALL_SITES_NATIFS_POOL8]
+    assert hors, ("un symbole INVENTE ne fait pas rougir le cran 3b : la table d'attribution "
+                  "redevient une prose libre")
+
+
 def test_le_port_utilise_bien_AllAliveUnits_partout_ailleurs():
     """Le pendant du cran precedent : le gros du port DOIT passer par la primitive ALIVE. Un zero
     ici signifierait que l'inventaire ne visite plus rien -- un recenseur qui ne visite pas ne peut

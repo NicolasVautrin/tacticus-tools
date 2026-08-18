@@ -104,6 +104,21 @@ SITES_POOL8 = {
     ("engine/runner/operations/triggers/loki/sabre_of_sacrifice.py",
      "sabre_of_sacrifice_defeated_friends_selector"):
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SabreOfSacrificeAbility$$GetCurrentExtraArmor",
+    # #1084 -- les DEUX actives du boss `admecBossBelisarius`. LU sur `t6dpr4k06g` : chacune ecrit
+    # un appel EXPLICITE a `IdunBattleLogic.Entities.DSLSelectors$$AllUnits(<dsl>)`, pas le champ
+    # partage `<dsl>+0x20`. Ce sont des sources d'un `Friends(Caster, .., 3)` : le pool 8 y fait
+    # entrer les cadavres allies, que le `MechanicalUnits`/`EntitiesWithAnyEffect` d'apres ne
+    # retire pas.
+    ("engine/runner/abilities/admec.py", "solar_atomizer_tree"):
+        "IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility$$ExecuteBehaviour",
+    ("engine/runner/abilities/admec.py", "invocation_of_machine_vengeance_tree"):
+        "IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$ExecuteBehaviour",
+    # #1083 -- la cascade de tuiles de spawn des power-ups. LU : `AllUnits(pvVar4)` explicite, puis
+    # `Enemies(of = Actor@<dsl>+0x40, entities = <ce pool>, selectionType = 3)`. Le site avait DEJA
+    # son symbole dans `CALL_SITES_NATIFS_POOL8` sans etre declare ici -- l'ecart exact que
+    # l'etape 3 existe pour voir.
+    ("engine/runner/operations/triggers/loki/power_up_spawn.py", "spawn_tile_tree"):
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.APowerup_SpawnAbility$$GetSpawnTile",
     # Le probe et sa GARDE se testent EUX-MEMES sur les deux primitives : ce ne sont pas des
     # mirrors de call-sites natifs, mais les crans qui figent la semantique.
     ("probe_514_allunits_rayon_de_souffle.py", "etape_4"): "<auto-test de l'etape 4>",
@@ -114,7 +129,10 @@ SITES_POOL8 = {
 }
 
 #: Call-sites NATIFS de `DSLSelectors$$AllUnits` (pool 8) -- releve `list_xrefs` du 2026-08-07 sur
-#: le build `rnca9r7q6c`. Sert a l'etape 3 pour dire ce qui reste NON PORTE (donc hors rayon).
+#: le build `rnca9r7q6c`, **RE-DERIVE le 2026-08-18 sur `t6dpr4k06g` : 24 appels, IDENTIQUES**
+#: (28 xrefs dont 4 `DATA`). Sert a l'etape 3 pour dire ce qui reste NON PORTE (donc hors rayon),
+#: et depuis #1084 de REFERENTIEL au cran 3b : un symbole d'attribution qui n'est pas ici est soit
+#: faux, soit le signe que ce releve est perime.
 CALL_SITES_NATIFS_POOL8 = (
     "IdunBattleLogic.Entities.Abilities.Triggered.Loki.ATemptingTrapAbility$$CreateBehaviour",
     "IdunBattleLogic.Entities.Abilities.Active.Loki.ShroudPsalmAbility$$ExecuteBehaviour",
@@ -482,6 +500,24 @@ def etape_3(fails: list, trouve: dict) -> None:
     for cle in sorted(declares - vus):
         fails.append("etape 3 : SITES_POOL8 declare %s/%s qui n'ecrit plus `AllUnits(` -- "
                      "declaration PERIMEE, la retirer." % cle)
+    # CRAN 3b (#1084) -- L'ATTRIBUTION N'EST PAS UNE PROSE LIBRE : le symbole cite doit appartenir
+    # au RELEVE des call-sites natifs pool-8. Sans lui, un site pouvait etre declare par un symbole
+    # PLAUSIBLE mais qui n'appelle pas `DSLSelectors$$AllUnits` -- et le cliquet redevenait vert
+    # sur une justification INVENTEE, ce qui est pire que l'absence de declaration. Les entrees
+    # `<...>` sont les auto-tests du cliquet : elles ne mirrorent aucun call-site natif et le
+    # DISENT par leur forme, au lieu d'etre exemptees par une liste a part.
+    hors_releve = sorted(
+        (cle, sym) for cle, sym in SITES_POOL8.items()
+        if not (sym.startswith("<") and sym.endswith(">")) and sym not in CALL_SITES_NATIFS_POOL8)
+    for cle, sym in hors_releve:
+        fails.append(
+            "etape 3b : %s/%s est declare par `%s`, qui n'est PAS dans le releve `list_xrefs` de "
+            "`IdunBattleLogic.Entities.DSLSelectors$$AllUnits`. Soit le symbole est faux, soit le "
+            "releve est perime (le re-derive : `mcp__ghidra__list_xrefs`)." % (cle[0], cle[1], sym))
+    if not hors_releve:
+        print("  OK  les %d attributions non auto-test citent un call-site du releve natif (%d)"
+              % (sum(1 for s in SITES_POOL8.values() if not s.startswith("<")),
+                 len(CALL_SITES_NATIFS_POOL8)))
 
 
 # ----------------------------------------------------------------------------- etape 4 (CLIQUET)
