@@ -279,6 +279,18 @@ VENTILATION = {
     # ⚠ MEME RESERVE QUE COTE COMBAT : le gate porte sur les PV (`(scene.hp(uid) or 0) > 0`), pas
     # sur `uc.alive`. Il tient parce que `Scene.hp_by_id` lit `dv.units[].hp`, qui vaut 0 pour un
     # mort. Une capture sans `hp` le rendrait inerte.
+    # INSCRIT AU MERGE de #910-r1 (PR #1186) : la fonction est NEE dans cette tranche-la, et le
+    # cliquet d'exhaustivite l'a vue avant le push -- la ventiler fait partie du changement qui l'a
+    # creee, pas d'un rattrapage ulterieur. Elle n'invente aucun appelant : elle EXTRAIT du corps de
+    # `_add_positional_and_defender_mods` le montage de ctx du bonus de percage, pour le partager
+    # avec `normal_attack.make_normal_attack_predictions`. Les DEUX sites d'appel passent `att_id`.
+    ("playbook/prediction/_shared.py", "prediction_pierce_effect_bonus", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT du coup PREDIT. Ses deux appelants le lui "
+                          "donnent comme tel (`_add_positional_and_defender_mods` et "
+                          "`normal_attack.make_normal_attack_predictions`), et l'attaquant d'une "
+                          "prevision est l'unite dont on score l'action : vivante par construction "
+                          "du vecteur. Meme motif que `get_additional_damage_prediction` et "
+                          "`generate_multi_hit_attack_prediction` ci-dessous"),
     ("playbook/prediction/_shared.py", "_apply_ally_attack_dmg_bonus", "effects"):
         ("INERTE-AMONT", "balayage de `scene.pos_by_id`, gate `(scene.hp(uid) or 0) > 0` DANS la "
                          "comprehension. Pendant exact de `damage_model._apply_ally_attack_damage_"
