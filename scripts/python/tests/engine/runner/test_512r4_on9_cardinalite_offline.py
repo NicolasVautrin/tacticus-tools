@@ -33,10 +33,11 @@ CE QUE CE FICHIER GARDE, ET IL LE FAIT PAR MESURE, PAS PAR LECTURE DE SOURCE :
   (1) un noeud `SortedAttackSeries` portant DEUX feuilles sur la MEME cible emet **UN** `On(9)` --
       et le CONTRE-CAS integre (des feuilles qui emettent elles-memes, c'est-a-dire le port
       d'avant #512-r4) en produit **DEUX**, donc la mesure est discriminante ;
-  (2) la facade after-hit d'ability n'emet `On(9)` que si `emit_finish_attack` est vrai, et ses deux
-      AUTRES vecteurs (`On(0x3c = UnitBlocked)`, `On(8 = AttackHit)`) partent dans les DEUX regimes
-      -- ils viennent d'`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, donc de
-      l'OPERATION, et les confondre aurait eteint le cluster on-block avec la cloture ;
+  (2) [REECRIT PAR #512-r7] la facade after-hit d'ability n'emet **JAMAIS** `On(9)` : elle est le
+      mirror d'`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, qui n'emet que
+      `On(0x3c = UnitBlocked)` (sous le flag BLOCK) puis `On(8 = AttackHit)`. Le gate
+      `emit_finish_attack` que #512-r4 avait pose ICI reglait la CARDINALITE mais laissait le RANG
+      faux ; il a suivi l'evenement chez les appelants (`is_outside_attack`) ;
   (3) MEME cardinalite pour `On(10)` : UN par cible distincte du noeud, DEUX dans le contre-cas ;
   (4) l'ORDRE `9` PUIS `10` sur la voie NOEUD -- l'assertion porte sur la SEQUENCE, pas sur des
       comptes (avant #512-r6 le noeud cloturant APRES ses feuilles, `On(10)` partait le PREMIER) ;
@@ -337,15 +338,23 @@ def test_la_FEUILLE_ne_clot_NI_9_NI_10_quand_isOutsideAttack_est_faux(monkeypatc
         assert _n(vus, EventTriggerType.FinalDamage) == 1, (regime, vus)
 
 
-def test_la_facade_after_hit_gate_On9_mais_JAMAIS_On8_ni_On_block(monkeypatch):
-    """(2) Les TROIS evenements de `after_hit_ability_attack` n'ont pas la meme granularite native :
-    `On(0x3c)` et `On(8)` viennent d'`ADamageOperation$$EvaluateAfterHitTriggers` (par COUP, donc
-    portes par l'OPERATION) et doivent partir dans les DEUX regimes ; seul `On(9)` est gate."""
+def test_la_facade_after_hit_n_emet_QUE_les_vecteurs_de_l_OPERATION(monkeypatch):
+    """(2) REECRIT PAR #512-r7. La facade est le mirror d'`IdunBattle.Operations.
+    ADamageOperation$$EvaluateAfterHitTriggers`, qui n'emet que DEUX messages -- `On(0x3c)` sous le
+    flag BLOCK, puis `On(8)` inconditionnellement. `On(9)` n'en sort PAS : son foyer est
+    `FinishAttackOperation$$Execute`, atteint par le slot 59 que pousse le NOEUD **apres** le
+    behaviour enfant. Le parametre `emit_finish_attack` qui le gatait ICI a donc disparu avec lui --
+    ce que #512-r4 gatait au bon endroit partait au mauvais RANG."""
     st, _ctx, caster, cible = _etat_et_contexte()
-    for regime, attendu in ((True, 1), (False, 0)):
-        vus = _compter(monkeypatch)
-        A.after_hit_ability_attack(st, caster["id"], cible["id"], is_crit=False,
-                                   did_block=True, emit_finish_attack=regime)
-        assert _n(vus, EventTriggerType.Attack) == attendu, (regime, vus)
-        assert _n(vus, EventTriggerType.AttackHit) == 1, (regime, vus)
-        assert _n(vus, EventTriggerType.UnitBlocked) == 1, (regime, vus)
+    vus = _compter(monkeypatch)
+    A.after_hit_ability_attack(st, caster["id"], cible["id"], is_crit=False, did_block=True)
+    assert _n(vus, EventTriggerType.Attack) == 0, vus
+    assert _n(vus, EventTriggerType.AttackHit) == 1, vus
+    assert _n(vus, EventTriggerType.UnitBlocked) == 1, vus
+    # ORDRE natif : `0x3c` AVANT `8` (le `if (didBlock)` precede l'emission inconditionnelle).
+    assert _seq(vus, EventTriggerType.UnitBlocked, EventTriggerType.AttackHit) == \
+        [int(EventTriggerType.UnitBlocked), int(EventTriggerType.AttackHit)], vus
+    # CONTRE-EPREUVE de signature : le canal supprime ne peut plus etre rouvert par accident.
+    import inspect
+    params = set(inspect.signature(A.after_hit_ability_attack).parameters)
+    assert "emit_finish_attack" not in params, params

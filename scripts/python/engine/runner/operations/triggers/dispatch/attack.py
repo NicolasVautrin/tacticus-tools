@@ -582,12 +582,7 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              is_crit: bool, profile: Optional[str] = None,
-                             ability_type: Optional[int] = None,
-                             did_block: bool = False,
-                             health_damage: Optional[int] = None,
-                             profiles=None,
-                             attack_used_attack_damage: Optional[bool] = None,
-                             emit_finish_attack: bool = True) -> list[dict]:
+                             did_block: bool = False) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
     message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3c = UnitBlocked)`, non écouté ici). ⚠ Ce vecteur
@@ -599,54 +594,50 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     consommateur `On(8)` ne le lit aujourd'hui). Le cap `<51/phase` (`TriggeredAbilityComponent`) reste un
     garde-fou générique fidèle au natif (`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger`). No-op si aucun trigger ne matche.
 
-    `emit_finish_attack` (#512-r4) -- CETTE FONCTION EMET TROIS EVENEMENTS QUI N'ONT PAS LA MEME
-    GRANULARITE NATIVE, ET C'EST CE PARAMETRE QUI LES SEPARE :
+    #512-r7 -- CETTE FONCTION N'EMET PLUS `On(9 = Attack)`, ET C'EST UNE LECTURE, PAS UN CHOIX.
+    Elle est le mirror d'`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, dont le
+    corps, relu verbatim au build `t6dpr4k06g`, n'emet que DEUX messages et dans cet ordre :
 
-      * `On(0x3c = UnitBlocked)` et `On(8 = AttackHit)` viennent d'`IdunBattle.Operations.
-        ADamageOperation$$EvaluateAfterHitTriggers`, appelee PAR COUP par les deux `ExecuteHit` --
-        ils suivent donc l'OPERATION, et le port les emet une fois par appel de facade ;
-      * `On(9 = Attack)`, lui, ne sort PAS d'une operation de degat : son foyer est
-        `IdunBattle.Operations.FinishAttackOperation$$Execute`, atteint par le slot **59**
-        (`FinishAttack`) que pousse un NOEUD de l'arbre -- `AttackBehaviour$$Execute` sous
-        `if (next == null || next != cur)`, `SortedAttackSeriesBehaviour$$Execute` a chaque
-        changement de cle du `Dictionary`, `ChainLeftOverHitsAttackDamageBehaviour$$Execute` autour
-        de chaque maillon, `FinishAttackBehaviour$$Execute`, et la voie MESSAGE. Il part donc **UNE
-        FOIS PAR CIBLE DISTINCTE DU NOEUD**, pas une fois par feuille.
+        if ((char)didBlock != '\\0')  FUN_1800280e0(0x50, .., 0x3c, entities)  # On(UnitBlocked)
+        FUN_1800280e0(0x50, .., 8, entities)                                   # On(AttackHit)
 
-    `False` = cette feuille est une `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` /
-    `$$AbilityDamage` **NUE** (`isOutsideAttack = 0`), composee dans un `Attack(...)` qu'un noeud
-    parent a deja ouvert : elle ne pousse NI `StartAttack` NI `FinishAttack`, donc ni `On(5)` ni
-    `On(9)`. C'est le PARENT qui les emet -- exactement le decoupage que `#512-r2` a pose pour
-    `On(PreAttack = 5)`, et dont `On(9)` etait reste absent (`#512-r4`).
-    MESURE DU DEFAUT : `1088 HellfyreMissileRack` monte DEUX feuilles nues sur la MEME cible via
-    `SortedAttackSeries` des que la cible du message a deja pris du Psychic ce tour -> le port
-    emettait `On(9)` DEUX fois la ou le natif l'emet une, sur les classes-triggers a l'ecoute
+    `On(9)`, lui, ne sort PAS d'une operation de degat : son foyer est `IdunBattle.Operations.
+    FinishAttackOperation$$Execute`, atteint par le slot **59** (`FinishAttack`) que pousse un NOEUD
+    de l'arbre -- `AttackBehaviour$$Execute` sous `if (next == null || next != cur)`,
+    `SortedAttackSeriesBehaviour$$Execute` a chaque changement de cle du `Dictionary`,
+    `ChainLeftOverHitsAttackDamageBehaviour$$Execute` autour de chaque maillon,
+    `FinishAttackBehaviour$$Execute`, et la voie MESSAGE.
+
+    ⚠ CE QUE `#512-r4` AVAIT MANQUE EN LE GATANT ICI PLUTOT QU'EN LE DEPLACANT. Le parametre
+    `emit_finish_attack` reglait la CARDINALITE (une feuille nue n'emet pas) mais laissait le RANG
+    faux : la cloture partait AVANT `On(0x3c)`/`On(8)` de cette meme facade, et AVANT le
+    `On(0x42 = FinalDamage)` que l'appelant emet ensuite. Or `AttackBehaviour$$Execute` pousse
+    `FinishAttack` **APRES** le behaviour enfant, et `RegisterFinalDamage` est la DERNIERE
+    instruction d'`IdunBattle.Operations.AbilityDamageOperation$$Execute` (et de son jumeau
+    `AttackDamageOperation$$Execute`). L'ordre natif d'une feuille AUTONOME est donc
+    `... 0x3c, 8, 0x42, 9, 10` ; le port emettait `9, 0x3c, 8, 0x42, 10`.
+
+    L'emission d'`On(9)` vit desormais chez les DEUX appelants de cette facade
+    (`damage_ops/ability.py`, `damage_ops/normal_like.py`), APRES le `final_damage_triggers`, sous
+    le meme gate `is_outside_attack` -- c'est le PARENT qui clot, exactement comme `#512-r2` l'a
+    pose pour `On(PreAttack = 5)`. La CARDINALITE que `#512-r4` avait fermee est donc conservee
+    telle quelle (le gate n'a pas bouge, seule sa PLACE a change), et le rang est repare.
+    MESURE DU DEFAUT DE CARDINALITE (inchangee, elle reste gardee) : `1088 HellfyreMissileRack`
+    monte DEUX feuilles nues sur la MEME cible via `SortedAttackSeries` des que la cible du message
+    a deja pris du Psychic ce tour -> le port emettait `On(9)` DEUX fois la ou le natif l'emet une
     (`probe_437_on9_blast_radius.py` etape 1). Meme forme pour le FOLD de l'attaque normale
-    (`abilities/loki/additional_targets.py::primary_fold_tree`, feuille nue dans le `Attack(...)` de
-    la primaire -> le port emettait un `On(9)` en plus de celui de `damage_ops/normal.py`) et pour
-    les N feuilles de transfert d'`HazeOfCorruption`."""
+    (`abilities/loki/additional_targets.py::primary_fold_tree`) et pour les N feuilles de transfert
+    d'`HazeOfCorruption`."""
     ranged = _is_ranged_position(state, attacker_id, target_id)
-    # On(9) ability-attack (per-attaque) : reset ActOfFaith au crit (IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger = On(9) & OwnerIsCaster &
-    # WasCrit & HasEffect(0x3f9)). #151 : ROUTE le reset ICI (voie ability/splash/normal-like = is_normal_attack
-    # =False) au lieu de after-hit(8) partagé avec la NORMALE -> plus de reset sur un crit d'attaque normale.
-    # `ability_type` = AbilityOrEffect du coup (payload d'event natif, lu par les gates kind type
-    # DirectAbilitySelector) — threadé par la feuille `AttackWithAttackDamage` (ex. smite Psyker =
-    # 0x3f5=1013 → branche 2 de LordOfTempests AddIce #35). None (callers historiques) = gates kind muets.
-    # `profiles` / `health_damage` / `was_block` (#432) : MEME payload de cloture que la voie
-    # NORMALE — le natif n'a qu'UN `FinishAttackOperation$$Execute` pour les deux familles.
+    # #512-r7 : les QUATRE parametres qui ne servaient QU'au payload d'`On(9)` (`ability_type`,
+    # `profiles`, `health_damage`, `attack_used_attack_damage`) ont QUITTE cette signature avec
+    # l'evenement. Les garder inertes aurait fait croire a un canal encore lu ; l'appelant les passe
+    # desormais directement a `finish_attack_triggers`, qui est l'unique foyer du payload de cloture.
+    # Le reset d'ActOfFaith au crit d'ability (#151,
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger`
+    # = `On(9) & OwnerIsCaster & WasCrit & HasEffect(0x3f9)`) est donc servi par le call-site de
+    # cloture de l'appelant, PAS par cette facade -- il reste sur `On(9)`, seul son RANG change.
     out: list[dict] = []
-    if emit_finish_attack:              # #512-r4 : cf. la docstring -- vecteur de NOEUD, pas d'OPERATION
-        ev_aa = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
-                             ranged=ranged, profile=profile, is_crit=is_crit,
-                             ability_type=ability_type,
-                             profiles=profiles, health_damage=health_damage,
-                             was_block=bool(did_block),
-                             # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) : ICI la voie est
-                             # BI-FAMILLE (`AttackWithAttackDamage` -> `AttackDamageOperation` VS
-                             # `AttackWithAbilityDamage` -> `AbilityDamageOperation`, qui ne pose PAS
-                             # `currentAttack@+0x2c`). L'appelant thread donc son `is_attack_damage_op`.
-                             attack_used_attack_damage=attack_used_attack_damage)
-        out = evaluate_trigger_operation(state, ev_aa)
     if did_block:                                     # `EvaluateAfterHitTriggers` : 0x3d AVANT 8
         out = out + unit_blocked_triggers(state, attacker_id, target_id, ranged, profile)
     # On(8) after-hit (vecteur natif per-coup, EvaluateAfterHitTriggers) : conservé pour fidélité ; aucun
