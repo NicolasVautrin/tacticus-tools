@@ -74,6 +74,11 @@ import pathlib
 
 import pytest
 
+#: Le foyer UNIQUE de « quel MODULE ce nom local designe-t-il A CET ENDROIT » (#485-r2). Une
+#: seconde implementation de ce predicat divergerait de la premiere (lecon #332) : le helper
+#: `_appelle` ci-dessous s'y branche au lieu de re-deviner la resolution de portee.
+import migrate_485r1_barils_reexport as MIG
+
 from engine.runner.abilities.behaviours.combat import (AttackWithAbilityDamage,
                                                        AttackWithAttackDamage,
                                                        ChainLeftOverHitsAttackDamage)
@@ -309,12 +314,130 @@ def test_etage3_les_DEUX_phases_de_1217_posent_la_liste():
 # ETAGE 4 -- #1030-r4 : la famille ABILITY zeroise ses mods attaquant, la famille ATTACK non
 # ==================================================================================================
 
+def _noeud_de(fonction):
+    """(arbre du MODULE, noeud de la fonction, nom pointe du module, racine du paquet).
+
+    ⚠ ON PARSE LE MODULE, PAS LE CORPS -- et c'est la moitie du correctif #10036.
+    `inspect.getsource(fonction)` rend le corps SEUL : les imports de tete n'y sont pas, donc
+    AUCUNE resolution de `X.foo()` n'y est possible, quelle que soit la finesse du reste. La
+    fonction est ensuite retrouvee par son `__qualname__`, construit selon la regle du langage
+    (une `ClassDef` ajoute son nom, une `FunctionDef` ajoute `<locals>` pour ses enfants).
+
+    ⚠ UNE FONCTION INTROUVABLE LEVE, ELLE NE REND PAS `False`. Deux des trois appelants sont des
+    `assert not _appelle(...)` : un helper qui rendrait `False` sur ce qu'il n'a pas su lire les
+    ferait passer AU VERT sans avoir rien mesure -- le mode de defaillance exact que le CLAUDE.md
+    recense (<< un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas >>)."""
+    chemin = pathlib.Path(inspect.getsourcefile(fonction)).resolve()
+    module = inspect.getmodule(fonction)
+    assert module is not None, "module introuvable pour %r" % (fonction,)
+    racine = chemin.parents[len(module.__name__.split(".")) - 1]
+    arbre = ast.parse(chemin.read_text(encoding="utf-8"))
+
+    cible, trouves = fonction.__qualname__, []
+
+    def descendre(parent, prefixe):
+        for n in ast.iter_child_nodes(parent):
+            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            q = "%s.%s" % (prefixe, n.name) if prefixe else n.name
+            if q == cible and not isinstance(n, ast.ClassDef):
+                trouves.append(n)
+            descendre(n, q if isinstance(n, ast.ClassDef) else q + ".<locals>")
+
+    descendre(arbre, "")
+    assert len(trouves) == 1, (
+        "`%s` introuvable (ou en %d exemplaires) dans %s -- le helper ne peut RIEN conclure, et "
+        "surtout pas rendre False" % (cible, len(trouves), chemin.name))
+    return arbre, trouves[0], MIG.nom_module(chemin, racine), racine
+
+
+def _porte_le_nom(module_absolu: str, nom: str) -> bool:
+    """Le module RESOLU expose-t-il vraiment `nom` ? TRI-ETAT : un import impossible LEVE.
+
+    C'est le second garde de non-permissivite : sans lui, tout `<un module>.foo(...)` compterait,
+    y compris sur un module qui n'a jamais porte `foo`."""
+    import importlib
+    try:
+        return hasattr(importlib.import_module(module_absolu), nom)
+    except Exception as exc:                                   # noqa: BLE001 -- tri-etat
+        raise AssertionError(
+            "`%s` non importable (%s) : le helper ne peut pas trancher, il refuse de rendre un "
+            "booleen" % (module_absolu, exc)) from exc
+
+
 def _appelle(fonction, nom: str) -> bool:
-    """La fonction cite-t-elle `nom` comme APPEL (pas seulement dans un commentaire) ?"""
-    src = inspect.getsource(fonction)
-    arbre = ast.parse("if 1:\n" + "\n".join("    " + l for l in src.splitlines()))
-    return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == nom
-               for n in ast.walk(arbre))
+    """La fonction APPELLE-t-elle `nom` ? Les DEUX formes d'appel comptent (#10036).
+
+    Il ne reconnaissait qu'un `ast.Name` -- donc `nom(...)` (formes A et C). Or `combat.py` ecrit
+    `_abase.ability_pierce_effect_bonus(...)`, un `ast.Attribute` : c'est la **FORME B** que le
+    CLAUDE.md PRESCRIT (`import X` puis `X.foo()`, la seule des trois qui morde sous
+    `monkeypatch.setattr`, et le site le dit explicitement en commentaire). Le garde penalisait
+    donc la forme que la doctrine exige, et l'aurait fait << reparer >> a l'envers -- en forme A,
+    qui aurait desarme le patcheur `probe_910_relic_bolt_pistol_live` que ce site protege.
+
+    ⚠ ET IL NE DEVIENT PAS PERMISSIF, par DEUX crans independants : le porteur de l'attribut doit
+    resoudre, DANS SA PORTEE, vers un module (`MIG.ResolveurDeModules`, foyer unique de cette
+    question -- #485-r2, ecrit apres deux faux positifs nes d'une table PLATE), et ce module doit
+    REELLEMENT porter le nom. Un `<n_importe_quel_objet>.<nom>(...)` ne compte pas ; c'est ce qui
+    garde le sens NEGATIF de l'etage 4 (`assert not _appelle(AttackWithAbilityDamage.execute, ...)`),
+    lequel serait sinon un faux rouge des qu'un homonyme apparaitrait sur un objet quelconque."""
+    arbre, noeud, mod, racine = _noeud_de(fonction)
+    resolveur = MIG.ResolveurDeModules(arbre, mod, racine)
+    for n in ast.walk(noeud):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Name) and f.id == nom:
+            return True                                        # formes A et C
+        if isinstance(f, ast.Attribute) and f.attr == nom and isinstance(f.value, ast.Name):
+            cible = resolveur.resoudre(f.value.id, f.value)     # forme B
+            if cible and _porte_le_nom(cible, nom):
+                return True
+    return False
+
+
+def test_etage4_le_HELPER_voit_la_forme_B_SANS_devenir_permissif():
+    """LE CRAN DE L'ETAGE 4 LUI-MEME (#10036). Un `_appelle` repare en matchant n'importe quel
+    attribut du bon nom ne garderait plus RIEN -- et il retournerait le sens NEGATIF de
+    `test_etage4_la_famille_ABILITY_ne_thread_PAS` en faux rouge des qu'un homonyme apparait.
+
+    Les deux temoins sont REELS et vivent dans le meme `combat.py`, donc ce test ne peut pas
+    devenir vacant sans que quelqu'un le voie :
+
+      * POSITIF -- `_abase.ability_pierce_effect_bonus(...)` : porteur = liaison de MODULE
+        (`import engine.runner.abilities.base as _abase`), et le module porte bien le nom ;
+      * NEGATIF -- `AttackDamageOperation.execute_ability_attack(...)` : meme FORME syntaxique
+        (`ast.Attribute` sur un `ast.Name`), mais le porteur est une CLASSE. Un helper qui se
+        contenterait du nom d'attribut le compterait ; celui-ci ne le compte pas.
+
+    ⚠ Le temoin NEGATIF est choisi pour etre EXIGEANT : `execute_ability_attack` est justement un
+    nom que l'etage 5 cherche ailleurs comme fonction (`_appelle(AB._AbilityAttack.
+    execute_ability_attack, ...)`), donc l'homonymie n'est pas hypothetique."""
+    assert _appelle(ChainLeftOverHitsAttackDamage.execute, "ability_pierce_effect_bonus"), (
+        "TEMOIN POSITIF DEGENERE : la forme B n'est plus lue, ce test ne garde plus rien")
+    for nom in ("execute_ability_attack", "get", "append"):
+        assert not _appelle(ChainLeftOverHitsAttackDamage.execute, nom), (
+            "`%s` est appele sur un objet qui n'est PAS un module : le helper est devenu "
+            "permissif et ne garde plus le sens NEGATIF de l'etage 4" % nom)
+
+
+def test_etage4_le_HELPER_REFUSE_de_conclure_sur_ce_qu_il_n_a_pas_lu():
+    """L'autre moitie du cran : une fonction introuvable doit LEVER, jamais rendre `False`.
+
+    Deux des appelants sont des `assert not _appelle(...)` : un `False` par defaut les ferait
+    passer au vert sans qu'aucune mesure ait eu lieu -- exactement le << vert sur un recensement
+    vide >> que le CLAUDE.md recense comme mode de defaillance.
+
+    ⚠ LE PORTEUR EST UNE `lambda`, ET LE PREMIER CHOIX ETAIT MAUVAIS. Une fonction IMBRIQUEE avait
+    ete prise comme temoin d'introuvable ; mesure : elle est PARFAITEMENT trouvee (le parcours
+    construit `<qualname>.<locals>.<nom>` comme le langage), donc le test ne mordait pas -- il a
+    rendu `DID NOT RAISE`. C'est une `lambda` qui echappe reellement au parcours (il ne visite que
+    `FunctionDef` / `AsyncFunctionDef` / `ClassDef`), et le second cran, l'AMBIGUITE, est garde par
+    le meme `len(trouves) == 1`."""
+    temoin = lambda: None                                          # noqa: E731 -- c'est le SUJET
+
+    with pytest.raises(AssertionError, match="introuvable"):
+        _appelle(temoin, "ability_pierce_effect_bonus")
 
 
 def test_etage4_la_famille_ABILITY_ne_thread_PAS_le_bonus_de_percage():

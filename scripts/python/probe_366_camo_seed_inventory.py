@@ -514,8 +514,27 @@ def canaux_de_seed() -> dict:
     LA DERIVATION, en trois crans, tous mecaniques :
       1. le CONSOMMATEUR (`runner/operations/spawn.py`, le seul foyer des `_seed_*_owner_effects`)
          est parse a l'AST -- on prend tout nom qu'il importe de `entities/effects/factory.py`,
-         **imports DIFFERES compris** (`get_owner_bond_effects_added_on_ability_init` est importe
-         DANS une fonction : un balayage des seuls imports de tete l'aurait rate) ;
+         **imports DIFFERES compris** (`get_owner_bond_effects_added_on_ability_init` etait importe
+         DANS une fonction : un balayage des seuls imports de tete l'aurait rate), **ET les noms
+         qu'il consomme par ACCES ATTRIBUTAIRE sur une liaison de MODULE** (forme B) ;
+
+    ⚠ LA FORME B EST UNE VOIE DE CONSOMMATION, ET ELLE NE LAISSE AUCUNE TRACE DANS UN RECENSEMENT
+    D'`ImportFrom` (#10036). Ce cran ne lisait que les `ImportFrom` visant `...factory`. Or
+    `spawn.py` est passe en **forme B** -- `from ...entities.effects import factory as _factory`,
+    puis `_factory.get_owner_bond_effects_added_on_ability_init(ab)` -- qui est *exactement* la
+    forme que le CLAUDE.md PRESCRIT (la seule des trois qui morde sous `monkeypatch.setattr`).
+    L'`ImportFrom` y lie le nom `factory`, pas les accesseurs : le recenseur a donc perdu DEUX
+    canaux d'un coup -- `ABILITY_INIT_OWNER_BOND_EFFECTS` (celui dont l'absence reclassait
+    `Lifewards_BondEffect` en `EXPOSE` a tort, le defaut meme que cette fonction existe pour
+    fermer) et `ABILITY_INIT_OWNER_FLAGS`. Le recenseur penalisait la doctrine qu'il est cense
+    servir ; le remede est qu'il SUIVE l'indirection, pas qu'on remette un nom en dur au site.
+
+    ⚠ ET IL LA SUIT SANS DEVENIR PERMISSIF : l'attribut n'est retenu que si son porteur RESOUT,
+    DANS SA PORTEE, vers `engine.entities.effects.factory` -- `MIG.ResolveurDeModules`, le foyer
+    unique de cette question (#485-r2), celui-la meme qui a du reparer deux faux positifs nes
+    d'une table PLATE. Un `<n_importe_quoi>.get_owner_bond_effects_added_on_ability_init` sur un
+    objet qui n'est pas ce module ne compte pas. Le cran 2 borne le reste : un nom qui n'est ni un
+    accesseur `return <TABLE>.get(...)` ni un `dict` de module part dans `ecartes`, et y est COMPTE.
       2. chaque nom est resolu contre `factory` -- un accesseur `def get_x(k): return <TABLE>.get(k)`
          rend `<TABLE>` (appariement par l'AST du `return`, pas par le nom), un `dict` de module se
          rend lui-meme, tout le reste est ECARTE et COMPTE ;
@@ -531,14 +550,35 @@ def canaux_de_seed() -> dict:
     """
     import ast as _ast
     import inspect as _inspect
+    from pathlib import Path as _Path
+    import migrate_485r1_barils_reexport as _MIG
     from engine.entities.effects import factory as _factory
     from engine.runner.operations import spawn as _spawn
 
-    # -- cran 1 : ce que le CONSOMMATEUR importe de `factory` (imports differes compris) ----------
+    # -- cran 1 : ce que le CONSOMMATEUR consomme de `factory`, PAR LES DEUX VOIES ----------------
+    # La racine du paquet se DERIVE du couple (chemin, nom pointe) : `engine.runner.operations.spawn`
+    # a 4 segments, donc `parents[3]`. Ecrit ainsi, un deplacement du module ne fabrique pas une
+    # racine fausse en silence -- il ne peut plus y avoir de desaccord entre les deux.
+    _chemin = _Path(_inspect.getsourcefile(_spawn)).resolve()
+    _racine = _chemin.parents[len(_spawn.__name__.split(".")) - 1]
+    _arbre_s = _ast.parse(_chemin.read_text(encoding="utf-8"))
+    _mod_s = _MIG.nom_module(_chemin, _racine)
+    _resolveur = _MIG.ResolveurDeModules(_arbre_s, _mod_s, _racine)
+    CIBLE = "engine.entities.effects.factory"
+
     importes: set[str] = set()
-    for n in _ast.walk(_ast.parse(_inspect.getsource(_spawn))):
-        if isinstance(n, _ast.ImportFrom) and (n.module or "").endswith("entities.effects.factory"):
-            importes |= {a.name for a in n.names}
+    for n in _ast.walk(_arbre_s):
+        # voie 1 -- `from ...entities.effects.factory import <nom>` (formes A et C). Le module vise
+        # est RESOLU EN ABSOLU (`cible_absolue`) et compare exactement : un `endswith` sur le module
+        # relatif accepterait un homonyme d'un autre paquet.
+        if isinstance(n, _ast.ImportFrom):
+            if _MIG.cible_absolue(_mod_s, n, _racine) == CIBLE:
+                importes |= {a.name for a in n.names}
+        # voie 2 -- FORME B : `<alias lie au MODULE factory>.<nom>`. Le porteur est resolu DANS SA
+        # PORTEE ; tout autre porteur, meme homonyme, est ignore.
+        elif isinstance(n, _ast.Attribute) and isinstance(n.value, _ast.Name):
+            if _resolveur.resoudre(n.value.id, n.value) == CIBLE:
+                importes.add(n.attr)
 
     # -- cran 2 : accesseur -> table, par l'AST du `return <TABLE>.get(...)` ----------------------
     table_de: dict[str, str] = {}
