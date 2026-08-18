@@ -16,10 +16,14 @@ appelle le slot 0x5a. `IdunBattle.Operations.DestroyMachineOperation$$RemoveEffe
 `IdunBattle.Operations.FleeOperation$$RemoveEffects` ont la MEME signature `(killed, step)` --
 la sequence de mort n'est donc pas la seule a s'en servir.
 
-## `RemoveEffectsOptions` (12 octets utiles, `classes.tsv` : taille boxee 28, `System.ValueType`)
+## `RemoveEffectsOptions` (12 octets, LAYOUT PROUVE et non plus suppose -- #547-r13)
 
     +0x00  Nullable<IdunBattle.Operations.KillUnitStep> step
-    +0x08  bool  <non nomme>
+    +0x08  bool  -- gate du SECOND predicat ; VRAI au SEUL revive (cf. le tableau ci-dessous)
+
+Ce n'est plus une lecture d'offsets : `Core.Services.OperationProcessor$$RemoveEffects(owner,
+options)` recopie la struct AVANT de la passer, et il recopie EXACTEMENT `*(undefined8*)options`
+puis `*(undefined4*)(options + 8)` -- 8 + 4 octets, rien de plus.
 
 lus par `RemoveEffectsOperation$$Execute` ainsi (mirror du decompile) :
 
@@ -69,9 +73,35 @@ est donc encore porte quand ces deux events partent -- c'est exactement ce que l
 re-armer `DaemonicPatrons` sur un kill de cible TAUNTEE (mesure live #911-r1), et ce que le port
 rendait impossible en retirant tout au step 0.
 
-Le second predicat (`options.<+0x08>`) n'est PAS porte : ses trois call-sites de mort le passent a
-0, aucun appelant porte ne l'active, et son slot n'a pas de nom. Le documenter vaut mieux que
-l'inventer.
+## Le SECOND predicat : `options.<+0x08>` && `IEffect` slot 2 `get_KeepOnRevive` (#547-r13)
+
+Il n'est PAS porte, et ce qui suit dit desormais POURQUOI par mesure, plus par defaut de nom.
+Les SEPT `$$RemoveEffects` du binaire, lus un par un :
+
+    KillUnitOperation$$RemoveEffects(killed, step)        slot 0x5a  step = Nullable(step)  +0x08 = 0
+    DestroyMachineOperation$$RemoveEffects(killed, step)  slot 0x5a  step = Nullable(step)  +0x08 = 0
+    FleeOperation$$RemoveEffects(killed, step)            slot 0x5a  step = Nullable(step)  +0x08 = 0
+    RemoveUnitOperation$$RemoveEffects(unit)              slot 0x5a  step = SANS valeur     +0x08 = 0
+    ReviveUnitOperation$$RemoveEffects(unit)              slot 0x5a  step = SANS valeur     +0x08 = 1
+    ChangeUnitOwnerOperation$$RemoveEffects(unit)         boucle INLINE : lit le slot 3 `get_KeepOnChangeOwner`
+    RemoveMachineOperation$$RemoveEffects(machine)        boucle INLINE : AUCUN filtre, retire tout
+
+⇒ le gate est arme a UN SEUL endroit, le REVIVE. **Sur le chemin de MORT, `get_KeepOnRevive` n'est
+JAMAIS lu**, quelle que soit sa valeur -- et le port, qui ne porte pas ce predicat, est donc FIDELE
+sur ce chemin. C'est ce qui tranche `#547-r13` : `LifewardsProtectingEffect` HERITE bien
+`get_KeepOnRevive = True` (derive : `probe_547r13_keep_on_revive.py`, defaut de `BaseEffect` =
+`True`, corps `b0 01 c3`, entree versionnee `metadata/keep_on_revive.tsv`), et il est retire quand
+meme. La lecture qui le faisait survivre avait perdu le conjoint `options.<+0x08> &&`.
+
+⚠ `ReviveUnitOperation$$RemoveEffects` n'a AUCUNE xref CODE (2 entrees DATA de tables de methodes) :
+son corps est le DOUBLON qu'IL2CPP a emis, l'appel reel etant INLINE dans
+`IdunBattle.Operations.ReviveUnitOperation$$Execute` (meme octet de garde de cctor, memes deux
+ecritures, meme slot 0x5a, entre `SetHealth` et la rafale de flags). Conclure << mort >> d'une
+absence de xref aurait ete faux ici.
+
+⚠ **ET C'EST UN ECART DE PORT, NOMME** : le natif RETIRE au revive tous les effets du ressuscite
+SAUF ceux a `KeepOnRevive`, alors que `revive.py::ReviveUnitOperation.execute` n'en retire AUCUN.
+Residu `#547-r14` -- il vit dans `revive.py`, pas ici.
 
 ## `RemoveEffectOperation$$Execute` — ce que « retirer » veut dire
 
