@@ -199,6 +199,30 @@ def battle_focus_move_tree():
     return If(IsAlive(Owner()), MoveUnit(Owner(), dest))
 
 
+def _battle_focus_flag_is_set(state: State, owner_id: int) -> bool:
+    """Le `EffectComponent.IsActive @+0x5c` de l'instance 1199 du porteur -- mirror du gate que
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+    d'evaluer `ShouldTrigger` (`if (*(char *)(<component> + 0x5c) == '\\0')` -- teste a l'entree,
+    PUIS RELU par cible dans la boucle de drain).
+
+    ⚠ CE GATE EST CELUI DU RAIL **TARGETS**, ET IL MANQUAIT (#421-r2). `BattleFocusEffect` produit
+    son trigger par `$$CreateTargetTrigger` -- corps RELU sur `t6dpr4k06g` : `On(0xb, alive:1) &
+    AbilityHasAttackType(..., 0) & (get_OwnerIsTarget | get_OwnerIsCaster) & (NOT IsMoving & CanMove)`
+    --, donc `EvaluateEffectTriggerTargets` le gate. L'autre rail
+    (`EvaluateEffectTriggerEffectAbilities`, issu de `$$CreateHandleTriggerAbilitiesInternal`)
+    n'accede JAMAIS a `+0x5c`, et l'y gater serait l'infidelite symetrique (case-229).
+
+    Aucune instance trouvee -> True : degradation PERMISSIVE, MEME direction et MEME raison que
+    `effect_triggers._ranged_auto_attack_flag_is_set` (on ne fabrique pas un refus ; le cas se
+    presente quand l'etat n'a pas d'`EffectsState`, et si l'effet est reellement absent c'est
+    `collect_effect_triggers` qui n'aura instancie aucun trigger)."""
+    if state.effects is None:
+        return True
+    insts = [e for e in state.effects.by_unit.get(int(owner_id), [])
+             if not e.consumed and e.effect_type == BATTLE_FOCUS_EFFECT]
+    return (not insts) or any(e.active for e in insts)
+
+
 class BattleFocusEffectTrigger(EffectTrigger):
     """`...BattleFocusEffect$$CreateTargetTrigger` + `$$CreateTargetTriggerBehaviour` (Sec.2/Sec.3).
 
@@ -215,6 +239,12 @@ class BattleFocusEffectTrigger(EffectTrigger):
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         owner = state.get_entity(self.owner_id)
         if owner is None:
+            return False
+        # Gate `EffectComponent.IsActive @+0x5c` du rail TARGETS (#229/#231, pose ici par #421-r2).
+        # Sans lui, le porteur continuait de se repositionner alors que son effet 1199 etait
+        # DESACTIVE : ni erreur, ni crash, juste un deplacement de trop -- meme signature que le
+        # soin de trop du Blood Chalice (#547-r2).
+        if not _battle_focus_flag_is_set(state, self.owner_id):
             return False
         # `ownerNeedsToBeAlive: true` du `On(...)`.
         uc = owner.get_component(UnitComponent)
