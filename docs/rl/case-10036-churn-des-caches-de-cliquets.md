@@ -98,7 +98,17 @@ jour. Un cache a cle agregee est donc perime **en permanence**, par construction
 | `probe_326_inventaire_natif` | CONTEXTE = sha de son propre source, change par un commentaire | 10 lignes ; **seule la ligne de contexte** differe |
 | `probe_283_step_mirror` | cle = sha du fichier -- **regime SAIN** | **81/3311 (2,4 %)**, 19 neuves |
 | `il2cpp_noms_declares` | contexte = sha de `il2cpp_metadata.py` ; regenere a `457e64de` | **aucun churn observe** |
-| `probe_270r4r2_import_en_premier` | -- | **aucun churn** : `A == B == C == HEAD`. **Premisse REFUTEE.** |
+| `probe_270r4r2_import_en_premier` | cle = sha de la FERMETURE d'imports (comme `probe_485`) | **aucun churn A ARBRE FIGE** : `A == B == C == HEAD` -- mais **621 lignes** de sha sous empilement (voir ci-dessous) |
+
+⚠ **`probe_270r4r2` : LES DEUX MESURES SONT VRAIES, ET LES CONFONDRE INVERSE LA CONCLUSION.**
+Ma mesure (deux process frais, **arbre FIGE**) rend `A == B == C == HEAD` : elle refute
+l'accusation de non-determinisme, et **rien d'autre**. Mesure de l'orchestrateur au merge, sur
+l'**empilement de 5 PR** : **621 lignes de sha changees pour ZERO valeur changee**. Il ne s'agit
+pas d'un desaccord — c'est le meme mecanisme, observe a deux echelles de temps : sa cle est un
+sha de FERMETURE d'imports, donc elle ne bouge pas quand l'arbre ne bouge pas, et elle bouge
+massivement des que l'arbre avance. **Ne pas lire la ligne du tableau comme << ce cache est
+sain >>** : lue seule, elle ferait renoncer a la reparation dont il a precisement besoin. Ce qui
+est refute, c'est la piste ENTROPIE ; la derive, elle, est du meme ordre que celle de `probe_485`.
 
 ## Deux angles morts trouves en chemin, non portes
 
