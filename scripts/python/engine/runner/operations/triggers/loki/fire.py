@@ -345,9 +345,37 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     `dispatch/ability.py::evaluate_abilities_for_event` route ce passif sur
     `int(event) == EventTriggerType.AttackInAtomicGroup`, `dispatch/attack.py` l'appelle sur
     l'attaque normale, et le gate `ranged` + l'appartenance du passif au kit de l'attaquant tiennent
-    lieu d'`IsRangedAttack()` et de `get_OwnerIsActor`. Ce qui reste NON porté est le seul
-    `ownerNeedsToBeAlive: true` — inobservable sur ce vecteur, l'attaquant étant vivant par
-    construction d'une attaque qu'il vient de porter.
+    lieu d'`IsRangedAttack()` et de `get_OwnerIsActor`.
+
+    ⚠ **LE `ownerNeedsToBeAlive: true` N'EST PAS PORTÉ, ET C'EST UN VERDICT MESURÉ (#951-r4), PAS
+    UN OUBLI.** Le conjoint EXISTE bel et bien au décompilé — `DSLTriggers$$On(0x4a,
+    ownerNeedsToBeAlive)` (surcharge à deux arguments, cible du `call` résolue AUX OCTETS :
+    `xor r9d,r9d ; mov r8b,1 ; mov edx,0x4a ; call rel32`) construit
+    `EventTypeTrigger(0x4a) & <DSLTriggers+0x20>`, et le slot `+0x20`, écrit par
+    `DSLTriggers$$InitializeShared`, porte `OwnerIsAliveAbilityTrigger`, dont le corps est
+    `IsUnit(Owner@AbilityEntities+0x18) ? UnitExtensions$$IsAlive(owner, state) : true`.
+
+    Ce qui a été mesuré, c'est qu'AUCUN régime ne le fait mordre au rang natif, et la raison n'est
+    PAS celle qu'écrivait la fiche (« l'attaquant étant vivant par construction d'une attaque qu'il
+    vient de porter ») : c'est que le natif DRAINE les triggers du groupe atomique APRÈS le splash.
+    Flux natif relevé coup par coup (`probe_951r4_fire_of_absolution_owner_alive.py`, `MC1_67`/777,
+    Vindicta à 2000 PV face à `darkaHellblaster` qui porte `GrimRetribution`) :
+
+        coups 00-03  arme      83 -> 77   (4 coups Flame)
+        coups 04-06  SPLASH    83 -> 79   FireOfAbsolution
+        coups 07-09  SPLASH    83 -> 81   FireOfAbsolution
+        coup  10     RIPOSTE   77 -> 83   2000, profil 7 -- Vindicta MEURT ICI, en DERNIER
+
+    `ExecuteAtomic(this, b, entities, 0x3d)` enveloppe `GetAttackDamageBehaviour` ET
+    `EvaluateAbilities(0x4a)` : les abilities déclenchées par `On(9)` sont mises en FILE et jouées à
+    la SORTIE du groupe. L'owner est donc vivant quand `On(0x4a)` part, toujours.
+
+    ⚠ **Et le porter DÉGRADERAIT le port, c'est mesuré aussi.** Le port, lui, joue la riposte à
+    l'intérieur d'`AttackDamageOperation.execute`, donc AVANT ce vecteur : au moment du splash son
+    attaquant est déjà mort (`unit_extensions_is_alive` faux). Sur le même montage, splash NATIF
+    **18 714**, port **14 970** (-20 %, une perte de membre d'escouade), et avec le gate posé le port
+    tomberait à **0**. Le gate transformerait une divergence de rang en no-op complet. Résidu
+    ouvert sur le rang : **`#951-r9`**.
 
     Conséquence de méthode : l'audit `kit-coverage.md` compte `FireOfAbsolution` comme MANQUANT
     pour `adeptRetributor` parce qu'il lit les REGISTRES, et que ce passif n'y a pas d'entrée.
@@ -358,6 +386,7 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or "FireOfAbsolution" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
         return []
+    # ⚠ AUCUN GATE `ownerNeedsToBeAlive` ICI, ET C'EST UNE MESURE (#951-r4) -- cf. la docstring.
     # behaviour = arbre DSL `fire_of_absolution_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) :
     # Inform(int(TagKey.Target_Id)) & splash(AttackWithAttackDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
     # SetOnFire)). Les feuilles emettent les MEMES Operations que l'ancien corps imperatif hybride

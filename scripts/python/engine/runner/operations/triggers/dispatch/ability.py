@@ -38,8 +38,11 @@ IMPERATIVE_ABILITY_VECTORS: dict[str, object] = {
     # `On(0x4a = AttackInAtomicGroup, ownerNeedsToBeAlive: 1) & get_OwnerIsActor & IsRangedAttack()`.
     # Le `CreateBehaviour` est porte en entier par `fire_of_absolution_tree` ; ce qui manque au
     # registre est l'INSCRIPTION, pas le corps. Cf. `docs/rl/case-951-trophy-taker-et-fire-of-
-    # absolution.md` §4. Le gate `ownerNeedsToBeAlive` n'est pas modelise sur ce vecteur (residu
-    # `#951-r4`) : inobservable ici, l'attaquant venant de porter son attaque.
+    # absolution.md` §4. Le gate `ownerNeedsToBeAlive` reste NON MODELISE sur ce vecteur, et c'est
+    # desormais un VERDICT MESURE (#951-r4) : le natif DRAINE les triggers du groupe atomique APRES
+    # `On(0x4a)` (flux releve coup par coup -- splash, PUIS riposte), donc l'owner y est vivant
+    # TOUJOURS ; et le poser ici mettrait le splash du port a ZERO, parce que le port, lui, joue la
+    # riposte AVANT ce vecteur (residu de rang `#951-r9`). Cf. `loki/fire.py`.
     "FireOfAbsolution": _fire_of_absolution_after_attack,
 }
 
