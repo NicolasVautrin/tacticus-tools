@@ -160,6 +160,8 @@ from .rites_of_morkai import RitesOfMorkaiPlaybook                     # #906-r1
 # #1032-r1 -- les DEUX faces DECISION laissees ouvertes par la tranche COMBAT #1032.
 from .call_ripper_swarms import CallRipperSwarmsPlaybook
 from .nova_charge import NovaChargePlaybook
+# #1033-r2 -- la face DECISION que la tranche COMBAT #1033 avait laissee ouverte.
+from .reveal import RevealPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -652,6 +654,18 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 qui REFUSE ; `GetUseProbability` rend `Half` ou `One`
         #                                 selon que `NovaShield` (1194, l'ability SOEUR) est encore
         #                                 lancable, donc jamais `<= 0`.
+        # #1033-r2 -- la face DECISION que la tranche COMBAT #1033 avait inscrite au registre de
+        # dette de `probe_1021_face_decision_au_registre`.
+        RevealPlaybook(),               # 1107 (`eldarNpc2Warlock`, npc) -- utilite CONSTANTE
+        #                                 `Fix64.op_Implicit(1)`, EGALE a `MIN_UTILITY` (le gate
+        #                                 lu est `>=`, pas `>`). Ce playbook FILTRE au lieu de
+        #                                 classer : son seul terme discriminant est
+        #                                 `WillNormalAttackKill -> continue`, le patron des quinze
+        #                                 de `normal_attack_kill_gate` et de `Stormcaller`. Le gate
+        #                                 etant POSITIONNEL (il predit la normale depuis la tuile
+        #                                 candidate) et l'utilite plate, l'argmax retombe sur la
+        #                                 PREMIERE position de l'ordre natif -- l'ORIGINE -- des
+        #                                 qu'une cible y survit.
     )
 }
 

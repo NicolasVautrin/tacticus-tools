@@ -168,18 +168,15 @@ DETTE: dict[int, tuple[str, str]] = {
     1091: ("SANS_VERDICT",
            "SlashingDivePlaybook -- EvaluateNonComparable. COMBAT : SlashingDiveAbility "
            "(thousandsons). 3 porteurs (npc, summons)."),
-    1107: ("SANS_VERDICT",
-           "RevealPlaybook -- EvaluateNonComparable (+ .ctor, .cctor). COMBAT : RevealAbility "
-           "(loki/reveal.py), entree au registre par #1033. 1 porteur (npc `eldarNpc2Warlock`). "
-           "RE DEJA FAITE, residu `#1033-r2` : le corps est COURT et son utilite est CONSTANTE -- "
-           "`bucket = Bucket(0, <statics[0]>)` ; `foreach t in BasePlaybook$$"
-           "GetEligibleTargetsSelectable(caster, casterPosition.MainTile)` ; "
-           "`if (BasePlaybook$$WillNormalAttackKill(caster, t, casterPosition.MainTile)) continue;` "
-           "-- on ECARTE les cibles qu'une attaque normale tuerait -- ; "
-           "`bucket.AddAction(BasePlaybook$$GenerateAction(casterPosition, t, Fix64(1)))`. "
-           "Le `.ctor` passe `0x453` (= 1107) a `ComparablePlaybook<T>..ctor`, mais la methode "
-           "propre est `EvaluateNonComparable` -> registre vise "
-           "`playbook.noncomparable.PLAYBOOKS` (derivation de `probe_909` etape 4)."),
+    # 1107 `Reveal` -- TRANCHE par #1033-r2, ligne RETIREE : sa face DECISION est PORTEE
+    # (`engine/playbook/noncomparable/reveal.py`, registre `PLAYBOOKS`). Corps RELU sur le build
+    # courant, pas recopie de la fiche : `Bucket(0, Nullable(<statics[0]> = Fix64(1)))` ;
+    # `foreach e in BasePlaybook$$GetEligibleTargetsSelectable(caster, casterPosition.MainTile)` ;
+    # `if (BasePlaybook$$WillNormalAttackKill(caster, e.Target, casterPosition.MainTile)) continue;`
+    # `bucket.AddAction(BasePlaybook$$GenerateAction(casterPosition, e.Target, Fix64(1)))`.
+    # Le retrait est ce qui la fait tomber sous le CRAN A -- si le port disparaissait, l'item
+    # rougirait au lieu d'etre couvert par une vieille ligne de dette.
+    # Garde : `tests/engine/playbook/test_1033r2_reveal_decision_offline.py`.
     # 1108 RETIRE le 2026-08-14 (#940-r2) : la face DECISION est PORTEE
     # (`engine/playbook/noncomparable/kiss_of_death.py`, au registre `PLAYBOOKS`), donc le CRAN A
     # prend le relais -- la laisser en `DETTE` ferait taire le cran sur une ability desormais
