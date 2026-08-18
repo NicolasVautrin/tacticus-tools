@@ -142,38 +142,45 @@ _COVERAGE_HOLES = {
         "meme si la premiere lacune etait fermee. "
         "CE N'EST PAS UN SITE INTRINSEQUEMENT INDETERMINABLE -- c'est une lacune de l'outil, et "
         "elle va CROITRE : ecrire le membre d'enum plutot que le litteral est ce que CLAUDE.md "
-        "prescrit, donc ce patron se repandra. Residu #484-r1 (etendre le resolveur). "
+        "prescrit, donc ce patron se repandra. "
+        "⚠ ETAT AU 2026-08-18 (#10027) : les DEUX lacunes nommees ici sont RESOLUES au niveau du "
+        "resolveur -- `_membre_d_enum` lit `<Enum>.<membre>.name` (et `Enum(int(Enum.M)).name`), "
+        "`_alias_de_modules` resout une constante d'un module IMPORTE. Elles ont ferme QUATRE "
+        "fichiers (`predict.py`, `genestealer.py`, `waaagh.py`, `attempted_possession.py`, "
+        "`instruments_of_vengeance_attack.py`, `effect_targets.py`). CE fichier-ci reste un trou "
+        "pour une TROISIEME raison, la seule qui subsiste : `_relay_args` transporte les noeuds "
+        "AST des appelants mais les RESOUT contre l'env du DEFINISSEUR, donc `min_key=M._VAR_DAMAGE` "
+        "ecrit dans `operations/damage.py` reste hors de portee meme si la forme B est desormais "
+        "resolue -- il faudrait resoudre chaque argument d'appelant contre l'env de SON module. "
+        "Residu #484-r1 (ce qu'il en reste). "
         "PERTE MESUREE, bornee : l'axe est MIXTE, donc `_emit` continue d'emettre tous les "
         "couples LITTERAUX du foyer et n'ajoute qu'`ANY` -- seuls les couples "
         "`(HeavyBoltPistol, dmg)` et `(HeavyBoltPistol, nrOfHits)` cessent d'etre nommes."),
-    "scripts/python/engine/predict.py": (
-        "#935. MEME CAUSE EXACTE que `abilities/base.py` ci-dessus, et c'est la croissance qui y "
-        "etait ANNONCEE : le site est "
-        "`ability_var(_NRC.ABILITY_ID, _NRC.VAR_HP_TO_HEAL, lvl, multiplier_pct=mult)`, ou `_NRC` "
-        "est `engine.entities.effects.loki.nether_realm_casket`, importe. L'env du resolveur est "
-        "PAR MODULE, donc AUCUN des deux axes ne se resout -- d'ou `(ANY, ANY)`, un trou et non "
-        "un couple. Rouge apparu au merge de #909 (`9f80611d`), qui a introduit ce site. "
-        "PERTE MESUREE, nulle en pratique : les deux constantes valent `\"NetherRealmCasket\"` et "
-        "`\"hpToHeal\"` (LUES dans leur module de definition), et le couple "
-        "`(NetherRealmCasket, hpToHeal)` n'est patche par AUCUNE fixture du depot -- la seule "
-        "chose perdue est de POUVOIR le nommer si une fixture future le patchait. "
-        "La reparation de fond reste le residu #484-r1 (resoudre une constante importee d'un "
-        "AUTRE module) ; la nommer ici est ce que le probe prescrit, pas un blanc-seing."),
-    "scripts/python/engine/runner/abilities/genestealer.py": (
-        "#935, TROISIEME occurrence de la MEME lacune -- et celle-ci est apparue au REBASE, pas "
-        "dans le diff de la tranche. Le site est "
-        "`ability_var(self.ABILITY_ID, AbilityConstantType.range.name, is_constant=True)` dans "
-        "`HeroicFusilladeAbility.get_dynamic_invalid_target_reason`. AUCUN des deux axes ne se "
-        "resout : l'ability est un ATTRIBUT DE CLASSE lu par `self.` (le resolveur ne remonte pas "
-        "a la classe englobante) et la variable est un `<Enum>.<membre>.name`, la lacune que "
-        "`abilities/base.py` nomme deja et annonce CROISSANTE -- ecrire le membre d'enum plutot "
-        "que le litteral est ce que CLAUDE.md prescrit, donc ce patron se repand, exactement "
-        "comme predit. "
-        "PERTE MESUREE, nulle en pratique : les deux valeurs sont LUES dans le fichier -- "
-        "`ABILITY_ID = \"HeroicFusillade\"` et `range` -- et le couple "
-        "`(HeroicFusillade, range)` n'est patche par AUCUNE fixture du depot. "
-        "Meme reparation de fond : residu #484-r1."),
+    "scripts/python/engine/runner/operations/triggers/loki/power_up.py": (
+        "#10027. Le seul des cinq trous arrives dans cette tranche que l'extension du resolveur "
+        "(#484-r1, ci-dessus) NE ferme PAS, et sa cause est DIFFERENTE : le site est "
+        "`ability_var(ability_name, key.name, is_constant=True)` dans `power_up._const`, un RELAIS "
+        "dont les DEUX axes sont des PARAMETRES -- et ses appelants (`add_shield_tree(ability_name, "
+        "...)`, `_const(ability_name, key)`) remontent eux-memes a des parametres, donc le point "
+        "fixe ne clot pas la chaine. Ce n'est ni un membre d'enum ni une constante importee : "
+        "l'axe VARIABLE se resoudrait desormais (`key.name`) si `key` etait lie, l'axe ABILITY "
+        "non. "
+        "PERTE MESUREE, nulle en pratique : les constantes lues sont celles des power-ups "
+        "(`shieldPct`, `nrOfRounds`, `healthPct`, `dmgPct`), et le depot ne patche EN TOUT que "
+        "3 abilities (`HellfireShells`, `InescapableAccuracy`, `LightImUp`) et 5 variables "
+        "(`extraCritDmg`, `extraHit`, `maxDmg`, `minDmg`, `nrOfHits`) -- aucune intersection. "
+        "Reparation de fond : etendre le point fixe aux relais dont l'axe ABILITY remonte a un "
+        "attribut de classe de l'appelant. Residu `#10027-r1`."),
 }
+# ⚠ DEUX ENTREES ONT ETE RETIREES D'ICI le 2026-08-18 (#10027), et c'est le residu #484-r1 qui se
+# resorbe, pas une liste qu'on allege : `engine/predict.py` et `engine/runner/abilities/
+# genestealer.py` etaient nommes pour les DEUX lacunes que `abilities/base.py` annoncait
+# CROISSANTES -- `<Enum>.<membre>.name`, et la constante d'un module IMPORTE (forme B). Les deux
+# sont desormais RESOLUES par `_membre_d_enum` et `_alias_de_modules` ; ces deux fichiers ne
+# sortent plus en `any_any`, donc les y laisser aurait fabrique des FANTOMES -- un blanc-seing pour
+# un trou qui n'existe plus, exactement le vice que `test_aucune_exception_orpheline` interdit du
+# cote des exemptions. Le cran symetrique existe desormais :
+# `test_aucun_trou_declare_orphelin`.
 
 _LIGHTIMUP_WHY = (
     "montage #369 (regime `minDmg + maxDmg == 3 mod 4`, le SEUL ou troncature et "
@@ -262,13 +269,15 @@ class _Env:
     def __init__(self) -> None:
         self.values: dict = {}       # nom -> [noeud AST de valeur, ...]
         self.self_alias: dict = {}   # attribut `self.X` -> nom du parametre de `__init__`
+        self.modules: dict = {}      # alias local -> Path du module importe (FORME B, #10027)
 
     def bind(self, name: str, node: ast.AST) -> None:
         self.values.setdefault(name, []).append(node)
 
 
-def _build_env(tree: ast.AST) -> _Env:
+def _build_env(tree: ast.AST, path: "Path | None" = None) -> _Env:
     env = _Env()
+    env.modules = _alias_de_modules(tree, path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for t in node.targets:
@@ -348,12 +357,66 @@ def _resolve_node(node, env: _Env, depth: int = 0):
     return None
 
 
+def _est_nom_de_type(node) -> bool:
+    """`ast.Name` dont l'identifiant suit la convention de CLASSE (initiale majuscule).
+
+    C'est le seul discriminant disponible sans importer : un mirror d'enum s'ecrit
+    `ActiveAbilityType`, `AbilityVariableType`, `AbilityConstantType`. Le risque est une
+    SUR-approximation (nommer un couple de trop), qui est la politique DECLAREE de ce recenseur
+    (`_Env` : « il peut nommer un couple de trop, jamais en taire un ») -- l'inverse, taire, est
+    ce qui laisse passer un patch dangereux."""
+    return isinstance(node, ast.Name) and node.id[:1].isupper()
+
+
+def _membre_d_enum(node, env: _Env, depth: int = 0) -> "str | None":
+    """Le NOM DE MEMBRE derriere une expression qui designe un membre d'enum, ou `None`.
+
+    ⚠ POURQUOI (#10027). `_strings` ne savait pas lire `.name` sur un membre d'enum, alors que
+    c'est la forme que la doctrine PRESCRIT (« un ENTIER qui DESIGNE quelque chose passe par un
+    ENUM », et l'on ecrit `AbilityVariableType.maxDmg.name` plutot que `"maxDmg"`). Le recenseur
+    rendait donc INDETERMINE -- un trou de couverture -- sur du code exemplaire. Mesure : sur les
+    5 fichiers arrives en trou, **3** tiennent a ce seul motif.
+
+    Trois ecritures, toutes resolues SYNTAXIQUEMENT (aucun import, aucune execution) :
+      * `AbilityVariableType.maxDmg`                    -> "maxDmg"
+      * `CONST_NR_OF_SUMMONS` lie a `AbilityConstantType.nrOfSummons` -> "nrOfSummons"
+      * `ActiveAbilityType(X)` ou `X` vaut `ActiveAbilityType.Waaagh` (ou `int(...)` de celui-ci)
+        -> "Waaagh". L'aller-retour `E(int(E.M)).name == M` est une identite de `Enum`.
+    """
+    if node is None or depth > _MAX_DEPTH:
+        return None
+    if isinstance(node, ast.Attribute) and _est_nom_de_type(node.value):
+        return node.attr                                  # `Enum.Membre`
+    if isinstance(node, ast.Call):
+        # `int(Enum.M)` / `Enum(<x>)` -- le second exige que l'argument designe un membre du MEME
+        # enum, sans quoi l'aller-retour ne dit rien.
+        if getattr(node.func, "id", None) == "int" and node.args:
+            return _membre_d_enum(node.args[0], env, depth + 1)
+        if _est_nom_de_type(node.func) and node.args:
+            dedans = _membre_d_enum(node.args[0], env, depth + 1)
+            return dedans if dedans is not None else None
+        return None
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        cle = node.id if isinstance(node, ast.Name) else node.attr
+        for c in (env.values.get(cle) or []):
+            got = _membre_d_enum(c, env, depth + 1)
+            if got is not None:
+                return got
+    return None
+
+
 def _strings(node, env: _Env, depth: int = 0) -> "set | None":
     """Ensemble des chaines qu'une expression peut valoir, ou `None` si indetermine."""
     if node is None or depth > _MAX_DEPTH:
         return None
     if isinstance(node, ast.Constant):
         return {node.value} if isinstance(node.value, str) else None
+    # `<membre d'enum>.name` -- LE nom du membre, cf. `_membre_d_enum`. Teste AVANT la branche
+    # `Attribute` generique, qui chercherait un binding nomme `name` et rendrait `None`.
+    if isinstance(node, ast.Attribute) and node.attr == "name":
+        membre = _membre_d_enum(node.value, env, depth + 1)
+        if membre is not None:
+            return {membre}
     if isinstance(node, ast.IfExp):                       # `X if cond else Y` -> les DEUX
         a, b = _strings(node.body, env, depth + 1), _strings(node.orelse, env, depth + 1)
         return None if a is None or b is None else (a | b)
@@ -377,6 +440,16 @@ def _strings(node, env: _Env, depth: int = 0) -> "set | None":
         outs = [_strings(c, env, depth + 1) for c in cands]
         return None if any(o is None for o in outs) else set().union(*outs)
     if isinstance(node, ast.Attribute):
+        # FORME B : `_wsb.ABILITY_ID` ou `_wsb` est un MODULE importe. La constante vit chez lui,
+        # pas ici -- sans ce bras, l'ecriture que la doctrine prescrit sort INDETERMINEE (#10027).
+        if isinstance(node.value, ast.Name) and node.value.id in env.modules:
+            autre = _env_de_module(env.modules[node.value.id])
+            if autre is not None:
+                cands = autre.values.get(node.attr) or []
+                outs = [_strings(c, autre, depth + 1) for c in cands]
+                if outs and not any(o is None for o in outs):
+                    return set().union(*outs)
+            return None
         cands = env.values.get(node.attr) or []
         if not cands:
             return None
@@ -426,6 +499,57 @@ def _import_aliases(tree: ast.AST) -> dict:
                 if a.asname:
                     out[a.asname] = a.name
     return out
+
+
+#: `chemin absolu de module -> _Env` : un meme module de constantes est lu par plusieurs sites.
+_ENV_MODULE: dict = {}
+
+
+def _alias_de_modules(tree: ast.AST, path: "Path | None") -> dict:
+    """`alias local -> Path du module`, pour les imports de MODULE en FORME B.
+
+    ⚠ POURQUOI (#10027). La doctrine PRESCRIT la forme B (`from pkg import mod as M` puis `M.X`)
+    parce qu'elle seule laisse une substitution de test mordre. Le recenseur, lui, ne resolvait que
+    les bindings du module COURANT : `effect_targets.py` ecrit
+    `ability_var(_wsb.ABILITY_ID, _wsb.RANGE_CONSTANT_KEY, is_constant=True)` avec
+    `from .effects.loki import way_of_the_short_blade as _wsb`, et sortait donc INDETERMINE sur
+    les DEUX axes -- un trou de couverture cree par l'ecriture qu'on recommande.
+
+    Ne resout que les imports RELATIFS et les imports `engine.*`, contre l'arbre du depot : un
+    module tiers n'a pas de constante d'ability a offrir, et son chemin n'est pas dans l'arbre."""
+    if path is None:
+        return {}
+    out: dict = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level:                                    # `from .effects.loki import x as _wsb`
+            base = path.parent
+            for _ in range(node.level - 1):
+                base = base.parent
+            if node.module:
+                base = base.joinpath(*node.module.split("."))
+        elif (node.module or "").startswith("engine."):
+            base = ENGINE_ROOT.parent.joinpath(*node.module.split("."))
+        else:
+            continue
+        for a in node.names:
+            cible = base / (a.name + ".py")
+            if cible.exists():
+                out[a.asname or a.name] = cible
+    return out
+
+
+def _env_de_module(path: "Path"):
+    """`_Env` d'un module VOISIN, mise en cache. `None` si illisible (jamais une exception)."""
+    cle = str(path)
+    if cle not in _ENV_MODULE:
+        try:
+            _ENV_MODULE[cle] = _build_env(ast.parse(path.read_text(encoding="utf-8",
+                                                                   errors="replace")))
+        except (OSError, SyntaxError):
+            _ENV_MODULE[cle] = None
+    return _ENV_MODULE[cle]
 
 
 def _arg(call: ast.Call, index: int, name: str):
@@ -665,7 +789,7 @@ def scan_reads(root: Path = ENGINE_ROOT, reader: str = READER, extra_roots=()) -
             trees[p] = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
         except (SyntaxError, UnicodeDecodeError):
             continue
-    envs = {p: _build_env(t) for p, t in trees.items()}
+    envs = {p: _build_env(t, p) for p, t in trees.items()}
     aliases = {p: _import_aliases(t) for p, t in trees.items()}
     import re as _re
     sources_words = {p: set(_re.findall(r"[A-Za-z_][A-Za-z_0-9]*",
@@ -959,7 +1083,7 @@ def scan_patches(root: Path = PY_ROOT, files=None) -> dict:
             tree = ast.parse(src, filename=str(p))
         except (SyntaxError, UnicodeDecodeError):
             continue
-        env = _build_env(tree)
+        env = _build_env(tree, p)
         # MEME lacune que cote LECTURE, et elle serait PLUS dangereuse ici : un
         # `from catalog_inject import patch_ability_variables as _pav` rendrait le patch INVISIBLE,
         # donc jamais confronte a ce que le port lit. Aucun module du corpus ne l'ecrit aujourd'hui

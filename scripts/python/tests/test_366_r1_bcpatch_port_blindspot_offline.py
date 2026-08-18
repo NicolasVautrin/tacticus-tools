@@ -95,6 +95,28 @@ def test_la_couverture_reste_nommee(reads, patches):
     assert rep["unresolved"] == [], rep["unresolved"]
 
 
+def test_aucun_trou_declare_orphelin(reads, patches):
+    """LE CRAN SYMETRIQUE DE `test_aucune_exception_orpheline` (#10027).
+
+    Un fichier NOMME dans `_COVERAGE_HOLES` qui n'est plus aveugle est un FANTOME : il donne un
+    blanc-seing a un trou qui n'existe plus, et surtout il masquerait sa REAPPARITION -- le site
+    pourrait redevenir indeterminable sans que rien ne rougisse. C'est exactement le vice que la
+    garde des exemptions interdit deja de l'autre cote du croisement.
+
+    Ce cran n'existait pas, et il aurait du : l'extension du resolveur de cette tranche a rendu
+    DEUX entrees mortes d'un coup (`predict.py`, `genestealer.py`, tous deux #935) -- rien ne
+    l'aurait dit."""
+    rep = P.intersect(reads, patches)
+    vivants = set(rep["holes_declared"]) | set(rep["holes"])
+    fantomes = sorted(set(P._COVERAGE_HOLES) - vivants)
+    assert not fantomes, (
+        "trou(s) de couverture NOMME(s) mais plus aveugle(s) : %s. Le resolveur les atteint "
+        "desormais -- les RETIRER de `_COVERAGE_HOLES` (en DISANT ce qui a change), sinon leur "
+        "reapparition passerait inapercue." % (fantomes,))
+    # NON-DEGENERESCENCE : la liste ne doit pas etre vide au point que ce cran ne mesure plus rien.
+    assert P._COVERAGE_HOLES, "plus aucun trou nomme : ce cran ne porte plus sur rien"
+
+
 # --- LA MORSURE ---------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("tag,source,want_red", [

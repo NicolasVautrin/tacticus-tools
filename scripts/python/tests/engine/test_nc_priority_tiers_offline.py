@@ -45,10 +45,34 @@ class _StubPlaybook(NC.NonComparablePlaybook):
                  "to": None, "pred": self._util}]
 
 
+class _Ctx(SimpleNamespace):
+    """Contexte de decision STUB, avec repli a `None` sur ce qu'il ne porte pas explicitement.
+
+    ⚠ POURQUOI CE REPLI (#10027). Ce fichier garde le CABLAGE DES TIERS -- il n'a aucune opinion
+    sur la forme du contexte de decision. Il etait pourtant ROUGE sur `master`, et pas pour une
+    raison de tiers : `NonComparableGenerator.generate` a gagne un champ
+    (`machine_of_war_position=ctx.machine_of_war_position`, #979 -- le predicat
+    `IsPositionMachineForCurrentPlayer(2)` de `DevastatingRefrainAbility$$GetShape`), lu en acces
+    DIRECT la ou ses voisins immediats passent par `getattr(ctx, ..., None)`. Le champ EST porte
+    par `AiDecisionContext`, donc la production ne casse jamais : c'est le `SimpleNamespace` ecrit
+    a la main ici qui a peri -- << un changement de harnais perime les premisses d'un test >>.
+
+    Le repli reproduit le contrat que `NCContext` declare deja pour ce champ
+    (`machine_of_war_position: object = None`, tri-etat « non mesure ») et l'etend a tout champ
+    futur. Ce n'est PAS un affaiblissement du test : ce qu'il garde reste assert e explicitement --
+    un generateur devenu muet ferait rougir `action["ability"] == ...`, pas passer."""
+
+    def __getattr__(self, nom):        # appele UNIQUEMENT quand l'attribut n'est pas porte
+        if nom.startswith("__"):
+            raise AttributeError(nom)
+        return None
+
+
 def _ctx(ability_ids):
     """Contexte de decision minimal : seul `me.abilities` porte l'information utile ici (les
-    stubs n'interrogent ni la geometrie ni la prediction)."""
-    return SimpleNamespace(
+    stubs n'interrogent ni la geometrie ni la prediction). Les autres champs sont poses pour leur
+    TYPE (un `{}`/`[]` la ou le generateur fait `.get`/itere) ; tout le reste replie a `None`."""
+    return _Ctx(
         uid=1, origin=(0, 0), reach_nc=[(0, 0)], epos=[], fpos=[], enemies=[],
         neigh_by_pos={}, walkable_by_pos={}, plans={}, hp_cur_by_id={}, elev_by_pos={},
         ability_targets=None, wt=None, is_temporary_by_pos={}, effects_by_pos={},
@@ -99,6 +123,18 @@ def test_sans_le_tier_haut_le_tier_bas_reprend(registry):
     retire aussi le tier 0 c'est le tier -1000. Le filtrage n'est donc pas un accident d'ordre."""
     assert DefaultAiUnitTactic().calculate_next_action(_ctx([9102, 9103]))["ability"] == 9102
     assert DefaultAiUnitTactic().calculate_next_action(_ctx([9103]))["ability"] == 9103
+
+
+def test_le_stub_de_contexte_replie_a_None_sans_masquer_ce_qu_il_porte():
+    """Contrat du repli (#10027) : ce qui est POSE est rendu tel quel, ce qui est ABSENT rend
+    `None` -- jamais un `AttributeError`, jamais une valeur inventee. Le dunder, lui, doit
+    continuer a lever, sans quoi `copy`/`pickle`/`inspect` se croiraient servis."""
+    c = _ctx([9101])
+    assert c.uid == 1 and c.plans == {} and c.me["abilities"][0]["id"] == 9101
+    assert c.machine_of_war_position is None          # le champ #979 qui a peri ce fichier
+    assert c.un_champ_qui_n_existe_pas_encore is None
+    with pytest.raises(AttributeError):
+        c.__un_dunder_quelconque__
 
 
 def test_ordre_des_tiers_du_tactic():
