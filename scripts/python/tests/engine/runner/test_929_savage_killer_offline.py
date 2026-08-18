@@ -16,12 +16,12 @@ ASCII only.
 """
 from __future__ import annotations
 
-import os
 import struct
 from pathlib import Path
 
 import pytest
 
+import pe_symboles as PE
 import gameconfig as GC
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.damage_profile_type import DamageProfileType
@@ -60,7 +60,6 @@ DECLENCHEUR = {
 }
 
 ROOT = Path(__file__).resolve().parents[4].parent          # racine du depot
-IMAGE_BASE = 0x180000000                                   # base de l'image PE de GameAssembly.dll
 
 
 # ----------------------------------------------------------------------------- les CONSTANTES
@@ -214,54 +213,28 @@ def test_le_seuil_pre_et_le_defaut_du_foyer_partage():
 
 
 # ------------------------------------------------------------------ le verdict DEAD CODE
-def _build_hash() -> str | None:
-    """Le build dont on a A LA FOIS la table de symboles VERSIONNEE et la DLL INSTALLEE.
-
-    `data/symbols/` porte plusieurs builds ; prendre le premier par ordre alphabetique rendrait un
-    hash PERIME (mesure : `gqfc5mff6c` sort avant `rnca9r7q6c`) et ferait skipper la garde alors
-    que le binaire est la. Le discriminant est la CONCORDANCE des deux, exactement la verification
-    que le CLAUDE.md exige avant toute analyse offline."""
-    d = ROOT / "data" / "symbols"
-    local = os.environ.get("LOCALAPPDATA")
-    for p in sorted(d.iterdir()) if d.exists() else []:
-        if not ((p / "ghidra" / "functions.tsv").exists() and (p / "BUILD").exists()):
-            continue
-        if (Path(local or "") / "tacticus" / "games" / p.name / "GameAssembly.dll").exists():
-            return p.name
-    return None
+# #10026-r1 -- CES HELPERS DELEGUENT AU FOYER (`pe_symboles`, #10028). Ils etaient RECOPIES dans
+# TROIS fichiers, avec trois corps differents, et deux d'entre eux rendaient la PREMIERE VA portant
+# le nom -- verts PAR CHANCE (leurs symboles n'ont qu'une VA sur ce build), pas par construction.
+# Trois copies, c'est trois dates de peremption. Depuis, `va_du_symbole` REFUSE un nom partage.
+#
+# ⚠ CE SONT DES WRAPPERS, PAS DES LIAISONS. `_va_of = PE.va_du_symbole` gelerait la fonction a
+# l'import (forme A) et NE MORDRAIT PAS sous `monkeypatch.setattr("pe_symboles.va_du_symbole", …)`.
+# Un wrapper resout l'attribut A CHAQUE APPEL -- c'est la forme B que le CLAUDE.md prescrit.
+def _build_hash():
+    return PE.build_avec_dll()
 
 
-def _va_of(build: str, symbole: str) -> int | None:
-    tsv = ROOT / "data" / "symbols" / build / "ghidra" / "functions.tsv"
-    for line in tsv.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("#") or "\t" not in line:
-            continue
-        va, name = line.split("\t", 1)
-        if name.strip() == symbole:
-            return int(va, 16)
-    return None
+def _va_of(build, symbole):
+    return PE.va_du_symbole(build, symbole)
 
 
-def _read_at_va(dll: Path, va: int, size: int) -> bytes:
-    """Lit `size` octets a la VA `va` en traduisant par les SECTIONS du PE (mini-parseur : e_lfanew,
-    NumberOfSections, SizeOfOptionalHeader, puis chaque IMAGE_SECTION_HEADER de 40 octets). La RVA
-    est calculee EN CODE (`va - IMAGE_BASE`), jamais a la main."""
-    rva = va - IMAGE_BASE
-    with dll.open("rb") as f:
-        head = f.read(0x400)
-        e_lfanew = struct.unpack_from("<I", head, 0x3C)[0]
-        nsec = struct.unpack_from("<H", head, e_lfanew + 6)[0]
-        opt_size = struct.unpack_from("<H", head, e_lfanew + 20)[0]
-        sec_off = e_lfanew + 24 + opt_size
-        f.seek(sec_off)
-        secs = f.read(40 * nsec)
-        for i in range(nsec):
-            base = 40 * i
-            vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", secs, base + 8)
-            if vaddr <= rva < vaddr + max(vsize, rawsize):
-                f.seek(rawptr + (rva - vaddr))
-                return f.read(size)
-    return b""
+def _vas_of(build, symbole):
+    return PE.vas_du_symbole(build, symbole)
+
+
+def _read_at_va(dll, va, size):
+    return PE.lire_a_la_va(dll, va, size)
 
 
 def _branch_targets(blob: bytes, va: int, opcode: int) -> list[int]:
@@ -301,8 +274,7 @@ def test_create_valid_active_ability_trigger_est_dead_code():
     build = _build_hash()
     if build is None:
         pytest.skip("aucune table `data/symbols/<build>/ghidra/functions.tsv`")
-    local = os.environ.get("LOCALAPPDATA")
-    dll = Path(local or "") / "tacticus" / "games" / build / "GameAssembly.dll"
+    dll = PE.chemin_dll(build)                 # meme foyer que `_build_hash` (#10026-r1)
     if not dll.exists():
         pytest.skip(f"GameAssembly.dll du build {build} non installee ({dll})")
     pref = "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SavageKillerAbility$$"

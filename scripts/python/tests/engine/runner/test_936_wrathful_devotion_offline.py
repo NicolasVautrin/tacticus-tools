@@ -21,12 +21,12 @@ ASCII only.
 """
 from __future__ import annotations
 
-import os
 import struct
 from pathlib import Path
 
 import pytest
 
+import pe_symboles as PE
 import hexgeo
 import gameconfig as GC
 from engine.dsl.event_trigger_type import EventTriggerType
@@ -532,74 +532,28 @@ def test_aucun_site_du_port_ne_pose_le_visuel_KILLED():
 
 
 # --------------------------------------------------- le verdict DEAD, RE-DERIVE DU BINAIRE
-def _build_hash() -> "str | None":
-    """Le build dont on a A LA FOIS la table de symboles VERSIONNEE et la DLL INSTALLEE (le
-    discriminant est la CONCORDANCE des deux -- prendre le premier par ordre alphabetique rendrait
-    un hash PERIME). Meme helper que `test_929_savage_killer_offline.py`."""
-    d = ROOT / "data" / "symbols"
-    local = os.environ.get("LOCALAPPDATA")
-    for p in sorted(d.iterdir()) if d.exists() else []:
-        if not ((p / "ghidra" / "functions.tsv").exists() and (p / "BUILD").exists()):
-            continue
-        if (Path(local or "") / "tacticus" / "games" / p.name / "GameAssembly.dll").exists():
-            return p.name
-    return None
+# #10026-r1 -- CES HELPERS DELEGUENT AU FOYER (`pe_symboles`, #10028). Ils etaient RECOPIES dans
+# TROIS fichiers, avec trois corps differents, et deux d'entre eux rendaient la PREMIERE VA portant
+# le nom -- verts PAR CHANCE (leurs symboles n'ont qu'une VA sur ce build), pas par construction.
+# Trois copies, c'est trois dates de peremption. Depuis, `va_du_symbole` REFUSE un nom partage.
+#
+# ⚠ CE SONT DES WRAPPERS, PAS DES LIAISONS. `_va_of = PE.va_du_symbole` gelerait la fonction a
+# l'import (forme A) et NE MORDRAIT PAS sous `monkeypatch.setattr("pe_symboles.va_du_symbole", …)`.
+# Un wrapper resout l'attribut A CHAQUE APPEL -- c'est la forme B que le CLAUDE.md prescrit.
+def _build_hash():
+    return PE.build_avec_dll()
 
 
-def _vas_of(build: str, symbole: str) -> list:
-    """TOUTES les VA que la table porte sous ce nom, dans l'ordre du fichier.
-
-    ⚠ **UN NOM DE `functions.tsv` NE DESIGNE PAS UNE ADRESSE** (#10026). C# surcharge, IL2CPP nomme
-    les surcharges a l'IDENTIQUE, et la table est indexee par ADRESSE : mesure sur les deux builds
-    dont ce depot porte la table, **5 341 noms sur 145 703 (3,7 %) ont PLUSIEURS VA**, a l'identique
-    sur `rnca9r7q6c` et `t6dpr4k06g`. `IdunBattleLogic.Entities.DSLTriggers$$On` en a **TROIS** --
-    deux `On(EventTriggerType, bool)` et un `On(params int[])`. Rendre la PREMIERE, ce que faisait
-    ce helper, revient a choisir une surcharge au hasard : `$$CreateTrigger` appelle la DEUXIEME
-    par adresse croissante, donc le reconnaisseur d'appels ne voyait plus AUCUN `On` et le test
-    tombait sur sa propre garde d'anti-vacuite -- un rouge qui n'accusait pas le port.
-
-    ⚠ On cite le RANG, jamais l'adresse : les noms sont stables a 97,5 % entre builds, les
-    adresses changent a 100 %. Et ici c'est le rang qui porte l'information, puisque le SYMBOLE,
-    par construction, ne distingue pas les trois surcharges."""
-    tsv = ROOT / "data" / "symbols" / build / "ghidra" / "functions.tsv"
-    out = []
-    for line in tsv.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("#") or "\t" not in line:
-            continue
-        va, name = line.split("\t", 1)
-        if name.strip() == symbole:
-            out.append(int(va, 16))
-    return out
+def _va_of(build, symbole):
+    return PE.va_du_symbole(build, symbole)
 
 
-def _va_of(build: str, symbole: str) -> "int | None":
-    """La VA d'un symbole dont l'UNICITE est attendue. `None` si absent -- mais un nom PARTAGE fait
-    ROUGIR au lieu d'en choisir un : une adresse prise au hasard dans une famille d'homonymes est
-    une mesure FABRIQUEE, et c'est exactement ce qui s'est produit sur `$$On`."""
-    vas = _vas_of(build, symbole)
-    assert len(vas) <= 1, (
-        f"`{symbole}` porte {len(vas)} VA dans la table du build {build} "
-        f"({[hex(v) for v in vas]}) : ce site attend un symbole UNIQUE. Passer par `_vas_of` et "
-        "accepter la famille entiere, jamais en choisir un.")
-    return vas[0] if vas else None
+def _vas_of(build, symbole):
+    return PE.vas_du_symbole(build, symbole)
 
 
-def _read_at_va(dll: Path, va: int, size: int) -> bytes:
-    """Traduction VA -> offset fichier par les SECTIONS du PE. La RVA est calculee EN CODE."""
-    rva = va - IMAGE_BASE
-    with dll.open("rb") as f:
-        head = f.read(0x400)
-        e_lfanew = struct.unpack_from("<I", head, 0x3C)[0]
-        nsec = struct.unpack_from("<H", head, e_lfanew + 6)[0]
-        opt_size = struct.unpack_from("<H", head, e_lfanew + 20)[0]
-        f.seek(e_lfanew + 24 + opt_size)
-        secs = f.read(40 * nsec)
-        for i in range(nsec):
-            vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", secs, 40 * i + 8)
-            if vaddr <= rva < vaddr + max(vsize, rawsize):
-                f.seek(rawptr + (rva - vaddr))
-                return f.read(size)
-    return b""
+def _read_at_va(dll, va, size):
+    return PE.lire_a_la_va(dll, va, size)
 
 
 def _on_immediates(blob: bytes, va: int, vas_on) -> list:
@@ -647,7 +601,7 @@ def _wd_binaire():
     build = _build_hash()
     if build is None:
         pytest.skip("aucun build avec table `ghidra/functions.tsv` ET GameAssembly.dll installee")
-    dll = Path(os.environ.get("LOCALAPPDATA") or "") / "tacticus" / "games" / build / "GameAssembly.dll"
+    dll = PE.chemin_dll(build)                 # meme foyer que `_build_hash` (#10026-r1)
     return build, dll
 
 
