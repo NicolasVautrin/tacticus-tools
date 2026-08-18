@@ -165,6 +165,23 @@ def _nova_ability_state(state: "State", caster_id) -> tuple:
     return (level, mult)
 
 
+def _bornes_per_ability(state: "State", caster_id: int, _target_id, bmin: int, bmax: int) -> tuple:
+    """`BaseTriggeredAbility$$MinMaxDamage(this, abilityState)` = `RandomAmount(
+    GetVariableForLevel(cfg, 0xc = minDmg, abilityState), GetVariableForLevel(cfg, 0xd = maxDmg,
+    abilityState))` -- les BORNES, indexees par l'`abilityState` **PER-ABILITY** de l'ACTIVE 1194.
+
+    Passe en `damage_override` a la feuille : elle garde ainsi la voie des BORNES (un tirage PAR
+    COUP) tout en lisant le bon niveau. `ability_attack_params`, elle, lit le canal GLOBAL
+    (`ctx.active_ability_level`) -- correct sur un heros, FAUX sur un boss npc.
+
+    Repli sur les bornes que la feuille a deja calculees si la config ne rend rien : on ne fabrique
+    pas de magnitude, on refuse de l'ecraser."""
+    level, mult = _nova_ability_state(state, caster_id)
+    mn = ability_var(NS_ACTIVE_ID, "minDmg", level, multiplier_pct=mult)
+    mx = ability_var(NS_ACTIVE_ID, "maxDmg", level, multiplier_pct=mult)
+    return (int(mn) if mn else int(bmin), int(mx) if mx else int(bmax))
+
+
 def nova_shield_attack_tree(state: "State", level: Optional[int], multiplier_pct: int):
     """Arbre de `...Triggered.Loki.NovaShield_AttackAbility$$CreateBehaviour` -- cf. l'en-tete.
 
@@ -187,10 +204,34 @@ def nova_shield_attack_tree(state: "State", level: Optional[int], multiplier_pct
     cache = Cache(EntitiesWithAnyEffect(AllTiles(), [NS_PENDING_TARGET]))
     # `Units(marked, 1, 3)` PUIS `Enemies(Caster@+0x48, .., 3)` -- ECRIT, pas collapse (point 4).
     targets = Enemies(Units(cache, selection_type=_SELECTION), selection_type=_SELECTION)
-    amount = RandomAmount(Const(int(mn)), Const(int(mx)), rng=state.rng)
+    # ⚠ **LA VOIE DE DEGAT EST CELLE DES BORNES, PAS CELLE DU MONTANT -- ET LE CONFONDRE COUTE UN
+    # TIERS DU DEGAT (mesure).** Le 3e argument natif est
+    # `BaseTriggeredAbility$$MinMaxDamage(this, abilityState)` = un noeud a PLAGE
+    # (`RandomAmount(GetVariableForLevel(0xc minDmg), GetVariableForLevel(0xd maxDmg))`), donc
+    # `AttackDamageOperation.execute_ability_attack` : UN TIRAGE PAR COUP entre les bornes. Le mode
+    # `amount=` de la feuille est reserve aux noeuds a valeur UNIQUE (`Direct(StatAmount)`, splash
+    # Psyker) : il route vers `execute_normal_like`, qui evalue le montant UNE fois et l'applique a
+    # TOUS les coups. MESURE live (`probe_895r4`, boss `tauBossRiptide:4`, board `GB_Riptide_01`) :
+    # en mode `amount` le port rend `rolls = [7515] x6` -- six fois le MEME nombre -- pour un total
+    # de 42 741 contre 57 752 au natif. Le contraste est LU chez le voisin deja confronte
+    # BIT-EXACT : `instruments_of_vengeance_attack.py` ne passe PAS `amount` et rend
+    # `rolls = [2301, 2366, 2210, 2162, 2453, 2073]`, six tirages DISTINCTS.
+    # (`RandomAmount`/`Const` restent importes : ils sont le mirror du noeud natif, cite ici, et
+    # c'est `ability_attack_params` qui rejoue le tirage cote Operation.)
+    _ = (RandomAmount, Const)                              # noeud natif CITE, pas instancie ici
     atk = AttackWithAttackDamage(targets, NS_ACTIVE_ID, profile,
                                  is_melee=False,           # `attackRangeType = "Ranged"` (LU)
-                                 hits=hits, amount=amount,
+                                 hits=hits,
+                                 # ⚠ **LE NIVEAU N'EST PAS CELUI QUE LIT `ability_attack_params`.**
+                                 # Celle-ci prend `ctx.active_ability_level` (canal GLOBAL), qui
+                                 # vaut `(0, 100)` sur un boss npc -- `combatSnapshot.unitConfig`
+                                 # y rend `{"error": "config null"}`. Le natif, lui, consomme
+                                 # l'`abilityState` PER-ABILITY (55, 200 ici), cf.
+                                 # `_nova_ability_state`. `damage_override` est le seul point ou
+                                 # la feuille laisse REMPLACER les bornes sans quitter la voie des
+                                 # bornes : on y reinjecte la lecture juste. Residu #895-r7 pour
+                                 # le foyer partage.
+                                 damage_override=_bornes_per_ability,
                                  multi=True,               # le selecteur resout N unites
                                  native_factory="attack",  # `AttackWithAttackDamage`
                                  ability_type=NS_ATTRIBUTION)   # 1194, PAS 1325 -- cf. point 3
@@ -212,10 +253,16 @@ def _nova_shield_attack_behaviour(state: "State", unit_id: int, entities, ectx):
     level, mult = _nova_ability_state(state, unit_id)
     nova_shield_attack_tree(state, level, mult).execute(entities, ectx)
     # LES ETAGES du coup, pas seulement son total (meme diag que les cinq autres phases 2).
+    # ⚠ `did_crit` / `crits` / `crit_chance` SONT DANS LA LISTE, et ils y sont par MESURE : sans
+    # eux, un ecart de total ne dit pas s'il vient des BORNES ou du CRIT. Mesure du 2026-08-18 sur
+    # `probe_895r4` -- le natif rendait 57 752 PV la ou `6 x base_max` plafonne a 49 272 : il
+    # DEPASSE le maximum sans crit, donc l'ecart ne pouvait PAS etre un ecart de bornes. Les deux
+    # voisines (`solar_atomizer_attack.py`, `the_lantern_attack.py`) ne publient pas ces champs.
     dmg = [{"target": p.get("target"), "total": p.get("total"),
             "etages": {k: (a or {}).get(k) for k in
-                       ("base_min", "base_max", "pierce", "armor", "did_block", "rolls", "per_hit",
-                        "hp_before", "hp_after")}}
+                       ("base_min", "base_max", "pierce", "armor", "did_block", "did_crit",
+                        "crits", "crit_chance", "crit_damage", "rolls", "per_hit",
+                        "per_hit_health", "clean_min", "clean_max", "hp_before", "hp_after")}}
            for n, p in ectx.emitted if n == "AttackWithAttackDamage"
            for a in [p.get("attack")]]
     removed = [{"target": p.get("target"), "removed": p.get("removed")}

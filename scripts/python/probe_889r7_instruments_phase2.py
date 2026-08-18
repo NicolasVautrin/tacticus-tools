@@ -281,7 +281,13 @@ def _lignes_port(state, board) -> dict:
 #: plateau de bord a bord, et le coup differe n'est OBSERVABLE que si un ennemi se tient DESSUS. Un
 #: duel a deux ennemis colles au Lion ne discrimine RIEN -- mesure du 2026-08-17, `port emis` sans
 #: aucun `AttackWithAttackDamage` et `dhp` explique en entier par les summons.
-A_UNITS = "custoVexilusPraetor,orksBigMek,orksNob,tauCrisis,ultraEliminator"
+#: ⚠ `ultraEliminator` A QUITTE LE POOL du rank 17 -- le build echoue desormais dessus
+#: (`--a-units: hors pool / non spawnables au rank 17`). Remplace par `ultraEliminatorSgt`, qui y
+#: est. C'est un CHANGEMENT DE MONTAGE, et il faut le dire : les mesures de #889-r11 (seed 31337,
+#: tuiles de spawn divergentes) ont ete prises avec l'ANCIEN roster et ne sont plus reproductibles
+#: telles quelles -- le 5e adversaire change la consommation de PRNG et le contenu
+#: d'`UnitsDamagedThisPhase`, qui sont deux des trois causes candidates.
+A_UNITS = "custoVexilusPraetor,orksBigMek,orksNob,tauCrisis,ultraEliminatorSgt"
 
 
 def monter_scenario(sid: int, *, seed: str = "777", board: str = BOARD,
@@ -342,7 +348,16 @@ def _etages_selecteur(G, sel, ctx, profondeur: int = 4) -> dict:
             out[nom] = "NON EVALUE (aleatoire -- l'evaluer consommerait du PRNG)"
             break
         try:
-            out[nom] = sorted(int(x) for x in G._units_of(cur, ctx))
+            # ⚠ UN ETAGE NE REND PAS TOUJOURS DES IDS DE TUILE : `UnitsDamagedThisPhase` et `Owner`
+            # rendent des UNITES (des `LiveUnit`), pas des entiers. On les rend par leur `id`
+            # plutot que de laisser la conversion lever -- une ERREUR a cet etage masquerait
+            # exactement l'information que la cause (ii) demande (QUELLES unites ont ete blessees).
+            vals = []
+            for x in G._units_of(cur, ctx):
+                vals.append(int(x) if isinstance(x, int)
+                            else int(x.get("id")) if isinstance(x, dict) and x.get("id") is not None
+                            else int(getattr(x, "id", None) or -1))
+            out[nom] = sorted(vals)
         except Exception as exc:                  # une lecture de diagnostic ne casse pas la mesure
             out[nom] = "ERREUR: %s" % (exc,)
         cur = next((getattr(cur, a) for a in ("source", "inner", "a", "sel", "src")
@@ -583,10 +598,10 @@ def main() -> int:
     # #889-r11 -- LES VIVIERS, AVANT L'UNION ET AVANT LE `First`. C'est le releve qui separe les
     # trois causes NON DEPARTAGEES ; un releve pris sur l'union ne le peut pas.
     print("[889r7] [C] VIVIERS (chaque `Randomize`, dans l'ordre d'evaluation) :")
-    for i, a in enumerate(m.get("viviers") or []):
-        print("        v%d %s | AVANT(%d)=%s" % (i, a["vivier"], len(a["avant"]), a["avant"]))
-        print("           APRES(%d)=%s" % (len(a["apres"]), a["apres"]))
-        for nom, val in (a.get("etages") or {}).items():
+    for i, viv in enumerate(m.get("viviers") or []):
+        print("        v%d %s | AVANT(%d)=%s" % (i, viv["vivier"], len(viv["avant"]), viv["avant"]))
+        print("           APRES(%d)=%s" % (len(viv["apres"]), viv["apres"]))
+        for nom, val in (viv.get("etages") or {}).items():
             print("           etage %-24s = %s" % (nom, val))
     if not (m.get("viviers") or []):
         print("        AUCUN `Randomize` INTERCEPTE -- le releve est MUET, il ne prouve rien "

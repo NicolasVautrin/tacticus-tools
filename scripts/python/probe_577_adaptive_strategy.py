@@ -671,10 +671,6 @@ def run() -> dict:
         for u, (nm, pm) in sorted(moves.items()):
             if nm is None or pm is None:
                 fails.append("E8 Mouvement non mesure sur u%d : natif=%r port=%r" % (u, nm, pm))
-            elif nm != pm:
-                fails.append("E8 u%d garde le +%d Mouvement de %d cote PORT alors que le natif l'a "
-                             "RETIRE (re-ciblage) : Mouvement natif=%d port=%d"
-                             % (u, pm - nm, MARCH_EFFECT, nm, pm))
         print("[E8] sortis du selecteur (port garde, natif a retire) = %r | Mouvement natif/port = "
               "%r | temoin Warden(Mouvement natif) = %r" % (sortis, moves, temoin))
 
@@ -695,10 +691,52 @@ def run() -> dict:
         act_avant = sorted(u for u, v in us1.items() if v.get("hasAction"))
         nat_apres = units(rid)
         act_apres = sorted(u for u, v in nat_apres.items() if v.get("hasAction"))
+        tour_change = (cp_avant != cp_apres)
         print("[E9] currentPlayer natif : avant=%r apres=%r (CHANGE=%s) | hasAction avant=%r "
               "apres=%r | port.current_player_id=%r"
-              % (cp_avant, cp_apres, cp_avant != cp_apres, act_avant, act_apres,
+              % (cp_avant, cp_apres, tour_change, act_avant, act_apres,
                  getattr(st, "current_player_id", None)))
+
+        # --- E10 : LA CONTRE-EPREUVE PAR SUBSTITUTION -------------------------------------------
+        # E9 etablit que le NATIF a joue une FIN DE TOUR D'EQUIPE pendant le pas que le port rejoue
+        # sans elle -- le cast du Warden consomme la DERNIERE action amie (l'Overlord a deja caste
+        # 1009, le summon est ne `NoActionAvailable`), donc le jeu bascule tout seul. On ne compare
+        # alors pas la meme chose des deux cotes : N+1 operations natives contre N portees.
+        # LA SUBSTITUTION : on rejoue le MEME cast sur une copie FRAICHE de l'etat capture, puis on
+        # applique `EndTurnMessage` -- rien d'autre. Si les DEUX observables (porteurs de 1011 ET
+        # stat MOUVEMENT) rejoignent le natif, l'ecart d'E7/E8 est un ARTEFACT DU MONTAGE et le port
+        # ne manque RIEN. S'ils ne rejoignent pas, le port manque bien une transition, et c'est LA
+        # qu'il faut porter.
+        # ⚠ On ne touche NI la formule NI le pipeline : on donne au port l'operation que le natif a
+        # jouee et que le harnais ne jouait pas. C'est la meme forme de contre-epreuve que celle qui
+        # a localise le troisieme etage de #922.
+        from engine.runner.messages import EndTurnMessage
+        st3, _b3 = offline_state(cap)
+        r3 = Runner(st3).install_default_handlers(20)
+        r3.apply(ActiveAbilityMessage(caster_id=int(warden), target_id=int(summon),
+                                      ability_type=ADAPTIVE))
+        r3.apply(EndTurnMessage())
+        march_sub = port_carriers_of(st3, MARCH_EFFECT)
+        moves_sub = {u: port_stat(st3, u, int(_ST.MOVEMENT)) for u in sortis}
+        accord_porteurs = (march_sub == march_nat_after)
+        accord_moves = all(moves[u][0] == moves_sub.get(u) for u in sortis)
+        print("[E10] SUBSTITUTION (cast + EndTurnMessage) : porteurs de %d = %r (natif %r, "
+              "accord=%s) | Mouvement port = %r (natif %r, accord=%s)"
+              % (MARCH_EFFECT, march_sub, march_nat_after, accord_porteurs,
+                 moves_sub, {u: moves[u][0] for u in sortis}, accord_moves))
+        if not tour_change:
+            fails.append("E10 le tour natif n'a PAS change (currentPlayer %r) : la substitution "
+                         "n'a alors aucune raison d'etre jouee, et l'ecart d'E7/E8 accuse autre "
+                         "chose -- a re-instruire" % (cp_avant,))
+        elif accord_porteurs and accord_moves:
+            print("      -> ARTEFACT DU MONTAGE : le port porte DEJA la mecanique (le tick d'un "
+                  "tour de `EndTurnOperation$$RefreshEffects`), le harnais ne la jouait pas. "
+                  "#577-r1 n'accuse aucun port sur ce vecteur.")
+        else:
+            fails.append("E10 la substitution NE FERME PAS l'ecart : porteurs port=%r natif=%r, "
+                         "Mouvement port=%r natif=%r -- le port manque bien une transition"
+                         % (march_sub, march_nat_after, moves_sub,
+                            {u: moves[u][0] for u in sortis}))
 
         moved = (port_after[summon]["pos"] != before_port[summon]["pos"])
         print("[E2/E3/E4] natif=%r | port=%r | 1012 natif=%r port=%r | summon a bouge=%s"

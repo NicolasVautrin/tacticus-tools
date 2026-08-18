@@ -51,6 +51,29 @@ NS_ATTACK = int(TriggeredAbilityType.NovaShield_Attack)           # 0x52d = 1325
 NS_PENDING_TARGET = int(EffectType.NovaShield_PendingTarget)      # 0x587 = 1415
 NS_PENDING_ATTACK = int(EffectType.NovaShield_PendingAttack)      # 0x586 = 1414
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": ("scripts/python/engine/runner/operations/triggers/loki/nova_shield_attack.py",
+                "scripts/python/engine/runner/operations/triggers/pending_attack.py",
+                "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
+                "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+                "scripts/python/engine/runner/operations/triggers/dispatch/core.py",
+                "scripts/python/engine/runner/abilities/tau.py",
+                "scripts/python/engine/runner/abilities/behaviours/combat.py",
+                "scripts/python/engine/runner/abilities/behaviours/effects.py",
+                "scripts/python/engine/runner/operations/damage.py",
+                "scripts/python/engine/runner/operations/damage_ops/**",
+                "scripts/python/engine/entities/selectors/**",
+                "scripts/python/engine/runner/snapshot.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il EXECUTE la phase 2 de 1194 sur un etat monte a la main (cast, bascule de tour, "
+              "`Triggered()` d'`APendingAttackEffect`, arbre de la triggered) : il depend de "
+              "l'arbre porte, de son cablage aux trois registres, du pipeline de degat et des "
+              "selecteurs qu'il traverse. Il ne depend PAS du build (aucune lecture de symbole) "
+              "ni du live (aucun runner).",
+}
+
 COLS = ROWS = 11
 CASTER, PLAYER_MOI, PLAYER_ADV = 10, 3, 4
 CASTER_POS = (5, 5)
