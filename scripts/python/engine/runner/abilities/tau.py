@@ -788,12 +788,22 @@ def _itg_heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
         0x20 -> `hpToHeal`   : l'allie qui A utilise son actif  (canReset)
         0x22 -> `hpToHeal_2` : l'allie qui ne l'a PAS utilise   (cantReset)
     Lues SEPAREMENT via `ability_var` (scaling rarete `AbilityVariablesMultiplier`). MEME convention
-    d'index que le jumeau 1002 (`CombatRestoratives`), lue independamment au decompile."""
-    e = state.get_entity(caster_id)
-    sc = e.get_component(StatsComponent) if e is not None else None
-    ctx = sc.ctx if sc is not None else None
-    level = getattr(ctx, "active_ability_level", 0) if ctx is not None else 0
-    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+    d'index que le jumeau 1002 (`CombatRestoratives`), lue independamment au decompile.
+
+    ⚠ **LE SCALING VIENT DE L'`AbilityState` PER-ABILITY, PAS DU CANAL GLOBAL** (#895-r5). Le
+    decompile ne laisse aucun doute -- `ExecuteBehaviour(this, abilityState, entities)` recopie
+    `*(abilityState)` et `*(abilityState + 8)` dans un local et passe CE local aux DEUX
+    `GetVariableForLevel` (`0x20 = hpToHeal`, `0x22 = hpToHeal_2`), exactement comme
+    `NovaShieldAbility$$ExecuteBehaviour`. Le port lisait ici `UnitContext.active_ability_level` /
+    `ability_variables_multiplier`, c'est-a-dire le canal GLOBAL : INDISTINGUABLE sur un heros (les
+    deux coincident) et FAUX sur un npc, dont `combatSnapshot.unitConfig` vaut
+    `{"error": "config null"}` -- mesure #895 sur `tauBossRiptide` : `level=0, mult=100` au lieu de
+    `level=55, multiplier=200`, soit un facteur **137** sur la variable lue. 1082 n'ayant
+    aujourd'hui que des porteurs `lineup`, l'ecart etait LATENT ; il devient reel des qu'un npc
+    porte l'ability (greffe, injection catalogue). Foyer : `_ability_scaling`, le MEME que
+    `NovaShield` -- et non une seconde lecture qui deriverait."""
+    level, mult = _ability_scaling(state, caster_id,
+                                   int(ActiveAbilityType.InspiredToGreatness))
     return (int(ability_var(INSPIRED_TO_GREATNESS_ID, "hpToHeal", level, multiplier_pct=mult) or 0),
             int(ability_var(INSPIRED_TO_GREATNESS_ID, "hpToHeal_2", level, multiplier_pct=mult) or 0))
 
@@ -1573,10 +1583,15 @@ NOVA_SHIELD_PENDING_TARGET = int(EffectType.NovaShield_PendingTarget)          #
 NOVA_SHIELD_EXTRA_BLOCK_CHANCE = int(EffectType.NovaShield_ExtraBlockChance)   # 0x588 = 1416
 
 
-def _nova_ability_scaling(state: "State", caster_id: int, ability_type: int) -> tuple:
+def _ability_scaling(state: "State", caster_id: int, ability_type: int) -> tuple:
     """`(level, multiplier_pct)` a passer a `ability_var` = l'**`AbilityState` PER-ABILITY** du
     caster, mirror EXACT du 3e argument d'`IdunBattle.Configuration.AbilityConfiguration$$
     GetVariableForLevel(type, abilityState, fallback)`.
+
+    ⚠ CE FOYER N'EST PAS PROPRE A NOVA, et son ancien nom (`_nova_ability_scaling`) le laissait
+    croire -- c'est precisement ce qui a fait re-ecrire la lecture GLOBALE dans `_itg_heal_amounts`
+    au lieu de l'appeler (#895-r5). Il prend son `ability_type` en parametre depuis le debut : il
+    est generique par construction, il ne l'etait que par son nom.
 
     Le decompile ne laisse aucun doute sur QUEL etat le natif indexe : `ExecuteBehaviour(this,
     abilityState, entities)` recopie `*(abilityState)` / `*(abilityState + 8)` dans un local et
@@ -1630,7 +1645,7 @@ def nova_shield_tree(state: "State", caster_id: int):
     rarete du caster. `nrOfRounds` (0x45) est un `GetNumberConstant` -> `constants` du kit.
     `TurnsFromRounds` = `convert_rounds_to_turns` pour les DEUX consommateurs (le bouclier et
     l'effet de blockChance partagent le MEME noeud natif `pvVar6`)."""
-    level, mult = _nova_ability_scaling(state, caster_id, int(ActiveAbilityType.NovaShield))
+    level, mult = _ability_scaling(state, caster_id, int(ActiveAbilityType.NovaShield))
     shield_hp = int(ability_var(NOVA_SHIELD_ID, "shieldHp", level, multiplier_pct=mult) or 0)
     block_chance = int(ability_var(NOVA_SHIELD_ID, "blockChance", level, multiplier_pct=mult) or 0)
     rounds = int(ability_var(NOVA_SHIELD_ID, "nrOfRounds", is_constant=True) or 0)
