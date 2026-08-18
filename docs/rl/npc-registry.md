@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **461** ; kits avec du travail : **30**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **8** · `[CD]` **138**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **7** · `[CD]` **139**
 - Passifs distincts : **177** — portes **143**, non portes **34**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -86,13 +86,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (8)
+## Faces DECISION ouvertes sur des actives EXECUTEES (7)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `Catalyst`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `Catalyst`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -198,7 +198,7 @@ sont des **faces** absentes d'items presents.
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | eldarBossMauganRaUltra | 1 | Maugetar[--]! | - | - | relic:Maugetar |
-| eldarNpc2Warlock | 1 | Reveal(1107)[C-] | Conceal | - | - |
+| eldarNpc2Warlock | 1 | Reveal(1107)[CD] | Conceal | - | - |
 | eldarBossAutarch | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
 | eldarBossAutarchCamp | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
 | eldarBossAutarchLHE | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |

@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 391 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 390 |
+| lignes de tableau OUVERTES | 388 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 387 |
 | dont NON ANNOTEES | 1 |
-| foyers distincts (fichiers/repertoires) | 475 |
+| foyers distincts (fichiers/repertoires) | 473 |
 
 Non annotees restantes : #BL-1020r
 
@@ -100,6 +100,7 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/playbook/common.py` | 2 | #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r2 |
 | `scripts/python/engine/playbook/non_owner.py` | 2 | #1036-r9, #433-r4-r3-r1-r1 |
 | `scripts/python/engine/playbook/non_owner_attack.py` | 2 | #1024-r7, #1036-r9 |
+| `scripts/python/engine/playbook/noncomparable/nova_shield.py` | 2 | #552-r4, #969-r5 |
 | `scripts/python/engine/playbook/noncomparable/solar_atomizer.py` | 2 | #1027-r3, #969-r5 |
 | `scripts/python/engine/playbook/noncomparable/storm_speeder.py` | 2 | #10022-r4, #967-r1 |
 | `scripts/python/engine/playbook/prediction/_shared.py` | 2 | #1011-r2, #590-r14 |
@@ -243,18 +244,17 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/playbook/loki_custom.py` | #27-r9 | `etage` |
 | `scripts/python/engine/playbook/non_owner_repair.py` | #271-r7 | `aucun` |
 | `scripts/python/engine/playbook/nonattack.py` | #27-r9 | `etage` |
-| `scripts/python/engine/playbook/noncomparable/` | #1033-r2 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/__init__.py` | #577-r2 | `etage` |
-| `scripts/python/engine/playbook/noncomparable/_base.py` | #971-r5 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/_targets.py` | #969-r5 | `porteur` |
 | `scripts/python/engine/playbook/noncomparable/adaptive_strategy.py` | #577-r2 | `etage` |
 | `scripts/python/engine/playbook/noncomparable/alpha_warrior.py` | #945-r1 | `porteur` |
 | `scripts/python/engine/playbook/noncomparable/early_warning_override.py` | #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1 | `porteur` |
-| `scripts/python/engine/playbook/noncomparable/exemplar_of_the_montka.py` | #942-r3 | `aucun` |
+| `scripts/python/engine/playbook/noncomparable/exemplar_of_hate.py` | #552-r4 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/fear_of_the_unseen.py` | #957-r2 | `porteur` |
-| `scripts/python/engine/playbook/noncomparable/mind_control.py` | #552-r3 | `aucun` |
+| `scripts/python/engine/playbook/noncomparable/heals.py` | #552-r4 | `aucun` |
+| `scripts/python/engine/playbook/noncomparable/necro_reanimator.py` | #552-r4 | `aucun` |
+| `scripts/python/engine/playbook/noncomparable/nova_boost.py` | #552-r4 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/nova_charge.py` | #1032-r6 | `aucun` |
-| `scripts/python/engine/playbook/noncomparable/nova_shield.py` | #969-r5 | `porteur` |
 | `scripts/python/engine/playbook/noncomparable/poxwalkers.py` | #17 | `etage` |
 | `scripts/python/engine/playbook/obsessive_annunciation.py` | #954-r1 | `aucun` |
 | `scripts/python/engine/playbook/prophetic_sentinel.py` | #915-r2 | `porteur` |
@@ -344,7 +344,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_10033_recensement_live.py` | #10033-r1 | `aucun` |
 | `scripts/python/probe_1015r1_close_combat_weakness.py` | #1015-r3 | `aucun` |
 | `scripts/python/probe_1020_savior_protocols_live.py` | #1020-r12 | `aucun` |
-| `scripts/python/probe_1021_face_decision_au_registre.py` | #1033-r2 | `aucun` |
 | `scripts/python/probe_1022r4_abilitystate_par_ability.py` | #1022-r6 | `porteur` |
 | `scripts/python/probe_1025_electrochaff_port.py` | #1025-r3 | `aucun` |
 | `scripts/python/probe_1025r1_more_gitz_bonus_live.py` | #1035-r4 | `aucun` |
@@ -495,7 +494,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/tests/engine/test_957_decision_faces_offline.py` | #957-r2 | `porteur` |
 | `scripts/python/tests/engine/test_963r4_areenemies_null_operand_offline.py` | #431-r2 | `aucun` |
 | `scripts/python/tests/engine/test_966r3_execution_du_cast_live.py` | #966-r6 | `seeding` |
-| `scripts/python/tests/engine/test_971_summon_decision_live.py` | #971-r5 | `aucun` |
 | `scripts/python/tests/engine/test_974_custodes_emperors_children_decision_offline.py` | #974-r2 | `aucun` |
 | `scripts/python/tests/engine/test_nc_priority_tiers_offline.py` | #934-r2 | `aucun` |
 | `scripts/python/tests/test_366_r1_bcpatch_port_blindspot_offline.py` | #934-r2 | `aucun` |
@@ -527,7 +525,7 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 | `seeding` | 16 | #1008-r1, #1011-r2, #392-r1, #433-r4-r2-r1-r2-r3, #482-r1, #590-r1, #590-r14, #890-r4, #890-r5, #895-r1, #902-r2, #929-r2, #929-r4, #948-r3, #966-r6, #BF-chance |
 | `etage` | 37 | #10015-r1, #10022-r5, #1024-r7, #1027-r3, #1030-r1, #1030-r8, #1033-r1, #1033-r4, #1036-r7, #1037-r1, #1065-r2, #17, #27-r9, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1-r2, #419-r1-tr9-r4-r1-r2-r1a-r1, #419-r4, #433-r4-r1-r1-r1, #433-r4-r1-r3, #433-r4-r3-r1-r1, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #489-r2, #577-r2, #895-r4, #919-r1, #926-r1, #939-r1, #946-r1, #946-r4, #951-r9, #965-r2, #967-r1, #977-r10, #977-r11 |
 | `porteur` | 46 | #10013, #10024-r2, #1022-r1, #1022-r6, #1027-r6, #1042-r4, #1048-r2, #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #429-r1-r1-r1-r2, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #433-r5, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r3, #448-r1-r1-r1-r1-r2-r2, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4e-o-r1-r1-r1, #465-r1, #475-r5, #503-r2, #521-r4, #547-r15, #550-r2, #550-r5, #909-r8, #915-r2, #932-r3, #942-r1, #945-r1, #945-r3, #946-r5, #957-r2, #967-r5, #969-r4, #969-r5 |
-| `aucun` | 258 | #10003, #10015, #10019-r2, #1002-r2, #10022-r2, #10022-r4, #10027-r1, #10027-r2, #10028-r1, #10028-r2, #10028-r3, #10030-r1, #10031-r1, #10033-r1, #10033-r2, #10034-r1, #10035-r1, #10035-r2, #10035-r3, #10036, #1009-r1, #1009-r2, #1009-r3, #1015-r3, #1019-r4, #1020-r12, #1021-r3, #1024-r6, #1025-r3, #1026-r3, #1027-r8, #1030-r3, #1031-r1, #1032-r4, #1032-r5, #1032-r6, #1033-r2, #1035-r4, #1036-r9, #1037-r2, #1038-r2, #1041-r1, #1041-r2, #1042-r2, #1044-r3, #1045-r1, #1046-r1, #1064-r1, #1065-r1, #175-r4, #20, #217, #254-bc, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r7, #271-r8, #271-r9, #277-r1, #281-r4, #283-r2, #313-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #369, #380-r2, #389-r5, #390-r1, #390-r6, #390-r7, #390-r8, #419-r1, #419-r1-tr10-r2, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1b-r2, #419-r1-tr9-r4-r1-r3, #419-r2, #419-r6-r1-r1, #420-r7, #425-r1, #426-r1, #429-r1-r2, #430-r1, #430-r2, #431-r2, #433-r3-r3-r2, #433-r4-r1-r1-r2, #433-r4-r1-r4-r2-r1-r1-r1-r1-r1, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r4-r1-r1, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r2, #447-r2, #447-r6, #448-r6, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r5, #449-r6, #455-r1, #455-r2, #455-r4-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r5, #468-r6, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #479-r6, #482-r2, #482-r4, #482-r5, #482-r6, #482-r7, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r3, #485-r1-r4, #485-r3, #485-r4, #485-r6, #486-r10, #486-r16, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r39, #486-r6, #486-r7, #486-r9, #487-r2, #488-r2, #488-r3, #489-r3, #498-r5, #5, #510-r3, #511-r1, #512-r9, #519-r1, #523-r3, #526-r3, #531-r1, #547-r3, #547-r4-r1, #547-r6, #547-r9, #552-r3, #577-r1, #585-r1, #585-r4, #589-r4, #590-r11, #593, #594, #596-r1, #889-r11, #889-r12, #894-r1, #894-r4, #894-r5, #894-r8, #908-r1, #909-r1, #909-r3, #909-r4, #909-r5, #909-r6, #915-r1, #915-r3, #919-r2, #919-r3, #920-r4, #921-r1, #922-r1, #922-r2, #923-r1, #928-r1, #932-r2, #933-r5, #934-r2, #934-r3, #935-r2, #937-r2, #941-r2, #941-r4, #942-r2, #942-r3, #943-r2, #943-r8, #943-r9, #945-r2, #949-r1, #949-r3, #951-r5, #951-r6, #951-r8, #952-r7, #953-r6, #954-r1, #956-r1, #957-r1, #957-r4, #961-r1, #961-r2, #964-r2, #966-r2, #969-r6, #971-r5, #974-r2, #977-r3, #979-r2, #983-r2, #988-r1, #haze-ord, #o10-c |
+| `aucun` | 255 | #10003, #10015, #10019-r2, #1002-r2, #10022-r2, #10022-r4, #10027-r1, #10027-r2, #10028-r1, #10028-r2, #10028-r3, #10030-r1, #10031-r1, #10033-r1, #10033-r2, #10034-r1, #10035-r1, #10035-r2, #10035-r3, #10036, #1009-r1, #1009-r2, #1009-r3, #1015-r3, #1019-r4, #1020-r12, #1021-r3, #1024-r6, #1025-r3, #1026-r3, #1027-r8, #1030-r3, #1031-r1, #1032-r4, #1032-r5, #1032-r6, #1035-r4, #1036-r9, #1037-r2, #1038-r2, #1041-r1, #1041-r2, #1042-r2, #1044-r3, #1045-r1, #1046-r1, #1064-r1, #1065-r1, #175-r4, #20, #217, #254-bc, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r7, #271-r8, #271-r9, #277-r1, #281-r4, #283-r2, #313-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #369, #380-r2, #389-r5, #390-r1, #390-r6, #390-r7, #390-r8, #419-r1, #419-r1-tr10-r2, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1b-r2, #419-r1-tr9-r4-r1-r3, #419-r2, #419-r6-r1-r1, #420-r7, #425-r1, #426-r1, #429-r1-r2, #430-r1, #430-r2, #431-r2, #433-r3-r3-r2, #433-r4-r1-r1-r2, #433-r4-r1-r4-r2-r1-r1-r1-r1-r1, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r4-r1-r1, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r2, #447-r2, #447-r6, #448-r6, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r5, #449-r6, #455-r1, #455-r2, #455-r4-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r5, #468-r6, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #479-r6, #482-r2, #482-r4, #482-r5, #482-r6, #482-r7, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r3, #485-r1-r4, #485-r3, #485-r4, #485-r6, #486-r10, #486-r16, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r39, #486-r6, #486-r7, #486-r9, #487-r2, #488-r2, #488-r3, #489-r3, #498-r5, #5, #510-r3, #511-r1, #512-r9, #519-r1, #523-r3, #526-r3, #531-r1, #547-r3, #547-r4-r1, #547-r6, #547-r9, #552-r4, #577-r1, #585-r1, #585-r4, #589-r4, #590-r11, #593, #594, #596-r1, #889-r11, #889-r12, #894-r1, #894-r4, #894-r5, #894-r8, #908-r1, #909-r1, #909-r3, #909-r4, #909-r5, #909-r6, #915-r1, #915-r3, #919-r2, #919-r3, #920-r4, #921-r1, #922-r1, #922-r2, #923-r1, #928-r1, #932-r2, #933-r5, #934-r2, #934-r3, #935-r2, #937-r2, #941-r2, #941-r4, #942-r2, #943-r2, #943-r8, #943-r9, #945-r2, #949-r1, #949-r3, #951-r5, #951-r6, #951-r8, #952-r7, #953-r6, #954-r1, #956-r1, #957-r1, #957-r4, #961-r1, #961-r2, #964-r2, #966-r2, #969-r6, #974-r2, #977-r3, #979-r2, #983-r2, #988-r1, #haze-ord, #o10-c |
 
 ## Foyers qui ne designent AUCUN fichier
 
