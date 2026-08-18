@@ -19,6 +19,105 @@ from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS
 from .registry import GLOBAL_TRIGGERS
 
 
+def _triggers_du_cadavre_au_chargement(e, eid: int, GC, behaviour_trait_triggers) -> list:
+    """Les triggered-abilities EXEMPTEES d'un CADAVRE-AU-CHARGEMENT (#547-r12).
+
+    ===============================================================================================
+    LE PARTAGE NATIF -- LE CACHE GARDE, `CanGetAbilityTrigger` TRIE
+    ===============================================================================================
+
+    `IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache$$AddEntity` (relu VERBATIM sur
+    `t6dpr4k06g`) n'a AUCUN gate de vivacite : il aiguille sur `IsEffect` -> `AddEffect`, sinon
+    `TryGetComponent<TriggeredAbilityComponent>` -> `AddAbility`. Ni `IsAlive`, ni HP, ni stats. Le
+    tri se fait un cran plus bas, A LA LECTURE :
+
+        IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger
+            if (!ability.get_AllowForDeadOwner()) {            // ITriggeredAbility slot 8
+                if (IsUnit(owner) && !IsAlive(owner))  return 0; }
+            if (IsUnit(owner) && IsTriggersDisabled(owner))    return 0;
+
+    `get_AllowForDeadOwner` = le mirror `fire_on_death` du port (#10015 -- ce n'est PAS `IsAtomic`).
+
+    ===============================================================================================
+    CE QUE LE PORT FAISAIT, ET POURQUOI C'ETAIT UN ECART
+    ===============================================================================================
+
+    `collect_triggered_abilities` ouvre sur `if sc is None: continue`. Or le `StatsComponent` n'est
+    pose que depuis une ligne de `combatSnapshot.units[]`, et ce capteur FILTRE `IsAlive` : une
+    entite chargee depuis `decisionView.units[]` (qui, elle, CONSERVE les morts AVEC leurs effets)
+    et absente du snapshot n'a donc AUCUN `StatsComponent` -- et sortait du registre AVANT tout
+    gate. Pour les abilities NON exemptees les deux verdicts coincident (le gate d'aval les
+    couperait de toute facon) ; pour une exemptee, le port PERDAIT une ability que le natif evalue.
+
+    CAS MOTIVANT, MESURE : `LifewardsAbility` (`TriggeredAbilityType` 0x419 = 1049, passif du summon
+    `adeptSmnGeminaeSuperia`). Son `CreateTrigger` porte
+
+        On(0x39 = PreDamageTaken) & <DSLTriggers+0x70 = YesTrigger>
+          & ( IsAlive(Owner@<DSLSelectors+0x30>)
+              | HasEffect(Owner@+0x30, 0x4d8 = 1240, onlyActive: 0, effectTarget: 6) )
+          & AreEqual(Target@<DSLSelectors+0x60>, Parent(Owner@+0x30))
+          & IsAdjacent(Owner@+0x30, Target@+0x60, 0)
+
+    -- la disjonction est ecrite EXPRES pour qu'une Geminae MORTE portant encore le marqueur 1240
+    absorbe le coup destine a Celestine. Sans inscription, Celestine encaisse des degats que le
+    natif lui epargne.
+
+    ===============================================================================================
+    LE SUBSTRAT -- LES MEMES CHEMINS, AVEC CE QUI RESTE LISIBLE
+    ===============================================================================================
+
+    Sans `StatsComponent` il n'y a plus de `UnitContext`, donc plus AUCUN canal MESURE
+    (`passive_abilities`, `config_active_abilities`, `tertiary_ability`, `traits` mesures). Reste la
+    `visual_id` du `UnitComponent` -- posee par `snapshot.load_state` depuis
+    `decisionView.units[].visualId`, donc presente sur un cadavre. On rejoue alors les chemins de
+    registration par le REPLI GAMECONFIG, c'est-a-dire exactement ce que le port fait deja pour
+    toute unite dont le canal est muet (`UnitContext.from_snapshot` derive lui aussi `traits` de
+    `cfg.get("traits")`). CINQ des six chemins sont donc servis ; le SIXIEME
+    (`UnitConfiguration.TertiaryAbility`, relique EQUIPEE) n'a QUE le canal `unitAbilityStates`,
+    qui ecrit dans le ctx : il reste muet ici, et c'est NOMME (residu, cf. la fiche #547-r12).
+
+    ===============================================================================================
+    DEUX RESTRICTIONS, ASSUMEES ET ECRITES
+    ===============================================================================================
+
+    1. **Le filtre `fire_on_death`.** Ce n'est PAS le mirror du cache (qui garde TOUT) : c'est une
+       restriction qui COINCIDE avec le gate d'aval -- `evaluate_trigger_operation` coupe
+       `not uc.alive and not fire_on_death`, donc inscrire les non-exemptees serait un surcout sans
+       effet observable. Le SEUL regime ou les deux differeraient est la RESURRECTION d'un
+       cadavre-au-chargement (`uc.alive` redevient vrai sans qu'aucun `StatsComponent` soit pose) ;
+       il reste hors de ce port et est nomme au residu.
+    2. **Le gate `not uc.alive`.** Une entite-unite VIVANTE sans `StatsComponent` n'est pas
+       inscrite ici : elle demanderait d'inscrire TOUT son kit, pas seulement les exemptees, ce qui
+       est un elargissement d'un autre ordre. `uc is None` (entite non-unite) sort aussi -- mirror
+       d'`IdunBattle.Entities.EntityExtensions$$IsUnit`, que `CanGetAbilityTrigger` place devant
+       ses deux gates.
+
+    Le tri fin reste ou le natif le met : dans `matches` (le `CreateTrigger` de chaque ability),
+    rejoue a chaque evenement contre l'etat COURANT."""
+    uc = e.get_component(UnitComponent)
+    if uc is None or uc.alive:
+        return []
+    vid = getattr(uc, "visual_id", None)
+    if not vid:
+        return []
+    gu = GC.unit(vid) or {}
+    out: list = []
+
+    def _pose(table, cles) -> None:
+        for cle in (cles or []):
+            for cls in table.get(cle, ()):
+                if getattr(cls, "fire_on_death", False):     # = `get_AllowForDeadOwner()`
+                    out.append(cls(eid))
+
+    _pose(TRAIT_TRIGGERS, gu.get("traits"))                  # 1. trait
+    _pose(behaviour_trait_triggers, gu.get("traits"))        #    (meme substrat, table distincte)
+    _pose(ABILITY_TRIGGERS, gu.get("passiveAbilities"))      # 2. passiveAbility
+    _pose(ACTIVE_ABILITY_TRIGGERS, gu.get("activeAbilities"))        # 3. derivee d'une active
+    _pose(PASSIVE_HELPER_ABILITY_TRIGGERS, gu.get("activeAbilities"))  # 6. helper d'une active
+    _pose(RELIC_ABILITY_TRIGGERS, gu.get("relicAbilities"))  # 4. relique EN DUR (gameconfig)
+    return out                                               # 5. TertiaryAbility : cf. la docstring
+
+
 def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     """Mirror du registre `AbilityAndEffectCache` (volet ability-trigger) : itère TOUTES les entités et,
     pour chaque trait à trigger porté, instancie l'ability correspondante (owner = l'entité). (Le volet
@@ -36,6 +135,9 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     for eid, e in state.entities.items():
         sc = e.get_component(StatsComponent)
         if sc is None:
+            # CADAVRE-AU-CHARGEMENT (#547-r12) -- le `continue` reste, mais il ne mange plus les
+            # abilities EXEMPTEES. Detail et decompile : `_triggers_du_cadavre_au_chargement`.
+            out.extend(_triggers_du_cadavre_au_chargement(e, eid, GC, BEHAVIOUR_TRAIT_TRIGGERS))
             continue
         for trait in (sc.ctx.traits or []):
             for cls in TRAIT_TRIGGERS.get(trait, ()):            # un trait peut accorder >1 trigger

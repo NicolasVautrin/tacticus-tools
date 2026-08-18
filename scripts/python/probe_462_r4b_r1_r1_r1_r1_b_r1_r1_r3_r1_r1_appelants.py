@@ -556,9 +556,28 @@ REGISTRE_HORS_MORT = {
          "`CurrentAttackDamageProfilesContain(0xd = Psychic)` et `HasTrait(Actor, 0x3ea = Psyker)`. "
          "Ce qui DIVERGE reellement, et c'est le regime que #10015 a ouvert, est le mort DU RUN "
          "(tue par le coup en cours) -- lui a son `StatsComponent`, donc il EST au registre."),
-    # ---- LE SEUL DES CINQ DONT LE REGIME DIVERGENT N'EST PAS VIDE -------------------------------
+    # ---- LE SEUL DES CINQ DONT LE REGIME DIVERGENT N'ETAIT PAS VIDE -- FERME PAR #547-r12 -------
     "LifewardsAbility":
-        ("DIVERGENT-REEL -- residu #547-r12",
+        ("PORTE (#547-r12) -- L'INSCRIPTION EST FAITE, ET L'AMPLITUDE EST BORNEE PAR LE SEEDING",
+         "FERME par #547-r12 : `collect_triggered_abilities` inscrit desormais le "
+         "cadavre-au-chargement pour les SEULES `fire_on_death` "
+         "(`_triggers_du_cadavre_au_chargement`), donc le tri retombe dans `matches`, la ou le "
+         "natif le met (`AbilityAndEffectCache$$AddEntity` garde tout, "
+         "`EvaluateTriggerOperation$$CanGetAbilityTrigger` trie a la lecture). /!\\ ET LA MOITIE "
+         "DE LA PREMISSE CI-DESSOUS EST MESUREE FAUSSE : les morts SONT conserves dans "
+         "`decisionView.units[]` (vrai -- c'est ce qui produit l'entite sans `StatsComponent`), "
+         "mais ils n'y portent AUCUN effet, y compris sous `includeInactive: true`. Mesure LIVE "
+         "sur TROIS cadavres `adeptSmnGeminaeSuperia` (build `t6dpr4k06g`, runners 638 et 669, "
+         "board MC1_67) : `effects=[]` dans les deux modes. Le natif retire les effets a la mort "
+         "(`KillUnitOperation$$Execute` -> TROIS `RemoveEffects(killed, step)`, step 0/1/2 = "
+         "`KillUnitStep` PreUnitRemove/AfterUnitRemove/AfterDeathTrigger). Les DEUX membres de la "
+         "disjonction sont donc faux sur un cadavre-au-chargement ISSU D'UNE CAPTURE, et ce qui "
+         "reste est un ecart de SEEDING -- residu #547-r13, pas de dispatch. Le VRAI regime de la "
+         "disjonction est INTRA-RESOLUTION et le port le couvrait deja : "
+         "`UnitExtensions$$IsAlive` est LU = `!UnitFlagsComponent.Has(6) && <sur le plateau> && "
+         "HealthComponent$$IsAlive()`, donc une Geminae a 0 PV est deja `IsAlive == false` AVANT "
+         "que ses effets ne soient retires -- et cette entite-la, spawnee dans le run, a son "
+         "`StatsComponent`. -- ANCIEN ENONCE (#547-r11), conserve pour la tracabilite : "
          "`On(PreDamageTaken = 57)`, et le porteur n'est NI l'acteur NI la cible : le "
          "`CreateTrigger` contraint `AreEqual(Target@<DSLSelectors+0x60>, Parent(Owner@+0x30))`, "
          "c.-a-d. que la victime est CELESTINE et le porteur la GEMINAE. Aucun des deux "
