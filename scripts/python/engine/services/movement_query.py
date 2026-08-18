@@ -743,6 +743,53 @@ from .line_of_sight import (            # noqa: F401  (re-export : les call-site
 
 # ═══ CHEMIN CONNECTE — `GetConnectedPathTo` / `GetNumTilesMoved` (#448-r1-r1-r1-r1) ═══════════
 
+class BeelineSansChemin(RuntimeError):
+    """La beeline n'a rendu AUCUN chemin entre deux waypoints -- ce que le natif ne SURVIT PAS.
+
+    `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` enchaine, sans aucun test :
+
+        var sub = pathfinders.GetPath(PathfinderType.Beeline, unit, last, next, null);
+        for (int i = 1; i < sub.Count - 1; i++) res.Add(sub[i]);
+                            ^^^^^^^^^ DEREFERENCEMENT NU
+
+    Le decompile le montre litteralement : `if (<beeline> == 0) goto <raise>`, ou `<raise>` est le
+    helper de reference nulle du binaire (le meme que tous les null-checks d'IL2CPP). Le natif
+    LEVE ; il ne compte pas le saut pour 1.
+
+    Le port ECRIVAIT `for mid in (sub or [])[1:-1]` : il AVALAIT l'absence et rendait `n_C = 1`
+    la ou `n_G >= 2` -- le SEUL regime ou `n_C < n_G`, donc le seul ou un seuil `K = 2`
+    (`MastersOfManoeuvre`, `SmashaEad`) pouvait basculer. `#589-r2` l'avait mesure NON ATTEINT sur
+    **2** boards ; `#589-r2-r1` l'a mesure sur les **779**.
+
+    ## Pourquoi une LEVEE plutot qu'une degradation nommee en commentaire
+
+    Parce qu'une prose n'arrete pas un comportement. La case-doc `#589-r2` posait l'alternative :
+    << soit etablir que le graphe canal est toujours connexe la ou un volant atterrit -- et alors
+    NOMMER la degradation au lieu de l'avaler -- soit rendre le port fidele >>. Les deux se
+    rejoignent ici : la levee EST le nom, et elle est le mirror.
+
+    ## Ce qui rend cette levee SURE, et c'est mesure (`probe_589r2r1_beeline_sans_chemin.py`)
+
+    La connectivite des **779** boards de `data/boards/**` est desormais DERIVABLE sans le jeu
+    (entree versionnee `data/symbols/<build>/metadata/tile_edges.tsv`, masque d'aretes par
+    `(TileId, Rotation, ForceUnplayable)` inverse depuis 17 captures et validee EXACTE sur 20
+    boards dont 3 hold-out) :
+
+      * **778 boards sur 779** ont un graphe de connectivite CONNEXE -> la beeline y aboutit
+        toujours, la levee est structurellement inatteignable ;
+      * **1 seul** porte une poche isolee -- `Waves_Xenos_13`, la tuile `(3, 4)`, un `Block`
+        NON MARCHABLE dont le `ConnectivityComponent` est VIDE. Sur ce board : 126 couples sans
+        chemin beeline et **61 sauts de vol** reellement non recousus, mais **0** issu d'un
+        MOUVEMENT LEGAL. `GetConnectedPathTo` n'est appele que par
+        `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, donc APRES un deplacement : ses
+        deux extremites sont marchables par construction, et sous cette contrainte le compte
+        tombe a zero.
+
+    ⇒ aucun mouvement jouable n'atteint cette levee sur le corpus ENTIER. Si elle part un jour,
+    c'est que l'etat reproduit exactement celui ou le natif jette -- une information, pas une
+    regression."""
+
+
 def get_connected_path_to(board, from_id, to_id, path) -> List[int]:
     """`IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo(unit, from, to)`, ETAGE 2 :
     la DENSIFICATION du chemin que le pathfinder de l'unite vient de rendre.
@@ -777,7 +824,12 @@ def get_connected_path_to(board, from_id, to_id, path) -> List[int]:
     deux routes -- cf. `base_pathfinder`.
 
     `path` = la sortie du pathfinder (liste de tile-ids, extremites incluses) ou `None` : le port
-    rend alors `[from_id, to_id]`, la branche degeneree du natif."""
+    rend alors `[from_id, to_id]`, la branche degeneree du natif.
+
+    ⚠ NE PAS CONFONDRE LES DEUX ABSENCES. Celle du `path` a une branche NATIVE (`if (path == null)
+    return new List { from, to };`) et se degrade. Celle du `sub` de la beeline n'en a AUCUNE : le
+    natif y dereference un nul. C'est `BeelineSansChemin` ci-dessus, et le port ne l'avale plus
+    (#589-r2-r1)."""
     src, dst = int(from_id), int(to_id)
     if path is None:
         return [src, dst]
@@ -794,7 +846,17 @@ def get_connected_path_to(board, from_id, to_id, path) -> List[int]:
         nxt = q.pop(0)
         if get_distance([board.coord(last)], [board.coord(nxt)]) > 1:
             sub = _beeline.find_path(board, last, nxt)
-            for mid in (sub or [])[1:-1]:
+            if sub is None:
+                # `for (i = 1; i < sub.Count - 1; i++)` sur un `sub` NUL -- le natif LEVE ici, il
+                # ne degrade pas. Cf. `BeelineSansChemin` ci-dessus pour la mesure qui etablit que
+                # ce chemin est inatteignable par un mouvement legal sur les 779 boards.
+                raise BeelineSansChemin(
+                    "beeline sans chemin entre les waypoints %r et %r (tuiles %d et %d) : le "
+                    "`ConnectivityComponent` les place dans deux composantes distinctes. "
+                    "`IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` y dereference "
+                    "un `sub` nul -- le port ne l'avale plus (#589-r2-r1)."
+                    % (board.coord(last), board.coord(nxt), last, nxt))
+            for mid in sub[1:-1]:
                 out.append(int(mid))
         cur = nxt
 
