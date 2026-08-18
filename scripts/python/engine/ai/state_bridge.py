@@ -42,7 +42,10 @@ from engine.playbook.scene import Scene
 from engine.runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                       HealthComponent, UnitComponent)
 from engine.entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts
-from engine.entities.pathfinding.tile_blocking import make_can_continue
+from engine.entities.pathfinding import tile_blocking as _TB   # FORME B (liaison de MODULE, #10031-r1)
+#     -- `make_can_continue` est SUBSTITUE (`TB.make_can_continue = ...`) par les trois instruments
+#     de #381-r4 ; une liaison `from ... import make_can_continue` GELE le nom au chargement et
+#     rendrait leurs patchs MUETS sur la face DECISION.
 from engine.entities.pathfinding.pathfinders import movable_positions_for_unit
 from engine.services.movement_query import (get_movable_positions_for, synapse_tiles_for,
                                             titanhammer_target_tiles_for, unit_has_effect_fn)
@@ -346,7 +349,7 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None,
     # fournit alors le repli TERRAIN (`terrain_blocks_entering` : le tile-def Swamp heberge
     # `ThornsBlockMovementAbility`, qui pose `BlockEnteringUnits` au setup). MESURE avant/apres
     # (`probe_pathfinding_overreach`) : sans lui MC1_67/777 sur-atteint (2,3) depuis la Swamp (1,3).
-    _cc = make_can_continue(state.effects, traits, board=board)
+    _cc = _TB.make_can_continue(state.effects, traits, board=board)   # FORME B (#10031-r1)
     _, stop = movable_positions_for_unit(
         board, otile, depth, _occupants(state), my_team, traits=traits,
         has_effect=unit_has_effect_fn(state, uid), can_continue=_cc,

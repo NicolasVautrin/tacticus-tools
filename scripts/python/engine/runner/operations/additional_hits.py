@@ -268,15 +268,18 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             attack_profile: "Optional[str]" = None,
                             hit_interceptor=None, failed_block0=None,
                             damaging_done0: bool = False,
-                            source_ability: "Optional[int]" = None) -> "Optional[dict]":
+                            source_ability: "Optional[int]" = None,
+                            attacker_mods_for_profile=None) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
     de degat APRES les coups d'arme. Bornes = plage PREDEFINED [min,max] (RandomAmount natif —
     PAS de spread ±20% ; forme `amount` = spread standard) REDUITE par perce(profil du GROUPE)
-    + armure + mods — MEMES mods attaquant/defenseur que l'arme (mirror de la prediction #179,
-    mesure 2468 s14 : le coup ExplosiveMaladies subit le x1.5 CrushingStrike). Tirage TOUJOURS
-    consomme (mode-1 attaque, etage limites au profil DU GROUPE #57d). Max-out WeaverOfFate
+    + armure + mods. Les mods DEFENSEUR sont ceux de l'arme ; les mods ATTAQUANT le sont AUSSI,
+    SAUF ce que le PROFIL DU GROUPE change (#488-r3, cf. le bloc `g_mods` dans le corps) -- le
+    partage reste donc vrai pour les bonus NON gates par profil, ce que valide la mesure live
+    2468 s14 (le coup ExplosiveMaladies subit le x1.5 CrushingStrike de la phase d'arme). Tirage
+    TOUJOURS consomme (mode-1 attaque, etage limites au profil DU GROUPE #57d). Max-out WeaverOfFate
     (#202-A) : bornes degenerees (max,max), symetrique de la degenerescence `predefined` de
     `predict_attack_raw`.
 
@@ -391,7 +394,12 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     import gameconfig as GC
     from .damage import AttackDamageOperation, HitDamage
     death = None
-    out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
+    out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": [],
+           # #488-r3 : combien de groupes ont vu leurs mods ATTAQUANT re-collectes au profil DU
+           # GROUPE (parce que le profil y CHANGE quelque chose). 0 = le canal est muet ou aucun
+           # groupe n'est concerne -- c'est ce qui rend la substitution OBSERVABLE d'un test sans
+           # avoir a comparer des degats.
+           "profile_mods_substitues": 0}
     hit_index = int(hit_index0)      # `currentAttack+0x30` — CONTINU d'un groupe a l'autre (R6-b')
     # #366-r1-crit-multihit : `OngoingAttack+0x40` (`isCriticalDamageAllowed`) est porte par l'ATTAQUE
     # et re-seme dans chaque `OngoingHitGroup` par `SetupHitGroup` -> il traverse les groupes de coups
@@ -456,10 +464,57 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         else:
             mm = get_base_damage_fix64(g.get("amount") or 0, spread_pct=spread_pct)
             g_min, g_max = mm.min, mm.max
-        def _reduce(value, _p=g_pierce):
+        # #488-r3 -- LES MODS ATTAQUANT AU PROFIL DU **GROUPE**, et pas a celui de l'ARME.
+        # Cote natif, un groupe a profil est une SOUS-OPERATION entiere
+        # (`IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` ->
+        # slot 0x3c -> `IdunBattle.Operations.AttackDamageOperation$$Execute`), donc son
+        # `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` rebatit un
+        # `IdunBattle.Entities.Abilities.AbilityEntities` NEUF dont le `DamageProfile` est celui
+        # DU GROUPE (`local_618 = IBattleQuery.GetDamageProfile(damageProfileType)` puis
+        # `AbilityEntities+<champ profil> = local_618`) -- et c'est CET objet que
+        # `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`
+        # passe a chaque effet. Le port threadait deja `g_profile` dans TROIS canaux du groupe
+        # (`make_pre_damage_taken_sink`, `_apply_damage_pipeline`, `_target_limits`) ; les mods
+        # ATTAQUANT etaient le QUATRIEME, et il manquait -- ils arrivaient en ARGUMENT, resolus
+        # une seule fois par la phase d'ARME. Consequence MESUREE
+        # (`probe_488r2_profil_du_groupe.py` etape 3) : sur `blackObliterator` (arme `HeavyRound`,
+        # cycle `FleshmetalGuns` au profil `Melta`), `MeltaExtraDmgEffect` rend `None` a
+        # `HeavyRound` et `+50 %` a `Melta` -> le bonus vs `Vehicle` etait INERTE sur les coups du
+        # groupe. Second consommateur du meme axe : `PsychicStalk_FriendlyChaosExtraDamage`
+        # (`DamageProfileIs`).
+        #
+        # ⚠ SEPARATION DES DEUX FAMILLES, ET C'EST LE COEUR DE LA REPARATION. Re-collecter EN BLOC
+        # remplacerait aussi les bonus qui ne dependent PAS du profil, alors que la docstring
+        # ci-dessus porte une mesure LIVE (`2468 s14`) qui VALIDE le partage pour eux
+        # (`ExplosiveMaladies` subit le x1.5 `CrushingStrike` de la phase d'arme). On ne substitue
+        # donc que ce que le PROFIL change, et on l'etablit par une DOUBLE COLLECTE PRISE AU MEME
+        # INSTANT : temoin au profil de l'ARME, mesure au profil du GROUPE. Tout ce qui aurait
+        # bouge d'etat entre la phase d'arme et ce groupe s'ANNULE dans la comparaison -- il ne
+        # reste que l'axe PROFIL. Egales => on garde l'OBJET de la phase d'arme, bit a bit.
+        #
+        # `attacker_mods_for_profile` = un RE-COLLECTEUR fourni par l'appelant (`profil -> mods`),
+        # parce que lui seul a les huit autres axes sous la main (`is_ranged`, `target_traits`,
+        # `is_normal_attack`, `is_overwatch`, `ability_type`, ...) ET les deux feuilles
+        # POSITIONNELLES que le builder natif porte dans le meme etage (`apply_elevation_bonus`,
+        # `apply_trench_reduction`, cette derniere prenant elle aussi le profil). `None` = canal
+        # MUET -> comportement d'AVANT, strictement (tout appelant non cable est inchange).
+        # AUCUNE consommation RNG dans ce bloc : `attacker_modifiers` est une lecture d'effets.
+        g_mods = mods
+        if attacker_mods_for_profile is not None and g_profile != attack_profile:
+            _m_arme = attacker_mods_for_profile(attack_profile)
+            _m_grp = attacker_mods_for_profile(g_profile)
+            if _m_grp != _m_arme:
+                g_mods = _m_grp
+        if g_mods is not mods:
+            out["profile_mods_substitues"] += 1
+
+        def _reduce(value, _p=g_pierce, _m=g_mods):
             """`post_roll` = etage 3 d'`ExecuteHit` (slot 4 `PredictAttack`), applique a la
-            VALEUR TIREE et non aux bornes (R6-b, cf. docstring)."""
-            return reduce_group_damage(value, _p, armor, mods, def_mods, hit_mult=hit_mult)
+            VALEUR TIREE et non aux bornes (R6-b, cf. docstring).
+
+            `_m` = les mods attaquant DU GROUPE (#488-r3), captures par defaut d'argument pour
+            qu'un groupe ne lise pas le `g_mods` d'un groupe suivant."""
+            return reduce_group_damage(value, _p, armor, _m, def_mods, hit_mult=hit_mult)
 
         # R6-b : bornes BRUTES du descripteur (= le `HitDamage` NON degenere que
         # `AdditionalHitsFromEffects$$GetAdditionalHitsData` pose dans l'AttackData) -> le tirage

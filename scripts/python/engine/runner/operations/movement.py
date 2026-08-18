@@ -28,7 +28,10 @@ from ..components import (PositionComponent, UnitComponent, StatsComponent, Heal
 from .base import Operation
 from ...entities.damage_reason import DamageReason
 from ...entities.pathfinding import pathfinders as _pf
-from ...entities.pathfinding.fly_pathfinder import is_like_flying
+from ...entities.pathfinding import fly_pathfinder as _fly   # FORME B (liaison de MODULE, #10031-r1)
+#     -- `is_like_flying` est SUBSTITUE (`FP.is_like_flying = ...`) par les bras `no-fly` de
+#     `probe_381r1_movable_tiles_pool.py` et `probe_381r4_imperative_collapses.py` ; en forme A
+#     leurs patchs seraient MUETS sur CE chemin-ci (le dispatch de `MoveUnitOperation`).
 from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos, get_path_by_pos
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...services.movement_query import get_connected_path_to, get_num_tiles_moved
@@ -228,7 +231,7 @@ def _is_like_flying(traits, pathfinder_type_override) -> bool:
 
     `traits` = ceux du mover (bras 1) ; `pathfinder_type_override` = `None` quand le `Nullable` est
     VIDE (le cas de tous les call-sites a options nulles)."""
-    if is_like_flying(traits or []):                       # BRAS 1 : Flying (0x4) / Burrow (0x13)
+    if _fly.is_like_flying(traits or []):                  # BRAS 1 : Flying (0x4) / Burrow (0x13)
         return True
     if pathfinder_type_override is None:                   # `!ov.HasValue`
         return False

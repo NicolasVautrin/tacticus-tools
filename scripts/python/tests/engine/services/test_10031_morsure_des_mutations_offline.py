@@ -30,12 +30,18 @@ E2 LA CAUSE  -- les liaisons FIGEES (forme A) sur les noms substitues, DERIVEES 
                 main), et les liaisons le sont d'un balayage AST de tout `engine/**` -- donc E2 voit
                 aussi un module qu'AUCUNE passe ne charge, ce que la lecture runtime ne peut pas.
 
-E2 est un RATCHET, pas un invariant a zero : DEUX liaisons figees subsistent hors du chemin de
-`#381-r4` (`engine/ai/state_bridge.py` pour `make_can_continue`, `engine/runner/operations/
-movement.py` pour `is_like_flying`). Elles sont REELLES -- tout patcheur qui exercerait CES
-chemins-la serait muet -- mais les reparer changerait la morsure de mesures qui appartiennent a
-d'autres tranches (#448, #381-r1), qu'il faut re-jouer avant. Elles sont donc ATTESTEES, nommees,
-et le fichier d'attestation ne doit que DECROITRE. Toute liaison NEUVE rougit.
+E2 etait un RATCHET a DEUX liaisons attestees hors du chemin de `#381-r4`
+(`engine/ai/state_bridge.py` pour `make_can_continue`, `engine/runner/operations/movement.py` pour
+`is_like_flying`). `#10031-r1` les a passees en FORME B et re-joue les mesures qu'elles
+desarmaient : **le ratchet est REFERME A ZERO**, et E2 est desormais un INVARIANT -- toute liaison
+figee, ancienne ou neuve, rougit. Le fichier d'attestation reste, VIDE : il porte le compte
+d'ouverture (0) et la borne « ne monte pas ».
+
+⚠ ET C'EST LA QU'UN CLIQUET DEVIENT VERT-SUR-RIEN. Tant que des liaisons etaient attestees, le
+non-vide de la mesure prouvait que le balayage AST visitait encore quelque chose. A zero, cette
+preuve DISPARAIT : un recenseur casse rendrait `set()` partout et E2 passerait. Le non-vide se
+prend donc sur un TEMOIN (`test_e2ter`), jamais sur le GISEMENT -- un arbre jetable ou l'on ECRIT
+une forme A et une forme B, et ou le recenseur doit voir exactement la premiere.
 
 ASCII only (console Windows cp1252).
 """
@@ -159,6 +165,8 @@ def test_e2_aucune_liaison_figee_neuve_sur_un_nom_substitue():
     assert any(mesure.values()) or connues == {}, (
         "le balayage AST ne rend AUCUNE liaison alors que %d etaient attestees : le recenseur ne "
         "visite plus rien (un zero de recenseur n'est pas une preuve)" % sum(map(len, connues.values())))
+    # ⚠ Quand `connues == {}` la ligne ci-dessus ne garde plus RIEN -- c'est `test_e2ter` qui prend
+    # le relais, sur un TEMOIN, parce qu'un zero de gisement ne peut pas prouver qu'on l'a regarde.
     assert not neuves, (
         "liaison(s) FIGEE(S) NEUVE(S) en forme A sur un nom substitue -- le patch correspondant ne "
         "mordra pas pour ce module : %s. Passer le consommateur en FORME B (`import X as _x` puis "
@@ -170,9 +178,25 @@ def test_e2_aucune_liaison_figee_neuve_sur_un_nom_substitue():
 def test_e2bis_l_attestation_nomme_ce_qu_elle_couvre_et_reste_petite():
     """Un ratchet qui grossit sans qu'on le lise est une liste blanche. Chaque entree attestee porte
     sa RAISON, et le fichier declare le compte qu'il attestait a l'ouverture -- si le compte MESURE
-    le depasse, `test_e2` a deja rougi ; s'il descend, c'est un progres a acter."""
+    le depasse, `test_e2` a deja rougi ; s'il descend, c'est un progres a acter.
+
+    ⚠ L'ATTESTATION VIDE EST L'ETAT CIBLE, PAS UNE PANNE (#10031-r1). Ce test exigeait
+    `atteste["liaisons"]` non vide -- donc refermer le ratchet a zero, ce qu'il prescrivait, le
+    faisait ROUGIR. Un ratchet dont le gardien interdit l'arrivee ne descend jamais. A vide, ce
+    qu'on exige change de nature : `ouverture` doit valoir 0 (le fichier DIT qu'il est referme) et
+    `_ferme` doit nommer la tranche qui l'a ferme, pour qu'une reouverture soit un geste ECRIT."""
     atteste = json.loads(ATTESTE.read_text(encoding="utf-8"))
-    assert atteste.get("liaisons"), "attestation vide : elle ne couvre plus rien"
+    if not atteste.get("liaisons"):
+        assert int(atteste["ouverture"]) == 0, (
+            "attestation VIDE mais `ouverture` = %s : un ratchet referme declare 0, sinon il laisse "
+            "une place libre ou une liaison neuve pourrait rentrer sans rougir" % atteste["ouverture"])
+        assert atteste.get("_ferme"), (
+            "attestation VIDE sans champ `_ferme` : la fermeture doit nommer la tranche et ce "
+            "qu'elle a re-joue, sinon personne ne saura si le zero est un progres ou un effacement")
+        assert not atteste.get("raisons"), (
+            "attestation VIDE mais `raisons` non vide : des raisons orphelines survivent a leur "
+            "objet et se recopient (cf. les 8 raisons perimees sur 8 mesurees le 2026-08-18)")
+        return
     for cle, mods in atteste["liaisons"].items():
         assert " . " in cle, "cle malformee : %r (attendu `<module source> . <nom>`)" % cle
         assert mods, "entree %r sans aucune liaison : la retirer plutot que l'attester a vide" % cle
@@ -183,6 +207,57 @@ def test_e2bis_l_attestation_nomme_ce_qu_elle_couvre_et_reste_petite():
     assert total <= int(atteste["ouverture"]), (
         "l'attestation a GROSSI (%d > %d a l'ouverture) : un ratchet ne monte pas"
         % (total, int(atteste["ouverture"])))
+
+
+def test_e2ter_le_recenseur_mord_sur_un_temoin_ecrit(tmp_path):
+    """LE NON-VIDE SE PREND SUR UN TEMOIN, JAMAIS SUR LE GISEMENT (#10031-r1).
+
+    Depuis que l'attestation est vide, `test_e2` attend `set()` partout -- et un recenseur cassé
+    rendrait exactement ça. On lui donne donc un arbre JETABLE où l'on ECRIT les trois formes que
+    CLAUDE.md distingue, et on exige qu'il rende EXACTEMENT la forme A :
+
+      A `from <src> import foo` au niveau module + appel    -> FIGEE   (ne mord pas)
+      B `from pkg import src as _s` + `_s.foo()`            -> LIBRE   (mord)
+      C `from <src> import foo` DANS la fonction + appel    -> LIBRE   (mord, par re-execution)
+      RE-EXPORT : forme A SANS aucun appel                  -> LIBRE   (ne change la morsure de
+                                                                        personne)
+
+    Les quatre sont ECRITS ici : un recenseur qui n'en verrait aucune, ou qui les verrait toutes,
+    tombe. Le second cas est le plus important -- c'est le sur-comptage qui ferait attester des
+    modules sains, donc grossir la liste blanche."""
+    src = "engine.entities.pathfinding.tile_blocking"
+    (tmp_path / "forme_a.py").write_text(
+        "from %s import make_can_continue\n"
+        "def f():\n    return make_can_continue(None, [], board=None)\n" % src, encoding="utf-8")
+    (tmp_path / "forme_b.py").write_text(
+        "from engine.entities.pathfinding import tile_blocking as _tb\n"
+        "def f():\n    return _tb.make_can_continue(None, [], board=None)\n", encoding="utf-8")
+    (tmp_path / "forme_c.py").write_text(
+        "def f():\n    from %s import make_can_continue\n"
+        "    return make_can_continue(None, [], board=None)\n" % src, encoding="utf-8")
+    (tmp_path / "reexport.py").write_text(
+        "from %s import make_can_continue\n__all__ = ['make_can_continue']\n" % src, encoding="utf-8")
+
+    vu = liaisons_figees_statiques(src, "make_can_continue", racine=tmp_path)
+    assert vu == {"forme_a.py"}, (
+        "le recenseur AST ne discrimine plus les formes de liaison : attendu {'forme_a.py'}, "
+        "mesure %s. Un zero du gisement ne prouve alors plus rien (vert-sur-rien)" % sorted(vu))
+
+
+def test_e2quater_le_recenseur_voit_l_import_relatif(tmp_path):
+    """L'ecriture RELATIVE est celle de tout `engine/runner/**` (`from ...entities.pathfinding.
+    fly_pathfinder import is_like_flying`) -- c'est-a-dire EXACTEMENT la liaison que `#10031-r1`
+    vient de reparer dans `runner/operations/movement.py`. Un recenseur aveugle a cette forme-la
+    rendrait zero sur le gisement meme qu'il est cense garder, et ce test-ci serait le seul a le
+    dire : le TEMOIN ci-dessus n'ecrit que la forme ABSOLUE."""
+    src = "engine.entities.pathfinding.fly_pathfinder"
+    (tmp_path / "relatif.py").write_text(
+        "from ...entities.pathfinding.fly_pathfinder import is_like_flying\n"
+        "def f(t):\n    return is_like_flying(t)\n", encoding="utf-8")
+    vu = liaisons_figees_statiques(src, "is_like_flying", racine=tmp_path)
+    assert vu == {"relatif.py"}, (
+        "le recenseur ne voit pas la forme A ecrite en import RELATIF (`from ...pkg.mod import "
+        "nom`), qui est l'ecriture de tout `engine/runner/**` : mesure %s" % sorted(vu))
 
 
 if __name__ == "__main__":                       # pragma: no cover
