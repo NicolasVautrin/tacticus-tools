@@ -103,9 +103,18 @@ L'ordre est ETABLI, pas suppose : `BasePlaybook$$GetEligibleTargetsSelectable` e
 `test_ironkin_steeljack_live.py` 3/3, `test_master_tutelaries_active_gate_live.py` +
 `test_master_tutelaries_object_target_live.py` 12/12, et le walk d'Abraxas ci-dessous.
 
-Residu **`#971-r5`** : aucun montage ne force un TIE d'utilite depuis une position de MOVE (le
-seul regime ou l'ordre par position se distingue de l'union). L'ecart est ferme par LECTURE, pas
-par mesure discriminante.
+**GENERALISATION CRAFTEE, sur un board a `Bridge`** -- le regime ou la liste d'adjacence STOCKEE
+diverge le plus de la couronne hex. Les boards versionnes ne portent PAS le `boardGraph`
+(c'est un artefact RUNTIME), mais ils portent les `TileId` : un balayage des **779** fichiers de
+`data/boards/` classe **`C3_14` en tete avec 15 tuiles `Bridge`** (287 boards en portent au moins
+une). `probe_570_grot_tank_nc.py --board C3_14 --seed 4242 --caster-pos 4,4 --enemy-pos 6,6` --
+l'oracle `ncEvaluate`, invoque par POSITION -- rend **7 positions confrontees, 7 OK**, avec DEUX
+valeurs d'utilite distinctes (2 et 3), donc un sweep non degenere. Rejoue APRES rebase, identique.
+
+Residu **`#971-r5`** : ce montage-la ne force toujours pas un TIE d'utilite depuis une position de
+MOVE avec un voisinage stocke dont l'ORDRE differe de celui de l'union -- le seul regime ou
+l'ordre par position se distingue vraiment. L'ecart est ferme par LECTURE (trois ctors identiques
+octet pour octet), pas par mesure discriminante.
 
 ## 4. `#202-r1` -- un sommet a TUILE UNIQUE, et le natif y va
 
@@ -294,7 +303,16 @@ ctor manquant : aucun >> ; `test_ability_registry_ratchet` 10/10 ; `probe_313`, 
 
 **Live** : `test_971_summon_decision_live` 5/5, `test_grot_tank_live` 5/5,
 `test_ironkin_steeljack_live` 3/3, `test_master_tutelaries_active_gate_live` +
-`test_master_tutelaries_object_target_live` 12/12 ; `probe_202r` sur trois geometries.
+`test_master_tutelaries_object_target_live` 12/12 ; `probe_202r` sur trois geometries ;
+`probe_570_grot_tank_nc` sur `C3_14` (7/7 positions).
+
+**RE-JOUE APRES REBASE** sur `origin/master` (`e381cf10`, 20 commits d'avance au moment du
+rebase) : 176 tests offline, 8/8 mutants, `probe_1021`, `probe_181`, `probe_485`, `probe_313`,
+`test_971_summon_decision_live` 5/5, `test_grot_tank_live` + `test_ironkin_steeljack_live` 8/8,
+`probe_202r` seed 777 (MATCH identique), `probe_570` sur `C3_14` (identique). UN conflit, sur
+`scripts/cliquets-cache/probe_485_imports_differes.tsv` -- un GENERE : la version amont a ete
+prise, puis les DEUX caches ont ete REGENERES par leur probe sur l'arbre rebase, jamais fusionnes
+a la main.
 
 **Ce qui n'est PAS couvert** :
 
