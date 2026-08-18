@@ -342,5 +342,70 @@ def test_e8_le_foyer_passe_le_profil_demande_a_la_collecte_et_au_trench(monkeypa
         "(appels=%d)" % vus["elevation"])
 
 
+# --------------------------------------------------------------------------------------------- #
+# E9 -- DE BOUT EN BOUT : l'effet REEL, le foyer REEL, le canal #179 REEL
+# --------------------------------------------------------------------------------------------- #
+def test_e9_de_bout_en_bout_le_groupe_melta_prend_le_plus_50_pourcent():
+    """LE CAS MESURE PAR #488-r2, joue en entier : `blackObliterator` (arme `HeavyRound`), groupe
+    `FleshmetalGuns` au profil `Melta`, cible `Vehicle`. Le re-collecteur est le VRAI
+    (`attacker_modifiers_at_profile`), pas un synthetique -- c'est le seul etage qui traverse la
+    chaine complete foyer -> collecte -> gate de l'effet -> reduction du coup.
+
+    ⚠ AUCUN SUBSTRAT D'EFFETS N'EST MONTE, ET C'EST LE POINT. `Melta_ExtraDmg` (1297) est
+    MATCH-WIDE : `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$
+    CreateBehaviour` le pose a `On(MatchInit)` sur une TUILE arbitraire, et
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` invoque
+    le slot de bonus SANS filtre de proprietaire ni de position (mesure #488-r1, `MC1_67`, RPC
+    `tileMeta`). Cote port, `entities/effects/_attacker_effect_bonuses` itere
+    `own + match_wide_effects()` -- l'effet entre donc TOUT SEUL, par le chemin de production.
+    Le poser a la main sur l'attaquant le compterait DEUX fois (mesure faite : x2.25 au lieu de
+    x1.5), ce qui aurait fabrique un faux vert d'amplitude.
+
+    ⚠ CONTRE-TEMOIN dans le meme test : la MEME attaque contre une cible SANS le trait `Vehicle`
+    ne doit RIEN gagner. Sans lui, un effet devenu inconditionnel passerait pour une reussite."""
+    from engine.runner.damage_model import attacker_modifiers_at_profile
+    from engine.entities.effects import match_wide_effects
+    from engine.entities.traits.unit_trait import UnitTrait
+
+    assert any(getattr(e, "name", None) == "Melta_ExtraDmg" for e in match_wide_effects()), (
+        "`Melta_ExtraDmg` n'est plus MATCH-WIDE : ce test n'a plus de porteur et serait vacant")
+
+    def _mesure(traits_cible):
+        st, att, tgt = _etat()
+        st.rng = IntBasedMersenneTwister(4463111)
+        e_t = st.get_entity(tgt)
+        e_t.get_component(StatsComponent).ctx.traits = list(traits_cible)
+        thc = e_t.get_component(HealthComponent)
+        rec = (lambda p: attacker_modifiers_at_profile(
+            st, att, 100, tgt, p, is_ranged=True,
+            target_traits=frozenset(traits_cible)))
+        # groupe au profil MELTA (le cycle de `FleshmetalGuns`), attaque au profil de l'ARME.
+        return execute_additional_hits(
+            st, att, tgt, e_t, thc, [_groupe(MELTA, count=2, mn=500, mx=500)],
+            DamageModifiers(), DamageModifiers(), 0, 1, None, None,
+            attack_profile=ARME, attacker_mods_for_profile=rec)
+
+    vehicule = _mesure({UnitTrait.Vehicle.name})
+    autre = _mesure({UnitTrait.Hulking.name})       # un trait QUELCONQUE, jamais `Vehicle`
+    assert vehicule is not None and autre is not None, "montage muet (aucun groupe execute)"
+    assert autre["profile_mods_substitues"] == 0, (
+        "substitution declenchee contre une cible NON `Vehicle` : le gate "
+        "`HasTrait(Target, Vehicle)` de `Melta_ExtraDmg` ne discrimine plus -- ce test serait "
+        "vacant (substitues=%s)" % autre["profile_mods_substitues"])
+    assert vehicule["profile_mods_substitues"] == 1, (
+        "le groupe `Melta` contre un `Vehicle` n'a PAS vu ses mods re-collectes : le +50 %% reste "
+        "INERTE, exactement l'ecart mesure par #488-r2 (substitues=%s)"
+        % vehicule["profile_mods_substitues"])
+    assert vehicule["total"] > autre["total"], (
+        "le +50 %% `Melta` vs `Vehicle` ne mord pas sur les coups du groupe : "
+        "vehicule=%s autre=%s" % (vehicule["total"], autre["total"]))
+    # AMPLITUDE : `meltaDamageExtraDmgPct` = 50 -> x1.5 sur des coups sans armure ni autre mod.
+    attendu = int(GC.global_value("meltaDamageExtraDmgPct") or 0)
+    assert attendu == 50, "`meltaDamageExtraDmgPct` a change (%s) : re-lire l'amplitude" % attendu
+    assert vehicule["total"] == int(round(autre["total"] * 1.5)), (
+        "amplitude inattendue : %s vs %s (attendu x1.5 exact -- coups sans armure ni autre mod)"
+        % (vehicule["total"], autre["total"]))
+
+
 if __name__ == "__main__":                       # pragma: no cover
     raise SystemExit(pytest.main([os.path.abspath(__file__), "-q"]))
