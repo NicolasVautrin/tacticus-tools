@@ -1,5 +1,6 @@
-"""#512-r4 -- CARDINALITE d'`On(Attack = 9)` : le natif l'emet PAR CIBLE au niveau du NOEUD, le port
-l'emettait PAR FEUILLE au niveau de l'OPERATION.
+"""#512-r4 / #512-r6 -- CARDINALITE ET ORDRE des DEUX evenements de cloture d'attaque.
+Le natif les emet PAR CIBLE au niveau du NOEUD, le port les emettait PAR FEUILLE au niveau de
+l'OPERATION.
 
 RE (decompile = verite). `On(9)` sort d'`IdunBattle.Operations.FinishAttackOperation$$Execute`, qui
 n'est atteint que par le slot **59** (`FinishAttack`) du processeur. Ce slot est pousse par des
@@ -17,6 +18,17 @@ NOEUDS de l'arbre, JAMAIS par une operation de degat -- les cinq emetteurs, relu
   * `IdunBattle.Entities.Behaviours.FinishAttackBehaviour$$Execute` ;
   * la voie MESSAGE.
 
+#512-r6 -- LE SECOND EVENEMENT, `On(AttackDamageAttack = 10)`, SORT DE LA MEME FONCTION. Fin de
+`FinishAttackOperation$$Execute`, relue verbatim au build `t6dpr4k06g` :
+
+    FUN_1800280e0(0x50, <IOperationProcessor>, proc, 9, entities)       # On(Attack = 9)  : TOUJOURS
+    if (*(char *)(currentAttack + 0x2c) != '\\0')
+        FUN_1800280e0(0x50, <IOperationProcessor>, proc, 10, entities)  # On(10)          : GATE
+
+`currentAttack` est le `GetCurrentAttack()` lu en TETE de la fonction ; son octet `+0x2c` est pose
+par la SEULE `IdunBattle.Operations.AttackDamageOperation$$Execute`. Cote port c'est exactement
+`is_attack_damage_op` -- pas un second canal.
+
 CE QUE CE FICHIER GARDE, ET IL LE FAIT PAR MESURE, PAS PAR LECTURE DE SOURCE :
   (1) un noeud `SortedAttackSeries` portant DEUX feuilles sur la MEME cible emet **UN** `On(9)` --
       et le CONTRE-CAS integre (des feuilles qui emettent elles-memes, c'est-a-dire le port
@@ -24,7 +36,15 @@ CE QUE CE FICHIER GARDE, ET IL LE FAIT PAR MESURE, PAS PAR LECTURE DE SOURCE :
   (2) la facade after-hit d'ability n'emet `On(9)` que si `emit_finish_attack` est vrai, et ses deux
       AUTRES vecteurs (`On(0x3c = UnitBlocked)`, `On(8 = AttackHit)`) partent dans les DEUX regimes
       -- ils viennent d'`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, donc de
-      l'OPERATION, et les confondre aurait eteint le cluster on-block avec la cloture.
+      l'OPERATION, et les confondre aurait eteint le cluster on-block avec la cloture ;
+  (3) MEME cardinalite pour `On(10)` : UN par cible distincte du noeud, DEUX dans le contre-cas ;
+  (4) l'ORDRE `9` PUIS `10` sur la voie NOEUD -- l'assertion porte sur la SEQUENCE, pas sur des
+      comptes (avant #512-r6 le noeud cloturant APRES ses feuilles, `On(10)` partait le PREMIER) ;
+  (5) le GATE de famille : un noeud dont TOUTES les feuilles sont de la famille ABILITY
+      (`AbilityDamageOperation`, qui ne pose PAS `+0x2c`) emet `On(9)` et **AUCUN** `On(10)` ;
+  (6) le gate de FEUILLE, mesure sur l'OPERATION REELLE : `execute_ability_attack` avec
+      `is_outside_attack = False` n'emet NI 9 NI 10, et avec `True` emet les deux. Ce cran-la ne
+      lit aucune source -- il execute le pipeline de degat complet.
 
 Porteur reel de l'ecart : `1088 HellfyreMissileRack` (`thousTerminator`), dont
 `HellfyreMissileRackAbility$$ExecuteBehaviour` monte DEUX `AbilityDamage` sur `ActiveTarget()` via
@@ -71,9 +91,13 @@ from dataclasses import replace                                            # noq
 from engine.dsl.base import DslContext                                     # noqa: E402
 from engine.dsl.effects import ExecutionContext                            # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType                 # noqa: E402
+from engine.entities.unit_context import UnitContext                       # noqa: E402
 from engine.runner.abilities.behaviours.combat import SortedAttackSeries   # noqa: E402
-from engine.runner.components import UnitComponent                         # noqa: E402
+from engine.runner.components import (HealthComponent, OwnerComponent,     # noqa: E402
+                                      PositionComponent, StatsComponent, UnitComponent)
+from engine.runner.operations.damage import AttackDamageOperation          # noqa: E402
 from engine.runner.operations.triggers.dispatch import attack as A         # noqa: E402
+from engine.runner.prng import IntBasedMersenneTwister                     # noqa: E402
 from engine.runner.state import State                                      # noqa: E402
 
 
@@ -92,6 +116,12 @@ class _FeuilleMuette:
         return None
 
 
+class _FeuilleAttaque(_FeuilleMuette):
+    """MEME feuille nue, mais de la famille ATTACK : c'est elle qui fait poser
+    `currentAttack@+0x2c` par `AttackDamageOperation$$Execute`, donc qui ouvre le gate d'`On(10)`."""
+    native_factory = "attack"
+
+
 class _FeuilleQuiClot(_FeuilleMuette):
     """CONTRE-CAS : la feuille emet SA propre cloture -- c'est exactement le port d'AVANT #512-r4,
     ou `execute_ability_attack` appelait `after_hit_ability_attack` sans gate."""
@@ -100,6 +130,17 @@ class _FeuilleQuiClot(_FeuilleMuette):
         super().execute(entities, ectx)
         A.finish_attack_triggers(ectx.state, (entities.caster or {}).get("id"),
                                  (entities.active_target or {}).get("id"), ranged=False)
+        return None
+
+
+class _FeuilleAttaqueQuiClot(_FeuilleAttaque):
+    """CONTRE-CAS de `#512-r6` : la feuille emet SA propre paire de cloture, dans l'ordre ou le port
+    la produisait -- `On(10)` etait emis par l'OPERATION, donc AVANT que le noeud n'emette `On(9)`."""
+
+    def execute(self, entities, ectx):
+        _FeuilleMuette.execute(self, entities, ectx)
+        A.attack_damage_attack_triggers(ectx.state, (entities.caster or {}).get("id"),
+                                        (entities.active_target or {}).get("id"), ranged=False)
         return None
 
 

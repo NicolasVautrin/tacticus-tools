@@ -443,11 +443,15 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
     resolue par `AbilityDamageOperation`. Cote port, ce gate est EXACTEMENT le drapeau
     `is_attack_damage_op` deja threade par la facade d'attaque d'ability.
 
-    SITE D'EMISSION : le port n'a pas de `FinishAttackOperation` ; ce vecteur est emis a la SORTIE
-    des OPERATIONS d'attaque-a-degats (le foyer natif du `+0x2c`), ce qui couvre tous les appelants —
-    dont le TIR D'OVERWATCH, qui appelle directement `AttackDamageOperation.execute` et qui est
-    justement le porteur du seul consommateur. Depuis #437 son jumeau `On(9)`
-    (`finish_attack_triggers`) est emis au MEME endroit, juste AVANT lui : c'est l'ordre natif.
+    SITE D'EMISSION — DEUX, et le decoupage est celui d'`On(9)` (#512-r6, qui a ferme l'asymetrie) :
+      * la voie NORMALE / OVERWATCH (`damage_ops/normal.py`), qui EST la sortie d'`IdunBattle.
+        Operations.AttackDamageOperation$$Execute`, c'est-a-dire le foyer natif du `+0x2c` ;
+      * le foyer de NOEUD (`abilities/behaviours/combat.py::_emettre_finish_attack_de_noeud`),
+        appele par `SortedAttackSeries` (par cible DISTINCTE) et par `HazeOfCorruption` (une fois),
+        qui emet `On(9)` PUIS `On(10)` — l'ordre litteral du decompile.
+    Les feuilles NUES (`isOutsideAttack = 0`) n'emettent plus ni l'un ni l'autre : le call-site de
+    `damage_ops/ability.py` porte desormais le gate `is_attack_damage_op and is_outside_attack`,
+    jumeau exact de l'`emit_finish_attack` d'`On(9)`.
     Consequence inchangee : une attaque native unique qui enchainerait plusieurs
     `AttackDamageOperation` emettrait ici N fois au lieu d'1 — sans effet, le seul consommateur
     (`RangedAutoAttackDeactivateOnAttack`) etant idempotent (`DeactivateEffect` porte lui-meme le
@@ -457,21 +461,23 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
     `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`) = « un seul tir d'overwatch par
     activation ». No-op pour toute unite sans effet 1009 actif.
 
-    ⚠ RESIDU OUVERT `#512-r6` -- CE VECTEUR-CI N'A **PAS** SUIVI SON JUMEAU EN #512-r4, ET C'EST
-    DELIBERE. Les deux events sortent du MEME `FinishAttackOperation$$Execute` (9 puis 10, le second
-    sous `currentAttack@+0x2c`), donc la correction de granularite d'`On(9)` -- passee au niveau du
-    NOEUD -- vaut telle quelle pour `On(10)`. Deux consequences MESUREES et laissees en l'etat :
-      * CARDINALITE : sur un noeud portant deux feuilles sur la MEME cible (`1088
-        HellfyreMissileRack`), `On(10)` part encore DEUX fois (il reste emis par l'OPERATION) ;
-      * ORDRE : sur la voie NOEUD, `On(9)` est desormais emis APRES `On(10)` (le noeud clot apres
-        que ses feuilles ont rendu la main), alors que le natif emet 9 PUIS 10. Avant #512-r4 il
-        etait emis AVANT `On(0x42 = FinalDamage)` -- donc trop tot ; il est maintenant trop tard.
-    POURQUOI PAS MAINTENANT : deplacer `On(10)` au noeud n'est pas symetrique de `On(9)`. La voie
-    `execute_normal_like` (les N transferts d'`HazeOfCorruption`) n'emet AUCUN `On(10)` aujourd'hui,
-    alors que ses feuilles sont de la famille ATTACK -- l'y ajouter serait un port NEUF, avec un
-    consommateur non idempotent (`LegendaryCommander_ExtraHits`, dont le gate `IsValidAttack` lit
-    `!IsNormalAttack`), et non une correction de granularite. Le montage qui tranche est celui de
-    `tests/engine/runner/test_512r4_on9_cardinalite_offline.py`, etendu a l'event 10."""
+    #512-r6 -- FERME le 2026-08-18. Ce vecteur suit desormais son jumeau au niveau du NOEUD. Les
+    deux consequences que le residu nommait sont mesurees FERMEES par
+    `tests/engine/runner/test_512r4_on9_cardinalite_offline.py` (etendu a l'event 10) :
+      * CARDINALITE : `1088 HellfyreMissileRack` (deux feuilles sur la MEME cible) emet UN `On(10)`,
+        et le CONTRE-CAS (le regime d'avant : des feuilles qui cloturent elles-memes) en rend DEUX ;
+      * ORDRE : sur la voie NOEUD, `On(9)` precede `On(10)` — le foyer les emet dans l'ordre du
+        decompile, et le test l'asserte sur la SEQUENCE, pas seulement sur les comptes.
+    ⚠ CE QUE CE DEPLACEMENT A CHANGE EN PLUS, et qui n'est pas une correction de granularite :
+    `HazeOfCorruption` passe `is_attack_damage_op=True` au foyer de NOEUD (lecture deja ecrite :
+    ses feuilles sont des `DSLBehaviors$$AttackDamage`, donc `AttackDamageOperation$$Execute` pose
+    `+0x2c`), alors que sa voie de degat `execute_normal_like` n'emettait AUCUN `On(10)`. Elle en
+    emet donc UN desormais — une fois par `Attack(...)`, jamais N. C'est le natif ; le consommateur
+    concerne (`LegendaryCommander_ExtraHits`) n'est pas idempotent, d'ou la mention.
+    ⚠ NON COUVERT, et INCHANGE par cette tranche : sur une feuille AUTONOME
+    (`isOutsideAttack = 1`), le port emet toujours `On(9)`/`On(10)` de part et d'autre d'`On(8)` et
+    d'`On(0x42 = FinalDamage)`, alors que le natif referme l'attaque APRES eux. Cet ecart-la est
+    anterieur a #512-r4 et aucun consommateur porte ne l'observe."""
     ev = TriggerEvent(EventTriggerType.AttackDamageAttack, attacker_id, target_id,
                       ranged=ranged, profile=profile,
                       # `!IsNormalAttack(CurrentAbility@0x88)` et `TriggeringAbilityIsNormalAttack`

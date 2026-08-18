@@ -130,11 +130,60 @@ def _get_unit(entity, entities, state=None):
     return _occupants_by_tile(entities.units or ()).get((int(p[0]), int(p[1])))
 
 
+def _collapse_mono_cible(target_sel, entities, state):
+    """COLLAPSE MONO-CIBLE des feuilles d'attaque -- le FOYER que `#889-r10` a nomme.
+
+    LE NATIF N'A AUCUNE BRANCHE MONO/MULTI. `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$
+    Execute` (et son jumeau `AbilityDamageBehaviour$$Execute`) fait, quel que soit le cardinal du
+    selecteur :
+
+        targets = <entities+0x58>.<slot 0 = Select>(entities)
+        foreach (entity in targets) {
+            unit = UnitExtensions.GetUnit(entity, entities.<+0xb8 = State>)
+            if (unit == null) { <operation 0x25, tag 0xa1 = l'id de l'entite> ; continue }
+            ...
+        }
+
+    Le port, lui, avait DEUX chemins : la branche `multi` resolvait deja chaque entite par
+    `_get_unit` (« une TUILE resout en son occupant »), tandis que le collapse mono appelait
+    `dsl.base.resolve_unit`, qui rend le premier **dict** et donc `None` sur un id de TUILE. Un
+    selecteur a domaine TUILE passe en mono-cible produisait alors `targets = []` :
+    **aucune emission, aucune mutation, aucune erreur** -- mesure du 2026-08-17 sur la phase 2 de
+    `1215 InstrumentsOfVengeance`, dont le natif passe `ActiveTarget@+0x68` (l'element courant d'un
+    `Foreach` sur des TUILES) en cible.
+
+    UNE SEULE EVALUATION du selecteur, et c'est load-bearing : un selecteur peut consommer le PRNG
+    (`Randomize`, `PickRandomly`), donc une seconde passe deplacerait la sequence de tirages.
+
+    Le natif prend la PREMIERE entite qui resout ; ici la boucle s'arrete au premier `_get_unit`
+    non nul, ce qui est le meme ordre. Un element deja resolu (un dict) se rend lui-meme
+    (`entity is <UnitEntity>` -> `return entity`), donc les call-sites a domaine UNITE sont
+    strictement inchanges.
+
+    CE QUI N'EST PAS PORTE ICI : les deux gates par-cible que le natif pose APRES le `GetUnit`
+    (`MatchesUnitSelectionType`, `HasTrait(0x40e = Invincible)`) -- residu `#1034`, deja nomme dans
+    `_get_unit` et commun aux deux branches."""
+    v = target_sel.evaluate(entities)
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        return v                                   # `entity is <UnitEntity>` -> elle se rend
+    items = list(v) if isinstance(v, (list, tuple)) else [v]
+    for x in items:
+        if x is None:
+            continue
+        u = _get_unit(x, entities, state)          # `UnitExtensions$$GetUnit(entity, state)`
+        if isinstance(u, dict) and u.get("id") is not None:
+            return u
+    return None
+
+
 def _emettre_finish_attack_de_noeud(state, actor_id: int, target_id: int, ectx, marque: int,
                                     ability_type=None, is_attack_damage_op: bool = True,
                                     profils=None):
     """`processor.FinishAttack` (slot **59**) -> `IdunBattle.Operations.FinishAttackOperation$$
-    Execute` -> `On(Attack = 9)`, EMIS PAR LE NOEUD (#512-r4).
+    Execute` -> `On(Attack = 9)` PUIS `On(AttackDamageAttack = 10)`, EMIS PAR LE NOEUD
+    (#512-r4 pour le 9, #512-r6 pour le 10).
 
     POURQUOI CE FOYER EXISTE. Le port emettait `On(9)` depuis les OPERATIONS de degat
     (`damage_ops/ability.py`, `damage_ops/normal_like.py`), donc une fois par FEUILLE. Le natif ne
@@ -156,10 +205,35 @@ def _emettre_finish_attack_de_noeud(state, actor_id: int, target_id: int, ectx, 
     `IdunBattle.Operations.AttackDamageOperation$$Execute` : un noeud dont les feuilles sont de la
     famille ABILITY ne le pose pas. Il pilote `AttackUsedAttackDamage` (`AbilityEntities+0xf9`).
 
+    #512-r6 -- LES DEUX EVENEMENTS DE CLOTURE SORTENT D'ICI, ET DANS CET ORDRE. Relu verbatim au
+    build courant, la fin de `IdunBattle.Operations.FinishAttackOperation$$Execute` est :
+
+        FUN_1800280e0(0x50, <IOperationProcessor>, proc, 9, entities)      # On(Attack = 9)
+        if (*(char *)(currentAttack + 0x2c) != '\\0')
+            FUN_1800280e0(0x50, <IOperationProcessor>, proc, 10, entities) # On(AttackDamageAttack)
+
+    `currentAttack` est le `GetCurrentAttack()` que la fonction lit en TETE -- c'est donc le MEME
+    fait que le `is_attack_damage_op` ci-dessus, pas un second canal. Le port emettait le 10 depuis
+    l'OPERATION (`damage_ops/ability.py`), ce qui produisait DEUX consequences mesurees :
+      * CARDINALITE : deux feuilles sur la MEME cible (`1088 HellfyreMissileRack`) -> DEUX `On(10)`
+        la ou le natif en emet UN ;
+      * ORDRE : le noeud cloturant APRES ses feuilles, `On(9)` partait APRES `On(10)`, alors que le
+        natif emet 9 PUIS 10.
+    Les deux se referment en emettant les DEUX ici, dans l'ordre du decompile.
+
+    ⚠ PORTEE NEUVE, ET ELLE EST DITE : `HazeOfCorruption` appelle ce foyer avec
+    `is_attack_damage_op=True` (ses feuilles sont des `DSLBehaviors$$AttackDamage`, donc
+    `AttackDamageOperation$$Execute` pose bien `+0x2c`) alors que sa voie de degat
+    (`execute_normal_like`) n'emettait AUCUN `On(10)`. Elle en emet donc desormais **UN** -- une
+    fois par `Attack(...)`, jamais N. C'est ce que le natif fait ; le consommateur concerne
+    (`LegendaryCommander_ExtraHits`, `On(0xa)` + `IsValidAttack`) n'est pas idempotent, d'ou la
+    mention explicite.
+
     Aucune feuille n'a rien emis -> le payload est VIDE mais l'evenement PART quand meme : le natif
     pousse le slot 59 inconditionnellement (le `Dictionary` de `SortedAttackSeries` ne contient que
     des cibles qui ont recu au moins un behaviour)."""
-    from ...operations.triggers.dispatch.attack import finish_attack_triggers
+    from ...operations.triggers.dispatch.attack import (attack_damage_attack_triggers,
+                                                        finish_attack_triggers)
     from ...operations.triggers.base import _is_ranged_position
     # `profils` vient des FEUILLES (leur champ `profile`), pas du journal : le dict rendu par
     # `execute_ability_attack` ne porte pas le profil du coup. C'est le SET complet des profils de
@@ -177,9 +251,10 @@ def _emettre_finish_attack_de_noeud(state, actor_id: int, target_id: int, ectx, 
         block = block or bool(atk.get("did_block"))
         profils |= set(x for x in ((atk.get("additional_hits") or {}).get("profiles") or ()) if x)
     profil = sorted(profils)[0] if profils else None
-    return finish_attack_triggers(
+    ranged = _is_ranged_position(state, int(actor_id), int(target_id))
+    out = finish_attack_triggers(
         state, int(actor_id), int(target_id),
-        ranged=_is_ranged_position(state, int(actor_id), int(target_id)),
+        ranged=ranged,
         profile=profil, is_crit=crit, profiles=profils, health_damage=int(total),
         was_block=block, ability_type=ability_type,
         # `IsNormalAttack(CurrentAbility@0x88)` : un noeud d'ability n'est jamais l'attaque normale.
@@ -187,6 +262,16 @@ def _emettre_finish_attack_de_noeud(state, actor_id: int, target_id: int, ectx, 
         # seul consommateur de ce canal.
         is_normal_attack=False,
         attack_used_attack_damage=bool(is_attack_damage_op))
+    # `if (currentAttack@+0x2c) On(10)` -- LE MEME fait que `is_attack_damage_op`, JUSTE APRES le 9
+    # et dans la MEME fonction native (#512-r6). `ranged` est celui du 9 : un seul point de
+    # resolution, comme le natif qui construit UNE seule `AbilityEntities` pour les deux appels.
+    if is_attack_damage_op:
+        out = out + attack_damage_attack_triggers(
+            state, int(actor_id), int(target_id), ranged=ranged, profile=profil,
+            # MEME litteral que celui donne au 9 ci-dessus (`IsNormalAttack(CurrentAbility@0x88)`).
+            is_normal_attack=False,
+            triggering_effect=getattr(state, "trigger_ability_type", None))
+    return out
 
 
 class AttackWithAttackDamage(AbilityBehaviour):
@@ -219,9 +304,12 @@ class AttackWithAttackDamage(AbilityBehaviour):
     AdjacentUnits(target,1))` — le behaviour resout la LISTE, l'`OrderBy` (b__5_0, cle scalaire par-unite =
     ordre de lecture) puis attaque CHAQUE cible dans l'ordre). Port : `evaluate` -> liste, tri par `id`
     (= ordre de lecture natif == l'ordre `sorted` de l'imperatif `_splash_ability_behaviour` -> bit-exact),
-    une attaque + un `emit` par cible. `multi=False` (defaut) = mono-cible `resolve_unit` (mirror du collapse
-    `Units(Cache(First(Nearest(...))))` -> la cible du message) : chemin INCHANGE pour ThunderousAssault/
-    CrushingClaws/SpiritLeech.
+    une attaque + un `emit` par cible. `multi=False` (defaut) = collapse mono-cible
+    `_collapse_mono_cible` (mirror du collapse `Units(Cache(First(Nearest(...))))` -> la cible du message) :
+    chemin INCHANGE pour ThunderousAssault/CrushingClaws/SpiritLeech. ⚠ Ce collapse resout le domaine
+    TUILE comme la branche multi (#889-r10) -- le natif n'a AUCUNE branche mono/multi, il applique
+    `UnitExtensions$$GetUnit` a chaque entite ; l'ancien `resolve_unit` rendait `None` sur un id de
+    tuile, donc un no-op TOTALEMENT silencieux.
 
     `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(selecteur, n)` natif quand il ENVELOPPE le selecteur de cibles
     d'une attaque (SPLASH de Fragstorm IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
@@ -459,7 +547,9 @@ class AttackWithAttackDamage(AbilityBehaviour):
             # (`if (Count > 1) targets.OrderBy(b__5_0).ToList()`) : APRES la resolution du selecteur.
             targets = sorted(targets, key=lambda u: u.get("id"))
         else:                                              # collapse mono-cible (cible du message)
-            tu = resolve_unit(self.target_sel, entities)
+            # #889-r10 : `_collapse_mono_cible` -- le natif applique `UnitExtensions$$GetUnit` a
+            # CHAQUE entite du selecteur, sans branche mono/multi. Cf. son docstring.
+            tu = _collapse_mono_cible(self.target_sel, entities, state)
             targets = [tu] if tu and tu.get("id") is not None else []
         for tu in targets:
             tgt = tu.get("id")
@@ -581,15 +671,14 @@ class SortedAttackSeries(AbilityBehaviour):
     CONSEQUENCE PORTEE : ce noeud EMET `On(5)` lui-meme, et il pose `is_outside_attack = False` sur
     ses feuilles -- sinon `1088 HellfyreMissileRack` (deux feuilles sur la MEME cible) emettrait
     DEUX `On(5)` la ou le natif en emet UN. Voir `damage_ops/ability.py`.
-    RESIDU NOMME, non porte : le pendant `On(Attack = 9)` de `FinishAttack` (`0x3b`) -- le port ne
-    l'emet que sur la voie NORMALE (`damage_ops/normal.py`), pour AUCUNE ability, et l'y ajouter
-    reveillerait d'un coup tous les consommateurs de `finish_attack_triggers` (armure Terminator,
-    reset de crit d'ActOfFaith, MoveAndSpawnDecoy, Neuroparasite) sur un rayon non mesure. Le seul
-    consommateur porte que l'asymetrie concerne est le CLEAR de `LetTheGalaxyBurn` ; MESURE du
-    2026-08-07 : les **33** porteurs du trait n'ont que **5** actives distinctes
-    (`BringerOfDespair`, `Drachnyen`, `FrenziedFiring`, `HeraldOfTheApocalypse`, `Incursion`) et
-    **aucune** n'est famille ABILITY ni ne passe par un `SortedAttackSeries` -> l'asymetrie est
-    INERTE sur tout porteur reel.
+    ⚠ LE PARAGRAPHE QUI VIVAIT ICI EST PERIME, et le laisser ferait renoncer a une reparation deja
+    faite. Il disait : « RESIDU NOMME, non porte : le pendant `On(Attack = 9)` de `FinishAttack`
+    (`0x3b`) -- le port ne l'emet que sur la voie NORMALE, pour AUCUNE ability ». C'est FAUX depuis
+    `#512-r4` : ce noeud emet `On(9)` lui-meme (`_emettre_finish_attack_de_noeud` ci-dessous), et
+    depuis `#512-r6` il emet AUSSI `On(AttackDamageAttack = 10)`, juste apres, sous le gate
+    `currentAttack@+0x2c`. Le rayon de souffle sur les consommateurs de `finish_attack_triggers`
+    (armure Terminator, reset de crit d'ActOfFaith, MoveAndSpawnDecoy, Neuroparasite) a ete
+    MESURE et rejoue a ce moment-la (case-512r4 sec.4), pas laisse en suspens.
 
     `pairs` = liste de `(TargetsSelector, AbilityBehaviour)`. Emet 'SortedAttackSeries' (ordre resolu,
     diagnostic). PUR."""
@@ -1027,8 +1116,9 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     UNE entite — `SelectOne` — et +0x58 = la LISTE des cibles) : quand le selecteur resout N unites
     (Explodes/PutridExplosion : tous les adjacents), le behaviour resout la LISTE, l'`OrderBy` (b__5_0,
     cle scalaire par-unite = ordre de lecture) puis attaque CHAQUE cible. Port : `evaluate` -> liste triee
-    par `id` (== `AttackWithAttackDamage.multi`, meme mirror). `multi=False` (defaut) = mono-cible
-    `resolve_unit` : chemin INCHANGE pour le DoT feu.
+    par `id` (== `AttackWithAttackDamage.multi`, meme mirror). `multi=False` (defaut) = collapse
+    mono-cible `_collapse_mono_cible` : chemin INCHANGE pour le DoT feu, et il resout desormais le
+    domaine TUILE comme la branche multi (#889-r10).
 
     `native_operation` = l'OPERATION native que la feuille route (le `AttackBehaviour` est le meme, c'est
     l'`ADamageBehaviour` enveloppe qui differe cote port) :
@@ -1092,7 +1182,10 @@ class AttackWithAbilityDamage(AbilityBehaviour):
                                           for e in _units_of(self.target_sel, entities))
                               if (u or {}).get("id") is not None), key=lambda u: u.get("id"))
         else:                                              # mono-cible (DoT feu : l'occupant resolu)
-            tu = resolve_unit(self.target_sel, entities)
+            # #889-r10 : MEME foyer que le jumeau `AttackWithAttackDamage` -- `AbilityDamageBehaviour
+            # $$Execute` est l'un des TROIS `*Behaviour$$Execute` du build qui appellent
+            # `UnitExtensions$$GetUnit`, et il le fait par entite, sans branche mono/multi.
+            tu = _collapse_mono_cible(self.target_sel, entities, state)
             targets = [tu] if tu and tu.get("id") is not None else []
         for tu in targets:
             tgt = tu.get("id")
