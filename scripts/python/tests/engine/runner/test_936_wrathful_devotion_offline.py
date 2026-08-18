@@ -546,15 +546,42 @@ def _build_hash() -> "str | None":
     return None
 
 
-def _va_of(build: str, symbole: str) -> "int | None":
+def _vas_of(build: str, symbole: str) -> list:
+    """TOUTES les VA que la table porte sous ce nom, dans l'ordre du fichier.
+
+    ⚠ **UN NOM DE `functions.tsv` NE DESIGNE PAS UNE ADRESSE** (#10026). C# surcharge, IL2CPP nomme
+    les surcharges a l'IDENTIQUE, et la table est indexee par ADRESSE : mesure sur les deux builds
+    dont ce depot porte la table, **5 341 noms sur 145 703 (3,7 %) ont PLUSIEURS VA**, a l'identique
+    sur `rnca9r7q6c` et `t6dpr4k06g`. `IdunBattleLogic.Entities.DSLTriggers$$On` en a **TROIS** --
+    deux `On(EventTriggerType, bool)` et un `On(params int[])`. Rendre la PREMIERE, ce que faisait
+    ce helper, revient a choisir une surcharge au hasard : `$$CreateTrigger` appelle la DEUXIEME
+    par adresse croissante, donc le reconnaisseur d'appels ne voyait plus AUCUN `On` et le test
+    tombait sur sa propre garde d'anti-vacuite -- un rouge qui n'accusait pas le port.
+
+    ⚠ On cite le RANG, jamais l'adresse : les noms sont stables a 97,5 % entre builds, les
+    adresses changent a 100 %. Et ici c'est le rang qui porte l'information, puisque le SYMBOLE,
+    par construction, ne distingue pas les trois surcharges."""
     tsv = ROOT / "data" / "symbols" / build / "ghidra" / "functions.tsv"
+    out = []
     for line in tsv.read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith("#") or "\t" not in line:
             continue
         va, name = line.split("\t", 1)
         if name.strip() == symbole:
-            return int(va, 16)
-    return None
+            out.append(int(va, 16))
+    return out
+
+
+def _va_of(build: str, symbole: str) -> "int | None":
+    """La VA d'un symbole dont l'UNICITE est attendue. `None` si absent -- mais un nom PARTAGE fait
+    ROUGIR au lieu d'en choisir un : une adresse prise au hasard dans une famille d'homonymes est
+    une mesure FABRIQUEE, et c'est exactement ce qui s'est produit sur `$$On`."""
+    vas = _vas_of(build, symbole)
+    assert len(vas) <= 1, (
+        f"`{symbole}` porte {len(vas)} VA dans la table du build {build} "
+        f"({[hex(v) for v in vas]}) : ce site attend un symbole UNIQUE. Passer par `_vas_of` et "
+        "accepter la famille entiere, jamais en choisir un.")
+    return vas[0] if vas else None
 
 
 def _read_at_va(dll: Path, va: int, size: int) -> bytes:
@@ -575,18 +602,25 @@ def _read_at_va(dll: Path, va: int, size: int) -> bytes:
     return b""
 
 
-def _on_immediates(blob: bytes, va: int, va_on: int) -> list:
+def _on_immediates(blob: bytes, va: int, vas_on) -> list:
     """Les `EventTriggerType` passes a `DSLTriggers$$On` -- RE-DERIVES du code, pas recopies.
 
     Motif : `BA <imm32>` (`mov edx, imm32` = le 2e argument x64 Windows) immediatement suivi de
-    `E8 <rel32>` dont la cible EST `$$On`. On ne reconnait donc un immediat QUE s'il alimente
-    reellement cet appel-la."""
+    `E8 <rel32>` dont la cible est UNE DES surcharges de `$$On`. On ne reconnait donc un immediat
+    QUE s'il alimente reellement un de ces appels-la.
+
+    `vas_on` est un ENSEMBLE, pas une adresse : les trois surcharges portent le meme nom, les deux
+    `On(EventTriggerType, bool)` prennent bien le `triggerType` en `edx`, et la troisieme
+    (`On(params int[])`) recoit un POINTEUR de tableau -- elle ne peut donc pas produire de faux
+    positif sur ce motif, et l'exclure de l'ensemble nous ferait rater un jour ou le codegen change
+    de surcharge (ce qui est exactement ce qui est arrive entre `rnca9r7q6c` et `t6dpr4k06g`)."""
+    cibles = {int(v) for v in vas_on}
     out = []
     i = 0
     while i + 10 <= len(blob):
         if blob[i] == 0xBA and blob[i + 5] == 0xE8:
             rel = struct.unpack_from("<i", blob, i + 6)[0]
-            if va + i + 10 + rel == va_on:
+            if va + i + 10 + rel in cibles:
                 out.append(struct.unpack_from("<I", blob, i + 1)[0])
                 i += 10
                 continue
@@ -617,6 +651,46 @@ def _wd_binaire():
     return build, dll
 
 
+def test_le_decodeur_d_appels_On_n_est_PAS_aveugle():
+    """LE CRAN SOUS LE CRAN (#10026) -- il n'a pas besoin de la DLL, et c'est le point.
+
+    Le test binaire ci-dessous conclut `UnitDeath` INATTEIGNABLE de l'ABSENCE de l'immediat `0`
+    parmi les `On(x)` lus. Une telle conclusion ne vaut que si le lecteur SAIT voir ce qu'il
+    cherche -- or il a passe une migration de build entiere a ne rien voir du tout, sauve par sa
+    seule garde d'anti-vacuite. On exerce donc le decodeur sur des octets FABRIQUES, dont on
+    connait la reponse, sur les quatre regimes qui comptent :
+
+      1. il rend les deux immediats attendus meme quand ils visent des surcharges DIFFERENTES ;
+      2. il VOIT un `On(UnitDeath = 0)` -- le regime que le test binaire declare absent ;
+      3. il IGNORE un `mov edx, imm32 ; call <autre chose>` (pas de faux positif) ;
+      4. `_va_of` REFUSE un nom partage au lieu d'en choisir un au hasard (la cause racine).
+    """
+    va = IMAGE_BASE
+    on_a, on_b, on_c = va + 0x1000, va + 0x2000, va + 0x3000
+    famille = {on_a, on_b, on_c}
+
+    def _call_on(pos, imm, cible):
+        rel = (cible - (va + pos + 10)) & 0xFFFFFFFF
+        return struct.pack("<BI", 0xBA, imm) + struct.pack("<BI", 0xE8, rel)
+
+    # 1. deux surcharges DIFFERENTES, deux immediats
+    blob = _call_on(0, 0x36, on_b) + b"\x90" * 6 + _call_on(16, 0x3b, on_a) + b"\x90" * 6
+    assert _on_immediates(blob, va, famille) == [0x36, 0x3b]
+    # 2. un `On(UnitDeath)` fabrique DOIT etre vu -- sinon le verdict DEAD est vacu
+    blob2 = blob + b"\x90" * 6 + _call_on(len(blob) + 6, int(EventTriggerType.UnitDeath), on_c)
+    assert _on_immediates(blob2, va, famille) == [0x36, 0x3b, int(EventTriggerType.UnitDeath)]
+    # 3. un appel HORS famille ne produit rien
+    assert _on_immediates(_call_on(0, 0x36, va + 0x9999), va, famille) == []
+    # 4. la cause racine : un nom PARTAGE ne rend plus une VA arbitraire
+    build = _build_hash()
+    if build is not None:
+        with pytest.raises(AssertionError):
+            _va_of(build, "IdunBattleLogic.Entities.DSLTriggers$$On")
+        assert len(_vas_of(build, "IdunBattleLogic.Entities.DSLTriggers$$On")) >= 2, (
+            "`$$On` n'a plus qu'une VA dans ce build : le regime qui a casse ce fichier a "
+            "disparu -- re-lire `_vas_of` avant de simplifier quoi que ce soit")
+
+
 def test_binaire_CreateTrigger_n_abonne_QUE_UnitDefeated_et_UnitBecameTargetable():
     """LE FAIT PORTEUR DU VERDICT DEAD, re-derive AUX OCTETS.
 
@@ -634,20 +708,23 @@ def test_binaire_CreateTrigger_n_abonne_QUE_UnitDefeated_et_UnitBecameTargetable
     pref = "IdunBattleLogic.Entities.Abilities.Triggered.Loki.WrathfulDevotionAbility$$"
     va_trigger = _va_of(build, pref + "CreateTrigger")
     va_other = _va_of(build, pref + "GetOtherTargets")     # le symbole SUIVANT -> borne de fenetre
-    va_on = _va_of(build, "IdunBattleLogic.Entities.DSLTriggers$$On")
-    assert None not in (va_trigger, va_other, va_on), (
+    # ⚠ FAMILLE, pas adresse : `$$On` est SURCHARGE (cf. `_vas_of`). Prendre la premiere VA rendait
+    # `imms == []` sur ce build, donc un rouge qui accusait le motif de decodage au lieu du port.
+    vas_on = _vas_of(build, "IdunBattleLogic.Entities.DSLTriggers$$On")
+    assert None not in (va_trigger, va_other) and vas_on, (
         f"symbole manquant dans la table du build {build} : "
-        f"trigger={va_trigger} other={va_other} on={va_on}")
+        f"trigger={va_trigger} other={va_other} on={[hex(v) for v in vas_on]}")
     fenetre = va_other - va_trigger
     assert 0x40 <= fenetre <= 0x400, (
         f"fenetre de lecture aberrante ({fenetre:#x}) : `$$GetOtherTargets` ne suit plus "
         "`$$CreateTrigger` -- re-deriver les bornes avant de conclure")
     blob = _read_at_va(dll, va_trigger, fenetre)
     assert blob, "lecture PE impossible (traduction RVA -> offset fichier)"
-    imms = _on_immediates(blob, va_trigger, va_on)
+    imms = _on_immediates(blob, va_trigger, vas_on)
     assert imms, (
         "AUCUN appel a `DSLTriggers$$On` reconnu dans `$$CreateTrigger` : le motif "
-        "`mov edx, imm32 ; call On` a change -> l'assertion suivante serait VACUE")
+        f"`mov edx, imm32 ; call On` a change (surcharges cherchees : {[hex(v) for v in vas_on]}) "
+        "-> l'assertion suivante serait VACUE")
     assert sorted(imms) == sorted([int(EventTriggerType.UnitDefeated),
                                    int(EventTriggerType.UnitBecameTargetable)]), (
         f"`$$CreateTrigger` abonne desormais {sorted(imms)} "
