@@ -720,33 +720,146 @@ def _origin_tiles(origin, board=None) -> list:
     return []
 
 
-def _main_tile(origin, board=None) -> tuple | None:
-    """La MAIN TILE d'une origine -- mirror `IdunBattle.Entities.EntityExtensions$$GetMainTile`, et
-    c'est EXACTEMENT ce que soustrait le natif quand `includeCenter == 0` :
+def _origin_entities(origin) -> list:
+    """Les ENTITES d'une origine -- meme aplatissement que `_origin_tiles`, mais SANS deplier ni
+    convertir : `IdunBattle.DSL.TargetsSelector$$SelectUnit` s'applique PAR ENTITE, et c'est cette
+    granularite-la que `_main_tiles` doit voir.
+
+    La difference tient en un exemple : sur un dict d'unite MULTI-HEX, `_origin_tiles` rend les
+    SEPT tuiles de l'empreinte, ici on rend UNE entite. Sur une liste de sept ids de tuile, on rend
+    SEPT entites -- que `SelectUnit` re-resout ensuite vers la meme unite.
+
+    PAS de dedoublonnage, comme le natif : `TargetsSelector$$SelectAllUnits` fait `List.Add` sans
+    test d'appartenance et `UnitsMainTilesSelector$$Select` aussi. Les doublons sont sans effet sur
+    `IdunBattle.DSL.CombinedSelector$$SelectExclusion`, qui teste `rightResults.Contains(e)`."""
+    if origin is None:
+        return []
+    if isinstance(origin, dict):
+        return [origin]
+    if isinstance(origin, bool):
+        return []
+    if isinstance(origin, tuple) and len(origin) == 2 and all(
+            isinstance(x, int) for x in origin):
+        return [origin]
+    if isinstance(origin, int):
+        return [origin]
+    if isinstance(origin, (list, tuple)):
+        out: list = []
+        for it in origin:
+            out.extend(_origin_entities(it))
+        return out
+    return []
+
+
+def _est_unite(e, units) -> bool:
+    """`IdunBattle.Entities.EntityExtensions$$IsUnit(entity)` -- le natif teste le TYPE de
+    l'entite (`UnitEntity` vs `TileEntity` vs `FootEntity`). Cote port il n'y a pas de type : DEUX
+    canaux LUS, en UNION, et aucun des deux n'est complet seul.
+
+      * APPARTENANCE a la population `units` (mirror d'`AbilityEntities+0x40`, ce que tous les
+        call-sites passent) -- par identite d'abord, par `id` ensuite. Incomplete si un appelant
+        passe un SOUS-ENSEMBLE (aucun ne le fait aujourd'hui : les 6 appelants de `_within` et le
+        selecteur d'`accessors` passent `ctx.units` entier -- mesure a l'etage 0 de
+        `probe_10023r1_tiles_origine_non_occupee.py`).
+      * EMPREINTE (`feet`) : `runner/abilities/behaviours/context.py::_tile_entity` -- le SEUL
+        producteur d'entite-TUILE du port -- n'en pose JAMAIS, la ou `_unit_dict` la pose. Une
+        entite-tuile ne peut donc pas etre prise pour une unite par ce canal.
+
+    Un dict d'unite de TEST n'ayant que `pos` (cf. le repli documente de `_feet`) et vivant hors
+    `units` n'est reconnu par aucun des deux : il est alors traite en domaine TUILE, ou il rend sa
+    propre position -- soit exactement ce que `_main_tiles` rendait avant #10023-r1."""
+    if not isinstance(e, dict):
+        return False
+    if e.get("feet"):
+        return True
+    if not units:
+        return False
+    eid = e.get("id")
+    for u in units:
+        if u is e:
+            return True
+        if eid is not None and isinstance(u, dict) and u.get("id") == eid:
+            return True
+    return False
+
+
+def _main_tiles(origin, board=None, units=None) -> list:
+    """`Tiles(origin)` -- ce que le natif SOUSTRAIT quand `includeCenter == 0` :
 
         // IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles, branche includeCenter == 0
         SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)
+        // IdunBattleLogic.Entities.DSLSelectors$$Tiles
+        Tiles(entities) = new UnitsMainTilesSelector(inner: entities, state)
+        // IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select
+        foreach (entity in inner.<slot 3 = SelectAllUnits>(entities, selectionType: 0)) {
+            tile = EntityExtensions$$GetMainTile(entity, state);
+            if (tile != null) result.Add(tile);
+        }
 
-    et `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile` PAR
-    ENTITE. Donc l'exclusion du centre retire UNE SEULE tuile : les pieds SECONDAIRES d'une origine
-    multi-hex RESTENT dans l'anneau, et l'origine peut donc se selectionner elle-meme. Retrancher
-    toute l'empreinte serait une SECONDE erreur, pas une correction.
+    ⚠ LE NATIF A **DEUX REGIMES**, ET LE DISCRIMINANT N'EST PAS DANS LA VALEUR -- c'est ce que
+    #10023-r1 a etabli, en REFUTANT sa propre premisse. `TargetsSelector$$SelectAllUnits` ouvre par
+    une porte VIRTUELLE, relue VERBATIM sur `t6dpr4k06g` :
 
-    ⚠ ET C'EST VRAI MEME QUAND L'ORIGINE EST UNE LISTE DE SEPT TUILES (#10023). Relu VERBATIM sur
-    `t6dpr4k06g`, `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` itere le SLOT 3 de
-    son inner (`SelectAllUnits`) avant son `GetMainTile`, et
-    `IdunBattle.DSL.TargetsSelector$$SelectUnit` (surcharge par ENTITE) ouvre par
+        list = this.<slot 0x17 = Select>(entities);
+        if (this.<klass+0x278>()) return list;        // <- rendu TEL QUEL, aucune resolution
+        foreach (e in list) if (e != null && (u = SelectUnit(this, e, 0)) != null) out.Add(u);
 
-        if (IsUnitFoot(entity) || IsTile(entity))
-            entity = UnitExtensions$$GetUnit(entity, state);      // la TUILE -> son OCCUPANT
+    `klass+0x278` est bien une AUTRE propriete que celle de `$$SelectTiles`, qui teste
+    `klass+0x268` : les deux offsets sont DISTINCTS dans le meme binaire, et la vtable IL2CPP
+    commence a `klass+0x138` par entrees de `0x10` -- donc slots 20 et 19, soit
+    `get_ReturnsOnlyUnits` et `get_ReturnsOnlyTiles`. Quand l'origine declare rendre des UNITES, il
+    n'y a **aucune** resolution TUILE -> OCCUPANT, et `EntityExtensions$$GetMainTileId` finit alors
+    par sa TROISIEME branche : `if (!IsTile(entity)) return 0; return <id>(entity)` -- **une TUILE
+    est SA PROPRE main tile**.
 
-    Les sept entites-TUILE de l'empreinte de Mortarion resolvent donc TOUTES vers Mortarion, et
-    `GetMainTile(Mortarion)` rend UNE tuile. `Tiles(CasterTiles)` = `{mainTile}`, pas les sept.
+    CETTE PROPRIETE N'EST PAS RESOLUBLE EN STATIQUE (les corps triviaux `return 1` sont dedupliques
+    par IL2CPP et n'ont aucun proprietaire nomme -- « l'absence dans les tables ne prouve RIEN »),
+    et elle N'EST PAS PORTEE : residu `#10023-r3`. Elle a ete tranchee LIVE, sur le seul call-site
+    ou elle est observable (`probe_10023r1_squig_pool_live.py`) :
 
-    `board` sert au domaine ID (`list[int]`, ce que rend `CasterTile(as_ids=True)`) : sans lui,
-    `_origin_tiles` ne sait pas convertir un id de tuile en position et rend `[]` -- une exclusion
-    silencieusement VIDE, pas une erreur."""
-    ts = _origin_tiles(origin, board)
+      * `1201 SquigMine` passe le slot `Target` (`<DSLSelectors+0x60>`) portant une entite-TUILE, et
+        son masque porte `TargetTileIsFree` -- la tuile ciblee est donc TOUJOURS vide. **11 casts
+        sur 11** ont rendu `nrOfTiles + 1` tuiles minees, jamais `nrOfTiles` : la cible n'est
+        **JAMAIS** dans le pool, donc le natif la RETRANCHE. Si elle y etait, `Union(cible, picked)`
+        l'aurait dedoublonnee avec probabilite `nrOfTiles/|pool| = 4/8` -- soit `0,5^11 = 0,05 %`
+        d'obtenir 11/11 par hasard.
+
+    ⇒ **Sur une origine en domaine TUILE, on rend LA TUILE, sans resoudre d'occupant.** C'est le
+    comportement d'avant, et la mesure le CONFIRME contre l'enonce du residu. Et une origine
+    MULTI-tuiles n'en rend qu'UNE (#10023, `CasterTile(as_ids=True)` de `1094 TheLantern`), ce qui
+    reste NON CONFRONTE : sous l'autre regime elle en rendrait sept. Voir `#10023-r3`.
+
+    En domaine UNITE, en revanche, `GetMainTile` s'applique bien **PAR ENTITE** (la boucle est
+    verbatim) : une origine a N unites DISTINCTES retranche N tuiles. Aucun call-site n'y arrive
+    aujourd'hui -- 35 instanciations recensees, 35 mono-unite (`probe_10023r1...` etage 6) -- donc
+    c'est une mise en conformite INERTE, pas un changement de comportement.
+
+    `board` sert au domaine ID (`list[int]`, ce que rend `CasterTile(as_ids=True)`) et il est
+    OBLIGATOIRE : sans lui `_origin_tiles` rend `[]`, donc une exclusion silencieusement VIDE --
+    c'est la faute que `_within` portait, et la seule des trois annoncees par le residu qui etait
+    reelle. `units` n'est plus lu que pour reconnaitre une origine-UNITE."""
+    ents = _origin_entities(origin)
+    #: Domaine UNITE : `SelectAllUnits` rend une entite PAR unite -> `GetMainTile` PAR entite.
+    if ents and all(_est_unite(e, units) for e in ents):
+        out: list = []
+        for u in ents:
+            feet = _feet(u)                               # GetMainTile(unit) = la tuile du 1er pied
+            if feet and feet[0] not in out:
+                out.append(feet[0])
+        return out
+    #: Domaine TUILE : la tuile ELLE-MEME (mesure live), et UNE SEULE sur une empreinte (#10023).
+    return _origin_tiles(origin, board)[:1]
+
+
+def _main_tile(origin, board=None, units=None) -> tuple | None:
+    """La PREMIERE main tile d'une origine -- forme SCALAIRE de `_main_tiles` ci-dessus, pour les
+    consommateurs natifs qui n'en lisent qu'une (`MinDistanceFormula` sur `Tiles(target)` d'une
+    cible mono-entite, cf. `entities/selectors/units.UnitsDirectlyBehind`).
+
+    ⚠ NE PAS l'utiliser pour une EXCLUSION `op_Subtraction Tiles(origin)` : le natif y retranche
+    TOUTES les main tiles, et une origine a N unites distinctes en a N (#10023-r1). C'est
+    `_main_tiles` qu'il faut."""
+    ts = _main_tiles(origin, board, units)
     return ts[0] if ts else None
 
 
@@ -981,8 +1094,13 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
     elif order == "adjacent":
         excluded = tuple(centers)                     # `AdjacentTilesSelector` : !tiles.Contains(a)
     else:
-        m = _main_tile(center)                        # `op_Subtraction Tiles(origin)` : UNE tuile
-        excluded = () if m is None else (m,)
+        #: `op_Subtraction Tiles(origin)`. **`board` est OBLIGATOIRE ici** : l'appel d'avant
+        #: (`_main_tile(center)`, sans lui) rendait `[]` sur une origine en domaine ID -- exclusion
+        #: silencieusement VIDE, la meme signature de faute que celle que #10023 a fermee a l'autre
+        #: foyer. C'est le seul des trois defauts annonces par #10023-r1 qui se soit revele reel :
+        #: les deux autres reposaient sur une resolution TUILE -> OCCUPANT que la mesure live
+        #: REFUTE (cf. `_main_tiles`).
+        excluded = tuple(_main_tiles(center, board, units))
     r = int(radius)
     # L'ENSEMBLE vient de l'enumeration native des que l'iterateur natif en est une (#515).
     # `None` = aucun centre resolvable -> repli geometrique nomme ; `[]` = zero voisin, EXACT.

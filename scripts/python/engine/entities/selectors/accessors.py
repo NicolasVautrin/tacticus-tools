@@ -11,7 +11,7 @@ import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
-                         _effect_field, resolve_unit, _origin_tiles, _main_tile, _select_tile)
+                         _effect_field, resolve_unit, _origin_tiles, _main_tiles, _select_tile)
 
 
 # --- Accesseurs SELECTEUR (mirror `DSLFactory.X` -> tuiles/entites/sujet natifs ; kind S). ---
@@ -418,10 +418,15 @@ class SurroundingTiles(TargetsSelector):
         #: `engine/**`) : seule une origine MULTI-HEX le montre, et la face DECISION
         #: (`the_lantern.TheLanternPlaybook.target_area`, qui exclut `feet[:1]`) le disait deja --
         #: les deux faces divergeaient d'exactement une tuile.
+        #: ⚠ SUR UNE ORIGINE TUILE, LE NATIF NE RESOUT PAS L'OCCUPANT -- mesure LIVE de #10023-r1
+        #: (`probe_10023r1_squig_pool_live.py`, 11 casts sur 11 de `1201 SquigMine`, dont le masque
+        #: `TargetTileIsFree` garantit une tuile ciblee VIDE) : la tuile EST retranchee. L'enonce
+        #: du residu disait l'inverse ; la porte `klass+0x278` de
+        #: `IdunBattle.DSL.TargetsSelector$$SelectAllUnits` l'explique, et elle n'est pas portee
+        #: (`#10023-r3`). `units` ne sert donc plus qu'a reconnaitre une origine-UNITE, ou
+        #: `GetMainTile` s'applique bien PAR ENTITE.
         if not self.include_center:
-            m = _main_tile(raw, board)
-            if m is not None:
-                excluded.add(m)
+            excluded.update(_main_tiles(raw, board, getattr(ctx, "units", None)))
         for origin in origins:
             if origin is None:
                 continue
