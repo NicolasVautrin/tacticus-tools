@@ -1073,6 +1073,31 @@ def _frag_bomb_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids igno
     return out
 
 
+def _explosive_presents_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.ExplosivePresentsPlaybook$$MakeDamagePredictions` (ability 1170,
+    `orksRedGobbo`) -- UN SEUL COUP, et c'est une lecture de STRUCTURE, pas de config.
+
+    Ce playbook est le seul de la famille a appeler
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateAttackPredictions`
+    au lieu de sa soeur `...$$GenerateMultiHitAttackPredictions`. Les deux ne different que par le
+    slot d'`IBattleQuery` invoque -- `0x24 = GetAttackPrediction` contre `0x28 =
+    GetMultiHitAttackPrediction` -- et le corps du second EST le premier, suivi de `hits - 1`
+    repetitions (`IdunBattle.Core.Services.DamagePredictionResult$$Add`). Le chemin plain vaut donc
+    exactement `hits = 1`, et aucun argument `hits` n'est meme passe.
+
+    Le chemin GENERIQUE du port passe, lui, par `ab.get_special_hits` =
+    `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits(nrOfHits, ExtraHits, ...)`, qui
+    AJOUTE la stat `ExtraHits` du caster. Meme ecart, meme correctif que `_stikkbomb_inputs` /
+    `_frag_bomb_inputs` / `_excruciating_frequencies_inputs`.
+
+    ⚠ INERTE sur la config courante -- `nrOfHits = 1` et le porteur ne porte aucun producteur
+    d'`ExtraHits` -- exactement comme le `hits` litteral de `1197` l'etait avant que #957-r3 ne lui
+    trouve son regime. Le `1` n'est PAS `nrOfHits` : il vient du GENERATEUR choisi, donc il ne suit
+    pas la config. Le SET, lui, vit sur `ExplosivePresentsAbility._AOE`
+    (`entities/abilities/active_ability.py`), avec sa RE."""
+    return {"hits_override": 1}
+
+
 def _ramming_speed_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
     """`IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` (ability 1059) --
     batch de la CIBLE PRINCIPALE. DEUX surcharges, lues au call-site :
@@ -1367,6 +1392,17 @@ _MAKE_DMG_SELECTOR_ONLY = frozenset({
     # `[target]` en CHARGING) : l'appartenance a ce registre est ce qui evite de DOUBLER la cible
     # dans la 1re branche et de l'INVENTER dans la 2de.
     ActiveAbilityType.TacticalPrecision,   # 1154 IdunBattle.AI.Playbook.Loki.TacticalPrecisionPlaybook$$MakeDamagePredictions
+    # 1170 (#909-r7) : UN SEUL appel a `GenerateAttackPredictions`, avec un selecteur qui PORTE la
+    # cible (`op_Addition(Target, AdjacentUnits(Target))` moins le caster) -- il n'y a donc AUCUN
+    # batch `<Target>` separe cote natif, et c'est la seule raison de cette ligne.
+    # ⚠ MESURE : cette appartenance est OBSERVATIONNELLEMENT INERTE pour 1170, et le dire vaut mieux
+    # que de laisser croire a un cran. Le mutant << 1170 retiree de ce registre >> est MUET : la voie
+    # `selector_only = False` emet `[<Target>] + (selecteur \ <Target>)`, or l'`op_Addition` natif
+    # place DEJA `Target` en tete du selecteur -- les deux voies rendent donc la MEME liste, dans le
+    # MEME ordre. Elle cesserait de l'etre des qu'un `aoe_overrides` distinguerait les deux batchs,
+    # ou si l'ordre du selecteur changeait. Ce qui la garde n'est donc pas un observable mais la
+    # FORME, assertee par `test_909r7_explosive_presents_live.py::test_l_appartenance_aux_registres`.
+    ActiveAbilityType.ExplosivePresents,   # 1170 IdunBattle.AI.Playbook.Loki.ExplosivePresentsPlaybook$$MakeDamagePredictions
 })
 
 
@@ -1399,6 +1435,9 @@ _MAKE_DMG_INPUT_OVERRIDES = {
     ActiveAbilityType.PlagueWind: _plague_wind_inputs,                            # 1035
     ActiveAbilityType.MortarionsPlagueWind: _plague_wind_inputs,                  # 1093
     ActiveAbilityType.TacticalPrecision: _tactical_precision_inputs,              # 1154
+    # #909-r7 -- `GenerateAttackPredictions` (slot `IBattleQuery` 0x24 = `GetAttackPrediction`) au
+    # lieu de `GenerateMultiHitAttackPredictions` (slot 0x28) : UN coup, jamais `GetDefaultAttackHits`.
+    ActiveAbilityType.ExplosivePresents: _explosive_presents_inputs,              # 1170
 }
 
 # Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events

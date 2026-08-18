@@ -196,9 +196,13 @@ DETTE: dict[int, tuple[str, str]] = {
     # `LashOfTorment`, deja attestee, et de `MightFromBelow`). Le retrait est ce qui la fait tomber
     # sous le CRAN A : si l'attestation perime, l'item rougit au lieu d'etre couvert par une
     # vieille ligne de dette.
-    1170: ("SANS_VERDICT",
-           "ExplosivePresentsPlaybook -- MakeDamagePredictions. COMBAT : ExplosivePresentsAbility "
-           "(orks). 1 porteur (npc)."),
+    # 1170 `ExplosivePresents` -- TRANCHE par #909-r7, ligne RETIREE : sa face DECISION est PORTEE
+    # (`ExplosivePresentsAbility.get_aoe_targets` + `_explosive_presents_inputs`, registres
+    # `_SPECIAL_ABILITY_CLASSES` / `_MAKE_DMG_INPUT_OVERRIDES` / `_MAKE_DMG_SELECTOR_ONLY`) et
+    # CONFRONTEE au natif sur le porteur REEL `orksRedGobbo` monte par `--explicit-stats` (natif 5
+    # evenements, port 1 AVANT le port ; 5 == 5 apres, magnitude comprise). Le retrait est ce qui la
+    # fait tomber sous le CRAN A -- si le port disparaissait, l'item rougirait au lieu d'etre
+    # couvert par une vieille ligne de dette.
     1173: ("SANS_VERDICT",
            "ArcScourgePlaybook -- EvaluateNonComparable. COMBAT : ArcScourgeAbility (admec). "
            "1 porteur (npc)."),
