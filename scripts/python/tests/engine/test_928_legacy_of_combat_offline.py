@@ -205,13 +205,79 @@ def test_l_ordre_natif_0xb_AVANT_0xc_est_tenu_dans_les_DEUX_branches_du_handler(
 #:   * `AggressiveOnslaughtSummonAbility` (#958) -- `AggressiveOnslaught_SummonAbility$$CreateTrigger`
 #:     = `On(0xb = UnitAbility) & <DSLTriggers+0x20 = OwnerIsAlive> & get_OwnerIsCaster`, lu au
 #:     decompile et ecrit verbatim en tete d'`operations/triggers/loki/aggressive_onslaught.py`.
+#:   * `BattleFocusEffectTrigger` (#1080) -- `IdunBattle.Entities.Effects.Loki.BattleFocusEffect$$
+#:     CreateTargetTrigger`, RELU sur le build COURANT (#10024) :
+#:         DSLTriggers$$On(<DSLSelectors+0x88>, 0xb, ownerNeedsToBeAlive: 1)
+#:       & DSLTriggers$$AbilityHasAttackType(CurrentAbility@<+0x88>, 0 = DirectTargetAttack)
+#:       & ( get_OwnerIsTarget | get_OwnerIsCaster )
+#:       & NOT DSLTriggers$$IsMoving(Owner@<+0x30>) & DSLTriggers$$CanMove(Owner@<+0x30>)
+#:     Le `0xb` est le PREMIER argument litteral du `On`, donc l'ecoute est bien celle du vecteur
+#:     emis par #928. Verbatim + residus en tete d'`operations/triggers/loki/battle_focus.py`.
 #:
 #: ⚠ On N'AJOUTE PAS un nom pour faire taire ce test : on l'ajoute avec le `CreateTrigger` natif qui
 #: etablit qu'il ecoute REELLEMENT 0xb. Un ecouteur non lu ferait tirer une ability a chaque cast.
 CONSOMMATEURS_0XB_ATTESTES = {
     "LegacyOfCombatAdditionalAttackAbility",     # #928
     "AggressiveOnslaughtSummonAbility",          # #958
+    "BattleFocusEffectTrigger",                  # #1080
 }
+
+#: Conteneurs de `registry.py` qui, a la DERIVATION du 2026-08-18 (#10024), portent au moins une
+#: classe a `event_id`. Ce n'est PAS la liste que le balayage visite -- il les DERIVE -- c'est le
+#: TEMOIN de non-degenerescence : si l'un d'eux disparait du module, le recenseur retrecit en
+#: silence, et c'est exactement la faute qu'il vient de commettre (cf. `_ecouteurs`).
+CONTENEURS_A_TRIGGERS_ATTESTES = {
+    "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "CUSTOM_TRIGGERED_ABILITIES", "EFFECT_TRIGGERS",
+    "GLOBAL_TRIGGERS", "PASSIVE_HELPER_ABILITY_TRIGGERS", "POWER_UP_SPAWN_ABILITIES",
+    "RELIC_ABILITY_TRIGGERS", "TRAIT_TRIGGERS",
+}
+
+
+def _classes_du_conteneur(v):
+    """Descend un conteneur du registre jusqu'aux CLASSES, quelle que soit sa FORME.
+
+    Le registre melange `dict[cle] -> list[cls]`, `dict[cle] -> cls` et `list[cls]` nu -- et c'est
+    precisement ce qui a fait rater `GLOBAL_TRIGGERS` (une LISTE, ecartee par un `isinstance(d,
+    dict)`) alors que le balayage la NOMMAIT. On ne teste donc plus la forme du conteneur : on
+    descend."""
+    if isinstance(v, dict):
+        for x in v.values():
+            yield from _classes_du_conteneur(x)
+    elif isinstance(v, (list, tuple, set, frozenset)):
+        for x in v:
+            yield from _classes_du_conteneur(x)
+    else:
+        yield v
+
+
+def _ecouteurs(event_id: int):
+    """Recense les classes du registre qui ecoutent `event_id`, sur TOUS ses conteneurs.
+
+    ⚠ La liste des conteneurs est DERIVEE du module, jamais ecrite a la main. La version ecrite a
+    la main de ce balayage etait FAUSSE sur DEUX axes, mesures le 2026-08-18 (#10024) :
+      * `GLOBAL_TRIGGERS` etait NOMME mais jamais visite (c'est une `list`, et le filtre exigeait un
+        `dict`) -- le pire des deux cas : le lecteur croit la couverture acquise ;
+      * `POWER_UP_SPAWN_ABILITIES` n'etait pas meme nomme (dict de 9 classes).
+    Soit **11 classes a `event_id` invisibles sur 328**. Aucune des deux ne portait un ecouteur 0xb
+    a la mesure -- le trou n'a donc rien masque, mais rien ne l'en empechait."""
+    trouves = []
+    conteneurs, classes_vues = set(), 0
+    from engine.runner.operations.triggers.dispatch import registry as R
+    for nom in dir(R):
+        if not nom.isupper():
+            continue
+        v = getattr(R, nom, None)
+        if not isinstance(v, (dict, list, tuple, set, frozenset)):
+            continue
+        for cls in _classes_du_conteneur(v):
+            ev = getattr(cls, "event_id", None)
+            if ev is None:
+                continue
+            conteneurs.add(nom)
+            classes_vues += 1
+            if int(ev) == int(event_id):
+                trouves.append((nom, getattr(cls, "__name__", str(cls))))
+    return trouves, conteneurs, classes_vues
 
 
 def test_aucun_AUTRE_consommateur_du_vecteur_0xb_n_a_ete_reveille():
@@ -220,20 +286,18 @@ def test_aucun_AUTRE_consommateur_du_vecteur_0xb_n_a_ete_reveille():
     qui ecoute `event_id == 11` ait ete LUE au decompile. Si une entree non attestee apparait, ce
     test la NOMME."""
     from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.runner.operations.triggers.dispatch import registry as R
-    ecouteurs = []
-    for nom in ("ABILITY_TRIGGERS", "TRAIT_TRIGGERS", "EFFECT_TRIGGERS", "GLOBAL_TRIGGERS",
-                "RELIC_ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS",
-                "PASSIVE_HELPER_ABILITY_TRIGGERS", "CUSTOM_TRIGGERED_ABILITIES"):
-        d = getattr(R, nom, None)
-        if not isinstance(d, dict):
-            continue
-        for cle, v in d.items():
-            for cls in (v if isinstance(v, (list, tuple)) else [v]):
-                ev = getattr(cls, "event_id", None)
-                if ev is not None and int(ev) == int(EventTriggerType.UnitAbility):
-                    ecouteurs.append((nom, cle, getattr(cls, "__name__", str(cls))))
-    vus = {e[2] for e in ecouteurs}
+    ecouteurs, conteneurs, classes_vues = _ecouteurs(int(EventTriggerType.UnitAbility))
+    # NON-VIDE DU RECENSEUR : un balayage qui ne visite rien passerait pour vert. Les deux bornes
+    # sont des PLANCHERS mesures, pas des egalites -- le registre grandit.
+    assert classes_vues >= 300, (
+        "le recenseur n'a visite que %d classe(s) a `event_id` : il a RETRECI, et un consommateur "
+        "neuf peut s'y cacher." % classes_vues)
+    manquants = CONTENEURS_A_TRIGGERS_ATTESTES - conteneurs
+    assert not manquants, (
+        "conteneur(s) de `registry.py` qui ne portent PLUS aucune classe a `event_id` : %s. Soit "
+        "ils ont ete vides/renommes (mettre a jour `CONTENEURS_A_TRIGGERS_ATTESTES` en le DISANT), "
+        "soit le balayage ne descend plus dedans." % sorted(manquants))
+    vus = {e[1] for e in ecouteurs}
     # NON-DEGENERESCENCE : le consommateur d'origine doit TOUJOURS etre la, sans quoi ce fichier
     # entier garderait un vecteur que plus personne ne lit.
     assert "LegacyOfCombatAdditionalAttackAbility" in vus, (
