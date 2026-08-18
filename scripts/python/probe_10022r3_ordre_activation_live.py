@@ -72,6 +72,8 @@ from engine.entities.pathfinding.ignore_terrain_pathfinder import (        # noq
     get_path_node_counts)
 from engine.utilities.base import OUT_OF_RUNNING                           # noqa: E402
 from engine.utilities.unit_picker import ShortestPathToEnemyUtility        # noqa: E402
+from engine.entities.traits.unit_trait import (                            # noqa: E402
+    UnitTrait, entity_trait_names, has_any_trait)
 
 ROOT = PYDIR.parent.parent
 CLONE = "astraBullgryn"          # heros ordinaire : ni boss, ni summon, ni psyker, hors UnitOrder
@@ -148,7 +150,11 @@ def build(seed, board, places_ia, place_moi, state_file, seed_bc=None, p_units=N
             "--a-units", ",".join([CLONE] * max(1, len(places_ia)))] + list(extra or [])
     #: `place_moi is None` = build SONDE : on ne veut que le `boardGraph` (pour DERIVER les
     #: geometries), donc aucun placement -- et donc aucun refus possible d'`AddUnitOperation`.
-    if place_moi is not None:
+    if isinstance(place_moi, list):
+        #: plusieurs unites a MOI (volet Steppable) : `[(unitId, (col,row)), ...]`
+        for uid, c in place_moi:
+            argv += ["--place", "%s:%d,%d" % (uid, c[0], c[1])]
+    elif place_moi is not None:
         argv += ["--place", "%s:%d,%d" % (p_units or CLONE, place_moi[0], place_moi[1])]
     if seed_bc is not None:
         argv += ["--seed-bc", str(seed_bc)]
@@ -176,7 +182,7 @@ def positions_et_teams(sid, rid):
     donc la faute etait INVISIBLE tant qu'aucune unite multi-hex n'entrait. Repli sur `pos` quand
     le canal `feet` est muet : c'est une DEGRADATION nommee, exacte en mono-hex."""
     dv = _r(sid, "decisionView", {"runnerId": rid}, 90) or {}
-    par_id, empreintes, vivants_dv = {}, {}, set()
+    par_id, empreintes, vivants_dv, owners = {}, {}, set(), {}
     for u in (dv.get("units") or []):
         feet = [(int(f["col"]), int(f["row"])) for f in (u.get("feet") or [])
                 if isinstance(f, dict) and f.get("col") is not None]
@@ -188,6 +194,7 @@ def positions_et_teams(sid, rid):
         uid = int(u["id"])
         par_id[uid] = (main, int(u.get("team") or 0))
         empreintes[uid] = feet or [main]
+        owners[uid] = u.get("owner")
         if u.get("alive") is not False:
             vivants_dv.add(uid)
     #: ⚠ LES DEUX ROLES N'ONT PAS LE MEME FILTRE, ET C'EST LU. Un CANDIDAT doit etre vivant
@@ -195,10 +202,28 @@ def positions_et_teams(sid, rid):
     #: `StateExtensions$$GetAllEnemyUnitsOfPlayer` ne retient que DEUX conditions -- team differente
     #: et pas `UnitTrait.Steppable` (0x1b) -- et aucune ne porte sur la vie. `par_id` garde donc les
     #: cadavres (ils comptent comme cibles) et `vivants_dv` restreint les CANDIDATS.
-    return par_id, list(dv.get("toActivate") or []), dv, empreintes, vivants_dv
+    return par_id, list(dv.get("toActivate") or []), dv, empreintes, vivants_dv, owners
 
 
-def predire(board_obj, par_id, ids_ia, team_ia):
+#: `UnitTrait.Steppable` (0x1b = 27) -- LE SEUL filtre de
+#: `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfPlayer`, avec la difference de team.
+#: Le `decisionView` ne publie PAS les traits (cles mesurees : `abilities, alive, ctrl,
+#: defeatedByMelee, effects, feet, hasAction, hp, id, killerId, owner, parentId, parentMeasured,
+#: pos, ranged, team, visualId`) : on les lit au gameconfig par le `visualId`, comme le fait deja
+#: la face DECISION (`entity_trait_names`).
+_STEPPABLE = UnitTrait.Steppable
+
+
+def est_steppable(visual_id) -> bool:
+    """`BaseUnitComponent$$HasTrait(u, 0x1b)`. Sans `visualId`, on repond NON -- une NON-MESURE ne
+    doit jamais RETIRER un ennemi que le natif garde (degradation PERMISSIVE, jamais un filtre
+    invente)."""
+    if not visual_id:
+        return False
+    return has_any_trait(entity_trait_names(None, str(visual_id)), (_STEPPABLE.name,))
+
+
+def predire(board_obj, par_id, ids_ia, team_ia, steppables=()):
     """L'utilite PORTEE, unite par unite. Rend `{unitId: valeur}`.
 
     `path_node_count` passe par `ignore_terrain_pathfinder.get_path_node_counts`, le mirror
@@ -219,8 +244,11 @@ def predire(board_obj, par_id, ids_ia, team_ia):
         return par_id[uid][0]
 
     def enemies_of(uid):
+        #: `StateExtensions$$GetAllEnemyUnitsOfPlayer`, LU verbatim : team DIFFERENTE **et** pas
+        #: `UnitTrait.Steppable`. Ce second terme manquait -- invisible tant qu'aucun porteur
+        #: Steppable n'entrait au montage (aucun des 35 clones des couples historiques).
         mien = par_id[uid][1]
-        return [o for o, (_p, t) in par_id.items() if t != mien]
+        return [o for o, (_p, t) in par_id.items() if t != mien and o not in steppables]
 
     def path_node_count(_unit, frm, to):
         tid = idof.get(to)
@@ -374,18 +402,28 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
             rapport.append("config %d : boardGraph VIDE -- non mesure" % idx)
             return None
         board_obj = Board(bg["tiles"], adjacency="native_sym")
-        par_id, to_activate, _dv, empreintes, vivants_dv = positions_et_teams(sid, rid)
+        par_id, to_activate, _dv, empreintes, vivants_dv, owners = positions_et_teams(sid, rid)
         teams = {t for (_p, t) in par_id.values()}
         if len(teams) < 2:
             rapport.append("config %d : une seule team vue (%r) -- non mesure" % (idx, teams))
             return None
-        team_moi = par_id[min(par_id)][1] if par_id else 1
-        # La team IA est celle des CLONES adverses : celle qui n'est pas la mienne. On la derive
-        # du placement (mon roster est d'une seule unite).
-        comptes = {}
-        for _uid, (_p, t) in par_id.items():
-            comptes[t] = comptes.get(t, 0) + 1
-        team_ia = max(comptes, key=lambda t: comptes[t])
+        # ⚠ LA TEAM IA SE DERIVE DU JOUEUR COURANT, PAS DE LA MAJORITE. Le critere d'avant
+        # (`max(comptes)`) supposait que mon roster tienne en UNE unite ; il devient INDETERMINE
+        # des que les deux camps ont le meme effectif -- exactement le montage du volet Steppable
+        # (2 contre 2), ou il a designe MA team et fait predire sur les mauvaises unites (mesure
+        # #10022-r7). Le `decisionView` est lu AVANT le `endturn`, donc `currentPlayer` est MOI.
+        moi = _dv.get("currentPlayer")
+        ia = {owners[u] for u in par_id if owners.get(u) is not None and owners[u] != moi}
+        if len(ia) == 1:
+            proprio_ia = next(iter(ia))
+            team_ia = next(t for u, (_p, t) in par_id.items() if owners.get(u) == proprio_ia)
+        else:
+            comptes = {}
+            for _uid, (_p, t) in par_id.items():
+                comptes[t] = comptes.get(t, 0) + 1
+            team_ia = max(comptes, key=lambda t: comptes[t])
+            rapport.append("config %d : `currentPlayer` ne separe pas les camps (%r) -- repli sur "
+                           "la MAJORITE, qui est indetermine a effectifs egaux" % (idx, ia))
         #: CANDIDATS = les unites de la team IA qui sont VIVANTES (cf. positions_et_teams).
         ids_ia = sorted([u for u, (_p, t) in par_id.items() if t == team_ia and u in vivants_dv])
         if len(ids_ia) < 2:
@@ -393,7 +431,9 @@ def une_config(sid, seed, board_id, places_ia, place_moi, idx, rapport, seed_bc=
                            % (idx, ids_ia))
             return None
 
-        util_par_id = predire(board_obj, par_id, ids_ia, team_ia)
+        steppables = {int(u["id"]) for u in (_dv.get("units") or [])
+                      if est_steppable(u.get("visualId"))}
+        util_par_id = predire(board_obj, par_id, ids_ia, team_ia, steppables)
         vivants = {u: v for u, v in util_par_id.items() if v is not OUT_OF_RUNNING}
         if not vivants:
             rapport.append("config %d : toutes les utilites sont HORS COURSE -- non mesure" % idx)
@@ -521,6 +561,110 @@ def geometries_derivees(board_obj, n=6):
     return out
 
 
+#: Porteur `UnitTrait.Steppable` MONTABLE (`kind = npc`, entre par `--explicit-stats`). Les cinq
+#: familles porteuses du gameconfig sont `powup*`, `LootObj_*` (npc) et deux summons
+#: (`genesSmnDecoy`, `astarSmnHaywireMine`) -- les summons exigeraient leur summoner, les npc non.
+STEPPABLE_UNIT = "powupArmor"
+
+
+def volet_steppable(sid, a) -> int:
+    """AXE (c) de #10022-r7 : `GetAllEnemyUnitsOfPlayer` n'ecarte QUE `UnitTrait.Steppable`.
+
+    Le filtre est LU (`StateExtensions$$GetAllEnemyUnitsOfPlayer` : team differente **et**
+    `!HasTrait(0x1b)`), jamais mesure -- aucun porteur Steppable n'entrait dans les montages
+    historiques, qui n'alignaient que des clones. On en pose un DANS MON CAMP, pres d'un clone IA,
+    et on regarde laquelle des DEUX predictions le natif suit :
+
+      * FILTREE (la lecture native) : le powup ne compte pas, l'argmax ne depend que du vrai
+        ennemi ;
+      * NAIVE (sans le filtre) : le clone le plus proche du powup gagne.
+
+    Le probe REFUSE de conclure si les deux predictions coincident -- ce serait un vert vide."""
+    board_id, seed = a.board, a.seed
+    extra = ["--explicit-stats", STEPPABLE_UNIT]
+    sonde = ROOT / "logs" / ("_probe10022r7-stsonde-%d.json" % os.getpid())
+    rid, err = build(seed, board_id, [], None, sonde, p_units=CLONE + "," + STEPPABLE_UNIT,
+                     extra=extra)
+    if rid is None:
+        print("[10022-r7-steppable] NON MESURE : build SONDE KO (%s) -- rc 2" % (err or "")[-500:])
+        return 2
+    try:
+        bg = _r(sid, "boardGraph", {"runnerId": rid}, 120) or {}
+    finally:
+        _r(sid, "disposeRunner", {"runnerId": rid}, 60)
+    if not bg.get("tiles"):
+        print("[10022-r7-steppable] NON MESURE : boardGraph SONDE vide -- rc 2")
+        return 2
+    b = Board(bg["tiles"], adjacency="native_sym")
+    if not est_steppable(STEPPABLE_UNIT):
+        print("[10022-r7-steppable] NON MESURE : `%s` ne porte plus `Steppable` au gameconfig -- "
+              "le montage n'a plus de porteur. -- rc 2" % STEPPABLE_UNIT)
+        return 2
+
+    marchables = [t for t in sorted(b.by_id) if b.walkable(t)]
+    if len(marchables) < 10:
+        print("[10022-r7-steppable] NON MESURE : board trop petit -- rc 2")
+        return 2
+    #: Le VRAI ennemi loin, le powup pres d'un clone : `t_vrai` a un bout, `t_pow` a l'autre.
+    t_vrai, t_pow = marchables[0], marchables[-1]
+    c_vrai = get_path_node_counts(b, t_vrai, {})
+    c_pow = get_path_node_counts(b, t_pow, {})
+    cands = [t for t in marchables if t in c_vrai and t in c_pow and t not in (t_vrai, t_pow)]
+    #: On veut trois clones tels que l'argmax FILTRE (min sur `c_vrai`) et l'argmax NAIF
+    #: (min sur `min(c_vrai, c_pow)`) DESIGNENT DES UNITES DIFFERENTES.
+    #: DEUX clones suffisent -- le picker n'a besoin que de deux candidats pour departager, et
+    #: exiger un troisieme « strictement plus loin dans les DEUX lectures » vidait la recherche
+    #: (mesure : 0 triplet sur `MC1_67`). Moins de contraintes, meme pouvoir discriminant.
+    trouve = None
+    for ta in cands:
+        for tb in cands:
+            if tb == ta:
+                continue
+            # A gagne sous FILTRE (plus pres du VRAI ennemi), B gagne sous NAIF (colle au powup).
+            if (c_vrai[ta] < c_vrai[tb]
+                    and min(c_vrai[tb], c_pow[tb]) < min(c_vrai[ta], c_pow[ta])):
+                trouve = (ta, tb)
+                break
+        if trouve:
+            break
+    if not trouve:
+        print("[10022-r7-steppable] NON MESURE : aucun couple ne separe la prediction FILTREE de "
+              "la NAIVE sur %s -- le montage ne discriminerait rien. -- rc 2" % board_id)
+        return 2
+    ta, tb = trouve
+    #: B EN TETE de la liste : l'ordre des `--a-place` commande l'ordre d'iteration ECS, et le
+    #: probe ECARTE toute configuration ou le predit est deja `ECS[0]` (regime degenere).
+    places = [b.coord(tb), b.coord(ta)]
+    print("[10022-r7-steppable] board=%s seed=%d | vrai ennemi @%s | %s (Steppable) @%s"
+          % (board_id, seed, b.coord(t_vrai), STEPPABLE_UNIT, b.coord(t_pow)))
+    print("[10022-r7-steppable] clones : A=%s(vrai=%d,pow=%d) B=%s(vrai=%d,pow=%d) "
+          "-- FILTRE predit A, NAIF predirait B"
+          % (b.coord(ta), c_vrai[ta], c_pow[ta], b.coord(tb), c_vrai[tb], c_pow[tb]))
+
+    rapport, resultats = [], []
+    r = une_config(sid, seed, board_id, places,
+                   [(CLONE, b.coord(t_vrai)), (STEPPABLE_UNIT, b.coord(t_pow))], 1, rapport,
+                   p_units=CLONE + "," + STEPPABLE_UNIT, extra=extra)
+    for l in rapport:
+        print("[10022-r7-steppable] " + l)
+    if r is None:
+        print("[10022-r7-steppable] NON MESURE : la configuration n'a pas ete mesuree -- rc 2")
+        return 2
+    resultats.append(r)
+    if r["statut"] != "DISCRIMINANT":
+        print("[10022-r7-steppable] NON MESURE : configuration %s -- rc 2" % r["statut"])
+        return 2
+    if not r["ok"]:
+        print("[10022-r7-steppable] ROUGE : le natif n'a pas suivi la prediction FILTREE. Soit il "
+              "COMPTE le porteur `Steppable` (le filtre lu serait faux), soit un autre etage "
+              "intervient -- ne rien conclure sans decomposer.")
+        return 1
+    print("[10022-r7-steppable] VERT : le natif a suivi la prediction qui ECARTE le porteur "
+          "`Steppable`, alors que la prediction NAIVE designait une autre unite. Le filtre "
+          "`!HasTrait(UnitTrait.Steppable)` de `GetAllEnemyUnitsOfPlayer` est CONFRONTE.")
+    return 0
+
+
 def volet_multihex(sid, a, porteur=None) -> int:
     """AXE (a) de #10022-r7 : une unite MULTI-HEX au bout de la mesure.
 
@@ -554,7 +698,7 @@ def volet_multihex(sid, a, porteur=None) -> int:
         return 2
     try:
         bg = _r(sid, "boardGraph", {"runnerId": rid}, 120) or {}
-        par_id, _ta, dv, empreintes, _viv = positions_et_teams(sid, rid)
+        par_id, _ta, dv, empreintes, _viv, _own = positions_et_teams(sid, rid)
         boss = next((u for u in (dv.get("units") or [])
                      if len(u.get("feet") or []) > 1 and u.get("alive")), None)
     finally:
@@ -631,6 +775,9 @@ def main(argv=None):
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--configs", type=int, default=len(GEOMETRIES))
+    ap.add_argument("--steppable", action="store_true",
+                    help="AXE (c) de #10022-r7 : pose un porteur UnitTrait.Steppable dans le "
+                         "camp ennemi et confronte le filtre de GetAllEnemyUnitsOfPlayer.")
     ap.add_argument("--multihex", nargs="?", const="belisarius", default=None,
                     choices=sorted(MULTIHEX_PORTEURS),
                     help="AXE (a) de #10022-r7 : monte une unite MULTI-HEX (boss, via "
@@ -654,6 +801,8 @@ def main(argv=None):
         print("[10022-r3-live] NON MESURE : aucune session running -- rc 2")
         return 2
     # ---------------------------------------------------------------- axe MULTI-HEX (#10022-r7)
+    if a.steppable:
+        return volet_steppable(sid, a)
     if a.multihex:
         return volet_multihex(sid, a, MULTIHEX_PORTEURS[a.multihex])
 
