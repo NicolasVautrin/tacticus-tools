@@ -56,14 +56,46 @@ PINNED = int(EffectType.Pinned)                               # 1065
 PENDING_ATTACK = int(EffectType.TheLantern_PendingAttack)     # 1194
 TL_ATTACK = int(TriggeredAbilityType.TheLantern_Attack)       # 1167
 
-COLS = ROWS = 9
+#: BOARD 13x13, CASTER AU CENTRE -- et les deux chiffres sont CONTRAINTS, pas confortables
+#: (#10023). Le montage d'origine (9x9, caster en (2,4)) est ne AVANT que #895-r2 ne porte le gate
+#: `CasterHas7Tiles` et AVANT que #1030-r1 ne porte la regle dynamique ; ni l'un ni l'autre ne
+#: pouvait alors le contraindre. Les deux le contraignent maintenant :
+#:   * l'empreinte SEPT HEX doit tenir dans le plateau (`_empreinte_7`) ;
+#:   * `...TheLanternAbility$$GetDynamicInvalidTargetReason` n'accepte que les SIX tuiles a
+#:     distance 3 du centre (`|adj(casterFeet) inter adj(target)| == 1`). Mesure sur l'ancien
+#:     montage : le bord en tronquait DEUX, et la cible a distance 2 etait REFUSEE
+#:     (`invalid_target = 0x2` = `TargetMatchesDynamicRule`) -- donc plus un seul effet pose.
+#: A 13x13 centre sur (6,6), les six directions existent TOUTES et aucun anneau n'est tronque.
+COLS = ROWS = 13
 CASTER, PLAYER_MOI, PLAYER_ADV = 10, 3, 4
-#: Le caster en (2,4) ; la tuile ciblee a distance EXACTEMENT 2 -- la portee du masque est
-#: `CustomRange(2)`, et une cible a 3 est REFUSEE par le gate (mesure : `invalid_target =
-#: 0x8000000`, ce qu'a rendu le premier montage). A d = 2 le « pont » `ring2(T) & adj(caster)` est
-#: un ensemble PROPRE (ni vide, ni tout `ring2`), ce que l'etage 2 assertionne.
-CASTER_POS = (2, 4)
-TARGET_POS = (4, 4)
+CASTER_POS = (6, 6)
+#: L'une des SIX directions, a distance 3 du centre de l'empreinte -- donc a distance 2 du pied le
+#: plus proche, ce que la portee `CustomRange(2)` du masque exige. `test_e0_le_montage_est_dans_le
+#: _regime_qu_il_documente` la RE-DERIVE du gate : elle n'est pas choisie a la main.
+TARGET_POS = (6, 3)
+
+
+def _empreinte_7(centre=CASTER_POS) -> list:
+    """LES SEPT TUILES DE MORTARION -- centre en TETE, puis sa couronne.
+
+    ⚠ CE MONTAGE MANQUAIT, ET SON ABSENCE A REND CE FICHIER ROUGE (#10023). Le masque de `1094`
+    porte `CasterHas7Tiles` (bit 37, `int(TR.CasterHas7Tiles) == 0x2000000000`) ; depuis que
+    #895-r2 a porte les trois filtres de `GetFeetCount` dans
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`, un caster MONO-HEX se voit
+    REFUSER le cast -- `invalid_target = 0x2000000000`, aucun effet pose, aucune erreur. Les cinq
+    tests qui lisaient les effets tombaient donc en `IndexError` sur une liste vide, et les deux
+    de l'etage 5 sur un `Triggered()` qui n'avait rien a declencher.
+
+    Le gate a RAISON : c'est le montage qui mentait. `deathBossMortarion` est un boss SEPT HEX, et
+    la source de cette empreinte n'est pas l'unite mais la PLATEFORME du board --
+    `data/boards/global/GB_Mortarion_05.json` porte `board.BossPlatforms = [{"Size": 7, "Tiles":
+    [(4,8), (3,9), (4,9), (5,9), (5,8), (4,7), (3,8)]}]`, soit le CENTRE `(4,8)` EN TETE suivi de
+    ses six voisins. `IdunBattle.Operations.SetupGameOperation$$AddBossUnit` passe cette liste au
+    spawn ; aucun champ de gameconfig ne porte la taille d'une unite.
+
+    Meme ecriture que le fichier soeur `test_1030r1_the_lantern_dynamic_target_offline.py`, qui
+    posait deja ses sept pieds -- c'est ce qui l'a garde VERT quand celui-ci est tombe."""
+    return [centre] + list(hexgeo.neighbors(*centre))
 
 
 def _tid(col: int, row: int) -> int:
@@ -113,24 +145,90 @@ def _state(foes: dict = None, caster_pos=CASTER_POS):
     # RUNTIME), donc INVISIBLE du kit gameconfig : sans ce seed, le trigger fire et le noeud rend
     # `dispatched: True, notCarrying: [caster]` -- zero degat, aucune erreur. C'est exactement le
     # regime que le champ `notCarrying` a rendu visible sur 1069 (#513 Sec.5).
-    from engine.runner.components import StatsComponent
+    from engine.runner.components import StatsComponent, set_unit_feet
     sc = st.get_entity(CASTER).get_component(StatsComponent)
     if sc is not None and getattr(sc, "ctx", None) is not None:
         sc.ctx.triggered_abilities = [TL_ATTACK]
+    # L'EMPREINTE SEPT HEX du caster -- sans elle le gate `CasterHas7Tiles` refuse tout cast
+    # (cf. `_empreinte_7`). `set_unit_feet` recale la `PositionComponent` sur `feet[0]`, donc la
+    # main tile reste `caster_pos`.
+    set_unit_feet(st, CASTER, _empreinte_7(caster_pos))
     return st
 
 
 def _zone_attendue(caster_pos=CASTER_POS, target=TARGET_POS) -> set:
     """La zone RE-DERIVEE a la main depuis le decompile, en positions -- volontairement ecrite
     autrement que le port (ensembles Python purs, aucun noeud DSL), pour qu'une faute du port ne
-    puisse pas se recopier dans son oracle."""
+    puisse pas se recopier dans son oracle.
+
+    ⚠ `cring1 = SurroundingTiles(CasterTiles, includeCenter = 0, range = 1)` porte l'EMPREINTE, pas
+    la main tile (#10023). `IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext`
+    ouvre par `foreach (tile in EntityExtensions.IterateTiles(center, state))` : le disque d'une
+    origine MULTI-HEX est l'UNION des disques de TOUS ses pieds. Et `includeCenter == 0` retranche
+    `Tiles(origin)` = `GetMainTile` PAR ENTITE -- l'origine etant ici une liste de sept
+    entites-TUILE, chacune est sa propre main tile, donc les SEPT sortent de l'anneau.
+
+    L'oracle changeait donc en meme temps que le montage : ecrit pour un caster mono-hex, il
+    n'aurait plus decrit la meme zone une fois les sept pieds poses."""
     d = hexgeo.distance
+    feet = set(_empreinte_7(caster_pos))
     ring1 = {p for p in hexgeo.disk(target[0], target[1], 1) if p != target}
     ring2 = {p for p in hexgeo.disk(target[0], target[1], 2) if p != target}
-    cring = {p for p in hexgeo.disk(caster_pos[0], caster_pos[1], 1) if p != caster_pos}
+    cring = {p for f in feet for p in hexgeo.disk(f[0], f[1], 1)} - feet
     dans = lambda s: {p for p in s if 0 <= p[0] < COLS and 0 <= p[1] < ROWS}   # noqa: E731
-    assert d(caster_pos, target) == 2, "le montage n'a plus la distance qu'il documente"
+    assert d(caster_pos, target) == 3, "le montage n'a plus la distance qu'il documente"
     return dans({target} | ring1 | (ring2 & cring))
+
+
+#: Une tuile LOIN de tout : ni dans la zone, ni sur un pied du caster. `test_e0_...` le verifie --
+#: un montage qui la placerait par megarde DANS la zone rendrait les etages 3 et 5 muets (l'ennemi
+#: << hors zone >> ne discriminerait plus rien).
+DEHORS = (12, 12)
+
+
+# =================================================================================================
+# ETAGE 0 -- LE MONTAGE EST DANS LE REGIME QU'IL DOCUMENTE
+# =================================================================================================
+
+def test_e0_le_montage_est_dans_le_regime_qu_il_documente():
+    """⚠ L'ETAGE QUI MANQUAIT, ET SON ABSENCE A COUTE SEPT ROUGES (#10023).
+
+    Ce fichier figeait `CASTER_POS`/`TARGET_POS` comme des coordonnees confortables. Deux gates
+    portes APRES son ecriture les ont rendues INVALIDES, et il n'existait aucun cran pour le dire :
+    le cast partait en refus silencieux (`invalid_target`), zero effet pose, et les cinq tests qui
+    lisaient les effets tombaient en `IndexError` -- un mode d'echec qui accuse la LECTURE alors
+    que la faute est au MONTAGE.
+
+      * `CasterHas7Tiles` (#895-r2) -- `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`
+        refuse tout caster dont `GetFeetCount != 7` ;
+      * `...TheLanternAbility$$GetDynamicInvalidTargetReason` (#1030-r1) -- n'accepte que les tuiles
+        ou `|adj(casterFeet) inter adj(target)| == 1`.
+
+    Ce test les RE-DERIVE au lieu de les croire : il balaye le plateau, exige que le gate accepte
+    EXACTEMENT les SIX directions de l'i2, et que `TARGET_POS` en soit une. Les constantes du
+    module deviennent ainsi verifiees, pas decretees -- au prochain gate porte, c'est ICI que ça
+    rougira, en NOMMANT le refus."""
+    from engine.runner.abilities.targeting import get_invalid_caster_reason
+    st = _state()
+    ab = ABILITY_CLASSES[TL]()
+    assert get_invalid_caster_reason(st, ab, CASTER) == 0, (
+        "le CASTER est refuse : l'empreinte du montage ne satisfait plus le masque")
+    acceptees = sorted((c, r) for c in range(COLS) for r in range(ROWS)
+                       if st.board.id_at(c, r) is not None
+                       and ab.get_dynamic_invalid_target_reason(st, CASTER,
+                                                                st.board.id_at(c, r)) == 0)
+    assert len(acceptees) == 6, (
+        "l'i2 dit SIX directions ; ce montage en offre %d (%r) -- un bord tronque le voisinage, "
+        "et un ensemble tronque ne prouve pas la geometrie qu'il pretend exercer"
+        % (len(acceptees), acceptees))
+    assert {hexgeo.distance(p, CASTER_POS) for p in acceptees} == {3}, acceptees
+    assert TARGET_POS in acceptees, (
+        "TARGET_POS %r n'est plus une direction acceptee : %r" % (TARGET_POS, acceptees))
+    # ... et les deux reperes que les etages 3 et 5 utilisent comme discriminants.
+    zone = _zone_attendue()
+    assert DEHORS not in zone and DEHORS not in set(_empreinte_7()), DEHORS
+    assert len(zone) >= 7, "la zone ne passe pas le gate `|zone| >= 7` qu'exerce l'etage 6"
+    assert set(_empreinte_7()).isdisjoint({TARGET_POS}), "la cible est SOUS le caster"
 
 
 # =================================================================================================
@@ -223,11 +321,20 @@ def test_e3_trois_poses_et_aucun_degat():
     `Pinned` sur tous les ennemis du plateau passerait."""
     zone = _zone_attendue()
     dedans = sorted(zone - {TARGET_POS})[0]
-    dehors = (8, 8)
+    dehors = DEHORS
     assert dehors not in zone
     st = _state({20: dedans, 21: dehors})
     last = _cast(st, _tid(*TARGET_POS))
-    assert last.get("dsl") is True and last.get("ability") == "TheLantern"
+    #: ⚠ LE CANAL A CHANGE, ET C'EST UN CHANGEMENT DE HARNAIS, PAS DU MOTEUR (#10023).
+    #: `AbilityHandler.last` publiait `{"dsl": True, "ability": "TheLantern"}` ; il publie
+    #: desormais `{"ability_type": <id>, "ported": True, ...}` -- l'ability_type NUMERIQUE et un
+    #: booleen de portage, la ou l'ancien couple melangeait << l'arbre est un DSL >> et
+    #: << l'identifiant textuel >>. Lire le nouveau canal est la reparation ; toucher au moteur en
+    #: serait une fausse.
+    assert last.get("ported") is True and last.get("ability_type") == TL, last
+    assert not last.get("invalid_target"), (
+        "le cast a ete REFUSE (0x%x) : aucun effet ne sera pose, et les assertions qui suivent "
+        "accuseraient la lecture au lieu du montage" % (last.get("invalid_target") or 0))
     marquees = {st.board.coord(t) for t in st.effects.by_unit
                 if any(not e.consumed and int(e.effect_type) == PENDING_TARGET
                        for e in st.effects.by_unit[t]) and t in st.board.by_id}
@@ -407,7 +514,7 @@ def test_e5_le_tir_frappe_les_occupants_courants():
     from engine.runner.components import HealthComponent, PositionComponent
     zone = _zone_attendue()
     dedans = sorted(zone - {TARGET_POS})[0]
-    dehors = (8, 8)
+    dehors = DEHORS
     st = _state({20: dedans, 21: dehors})
     _cast(st, _tid(*TARGET_POS))
     # 20 SORT de la zone, 21 y ENTRE -- apres le cast, avant le tir.
@@ -464,9 +571,15 @@ def test_e6_utilite_poids_et_gate_de_sept_tuiles():
     class _Ctx:
         uid = CASTER
         origin = CASTER_POS
+        #: UNE LIGNE PAR PIED pour le caster (#10023) -- c'est le canal que lit
+        #: `TheLanternPlaybook._measured_feet`, et il rend `[]` des qu'il n'y en a qu'une (donc
+        #: `_caster_footprint` retombe sur `[position]`). Avec une seule ligne, la face DECISION
+        #: calculait la zone d'un caster MONO-HEX pendant que la face COMBAT en calculait une de
+        #: SEPT : les deux ne pouvaient plus coincider, et c'est ce que ce test compare.
         obs_units = [
             {"id": CASTER, "teamId": 1, "visualId": "deathBossMortarion",
-             "pos": {"col": CASTER_POS[0], "row": CASTER_POS[1]}},
+             "pos": {"col": f[0], "row": f[1]}} for f in _empreinte_7()
+        ] + [
             {"id": 20, "teamId": 2, "visualId": "necroWarden",
              "pos": {"col": zone[0][0], "row": zone[0][1]}},
             {"id": 21, "teamId": 2, "visualId": "eldarFarseer",

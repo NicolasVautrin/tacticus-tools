@@ -1042,7 +1042,7 @@ def step_exec(verbose: bool) -> list:
             octets[_ignore(p)] = data
 
     import verdict_cache
-    cache = _cache_283(cur, prev)
+    cache = _cache_283(cur, builds_avec_table_enums())
     shas = {rel: verdict_cache.sha_texte(repr(data)) for rel, data in octets.items()}
     arbres, sources = {}, {}
 

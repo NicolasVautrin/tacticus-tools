@@ -178,5 +178,10 @@ def test_les_deux_feuilles_portent_les_ordinaux_du_BUILD_COURANT(mesure):
     prochain lecteur ne recopie pas la fiche."""
     assert int(UtilityType.BioMinefield_MoveTowardsTarget) == 62
     assert int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget) == 63
-    assert T.BioMinefield_MoveTowardsTargetUtility().UTILITY_TYPE == 62
-    assert T.MasterOfTheTutelaries_MoveTowardsTargetUtility().UTILITY_TYPE == 63
+    #: Forme CONFRONTEE (#1031) : le littéral ET le membre dans la MEME chaine de comparaison.
+    #: Ecrit `== 62` seul, l'ordinal serait fige sans que rien ne le confronte au mirror -- c'est
+    #: exactement ce que l'etape 2 de `probe_283` refuse, et elle rougissait ici (#10023).
+    assert T.BioMinefield_MoveTowardsTargetUtility().UTILITY_TYPE == 62 \
+        == int(UtilityType.BioMinefield_MoveTowardsTarget)
+    assert T.MasterOfTheTutelaries_MoveTowardsTargetUtility().UTILITY_TYPE == 63 \
+        == int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget)
