@@ -1,26 +1,30 @@
-"""#10023-r1 -- `Tiles(origin)` resout la TUILE en son OCCUPANT, et s'applique PAR ENTITE.
+"""#10023-r1 -- `Tiles(origin)` en domaine TUILE : LA PREMISSE DU RESIDU ETAIT FAUSSE.
 
-CLIQUET, pas inventaire. Chaque etage de `probe_10023r1_tiles_origine_non_occupee.py` est joue
-ici comme un test, et chacun porte sa MUTATION : on retablit le port d'AVANT
-(`_main_tiles(origin, board, units) == _origin_tiles(origin, board)[:1]`, la tuile BRUTE) et on
-exige que l'etage ROUGISSE. Un cliquet vert dans les deux regimes ne mesure rien.
+CLIQUET, pas inventaire. Chaque etage de `probe_10023r1_tiles_origine_non_occupee.py` est joue ici
+comme un test, et chacun porte SA mutation. Il y en a **TROIS**, distinctes, parce que les trois
+defauts annonces par le residu n'avaient ni la meme cause ni le meme verdict :
 
-RE relue VERBATIM sur `t6dpr4k06g` -- la chaine est citee en tete du probe. Les trois proprietes
-gardees ici :
+  * `_resolution_occupant` -- LA THESE REFUTEE. Le residu demandait de resoudre chaque
+    entite-TUILE en son OCCUPANT avant `GetMainTile`. **11 casts live sur 11** de `1201 SquigMine`
+    (masque `TargetTileIsFree` -> tuile ciblee toujours VIDE) disent l'inverse : la tuile EST
+    retranchee (`probe_10023r1_squig_pool_live.py` ; `0,5^11 = 0,05 %` par hasard). Les etages
+    1, 1bis et 5 doivent ROUGIR sous elle.
+  * `_ts0_partout` -- le port d'avant STRICT. Correct en domaine tuile, faux en domaine UNITE ou
+    `UnitsMainTilesSelector$$Select` applique `GetMainTile` PAR ENTITE : l'etage 3 rougit.
+  * `_sans_board` -- le seul defaut REEL du residu : `_within` appelait `_main_tile(center)` sans
+    `board`, donc `[]` sur une origine en domaine ID, donc exclusion silencieusement VIDE.
+    L'etage 2 rougit.
 
-  1. une origine TUILE VIDE ne designe AUCUNE entite (`UnitExtensions$$GetUnit` rend null sur un
-     `TileContentComponent` non rempli), donc `Tiles(origin)` est vide et le natif ne retranche
-     RIEN ;
-  2. une origine qui designe un PIED SECONDAIRE retranche la MAIN TILE de l'occupant, jamais le
-     pied donne (`EntityExtensions$$GetMainTile` = la tuile du PREMIER pied) ;
-  3. `GetMainTile` est applique PAR ENTITE, donc une origine a N unites distinctes retranche N
-     tuiles -- et une origine multi-hex n'en retranche toujours qu'UNE (non-regression #10023).
+⚠ **AUCUN test existant ne voyait la difference** : les quatre tests cibles du rayon de souffle
+sont verts sous la these refutee comme sous le port courant -- mesure. C'est ce qui rend ce
+fichier necessaire, et c'est aussi pourquoi #10023 n'avait pas pu trancher : sur son call-site
+(les sept entites-tuile d'une empreinte), les deux theses rendent la MEME tuile.
 
-⚠ LA MUTATION PATCHE **DEUX** LIAISONS, et ce n'est pas une precaution : `accessors.py` importe
-`_main_tiles` en FORME A (`from ...dsl.base import _main_tiles`), donc un `monkeypatch.setattr`
-sur le seul `engine.dsl.base._main_tiles` NE MORD PAS sur ce module-la (doctrine « HISSER, OUI --
-MAIS EN FORME B »). Patcher la seule liaison du foyer rendrait les mutations des etages 1/1bis/3
-INERTES, et le cliquet serait vert des deux cotes.
+⚠ LES MUTATIONS PATCHENT **DEUX** LIAISONS, et ce n'est pas une precaution : `accessors.py`
+importe `_main_tiles` en FORME A (`from ...dsl.base import _main_tiles`), donc un
+`monkeypatch.setattr` sur le seul `engine.dsl.base._main_tiles` NE MORD PAS sur ce module-la
+(doctrine « HISSER, OUI -- MAIS EN FORME B »). Patcher la seule liaison du foyer rendrait les
+mutations des etages 1/1bis/3 INERTES, et le cliquet serait vert des deux cotes.
 
 ASCII only (cp1252). Aucun runner, aucun RPC.
 """
@@ -61,23 +65,45 @@ _LIAISONS = ("engine.dsl.base._main_tiles",
              "engine.entities.selectors.accessors._main_tiles")
 
 
-def _port_d_avant_tuile_brute(origin, board=None, units=None) -> list:
-    """Le port d'AVANT #10023-r1, tel que l'appelait `accessors.SurroundingTiles` : la PREMIERE
-    tuile de l'origine aplatie, BRUTE -- `board` passe, `units` jamais consulte.
+def _resolution_occupant(origin, board=None, units=None) -> list:
+    """LA THESE QUE LA MESURE LIVE A REFUTEE : resoudre chaque entite-TUILE en son OCCUPANT
+    (`TargetsSelector$$SelectUnit` -> `UnitExtensions$$GetUnit`) avant `GetMainTile`.
 
-    Ni resolution d'occupant (une tuile VIDE retranchait quand meme, un pied SECONDAIRE se
-    retranchait lui-meme au lieu de la main tile), ni application par entite (N unites n'en
-    retranchaient qu'une)."""
+    C'est ce que l'enonce de #10023-r1 demandait de porter, et c'est ce que 11 casts live de
+    `1201 SquigMine` contredisent. La garder ici comme MUTATION est ce qui empeche qu'elle
+    revienne : les etages 1, 1bis et 5 doivent rougir sous elle."""
+    occ = B._occupants_by_tile(units or ())
+    out: list = []
+    for e in B._origin_entities(origin):
+        u = e if B._est_unite(e, units) else None
+        if u is None:
+            for p in B._origin_tiles(e, board):
+                u = occ.get(p)
+                if u is not None:
+                    break
+        if u is None:                       # tuile VIDE -> `IsFilled == 0` -> null -> rien ajoute
+            continue
+        feet = B._feet(u)
+        if feet and feet[0] not in out:
+            out.append(feet[0])
+    return out
+
+
+def _ts0_partout(origin, board=None, units=None) -> list:
+    """Le port d'AVANT, STRICT : la premiere tuile de l'origine aplatie, quel que soit le domaine.
+
+    En domaine TUILE il coincide avec le port courant (c'est ce que la mesure valide) ; en domaine
+    UNITE il n'en rend qu'UNE la ou `UnitsMainTilesSelector$$Select` en rend N. Discriminant du
+    seul etage 3."""
     return B._origin_tiles(origin, board)[:1]
 
 
-def _port_d_avant_sans_board(origin, board=None, units=None) -> list:
+def _sans_board(origin, board=None, units=None) -> list:
     """Le port d'AVANT tel que l'appelait `dsl/base._within` : `_main_tile(center)`, SANS `board`.
 
-    Mutation DISTINCTE de la precedente, et il en faut deux : la faute de `_within` n'etait pas
+    Mutation DISTINCTE des deux autres, et il en faut trois : la faute de `_within` n'etait pas
     dans la fonction mais dans ce qu'elle ne recevait PAS. Sur une origine en domaine ID,
-    `_origin_tiles(list[int], None)` rend `[]` -- exclusion silencieusement VIDE. La mutation
-    `tuile brute`, qui passe `board`, ne la reproduit donc pas et laisse l'etage 2 VERT."""
+    `_origin_tiles(list[int], None)` rend `[]` -- exclusion silencieusement VIDE."""
     return B._origin_tiles(origin, None)[:1]
 
 
@@ -93,13 +119,18 @@ def _mutateur(monkeypatch, remplacant):
 
 
 @pytest.fixture()
-def mutation(monkeypatch):
-    return _mutateur(monkeypatch, _port_d_avant_tuile_brute)
+def mutation_resolution(monkeypatch):
+    return _mutateur(monkeypatch, _resolution_occupant)
+
+
+@pytest.fixture()
+def mutation_ts0(monkeypatch):
+    return _mutateur(monkeypatch, _ts0_partout)
 
 
 @pytest.fixture()
 def mutation_sans_board(monkeypatch):
-    return _mutateur(monkeypatch, _port_d_avant_sans_board)
+    return _mutateur(monkeypatch, _sans_board)
 
 
 # --- ETAGE 0 : le RECENSEMENT (aucune mutation : c'est une mesure statique de l'arbre) ---
@@ -107,60 +138,76 @@ def test_e0_les_call_sites_passent_board_et_units():
     assert P.etage0_recensement() == 0
 
 
-# --- ETAGES 1 a 5 : le mirror, puis sa MUTATION ---
+# --- ETAGES 1 a 5 : le port, puis les TROIS mutations ---
 @pytest.mark.parametrize("etage", [
     P.etage1_tuile_vide,
     P.etage1bis_pied_secondaire,
     P.etage2_within_domaine_id,
     P.etage3_multi_unites,
     P.etage4_non_regression_10023,
-    P.etage5_substrat_absent,
+    P.etage5_domaine_tuile_insensible_a_units,
 ], ids=lambda f: f.__name__)
-def test_le_mirror_tient(etage):
+def test_le_port_tient(etage):
     assert etage() == 0
 
 
 @pytest.mark.parametrize("etage", [
-    P.etage1_tuile_vide,          # tuile VIDE -> le port d'avant retranchait la tuile
-    P.etage1bis_pied_secondaire,  # pied secondaire -> il coupait le pied au lieu de la main tile
-    P.etage3_multi_unites,        # N unites -> il n'en retranchait qu'UNE
-    P.etage5_substrat_absent,     # substrat PRESENT -> il ne resolvait pas l'occupant
+    P.etage1_tuile_vide,                        # la tuile VIDE cesserait d'etre retranchee
+    P.etage1bis_pied_secondaire,                # la MAIN TILE serait coupee a la place du pied
+    P.etage5_domaine_tuile_insensible_a_units,  # la sortie se mettrait a dependre de `units`
 ], ids=lambda f: f.__name__)
-def test_la_mutation_TUILE_BRUTE_fait_ROUGIR_l_etage(etage, mutation):
-    """DISCRIMINANT : le port d'avant doit faire echouer chacun de ces quatre etages."""
-    mutation()
+def test_la_RESOLUTION_D_OCCUPANT_fait_ROUGIR_l_etage(etage, mutation_resolution):
+    """LE cliquet de cette tranche : la these REFUTEE ne doit pas pouvoir revenir en silence.
+
+    Elle est seduisante -- elle se lit directement dans `TargetsSelector$$SelectUnit` -- et c'est
+    precisement pour ca qu'il faut un refus EXECUTABLE et pas une phrase de docstring. Un lecteur
+    qui « aligne le code sur le decompile » la reintroduirait, et **aucun test existant ne le
+    verrait** : les quatre tests cibles du rayon de souffle (`test_1030_the_lantern_offline`,
+    `test_967r2_include_non_walkable_offline`, `test_units_directly_behind_offline`,
+    `test_979_ports_decision_offline`) restent verts dans les DEUX regimes -- mesure."""
+    mutation_resolution()
     assert etage() == 1, (
-        "l'etage %s reste VERT sous le port d'avant : il ne mesure pas ce qu'il pretend garder"
+        "l'etage %s reste VERT sous la resolution d'occupant : il ne garde pas la mesure live"
         % etage.__name__)
 
 
-def test_la_mutation_SANS_BOARD_fait_ROUGIR_l_etage2(mutation_sans_board):
+def test_le_PORT_D_AVANT_fait_ROUGIR_l_etage3(mutation_ts0):
+    """En domaine UNITE, `ts[0]` ne rend qu'UNE main tile la ou la boucle native en rend N."""
+    mutation_ts0()
+    assert P.etage3_multi_unites() == 1
+
+
+def test_SANS_BOARD_fait_ROUGIR_l_etage2(mutation_sans_board):
     """L'etage 2 exige SA mutation, et c'est le fait le plus instructif de ce fichier.
 
-    La faute (b) n'etait pas dans `_main_tile` mais dans l'ARGUMENT qu'on ne lui passait pas :
-    sous la mutation `tuile brute` -- qui, elle, passe `board` -- l'etage 2 reste VERT. Un cliquet
-    qui n'aurait eu qu'une mutation aurait donc declare l'etage 2 non discriminant, alors qu'il
-    l'est pour une autre cause."""
+    La faute (b) n'etait pas dans `_main_tile` mais dans l'ARGUMENT qu'on ne lui passait pas : les
+    deux autres mutations passent `board` et laissent l'etage 2 VERT. Un cliquet a mutation unique
+    l'aurait donc declare non discriminant, alors qu'il l'est pour une autre cause."""
     mutation_sans_board()
     assert P.etage2_within_domaine_id() == 1
 
 
-@pytest.mark.parametrize("etage", [P.etage2_within_domaine_id, P.etage4_non_regression_10023],
+@pytest.mark.parametrize("etage", [P.etage2_within_domaine_id, P.etage3_multi_unites,
+                                   P.etage4_non_regression_10023],
                          ids=lambda f: f.__name__)
-def test_ces_etages_survivent_a_la_mutation_TUILE_BRUTE_et_c_est_MESURE(etage, mutation):
-    """Le pendant du test precedent : il faut DIRE ce que la mutation `tuile brute` ne montre pas.
+def test_ces_etages_survivent_a_la_RESOLUTION_et_c_est_MESURE(etage, mutation_resolution):
+    """Le pendant du test precedent : il faut DIRE ce que la mutation `resolution` ne montre pas.
 
-    `etage4` (non-regression #10023) : le port d'avant le passait DEJA, la premiere tuile de
-    l'empreinte ETANT la main tile. `etage2` : sa faute est l'argument manquant, pas la fonction.
-    Les ranger en silence parmi les discriminants rendrait ce fichier faux, pas plus severe."""
-    mutation()
+    `etage2` : sa faute est l'argument manquant, pas la fonction. `etage3` : son origine est en
+    domaine UNITE, ou la resolution est un no-op. `etage4` (non-regression #10023) : les sept
+    entites-tuile resolvent TOUTES vers la meme unite, donc la resolution y rend AUSSI une seule
+    tuile -- c'est exactement pourquoi #10023 ne pouvait pas distinguer les deux theses, et
+    pourquoi il a fallu un call-site a tuile VIDE pour trancher."""
+    mutation_resolution()
     assert etage() == 0
 
 
 # --- ETAGE 6 : l'INVENTAIRE d'atteignabilite (jamais bloquant, mais il doit MESURER) ---
 def test_e6_l_inventaire_d_atteignabilite_est_NON_VIDE():
-    """Il rend `0` par construction -- ce qu'on garde ici, c'est qu'il ne mesure pas le VIDE.
+    """Il rend `0` par construction -- ce qu'on garde, c'est qu'il ne mesure pas le VIDE.
 
-    Un recenseur qui ne visiterait plus rien rendrait `0` lui aussi, et se lirait « rien a
-    signaler » : l'assertion de non-vide est ce qui empeche ce faux vert."""
+    Un recenseur qui ne visiterait plus rien rendrait `0` lui aussi et se lirait « rien a
+    signaler » ; l'etage rougit sur son propre ensemble vide, et ce test le joue."""
     assert P.etage6_atteignabilite_multi_unites() == 0
+
+

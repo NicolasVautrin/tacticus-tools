@@ -1,57 +1,50 @@
-"""#10023-r1 -- `Tiles(origin)` quand l'origine n'est PAS une unite occupante.
+"""#10023-r1 -- `Tiles(origin)` sur une origine en domaine TUILE. LA PREMISSE DU RESIDU ETAIT FAUSSE.
 
-MESURE, pas inventaire : chaque etage porte le regime AVANT/APRES et sa CONTRE-EPREUVE. Le probe
-doit ROUGIR sur le port d'avant (`_main_tile` = `_origin_tiles(origin)[0]`, une tuile brute) et
-VERDIR sur le mirror (`_main_tiles` = `GetMainTile o SelectUnit`, par ENTITE).
+Le residu annoncait TROIS defauts. **UN SEUL etait reel** ; les deux autres reposaient sur une
+resolution TUILE -> OCCUPANT que la MESURE LIVE refute :
 
-RE relue VERBATIM sur `t6dpr4k06g` (ghidra-mcp), et c'est la chaine ENTIERE qui compte :
+  (a) « une origine TUILE VIDE ne fait rien retrancher au natif » -- **FAUX, mesure**.
+      `probe_10023r1_squig_pool_live.py` : **11 casts sur 11** de `1201 SquigMine` (dont le masque
+      porte `TargetTileIsFree`, donc la tuile ciblee est TOUJOURS vide) rendent `nrOfTiles + 1`
+      tuiles minees, jamais `nrOfTiles`. Or `targets = Union(cible, picked)` est UNIQUE : si la
+      cible etait dans le pool, `PickRandomly` l'aurait tiree avec `p = nrOfTiles/|pool| = 4/8` par
+      cast, soit `0,5^11 = 0,05 %` de chance d'obtenir 11/11 par hasard. La tuile ciblee est donc
+      RETRANCHEE -- exactement ce que faisait le port d'avant.
+  (b) « `_within` appelle `_main_tile(center)` SANS `board` » -- **VRAI**. Sur une origine en
+      domaine ID, `_origin_tiles(list[int], None)` rend `[]` : exclusion silencieusement VIDE.
+      C'est la meme signature de faute que celle que #10023 a fermee a l'autre foyer. CORRIGE.
+  (c) « une origine a N unites DISTINCTES retranche N main tiles » -- **VRAI, mais INERTE** :
+      la boucle de `UnitsMainTilesSelector$$Select` est verbatim, et les 35 instanciations
+      recensees (etage 6) sont toutes mono-unite. Porte quand meme, en domaine UNITE seulement.
+
+POURQUOI LE DECOMPILE ET LA MESURE SE REJOIGNENT -- la porte VIRTUELLE de `SelectAllUnits` :
 
     // IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles, branche includeCenter == 0
     SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)
-
     // IdunBattleLogic.Entities.DSLSelectors$$Tiles
     Tiles(entities) = new UnitsMainTilesSelector(inner: entities, state)
-
     // IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select
-    foreach (entity in inner.<slot 3 = SelectAllUnits>(entities, selectionType: 0)) {
-        tile = EntityExtensions$$GetMainTile(entity, state);
-        if (tile != null) result.Add(tile);
-    }
-
+    foreach (entity in inner.<slot 3 = SelectAllUnits>(entities, selectionType: 0))
+        if ((tile = EntityExtensions$$GetMainTile(entity, state)) != null) result.Add(tile);
     // IdunBattle.DSL.TargetsSelector$$SelectAllUnits
-    list = this.Select(entities);
-    if (this.<IsUnitSelector>) return list;
-    foreach (e in list)
-        if (e != null && (u = SelectUnit(this, e, selectionType)) != null) result.Add(u);
+    list = this.<slot 0x17 = Select>(entities);
+    if (this.<klass+0x278>()) return list;         // <- TEL QUEL, AUCUNE resolution
+    foreach (e in list) if (e != null && (u = SelectUnit(this, e, 0)) != null) out.Add(u);
+    // IdunBattle.Entities.EntityExtensions$$GetMainTileId, TROISIEME branche
+    if (!IsTile(entity)) return 0;  return <id>(entity);   // une TUILE est SA PROPRE main tile
 
-    // IdunBattle.DSL.TargetsSelector$$SelectUnit (surcharge par ENTITE)
-    if (IsUnitFoot(entity) || IsTile(entity)) entity = UnitExtensions$$GetUnit(entity, state);
-    if (entity != null && IsUnit(entity) && MatchesUnitSelectionType(...)) return entity;
-    return null;
+`klass+0x278` n'est PAS la propriete que teste `TargetsSelector$$SelectTiles`, qui lit
+`klass+0x268` : deux offsets DISTINCTS dans le meme binaire. La vtable IL2CPP commence a
+`klass+0x138`, entrees de `0x10` -> slots 20 et 19, soit `get_ReturnsOnlyUnits` et
+`get_ReturnsOnlyTiles`. Le slot `Target` (`<DSLSelectors+0x60>`, une classe DISTINCTE de celle de
+`CasterTiles` en `+0x58` -- lu dans `DSLSelectors$$InitializeShared`) declare rendre des UNITES,
+donc l'entite-TUILE qu'il porte sur un cast tile-target traverse SANS etre resolue.
 
-    // IdunBattle.Entities.UnitExtensions$$GetUnit (surcharge ENTITE generique)
-    if (entity == null) return null;
-    if (entity is UnitEntity) return entity;
-    if (entity is TileEntity) {
-        content = entity+0x38;                       // TileContentComponent
-        if (!content.IsFilled()) return null;        // <<< TUILE VIDE : rien n'est ajoute
-        entity = state.GetEntity(content+0x10);      // le PIED, re-resolu en son unite
-    }
+Cette propriete n'est PAS resoluble en statique (corps triviaux `return 1` dedupliques par IL2CPP,
+aucun proprietaire nomme) et n'est PAS portee : residu `#10023-r3`.
 
-    // IdunBattle.DSL.CombinedSelector$$SelectExclusion  (ce que `op_Subtraction` construit)
-    foreach (e in leftResults) if (!rightResults.Contains(e)) result.Add(e);
-
-DEUX consequences que le port d'avant ne portait pas, et une TROISIEME qui est la question posee :
-
-  (a) origine = TUILE VIDE -> `GetUnit` rend null, `SelectAllUnits` SAUTE l'element, `Tiles` est
-      VIDE : le natif ne retranche AUCUNE tuile. Le port retranchait la tuile.
-  (b) l'appel SANS `board` (`engine/dsl/base.py::_within`) : `_origin_tiles` d'un `list[int]` sans
-      board rend `[]`, donc l'exclusion etait silencieusement VIDE.
-  (c) origine a N UNITES DISTINCTES -> `GetMainTile` est applique PAR ENTITE, donc N main tiles
-      retranchees ; le port n'en retranchait qu'UNE (`ts[0]`).
-
-Board SYNTHETIQUE et plat : c'est la resolution d'occupant qui est le sujet, pas le terrain.
-ASCII only (cp1252).
+Chaque etage porte sa CONTRE-EPREUVE. Board SYNTHETIQUE et plat : le sujet est le domaine de
+l'origine, pas le terrain. ASCII only (cp1252).
 """
 from __future__ import annotations
 
@@ -228,70 +221,74 @@ def _etage0bis_within_recoit_toute_la_population(racine: Path) -> int:
 # ETAGE 1 -- ORIGINE = TUILE VIDE : le natif ne retranche RIEN
 # --------------------------------------------------------------------------------------------
 def etage1_tuile_vide() -> int:
+    """MESURE LIVE (`probe_10023r1_squig_pool_live.py`) : la tuile VIDE **EST** retranchee.
+
+    C'est l'inverse de ce que l'enonce de #10023-r1 annoncait. Sur `1201 SquigMine`, dont le
+    masque `TargetTileIsFree` garantit une tuile ciblee VIDE, **11 casts sur 11** ont rendu
+    `nrOfTiles + 1` tuiles minees : la cible n'est jamais dans le pool. Si elle y etait,
+    `Union(cible, picked)` l'aurait dedoublonnee avec `p = 4/8` par cast -- soit `0,5^11 = 0,05 %`
+    d'obtenir 11/11 par hasard. Cet etage FIGE ce resultat."""
     b = _board()
-    #: Une unite ailleurs, pour que `units` ne soit pas vide (un `units` vide ferait passer
-    #: l'etage par le chemin DEGRADE, pas par le mirror -- accord en regime degenere = 0 preuve).
+    #: Une unite ailleurs, pour que `units` ne soit pas vide -- un accord en regime degenere ne
+    #: prouverait rien.
     ailleurs = _unite(10001, [(0, 0)])
     ctx = _Ctx(b, [ailleurs])
     centre = (4, 4)
     tid = b.id_at(*centre)
     sel = A.SurroundingTiles(_Fixe([tid]), _Fixe(1), include_center=False)
-    sortie = sel.select(ctx)
-    attendu = {b.id_at(c, r) for (c, r) in hexgeo.disk(centre[0], centre[1], 1)}
+    sortie = set(sel.select(ctx))
+    attendu = {b.id_at(c, r) for (c, r) in hexgeo.disk(centre[0], centre[1], 1)} - {tid}
     print("[E1] origine = tuile VIDE %s (id %d), rayon 1" % (str(centre), tid))
-    print("     natif attendu (Tiles(origine) = VIDE, rien retranche) : %d tuiles" % len(attendu))
-    print("     port                                                  : %d tuiles" % len(sortie))
-    if set(sortie) != attendu:
-        manquant = sorted(attendu - set(sortie))
-        print("[E1] ECHEC : le port retranche %s -- le natif ne retranche rien sur une tuile VIDE"
-              % (manquant,))
+    print("     natif MESURE (la tuile ciblee est RETRANCHEE) : %d tuiles" % len(attendu))
+    print("     port                                          : %d tuiles" % len(sortie))
+    if tid in sortie:
+        print("[E1] ECHEC : la tuile VIDE n'est PAS retranchee -- 11 casts live disent qu'elle l'est")
         return 1
-    # CONTRE-EPREUVE : la MEME tuile, OCCUPEE -> la main tile de l'occupant DOIT sortir.
-    occupant = _unite(10002, [centre])
-    ctx2 = _Ctx(b, [ailleurs, occupant])
-    sortie2 = sel.select(ctx2)
-    if tid in sortie2:
-        print("[E1] ECHEC (contre-epreuve) : tuile OCCUPEE, la main tile n'est PAS retranchee")
+    if sortie != attendu:
+        print("[E1] ECHEC : ensemble inattendu %s" % (sorted(sortie),))
         return 1
-    if set(sortie2) != attendu - {tid}:
-        print("[E1] ECHEC (contre-epreuve) : ensemble inattendu %s" % (sorted(set(sortie2)),))
+    # CONTRE-EPREUVE : `include_center=True` desarme l'exclusion, la tuile revient.
+    sel2 = A.SurroundingTiles(_Fixe([tid]), _Fixe(1), include_center=True)
+    if tid not in set(sel2.select(ctx)):
+        print("[E1] ECHEC (contre-epreuve) : include_center=True ne rend pas la tuile centrale")
         return 1
-    print("[E1] OK : vide -> rien retranche ; occupee -> la main tile de l'occupant retranchee.")
+    print("[E1] OK : tuile VIDE retranchee, et l'exclusion se desarme.")
     return 0
 
 
 # --------------------------------------------------------------------------------------------
-# ETAGE 1bis -- ORIGINE = PIED SECONDAIRE : le natif retranche la MAIN TILE, pas le pied
+# ETAGE 1bis -- ORIGINE = PIED SECONDAIRE : le natif retranche LE PIED DONNE, pas la main tile
 # --------------------------------------------------------------------------------------------
 def etage1bis_pied_secondaire() -> int:
-    """`GetMainTile(GetUnit(pied))` = la tuile du PREMIER pied de l'unite, JAMAIS le pied donne.
+    """Corollaire de la mesure : sans resolution d'occupant, l'entite-TUILE est SA PROPRE main
+    tile (`EntityExtensions$$GetMainTileId`, 3e branche : `if (!IsTile(e)) return 0; return id(e)`).
 
-    Le port d'avant rendait `_origin_tiles(origin)[0]` = le pied lui-meme : sur une origine qui
-    designe un pied SECONDAIRE, il retranchait la mauvaise tuile -- il gardait la main tile que le
-    natif coupe, et coupait un pied que le natif garde. DEUX tuiles d'ecart, pas une."""
+    Donc une origine qui designe un pied SECONDAIRE retranche CE PIED, et laisse la main tile de
+    l'occupant dans l'anneau. L'enonce du residu voulait l'inverse ; cet etage garde le sens
+    MESURE, et il rougirait si on retablissait la resolution."""
     b = _board()
-    main, second = (4, 4), (5, 4)
-    mortarion = _unite(10003, [main, second])
+    principale, second = (4, 4), (5, 4)
+    mortarion = _unite(10003, [principale, second])
     ctx = _Ctx(b, [mortarion])
-    tid_second = b.id_at(*second)
-    tid_main = b.id_at(*main)
+    tid_second, tid_main = b.id_at(*second), b.id_at(*principale)
     sel = A.SurroundingTiles(_Fixe([tid_second]), _Fixe(1), include_center=False)
     sortie = set(sel.select(ctx))
-    attendu = {b.id_at(c, r) for (c, r) in hexgeo.disk(second[0], second[1], 1)} - {tid_main}
+    attendu = {b.id_at(c, r) for (c, r) in hexgeo.disk(second[0], second[1], 1)} - {tid_second}
     print("[E1bis] origine = PIED SECONDAIRE %s ; main tile de l'occupant = %s"
-          % (str(second), str(main)))
-    print("        attendu %d tuiles (main tile RETRANCHEE, le pied GARDE)" % len(attendu))
+          % (str(second), str(principale)))
+    print("        attendu %d tuiles (le PIED retranche, la main tile GARDEE)" % len(attendu))
     print("        port    %d tuiles" % len(sortie))
-    if tid_main in sortie:
-        print("[E1bis] ECHEC : la MAIN TILE n'est pas retranchee (le port a coupe le pied a la place)")
+    if tid_second in sortie:
+        print("[E1bis] ECHEC : le pied designe n'est pas retranche")
         return 1
-    if tid_second not in sortie:
-        print("[E1bis] ECHEC : le PIED SECONDAIRE est retranche -- le natif le garde")
+    if tid_main not in sortie:
+        print("[E1bis] ECHEC : la MAIN TILE est retranchee -- ce serait la resolution d'occupant, "
+              "que la mesure live REFUTE")
         return 1
     if sortie != attendu:
         print("[E1bis] ECHEC : ensemble inattendu %s" % (sorted(sortie),))
         return 1
-    print("[E1bis] OK : main tile retranchee, pied secondaire garde.")
+    print("[E1bis] OK : pied designe retranche, main tile gardee.")
     return 0
 
 
@@ -333,17 +330,22 @@ def etage2_within_domaine_id() -> int:
 # ETAGE 3 -- N UNITES DISTINCTES : `GetMainTile` est PAR ENTITE
 # --------------------------------------------------------------------------------------------
 def etage3_multi_unites() -> int:
-    """`UnitsMainTilesSelector$$Select` boucle sur les entites rendues par `SelectAllUnits` et
-    ajoute `GetMainTile(entity)` pour CHACUNE. Une origine a N unites distinctes retranche donc
-    N main tiles ; `ts[0]` n'en retranchait qu'une."""
+    """DOMAINE UNITE -- la seule des trois corrections annoncees qui reste DEBOUT, et elle vient du
+    decompile, pas d'une mesure : `UnitsMainTilesSelector$$Select` boucle sur les entites rendues
+    par `SelectAllUnits` et ajoute `GetMainTile(entity)` pour CHACUNE.
+
+    L'origine est ici une LISTE DE DICTS D'UNITE, pas d'ids : c'est le domaine ou aucune resolution
+    tuile n'intervient, donc la mesure live ne le contredit pas. INERTE : les 35 instanciations
+    recensees a l'etage 6 sont toutes mono-unite."""
     b = _board()
     a_pos, c_pos = (4, 4), (4, 6)
     ua, uc = _unite(10006, [a_pos]), _unite(10007, [c_pos])
     ctx = _Ctx(b, [ua, uc])
     tid_a, tid_c = b.id_at(*a_pos), b.id_at(*c_pos)
-    sel = A.SurroundingTiles(_Fixe([tid_a, tid_c]), _Fixe(1), include_center=False)
+    sel = A.SurroundingTiles(_Fixe([ua, uc]), _Fixe(1), include_center=False)
     sortie = set(sel.select(ctx))
-    print("[E3] origine = DEUX unites distinctes (%s, %s)" % (str(a_pos), str(c_pos)))
+    print("[E3] origine = DEUX unites distinctes (%s, %s), en domaine UNITE"
+          % (str(a_pos), str(c_pos)))
     print("     attendu : les DEUX main tiles retranchees")
     if tid_a in sortie or tid_c in sortie:
         restantes = [t for t in (tid_a, tid_c) if t in sortie]
@@ -388,29 +390,37 @@ def etage4_non_regression_10023() -> int:
 # --------------------------------------------------------------------------------------------
 # ETAGE 5 -- SUBSTRAT ABSENT : la degradation est NOMMEE, pas silencieuse
 # --------------------------------------------------------------------------------------------
-def etage5_substrat_absent() -> int:
-    """`units` FALSY = NON MESURE, et la degradation est NOMMEE : on garde la premiere tuile de
-    l'origine -- le comportement d'avant, EXACT sur toute origine mono-hex occupee -- plutot qu'un
-    `[]` fabrique depuis une non-mesure, qui desarmerait l'exclusion partout.
+def etage5_domaine_tuile_insensible_a_units() -> int:
+    """En domaine TUILE, la sortie ne depend PAS de `units` -- consequence directe de la mesure :
+    il n'y a aucune resolution d'occupant a faire, donc rien a mesurer dans la population.
 
-    Une bataille native a TOUJOURS des unites : `units` vide n'est pas un etat de jeu, c'est un
-    contexte de test. Le rabattre sur « mesure, aucune unite » ferait varier tous les tests
-    offline qui montent un `ctx` sans population."""
+    Cet etage est ce qui empeche la resolution de revenir par la petite porte : si un jour
+    `_main_tiles` se remettait a lire l'occupation, ces trois appels cesseraient de coincider."""
     b = _board()
     centre = (4, 4)
-    for etiquette, u in (("None", None), ("[]  ", [])):
-        got = B._main_tiles([b.id_at(*centre)], b, u)
-        print("[E5] units=%s (NON MESURE) -> %s" % (etiquette, got))
-        if got != [centre]:
-            print("[E5] ECHEC : la degradation ne rend pas la tuile brute")
-            return 1
-    #: CONTRE-EPREUVE : des que `units` est MESURE et non vide, la tuile VIDE ne rend plus rien.
-    peuple = B._main_tiles([b.id_at(*centre)], b, [_unite(10001, [(0, 0)])])
-    print("[E5] units=[1 unite ailleurs] (MESURE) -> %s" % (peuple,))
-    if peuple != []:
-        print("[E5] ECHEC (contre-epreuve) : substrat present, la tuile VIDE devrait rendre []")
+    tid = b.id_at(*centre)
+    occupant = _unite(10002, [centre])
+    cas = (("units=None            ", None),
+           ("units=[]              ", []),
+           ("units=[1 ailleurs]    ", [_unite(10001, [(0, 0)])]),
+           ("units=[l'OCCUPANT]    ", [occupant]))
+    vus = []
+    for etiquette, u in cas:
+        got = B._main_tiles([tid], b, u)
+        print("[E5] %s -> %s" % (etiquette, got))
+        vus.append(got)
+    if any(v != [centre] for v in vus):
+        print("[E5] ECHEC : la sortie du domaine TUILE varie avec `units` -- une resolution "
+              "d'occupant est revenue, alors que la mesure live la REFUTE")
         return 1
-    print("[E5] OK : non-mesure -> tuile brute ; mesure -> resolution d'occupant.")
+    #: CONTRE-EPREUVE : en domaine UNITE, `units` compte -- sinon l'etage ne mesurerait qu'une
+    #: fonction constante et passerait meme si tout etait casse.
+    empreinte = B._main_tiles([_unite(10003, [(2, 2), (3, 2)])], b, None)
+    print("[E5] domaine UNITE (contre-epreuve) -> %s" % (empreinte,))
+    if empreinte != [(2, 2)]:
+        print("[E5] ECHEC (contre-epreuve) : le domaine UNITE ne rend pas la main tile")
+        return 1
+    print("[E5] OK : domaine TUILE insensible a `units`, domaine UNITE distinct.")
     return 0
 
 
@@ -480,7 +490,7 @@ def main() -> int:
     rc = 0
     for f in (etage0_recensement, etage1_tuile_vide, etage1bis_pied_secondaire,
               etage2_within_domaine_id, etage3_multi_unites, etage4_non_regression_10023,
-              etage5_substrat_absent, etage6_atteignabilite_multi_unites):
+              etage5_domaine_tuile_insensible_a_units, etage6_atteignabilite_multi_unites):
         try:
             rc |= f()
         except Exception as exc:                                    # noqa: BLE001

@@ -448,8 +448,8 @@ class UnitsDirectlyBehind(TargetsSelector):
         tfeet = _feet(ctx.target)
         #: `Tiles(target)` du SEUIL -- forme scalaire legitime : `Tiles` s'applique a UNE entite
         #: (la cible), donc `UnitsMainTilesSelector` n'en rend qu'une. `board`/`units` sont passes
-        #: parce que la cible peut arriver en domaine TUILE (cast TILE-TARGET), et le natif la
-        #: resout alors en son OCCUPANT avant `GetMainTile` (#10023-r1).
+        #: pour que le domaine soit reconnu (une cible en domaine TUILE rend alors SA tuile, ce que
+        #: la mesure live de #10023-r1 etablit -- pas la main tile d'un occupant).
         tmain = _main_tile(ctx.target, getattr(ctx, "board", None), ctx.units)
         cpos = ctx.caster_pos or _pos(ctx.caster)
         if not tfeet or cpos is None:
