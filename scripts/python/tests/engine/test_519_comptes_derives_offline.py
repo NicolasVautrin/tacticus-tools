@@ -167,7 +167,13 @@ def test_aucun_ordinal_cite_ne_vient_du_build_precedent():
 
     MESURE (`gqfc5mff6c` -> `rnca9r7q6c`, insertion d'`AttackTile` en 8, 73 membres decales) :
     **37** citations perimees dans `engine/**`, dont le `Damage(34)` que `#504-r1` n'avait vu que
-    sur un fichier. Corriger : `python scripts/python/probe_519_ordinaux_decales.py --ecrire`."""
+    sur un fichier. Corriger : `python scripts/python/probe_519_ordinaux_decales.py --ecrire`.
+
+    ⚠ LA REFERENCE N'EST PLUS << LE BUILD PRECEDENT >> (#10028) -- le NOM de ce test est garde tel
+    quel a dessein (un test renomme DISPARAIT du corpus, cf. #455-r3), mais sa source est desormais
+    la MEMOIRE ARCHIVEE : l'UNION des ordinaux portes sur AU MOINS UNE archive. Une citation
+    perimee depuis DEUX builds redevient donc visible, ce que la version << build precedent >>
+    disait explicitement ne pas voir."""
     trouves, vieux, neuf, blds = ordinaux.balayer()
     assert vieux and neuf, (
         "enum introuvable pour les builds %r -- MESURE IMPOSSIBLE, ce n'est pas un vert" % (blds,))
@@ -176,15 +182,34 @@ def test_aucun_ordinal_cite_ne_vient_du_build_precedent():
 
 
 def test_le_detecteur_d_ordinaux_a_de_quoi_trouver():
-    """Ce probe ne peut rien voir si les deux builds compares ont le MEME enum : son zero serait
-    alors vide de sens. On exige donc qu'il existe des membres DECALES -- sinon le vert ci-dessus
-    ne prouve rien et il faut le dire."""
+    """Ce probe ne peut rien voir si la memoire archivee porte le MEME enum que le build courant :
+    son zero serait alors vide de sens. On exige donc qu'il existe des membres DECALES -- sinon le
+    vert ci-dessus ne prouve rien et il faut le dire.
+
+    ⚠ CE TEST ETAIT ROUGE SUR `master`, ET LE DEFAUT ETAIT DANS LE PROBE (#10028). L'ancien
+    `builds()` elisait un build de reference par une heuristique BIAISEE -- « celui qui partage le
+    plus de NOMS avec le courant » --, or plus deux tables se ressemblent, plus ce score est haut :
+    elle convergeait donc vers le build sur lequel il n'y a RIEN a voir. Mesure : `rnca9r7q6c`
+    porte **0** membre decale contre `t6dpr4k06g`, `gqfc5mff6c` en porte **73** -- et l'heuristique
+    elisait `rnca9r7q6c`. Le detecteur etait VACANT et son voisin ci-dessus etait un VERT VIDE.
+
+    ⚠ LE CALCUL EST DELEGUE AU PROBE, il n'est plus recopie ici -- et ce n'est pas du style : ecrite
+    a la main, la comparaison `vieux[n] != neuf[n]` serait TOUJOURS vraie depuis que `vieux` rend un
+    `frozenset` (un ensemble n'est jamais egal a un entier), donc ce test serait VERT ET VACANT,
+    l'etat exact qu'il existe pour interdire. C'est la lecon d'`_olds()` (#10023) : un cliquet qui
+    reconstruit ce qu'il garde ne garde pas ce qui tourne."""
     _t, vieux, neuf, blds = ordinaux.balayer()
     assert vieux and neuf, "MESURE IMPOSSIBLE pour les builds %r" % (blds,)
-    decales = [n for n in neuf if n in vieux and vieux[n] != neuf[n]]
+    decales = ordinaux.membres_decales(vieux, neuf)
     assert decales, (
-        "aucun membre decale entre %r : le detecteur ne peut RIEN trouver, son zero ne dit rien "
-        "de la fraicheur des citations" % (blds,))
+        "aucun membre decale sur les archives %r : le detecteur ne peut RIEN trouver, son zero ne "
+        "dit rien de la fraicheur des citations" % (blds,))
+    # ... et le critere DISCRIMINE : un critere vacant (celui du `frozenset != int` decrit
+    # ci-dessus) rendrait TOUS les membres. Sans cette borne haute, le non-vide ci-dessus serait
+    # satisfait par la panne meme qu'il est cense exclure.
+    assert len(decales) < len(neuf), (
+        "le detecteur rend TOUS les %d membres comme decales : le critere ne discrimine plus "
+        "(compare-t-il un ensemble a un entier ?)" % len(neuf))
 
 
 @pytest.mark.parametrize("verdict", [temoins.PERIME, temoins.PERISSABLE, temoins.STABLE])

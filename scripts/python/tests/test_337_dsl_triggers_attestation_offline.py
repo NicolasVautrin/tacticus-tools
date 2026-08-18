@@ -256,10 +256,18 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     #                            -> `static_battle_rules.py::ability_is_partial_attack`
     #   `IsSpawnTile`            `94f84dab` (PR #1123 ; le port lui-meme date de #368-r2)
     #                            -> `status.py::tile_status_effect_is_active`
-    # ⚠ CE CRAN N'EST PAS REDONDANT avec l'assertion `a_qualifier` du haut. Retirer une des trois
-    # lignes du TSV la ferait bien rougir, mais un futur `NON_PORTE` ecrit A LA PLACE la ferait
-    # taire en SILENCE -- alors que ces trois primitives ONT un mirror LU au decompile. Le cran
-    # exige donc le camp PORTE, pas seulement l'absence de `CITE_A_QUALIFIER`.
+    # ⚠ CE CRAN N'EST PAS REDONDANT, ET C'EST MESURE -- pas suppose. Trois mutations jouees sur
+    # `IsSpawnTile`, chacune rendue ROUGE par UN cran DIFFERENT de ce test :
+    #   (a) ligne du TSV RETIREE .............. `a_qualifier` mord (retour a CITE_A_QUALIFIER)
+    #   (b) verdict DEGRADE en `NON_PORTE` .... `lus` mord (son egalite est STRICTE)
+    #   (c) ligne RETIREE **et** citation `DSLTriggers$$IsSpawnTile` retiree du moteur
+    #       .................................... CE CRAN SEUL mord
+    # (c) est le regime dangereux : sans attestation ET sans citation, le verdict est `NON_PORTE`
+    # SANS le prefixe `attestation:`, donc il sort de `lus` ET d'`a_qualifier` -- le fichier
+    # redeviendrait VERT en ayant perdu l'attestation d'un port qui, lui, existe toujours.
+    # ⚠ Et la MESURE de (a)/(b)/(c) ne se lit QUE sur les lignes `E ` du traceback : pytest y
+    # RECOPIE le source du test, donc chercher un littéral d'assertion dans la sortie entiere le
+    # trouve toujours -- la premiere version de cette contre-epreuve a conclu l'inverse pour ca.
     assert {"IsInTeam", "IsPartialAttackAbility", "IsSpawnTile"} <= porte, (
         "attestation(s) #10028 perdue(s) ou degradee(s) en NON_PORTE : %s -- les trois ports sont "
         "LUS (cf. `docs/rl/case-10028-quatre-attestations-rouges.md`), ne pas les rabattre sur "

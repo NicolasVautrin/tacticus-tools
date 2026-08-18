@@ -60,28 +60,13 @@ def _temoins(court: str = "EventTriggerType", n: int = 1) -> list:
     re-casse : au versionnement de `t6dpr4k06g`, les sept tests sont devenus ROUGES sans qu'une
     ligne du detecteur ait bouge. Derive, le temoin suit la table ; fige, il suit le calendrier.
 
-    Les membres AMBIGUS (`_ambigus`) sont ECARTES : la prose de ces fixtures ne NOMME pas l'enum,
-    donc `_paires_prose` y travaille en regime << surs >> et ne verrait pas un nom partage.
-
-    NON-VIDE ASSERTIONNE : si plus AUCUN build archive ne porte d'ordinal decale, ces fixtures ne
-    peuvent plus rien prouver -- et le rouge doit tomber ICI, en le DISANT, pas en laissant cinq
-    tests de discrimination passer au vert sur des ensembles vides."""
-    ref = _refs()[court]
-    memo = SW.memoire_archivee(SW.ENUMS[court])
-    amb = SW._ambigus(SW.current_build())
-    out = []
-    for m in sorted(ref):
-        if m in amb:
-            continue
-        anciens = sorted(o for o in SW._ords(memo.get(m)) if o != ref[m])
-        if anciens:
-            out.append((m, anciens[0], ref[m]))
-    assert len(out) >= n, (
-        "moins de %d temoin(s) de decalage pour %s sur les archives %s : les fixtures de "
-        "DISCRIMINATION de ce fichier ne prouvent plus rien. Ne PAS relacher l'assertion -- soit "
-        "une archive porteuse a ete supprimee (la restaurer), soit il faut fabriquer des tables "
-        "SYNTHETIQUES pour ces cinq tests." % (n, court, SW.builds_avec_table_enums()))
-    return out[:n] if n else out         # `n = 0` -> TOUS (recensement, pas fixture)
+    ⚠ LE CORPS A MIGRE DANS LE PROBE (#10028), et ce n'est pas cosmetique : `tests/test_1031_...`
+    portait la MEME fixture, mais en version FIGEE, et elle est devenue rouge au meme
+    versionnement -- la reparation de #10023 ne l'avait pas atteinte parce qu'elle vivait ICI, dans
+    un fichier de test que personne d'autre n'importe. Deux copies d'un helper, c'est deux dates de
+    peremption. Le foyer est `probe_283_enum_ordinal_sweep.temoins_de_decalage` ; cette fonction
+    n'est plus qu'un alias local, garde pour ne pas renommer les appels de ce fichier."""
+    return SW.temoins_de_decalage(court, n)         # `n = 0` -> TOUS (recensement, pas fixture)
 
 
 # ------------------------------------------------- 1. le cliquet : les trois gates sont verts
