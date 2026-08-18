@@ -251,6 +251,12 @@ CHAIN_ALLOW_IMMEDIATE_REPEAT = False
 
 _ON_ARRIVED = int(EventTriggerType.ArrivedAtFinalTile)      # 0x1c = 28
 
+# `AbilityOrEffect(this)` -- l'`abilityType` que `CreateBehaviour` passe au `ChainAttackDamage`.
+# ⚠ L'ORDINAL EST AMBIGU : `1247` est AUSSI `EffectType.ProtectorImperative`. On le nomme donc par
+# son enum, jamais par sa valeur (cf. `probe_1005r3_fury_ability_type.py`, qui MESURE qu'aucun
+# lecteur porte ne les confond).
+FURY_OF_THE_ANCIENTS = int(TriggeredAbilityType.FuryOfTheAncients)          # 0x4df = 1247
+
 
 def _ability_state(state: State, owner_id: int):
     """`(niveau PASSIF, multiplicateur de rarete)` du porteur -- les deux membres de l'`abilityState`
@@ -366,7 +372,13 @@ def fury_behaviour_tree(state: State, owner_id: int, hits: int, effect_turns: in
                              is_melee=IS_MELEE, hits=hits, extra_behaviour=add_effect,
                              allow_repeat_targets=CHAIN_ALLOW_REPEAT_TARGETS,
                              allow_immediate_repeat=CHAIN_ALLOW_IMMEDIATE_REPEAT,
-                             deferred_hit=CHAIN_DEFERRED_HIT)
+                             deferred_hit=CHAIN_DEFERRED_HIT,
+                             # #1005-r3 -- `abilityType = AbilityOrEffect(this)`, 7e argument de
+                             # `IdunBattleLogic.Entities.DSLBehaviors$$ChainAttackDamage`. Le port
+                             # ne le passait PAS : tout le coup partait avec `CurrentAbility` VIDE.
+                             # Meme forme, mot pour mot, que `CalibaniteGreatsword` (`ability_type
+                             # = 1316`), qui est l'AUTRE consommateur porte de ce parametre.
+                             ability_type=FURY_OF_THE_ANCIENTS)
 
 
 class FuryOfTheAncientsAbility(TriggeredAbility):
