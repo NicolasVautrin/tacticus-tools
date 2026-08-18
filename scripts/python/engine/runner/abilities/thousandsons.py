@@ -108,7 +108,7 @@ from ...entities.triggers import (ActorHasTriggeredAbility, AmountIsGreaterThanZ
 from ..components import StatsComponent, get_unit_feet   # `get_unit_feet` : #1022 (AetherStride)
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from ..operations.damage_utility import sort_units_by_damage_utility
-from .base import ActiveAbility, ability_attack_params
+from .base import ActiveAbility, ability_attack_params, active_ability_state
 from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
                                 SortedAttackSeries)
 from .behaviours.context import entities_from_state
@@ -1240,7 +1240,7 @@ def aether_stride_on_appearance() -> AtomicGroup:
     return op_add(op_and(grant, carry), strike)
 
 
-def aether_stride_tree(tile_id):
+def aether_stride_tree(tile_id, ability_state=None):
     """Arbre COMPLET de `...AetherStrideAbility$$ExecuteBehaviour` (cf. l'en-tete de section).
 
     ORDRE lu, pas devine : `op_BitwiseAnd(RemoveMachine, Spawn)` -- la MoW quitte la bataille AVANT
@@ -1249,10 +1249,18 @@ def aether_stride_tree(tile_id):
     `spawn_as_single_unit=True` = `*(opts + 0x60) = 1` : `SpawnUnitBehaviour$$Execute` prend sa
     branche `GetTileIds(tiles)` -> UN SEUL `AddUnit(config, <les 3 tuiles>)` -> une unite a 3 PIEDS.
 
+    `ability_state` = le couple `(level, mult)` de l'`AbilityState` de **1208 sur CE caster** --
+    c'est-a-dire l'argument `abilityState` que `AActiveAbility` passe a `ExecuteBehaviour` et que
+    celui-ci transmet VERBATIM a `SpawnUnitOptions$$WithStatsFromConfig(config, abilityState, 0, 0)`
+    (premiere instruction du corps natif). Il n'est PAS optionnel au sens du natif : le `None` de
+    signature n'existe que pour laisser un appelant de diagnostic construire l'arbre sans `State`.
+    Cf. `AetherStrideAbility.execute_behaviour`, qui le RESOUT (#1022-r4).
+
     NON PORTE (comme sur 1158) : `opts+0x50 = GetQuestUnitId(caster)`, champ de quete sans aucun
     consommateur de combat."""
     spawn = Spawn(ThreeTileUnitSpawnShape(FixedTileIds([tile_id])), AETHER_STRIDE_ID,
-                  on_appearance=aether_stride_on_appearance(), spawn_as_single_unit=True)
+                  on_appearance=aether_stride_on_appearance(), spawn_as_single_unit=True,
+                  ability_state=ability_state)
     return op_and(RemoveMachine(Caster()), spawn)
 
 
@@ -1333,7 +1341,30 @@ class AetherStrideAbility(ActiveAbility):
             return {"tile": None, "spawned": [], "dsl": True}
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)
-        aether_stride_tree(tile_id).execute(entities, ectx)
+        # `abilityState` -- le 2e parametre de `...AetherStrideAbility$$ExecuteBehaviour(this,
+        # abilityState, entities)`, transmis VERBATIM a
+        # `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig(config, abilityState,
+        # abilitiesLevel: null, variableMultiplierPercentage: null)`. Cette surcharge a 4 arguments
+        # delegue a celle a 5 avec `ordinal = 1`, et les DEUX `null` retombent alors sur
+        # `abilityState.level` / `abilityState.mult` (branches `if (x == null)` du corps). Les sept
+        # `SetStatFromConfig(config, abilityState, <baseVarType>, ordinal, <StatType>)` qui suivent
+        # indexent donc `summonHp`/`summonDmg`/`summonArmor`/... SOUS CET ETAT-LA.
+        #
+        # ⚠ **CE N'EST PAS LE SCALAIRE `ctx.active_ability_level` DU CASTER**, et l'ecart est MESURE
+        # (#1022-r4, `probe_1022_aether_stride.py` etage [G], MC1_67/777) : la MoW porteuse expose
+        # `AetherStride` a `level 50 / multiplier 180` (`decisionView.mows[].abilities[]`), alors que
+        # son scalaire d'unite vaut `0`. Le defaut de la feuille `Spawn` (« lire le scalaire du
+        # caster ») rendait donc `summonHp[0] = 60` / `summonDmg[0] = 7` la ou le natif rend
+        # `summonHp[49] x 180 % = 5983` / `summonDmg[49] x 180 % = 698` / `summonArmor[49] x 180 % =
+        # 1595` -- les TROIS stats natives, a l'unite pres. Le degat du summon suivait (29 contre
+        # 2761). Le scalaire n'est un proxy correct que pour un HERO d'un runner normalise, ou il
+        # coincide avec l'`AbilityState` ; sur une MACHINE OF WAR il vaut `0` = niveau 1.
+        #
+        # `active_ability_state` est le FOYER de cette lecture (#890) et il RETOMBE sur le scalaire
+        # quand le canal `unitAbilityStates` est muet -- donc aucun regime anterieur ne change.
+        aether_stride_tree(tile_id,
+                           active_ability_state(state, caster_id, self.ABILITY_TYPE)) \
+            .execute(entities, ectx)
         # ⚠ L'ETIQUETTE EMISE PAR LA FEUILLE EST `SpawnUnit`, PAS `Spawn` (`behaviours/summon.py`).
         # Lire `Spawn` rend une liste VIDE alors que le spawn a bien eu lieu -- un diag muet qui se
         # lit comme « le port n'a rien pose » (mesure du 2026-08-13, avant correction).
