@@ -115,10 +115,14 @@ Après chaque contre-épreuve, la restauration a été vérifiée **identique au
 
 ## 6. Ce que ce cas ne couvre PAS
 
-* **Le régime MULTI-EVENTS (AoE)** : le terme s'ajoute par event, chacun avec SA prédiction. La
-  boucle de `base.py` passe `ev.prediction` de l'event courant — correct par construction, mais non
-  mesuré : `tyranParasite` n'a pas d'attaque AoE, et les six autres porteurs de 1204 sont npc. Le
-  montage serait une **greffe** (`case-92` §5bis) sur une unité à Blast.
+* ~~**Le régime MULTI-EVENTS (AoE)**~~ — **MESURÉ (#438-r1, 2026-08-18)**, et la piste indiquée ici
+  était FAUSSE : une unité à **Blast** rend **UN SEUL** event (le profil d'arme multiplie les COUPS
+  d'un event, pas les events), et le splash **Psyker** aussi (c'est un TERME évalué DANS la feuille).
+  La source multi-events est une **ability active à ZONE**. Montage retenu : `1204` greffé sur
+  `astraBullgryn` (`PassiveAbilities`, en AJOUT), qui lance `FragBomb (1017)` sur un groupe de trois
+  — 3 events, régimes de kill SÉPARÉS par calibrage des PV. `pairUtility` natif
+  **123.33483331371099** contre port **123.334833** ; contre-épreuve `--mutant premiere-prediction`
+  à **+50,000000 exactement**. Détail : `docs/rl/case-932r1-deathwing-et-scene-de-decision.md` §5.
 * **`probe_45_psyker.py`** appelle la feuille SANS prédiction (il isole Psyker, qui ne la lit pas) :
   sans conséquence aujourd'hui, faux dès qu'un porteur de 1204 y passerait.
 * **`cannot_be_guaranteed_killed`** reste à `False` dans la struct rematérialisée : le décodeur
