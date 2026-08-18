@@ -156,7 +156,11 @@ from .. import damage_model as _damage_model
 # FORME B, meme raison : le mirror de `BattleQuery$$GetMultiHitAttackPrediction` est le SERVICE que
 # la boucle `foreach u` du selecteur appelle par cible (#494-r1-r1).
 from . import attack_prediction as _attack_prediction
-from ...services.battle_query import select_weapon_pierce as _select_weapon_pierce
+# FORME B, meme raison que les deux ci-dessus : `battle_query_state` est le foyer RUNNER du montage
+# de substrat du slot 2 d'`IBattleQuery` (`BattleQuery$$IsMeleeAttack`), partage avec la face COMBAT.
+# Differe GRATUIT s'il fallait le classer -- il n'y a rien a fermer : `import
+# engine.runner.battle_query_state` en process frais ne charge NI `targeting` NI ce module.
+from .. import battle_query_state as _bq_state
 from ...services.damage_modifiers import DamageModifiers, apply_all_modifiers
 from ...utilities import damage_composite
 from ...utilities.damage import composite_fields_from_prediction
@@ -201,29 +205,56 @@ def positional_damage_range(state: State, owner_id, target_id: int, dmin: int, d
 
 def normal_attack_is_melee(state: State, owner_id, target_id):
     """`UnitExtensions$$GetNormalAttackType(owner)` — le defaut du noeud `+0x28` du selecteur :
-    quand aucun noeud d'ability n'est branche, le natif predit l'ATTAQUE NORMALE du caster. Le
-    caractere MELEE du coup est alors celui de l'ARME que
-    `BattleQuery$$GetAttackWeaponForDefaultNormalAttack` choisit pour ce couple (melee/ranged par
-    adjacence hex + porte ranged) — MEME service que le combat (`services/battle_query`).
+    quand aucun noeud d'ability n'est branche, le natif predit l'ATTAQUE NORMALE du caster.
 
-    ⚠ Seul le caractere MELEE est lu ici, PAS le profil ni le percage de l'arme : le selecteur passe
-    `damageProfile: null` a la prediction, et
+    ⚠ **LE CARACTERE MELEE NE VIENT PAS DE L'ARME, ET C'ETAIT LE VICE (#494-r2).** Lecture DIRECTE
+    d'`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` :
+
+        isMelee  = DamagePrediction.IsMeleeAttack(ability, attacker, attackerPos, defender);
+        extraMax = isMelee ? 0 : UnitExtensions.GetStat(attacker, 0x19);   // ExtraMaxDamage
+        base     = GetBaseDamageFix64(damage, isMaxOut, ..., extraMax);
+
+    et `IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` ne fait QUE deleguer au slot 2
+    d'`IBattleQuery` = `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, c.-a-d. le switch sur
+    `IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType(ability)` -- jamais l'arme.
+    Le port decidait par l'ARME choisie (`select_weapon_pierce` -> `not is_ranged`), ce qui coincide
+    dans deux regimes sur trois et S'INVERSE dans le troisieme :
+
+      * attaquant ADJACENT                              -> natif melee, arme melee     : d'accord ;
+      * NON adjacent AVEC arme ranged en portee         -> natif ranged, arme ranged   : d'accord ;
+      * NON adjacent SANS arme ranged en portee         -> natif **ranged**, port melee : ECART.
+
+    Le troisieme n'est pas un cas de bord : `get_attack_weapon_for_default_normal_attack` rend
+    `(None, False)` sur un ensemble vide, donc `select_weapon_pierce` rend `is_ranged=False`, donc
+    l'ancien code rendait `True` -- l'INVERSE du natif -- pour toute unite MELEE-ONLY evaluee contre
+    une cible non adjacente. Mesure gameconfig (`probe_494r2_attack_range_type_normal.py`) :
+    **271** unites melee-only, **331** mixtes, **0** ranged-only. La fiche annoncait le regime
+    symetrique (« une unite purement ranged ») : il n'existe pas au catalogue, celui-ci si.
+
+    L'`ability` passee au slot 2 est l'attaque normale CONCRETE du caster
+    (`runner.battle_query_state.normal_attack_name`). Les **18** ids d'attaque normale du build
+    n'ont AUCUNE entree gameconfig, donc `attackRangeType` absent, donc branche `Normal(3)` --
+    mesure, pas hypothese : la resoudre quand meme est ce qui garde le port juste si un build la
+    renseigne un jour.
+
+    ⚠ Seuls le caractere MELEE et son rayon sont lus ici, PAS le profil ni le percage de l'arme : le
+    selecteur passe `damageProfile: null` a la prediction, et
     `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` commence par
     `if (damageProfile == null) return 0` — le percage vaut donc **0**, quelle que soit l'arme.
 
+    RAYON de la valeur rendue = celui du natif, pas plus : le port la thread dans
+    `multi_hit_attack_prediction`, qui la donne a `attacker_modifiers(is_ranged=...)` et
+    `defender_modifiers(is_melee=...)`. C'est fidele parce que `AbilityEntities` ne PORTE aucun
+    champ de nature de coup (ctor lu : 33 parametres, aucun `isMelee`/`isRanged`) -- les gates
+    d'effet la RECALCULENT toutes par ce meme slot 2
+    (`IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger`).
+
     Rend `True`/`False`, ou `None` si le caster n'a pas de stats (couple non predictible)."""
-    import hexgeo
     e = state.get_entity(int(owner_id))
     sc = e.get_component(StatsComponent) if e is not None else None
-    ctx = getattr(sc, "ctx", None)
-    if ctx is None:
+    if getattr(sc, "ctx", None) is None:
         return None
-    pa = _damage_model._unit_pos(state, int(owner_id))
-    pb = _damage_model._unit_pos(state, int(target_id))
-    dist = hexgeo.distance(pa, pb) if (pa is not None and pb is not None) else None
-    _pierce, is_ranged, _whits, _prof = _select_weapon_pierce(ctx, dist is not None and dist <= 1,
-                                                             dist)
-    return not is_ranged
+    return _bq_state.normal_attack_is_melee(state, int(owner_id), int(target_id))
 
 
 def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
