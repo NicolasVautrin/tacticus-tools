@@ -5,7 +5,8 @@ import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, eligible_target_tiles
+from ._base import (NCContext, NonComparablePlaybook, eligible_target_tiles,
+                    tiles_in_native_order)
 
 
 class GrotTankPlaybook(NonComparablePlaybook):
@@ -56,8 +57,10 @@ class GrotTankPlaybook(NonComparablePlaybook):
       serait l'erreur exacte que `AberrantHypermorphPlaybook` documente (#616).
 
     ORDRE (mirror du bucket) : positions T dans l'ordre de `reach_nc` (origine d'abord), et par
-    position les tuiles dans l'ordre du selecteur ; `Bucket$$AddAction` ne remplace que si
-    STRICTEMENT superieur -> la PREMIERE paire (T, ST) du maximum gagne.
+    position les tuiles dans l'ordre du selecteur -- DERIVE par position depuis la liste d'adjacence
+    STOCKEE (`_base.tiles_in_native_order`, #971-r4), jamais l'ordre de l'UNION du RPC, qui n'est
+    celui d'AUCUNE position ; `Bucket$$AddAction` ne remplace que si STRICTEMENT superieur -> la
+    PREMIERE paire (T, ST) du maximum gagne.
 
     CIBLE EMISE = la TUILE DE SPAWN (`ctx.tile_id_by_pos`), comme AberrantHypermorph et
     MasterOfTheTutelaries : c'est le `targetId` que le cast natif recoit (`TargetIsTile`).
@@ -86,15 +89,27 @@ class GrotTankPlaybook(NonComparablePlaybook):
         `eligible_target_tiles` rend le couple `(fromHere, union)` : `fromHere` porte l'ORDRE NATIF
         du selecteur a la position d'origine, `union` l'agregat sur toutes les tuiles de move (le
         RPC n'a pas de vue par position). A l'origine on prend donc `fromHere` -- a utilite egale,
-        c'est la PREMIERE tuile enumeree qui gagne, et les deux vues n'ont pas le meme ordre."""
+        c'est la PREMIERE tuile enumeree qui gagne, et les deux vues n'ont pas le meme ordre.
+
+        ⚠ **ET POUR LES AUTRES POSITIONS, L'ORDRE DE L'UNION N'EST CELUI D'AUCUNE** (`#971-r4`).
+        C'est exactement l'ecart deja MESURE et ferme sur `IronkinSteeljackPlaybook` (#971, board
+        `MC1_67`/4242 : 11 classes natives contre 10 portees, deux positions retenant la MEME tuile
+        cote port et deux tuiles distinctes cote natif, a utilite EGALE). Le foyer partage
+        `_base.tiles_in_native_order` derive l'ordre par position depuis `ctx.neigh_by_pos` -- la
+        liste d'adjacence STOCKEE, celle-la meme que parcourt la chaine native. La transposition est
+        legitime parce que les ctors de `...GrotTankAbility$$.ctor`,
+        `...MasterOfTheTutelariesAbility$$.ctor` et `...IronkinSteeljackAbility$$.ctor` sont
+        IDENTIQUES OCTET POUR OCTET (relus le 2026-08-18 sur le build courant), donc la chaine
+        d'enumeration est la MEME -- pas parce que les trois << se ressemblent >>."""
         from_here, union = eligible_target_tiles(ctx, self.ABILITY_ID)
         if not from_here and not union:
             return []
         neigh = bq.neigh_map(ctx)
+        eligibles = set(from_here) | set(union)
         epos = [(p[0], p[1]) for p in (ctx.epos or [])]
         best = None                                   # (tuile de spawn ST, position T, utilite)
         for T in (ctx.reach_nc or []):                # positions candidates (origine en premier)
-            tiles = from_here if (T == ctx.origin and from_here) else union
+            tiles = tiles_in_native_order(ctx, T, from_here, union, eligibles)
             for ST in tiles:
                 if not bq.is_adjacent(T, ST, ctx.elev_by_pos, neigh):
                     continue                          # spawn = hex ADJACENT a T, au sens du selecteur

@@ -132,16 +132,68 @@ Cinq lectures qui ne se devinent pas :
    le premier scorer lit `SAVIORPROTOCOLS_AdjacentTauFriend` (= 20), le second
    `SAVIORPROTOCOLS_AdjacentTauParent` (= 30). L'attribution n'est donc PAS deduite des noms.
 
-### `SaviorProtocolsPlaybook$$FilterMovementTiles` -- INERTE sur le porteur, et c'est LU
+### `SaviorProtocolsPlaybook$$FilterMovementTiles` -- LE CRITERE, TRANCHE (`#456-r2-r1`)
 
-Le playbook surcharge aussi le slot 1 d'`IPlaybook` (non porte globalement, cf. `case-r1b`). Son
-corps ouvre sur `if (UnitExtensions.HasRangedWeapon(unit)) return;` -- **court-circuit total**. Les
-trois summons porteurs (`tauSmnDroneSniper`, `tauSmnDroneShield`, `tauSmnDroneCommandLink`) et les
-trois npc portent une arme a distance, donc ce filtre ne retire AUCUNE tuile en bataille : ne pas
-le porter n'introduit pas d'ecart. RESIDU `#443-r1b` (le regime « porteur sans arme a distance »
-n'est atteint par aucun porteur connu ; le corps y garderait les tuiles ayant un protegeable
-valide dans le rayon rendu par le slot `0x77` -- signature `(from, range = 2, includeCenter = 0)`,
-donc vraisemblablement `GetSurroundingUnits`, NON tranche faute d'un second call-site nomme).
+Le playbook surcharge aussi le slot 1 d'`IPlaybook`. **DEUX phrases de cette section etaient
+FAUSSES et sont retirees** :
+
+* << INERTE sur le porteur >> -- le regime que `case-443-r1` §5 declarait inatteignable est
+  ATTEINT : greffe sur un porteur de MELEE (`tauAunShi`), le filtre RETIRE exactement la tuile
+  `(0,3)` sur les DEUX utilities, reproductible sur deux passes, pendant que `tauCrisis` (ranged,
+  MEME greffe) garde ses 12/12. Le court-circuit `HasRangedWeapon` est confirme, mais l'inertie
+  ne vaut que pour les six porteurs NATURELS -- pas pour un montage.
+* << NON tranche faute d'un second call-site nomme >> -- le critere se lit ENTIEREMENT dans le
+  corps, sans avoir besoin d'un second call-site.
+
+`IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook$$FilterMovementTiles(unit, allMovementTiles)`,
+remis en C# :
+
+    dc = new <>c__DisplayClass6_0 { <+0x18> = unit };
+    if (UnitExtensions.HasRangedWeapon(unit, null))  return;            // COURT-CIRCUIT TOTAL
+    dc.<+0x10> = SaviorProtocolsAbility.TargetIsValidTrigger(this.ability@+0x58);
+    var toRemove = new List<UnitPosition>();
+    for (int i = allMovementTiles.Count - 1; i >= 0; i--) {
+        var units = battleQuery.<slot 119 = GetSurroundingUnits>(allMovementTiles[i],
+                                                                 range: 2, includeCenter: false);
+        if (!Enumerable.Any(units, dc.<FilterMovementTiles>b__0))
+            toRemove.Add(allMovementTiles[i]);
+    }
+    if (toRemove.Count == allMovementTiles.Count)  return;              // ANTI-VIDAGE
+    ListExtensions.RemoveRange(allMovementTiles, toRemove);
+
+et le predicat `<FilterMovementTiles>b__0(u)` construit A LA MAIN le MEME contexte a 0x128 octets
+que la face MOVE, avec les MEMES deux champs (`TargetSelector` lit `+0x10`, `OwnerSelector` lit
+`+0x18` -- cf. §2 de la face MOVE) :
+
+    ctx = new AbilityEntities(zero) { [+0x10] = u, [+0x18] = dc.unit };
+    return dc.trigger.<vslot d'evaluation>(ctx);
+
+QUATRE lectures qui ne se devinent pas, et deux d'entre elles REFUTENT la prediction de
+`case-443-r1` §5 :
+
+1. **Le rayon est GEOMETRIQUE, pas connectif.** Le slot 119 est `GetSurroundingUnits` (arite 3,
+   `metadata/interface_slots.tsv`), qui descend a
+   `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` -- une
+   TRIPLE BOUCLE CUBE (`x+y+z == 0`, `|d| <= range`) **sans porte d'elevation** et **sans jamais
+   consulter la liste d'adjacence STOCKEE**. C'est le CONTRAIRE d'`IterateAdjacentTiles`, que
+   mirrore `battle_query.is_adjacent` et que la face MOVE de CE MEME playbook utilise (slot 0x7a
+   `GetAdjacentUnits`). Deux slots, deux geometries, dans la meme classe.
+2. **`includeCenter = 0` : la tuile candidate elle-meme est EXCLUE** du disque. Une unite POSEE
+   sur la tuile visee ne protege donc pas cette tuile.
+3. **IL Y A BIEN UNE CONDITION DE PLUS**, et c'est `TargetIsValidTrigger` -- le MEME artefact que
+   la face MOVE (`AreFriends(Target, Owner) & HasFaction(Target, 9 = Tau, 3) &
+   !ActorHasTriggeredAbility(Target, 0x460 = 1120) & !AreEqual(Target, Owner)`). C'est ce qui
+   explique la mesure de `#456-r2` : `(0,3)` et `(1,3)` ont toutes deux `ultraTitus` a `d = 2`,
+   mais << un protegeable dans le rayon >> ne suffit pas -- il faut un protegeable **VALIDE**.
+4. **L'ANTI-VIDAGE est un cran a part.** Si TOUTES les tuiles tombaient, le natif n'en retire
+   AUCUNE. Un port qui l'oublierait immobiliserait le mover des qu'aucun allie T'au valide n'est
+   a portee -- l'inverse exact du comportement natif.
+
+⚠ **CE QUI RESTE OUVERT, ET CE N'EST PLUS LE CRITERE** : le CABLAGE. Le natif applique ce filtre
+PAR ABILITY dans `ABaseAiUnitTactic$$GenerateActionTiles`, alors que le port n'a qu'une liste de
+positions partagee (`ai.context.action_tiles_for`, qui NOMME deja ce hook). `filter_movement_tiles`
+ci-dessous est le mirror EXECUTABLE du critere ; aucun appelant ne le consomme encore -- residu
+`#443-r1b`, desormais reduit au seul branchement.
 
 ### La 4e classe -- `IdunBattle.AI.Utilities.SaviorProtocolsUtility` -- etait DEJA portee
 
@@ -154,10 +206,13 @@ conforme au decompile par #443-r1, sans modification.
 """
 from __future__ import annotations
 
+import hexgeo
+
 from .. import battle_query as bq
 from ..entities.effect_type import EffectType
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.unit_faction import UnitFaction, faction_value
+from ..services import battle_query as _sbq     # FORME B : foyer de `HasRangedWeapon(unit, null)`
 
 # `HasEffect(case.Target, state, (EffectType)0x462, onlyActive: true)` -- 0x462 = 1122 (cf. en-tete).
 _MARKERLIGHT = int(EffectType.Markerlight)
@@ -174,6 +229,11 @@ _TAU = int(UnitFaction.Tau)                                          # 9
 # `DSLTriggers$$ActorHasTriggeredAbility(Target, 0x460)`, enum QUALIFIE `TriggeredAbilityType`
 # (homonymes a ecarter : `EffectType` 1120 = TerrorsLament_HitReduction).
 _SAVIOR_PROTOCOLS = int(TriggeredAbilityType.SaviorProtocols)        # 1120 = 0x460
+# `#456-r2-r1` -- les DEUX litteraux du call-site `GetSurroundingUnits(tile, 2, includeCenter: 0)`
+# de `$$FilterMovementTiles` (slot 119, DISQUE HEX GEOMETRIQUE : cf. l'en-tete du module). Des
+# SCALAIRES (un rayon, un booleen), aucun enum ne les designe.
+_FILTER_RADIUS = 2
+_FILTER_INCLUDE_CENTER = False
 
 
 def _target_is_valid_trigger(neighbour: dict, is_friend: bool, mover_uid) -> bool:
@@ -247,6 +307,71 @@ class SaviorProtocolsPlaybook:
         if not _target_has_active_markerlight(sc, int(case_tgt_id)):
             return 0.0
         return float(ctx.wt.triggered(_WEIGHT_KEY))            # `GetUtilityValue(<cle>)`
+
+    def filter_movement_tiles(self, tiles: list, ctx: dict, mover_visual_id) -> list:
+        """`IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook$$FilterMovementTiles` -- MIRROR du
+        critere, TRANCHE par `#456-r2-r1` (le corps natif remis en C# est dans l'en-tete du module).
+
+            if (HasRangedWeapon(unit, null))                 return <tiles INCHANGE>
+            garde = [ T for T in tiles
+                        if EXISTS u dans GetSurroundingUnits(T, 2, includeCenter: false)
+                           tel que TargetIsValidTrigger{Target: u, Owner: unit} ]
+            if (garde est VIDE)                              return <tiles INCHANGE>   # ANTI-VIDAGE
+            return garde
+
+        QUATRE crans, et chacun vient d'une ligne du decompile :
+
+        1. `HasRangedWeapon(unit, null)` -> foyer `services.battle_query.has_ranged_weapon`, le MEME
+           que `war_howl.war_howl_other_buff_targets` (`WeaponsComponent$$HasRangedWeapon` : << au
+           moins une arme n'est pas `IsMelee` >>). Vrai -> le natif SORT sans rien retirer.
+        2. Le disque est **GEOMETRIQUE** (`hexgeo.distance <= 2`), pas la liste d'adjacence stockee :
+           `GetSurroundingUnits` descend a `IterateSurroundingTiles`, triple boucle cube SANS porte
+           d'elevation. Ne PAS y brancher `battle_query.is_adjacent`, qui mirrore une AUTRE
+           primitive -- c'est la faute exacte que `#433-r4-r1-r4-r2-r2` a corrigee ailleurs.
+        3. `includeCenter = 0` -> la tuile candidate elle-meme est EXCLUE (`d >= 1`).
+        4. L'ANTI-VIDAGE (`toRemove.Count == allMovementTiles.Count -> return`) : si AUCUNE tuile ne
+           passe, le natif n'en retire AUCUNE. Sans ce cran, le mover serait immobilise des
+           qu'aucun protegeable valide n'est a portee.
+
+        `mover_visual_id` -- le `visualId` du MOVER, seul substrat du cran 1. `None` = non mesure ->
+        on ne court-circuite pas (le filtre s'applique), degradation NOMMEE : le cran 1 ne peut que
+        GARDER des tuiles, donc l'ignorer est la lecture RESTRICTIVE ; c'est le seul endroit ou ce
+        mirror ne suit pas la regle << non mesure = permissif >>, et c'est DELIBERE -- le natif
+        n'a pas de troisieme etat, et rendre `tiles` inchange masquerait le filtre entier.
+
+        ⚠ **AUCUN APPELANT NE LE CONSOMME ENCORE** : le natif l'applique PAR ABILITY dans
+        `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles`, la ou le port n'a qu'une
+        liste de positions PARTAGEE par tous les playbooks (`engine.ai.context.action_tiles_for`).
+        Le cablage est ce qui reste de `#443-r1b`."""
+        tiles = list(tiles or [])
+        if not tiles:
+            return tiles
+        if mover_visual_id is not None and _sbq.has_ranged_weapon(mover_visual_id):
+            return tiles                          # `if (HasRangedWeapon(unit)) return;`
+        ctx = ctx or {}
+        mover_uid = ctx.get("uid")
+        garde = []
+        for T in tiles:
+            ok = False
+            for units, is_friend in ((ctx.get("friend_units") or (), True),
+                                     (ctx.get("enemy_units") or (), False)):
+                for u in units:
+                    p = u.get("pos")
+                    if not p:
+                        continue
+                    d = hexgeo.distance((T[0], T[1]), (p[0], p[1]))
+                    # disque GEOMETRIQUE de rayon 2, centre EXCLU (`includeCenter = 0`)
+                    if d > _FILTER_RADIUS or (d == 0 and not _FILTER_INCLUDE_CENTER):
+                        continue
+                    if _target_is_valid_trigger(u, is_friend, mover_uid):
+                        ok = True
+                        break
+                if ok:
+                    break
+            if ok:
+                garde.append(T)
+        # `if (toRemove.Count == allMovementTiles.Count) return;` -- on ne vide JAMAIS la liste.
+        return garde if garde else tiles
 
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
         """Mirror de `<CalculateMovementUtilityInStepsInternal>d__4$$MoveNext` (cf. en-tete) :

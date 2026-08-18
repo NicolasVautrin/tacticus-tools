@@ -51,7 +51,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
 
     Structure native (mirror EvaluateNonComparable) : Bucket construit par le ctor a DEUX arguments,
     donc SANS `min` -- le `Fix64(1)` que pose IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor a `<statics>+0xb8` n'est lu par AUCUN
-    des deux arguments (cf. `MIN_UTILITY` plus bas, residu `#433-r4-r2-r3`). Par position P balayee, enumere
+    des deux arguments (cf. `MIN_UTILITY` plus bas, residu `#433-r4-r2-r3` TRANCHE). Par position P balayee, enumere
     `GetEligibleTargetsSelectable(MainTile=P)` (= SOI) ; pour la cible eligible :
       GATE : nearest = slot0x4a `GetNearestEnemy(self)` ; si `dist(nearest, self) < 9` (slot0x6c, dist des
              tuiles COURANTES = position-INDEPENDANT) -> evalue, sinon skip (pas d'action).
@@ -103,12 +103,9 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
     - cible = SOI (ctx.uid) ; unique cible eligible (self-cast). VALIDE LIVE.
     - position = argmax util (sweep ORIGINE-FIRST keep-first : l'origine gagne le tie, un move ne gagne
       que sur util STRICTEMENT superieure -- ordre confirme par les castes en place Grapnel/DarkTalon).
-    - MIN_UTILITY=1 (cctor) : positions a util < 1 rejetees ; l'ability ne fire QUE si un P atteint >= 1.
-      ⚠ CONTESTE, residu `#433-r4-r2-r3` : le Bucket de CE playbook est construit par le ctor a DEUX
-      arguments -- donc SANS `min` -- la ou `MasterOfTheTutelariesPlaybook`, lui, LIT le statique
-      `+0xb8` et le passe au ctor a quatre arguments. Et `ncEvaluate` rend bien un `best` a utilite
-      NEGATIVE a chaque position du sweep (mesure `--step couple`). Le statique existe dans les deux
-      cctors ; reste a etablir qui le lit ici (un `get_MinUtility` consomme par le generateur ?).
+    - MIN_UTILITY : **AUCUNE BORNE** -- residu `#433-r4-r2-r3` TRANCHE (cf. le bloc dedie plus bas).
+      Le `Fix64(1)` du `.cctor` n'est lu par PERSONNE : le Bucket est construit par le ctor a DEUX
+      arguments, donc `minUtility.HasValue == false`, et `AddAction` accepte TOUT.
     - GATE nearest-enemy-within-9 (slot0x4a=GetNearestEnemy) : modele par `min_E dist(origine,E) < 9`.
       `min` est EXACT : la priorite melee de `GetNearestEnemy` ne peut departager que des ennemis
       ADJACENTS, donc a distance 1 -- deja le minimum (`AreEntitiesAdjacent` implique
@@ -151,12 +148,45 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         ennemi, donc une ability en cooldown / desarmee ne verse plus sa portee. MESURE
         (`darkaTerminator`, arme de MELEE + `PlasmaCannon` de zone 3) : le natif rend « en portee »
         jusqu'a `d = 3` quand l'ability est prete et `d <= 1` tant que son `initialCooldownTurns`
-        brule -- le port rendait 3 dans les DEUX cas."""
+        brule -- le port rendait 3 dans les DEUX cas.
+
+    ## `#433-r4-r2-r3` TRANCHE : CE PLAYBOOK N'A **AUCUNE** BORNE D'UTILITE
+
+    Trois lectures INDEPENDANTES, faites sur le build courant, et elles concordent :
+
+    1. **Le ctor du Bucket.** `...EarlyWarningOverridePlaybook$$EvaluateNonComparable` appelle
+       `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$.ctor(bucket,
+       <type>)` -- la surcharge a DEUX arguments, SANS `Nullable<Fix64>`. Son voisin
+       `...HeroicFusilladePlaybook$$EvaluateNonComparable`, lui, construit
+       `System.Nullableu003C__Il2CppFullySharedGenericStructTypeu003E$$.ctor(&n, &statics[0])` PUIS
+       `Bucket$$.ctor(bucket, 0, &n, <type>)` -- la surcharge a QUATRE arguments. Meme forme chez
+       `MasterOfTheTutelariesPlaybook`, `GrotTankPlaybook`, `WarHowlPlaybook`, `NovaChargePlaybook`
+       et `CallRipperSwarmsPlaybook`. La difference est donc LOCALE a ce playbook, pas un artefact
+       de decompilation.
+    2. **Le gate d'`AddAction`** (`Bucket<T>$$AddAction`, deja lu par `IronkinSteeljackPlaybook`) :
+       `if (!this.minUtility.HasValue) return true;` AVANT toute comparaison. Sans `Nullable`, le
+       bucket admet TOUT.
+    3. **La CLASSE n'a que TROIS methodes** -- `.ctor`, `EvaluateNonComparable`, `.cctor` -- et un
+       seul champ, `private static readonly Fix64 MIN_UTILITY` (liste des methodes DECLAREES lue au
+       dump `Il2CppDumper`, la ou `ghidra/functions.tsv` ne prouverait rien : IL2CPP deduplique les
+       corps triviaux). Le champ etant PRIVE et `EvaluateNonComparable` ne le lisant pas, **aucun
+       lecteur n'existe** : l'hypothese << un `get_MinUtility` consomme par le generateur >> de la
+       fiche est REFUTEE -- une telle methode n'est pas declaree sur la classe.
+
+    L'observation live qui avait ouvert le residu tombe alors d'elle-meme : `ncEvaluate` rend un
+    `best` NEGATIF a chaque position du sweep, ce qu'un `minUtility = 1` aurait rendu impossible.
+    Avec l'ancien `MIN_UTILITY = 1.0` le port REFUSAIT l'ability des que toutes les positions
+    etaient negatives -- c'est-a-dire dans le regime le plus courant, le terme `-10 x d` dominant
+    des que les ennemis sont loin. C'est un no-op SILENCIEUX du meme genre que celui d'Ironkin."""
     ABILITY_ID = int(ActiveAbilityType.EarlyWarningOverride)  # 1077
-    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor = Fix64(1) -> admission Bucket util>=1
-    #                       CONTESTE, residu `#433-r4-r2-r3` : le Bucket de CE playbook est construit
-    #                       par le ctor a DEUX arguments (donc SANS `min`), et `ncEvaluate` rend un
-    #                       `best` a utilite NEGATIVE a chaque position. Non tranche, non touche.
+    #: **AUCUNE borne** (`#433-r4-r2-r3` TRANCHE) : le Bucket est construit par la surcharge a DEUX
+    #: arguments de `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$.ctor`,
+    #: donc `minUtility.HasValue == false` et `AddAction` accepte TOUT. `-inf` est la transcription
+    #: de cette ABSENCE -- surtout pas le `Fix64(1)` du `.cctor`, qui n'a AUCUN lecteur. Le `0.0` par
+    #: defaut de la base rejetterait lui aussi la quasi-totalite des positions, l'utilite etant
+    #: negative des que les ennemis sont loin (le terme `-10 x d` domine). Meme correctif, meme
+    #: raison et meme valeur que `IronkinSteeljackPlaybook` (#971).
+    MIN_UTILITY = float("-inf")
     PRIORITY = 0
     _COVER_BONUS = 50.0   # Fix64.FromInt(0x32) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : +50 par ennemi non-couvert / hors-portee
     _DIST_PENALTY = 10.0  # Fix64.FromInt(iVar7*10) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : -10 x distance par ennemi
@@ -305,7 +335,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
                                 getattr(ctx, "is_in_fog_by_pos", None), is_turn_by_pos,
                                 occupant_by_pos, moved_by_pos)
             if u < self.MIN_UTILITY:
-                continue                            # admission Bucket util>=1
+                continue    # `AddAction` : `!minUtility.HasValue -> true` -> INERTE ici (#433-r4-r2-r3)
             if best_u is None or u > best_u:        # strict > : 1re position du max gagne (keep-first)
                 best_p, best_u = P, u
         if best_p is None:

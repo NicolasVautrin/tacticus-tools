@@ -474,6 +474,47 @@ def eligible_target_tiles(ctx: "NCContext", ability_id: int) -> tuple[list, list
     return from_here, union
 
 
+def tiles_in_native_order(ctx: "NCContext", T: tuple, from_here: list, union: list,
+                          eligibles: set) -> list:
+    """Les tuiles-cibles eligibles DEPUIS la position `T`, dans l'ORDRE que le natif enumere --
+    FOYER UNIQUE des trois playbooks de spawn RING-1 (`#971`, puis `#971-r4`).
+
+    `eligible_target_tiles` ci-dessus rend `(fromHere, union)`, et l'ordre de l'UNION n'est celui
+    d'AUCUNE position : le RPC agrege toutes les tuiles de move. Or `Bucket$$AddAction` ne remplace
+    que sur un STRICTEMENT superieur, donc a utilite EGALE **l'ordre EST la decision**.
+
+    A l'ORIGINE : `fromHere`, qui EST la reponse par-position du RPC -- rien a deriver.
+    Ailleurs : l'ordre de `ctx.neigh_by_pos[T]` (liste d'adjacence STOCKEE du `ConnectivityComponent`),
+    restreint aux tuiles que le RPC declare eligibles. C'est la chaine native
+    `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` (`onlyAdjacent`) -> slot
+    `GetAdjacentTiles` -> `IdunBattle.Core.Services.BattleQuery$$IterateAdjacentTiles`, dont
+    `IdunBattle.Core.Services.TargetingQuery$$GetValidTargets` preserve l'ordre dans son
+    `OrderedSet`, et c'est le MEME substrat que celui qu'`AdjacentTilesSelector$$Select` consomme
+    cote COMBAT (`engine/entities/selectors/tiles.py::AdjacentTiles`).
+
+    POURQUOI CE FOYER EXISTE, et pourquoi il vaut pour les TROIS. Les ctors de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor`,
+    `...GrotTankAbility$$.ctor` et `...MasterOfTheTutelariesAbility$$.ctor` sont IDENTIQUES OCTET
+    POUR OCTET (relus le 2026-08-18 sur le build courant) :
+    `TargetingOptions..ctor(&opts, 0, <TargetingRange statics>+0x30, 1, 0x1040, 0, 0)` puis
+    `AActiveAbility..ctor(this, &opts, 2)` -- meme `onlyAdjacent = RangedBool.True`, meme masque
+    `TargetIsTile | TargetTileIsFree`. La chaine d'enumeration est donc la MEME, et la recopier
+    trois fois la ferait diverger en silence.
+
+    Canal `neigh_by_pos` MUET -> repli sur l'ordre de l'union, NOMME : on ne fabrique pas un ordre,
+    on dit qu'on ne l'a pas. Toute tuile eligible que la liste stockee ne porte pas est remise EN
+    QUEUE plutot que perdue (le natif, lui, ne l'aurait pas vue -- mais une perte silencieuse serait
+    pire qu'un ordre de queue explicite)."""
+    if T == ctx.origin and from_here:
+        return list(from_here)
+    ring = (ctx.neigh_by_pos or {}).get((T[0], T[1]))
+    if not ring:
+        return list(union)
+    ordered = [p for p in ((q[0], q[1]) for q in ring) if p in eligibles]
+    reste = [p for p in union if p in eligibles and p not in ordered]
+    return ordered + reste
+
+
 def _turns_started_gate(ctx: "NCContext") -> bool:
     """Corps FOLDÉ (COMDAT) du slot-4 `ShouldEvaluate(unit)` « pas au 1er tour » — code UNIQUE
     IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate (symbole `AlphaWarriorPlaybook$$ShouldEvaluate`, refcount 7) pointé par la vtable de

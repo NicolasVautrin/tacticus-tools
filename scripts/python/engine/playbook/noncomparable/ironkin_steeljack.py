@@ -100,6 +100,14 @@ MEME tuile cote port et DEUX tuiles distinctes cote natif, toutes deux a utilite
 voisinage stocke referme cet ecart. `neigh_by_pos` absent (canal muet) -> repli sur l'ordre de
 l'union, et le port le DIT plutot que de rendre un ordre invente.
 
+⚠ **CE CORPS N'EST PLUS ICI : il vit dans `_base.tiles_in_native_order` (#971-r4).** Les DEUX
+autres playbooks de spawn ring-1 (`GrotTankPlaybook`, `MasterOfTheTutelariesPlaybook`) balayaient
+encore l'ordre de l'UNION, alors que leurs abilities partagent avec celle-ci un ctor de
+`TargetingOptions` IDENTIQUE OCTET POUR OCTET (relu le 2026-08-18 :
+`TargetingOptions..ctor(&opts, 0, <TargetingRange statics>+0x30, 1, 0x1040, 0, 0)` pour les trois).
+Recopier l'ordre au lieu de partager le foyer aurait laisse la meme divergence se rouvrir a chaque
+port suivant.
+
 RESIDU NOMME `#971-r1` : `GetNearestEnemy` est mirrore ICI pour la TROISIEME fois
 (`noncomparable/alpha_warrior.py::_nearest_enemy`, ancre sur la tuile de spawn, rend `(id, pos)` ;
 `noncomparable/master_of_the_tutelaries.py::_nearest_enemy_tile`, ancre sur l'ORIGINE, rend une
@@ -115,7 +123,8 @@ import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, eligible_target_tiles
+from ._base import (NCContext, NonComparablePlaybook, eligible_target_tiles,
+                    tiles_in_native_order)
 
 
 class IronkinSteeljackPlaybook(NonComparablePlaybook):
@@ -165,29 +174,6 @@ class IronkinSteeljackPlaybook(NonComparablePlaybook):
         near = bq.get_nearest_enemy(ctx, frm)
         return None if near is None else near[1]
 
-    def _tiles_in_native_order(self, ctx: NCContext, T: tuple, from_here: list, union: list,
-                               eligibles: set, neigh) -> list:
-        """Les tuiles de spawn eligibles DEPUIS `T`, dans l'ORDRE que le natif enumere.
-
-        A l'ORIGINE : `fromHere`, qui EST la reponse par-position du RPC -- rien a deriver.
-        Ailleurs : l'ordre de `ctx.neigh_by_pos[T]` (liste d'adjacence STOCKEE), restreint aux
-        tuiles que le RPC declare eligibles. C'est la chaine `GetTilesInRange` (`onlyAdjacent`) ->
-        `GetAdjacentTiles` -> `IterateAdjacentTiles`, dont `GetValidTargets` preserve l'ordre.
-
-        Canal `neigh_by_pos` MUET -> repli sur l'ordre de l'union, NOMME : on ne fabrique pas un
-        ordre, on dit qu'on ne l'a pas."""
-        if T == ctx.origin and from_here:
-            return list(from_here)
-        ring = (ctx.neigh_by_pos or {}).get((T[0], T[1]))
-        if not ring:
-            return list(union)
-        ordered = [p for p in ((p[0], p[1]) for p in ring) if p in eligibles]
-        # Toute tuile eligible ADJACENTE que la liste stockee ne porte pas resterait invisible :
-        # on la remet EN QUEUE plutot que de la perdre (le natif, lui, ne l'aurait pas vue -- mais
-        # une perte silencieuse serait pire qu'un ordre de queue explicite).
-        reste = [p for p in union if p in eligibles and p not in ordered]
-        return ordered + reste
-
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Mirror du sweep natif : positions candidates (origine d'abord) x tuiles de spawn ring-1.
 
@@ -208,7 +194,10 @@ class IronkinSteeljackPlaybook(NonComparablePlaybook):
         eligibles = set(from_here) | set(union)
         best = None                       # (tuile de spawn ST, position T, utilite)
         for T in (ctx.reach_nc or []):    # origine d'abord (Bucket keep-first au tie)
-            tiles = self._tiles_in_native_order(ctx, T, from_here, union, eligibles, neigh)
+            # FOYER PARTAGE avec `GrotTankPlaybook` et `MasterOfTheTutelariesPlaybook` (#971-r4) :
+            # les trois abilities ont le MEME ctor de `TargetingOptions`, donc la MEME chaine
+            # d'enumeration -- recopier l'ordre les ferait diverger en silence.
+            tiles = tiles_in_native_order(ctx, T, from_here, union, eligibles)
             for ST in tiles:
                 if not bq.is_adjacent(T, ST, ctx.elev_by_pos, neigh):
                     continue              # spawn = hex ADJACENT a T, au sens du SELECTEUR

@@ -2036,7 +2036,7 @@ NOVA_CHARGE_PENDING_TARGET_LINE = int(EffectType.NovaCharge_PendingTarget_Line) 
 NOVA_CHARGE_PENDING_TARGET_SINGLE = int(EffectType.NovaCharge_PendingTarget_Single)  # 0x585 = 1413
 
 
-def nova_charge_line_tiles():
+def nova_charge_line_tiles(target_sel=None):
     """`...NovaChargeAbility$$GetLineTiles` (MIRROR du decompile) -- TROIS lignes paralleles :
 
         center = CenterTiles(CasterTile@DSLSelectors+0x58)
@@ -2065,13 +2065,24 @@ def nova_charge_line_tiles():
     ⚠ CE QUI REND CETTE GEOMETRIE POSSIBLE : `DirectionTo` NORMALISE (cf.
     `selectors/geometry.py::direction_to`), il ne se limite pas aux tuiles adjacentes -- `center`
     est a distance 2 de `Target` pour un caster a sept tuiles. Et il ne rend une direction que sur
-    un AXE : c'est exactement l'ensemble que le gate dynamique ci-dessous laisse passer."""
+    un AXE : c'est exactement l'ensemble que le gate dynamique ci-dessous laisse passer.
+
+    `target_sel` -- **FOYER PARTAGE PAR LES DEUX FACES** (#1032-r1). Le natif construit CE MEME
+    arbre a deux endroits : `$$GetLineTiles`, appele par `$$ExecuteBehaviour` (face COMBAT) ET
+    materialise dans le cache `this+0x70` de
+    `IdunBattle.AI.Playbook.Loki.NovaChargePlaybook$$EvaluateNonComparable` (face DECISION), qui
+    l'evalue une fois PAR CIBLE ELIGIBLE. Le recopier ferait le FORK DE FOYER que
+    `MacroPlasmaIncineratorAbility$$GetTargetAreaTiles` a deja evite (#1066) : les deux faces
+    divergeraient en silence sur la geometrie des trois lignes. `None` = le slot `Target@+0x60`
+    (regime COMBAT, ou l'`AbilityEntities` porte la cible) ; la face DECISION passe le vehicule de
+    collapse `FixedTileIds([<tuile visee>])`, exactement comme `macro_plasma_incinerator_tree`."""
+    tgt = Target() if target_sel is None else target_sel
     center = CenterTiles(CasterTile(as_ids=True))
-    direction = DirectionTo(center, Target())
+    direction = DirectionTo(center, tgt)
     next1 = NextTileInLine(center, direction)
-    cw = NextTileClockwise(Target(), center)
+    cw = NextTileClockwise(tgt, center)
     next2 = NextTileInLine(cw, DirectionTo(next1, cw))
-    line_a = Union(Target(), TilesBehindInLine(Target(), TileFromVector(Target(), direction)))
+    line_a = Union(tgt, TilesBehindInLine(tgt, TileFromVector(tgt, direction)))
     line_b = Union(cw, TilesBehindInLine(cw, TileFromVector(cw, direction)))
     line_c = Union(next2, TilesBehindInLine(next2, TileFromVector(next2, direction)))
     lines = Union(Union(line_a, line_b), line_c)

@@ -86,7 +86,9 @@ def _board(elev=None, coupe=()) -> Board:
 
 def _rpc_tuiles(ability_id: int, from_here: list, union: list | None = None):
     """Le callable `ctx.ability_targets` : la forme EXACTE que lisent `eligible_target_tiles`
-    (`fromHere` + `targets`) et `MasterOfTheTutelariesPlaybook._eligible_spawn_tiles` (`targets`)."""
+    (`fromHere` + `targets`). ⚠ `MasterOfTheTutelariesPlaybook._eligible_spawn_tiles`, qui ne
+    lisait que `targets`, a ete SUPPRIME par `#971-r4` : les trois playbooks ring-1 passent
+    desormais par le MEME foyer, donc par les DEUX vues."""
     def _entrees(ps):
         return [{"kind": "tile", "tile": {"col": c, "row": r}} for (c, r) in ps]
 

@@ -157,6 +157,9 @@ from .squig_launchas import SquigLaunchasPlaybook   # #970-r3
 # #1066 -- les dernieres faces DECISION d'active de kit `lineup`.
 from .macro_plasma_incinerator import MacroPlasmaIncineratorPlaybook   # #970-r4
 from .rites_of_morkai import RitesOfMorkaiPlaybook                     # #906-r1 / #985-r1
+# #1032-r1 -- les DEUX faces DECISION laissees ouvertes par la tranche COMBAT #1032.
+from .call_ripper_swarms import CallRipperSwarmsPlaybook
+from .nova_charge import NovaChargePlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -469,11 +472,14 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 `TriggeredAbilityType.SereneUnifier` de meme ordinal.
         IronkinSteeljackPlaybook(),     # 1219 -- cible TUILE ring-1 libre ; util = -distance de la
         #                                 tuile de spawn a l'ennemi le plus proche (slots 0x4a
-        #                                 `GetNearestEnemy` / 0x6c `GetDistance`). ⚠ SEUL playbook du
-        #                                 registre SANS borne : ctor de Bucket a DEUX arguments +
-        #                                 aucune `.cctor` -> `minUtility.HasValue == false` ->
-        #                                 `MIN_UTILITY = -inf` (le 0.0 par defaut aurait tout rejete,
-        #                                 l'utilite etant negative par construction).
+        #                                 `GetNearestEnemy` / 0x6c `GetDistance`). ⚠ playbook SANS
+        #                                 borne : ctor de Bucket a DEUX arguments + aucune `.cctor`
+        #                                 -> `minUtility.HasValue == false` -> `MIN_UTILITY = -inf`
+        #                                 (le 0.0 par defaut aurait tout rejete, l'utilite etant
+        #                                 negative par construction). ⚠ IL N'EST PLUS LE SEUL :
+        #                                 `EarlyWarningOverridePlaybook` (1077) est dans le MEME cas
+        #                                 -- ctor a deux arguments, `.cctor` dont le `Fix64(1)` n'a
+        #                                 aucun lecteur (`#433-r4-r2-r3`).
         # #974 -- face DECISION d'`EuphoricStrikes`. Base `NonComparablePlaybook`1` LUE dans
         # `frida/classes.tsv` (son `.ctor` NOMME `ComparablePlaybook<...>`, corps DEDUPLIQUE --
         # meme piege que #487-r1 / #945 / #957 / #970). Porteur `emperExultant` = HEROS, donc
@@ -622,6 +628,30 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 Ferme `#970-r2` : sa premisse (<< config du triggered
         #                                 illisible >>) est REFUTEE -- le triggered partage
         #                                 l'`AbilityConfiguration` de l'active.
+        # #1032-r1 -- les DEUX faces DECISION que la tranche COMBAT #1032 avait inscrites au
+        # registre de dette de `probe_1021_face_decision_au_registre`.
+        CallRipperSwarmsPlaybook(),     # 1052 (`tyranBossHiveTyrantLeviathan`, npc) -- utilite
+        #                                 PLATE `Fix64(1)` sur l'unique cible eligible (SELF-CAST,
+        #                                 preset `<TargetingOptions statics>+0x280`). Toute la
+        #                                 modulation vit dans le `GetUseProbability` de la BASE
+        #                                 `ABossSummonAbilityPlaybook<T>` (lue dans
+        #                                 `frida/classes.tsv`, pas deduite du `.ctor`) :
+        #                                 `StartedTurns < 2 -> 1/2`, sinon
+        #                                 `1 - 0.8 x |enfants VIVANTS| / GetMaxSummons()`.
+        #                                 ⚠ Le natif monte CETTE MEME classe pour 1054 et 1055, que
+        #                                 le port n'inscrit PAS : leur face COMBAT n'existe pas
+        #                                 (`ABILITY_CLASSES`), donc les proposer serait le no-op
+        #                                 silencieux de #996.
+        NovaChargePlaybook(),           # 1193 (`tauBossRiptide`, npc boss) -- utilite =
+        #                                 `100 x CountEnemiesOnTiles(lignes) + |lignes|`, evaluee
+        #                                 PAR CIBLE (les trois lignes paralleles dependent de la
+        #                                 tuile visee). La geometrie est le FOYER PARTAGE avec la
+        #                                 face COMBAT (`tau.nova_charge_line_tiles`, parametre par
+        #                                 cette tranche). Gate PROPRE au slot 4 :
+        #                                 `HasMinimumRemainingTurns(unit, 2)` -- le seul des deux
+        #                                 qui REFUSE ; `GetUseProbability` rend `Half` ou `One`
+        #                                 selon que `NovaShield` (1194, l'ability SOEUR) est encore
+        #                                 lancable, donc jamais `<= 0`.
     )
 }
 
@@ -712,4 +742,5 @@ __all__ = [
     "AetherStridePlaybook", "InfernalCannonPlaybook", "EmpyricAmbushPlaybook",
     "DevastatingRefrainPlaybook", "DutyEternalPlaybook",   # #979
     "SquigLaunchasPlaybook",                               # #970-r3
+    "CallRipperSwarmsPlaybook", "NovaChargePlaybook",      # #1032-r1
 ]
