@@ -73,7 +73,16 @@ SLOTS = (
 
 # Les deux ordinaux ECRITS au site (cf. etage 3 de l'en-tete).
 PATHFINDER_TYPE_IGNORE_TERRAIN = 1
-UTILITY_TYPE_SHORTEST_PATH = 72
+# ⚠ `UTILITY_TYPE_SHORTEST_PATH` NE VIT PLUS ICI, et c'est la doctrine, pas un gout : ecrit en
+# constante de module (`= 72`), c'etait un ordinal NU d'un des quatre enums que garde
+# `probe_283` etape 2 -- refuse. Il est desormais FIGE EN FORME CONFRONTEE dans `main()` (le
+# litteral ET le membre dans la MEME comparaison), la seule ecriture qui garde la MESURE et
+# rougisse quand même au renumerotage. `PATHFINDER_TYPE_IGNORE_TERRAIN` reste : `PathfinderType`
+# n'est pas sous ce cliquet.
+#
+# TROUVE AU MERGE (#10023) : le cliquet renforce et ce litteral viennent de DEUX PR en vol
+# SIMULTANEMENT (#1160 l'ecrit, #1162 renforce le cliquet). Aucun des deux auteurs ne pouvait le
+# voir -- le premier a joue l'ancien probe, le second a rebase avant que le premier soit merge.
 
 
 def _build_courant():
@@ -380,10 +389,14 @@ def main():
         rouges.append("etage 3 : PathfinderType.IgnoreTerrain = %d, or le call-site ecrit le "
                       "LITTERAL %d -- le port porterait un autre pathfinder"
                       % (int(PathfinderType.IgnoreTerrain), PATHFINDER_TYPE_IGNORE_TERRAIN))
-    if int(UtilityType.UnitWithShortestPathToEnemy) != UTILITY_TYPE_SHORTEST_PATH:
-        rouges.append("etage 3 : UtilityType.UnitWithShortestPathToEnemy = %d, attendu %d "
+    # L'ordinal MESURE a la conversion, en forme CONFRONTEE : le litteral ET le membre dans la
+    # MEME comparaison (cf. le bloc en tete de fichier). Un mirror REGENERE apres renumerotage
+    # laisserait `probe_313` vert ; cette ligne-ci, non.
+    if not (72 == int(UtilityType.UnitWithShortestPathToEnemy)):
+        rouges.append("etage 3 : UtilityType.UnitWithShortestPathToEnemy = %d, attendu 72 "
                       "(ordinal MESURE a la conversion)"
-                      % (int(UtilityType.UnitWithShortestPathToEnemy), UTILITY_TYPE_SHORTEST_PATH))
+                      % int(UtilityType.UnitWithShortestPathToEnemy))
+    UTILITY_TYPE_SHORTEST_PATH = int(UtilityType.UnitWithShortestPathToEnemy)
     if int(ShortestPathToEnemyUtility.UTILITY_TYPE) != UTILITY_TYPE_SHORTEST_PATH:
         rouges.append("etage 3 : la classe portee declare UTILITY_TYPE = %d, attendu %d"
                       % (int(ShortestPathToEnemyUtility.UTILITY_TYPE), UTILITY_TYPE_SHORTEST_PATH))
