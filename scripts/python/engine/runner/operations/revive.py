@@ -50,6 +50,11 @@ aussi bien `PhaseType.Damage` ou `PhaseType.ActiveAbility` quand `KillUnit` est 
 --------------------------------------------------------------------------------------------------
   * garde        @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba : `if (!pendingRevive.HasValue)` -> `Logger.Error` + RETURN (pas de revive)
   * IdunBattle.Operations.ReviveUnitOperation$$SetHealth : hp = Min(ReviveData.amount, GetStat(unit, Health=5, MAX=3))  (re-clamp)
+  * RemoveEffects INLINE (#547-r14) : `processor.<slot 0x5a>(unit, {step: SANS valeur, +0x08: 1})`
+                 -> `IdunBattle.Operations.RemoveEffectsOperation$$Execute` retire TOUS les effets
+                 du ressuscite SAUF ceux a `IEffect` slot 2 `get_KeepOnRevive = True`. C'est le SEUL
+                 des sept `$$RemoveEffects` du binaire a armer ce gate (#547-r13) -- sur le chemin
+                 de MORT il vaut 0, donc le slot 2 n'y est jamais lu.
   * flags        IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
                  (PAS 0xe AmbushConsumed -- un revive-en-place N'EST PAS un ambush one-shot)
   * IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : repositionne sur la tuile de l'unite -> IN-PLACE
@@ -69,6 +74,12 @@ from ..components import PositionComponent, record_tiles_moved
 from ..components import UnitFlagsComponent
 from ...entities.unit_flag import UnitFlag
 from .movement import _kill_steppable_units
+# FORME B (liaison de MODULE) -- arete GRATUITE, MESUREE en process frais : `import
+# engine.runner.operations.remove_effects` seul ne charge PAS ce module (pas de cycle), et
+# `remove_effects` est de toute facon deja tire par la cascade de `movement` ci-dessus. La forme B
+# est choisie pour que le foyer reste substituable par un `monkeypatch.setattr` (CLAUDE.md : c'est
+# la SEULE des trois formes qui morde).
+from . import remove_effects as _remove_effects
 from .triggers.dispatch.move_death import (
     unit_position_changed_1_triggers, unit_position_changed_2_triggers
 )
@@ -260,6 +271,32 @@ class ReviveUnitOperation:
             # FOYER du mirror : `HealthComponent.apply_modifier_set_current` (ecriture ABSOLUE +
             # purge), pendant du `fill_up` RELATIF que prennent soin/reparation/resurrection.
             hc.apply_modifier_set_current(set_hp)
+        # RETRAIT DES EFFETS DU RESSUSCITE (#547-r14) -- `processor.<slot 0x5a RemoveEffects>(unit,
+        # options)`, appele **INLINE** par `IdunBattle.Operations.ReviveUnitOperation$$Execute`
+        # entre `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` et l'enregistrement
+        # `HasBeenRevivedByAbility` qui suit -- c'est le RANG NATIF, lu, pas choisi.
+        #
+        # OPTIONS, lues aux DEUX ecritures qui precedent l'appel dans le decompile :
+        #   `local_438 = 0`                 -> `Nullable<KillUnitStep> step` SANS valeur -> AUCUN
+        #                                      filtre par step : TOUT l'inventaire est candidat ;
+        #   `lStack_430 = ...CONCAT44(_, 1)` -> `options.<+0x08> = 1` -> le gate de la SECONDE
+        #                                      clause est ARME.
+        # C'est le SEUL des sept `$$RemoveEffects` du binaire a armer ce gate (#547-r13) : le natif
+        # retire donc ici TOUS les effets du ressuscite SAUF ceux a `KeepOnRevive = True`.
+        #
+        # ⚠ CE N'EST PAS UN RETRAIT DE MASSE, ET C'EST LE POINT LE PLUS FACILE A MAL LIRE : le
+        # DEFAUT de `IdunBattle.Entities.Effects.BaseEffect` est `True` (derive : `b0 01 c3`), donc
+        # la quasi-totalite des effets SURVIT. Le retrait ne mord que sur les classes qui renversent
+        # le getter a `False` -- TROIS dans le binaire (`Loki.HealingBalmsEffect`,
+        # `Loki.PrecisionShot_AimEffect`, `Loki.RitesOfMorkai_ExtraDamageEffect`), dont DEUX ont un
+        # mirror porte. Le port d'avant #547-r14 n'en retirait AUCUN.
+        #
+        # RANG relatif a l'etat : le retrait a lieu APRES l'ecriture des PV et AVANT `Add(0x14 =
+        # Revived)` / `uc.alive = True`, donc les vecteurs `On(0x3f)`/`On(0x40)` que
+        # `remove_effect_instance` publie voient une unite aux PV RETABLIS mais pas encore marquee
+        # vivante -- exactement l'ordre du decompile.
+        _remove_effects.remove_effects_operation(state, unit_id, step=None,
+                                                 keep_on_revive_gate=True)
         # flags `IdunBattle.Operations.ReviveUnitOperation$$Execute` : `Remove(0xf = Downed)`,
         # `Remove(8 = Overkilled)`, `Add(0x14 = Revived)` -> l'unite redevient VIVANTE.
         # Le port modelise l'etat de vie via `uc.alive` ; `Remove(8)` est load-bearing (le flag est

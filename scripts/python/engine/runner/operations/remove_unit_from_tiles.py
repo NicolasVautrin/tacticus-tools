@@ -56,12 +56,21 @@ COLLAPSES ET RESIDUS NOMMES du port :
     avec la position d'AVANT SON DERNIER MOUVEMENT -- ou `None` -- au lieu de la tuile qu'elle vient
     de quitter.
     ⚠ Le natif ecrit **DEUX** slots avec la MEME valeur (`@+0x88` puis `@+0x98`, deux
-    `Nullable<UnitPositionId>` du `MovementComponent`, qui SURVIT au retrait). Cote port, seul
-    `@+0x98` est representable : son jumeau `@+0x88` est loge sur la `PositionComponent`, que
-    `set_unit_feet(uid, [])` SUPPRIME. `PreviousTileSelector` (`components.previous_tiles`, qui lit
-    `@+0x88`) rend donc `[]` apres un retrait de plateau la ou le natif rend la tuile quittee.
-    RESIDU **#448-r7** -- il demande de deloger `previous` de la `PositionComponent`, ce qui est un
-    changement de FOYER, pas une ligne.
+    `Nullable<UnitPositionId>` du `MovementComponent`, qui SURVIT au retrait) -- et le decompile le
+    montre litteralement : les deux ecritures resolvent leur composant par le MEME
+    `GetComponent<...>` et deposent le MEME `UnitPositionId`, construit une seule fois.
+    **LES DEUX SONT DESORMAIS PORTES (#448-r7)** : `@+0x88` a ete DELOGE de la `PositionComponent`
+    vers le `UnitComponent`, ou vivait deja son jumeau. Il y etait DETRUIT par
+    `set_unit_feet(uid, [])`, si bien que `PreviousTileSelector` (`components.previous_tiles`)
+    rendait `[]` apres un retrait de plateau la ou le natif rend la tuile QUITTEE. C'etait un
+    probleme d'EMPLACEMENT, pas d'ecriture.
+    ⚠ **AUCUN VECTEUR OBSERVABLE N'EST ETABLI POUR CE CORRECTIF**, et c'est un resultat, pas un
+    aveu : le seul consommateur porte du selecteur est `HaywireMineAbility$$CreateBehaviour`
+    (`AmountIsGreaterThanZero(PreviousTile(Owner))` en garde, puis `CanAddUnit(PreviousTile(Owner))`
+    comme tuile de pose), et son `Owner` est SUR le plateau au moment du cast -- il vient d'y
+    bouger. Le regime << porteur retire du plateau PUIS interroge sur sa tuile precedente >> n'a
+    donc aujourd'hui aucun appelant porte. Le correctif est de FIDELITE STRUCTURELLE ; il ferme le
+    canal avant qu'un consommateur ne l'emprunte.
   * etape 6 (le gate `cVar2 == '\0'`) : l'ecriture, le STEP de vue et l'event de match partagent le
     MEME predicat (slot `0xb` du `MatchState`, celui qui commute aussi la branche courte de
     `MoveUnitOperation$$Execute`). Le port n'a pas ce mode -- il porte le regime NORMAL, qui est

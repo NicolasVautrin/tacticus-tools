@@ -1542,9 +1542,10 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
                 uc.previous_position_this_turn = tuiles or None
             tuiles = _tiles_of(mv.get("previousPosition"))             # `<+0x88>`
             if tuiles is not None:
-                pc = ent.get_component(PositionComponent)
-                if pc is not None:
-                    pc.previous = tuiles or None
+                # #448-r7 : ce slot vit desormais sur le `UnitComponent`, comme son jumeau. Il etait
+                # loge sur la `PositionComponent`, que le retrait de plateau SUPPRIME -- le natif,
+                # lui, le porte sur le `MovementComponent`, qu'il ne touche jamais la.
+                uc.previous_position = tuiles or None
         _seed_received_damage_types(uc, su.get("receiveDamageTypeThisTurn"))
 
 

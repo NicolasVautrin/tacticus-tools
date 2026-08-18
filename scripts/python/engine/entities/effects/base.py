@@ -586,6 +586,35 @@ class BaseEffect:
     # effet du mourant -- cause racine de la face SUCCESS inerte de #911-r1.
     # (Attribut de classe SIMPLE, sans annotation : sinon field dataclass, ecrase par l'`__init__`.)
     remove_on_kill_step = KillUnitStep.AfterUnitRemove
+    # SURVIT-IL A UN REVIVE ? -- `IEffect` slot 2 `get_KeepOnRevive`, l'AUTRE moitie du meme `if`
+    # imbrique de `IdunBattle.Operations.RemoveEffectsOperation$$Execute` (#547-r14) :
+    #
+    #     if (options.step.HasValue && effect.<slot 4> != options.step.Value) continue
+    #     if (options.<+0x08>       && effect.<slot 2>)                       continue
+    #
+    # ⚠ CE FLAG N'EST LU QUE SI `options.<+0x08>` EST ARME, et **UN SEUL** producteur du binaire
+    # l'arme : `IdunBattle.Operations.ReviveUnitOperation$$Execute`. Les quatre producteurs de MORT
+    # et de DESPAWN (`KillUnitOperation`, `DestroyMachineOperation`, `FleeOperation`,
+    # `RemoveUnitOperation`) passent 0 -> sur le chemin de mort ce flag est INERTE, quelle que soit
+    # sa valeur (#547-r13). C'est le parametre `keep_on_revive_gate` de `remove_effects_operation`
+    # qui porte ce conditionnement ; ne JAMAIS lire cet attribut sans lui.
+    #
+    # VALEUR DERIVEE, pas supposee -- `probe_547r13_keep_on_revive.py` (declaration lue dans le
+    # `global-metadata.dat`, valeur lue aux OCTETS du bloc `methodPointers`), entree versionnee
+    # `data/symbols/<build>/metadata/keep_on_revive.tsv` :
+    #   * le DEFAUT de `IdunBattle.Entities.Effects.BaseEffect` est **True** (`b0 01 c3` =
+    #     `mov al,1 ; ret`, 66 controles d'alignement locaux) -- donc la grande majorite des effets
+    #     SURVIT au revive, et l'ecart de port se concentre sur les rares `False` ;
+    #   * TROIS classes le renversent a `False` (`xor al,al ; ret`) : `Loki.HealingBalmsEffect`,
+    #     `Loki.PrecisionShot_AimEffect`, `Loki.RitesOfMorkai_ExtraDamageEffect` ;
+    #   * **50 classes sur 465 sont INDETERMINEES par cette voie** : leur getter lit un CHAMP
+    #     D'INSTANCE (`AStatModifierEffect` et sa descendance prennent `keepOnRevive` en argument de
+    #     `.ctor`, ecrit a `this+0x481`), donc la derivation de CONSTANTE ne conclut pas. Elle rend
+    #     `INDETERMINE`, jamais un faux `True`. Leur valeur reste LISIBLE, mais au `.ctor` de chaque
+    #     classe concrete -- c'est ce que font les rares surcharges posees dans ce port, chacune
+    #     citant le symbole du `.ctor` qu'elle a lu.
+    # (Attribut de classe SIMPLE, sans annotation : meme raison que ci-dessus.)
+    keep_on_revive = True
     # ENTITE BONDEE de CETTE instance d'effet -- mirror du champ `+0x10` du composant de bond que
     # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` ecrit sur l'entite-effet
     # (`BondEffect(id)` blueprint, puis `<composant>.BondedEntityId = param_3`), et que relit
