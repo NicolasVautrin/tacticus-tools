@@ -234,7 +234,11 @@ BattleConfiguration :
   +0x80 Units (List<UnitConfiguration> — PLAYER roster, pas AI enemies)
   +0x88 Tiles (List<BattleConfigTileConfiguration> — palette filtrée par node)
   +0xC0 StartingActions (List<IInputMessage>, JsonIgnore — built at Initialize)
-  +0xE7 RandomizeAiInput (bool)
+  # neuf booléens CONSÉCUTIFS depuis +0xE0 — cette ligne a porté « +0xE7 RandomizeAiInput »,
+  # faux d'un octet (#10022-r1). Table complète + ancres nommées : frida/hooks/features/battle-config.ts
+  +0xE0 UseGroupForAddUnit  … +0xE6 DisableActiveAbilitiesOnAI
+  +0xE7 DisableRandomness (bool)
+  +0xE8 RandomizeAiInput (bool)
 
 PredefinedUnits (per-player squad) :
   +0x10 Id (PlayerId enum int — 12 = AI standard)

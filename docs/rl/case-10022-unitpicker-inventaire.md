@@ -61,12 +61,14 @@ unite a deployer), pas le choix de l'unite qui joue.
   dont `IdunBattle.AI.OperationalDeciders.RandomGroupOperation.u003CPickNextUnitu003Ed__7$$MoveNext`
   fait `validUnits[random.<iface slot 1>(validUnits.Count)]` — **tirage uniforme, AUCUNE utilite**.
 
-⚠ **HYPOTHESE NON TRANCHEE** : la valeur de `configurationRandomizeAiInput` en bataille ordinaire.
-Elle arrive en argument d'`AiControl$$Init`, dont aucun appelant direct n'est resolu (appel
-d'interface). Tant qu'elle n'est pas mesuree, **on ne sait pas si l'etage `UnitPicker` est meme
-ACTIF** en bataille ordinaire. C'est la premiere chose a etablir avant tout port -> residu
-**#10022-r1**. Elle se lit en live (`AiControl` instance, champ `+0x70`) ou par la chaine de
-configuration.
+✅ **TRANCHE (2026-08-18, #10022-r1)** : `configurationRandomizeAiInput` = **`false`** partout ou
+une bataille se joue -> `GetAi` rend `DefaultPlayerStrategy` -> **l'etage `UnitPicker` MORD**.
+La chaine passe par `BattleConfiguration.<+0xe8>`, que `IdunBattle.Runner.IdunRunner$$Initialize`
+lit et transmet a `Init` ; le champ vient de `BaseBattleConfig.<+0x24>` par une copie directe et
+inconditionnelle de `BattleConfigBuilder$$CreateBattleConfig`. **8 call-sites de jeu lus, tous
+`0`** ; le seul `true` du binaire est dans `AutomaticTestingPvpConfigFactory$$Build` (harnais de
+test). Regime confrontable : `data/seed-bc.json` porte `RandomizeAiInput: false`, lu **par NOM**.
+Detail, table d'offsets ancree et cliquet : `docs/rl/case-10022-r1-randomize-ai-input.md`.
 
 ---
 
@@ -446,7 +448,7 @@ sans laquelle on ne sait meme pas si l'etage est actif.
 
 | # | Objet | Pourquoi separe |
 |---|---|---|
-| **#10022-r1** | Mesurer `configurationRandomizeAiInput` (`AiControl.<+0x70>`) en bataille ordinaire | **PREALABLE A TOUT** : si vrai, c'est `RandomGroupOperation` (tirage uniforme) qui decide et tout l'etage `UnitPicker` est inerte |
+| ~~**#10022-r1**~~ | ✅ **RESOLU** (`case-10022-r1-randomize-ai-input.md`) : `false` partout ou une bataille se joue, y compris sur le regime confrontable -> l'etage MORD | Restait ouvert : `#10022-r6` (offset du capteur non arme, lecture live jamais jouee) |
 | **#10022-r2** | Porter l'etage d'arbitrage `UtilityDecider` (les 4 sentinelles dans `calculate_utility`, `decide`, `calculate_utilities_for_cases`, `UtilityBucket.<+0x18>`) + les 5 utilites triviales (`Remaining`, `PreferNonBoss`, `PreferSummonsAndObjects`, `PreferAbilities`, `LastAbilities`) | Le coeur. Inclut la levee de l'incertitude §3.3 au desassemblage |
 | **#10022-r3** | Porter `UnitWithShortestPathToEnemyUtility` (72) | Le seul departage effectif du regime confrontable (§8) ; pathfinding + `OrderBy` + 2 elagages |
 | **#10022-r4** | Porter `UnitOrderUtility` (77) + `Priority` + `GetCustomUnitOrderUtility` par slot de vtable | Ferme aussi `#967-r1` ; exige le balayage par slot, pas par table (`case-170`) |
@@ -459,7 +461,8 @@ DEAD CODE mesure (§4). Les rouvrir exigerait qu'un bucket les demande, ce qu'au
 
 ## 10. Ce qui N'EST PAS couvert par cette tranche
 
-- La valeur de `configurationRandomizeAiInput` (#10022-r1) — donc **l'ACTIVITE de tout l'etage**.
+- ~~La valeur de `configurationRandomizeAiInput` (#10022-r1)~~ — **couverte depuis** :
+  `docs/rl/case-10022-r1-randomize-ai-input.md`. L'etage est ACTIF.
 - Le nom de `BaseUnitComponent.<+0x58>` (#10022-r5).
 - L'indice ecrit par la boucle du flag `bucket.<+0x18>` (§3.3) — lu en decompile, pas au
   desassemblage.
