@@ -31,6 +31,41 @@ from ..entities.pathfinding.board import adjacent_neigh_by_pos
 from ..entities.pathfinding.board import elevations_by_pos
 
 
+#: Les SLOTS d'`IdunBattle.DSL.IAmountFormula` (#920-r3). Le dispatcher natif
+#: `FUN_180025fb0(<slot>, <Il2CppClass*>, <noeud>, <entities>, <result>)` porte le mode en PREMIER
+#: argument -- rien d'autre ne distingue les trois corps.
+#: `0 IsSimple` / `1 Calculate` / `2 CalculateMin` / `3 CalculateMax` / `4 CalculateAverage`
+#: (`data/symbols/<build>/metadata/interface_slots.tsv`).
+SLOT_CALCULATE = 1
+SLOT_CALCULATE_MIN = 2
+SLOT_CALCULATE_MAX = 3
+
+
+def invoke_slot(node, ctx, slot: int):
+    """Invoque un noeud VALEUR PAR SON SLOT -- mirror du dispatcher natif (#920-r3).
+
+    C'EST LA PIECE QUI MANQUAIT, et le manque n'etait pas un arrondi : le natif parcourt l'arbre
+    DEUX FOIS (une fois en mode MIN, une fois en mode MAX), chaque parcours restant COHERENT
+    jusqu'aux feuilles. Le port faisait UN parcours et rabattait la plage sur un centre, donc le
+    mode etait PERDU des la premiere jointure composite -- bien avant tout helper scalaire.
+
+    Recensement RE-DERIVE sur le build charge (recherche litterale du dispatcher a slot 2 dans le
+    decompile, donc insensible a la dedup IL2CPP) : SEPT noeuds propagent -- `SumAmount`,
+    `MultiplyAmount`, `MultiplyPercentageRecursively`, `IdunBattle.DSL.IfAmount`,
+    `ConditionalAmount`, `CacheAmount`, `PercentageOf`. `RandomAmount` et
+    `FirstHitInCurrentAttackDamageRange` n'y sont PAS : ils COURT-CIRCUITENT (cf. leurs mirrors).
+    Les noeuds SIMPLES (`MinAmount`, `MaxAmount`, `DivideAmount`) heritent d'
+    `IdunBattle.DSL.ASimpleAmountFormula$$CalculateMin/Max`, qui repli(ent) sur `Calculate` --
+    donc le mode NE DESCEND PAS chez eux, et c'est le defaut de `AAmountFormula` ci-dessous."""
+    if node is None:
+        return None
+    if slot == SLOT_CALCULATE_MIN:
+        return node.calculate_min(ctx)
+    if slot == SLOT_CALCULATE_MAX:
+        return node.calculate_max(ctx)
+    return node.evaluate(ctx)
+
+
 # --- Bases DSL par FAMILLE (mirror 1:1 des bases abstraites natives ; une methode d'eval chacune). La
 # methode NOMMEE COMME LE NATIF est le VRAI point de surcharge de chaque noeud ; `evaluate` reste un
 # ALIAS GENERIQUE qui delegue -> les combinateurs POLY-FAMILLE (`Cache`, `Filter`, arithmetique, `Count`,

@@ -12,7 +12,8 @@ import hexgeo
 
 from .. import battle_query as _bq
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
-                        _default_get_stat, resolve_unit, _units_of, _pos, _feet)
+                        _default_get_stat, resolve_unit, _units_of, _pos, _feet,
+                        invoke_slot, SLOT_CALCULATE, SLOT_CALCULATE_MIN, SLOT_CALCULATE_MAX)
 from ..services.min_max_damage import min_max_avg
 from ..services.movement_query import get_distance
 from .active_ability_type import ActiveAbilityType
@@ -39,15 +40,31 @@ class Sum(AAmountFormula):
                  d: AAmountFormula = None, e: AAmountFormula = None):
         self.a, self.b, self.c, self.d, self.e = a, b, c, d, e
 
-    def calculate(self, ctx):
-        total = self.a.evaluate(ctx) + self.b.evaluate(ctx)   # `a` et `b` : aucun null-check natif
+    def _par_slot(self, ctx, slot):
+        """#920-r3 : `IdunBattle.Entities.Formulas.SumAmount$$CalculateMin` / `$$CalculateMax` ont
+        un corps STRICTEMENT identique a `$$Calculate` -- seul le SLOT invoque sur les enfants
+        change. UNE seule arithmetique, trois points d'entree."""
+        total = invoke_slot(self.a, ctx, slot) + invoke_slot(self.b, ctx, slot)
         for branch in (self.c, self.d, self.e):               # `if (this+0x20/0x28/0x30 != 0)`
             if branch is not None:
-                total += branch.evaluate(ctx)
+                total += invoke_slot(branch, ctx, slot)
         return total
+
+    def calculate(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE)   # `a`/`b` : aucun null-check natif
+
+    def calculate_min(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MIN)
+
+    def calculate_max(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MAX)
 
 
 class Min(AAmountFormula):
+    """`IdunBattle.Entities.Formulas.MinAmount` -- noeud **SIMPLE**
+    (`IdunBattle.DSL.ASimpleAmountFormula`), donc `CalculateMin`/`CalculateMax` repli(ent) sur
+    `Calculate` et le mode NE DESCEND PAS aux enfants (#920-r3). C'est EXACTEMENT le defaut d'
+    `AAmountFormula` : rien a surcharger ici, et c'est un RESULTAT, pas un oubli."""
     def __init__(self, a: AAmountFormula, b: AAmountFormula):
         self.a, self.b = a, b
 
@@ -56,15 +73,32 @@ class Min(AAmountFormula):
 
 
 class Multiply(AAmountFormula):
+    """`IdunBattle.Entities.Formulas.MultiplyAmount` -- noeud COMPLEXE : il PROPAGE le slot.
+    ⚠ **AUCUN CROISEMENT DE BORNES** (LU) : `CalculateMin` = min x min, `CalculateMax` = max x max,
+    naivement. Sur un facteur negatif le natif rend donc `min > max` -- a mirrorer tel quel."""
     def __init__(self, a: AAmountFormula, b: AAmountFormula):
         self.a, self.b = a, b
 
+    def _par_slot(self, ctx, slot):
+        return invoke_slot(self.a, ctx, slot) * invoke_slot(self.b, ctx, slot)
+
     def calculate(self, ctx):
-        return self.a.evaluate(ctx) * self.b.evaluate(ctx)
+        return self._par_slot(ctx, SLOT_CALCULATE)
+
+    def calculate_min(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MIN)
+
+    def calculate_max(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MAX)
 
 
 class Difference(AAmountFormula):
-    """`IdunBattleLogic.Entities.DSLFormulas$$Difference(a,b)` = `Sum(a, Multiply(b, -1))` = a - b."""
+    """`IdunBattleLogic.Entities.DSLFormulas$$Difference(a,b)` = `Sum(a, Multiply(b, -1))` = a - b.
+
+    ⚠ SON NOEUD REEL N'EST PAS LU (#920-r3 sec.3) : la fabrique n'a **aucun symbole ghidra**, ni
+    sur `rnca9r7q6c` ni sur le build charge. La forme ci-dessus vient du mirror, pas du natif --
+    donc on NE PROPAGE PAS le mode ici, faute de savoir quel noeud est alloue. Un `SumAmount` le
+    propagerait ; un noeud simple non. Residu NOMME plutot que devine."""
     def __init__(self, a: AAmountFormula, b: AAmountFormula):
         self.a, self.b = a, b
 
@@ -73,12 +107,25 @@ class Difference(AAmountFormula):
 
 
 class If(AAmountFormula):
-    """`DSLFactory.If(cond, a, b)` : `a` si `cond` (bool) sinon `b`. Évalue paresseusement la branche prise."""
+    """`IdunBattle.DSL.IfAmount` : `a` si `cond` (bool) sinon `b`. Evalue paresseusement la branche
+    prise -- et PROPAGE le slot A CETTE BRANCHE (#920-r3).
+
+    ⚠ Ce n'est donc PAS `min(then, else)` : c'est le MIN **DE LA BRANCHE PRISE**. La condition,
+    elle, passe par un AUTRE dispatcher (retour `char`) : le mode ne la concerne pas."""
     def __init__(self, cond: AAmountFormula, a: AAmountFormula, b: AAmountFormula):
         self.cond, self.a, self.b = cond, a, b
 
+    def _par_slot(self, ctx, slot):
+        return invoke_slot(self.a if self.cond.evaluate(ctx) else self.b, ctx, slot)
+
     def calculate(self, ctx):
-        return (self.a if self.cond.evaluate(ctx) else self.b).evaluate(ctx)
+        return self._par_slot(ctx, SLOT_CALCULATE)
+
+    def calculate_min(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MIN)
+
+    def calculate_max(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MAX)
 
 
 class ConditionalAmount(AAmountFormula):
@@ -88,17 +135,31 @@ class ConditionalAmount(AAmountFormula):
     on la porte sous SON nom pour que les arbres qui la citent restent des homonymes 1:1.
     Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour` (`ConditionalAmount(HasEffect(Self,
     1098 RammingSpeed_ExtraExplode), ConfigConst(1059 RammingSpeed, extraDmgPct), Get(0))`).
-    Evaluation PARESSEUSE de la branche prise (comme `If`)."""
+    Evaluation PARESSEUSE de la branche prise (comme `If`), et PROPAGATION du slot a cette
+    branche (#920-r3, meme structure qu'`IfAmount` : seul le traitement du `result` differe cote
+    natif -- il est PROPAGE ici et ZEROISE dans `IfAmount`, ce qui n'a pas d'equivalent au port)."""
     def __init__(self, cond, a: AAmountFormula, b: AAmountFormula):
         self.cond, self.a, self.b = cond, a, b
 
+    def _par_slot(self, ctx, slot):
+        return invoke_slot(self.a if self.cond.evaluate(ctx) else self.b, ctx, slot)
+
     def calculate(self, ctx):
-        return (self.a if self.cond.evaluate(ctx) else self.b).evaluate(ctx)
+        return self._par_slot(ctx, SLOT_CALCULATE)
+
+    def calculate_min(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MIN)
+
+    def calculate_max(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MAX)
 
 
 class Max(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFormulas$$Max(a,b)` : `max(a,b)` (singleton DAT_1832457c8, usage prouvé via
-    `NonLethalDamage = Min(Max(HP-1, 0), dmg)`)."""
+    `NonLethalDamage = Min(Max(HP-1, 0), dmg)`).
+
+    Noeud **SIMPLE** comme `Min` : `CalculateMin`/`CalculateMax` repli(ent) sur `Calculate`, le
+    mode ne descend PAS (#920-r3). Defaut d'`AAmountFormula` -- rien a surcharger."""
     def __init__(self, a: AAmountFormula, b: AAmountFormula):
         self.a, self.b = a, b
 
@@ -119,7 +180,12 @@ class Divide(AAmountFormula):
 
 
 class Half(AAmountFormula):
-    """`IdunBattleLogic.Entities.DSLFormulas$$Half(a,mode)` = `Divide(a, 2, mode)` — MÊME arrondi Fix64 (pas `a//2`)."""
+    """`IdunBattleLogic.Entities.DSLFormulas$$Half(a,mode)` = `Divide(a, 2, mode)` — MÊME arrondi Fix64 (pas `a//2`).
+
+    ⚠ ASYMETRIE AVEC `Double`, et elle est LUE, pas supposee (#920-r3 sec.2b) : les deux fabriques
+    allouent des classes DIFFERENTES -- `Half` un `DivideAmount` (SIMPLE, le mode NE descend PAS),
+    `Double` un `MultiplyAmount` (COMPLEXE, le mode descend). L'identite se lit au POINTEUR DE
+    CLASSE alloue, jamais au nom de la fabrique : ghidra mislabelle ces ctors gshared."""
     def __init__(self, a: AAmountFormula, mode: int = 0):
         self.a, self.mode = a, mode
 
@@ -128,33 +194,72 @@ class Half(AAmountFormula):
 
 
 class Double(AAmountFormula):
-    """`IdunBattleLogic.Entities.DSLFormulas$$Double(a)` = `Multiply(a, 2)` = `a * 2` (entier exact, sans arrondi)."""
+    """`IdunBattleLogic.Entities.DSLFormulas$$Double(a)` = `Multiply(a, 2)` = `a * 2` (entier exact, sans arrondi).
+
+    La fabrique alloue le MEME singleton de classe que `DSLFormulas$$Multiply` avec `(a, Const(2))`
+    -> c'est un `MultiplyAmount`, donc un noeud COMPLEXE : **il PROPAGE le slot** (#920-r3)."""
     def __init__(self, a: AAmountFormula):
         self.a = a
 
     def calculate(self, ctx):
         return self.a.evaluate(ctx) * 2
 
+    def calculate_min(self, ctx):
+        return invoke_slot(self.a, ctx, SLOT_CALCULATE_MIN) * 2
+
+    def calculate_max(self, ctx):
+        return invoke_slot(self.a, ctx, SLOT_CALCULATE_MAX) * 2
+
 
 class Negative(AAmountFormula):
-    """`IdunBattleLogic.Entities.DSLFormulas$$Negative(a)` = `Multiply(a, -1)` = `-a`."""
+    """`IdunBattleLogic.Entities.DSLFormulas$$Negative(a)` = `Multiply(a, -1)` = `-a`.
+
+    ⚠ LE PIEGE LE PLUS COUTEUX DE #920-r3, et il se MIRRORE, il ne se corrige pas. La fabrique
+    alloue le MEME singleton que `DSLFormulas$$Multiply`, avec `(a, <factory+0x38>)` -> un
+    `MultiplyAmount`, donc patron PROPAGATEUR **sans croisement de bornes**. Consequence :
+    `Negative(a).CalculateMin = a.CalculateMin * (-1)`, c'est-a-dire la borne **HAUTE** de `-a`.
+    Sur un `a` d'amplitude non nulle le natif rend donc `CalculateMin > CalculateMax` -- ce n'est
+    pas un bug, c'est le comportement natif, et le << reparer >> ferait diverger le port.
+    (La valeur de `<factory+0x38>` est PRESUMEE `Const(-1)`, non lue -- cf. #920-r3 sec.3.)"""
     def __init__(self, a: AAmountFormula):
         self.a = a
 
     def calculate(self, ctx):
         return -self.a.evaluate(ctx)
 
+    def calculate_min(self, ctx):
+        return -invoke_slot(self.a, ctx, SLOT_CALCULATE_MIN)
+
+    def calculate_max(self, ctx):
+        return -invoke_slot(self.a, ctx, SLOT_CALCULATE_MAX)
+
 
 class PercentageOf(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFormulas$$PercentageOf(pct, base, mode)` → `PercentageOf.Calculate IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal`
     (Fix64) : `round_mode(pct% * base)` avec arrondis intermédiaires half-to-even à 2 décimales — PAS
     `pct*base//100`. `pct` = pourcentage entier (50 = 50 %). Les arrondis à 2 décimales sont INERTES
-    pour des opérandes entières (nos cas) → `round_mode(Fraction(pct*base, 100))` fidèle."""
+    pour des opérandes entières (nos cas) → `round_mode(Fraction(pct*base, 100))` fidèle.
+
+    #920-r3 : `IdunBattle.Entities.Formulas.PercentageOf$$CalculateMin` et `$$CalculateMax` ont
+    des corps STRICTEMENT identiques a `$$Calculate` -- seul le SLOT invoque sur `this+0x10` (le
+    POURCENTAGE) et `this+0x18` (le MONTANT) change, `$$CalculateInternal` etant le MEME dans les
+    trois. RE-MESURE sur le build charge : `Calculate` -> slot 1 sur les deux enfants,
+    `CalculateMin` -> slot 2 sur les deux, `CalculateMax` -> slot 3 sur les deux."""
     def __init__(self, pct: AAmountFormula, base: AAmountFormula, mode: int = 0):
         self.pct, self.base, self.mode = pct, base, mode
 
+    def _par_slot(self, ctx, slot):
+        return _round_fix64(Fraction(invoke_slot(self.pct, ctx, slot)
+                                     * invoke_slot(self.base, ctx, slot), 100), self.mode)
+
     def calculate(self, ctx):
-        return _round_fix64(Fraction(self.pct.evaluate(ctx) * self.base.evaluate(ctx), 100), self.mode)
+        return self._par_slot(ctx, SLOT_CALCULATE)
+
+    def calculate_min(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MIN)
+
+    def calculate_max(self, ctx):
+        return self._par_slot(ctx, SLOT_CALCULATE_MAX)
 
 
 class RandomAmount(AAmountFormula):
@@ -1477,3 +1582,4 @@ class NormalAttackRange(AAmountFormula):
         if u is None or u.get("id") is None:
             return 0
         return int(fn(int(u["id"])) or 0)
+
