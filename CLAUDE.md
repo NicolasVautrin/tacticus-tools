@@ -886,6 +886,25 @@ DANS LE MÊME COMMIT.** C'est le pendant exact de la règle ci-dessus, sur l'axe
 - **Comment** : relire le littéral au décompilé (jamais le déduire du nom de l'ability ni du profil
   de dégât).
 
+### Et le TROISIÈME registre : une classe d'effet entre AVEC sa CLASSIFICATION de pose
+
+**Une classe qui entre au registre des effets pose AUSSI sa ligne de classification de pose, DANS
+LE MÊME COMMIT** — même règle que les deux ci-dessus, sur l'axe POSE.
+
+- **Pourquoi** : c'est le **seul des trois** qui n'avait aucun garde AU COMMIT, seulement un cliquet
+  qui mord APRÈS le merge — et il a mordu **deux fois** pour la même cause : `#943`, puis `#10029`
+  (2026-08-18), où **3 classes** étaient entrées sans classification. Le rapport de la seconde
+  tranche le qualifie de « récidive exacte » de la première. Comme ses deux pendants, **c'est un
+  gisement que notre propre cadence de portage alimente** : chaque classe entrée sans sa ligne le
+  rouvre, et rien ne le signale avant que quelqu'un ne joue le cliquet.
+- **Comment** : la feuille de pose se lit **au décompilé**. ⚠ Et contrairement aux inventaires
+  réparés le même jour, cette table-là **ne se dérive d'aucun consommateur** — c'est une lecture du
+  natif, donc elle reste écrite à la main, et c'est légitime. Ce qui doit être dérivé, c'est le
+  **recenseur** qui la confronte au registre.
+- ⚠ **Le cliquet qui la garde a lui-même été trouvé VERT SUR UN RECENSEMENT VIDE** (`assert not bad`
+  passait quand l'appariement ne visitait rien). Réparé en **invariant** — toute entrée de la table
+  doit s'apparier à une ligne — **pas en seuil**.
+
 !include .claude/skills/tacticus-re-port/SKILL.md
 
 ## Agents — invariants (valent AUSSI si tu es toi-même un agent qui en lance un)

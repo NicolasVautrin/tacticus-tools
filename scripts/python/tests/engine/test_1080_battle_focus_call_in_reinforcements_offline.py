@@ -408,7 +408,14 @@ def test_battle_focus_le_gate_IsActive_du_rail_TARGETS_MORD(plateau):
       3. AUCUNE instance   -> il s'arme, degradation PERMISSIVE NOMMEE, meme direction que
          `effect_triggers._ranged_auto_attack_flag_is_set`. C'est aussi le regime des autres bras
          de ce fichier, qui ne posent pas d'instance."""
-    from engine.entities.effects.loki.battle_focus import BattleFocusEffect
+    # ⚠ PAS de `from ... import BattleFocusEffect` ICI : le nom est deja lie EN TETE DE MODULE
+    # (ligne 26), et le redoubler en portee imbriquee est un OMBRAGE que garde
+    # `test_270r4r2r2r3_gardes_du_hissage_offline::test_etage6` -- il a fait passer le compte de
+    # 15 a 16 et rougir `master` au merge de #1171. Retire ICI, au merge (#10025 + #10027).
+    # ⚠ Verifie avant de retirer : la forme locale (`C`) MORD sous `monkeypatch`, la forme de tete
+    # (`A`) NON. Ce test ne substitue rien -- il construit `BattleFocusEffect` directement -- donc
+    # la suppression est sans effet de liaison. Sur un test qui PATCHERAIT ce nom, elle
+    # desarmerait le patch en silence.
 
     def _armer(active):
         st, moi = plateau()
