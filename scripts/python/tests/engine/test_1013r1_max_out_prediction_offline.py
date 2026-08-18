@@ -45,6 +45,22 @@ if str(ROOT) not in sys.path:
 from engine.services import damage_prediction as DP        # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType   # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+#: Trop LARGE est sain ; trop ETROIT est un faux vert -- le fichier ne se rejouerait pas sous
+#: `--since` quand ce qu'il garde a bouge.
+DECLENCHEUR = {
+    "chemins": (
+        # LE FOYER GARDE : `is_attack_max_out_damage` et son cablage dans `predict_attack_raw`.
+        "scripts/python/engine/services/damage_prediction.py",
+        # Le mirror d'ou vient l'ordinal 1494 assertionne a l'etage 1.
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        # Le pendant COMBAT : si la branche `wasCrit` y bougeait, la frontiere entre les deux
+        # faces bougerait aussi et ce fichier doit se rejouer.
+        "scripts/python/engine/runner/operations/damage_hits.py",
+        "scripts/python/tests/engine/test_1013r1_max_out_prediction_offline.py",
+    ),
+}
+
 
 class _Effet:
     """Le seul contrat que `is_attack_max_out_damage` lit : `getattr(e, "name", None)`."""
