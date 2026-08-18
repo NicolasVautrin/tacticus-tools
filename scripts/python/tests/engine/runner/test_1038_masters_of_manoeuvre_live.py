@@ -8,10 +8,24 @@ La face portee est celle de l'EFFET :
 `EffectBonus.ForPercentDecrease( get_OwnerIsTarget & IsRangedAttack(),
 ConfigVar(AbilityVariableType.dmgReductionPct = 0x46) )`.
 
-La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee -- son gate COMMUN porte
-`HasRarity(Actor@<DSLSelectors+0x40>, idun.meta.Rarity.Mythic = 5)`, et aucun canal du port ne
-publie `GetBaseUnitComponent(e)+0x74` (meme verrou que `#1025-r1`). C'est donc le NATIF qui pose,
-et le port qui CONSOMME l'instance captee : ce fichier verifie exactement cette jointure.
+CE QUE CE FICHIER MESURE EST LA JOINTURE << le NATIF pose, le port CONSOMME l'instance captee >> :
+le runner est REEL, donc c'est bien le natif qui evalue
+`...MastersOfManoeuvreAbility$$CreateTrigger` et pose l'effet 1510, et les crans lisent ce que le
+port en fait.
+
+⚠ L'ENONCE << la POSE n'est PAS portee, aucun canal du port ne publie
+`GetBaseUnitComponent(e)+0x74` >> qui vivait ici est **PERIME** (rectifie par #589-r2, sans
+changer un seul cran) : le verrou `HasRarity` est tombe avec le foyer `UnitContext.rarity`
+(#999-r3, capteur #1039), et la face POSE est portee depuis #999-r1
+(`runner/operations/triggers/loki/masters_of_manoeuvre.py`, deux branches au registre de
+dispatch). Les deux canaux ne font PAS double emploi et ce fichier ne les confond pas : ici le
+natif pose et le port lit ; OFFLINE, personne ne poserait sans le trigger porte.
+
+⚠ Corollaire de #589-r2, a savoir avant de reutiliser ce montage pour une question de COMPTEUR :
+`worldKharn` est un MARCHEUR et le board est `MC1_67`, donc le regime est `Walk` -- celui ou le
+rebranchement de #589 (`beeline` sur le `ConnectivityComponent`) est INERTE (0 couple divergent,
+mesure sur `C1_74` et `C3_14`). Le seuil `tilesTraversed` est bien confronte au natif ici, mais
+JAMAIS dans un regime ou le substrat du compteur mord.
 
 TROIS BRAS, et ils sont SEPARANTS (mesure, pas hypothese) :
 
