@@ -67,6 +67,7 @@ import { premiereInstance } from "./view-command.js";
 // pas re-marché ici : `deployment-draft` consomme un roster, il n'a pas à connaître la chaîne
 // qui mène à `GuildBossProgression`.
 import { rosterPooledGuildBoss, sourceGuildBossForgee } from "./guild-boss-config.js";
+import { sourceGuildWarForgee } from "./guild-war-config.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // Le MÊME message que le harnais RL applique pour chaque pose de joueur.
@@ -499,13 +500,32 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
  * la campagne pour une bataille de guild boss — exactement le vice déjà payé sur le roster
  * (impérial sur un montage PvP). Le prêteur DOIT être la source du mode monté.
  */
-type Preteur = "campagne" | "guildBoss";
+/**
+ * ⚠ `guildWar` REND LES DEUX DEFAUTS D'UN SEUL COUP, ET C'EST MESURE (2026-08-19).
+ * Sur un montage guild war, l'écran de déploiement montrait un roster VIDE **et** aucun
+ * emplacement MoW. Les deux tombent sur la même délégation :
+ *
+ *   - `GetUnitModel` — la sandbox rend un `HotseatUnitModel`, qui échoue à `IsUnlocked`. La HUD
+ *     recevait bien les 98 unités (`dernierRemplissage.ajoutes = 98`, aucune erreur) puis les
+ *     rejetait UNE PAR UNE. Le vide était donc EN AVAL du remplissage, pas dedans — et
+ *     `deploymentStartArmer` le confirmait par `tailleUnits: 0` au START.
+ *   - `GetGameModeSpecificDeploymentHudOptions` — le défaut sandbox décrit ci-dessus.
+ *     `GuildWarsGameModeSource$$GetGameModeSpecificDeploymentHudOptionsInternal` est la SEULE
+ *     lectrice de `GuildWarBattleData.RarityCap` (+0x44) : c'est elle qui pose le cap de rareté
+ *     du mode en même temps que le support MoW.
+ *
+ * La source vient de `guildWarSourceForger` — donc du MODE MONTÉ, comme cette section l'exige.
+ */
+type Preteur = "campagne" | "guildBoss" | "guildWar";
 let preteurDelegation: Preteur = "campagne";
 
 /** La source qui prête, et la CLASSE sur laquelle résoudre la méthode déléguée. */
 function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteur } {
     if (preteurDelegation === "guildBoss") {
         return { ptr: sourceGuildBossForgee(), cls: "GuildBossGameModeSource", nom: "guildBoss" };
+    }
+    if (preteurDelegation === "guildWar") {
+        return { ptr: sourceGuildWarForgee(), cls: "GuildWarsGameModeSource", nom: "guildWar" };
     }
     return { ptr: getCampaignGameModeSourcePtr(), cls: CLS_CAMP, nom: "campagne" };
 }
@@ -997,7 +1017,8 @@ function armerUneDelegation(
             if (src === null || src.isNull()) {
                 d.dernier = { ok: false, detail: `aucune source \`${p.cls}\` (prêteur `
                     + `${p.nom}) -- pour la campagne : warmup non joué ou session froide ; pour `
-                    + "le guild boss : `guildBossSourceForger` n'a pas été appelé. "
+                    + "le guild boss : `guildBossSourceForger` n'a pas été appelé ; pour le "
+                    + "guild war : `guildWarSourceForger` n'a pas été appelé. "
                     + "RIEN SUBSTITUÉ." };
                 return;
             }
@@ -1017,6 +1038,44 @@ function armerUneDelegation(
                 retval.replace(frais);
                 d.emprunts++;
                 d.dernier = { ok: true, detail: `ré-emprunt FRAIS -> ${frais}` };
+                return;
+            }
+            // GUILD WAR : même traitement que le guild boss, et pour la MÊME raison.
+            // ⚠ `GetUnitsForDeploymentHUD` rend un `PooledList<T>`, TYPE VALEUR :
+            // `il2cpp_runtime_invoke` le BOXE, donc le chemin générique plus bas substituait la
+            // BOÎTE là où l'appelant attend la structure. Symptôme mesuré le 2026-08-19 : la
+            // délégation rapportait `fires=4, emprunts=4, ok:true` et la HUD affichait
+            // `allUnitModels: 0` -- un succès apparent, roster vide à l'écran. La valeur vit à
+            // `+0x10` (cf. `rosterFraisGuildBoss`, même correctif).
+            if (spec.nom === METHODE && p.nom === "guildWar") {
+                let b: NativePointer;
+                try { b = invokeMethod(mc.info, src, []) as NativePointer; }
+                catch (e) {
+                    d.dernier = { ok: false,
+                        detail: "délégation guild war a levé : " + (e as Error).message };
+                    return;
+                }
+                if (b === null || b.isNull()) {
+                    d.dernier = { ok: false, detail: "la source guild war a rendu NUL" };
+                    return;
+                }
+                gcRoot.add(b);
+                let deboxe: NativePointer;
+                try { deboxe = b.add(0x10).readPointer(); }
+                catch (e) {
+                    d.dernier = { ok: false,
+                        detail: "déboxage illisible : " + (e as Error).message };
+                    return;
+                }
+                if (deboxe.isNull()) {
+                    d.dernier = { ok: false, detail: "`PooledList` déboxée NULLE -- rien "
+                        + "substitué (mieux vaut le roster natif qu'une liste vide)" };
+                    return;
+                }
+                gcRoot.add(deboxe);
+                retval.replace(deboxe);
+                d.emprunts++;
+                d.dernier = { ok: true, detail: `guild war DÉBOXÉ ${b} -> ${deboxe}` };
                 return;
             }
             if (preEmprunt !== null && spec.nom === METHODE) {
