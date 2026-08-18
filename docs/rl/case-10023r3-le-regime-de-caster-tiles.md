@@ -83,6 +83,20 @@ recensées.
 **La face DÉCISION aussi** : `playbook/noncomparable/the_lantern.py::_ring` excluait `feet[:1]`.
 #10023 avait aligné la face COMBAT sur elle ; il fallait l'inverse.
 
+## 3bis. Le probe est un CLIQUET, et il a fallu le rendre tel
+
+Écrit comme un simple relevé du NATIF, `probe_10023r3_caster_tiles_regime_live.py` rendait **ROUGE
+quel que soit l'état du port** — y compris après l'avoir corrigé. Un cliquet qui reste rouge sur du
+code juste se fait désarmer. Il confronte donc d'abord l'aire du **MIRROR**
+(`the_lantern_area_selector` évalué sur l'état live rejoué offline) à celle du natif ; la
+ventilation A/B reste comme **diagnostic** du régime.
+
+- **VERT mesuré** : mirror = natif = les mêmes **9** tuiles.
+- **CONTRE-ÉPREUVE REJOUABLE** (`--muter-port`, qui remet `_origin_tiles(…)[:1]`) : le mirror rend
+  **10** tuiles, `port\natif = [(3,8)]` → **rc 1**. Le cliquet mord exactement sur la faute qu'il
+  garde. La mutation patche les **DEUX** liaisons (`accessors.py` importe `_main_tiles` en forme A,
+  donc patcher le seul foyer laisserait le call-site intact et la contre-épreuve serait vacante).
+
 ## 4. Ce qu'aucun cliquet ne pouvait voir
 
 `probe_10023r1` étage 4 assertionnait « UNE SEULE tuile retranchée » et il était **VERT** — l'oracle

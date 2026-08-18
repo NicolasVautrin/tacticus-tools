@@ -86,9 +86,16 @@ Usage (session Frida deja warmee ; le probe dispose SES runners, jamais ceux des
 
     python probe_10023r3_caster_tiles_regime_live.py [--seed 777] [--board GB_Mortarion_05]
 
-rc 0 = un regime est etabli ET le mirror le porte ; rc 1 = le mirror porte le MAUVAIS regime, ou
-aucune cible discriminante, ou le controle d'occupation invalide la mesure ; rc 2 = PAS MESURE
-(session/host/montage indisponible -- jamais rabattu sur un vert). Sortie ASCII only (cp1252).
+CE PROBE EST UN CLIQUET, PAS UN RELEVE -- et la difference n'est pas cosmetique. Ecrit comme une
+simple mesure du NATIF, il rendait ROUGE quel que soit l'etat du port, **y compris apres l'avoir
+corrige** : un cliquet qui reste rouge sur du code juste se fait desarmer. Il confronte donc
+d'abord l'aire du **MIRROR** (`the_lantern_area_selector` evalue sur l'etat live rejoue offline) a
+celle du natif, et la ventilation A/B reste comme DIAGNOSTIC du regime.
+
+rc 0 = le mirror rend l'aire du natif, ET c'est bien le regime « empreinte retranchee » ;
+rc 1 = le mirror diverge, ou le natif a change de regime, ou aucune cible discriminante, ou le
+controle d'occupation invalide la mesure ; rc 2 = PAS MESURE (session/host/montage indisponible --
+jamais rabattu sur un vert). Sortie ASCII only (cp1252).
 """
 from __future__ import annotations
 
@@ -300,6 +307,37 @@ def ecart_des_deux_regimes(feet: list, main: tuple, cible: tuple) -> list:
     return sorted(p for p in feet if p != main and hexgeo.distance(p, cible) == 2)
 
 
+def aire_du_mirror(sid, rid, board: Board, boss_id: int, cible):
+    """La zone que rend LE PORT, sur l'etat LIVE rejoue offline -- `the_lantern_area_selector`,
+    c'est-a-dire le mirror de `TheLanternAbility$$ExecuteBehaviour`.
+
+    C'est ce qui fait de ce probe un CLIQUET et pas un simple releve : sans lui il mesurerait le
+    natif et rendrait ROUGE quel que soit l'etat du port -- y compris apres l'avoir CORRIGE. Rend
+    `None` si l'etat ne se rejoue pas (jamais une liste vide, qui se lirait comme un desaccord)."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.abilities.deathguard import the_lantern_area_selector
+    tid = board.id_at(int(cible[0]), int(cible[1]))
+    if tid is None:
+        return None
+    dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob = _r(sid, "observeBattle", {"runnerId": rid}, 90)
+    snap = _r(sid, "combatSnapshot", {"runnerId": rid}, 90)
+    try:
+        st = load_state(dv, ob, snap, board=board)
+        ids = set(the_lantern_area_selector(int(tid))
+                  .evaluate(entities_from_state(st, int(boss_id), int(tid))))
+    except Exception as exc:                                       # noqa: BLE001
+        print("[10023-r3-live] le mirror n'a pas pu etre evalue (%s)" % exc)
+        return None
+    out = []
+    for t in ids:
+        c = board.coord(int(t))
+        if c is not None:
+            out.append((int(c[0]), int(c[1])))
+    return sorted(out)
+
+
 def caster_et_lire(sid, rid, board, boss_id, cible):
     """Cast tile-target + delta des tuiles marquees. Rend `(neuves, ok, avant, apres)`."""
     avant = tuiles_marquees(sid, rid, board)
@@ -369,8 +407,9 @@ def un_bras(sid, seed, board_id, tag, a_place=None, cible_imposee=None, occuper=
         ec = ecart_des_deux_regimes(feet, main, cible)
         passe = _filtres(sid, rid, board)
         aire_a, aire_b = aires_predites(feet, main, cible, passe)
+        aire_port = aire_du_mirror(sid, rid, board, boss["id"], cible)
         neuves, ok, _av, _ap = caster_et_lire(sid, rid, board, boss["id"], cible)
-        return {"aire_a": sorted(aire_a), "aire_b": sorted(aire_b),
+        return {"aire_a": sorted(aire_a), "aire_b": sorted(aire_b), "aire_port": aire_port,
                 "rid": rid, "board": board, "boss": boss["id"], "feet": feet, "main": main,
                 "occupant": occupant, "occupees": sorted(p for p in etat_tuiles if p),
                 "cibles": cibles, "cible": cible, "ecart": ec,
@@ -389,7 +428,26 @@ def main(argv=None) -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--sans-controle", action="store_true",
                     help="ne joue QUE le bras de reference (debug ; le verdict reste SUSPENDU)")
+    ap.add_argument("--muter-port", action="store_true",
+                    help="CONTRE-EPREUVE : remet le port D'AVANT (`_origin_tiles(...)[:1]`, UNE "
+                         "seule tuile retranchee). On ATTEND rc 1 -- un vert ici voudrait dire "
+                         "que ce cliquet ne mord pas sur la faute qu'il est cense garder.")
     a = ap.parse_args(argv)
+
+    if a.muter_port:
+        #: On substitue sur les DEUX liaisons : `accessors.py` importe `_main_tiles` en FORME A,
+        #: donc patcher la seule liaison du foyer laisserait le call-site INTACT (doctrine
+        #: « HISSER, OUI -- MAIS EN FORME B »), et la contre-epreuve serait vacue.
+        import engine.dsl.base as _B
+        import engine.entities.selectors.accessors as _A
+
+        def _port_d_avant(origin, board=None, units=None, only_units=True):
+            return _B._origin_tiles(origin, board)[:1]
+
+        _B._main_tiles = _port_d_avant
+        _A._main_tiles = _port_d_avant
+        assert _A._main_tiles is _port_d_avant, "la mutation n'a pas mordu sur accessors"
+        print("[10023-r3-live] CONTRE-EPREUVE ARMEE : port d'avant (`[:1]`). rc 1 ATTENDU.")
 
     try:
         sid = _resolve_session()
@@ -432,6 +490,20 @@ def main(argv=None) -> int:
         return 2
 
     marquees = set(ref["neuves"])
+    # ---------------------------------------------------------------- LE CLIQUET : port vs natif
+    print("[10023-r3-live] [ref] aire du MIRROR (`the_lantern_area_selector`, %s) : %s"
+          % ("None" if ref["aire_port"] is None else len(ref["aire_port"]), ref["aire_port"]))
+    if ref["aire_port"] is None:
+        print("[10023-r3-live] NON MESURE : le mirror n'a pas pu etre evalue sur l'etat rejoue -- "
+              "ce probe ne peut pas confronter le port. -- rc 2")
+        return 2
+    if set(ref["aire_port"]) != marquees:
+        print("[10023-r3-live] ROUGE : le MIRROR ne rend PAS l'aire du natif. "
+              "port\\natif=%s natif\\port=%s"
+              % (sorted(set(ref["aire_port"]) - marquees),
+                 sorted(marquees - set(ref["aire_port"]))))
+        return 1
+
     # DECOMPOSITION PAR ETAGE : on confronte l'AIRE ENTIERE aux deux predictions, pas une tuile.
     # Un desaccord sur une seule tuile pourrait tenir a un troisieme etage mal lu ; un accord
     # EXACT sur l'aire complete ne le peut pas.
@@ -460,11 +532,12 @@ def main(argv=None) -> int:
 
     if len(portes) == len(ref["ecart"]):
         print("")
-        print("[10023-r3-live] VERT : les %d pied(s) non-main a distance 2 SONT dans l'aire "
-              "marquee => `Tiles(CasterTiles)` ne retranche QUE la main tile => "
-              "`CasterTiles.ReturnsOnlyUnits == FAUX`. C'est EXACTEMENT le regime que porte "
-              "`engine/dsl/base.py::_main_tiles` : #10023 est CONFRONTE LIVE." % len(ref["ecart"]))
-        return 0
+        print("[10023-r3-live] ROUGE : les %d pied(s) non-main a distance 2 SONT dans l'aire "
+              "marquee => `Tiles(CasterTiles)` ne retrancherait QUE la main tile => "
+              "`CasterTiles.ReturnsOnlyUnits == FAUX`. C'est l'INVERSE de ce que #10023-r3 a "
+              "mesure ; le mirror, lui, retranche l'empreinte entiere. Re-examiner."
+              % len(ref["ecart"]))
+        return 1
     if portes:
         print("")
         print("[10023-r3-live] ROUGE : verdict MIXTE (%d/%d pieds marques) -- ni l'un ni l'autre "
@@ -516,12 +589,12 @@ def main(argv=None) -> int:
               "call-site ou l'origine multi-tuile n'est pas occupee par son propre caster.")
         return 1
     print("")
-    print("[10023-r3-live] ROUGE : une tuile OCCUPEE reste dans l'aire (controle), donc "
-          "l'occupation ne filtre pas ; et AUCUN des %d pied(s) non-main a distance 2 n'y est. "
-          "=> `Tiles(CasterTiles)` retranche TOUTE l'empreinte => "
-          "`CasterTiles.ReturnsOnlyUnits == VRAI`. Le mirror actuel ne retranche QU'UNE tuile : "
-          "il est FAUX sur ce call-site." % len(ref["ecart"]))
-    return 1
+    print("[10023-r3-live] VERT : (1) le MIRROR rend EXACTEMENT l'aire du natif ; (2) une tuile "
+          "OCCUPEE reste dans l'aire (controle), donc l'occupation ne filtre pas ; (3) AUCUN des "
+          "%d pied(s) non-main a distance 2 n'y est. => `Tiles(CasterTiles)` retranche TOUTE "
+          "l'empreinte => `CasterTiles.ReturnsOnlyUnits == VRAI`, et c'est ce que le port porte "
+          "depuis #10023-r3. **#10023 est CONFRONTE LIVE.**" % len(ref["ecart"]))
+    return 0
 
 
 if __name__ == "__main__":
