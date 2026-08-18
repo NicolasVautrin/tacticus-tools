@@ -119,10 +119,25 @@ def as_unit_position(value) -> list:
         emballe ainsi (`return +0x48 != 0 ? +0x48 : new UnitPosition(+0x40)`) ;
       * une SEQUENCE de tuiles -> l'empreinte telle quelle (`EntityExtensions$$GetTiles`) ;
       * `None` / vide -> `[]`, soit `UnitPosition$$NullPosition`.
-    Le discriminant est le PREMIER element : un scalaire numerique -> c'est une tuile ; une
-    sequence -> c'est une empreinte. Aucune autre forme n'est acceptee (elle sortirait `[]`)."""
+    Le discriminant est le PREMIER element : un scalaire numerique -> c'est une tuile ; autre chose
+    -> c'est une empreinte. Aucune autre forme n'est acceptee.
+
+    ⚠ **DEUX FORMES DE TUILE, ET C'EST LU AU PRODUCTEUR, PAS SUPPOSE** -- exactement le meme piege
+    que celui qui a fait LEVER `dsl/base.py::_feet` (`KeyError: 0`) quand le capteur `#419-r1-tr10-r2`
+    a ouvert le canal DECISION :
+      * face COMBAT (`runner.components.get_unit_feet`) -> des COUPLES `(col, row)` ;
+      * face DECISION (`decisionView.units[].feet`, `projection.ts::readEntityFeet`) -> des DICTS
+        `{"col", "row"}`, la forme de `readTileCoord`.
+    Les deux sont normalisees ici. Une forme INCONNUE est **SAUTEE**, jamais devinee : sans ce
+    refus, `list("ab")` fabriquerait la tuile `('a', 'b')` -- un couple parfaitement plausible qui
+    ne designe rien, donc un faux silencieux, la faute meme que ce module interdit ailleurs."""
     if value is None:
         return []
+    if isinstance(value, dict):                      # une TUILE dict, pas une empreinte
+        t = _tuile(value)
+        return [] if t is None else [t]
+    if isinstance(value, (str, bytes)):
+        return []                                    # jamais une tuile ni une empreinte
     try:
         items = list(value)
     except TypeError:
@@ -131,18 +146,40 @@ def as_unit_position(value) -> list:
         return []                       # `UnitPosition$$NullPosition` : liste VIDE
     head = items[0]
     if isinstance(head, (int, float)) and not isinstance(head, bool):
-        return [(items[0], items[1])] if len(items) >= 2 else []   # `.ctor(tile)`
+        t = _tuile(items)                            # `.ctor(tile)` : UNE tuile `(col, row)`
+        return [] if t is None else [t]
     out = []
-    for t in items:
-        if t is None:
+    for brut in items:
+        if brut is None:
             continue                    # `.ctor` n'ajoute pas une tuile nulle
-        try:
-            seq = list(t)
-        except TypeError:
-            continue
-        if len(seq) >= 2:
-            out.append((seq[0], seq[1]))
+        t = _tuile(brut)
+        if t is not None:
+            out.append(t)
     return out
+
+
+def _tuile(brut):
+    """UNE tuile, sous l'une des deux formes que le port produit -> `(col, row)`, ou `None`.
+
+    `None` est un REFUS, jamais un `(0, 0)` de repli : une tuile inventee ferait accorder ou
+    refuser une adjacence sur une position qui n'existe pas."""
+    if isinstance(brut, dict):
+        c, r = brut.get("col"), brut.get("row")
+        return None if c is None or r is None else (int(c), int(r))
+    if isinstance(brut, (str, bytes)):
+        return None
+    try:
+        seq = list(brut)
+    except TypeError:
+        return None
+    if len(seq) < 2:
+        return None
+    a, b = seq[0], seq[1]
+    if isinstance(a, bool) or isinstance(b, bool):
+        return None
+    if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+        return None
+    return (a, b)
 
 
 def are_entities_adjacent(feet_a, feet_b, board=None, elev_by_pos=None, neigh_by_pos=None) -> bool:

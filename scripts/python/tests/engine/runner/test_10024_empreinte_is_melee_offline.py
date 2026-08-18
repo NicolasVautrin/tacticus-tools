@@ -123,6 +123,26 @@ def test_etage1_une_tuile_nulle_nest_pas_ajoutee():
     assert SBQ.as_unit_position([(0, 1), None, (0, 2)]) == [(0, 1), (0, 2)]
 
 
+@pytest.mark.parametrize("entree,attendu", [
+    # les DEUX formes de tuile que le port produit -- COUPLE (face COMBAT,
+    # `runner.components.get_unit_feet`) et DICT (face DECISION, `decisionView.units[].feet`,
+    # forme de `readTileCoord`). C'est la seconde qui avait fait LEVER `dsl/base.py::_feet`
+    # (`KeyError: 0`) quand le capteur `#419-r1-tr10-r2` a ouvert le canal.
+    ({"col": 1, "row": 2}, [(1, 2)]),
+    ([{"col": 1, "row": 2}, {"col": 1, "row": 3}], [(1, 2), (1, 3)]),
+    # une forme INCONNUE est SAUTEE, jamais devinee : sans ce refus, `list("ab")` fabriquerait la
+    # tuile `('a', 'b')` -- un couple plausible qui ne designe rien.
+    ("ab", []),
+    (["ab", "cd"], []),
+    ([(0, 1), "ab", (0, 2)], [(0, 1), (0, 2)]),
+    ({"col": None, "row": 2}, []),
+    ([True, False], []),                  # un bool n'est pas une coordonnee
+    ((0,), []),                           # un couple incomplet n'est pas une tuile
+])
+def test_etage1_les_formes_de_tuile_et_les_refus(entree, attendu):
+    assert SBQ.as_unit_position(entree) == attendu
+
+
 # --------------------------------------------------------------------------------------------
 # ETAGE 2 -- les TROIS slots freres lisent l'EMPREINTE, avec la contre-epreuve MAIN TILE.
 # --------------------------------------------------------------------------------------------
