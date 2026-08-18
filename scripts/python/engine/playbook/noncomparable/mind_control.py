@@ -41,14 +41,25 @@ class MindControlPlaybook(_PlanTargetPlaybook):
     les TAUNTEURS (nos allies adjacents a la cible) par PV. Les confondre donnerait une decision
     qui a l'air juste et vise la mauvaise unite.
 
-    PAS DE `should_evaluate` PORTE, et c'est une LECTURE, pas un oubli : `MindControlPlaybook`
-    n'expose que trois corps (`.ctor`, `.cctor`, `EvaluateNonComparable`) dans les DEUX tables
-    (`frida/methods.tsv`, `ghidra/functions.tsv`). L'absence dans les tables ne PROUVE pas l'absence
-    de surcharge (dedup de corps triviaux) -- c'est exactement ainsi que le slot 4 de
-    `VexillaMagnificaPlaybook` avait ete rate puis retrouve LIVE (#46). Le defaut de base
-    (`BasePlaybook$$ShouldEvaluate` = `GetUseProbability >= 1` = True constant) est donc ce que le
-    port rend, et le residu `#552-r3` nomme la mesure qui manque : lire le slot 4 de la vtable de
-    ce playbook en live (`BLOCAGE: capteur`).
+    PAS DE `should_evaluate` PORTE, ET C'EST DESORMAIS MESURE -- `#552-r3` EST FERME.
+    L'argument qui vivait ici etait une NON-PREUVE, et il le disait : << trois corps seulement dans
+    les DEUX tables >>, alors que ces tables sont indexees par ADRESSE et qu'IL2CPP DEDUPLIQUE les
+    corps -- c'est exactement ainsi que le slot 4 de `VexillaMagnificaPlaybook` avait ete rate puis
+    retrouve LIVE (#46). La fiche demandait donc une mesure de vtable en live.
+
+    Elle n'etait pas necessaire : `global-metadata.dat` ne decrit pas des CORPS mais des
+    DEFINITIONS (`Il2CppTypeDefinition.methodStart` / `methodCount`), donc la deduplication -- un
+    phenomene du LINKER, posterieur -- ne peut rien y effacer. Mesure (`probe_552r3_slot4_declare`,
+    build `t6dpr4k06g`) : `IdunBattle.AI.Playbook.Loki.MindControlPlaybook` DECLARE exactement
+    `{.ctor, .cctor, EvaluateNonComparable}` -- **ni `ShouldEvaluate`, ni `GetUseProbability`**.
+    Le slot 4 est donc `BasePlaybook$$ShouldEvaluate` (= `GetUseProbability >= 1` = True constant),
+    et c'est ce que le port rend.
+
+    ⚠ Le critere est BILATERAL et son temoin est NON VIDE : il reproduit HUIT verdicts etablis par
+    ailleurs, 4 surchargeants (`VexillaMagnifica` -- le cas #46 lui-meme --, `HammerOfWrath`,
+    `AlphaWarrior`, `NovaCharge`) et 4 non (`EuphoricStrikes` -- mesure LIVE `pbGate` de #974 --,
+    `BlackRage`, `ItItches`, `Waaagh`). Un critere qui rendrait toujours << pas de surcharge >>
+    aurait donne la meme reponse ici et serait entierement faux ; l'etage 1 du probe le refuse.
 
     `PRIORITY` reste au defaut `0` (`AbilityPriority.Normal`) : 1164 est ABSENTE de la table mesuree
     `NATIVE_PRIORITY` (22 entrees), donc `native_priority(1164)` rendrait `0` de toute facon --

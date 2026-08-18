@@ -7,7 +7,11 @@ from engine.ai.utilities import get_movement_utility
 from engine.utilities.utility_type import UtilityType
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, eligible_target_tiles, native_priority
+from ._base import (NCContext, NonComparablePlaybook, eligible_target_tiles,
+                    has_minimum_remaining_turns, native_priority, probability_gate)
+
+#: Le litteral `2` du call-site `HasMinimumRemainingTurns(unit, 2)` -- le MEME que 1192 et 1193.
+_MIN_REMAINING_TURNS = 2
 
 
 class NovaShieldPlaybook(NonComparablePlaybook):
@@ -60,6 +64,30 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     ABILITY_ID = int(ActiveAbilityType.NovaShield)  # 1194
     MIN_UTILITY = 1.0
     PRIORITY = native_priority(int(ActiveAbilityType.NovaShield))   # -1000 = AbilityPriority.Last (surcharge mesuree, #170)
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """`...NovaShieldPlaybook$$ShouldEvaluate(unit)` -- la classe SURCHARGE le slot 4 :
+
+            if (!<IBattleQuery slot 0x1b = 27 = HasMinimumRemainingTurns>(unit, 2))  return false;
+            return BasePlaybook$$ShouldEvaluate(unit);
+
+        ⚠ **CE GATE ETAIT NON PORTE, ET SON ABSENCE EST PERMISSIVE** (le port proposait 1194 dans
+        le dernier tour, la ou le natif la saute) -- donc invisible en self-play. Il a ete trouve
+        par `probe_552r3_slot4_declare` : la metadata DECLARE `ShouldEvaluate` sur cette classe,
+        alors que le port ne surchargeait rien. C'est la signature exacte de #46.
+
+        Le slot est RESOLU, pas suppose : `data/symbols/<build>/metadata/interface_slots.tsv` donne
+        `IBattleQuery 27 HasMinimumRemainingTurns 2 params`, et l'arite concorde avec les DEUX
+        arguments du call-site (`unit`, `2`). La note qui vivait dans ce module citait un slot
+        `0x1a` et l'appelait << precondition Nova, prob. charge >> : c'etait une SUPPOSITION, et
+        `0x1a` = 26 = `ShouldPlayerSkipTurn`, qui ne prend qu'UN parametre.
+
+        CORROBORATION INDEPENDANTE : `NovaBoostPlaybook$$ShouldEvaluate` (1192) et
+        `NovaChargePlaybook$$ShouldEvaluate` (1193, deja porte par #1032-r1) ont le corps
+        IDENTIQUE, avec le MEME litteral `2` -- trois abilities du meme kit Riptide."""
+        if not has_minimum_remaining_turns(ctx, _MIN_REMAINING_TURNS):
+            return False
+        return probability_gate(self.use_probability(ctx))    # `BasePlaybook$$ShouldEvaluate`
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         from_here, union = eligible_target_tiles(ctx, self.ABILITY_ID)
