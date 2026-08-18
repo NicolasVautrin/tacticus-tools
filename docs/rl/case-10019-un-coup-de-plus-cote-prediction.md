@@ -189,7 +189,28 @@ dont un étage de PÉREMPTION qui relit la signature de `Create` dans `frida/met
 fait foi. Quatre mutants joués, quatre mordent : `is_prediction` non threadé, gate de face retiré
 (fuite vers le combat), face aura muette, gate dé-factorisé.
 
-**Ce qui n'est PAS couvert** : la confrontation LIVE. Le pool de runners était saturé (`runner cap
-reached (50)`, deux fois à 40 min d'écart, aucun runner à moi) — ni fenêtre DRAIN, ni porteur non
-confrontable : **NON CONFRONTÉ — pool saturé**. Le montage exact des deux bras est écrit dans
-`#10019-r3`.
+### La MESURE — bras `AstartesBanner`, contrefactuel CAUSAL
+
+`probe_10019r2_prediction_hits_live.py --runner <id>` (runner `1166`, `MC1_67`, seed 777,
+`templAncient` + `ultraApothecary` vs `bloodSanguinary`). Un seul axe varie : **la position du
+porteur** autour de son rayon 2. L'attaquant ne bouge pas, la cible non plus, l'ability est la même.
+
+| porteur | `appliedHits` | `healthDmg` |
+|---|---|---|
+| à **3 hex** (hors rayon) | **1** | `[3694, 5540]` |
+| à **2 hex** (dans le rayon) | **2** | `[7388, 11080]` |
+
+Rapport **×2.0000 exact sur les DEUX bornes** = `(h+1)/h` pour `h = 1`. Ce sont **les mêmes six
+nombres** que la contre-épreuve causale de `#10019` sur `MasterAnnihilator` : la face PRÉDICTION
+compte bien le coup, et il vaut un coup d'ARME.
+
+**Le port en est la cause, et c'est mesuré aussi.** `engine_agreement_stages --runner 1166
+--steps 6` : prédiction **5/5 = 100 %**, `mismatch-logic = 0`. Le même run avec
+`create_aura_hits_bonus_for_attack` neutralisée : **5/6 = 83 %**, `mismatch-logic = 1`. L'accord
+n'est donc pas dégénéré — il tient à ce port-ci.
+
+**Ce qui n'est PAS couvert** : le bras `LetTheGalaxyBurn` (branche B, cible sur une tuile portant un
+status-effect). Le mécanisme est le même corps partagé, mais SON gate n'a pas été confronté.
+Substrat vérifié présent : `playbook/prediction/normal_attack.py` publie bien
+`tile_effects_by_pos` dans le board de prédiction, donc la branche B est évaluable — le port n'est
+pas inerte. Résidu `#10019-r3`, montage écrit.
