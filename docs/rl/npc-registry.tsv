@@ -1420,7 +1420,7 @@ orksNpcWarbossSurv	Orks	Xenos	None	trait	BigTarget		1
 orksNpcWarbossSurv	Orks	Xenos	None	trait	CrushingStrike		1	
 orksNpcWarbossSurv	Orks	Xenos	None	trait	FinalJustice		1	
 orksNpcWarbossSurv	Orks	Xenos	None	trait	Mechanical		1	
-orksRedGobbo	Orks	Xenos	None	active	ExplosivePresents	1170	1	0
+orksRedGobbo	Orks	Xenos	None	active	ExplosivePresents	1170	1	1
 orksRedGobbo	Orks	Xenos	None	passif	DaRevolushun		0	
 orksRedGobbo	Orks	Xenos	None	trait	Hero		1	
 orksRedGobbo	Orks	Xenos	None	trait	Resilient		1	

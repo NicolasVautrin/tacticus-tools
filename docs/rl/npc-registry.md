@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **461** ; kits avec du travail : **30**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **11** · `[CD]` **135**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **10** · `[CD]` **136**
 - Passifs distincts : **177** — portes **143**, non portes **34**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -86,13 +86,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (11)
+## Faces DECISION ouvertes sur des actives EXECUTEES (10)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `CallRipperSwarms`, `Catalyst`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -467,7 +467,7 @@ sont des **faces** absentes d'items presents.
 | orksNpc1Grot | 1 | - | PileIn | - | - |
 | orksNpc7Squig | 1 | - | Bounce | - | - |
 | orksNpc7SquigSurv | 1 | - | Bounce | - | - |
-| orksRedGobbo | 1 | ExplosivePresents(1170)[C-] | DaRevolushun | - | - |
+| orksRedGobbo | 1 | ExplosivePresents(1170)[CD] | DaRevolushun | - | - |
 | orksBossBigMek | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
 | orksBossBigMekLEG | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
 | orksBossBigMekLHE | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
