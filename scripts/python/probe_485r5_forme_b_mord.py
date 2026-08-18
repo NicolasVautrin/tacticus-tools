@@ -49,6 +49,26 @@ if str(ICI) not in sys.path:
 
 EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r19).
+#: POSE AU MERGE : ce probe est entre par #485-r5 (PR #1172) et inscrit a `ratchets.ps1` dans le
+#: meme commit -- mais sans declaration, donc `test_486r19_declencheur_par_entree_offline` a rendu
+#: `master` ROUGE au merge. C'est la MEME forme que l'ombrage de #1171 : une entree au registre
+#: sans la donnee que ce registre exige.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_485r5_forme_b_mord.py",
+                "scripts/python/engine/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Il IMPORTE les quatre modules PORTEURS du registre `SITES` et relit leur source en AST "
+        "pour y verifier la FORME de la liaison -- donc tout `engine/**` qui porte ou porterait un "
+        "hissage le concerne, et son propre source porte le registre. Il ne lit NI le binaire, NI "
+        "`data/symbols/**`, NI le gameconfig (`build: False` est un resultat, pas un aveu) : son "
+        "etape 0 fabrique ses deux formes temoins dans un paquet JETABLE sous `tempfile`, hors du "
+        "depot. `toujours: False` parce que le perimetre est reellement clos par ces deux globs."
+    ),
+}
+
 #: Les quatre sites hisses par #485-r5.
 #:   (module PORTEUR, nom de la LIAISON de module, module CIBLE, symbole CONSOMME)
 #: Le symbole consomme est celui que le corps lit a travers la liaison -- c'est LUI qu'une forme A
