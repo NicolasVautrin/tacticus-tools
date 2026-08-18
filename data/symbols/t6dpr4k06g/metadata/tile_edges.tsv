@@ -1,0 +1,74 @@
+# Masque d'aretes par (TileId, Rotation, ForceUnplayable) -- build t6dpr4k06g.
+# DERIVE par INVERSION du champ `connectivity` du `boardGraph` de 17 board(s) : C1_37, C2_02, C3_47, C3_51, C3_67, C4_33, C6_06, CE2_06, CE3_01, EMC4_02, GB_Belisarius_support_04, GB_Mortarion_support_03, LHE_Desert_03, SyncPvp_Craftworld_01, Waves_Imperial_13, Waves_Xenos_13, survival_12
+# Ce que le natif en fait : `IdunBattle.Operations.InitializeConnectivityOperation$$Execute`
+# relie deux tuiles voisines ssi CHACUNE porte l'arete vers l'autre
+# (`IdunBattle.Entities.Components.TileComponent$$HasEdge`, opposee = `(edge + 3) % 6`).
+# Directions ABSOLUES even-q, index i oppose a (i+3)%6 : N NE SE S SW NW
+# BORNE INFERIEURE : une arete que la capture n'a jamais vue des DEUX cotes n'y est pas.
+# Regenerer : python scripts/python/probe_589r2r1_beeline_sans_chemin.py --only MASQUES --regenerer
+# `walkable` est LU tel quel par tuile (pas une borne) ; il est ici parce que le meme
+# couple (TileId, ForceUnplayable) le determine -- verifie FONCTION sur les captures.
+#tileId	rotation	unplayable	directions	walkable
+Block	0	0	N,NE,SE,S,SW,NW	0
+Block	0	1	N,NE,SE,S,SW,NW	0
+Block	1	0	N,NE,SE,S,SW,NW	0
+Block	1	1	N,NE,SE,S,SW,NW	0
+Block	2	0	N,NE,SE,S,SW,NW	0
+Block	2	1	N,NE,SE,S,SW,NW	0
+Block	3	0	N,NE,SE,S,SW,NW	0
+Block	3	1	N,NE,SE,S,SW,NW	0
+Block	4	0	N,NE,SE,S,SW,NW	0
+Block	4	1	N,NE,SE,S,SW,NW	0
+Block	5	0	N,NE,SE,S,SW,NW	0
+Block	5	1	N,NE,SE,S,SW,NW	0
+Bridge	0	0	NE,SW	1
+Bridge	1	0	SE,NW	1
+Bridge	2	0	N,S	1
+Bridge	2	1	N,NE,SE,S,SW,NW	0
+Bridge	3	0	NE,SW	1
+Bridge	4	0	SE,NW	1
+Bridge	5	0	N,S	1
+Bridge	5	1	N,NE,SE,S,SW,NW	0
+BrokenIce	0	0	N,NE,SE,S,SW,NW	1
+BrokenIce	0	1	N,NE,SE,S,SW,NW	0
+DryBush	0	0	N,NE,SE,S,SW,NW	1
+DryBush	0	1	N,NE,NW	0
+DryBush	1	0	N,NE,SE,S,SW,NW	1
+DryBush	2	0	N,NE,SE,S,SW,NW	1
+DryBush	3	0	N,NE,SE,S,SW,NW	1
+DryBush	4	0	N,NE,SE,S,SW,NW	1
+DryBush	5	0	N,NE,SE,S,SW,NW	1
+FirstAid	0	0	N,NE,SE,S,SW,NW	1
+FirstAid	4	0	N,NE,SE,S,SW,NW	1
+FirstAid	5	0	N,NE,SE,S,SW,NW	1
+Grass	0	0	N,NE,SE,S,SW,NW	1
+Grass	0	1	N,NE,SE,S,SW,NW	0
+Grass	1	0	N,NE,SE,S,SW,NW	1
+Grass	1	1	N,NE,SE,S,SW,NW	0
+Grass	2	0	N,NE,SE,S,SW,NW	1
+Grass	2	1	N,NE,SE,S,SW,NW	0
+Grass	3	0	N,NE,SE,S,SW,NW	1
+Grass	3	1	N,NE,SE,S,SW,NW	0
+Grass	4	0	N,NE,SE,S,SW,NW	1
+Grass	4	1	N,NE,SE,S,SW,NW	0
+Grass	5	0	N,NE,SE,S,SW,NW	1
+Grass	5	1	N,NE,SE,S,SW,NW	0
+HulkDoor	0	0	N,NE,SE,S,SW,NW	0
+HulkWall	0	0	N,NE,SE,S,SW,NW	0
+HulkWall	3	0	N,NE,SE,S,SW,NW	0
+Swamp	0	0	N,NE,SE,S,SW,NW	1
+Swamp	1	0	N,NE,SE,S,SW,NW	1
+Swamp	1	1	N,NE,SE,S,SW,NW	0
+Swamp	2	0	N,NE,SE,S,SW,NW	1
+Swamp	2	1	N,NE,SE,S,SW,NW	0
+Swamp	3	0	N,NE,SE,S,SW,NW	1
+Swamp	4	0	N,NE,SE,S,SW,NW	1
+Swamp	5	0	N,NE,SE,S,SW,NW	1
+Swamp	5	1	N,NE,SE,S,SW,NW	0
+Trench	0	0	N,NE,SE,S,SW,NW	1
+Trench	1	0	N,NE,SE,S,SW,NW	1
+Water	0	0	N,NE,SE,S,SW,NW	0
+Water	0	1	N,NE,SE,S,SW,NW	0
+Water	1	0	N,NE,SE,S,SW,NW	0
+Water	2	0	N,NE,SE,S,SW,NW	0
+Water	3	0	N,NE,SE,S,SW,NW	0
