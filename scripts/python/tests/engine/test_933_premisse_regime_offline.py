@@ -161,7 +161,7 @@ _ATTESTES = (
 #:     ⚠ Le remede evident -- une FRONTIERE DE MOT sur `_lit_stats` -- a ete MESURE et ECARTE :
 #:     il fait perdre le statut de lecteur a **7 fichiers** (dont `test_895_nova_boss_riptide`,
 #:     `test_additional_hits_roll_order`, `test_healing_balms_heal_decision`), donc il RETRECIT la
-#:     population du recenseur au lieu d'affiner son critere. Residu `#10027-r1`.
+#:     population du recenseur au lieu d'affiner son critere. Residu `#10027-r2`.
 #:   * `test_martial_apotheosis_live.py` -- il EXERCE le regime crit au lieu de le supposer nul :
 #:     il derive une bande PAR REGIME (`[bmin+cd, bmax+cd]` si le coup crite) et porte un garde de
 #:     non-degenerescence `assert cd > 0` avec sa raison ecrite. **Le remede prescrit par le
