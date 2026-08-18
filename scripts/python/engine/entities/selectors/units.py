@@ -248,6 +248,17 @@ class Enemies(TargetsSelector):
     CONCORDENT sur toute MoW vivante et ciblable, et ne divergent que sur une machine MORTE ou
     `Untargetable` -- regime qu'aucun call-site porte n'atteint (leur source est `AllAliveUnits`).
 
+    ⚠ **AUCUN DEDOUBLONNAGE, ET C'EST LU AU CONTENEUR (#550-r3).** `UnitsByTeamSelector$$Select`
+    alloue un `System.Collections.Generic.List<T>` (jamais un `ArraySet`) et `CountOrAdd` y fait
+    `List.Add` par element qualifiant ; la source est le slot **5** `SelectAllActors`, pas le slot 6
+    `SelectUniqueActors`. Une meme unite atteinte par DEUX elements de la source (deux tuiles de son
+    empreinte, une union de selecteurs) sort donc **DEUX FOIS**. Le port fait pareil : `out.append`
+    par element, aucun `seen`. ⚠ C'est ce qui rend un `Units(...)` INTERCALAIRE nocif -- il
+    dedoublonne INCONDITIONNELLEMENT (residu `#433-r3-r1a-r1`), donc l'interposer entre une source
+    tile-domain et `Enemies` change le CARDINAL, et il avale au passage le `selectionType` que le
+    natif passe a `Enemies`. Il en vivait un dans `...ItItchesAbility$$GetTargetUnits` (le seul du
+    depot) ; il est retire.
+
     ⚠ CE QUE CETTE LECTURE CORRIGE : la forme d'avant rendait l'entite SOURCE, donc des ids de
     TUILE des que la source etait tile-domain -- `1094 TheLantern` (`Enemies(Caster, <zone>, 3)`
     alimentant `AddEffect(1065 Pinned)`) posait alors `Pinned` sur PERSONNE, sans erreur. Aucun
