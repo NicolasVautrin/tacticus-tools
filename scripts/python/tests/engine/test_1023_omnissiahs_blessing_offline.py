@@ -9,14 +9,22 @@ Pourquoi FIGER les ordinaux ici alors que `probe_313` garde deja les mirrors : `
 le MIRROR au BUILD, donc il redevient vert des qu'on regenere le mirror apres un renumerotage --
 alors que la valeur ECRITE au site, elle, a change (meme cran que `test_1001_votann_relics_offline`).
 
+⚠ DEUX PREMISSES DE CE FICHIER ONT EXPIRE, ET LE RESIDU QU'ELLES DECRIVAIENT EST CLOS (#10029).
+L'en-tete annoncait que `1365 MachineVengeance` n'avait AUCUNE classe dans `EFFECT_CLASSES` et que
+le transfert n'etait donc observable que par le NIVEAU. #1081 a porte
+`IdunBattle.Entities.Effects.Loki.MachineVengeanceEffect` (residu `#1023-r1` barre dans
+`docs/rl/backlog.md`), et l'etage 6 -- qui AFFIRMAIT l'absence << pour qu'un port futur le fasse
+rougir ICI >> -- a fait exactement son travail. Il est RETOURNE : il garde desormais la SOUDURE
+entre les deux ports (la pile deplacee est bien celle que le canal degat lit), pas la classe, qui
+appartient a `test_1081_foyer_factory_offline.py`.
+
 CE QUE CE FICHIER NE COUVRE PAS, et c'est ECRIT :
-  * le canal DEGAT de `1365 MachineVengeance` (`MachineVengeanceEffect$$
-    CreateEffectDamageBonusForAttack`) n'est PAS porte -- l'effet n'a aucune classe dans
-    `EFFECT_CLASSES`. Le transfert est donc observable par le NIVEAU, pas par un degat. Residu
-    #1023-r1, garde a l'etage 6 ci-dessous (le test AFFIRME l'absence, pour qu'un port futur le
-    fasse rougir au lieu de passer inapercu) ;
-  * le conjoint `onlyActive = 0` : le montage ne le SEPARE pas, faute d'`ActiveCondition` sur 1365.
-    C'est ecrit comme une NON-MORSURE MESUREE (etage 5), jamais tu.
+  * la MAGNITUDE de `1365` prise isolement (linearite +5 %/niveau, lecture de `BC.Effect`, tri-etat
+    du niveau, gate `get_OwnerIsCaster`, absence de gate de nature de coup) : c'est le foyer de
+    `test_1081_foyer_factory_offline.py`. Ici on ne mesure que le RACCORD ;
+  * le conjoint `onlyActive = 0` : le montage ne le SEPARE toujours pas -- non plus faute de classe,
+    mais parce que la face native `CreateActiveCondition` de 1365 est `YesTrigger` (l'effet est
+    TOUJOURS actif). C'est ecrit comme une NON-MORSURE MESUREE (etage 5), jamais tu.
 """
 from __future__ import annotations
 
@@ -33,6 +41,12 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/triggers.py",
         "scripts/python/engine/entities/selectors/accessors.py",
         "scripts/python/engine/entities/effects/factory.py",
+        # #10029 -- l'etage 6 mesure desormais le RACCORD avec le canal degat de 1365 : la classe
+        # d'effet et sa magnitude entrent donc au perimetre (elles n'y etaient pas tant que le test
+        # affirmait une ABSENCE).
+        "scripts/python/engine/entities/effects/loki/machine_vengeance.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/services/effect_bonus.py",
         "scripts/python/engine/entities/effect_type.py",
         "scripts/python/engine/entities/triggered_ability_type.py",
         "scripts/python/engine/dsl/event_trigger_type.py",
@@ -47,7 +61,9 @@ DECLENCHEUR = {
               "deux behaviours du `CreateBehaviour` -- `AddEffectOrIncreaseLevel` PUIS "
               "`RemoveEffect`, la seule inversion qui serait silencieuse (le transfert lirait 0 et "
               "la pile disparaitrait quand meme). Il grave aussi le `maxLevel = NULL` (aucun cap) "
-              "et l'absence, ASSUMEE, de classe d'effet pour 1365.",
+              "et -- depuis #10029 -- le RACCORD entre la pile transferee et le canal degat de "
+              "`MachineVengeanceEffect` (l'etage 6 gardait l'ABSENCE de cette classe ; #1081 l'a "
+              "portee, le residu #1023-r1 est clos, le cliquet est RETOURNE).",
 }
 
 import pytest        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
@@ -344,10 +360,21 @@ def test_la_cible_ENNEMIE_fire_AUSSI_et_c_est_LU():
 
 def test_NON_MORSURE_MESUREE_le_flag_onlyActive_n_est_pas_separe_par_ce_montage():
     """`onlyActive = 0` est le LITTERAL du call-site, et le port l'ecrit (`active_only=False`).
-    Mais `1365` n'a AUCUNE classe dans `EFFECT_CLASSES`, donc son instance n'a pas
-    d'`ActiveCondition` et `is_active` rend vrai quoi qu'il arrive : basculer le flag ne change
-    RIEN dans ce montage. Ecrit comme un RESULTAT -- un lecteur futur ne doit pas le prendre pour
-    un oubli. Ce qui EST garde : la valeur ecrite au site."""
+    Basculer le flag ne change RIEN dans ce montage : `is_active` rend vrai quoi qu'il arrive.
+    Ecrit comme un RESULTAT -- un lecteur futur ne doit pas le prendre pour un oubli. Ce qui EST
+    garde : la valeur ecrite au site.
+
+    ⚠ LA RAISON A CHANGE, LE RESULTAT NON (#10029). Cette docstring disait << `1365` n'a AUCUNE
+    classe dans `EFFECT_CLASSES`, donc son instance n'a pas d'`ActiveCondition` >>. La classe EXISTE
+    depuis #1081, et le montage reste pourtant non-separateur -- pour une raison desormais NATIVE, et
+    plus forte : le bloc `methodPointers` de `MachineVengeanceEffect` porte un `CreateActiveCondition`
+    fondu par l'ICF dont le corps est `return <DSLTriggers+0x70>` = `YesTrigger`. L'effet est TOUJOURS
+    actif, donc `onlyActive` ne peut RIEN separer -- ni ici, ni en bataille. Le port n'a rien a
+    surcharger (`is_active` vaut deja True sur `BaseEffect`) : cf. l'en-tete de
+    `engine/entities/effects/loki/machine_vengeance.py`.
+
+    Un test dont la PREMISSE est fausse et l'assertion vraie est le pire des deux mondes : il reste
+    vert et enseigne une chose fausse au lecteur suivant."""
     node = OB._OWNER_HAS_MACHINE_VENGEANCE
     assert node.active_only is False
     assert int(node.effect_type) == OB.MACHINE_VENGEANCE
@@ -390,12 +417,72 @@ def test_le_porteur_SANS_ce_passif_ne_fire_pas():
     assert (_level(st, owner), _level(st, ally)) == (4, 0)
 
 
-def test_l_effet_1365_n_a_PAS_de_classe_et_c_est_le_residu_1023r1():
-    """`MachineVengeanceEffect$$CreateEffectDamageBonusForAttack` =
-    `EffectBonus.ForPercentIncrease(get_OwnerIsCaster, Multiply(Get(GetNumberConstant(7)),
-    EffectLevel(Effect@+0x38)))` -- un bonus de degat en POURCENTAGE par niveau. Il n'est PAS porte.
-    Ce test AFFIRME l'absence pour qu'un port futur le fasse rougir ICI (et mette a jour le residu)
-    au lieu de le laisser passer inapercu."""
-    assert "MachineVengeance" not in F.EFFECT_CLASSES, (
-        "1365 a desormais une classe d'effet : fermer #1023-r1 et retirer cette assertion")
-    assert not any(str(k).startswith("MachineVengeance_") for k in F.EFFECT_CLASSES)
+def test_le_niveau_TRANSFERE_alimente_le_canal_DEGAT_de_1365():
+    """CLIQUET RETOURNE (#10029). Ce test AFFIRMAIT l'ABSENCE de classe pour `1365` -- il s'appelait
+    `test_l_effet_1365_n_a_PAS_de_classe_et_c_est_le_residu_1023r1` et disait << pour qu'un port
+    futur le fasse rougir ICI >>. C'est exactement ce qui s'est produit : #1081 a porte
+    `IdunBattle.Entities.Effects.Loki.MachineVengeanceEffect` et le residu `#1023-r1` est CLOS
+    (`docs/rl/backlog.md`, barre). Le cliquet garde donc desormais une PRESENCE.
+
+    ET IL GARDE LE RACCORD, PAS LA CLASSE. La classe elle-meme (+5 %/niveau, la constante lue dans
+    `BC.Effect`, le tri-etat du niveau, le gate `get_OwnerIsCaster`, l'absence de gate de nature de
+    coup) est gardee par `test_1081_foyer_factory_offline.py` -- la redupliquer ici ferait deux
+    tests qui rougissent ensemble pour une seule cause, le vice meme que cette tranche corrige
+    ailleurs. Ce qui n'est garde QUE ici, c'est la SOUDURE entre les deux ports : la pile que
+    `OmnissiahsBlessing` DEPLACE est bien celle que le canal degat LIT, et le transfert est donc
+    devenu observable par le DEGAT -- l'en-tete de ce fichier disait l'inverse tant que 1365 n'avait
+    pas de classe.
+
+    La soudure passe par `EffectFactory` : `_stack` pose via `AddEffectOperation`, qui instancie la
+    classe du registre. Si demain 1365 sortait du registre, les instances redeviendraient des
+    `BaseEffect` sans canal -- muettes, sans erreur. C'est ce silence-la qu'on rend bruyant."""
+    from engine.entities.effects.loki.machine_vengeance import MachineVengeanceEffect
+
+    assert F.EFFECT_CLASSES.get("MachineVengeance") is MachineVengeanceEffect, (
+        "1365 n'est plus au registre : les instances posees par le transfert redeviennent des "
+        "`BaseEffect` sans `create_effect_damage_bonus_for_attack` -- le transfert redevient "
+        "invisible cote degat, SANS erreur")
+
+    def _pct(state, uid):
+        """(somme des bonus POURCENT du canal de l'ATTAQUANT, nb d'instances 1365 vues) pour `uid`."""
+        total, vues = 0, 0
+        for e in state.effects.by_unit.get(int(uid), []):
+            if getattr(e, "consumed", False):
+                continue
+            if int(getattr(e, "effect_type", -1)) != OB.MACHINE_VENGEANCE:
+                continue
+            vues += 1
+            assert isinstance(e, MachineVengeanceEffect), (
+                "l'instance posee par le transfert est un %s, pas la classe du registre"
+                % (type(e).__name__,))
+            eb = e.create_effect_damage_bonus_for_attack(att_ctx={"owner_id": int(uid),
+                                                                  "att_id": int(uid)})
+            if eb is not None:
+                assert eb.kind == "PercentIncrease", eb.kind
+                total += int(eb.value)
+        return total, vues
+
+    # `Multiply(Get(EffectConfig(7 = MachineVengeanceExtraPct)), EffectLevel)` -- la constante est
+    # RELUE de `BC.Effect`, jamais ecrite en dur ici : c'est elle qui fixe le pas.
+    from engine.entities.effects.loki.machine_vengeance import EFFECT_CONFIG_KEY
+    from engine.entities.effects.magnitude import bc_effect_config
+    pas = bc_effect_config(EFFECT_CONFIG_KEY)
+    assert pas, "`BC.Effect[%r]` illisible -- le montage ne mesure plus rien" % (EFFECT_CONFIG_KEY,)
+
+    st, owner, ally, _autre = _blessing_state(owner_level=4)
+    assert _pct(st, ally) == (0, 0), "la cible ne doit RIEN porter avant le transfert"
+    ev = _fire(st, owner, ally)
+    assert len(ev) == 1 and _level(st, ally) == 4 and _level(st, owner) == 0
+    assert _pct(st, ally) == (4 * int(pas), 1), (
+        "la pile TRANSFEREE (niveau 4) doit rendre +%d %% sur la cible, lu %r"
+        % (4 * int(pas), _pct(st, ally)))
+    assert _pct(st, owner) == (0, 0), (
+        "le porteur a ete vide de sa pile : son canal degat ne doit plus rien rendre")
+
+    # DISCRIMINANT : le bonus SUIT le niveau transfere, il n'est pas une constante. Sans ce second
+    # montage, un port qui rendrait toujours `4 x pas` passerait.
+    st2, owner2, ally2, _a2 = _blessing_state(owner_level=7)
+    _fire(st2, owner2, ally2)
+    assert _pct(st2, ally2) == (7 * int(pas), 1), (
+        "niveau 7 -> attendu +%d %%, lu %r : le canal ne suit pas le niveau TRANSFERE"
+        % (7 * int(pas), _pct(st2, ally2)))
