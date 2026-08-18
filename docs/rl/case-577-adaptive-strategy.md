@@ -149,26 +149,59 @@ Deux écarts subsistent, et aucun des deux n'a été imputé « à l'IA » sur p
   des **faits de décomposition**, et le verdict sur le nœud (1) est porté par un observable
   **persistant** (§ suivant), pas par la tuile.
 * **`RelentlessMarch_Effect` (1011)** — le natif rend `[]` après le cast alors qu'il portait `[83]`
-  avant. ⚠ **L'IMPUTATION ÉCRITE ICI — « il a expiré les instances à durée 1 tour »,
-  `AiControl$$ApplyAiMessages` → `FinishUnitTurn` — EST FAUSSE, et elle l'est deux fois** (2026-08-18,
-  tranche #10035). `FinishUnitTurnOperation$$Execute` n'expire rien (déjà relevé par #577-r1) ; et
-  **le mécanisme n'est pas une expiration du tout, c'est un RE-CIBLAGE**.
-  L'ability pose `AddEffect(0x3f3, …, targets = UnitsWithoutTrait(Friends(AdjacentUnits(Owner)),
-  0x418), turns = 1)` — les cibles sont un **sélecteur géométrique**, que
-  `RefreshEffectsOperation` matérialise dans `EffectComponent.Targets @+0x48` et **différencie** à
-  chaque refresh (`$$GetTargetsToRemove` → `$$RemoveTargetsFromEffect`).
-  La géométrie du montage suffit : l'instance sur `83` a été posée quand le Warden `81` était en
-  `(1,0)` (`dist = 1`) ; le montage le déplace en `(0,2)` (`dist((0,2),(0,0)) = 2`) ; le natif déplace
-  le summon en `(0,4)` (`dist((0,2),(0,4)) = 2`). **Les deux porteurs sont sortis du sélecteur** — le
-  `[]` est complet sans invoquer aucune durée.
-  **La contre-épreuve qui réfute l'expiration est déjà dans le tableau ci-dessus** : le natif *pose*
-  1011 sur le summon pendant ce cast même, puis le retire dans la même cascade. Un effet posé à
-  l'instant ne peut pas avoir expiré — `EffectComponent$$RemoveOneTurn` n'est enfilé que par
-  `EndTurnOperation$$RefreshEffects`, dont l'appelant **unique** est `EndTurnOperation$$Execute`.
-  Le foyer de `#577-r1` n'est donc **ni `summon_ai.py` ni le trigger de 1011**, mais le retrait des
-  porteurs sortis du sélecteur (`runner/operations/refresh_effects.py`). Et la divergence est
-  **observable sur la stat** : `RelentlessMarchExtraMoveEffect` ne surcharge ni `is_active` ni aucun
-  sélecteur, donc côté port `83` garde le **+1 Mouvement** que le natif lui a retiré.
+  avant. **TROIS imputations ont été écrites ici, et les TROIS sont réfutées au décompilé.** Ce qui
+  suit est la lecture complète, faite sur `t6dpr4k06g` le 2026-08-18 ; elle ne laisse qu'une seule
+  explication debout, et cette explication n'est pas encore MESURÉE.
+
+  1. ~~« `AiControl$$ApplyAiMessages` → `FinishUnitTurn` expire les instances à durée 1 tour »~~ —
+     **FAUX**. `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` relu EN ENTIER : il pose
+     les flags `0x1b`/`0x01`/`0x03`, publie `On(0x1c)`/`On(0x28)`/`On(0x29)` sous leurs gates,
+     incrémente `UnitComponent+0x1c`, VIDE `ChargedUnitIds` et finit par le slot `0x76`
+     (`MarkUnitAsNoActionAvailable`). **Aucun `RefreshEffects`, aucun `RemoveOneTurn`.**
+  2. ~~« c'est un RE-CIBLAGE : les cibles sont un sélecteur géométrique que
+     `RefreshEffectsOperation` différencie à chaque refresh »~~ — **FAUX AUSSI**, et c'est
+     l'erreur la plus instructive du dossier parce qu'elle confond DEUX sélecteurs.
+     `IdunBattle.Operations.RefreshEffectsOperation$$GetDesiredEffectTargets` ne rejoue PAS le
+     sélecteur du `AddEffect` : il construit un `DSLContext{owner, owner, activePlayer,
+     effectEntity}` et appelle le slot `IEffect+0xd` = `IdunBattle.Entities.Effects.BaseEffect$$GetTargets`,
+     qui exécute **`<Effect>.CreateTargetSelector()`** (mémoïsé à `+0xa0`).
+     Or `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` boucle sur les cibles du
+     `AddEffect` et appelle `IOperationProcessor` slot `0x10` **une fois par cible**, avec
+     `owner = cette cible` (`IdunBattle.Operations.AddEffectOperation$$AddNewEffect` écrit
+     `EffectComponent<+0x10> = source.Id` et `<+0x14> = owner.Id`) : **une entité-effet PAR
+     porteur**, dont `Targets` vaut `{Owner}` tant que `CreateTargetSelector` n'est pas surchargé.
+     ⚠ Et `RelentlessMarchEffect` **DÉCLARE** `CreateTargetSelector` — l'absence des tables ne
+     prouvait rien, le `global-metadata.dat` la déclare (avec `CreateActiveCondition`,
+     `UpdateInternal`, `GetExtraMovementAmount`) — **mais son corps est celui de l'ICF par défaut**,
+     partagé avec `...Loki.WhisperingWebEffect$$CreateTargetSelector` : `return <DSLSelectors+0x30>`
+     = **`Owner`**. Le porteur est donc TOUJOURS dans ses propres `desiredTargets` :
+     `$$GetTargetsToRemove` ne peut jamais le rendre. (Méthode : la VA du corps est résolue sur la
+     table `methodPointers` du PE, localisée par intersection sur 414 couples `(rid, VA)` connus,
+     414/414 reproduits — jamais un layout recopié.)
+  3. ~~« aucun `CreateActiveCondition` n'existe pour cette classe »~~ (écrit dans
+     `entities/effects/loki/relentless_march.py`) — **FAUX dans la lettre, JUSTE dans l'effet** :
+     la classe la déclare, et son corps rend `<DSLTriggers+0x40>`, l'un des deux triggers CONSTANTS
+     que `IdunBattleLogic.Entities.DSLTriggers$$.ctor` met en cache (même classe et même argument
+     de ctor que `<DSLTriggers+0x70>`). `ShouldBeActive` ne peut donc pas l'éteindre, et le défaut
+     `True` de `BaseEffect.is_active` est bien le mirror — mais par accident, pas par lecture.
+
+  **CE QUI RESTE DEBOUT, ET C'EST LE SEUL CHEMIN.** Le SEUL écrivain décroissant de
+  `EffectComponent.Duration @+0x64` est `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn`
+  (xrefs : **UN** appelant), enfilé par `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`
+  (xrefs : **UN** appelant), lui-même appelé par `IdunBattle.Operations.EndTurnOperation$$Execute`
+  (xrefs : **UN** appelant), lui-même appelé par le seul `Core.Services.OperationProcessor$$EndTurn`.
+  ⇒ **une instance `turns = 1` ne peut disparaître QUE par une FIN DE TOUR D'ÉQUIPE.**
+
+  **CE QUI N'EST PAS ENCORE MESURÉ, et ce que ça change.** Le montage consomme la dernière action
+  amie (l'Overlord a casté 1009, le Warden bouge puis caste 1005), donc l'hypothèse à départager
+  est : le côté LIVE a joué une fin de tour d'équipe que le rejeu offline
+  (`Runner.apply(ActiveAbilityMessage)`) ne joue pas. Si oui, l'écart est un **artefact du
+  MONTAGE** — on compare N+1 opérations natives à N opérations portées — et `#577-r1` n'accuse
+  aucun port. Sinon, le port manque une transition que le natif fait. **L'étage qui tranche est
+  ÉCRIT** (`probe_577` E9 : `observeBattle.currentPlayer` avant/après le cast live, plus les
+  `hasAction`), et E8 mesure la conséquence sur la stat MOUVEMENT des porteurs divergents — un
+  observable de CONSÉQUENCE, là où la liste des porteurs n'est qu'un observable de STRUCTURE.
+  **NON JOUÉ à ce jour : le budget de runners du host était saturé (50/50).**
 
 Autre limite **nommée** : `state.rng is None` sur un état rechargé (`load_state` ne restitue pas
 l'état interne du Mersenne Twister), donc `RandomAmount` prend sa dégradation documentée — la borne
