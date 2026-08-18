@@ -59,6 +59,14 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/operations/damage_hits.py",
         "scripts/python/tests/engine/test_1013r1_max_out_prediction_offline.py",
     ),
+    # L'etage 1 ASSERTIONNE l'ordinal `1494`, qui est derive du build via le mirror d'enum.
+    "build": True,
+    "toujours": False,
+    "raison": ("Ces trois chemins sont ceux dont une modification peut faire basculer le verdict : "
+               "le FOYER garde (`is_attack_max_out_damage` et son cablage dans "
+               "`predict_attack_raw`), le mirror d'ou vient l'ordinal 1494, et le pendant COMBAT "
+               "(`damage_hits`) dont la branche `wasCrit` definit la frontiere entre les deux "
+               "faces. `build: True` parce que l'etage 1 fige un ordinal LU du build."),
 }
 
 

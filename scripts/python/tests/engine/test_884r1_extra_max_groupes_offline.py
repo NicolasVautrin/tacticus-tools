@@ -51,6 +51,14 @@ DECLENCHEUR = {
         "scripts/python/engine/services/damage_prediction.py",
         "scripts/python/tests/engine/test_884r1_extra_max_groupes_offline.py",
     ),
+    # `predict_attack_raw` peut tirer le gameconfig par ses chemins paresseux (profils, spread).
+    "build": True,
+    "toujours": False,
+    "raison": ("Un seul foyer peut faire basculer ce verdict : `damage_prediction.py`, qui porte "
+               "A LA FOIS la boucle de groupes (`get_multi_hit_attack_prediction`) et l'etage qui "
+               "consomme l'extra-max (`get_base_damage_fix64`) -- c'est la SEPARATION de ces deux "
+               "voies que le fichier garde, pas un montant. `build: True` par prudence : la "
+               "chaine de prediction tire le gameconfig par ses chemins paresseux."),
 }
 
 _HP = 10 ** 6          # cible inepuisable : aucun cap d'overkill ne doit brouiller les bornes

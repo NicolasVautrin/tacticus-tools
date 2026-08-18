@@ -55,6 +55,15 @@ DECLENCHEUR = {
         "scripts/python/engine/services/damage_combat.py",
         "scripts/python/tests/engine/test_589r3_prediction_sans_canaux_crit_offline.py",
     ),
+    "build": False,
+    "toujours": False,
+    "raison": ("Le fichier lit deux SOURCES Python (`attacker_could_crit` et `_crit_params`) et "
+               "evalue un predicat a deux stats : ni binaire ni `data/symbols/**`, d'ou "
+               "`build: False`. Les trois chemins sont les deux FACES confrontees plus le "
+               "fichier lui-meme -- `damage_combat.py` parce que le seuil `could_crit` y vit. "
+               "Elargir le contrat de la face PREDICTION (etage 2) ou retirer les canaux de la "
+               "face EXECUTION (etage 3) sont les deux seules facons de faire basculer ce "
+               "verdict, et les deux passent par ces chemins."),
 }
 
 

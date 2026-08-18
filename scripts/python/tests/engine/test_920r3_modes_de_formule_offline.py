@@ -54,6 +54,14 @@ DECLENCHEUR = {
         "scripts/python/engine/dsl/base.py",
         "scripts/python/tests/engine/test_920r3_modes_de_formule_offline.py",
     ),
+    "build": False,
+    "toujours": False,
+    "raison": ("Le fichier ne construit que des noeuds DSL a partir de `Const` : il ne lit ni le "
+               "binaire ni `data/symbols/**`, d'ou `build: False`. Les deux chemins declares sont "
+               "les seuls qui puissent faire basculer le verdict -- `formulas.py` (les surcharges "
+               "de mode) et `dsl/base.py` (le dispatcher `invoke_slot` et le repli de la BASE). "
+               "L'etage 5 confronte le REGISTRE des surcharges a la liste LUE : il rougirait sur "
+               "un mirror ajoute ou retire dans l'un ou l'autre."),
 }
 
 #: Les SEPT propagateurs LUS. Ceux que ce port ne contient pas encore sont NOMMES, pas oublies :
