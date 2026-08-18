@@ -134,10 +134,13 @@ RESIDUS NOMMES (inchanges par ce foyer, deja presents avant lui) :
   * `RemoveSubEffects` n'est pas porte ici (la cascade parent->enfants du port vit dans
     `EffectsState.on_turn_end`). Sans objet pour la sequence de mort : le `RemoveEffectsOperation`
     balaye TOUS les effets du porteur, sous-effets compris.
-  * `IdunBattle.Operations.RemoveUnitOperation$$RemoveEffects` (le DESPAWN, `remove_unit.py` etape
-    14) appelle le MEME slot 0x5a mais garde son retrait BRUT (`consumed = True` sans revert ni
-    event) -- ecart preexistant, hors perimetre de #389-r2, laisse tel quel pour ne pas faire fire
-    `On(63 = PreEffectRemoved)`/`On(64 = EffectRemoved)` sur les evictions/clones.
+  * ~~`IdunBattle.Operations.RemoveUnitOperation$$RemoveEffects` garde un retrait BRUT~~ **FERME
+    par #389-r4** : le DESPAWN (`remove_unit.py` etape 14) route desormais ici, avec `step=None` et
+    `keep_on_revive_gate=False` -- les deux valeurs LUES dans son corps (`local_18 = 0`,
+    `local_10 = 0`). Il fait donc fire `On(63 = PreEffectRemoved)`/`On(64 = EffectRemoved)` sur les
+    evictions et les clones, et c'est ce que le natif fait : #389-r2 l'avait laisse tel quel pour
+    borner son rayon, pas parce que le natif s'en dispensait. La voie MORT n'est PAS touchee
+    (`KillUnitOperation$$Execute` passe `removeEffects: 0` au slot 6).
 """
 from __future__ import annotations
 

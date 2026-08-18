@@ -148,6 +148,11 @@ from typing import Optional
 
 from ..state import State
 from ..components import OwnerComponent, UnitComponent, UnitFlagsComponent
+# FORME B (liaison de MODULE) -- arete GRATUITE, MESUREE en process frais : ni
+# `import engine.runner.operations.remove_effects` ni `import engine.runner.operations.remove_unit`
+# ne charge l'autre, donc aucun cycle a differer. Forme B pour que le foyer reste substituable par
+# un `monkeypatch.setattr` (CLAUDE.md : la seule des trois formes qui morde).
+from . import remove_effects as _remove_effects
 
 
 class RemoveUnitOperation:
@@ -203,10 +208,36 @@ class RemoveUnitOperation:
         # 13. `On(UnitRemoved = 0x25)` -- AVANT la consommation des effets (etape 14).
         from .triggers.dispatch.move_death import unit_removed_triggers
         downstream = unit_removed_triggers(state, int(unit_id))
+        # 14. `RemoveUnitOperation$$RemoveEffects` -- PAR LE FOYER depuis #389-r4.
+        #
+        # Le corps natif de ce `$$RemoveEffects` est LU (aucune xref CODE : deux entrees DATA, donc
+        # l'appel reel est INLINE dans `$$Execute`, meme signature d'inlining que le revive) :
+        #     local_18 = 0    -> `Nullable<KillUnitStep>` SANS valeur -> AUCUN filtre par step
+        #     local_10 = 0    -> `options.<+0x08>` = 0 -> le gate `KeepOnRevive` N'EST PAS arme
+        #     puis `processor.<slot 0x5a>(unit, &options)`
+        # ⇒ il retire TOUT l'inventaire du porteur, par `RemoveEffectOperation$$Execute` -- donc
+        # avec revert des stat-mods / overrides / modifications d'ability, retrait recursif des
+        # sous-effets, decollage du NOM (`unregister_name`) et publication de
+        # `On(0x3f = PreEffectRemoved)` / `On(0x40 = EffectRemoved)`.
+        #
+        # Le port posait `consumed = True` en direct : aucun de ces effets de bord ne sortait. C'est
+        # le MEME ecart que celui repare pour la mort (#389-r2) et pour l'echeance (#936-r1) ; il
+        # restait ici parce que #389-r2 avait borne son rayon.
+        #
+        # ⚠ `keep_on_revive_gate=False` est LU, pas un defaut de commodite : des SEPT
+        # `$$RemoveEffects` du binaire, seul `ReviveUnitOperation` arme ce gate (#547-r13).
+        #
+        # ⚠ REGIME ATTEIGNABLE, verifie avant de brancher (la fiche l'exigeait) : `remove_effects`
+        # vaut `True` a DEUX call-sites de production -- la feuille DSL `RemoveUnit`
+        # (`abilities/behaviours/lifecycle.py`) et l'eviction MV71 (`abilities/loki/mv71.py`). La
+        # voie MORT, elle, passe `False` (`KillUnitOperation$$Execute` passe `removeEffects: 0`,
+        # c'est `KillUnitOperation$$RemoveEffects` qui s'en charge en trois temps autour d'elle) :
+        # ce raccord ne touche donc PAS la sequence de mort.
+        #
+        # RANG INCHANGE : `On(0x25 = UnitRemoved)` part AVANT (etape 13), ce qui est load-bearing --
+        # ses consommateurs doivent voir l'unite retiree PORTANT encore ses effets.
         consumed = []
-        if remove_effects and state.effects is not None:       # 14. `RemoveUnitOperation$$RemoveEffects`
-            for eff in state.effects.by_unit.get(int(unit_id), []):
-                if not eff.consumed:
-                    eff.consumed = True
-                    consumed.append(int(eff.effect_type))
+        if remove_effects and state.effects is not None:
+            consumed = [int(et) for et in _remove_effects.remove_effects_operation(
+                state, int(unit_id), step=None, keep_on_revive_gate=False)]
         return {"removed": int(unit_id), "effects_consumed": consumed, "downstream": downstream}
