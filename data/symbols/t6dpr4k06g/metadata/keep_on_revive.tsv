@@ -1,0 +1,18 @@
+# `get_KeepOnRevive` (`IEffect` slot 2) de la fermeture transitive de `IdunBattle.Entities.Effects.BaseEffect` -- build t6dpr4k06g.
+# LU par UNE SEULE clause du binaire : la seconde de
+# `IdunBattle.Operations.RemoveEffectsOperation$$Execute`, gardee par `options.<+0x08>`,
+# que SEUL `IdunBattle.Operations.ReviveUnitOperation$$Execute` arme (les trois producteurs de MORT
+# et le despawn passent 0). Sur le chemin de MORT ce getter est donc INERTE.
+# DEFAUT de la base = True. Sont listees les classes qui DECLARENT le getter (les autres
+# heritent du defaut) -- y compris quand leur valeur EGALE le defaut.
+# Regenerer : python scripts/python/probe_547r13_keep_on_revive.py --regenerer
+#classe	parent	propre	corps
+IdunBattle.Entities.Effects.AStatModifierEffect	IdunBattle.Entities.Effects.BaseEffect		0f b6 81 81 04 00 00 c3
+IdunBattle.Entities.Effects.BaseEffect	System.Object	1	b0 01 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.HealingBalmsEffect	IdunBattle.Entities.Effects.BaseEffect	0	32 c0 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.HuntTheFallen_FallenEffect	IdunBattle.Entities.Effects.BaseEffect		0f b6 81 80 04 00 00 c3
+IdunBattle.Entities.Effects.Loki.PrecisionShot_AimEffect	IdunBattle.Entities.Effects.BaseEffect	0	32 c0 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.RitesOfMorkai_ExtraDamageEffect	IdunBattle.Entities.Effects.BaseEffect	0	32 c0 c3 cc cc cc cc cc
+IdunBattle.Entities.Effects.Loki.SwarmHitReductionEffect	IdunBattle.Entities.Effects.StaticStatModifierEffect		48 89 5c 24 08 57 48 83
+IdunBattle.Entities.Effects.NoneEffect	IdunBattle.Entities.Effects.BaseEffect		0f b6 81 80 04 00 00 c3
+IdunBattle.Entities.Effects.TemporaryEffect	IdunBattle.Entities.Effects.BaseEffect		0f b6 81 80 04 00 00 c3
