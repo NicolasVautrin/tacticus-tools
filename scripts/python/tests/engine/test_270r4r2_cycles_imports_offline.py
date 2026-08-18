@@ -24,6 +24,46 @@ ETAGES
 """
 from __future__ import annotations
 
+#: CE QUI DOIT CHANGER POUR QUE CE FICHIER PUISSE CHANGER DE VERDICT -- et son ABSENCE etait la
+#: CAUSE MESUREE de la decroissance silencieuse de l'etage 1 (#270-r4-r2, 2026-08-18).
+#:
+#: Ce cliquet lit `engine/**` PAR BALAYAGE DU DISQUE (`rglob`), pas par import : ni lui ni ses
+#: deux probes n'importent quoi que ce soit d'`engine`. Sans declaration, `probe_457.
+#: impacted_files` le selectionnait donc par le GRAPHE D'IMPORTS -- ou aucune arete ne le relie a
+#: `engine/`. Resultat : AUCUN diff d'`engine/**` ne l'a jamais rejoue, et le
+#: `probe_270r4r2_cycles_imports.py` n'est PAS non plus une entree de `scripts/ratchets.ps1`.
+#: Le cliquet etait VERT a `1370d930` (SCC=0, 409 modules) et rendait 4 SCC / 721 modules quand
+#: on l'a rejoue -- personne ne pouvait le voir entre les deux.
+#:
+#: Les cinq chemins hors `engine/` sont la fermeture d'imports DERIVEE
+#: (`probe_486r15 --proposer`) ; la cascade de harnais, elle, est derivee par le foyer (#531),
+#: donc absente d'ici a dessein.
+DECLENCHEUR = {
+    "chemins": (
+        # LE GISEMENT : tout module d'`engine/` peut ajouter ou retirer une arete du graphe.
+        # UNE SEULE forme, et c'est MESURE, pas suppose : `probe_486r15 --proposer` conseille
+        # d'ecrire AUSSI `engine/*.py` (<< dans ce matcher, `**/` exige un segment >>), mais le
+        # matcher reellement en jeu est `declencheur_cliquet.couvre`, que `probe_457` appelle
+        # LUI AUSSI (l. 2383) -- et `**/` y vaut ZERO segment ou plus. Verifie : le glob
+        # ci-dessous couvre `engine/battle_query.py` et `engine/__init__.py`. La seconde forme
+        # ne serait donc qu'un `redondants` de plus.
+        "scripts/python/engine/**/*.py",
+        # LES DEUX PROBES et ce dont ils dependent.
+        "scripts/python/probe_270r4r2_cycles_imports.py",
+        "scripts/python/probe_270r4r2_import_en_premier.py",
+        "scripts/python/import_closure.py",
+        "scripts/python/verdict_cache.py",
+        "scripts/cliquets-cache/probe_270r4r2_import_en_premier.tsv",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le critere est DERIVE du graphe d'imports de `engine/**` (SCC de Tarjan) et de "
+              "l'import reel de chaque module ; il ne lit rien d'autre. Le balayage se fait par "
+              "`rglob`, donc AUCUNE arete d'import ne relie ce fichier a `engine/` -- c'est "
+              "precisement pourquoi le perimetre doit etre DECLARE ici et pas laisse au graphe. "
+              "`build: False` : ni binaire ni `data/symbols/**`.",
+}
+
 import sys
 from pathlib import Path
 

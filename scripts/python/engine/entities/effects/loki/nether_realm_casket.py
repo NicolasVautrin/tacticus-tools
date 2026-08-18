@@ -145,7 +145,7 @@ from ..magnitude import ability_var
 from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentFriends, MechanicalUnits, NormalUnits
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x5b6 = 1462 -- la CONFIG des DEUX effets (relue au `.ctor` : `mov edx,
 #: 0x5b6`), et le `source` de leurs deux descripteurs `EffectBonus`.

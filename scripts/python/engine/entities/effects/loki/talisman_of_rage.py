@@ -112,7 +112,7 @@ from collections.abc import Mapping
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 _ABILITY_ID = "TalismanOfRage"      # TriggeredAbilityType 0x5b4 = 1460 (la CONFIG de la relique)
 _VAR_KEY = "critDmgReduction"       # AbilityVariableType 0x97 = 151

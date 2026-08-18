@@ -76,7 +76,7 @@ from ..magnitude import ability_var
 from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentEnemies
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType 0x5c3 = 1475` -- le litteral du `.ctor`, relu a l'assembleur. C'est la
 #: CONFIG que `GetAbilityState(effet)` resout, pas l'`EffectType` 1468.

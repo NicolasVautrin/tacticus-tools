@@ -117,9 +117,12 @@ import engine.entities.traits.unit_trait as _unit_trait   # FORME B (#547-r2), e
 from ....entities.traits.unit_trait import UnitTrait
 from ....entities.triggers import HasTrait
 from ..base import ActiveAbility
-from .. import base as _abase   # FORME B (liaison de MODULE) -- le module est DEJA charge par la
-#     ligne au-dessus, donc l'ajout ne coute AUCUN module et ne ferme aucune boucle. Il rend le
+import engine.runner.abilities.base as _abase   # FORME B (liaison de MODULE) -- le module est
+#     DEJA charge par la ligne au-dessus, donc l'ajout ne coute AUCUN module. Il rend le
 #     differe de `attempted_possession_damage_vars` inutile (critere REDONDANCE, #485).
+#     ABSOLU, comme `_unit_trait` ci-dessus et pour la meme raison, MESUREE cette fois
+#     (#270-r4-r2, 2026-08-18) : `from .. import base as _abase` declarait le PAQUET ANCETRE et
+#     refermait un SCC de 14 -- le commentaire qui disait << ne ferme aucune boucle >> etait FAUX.
 from ..behaviours.ai_control import PerformAIAbility
 from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddBondEffect, RemoveEffect

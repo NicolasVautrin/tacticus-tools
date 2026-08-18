@@ -36,7 +36,7 @@ from ...triggered_ability_type import TriggeredAbilityType
 # `NameError` au chargement d'etat. Import module-level (#448-r3-r1).
 from ...stats import StatPart, StatType
 from ....services.trait_damage_limits import group_unit_stat_part
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 # #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
 # `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
 # `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.

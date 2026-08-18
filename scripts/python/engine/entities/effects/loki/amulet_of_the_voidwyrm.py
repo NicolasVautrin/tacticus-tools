@@ -139,7 +139,7 @@ from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentFriends, Union, UnitsWithTrait
 from ...traits.unit_trait import UnitTrait
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 _ABILITY_ID = "AmuletOfTheVoidwyrm"      # TriggeredAbilityType 0x5b8 = 1464 (la CONFIG de la relique)
 _VAR_KEY = "critDmgReduction"            # AbilityVariableType 0x97 = 151

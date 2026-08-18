@@ -18,13 +18,16 @@ from ....streams.tag_key import TagKey
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
 from ..base import ability_attack_params
-from .. import base as _abase   # FORME B (liaison de MODULE). Le module est DEJA charge par la
-#     ligne au-dessus -- l'ajout ne coute AUCUN module et ne ferme aucune boucle (l'arete
-#     `behaviours.combat -> abilities.base` est d'ailleurs PORTEUSE, elle reste). Il rend inutile
+import engine.runner.abilities.base as _abase   # FORME B (liaison de MODULE). Le module est DEJA
+#     charge par la ligne au-dessus -- l'ajout ne coute AUCUN module. Il rend inutile
 #     le differe redondant d'`execute`, ET garde MORDANT le `monkeypatch.setattr` de
 #     `probe_910_relic_bolt_pistol_live` sur `ability_pierce_effect_bonus`, qu'un hissage en
 #     forme A (`from ..base import ability_pierce_effect_bonus`) rendrait INERTE
 #     (`migrate_485r1_barils_reexport.py morsure` -> HISSAGE_DESARMERAIT).
+#     ⚠ ECRITE EN ABSOLU, ET C'EST LOAD-BEARING (#270-r4-r2, 2026-08-18) : la forme
+#     `from .. import base as _abase` declarait le PAQUET ANCETRE `runner.abilities`, ce qui
+#     refermait un SCC de 14 (`abilities` -> `abilities.loki` -> `behaviours.combat` -> retour).
+#     Meme module charge, meme objet lie, meme morsure -- seule la source DECLAREE change.
 from ...operations.damage import AttackDamageOperation
 from ..base import profile_pierce
 from ..attack_type import is_regular_attack

@@ -71,6 +71,11 @@ RECOLLENT_ATTESTES = (
     "tests/engine/runner/_dotgg_aura_regime.py",
     "tests/engine/runner/test_fear_of_the_unseen_live.py",
     "tests/engine/runner/test_let_the_galaxy_burn_live.py",
+    # REPARE le 2026-08-18 (#949-r1) : ses deux bras de contre-epreuve rendaient le seul canal
+    # d'ARME, et `test_redthirst_charge_blesse_les_deux_canaux` mettait ce retour EN FACE de
+    # `rec["live_per_hit"]`. Il entre ici pour que la reparation soit RATCHETEE : sortir de la
+    # dette sans entrer dans l'attestation rendrait la regression a nouveau invisible.
+    "tests/engine/runner/test_1049_red_thirst_walking_pox_live.py",
 )
 
 #: ATTESTE le 2026-08-13. La DETTE : fichiers qui mettent un canal d'ARME en face d'une valeur du

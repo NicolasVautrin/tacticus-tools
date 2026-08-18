@@ -38,7 +38,7 @@ from ..magnitude import ability_const_str, ability_var
 # `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.
 from ...pathfinding import board as _board
 from .... import battle_query as _bq
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 
 def _adjacency_channels(ctx):

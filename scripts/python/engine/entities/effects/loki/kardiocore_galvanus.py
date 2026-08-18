@@ -164,7 +164,7 @@ from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentFriends, MechanicalUnits
 from ...unit_selection_type import UnitSelectionType
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType 0x5b1 = 1457` -- le litteral du `.ctor`, relu a l'assembleur, et dont la
 #: SURCHARGE d'`op_Implicit` etablit qu'il s'agit bien de l'enum des TRIGGERED (l'`EffectType` 1457

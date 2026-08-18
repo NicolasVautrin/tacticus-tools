@@ -80,8 +80,13 @@ from __future__ import annotations
 
 from .base import NO_ACTION, ComparablePlaybook, tile_utility, register
 # #969-r4 -- FORME B (`import <module>` + acces attributaire) : un `monkeypatch.setattr` sur le
-# foyer MORD toujours (regle 'HISSER EN FORME B' du CLAUDE.md). Feuille, aucune arete de cycle.
-from engine.playbook import should_evaluate_target as _SET
+# foyer MORD toujours (regle 'HISSER EN FORME B' du CLAUDE.md).
+# ⚠ ECRIT `import engine.playbook.should_evaluate_target`, PAS `from engine.playbook import
+# should_evaluate_target` -- et le commentaire qui disait << aucune arete de cycle >> etait FAUX.
+# Mesure #270-r4-r2 du 2026-08-18 : la seconde forme declare le PAQUET ANCETRE `engine.playbook`,
+# ce qui refermait un SCC de 7 (`playbook/__init__` -> `basilisk_barrage` -> `nonattack` -> retour).
+# Meme module charge, meme objet lie : seule la source DECLAREE change.
+import engine.playbook.should_evaluate_target as _SET
 
 
 class NonAttackComparablePlaybook(ComparablePlaybook):

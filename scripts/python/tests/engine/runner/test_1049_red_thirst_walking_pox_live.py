@@ -142,6 +142,33 @@ def rt_blesse_alt(charge_regime):
                          seed="31337", board="C1_25", extra=_graft(HOST_HP_WOUNDED))
 
 
+def _ledger_complet(runner):
+    """Le ledger d'attaque COMPLET : la phase d'ARME **et** le canal #179, recolles.
+
+    ⚠ `per_hit` NE PORTE QUE LES COUPS D'ARME. `damage_ops/normal.py::execute` range les
+    sous-operations du canal #179 dans une cle SEPAREE (`additional_hits`), parce que le natif en
+    fait lui aussi des operations distinctes
+    (`IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute`). Le
+    LIVE, lui, ne distingue pas : `rec["live_per_hit"]` compte TOUT evenement de degat
+    caster -> cible. Confronter le seul `per_hit` a un ledger natif SOUS-COMPTE des qu'un
+    descripteur #179 est actif, et la degradation se lit comme un bug de port -- c'est la mesure
+    #949 (<< 8 coups natif contre 6 port >>) et #1065 (`FragLanceEffect`, live n=5 / `per_hit`
+    n=4). Meme convention que `_charge_regime.replay_offline`, dont `per_hit_all` est ce qu'elle
+    documente comme << c'est LUI qu'on confronte au live >>.
+
+    INERTE DANS CE FICHIER, et c'est mesure, pas suppose : le `+extraHit` de `RedThirst` est un
+    HITS BONUS (`..._ExtraDamageAndHitEffect$$CreateEffectHitsBonusForAttack` ->
+    `damage_model.py::build_hits_board`), donc il grossit la phase d'ARME ; il ne passe PAS par le
+    canal #179. `additional_hits` est vide dans les trois regimes, et le recollage est
+    value-preserving ici. Il est ecrit quand meme parce que rien ne garantit qu'un descripteur
+    #179 ne devienne pas actif sur l'hote de GREFFE -- et un sous-comptage y serait SILENCIEUX.
+    """
+    last = runner.damage_handler.last or {}
+    per_hit = list(last.get("per_hit") or [])
+    add = last.get("additional_hits") or {}
+    return per_hit + list(add.get("per_hit") or [])
+
+
 def _replay_without_effect(h, rec):
     """CONTRE-EPREUVE : meme rejeu, l'instance 1322 RETIREE. Deux offline identiques = scenario
     NON discriminant, donc verdict vide."""
@@ -151,7 +178,7 @@ def _replay_without_effect(h, rec):
             st.effects.by_unit[uid] = [e for e in lst if getattr(e, "name", None) != EFFECT_NAME]
     runner = Runner(st).install_default_handlers(20)
     runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
-    return list((runner.damage_handler.last or {}).get("per_hit") or [])
+    return _ledger_complet(runner)
 
 
 def _replay_with_effect_forced(h, rec, ability_level, mult):
@@ -172,7 +199,7 @@ def _replay_with_effect_forced(h, rec, ability_level, mult):
         "l'instance 1322 etait DEJA la : le bras ne mesure pas ce qu'il croit"
     runner = Runner(st).install_default_handlers(20)
     runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
-    return list((runner.damage_handler.last or {}).get("per_hit") or [])
+    return _ledger_complet(runner)
 
 
 def _run(h, regime):

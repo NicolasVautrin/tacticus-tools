@@ -133,7 +133,7 @@ from ._base import NCContext, NonComparablePlaybook
 # Forme B : un import from ._targets import <nom> GELERAIT la liaison au chargement -- une contre-epreuve
 # qui substitue le foyer deviendrait MUETTE, en silence (mesure #977 : deux mutations d'ordre
 # n'ont RIEN mordu tant que cet import etait en forme A).
-from . import _targets as _T
+import engine.playbook.noncomparable._targets as _T
 
 #: `Bucket<T>..ctor` a UN argument -> `minUtility.HasValue == false` -> aucun seuil d'admission.
 #: Le defaut `0.0` de `NonComparablePlaybook` tuerait ce playbook (son utilite vaut 0 sur plat).

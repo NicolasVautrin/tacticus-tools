@@ -108,7 +108,7 @@ from collections.abc import Mapping
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from ...traits.unit_trait import UnitTrait, has_any_trait
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x5bb = 1467 -- la CONFIG lue par les DEUX effets (`.ctor` partage).
 _ABILITY_ID = "RelicBoltPistol"

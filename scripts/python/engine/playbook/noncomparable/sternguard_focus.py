@@ -6,7 +6,7 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.unit_faction import UnitFaction
 from engine.playbook import adjacent_unit_preference as AUP
 
-from . import _targets as T
+import engine.playbook.noncomparable._targets as T
 from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 

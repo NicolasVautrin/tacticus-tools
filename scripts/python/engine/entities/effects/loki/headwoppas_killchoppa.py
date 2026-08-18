@@ -159,7 +159,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import EffectBonus, for_addition
 from ..base import BaseEffect, is_melee_attack
 from ..magnitude import ability_const_str, ability_var
-from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
+import engine.entities.effects.ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x60d = 1549 -- la config lue par `ConfigVar` (celle de la RELIQUE),
 #: etablie par le `mov edx, 0x60d` du `.ctor` (cf. en-tete).
