@@ -242,6 +242,67 @@ VENTILATION = {
         ("INERTE-AVAL", "ne trie que `eligible`, deja filtre par `turn_defeated` -- donc des morts "
                         "DU RUN, qui ont leur ctx"),
 
+    # ============================================================================================
+    # #547-r11 -- SIX SITES NEUFS, trouves par le cliquet d'exhaustivite. Aucun n'est ATTEIGNABLE.
+    #
+    # ⚠ LA FICHE `#547-r6` DU BACKLOG EN NOMMAIT TROIS AUTRES (`resurrect.py::tiles_are_occupied`,
+    # `traits.py::_traits_of`, `traits.py::execute`) : elle etait PERIMEE -- ces trois-la sont
+    # ventiles depuis (les deux `traits.py` ci-dessus), et les six ci-dessous sont arrives entre
+    # temps. Diagnostiquer d'apres une fiche plutot que d'apres le rouge courant aurait fait
+    # chercher au mauvais endroit.
+    # ============================================================================================
+    ("entities/effect_targets.py", "_way_of_the_short_blade_marked", "world.traits", "R"):
+        ("HORS-ECS", "appel de METHODE du pont `world`, pas une lecture de ctx -- MEME forme exacte "
+                     "que `_surrounding_enemy_psykers_r2` et `_synapse_targets` ci-dessus, et les "
+                     "deux implementations du pont sont ventilees a leur propre ligne. Le site "
+                     "porte au surplus son propre `world.alive(uid)` juste au-dessus, dans la "
+                     "boucle `SurroundingFriends`"),
+    ("playbook/scene.py", "hunter_of_souls_adjacent_psyker_friends", "getattr(c)", "R"):
+        ("INERTE-VIVANT", "balayage de `self.units` avec le gate `if oid == uid or not "
+                          "u.get('alive'): continue` AVANT la lecture -- MEME forme exacte que "
+                          "`_enmity_adjacent` et `_enemy_psykers_alive` ci-dessus. Face PREDICTION "
+                          "de `HunterOfSouls_ExtraDamageEffect$$GetUnits` (#1078-r3), dont "
+                          "l'etage `AdjacentFriends(..., 3 = OnlyAliveAndTargetable)` porte deja "
+                          "la vivacite cote natif"),
+    ("playbook/should_evaluate_target.py", "_traits_ids", "getattr(ctx)", "R"):
+        ("INERTE-AMONT", "`BasePlaybook$$ShouldEvaluateTarget` / `UnitExtensions$$"
+                         "IsIrrelevantObject`. DEUX gates ANTERIEURS, et le premier suffit : "
+                         "`filtrer_cibles` fait `ctx = tab.get(eid)` puis `if ctx is None: "
+                         "garde.append(element); continue` -- or `ctx_by_id` vient du `predictor`, "
+                         "donc des VIVANTS seuls, et un cadavre-au-chargement n'a de toute facon "
+                         "aucun `UnitContext`. Le second est dans la fonction meme (`if ctx is "
+                         "None: return None`). La degradation est PERMISSIVE et ECRITE (la cible "
+                         "est GARDEE), ce qui est la bonne direction : retirer sur une absence de "
+                         "substrat transformerait un trou en restriction"),
+    ("runner/operations/damage.py", "_kill_unit_operation", "getattr(_sc_pr.ctx)", "R"):
+        ("INERTE-VIVANT", "sujet = `target_id` du `KillUnitOperation` EN COURS -- l'unite qu'on est "
+                          "en train de tuer, donc vivante a l'instant du coup (meme argument que "
+                          "`components.unit_prevents_overkill`). Le site sert le gate "
+                          "`preventRevive = options.<+0x45> ? true : IsSteppable(killed)` du rang "
+                          "natif `RecordDeathReason -> Add(0x08) -> Add(0x0d) -> On(1)`. Un "
+                          "cadavre-AU-CHARGEMENT n'y entre jamais : les TROIS appelants du foyer "
+                          "(drain de `pending_deaths`, `_kill_steppable_units` gate `uc.alive`, "
+                          "`KillUnitBehaviour` gate `uc.alive`) ne portent qu'un mort DU RUN -- "
+                          "c'est la mesure deja etablie pour `cosmic_horror.py::_traits_of`"),
+    ("runner/operations/movement.py", "execute", "getattr(_sc_ms.ctx)", "R"):
+        ("INERTE-AMONT", "sujet = `self.unit_id`, le MOVER. `MoveUnitOperation$$Execute` ouvre par "
+                         "la garde `_is_allowed_to_move(state, self.unit_id, ...)`, qui porte "
+                         "`if uc is not None and not uc.alive: return False` "
+                         "(`UnitExtensions$$IsDead`) -- ~286 lignes AVANT cette lecture, qui ne "
+                         "sert qu'a decider si le compte de tuiles doit etre calcule "
+                         "(`_is_like_flying`). Un cadavre-au-chargement n'atteint jamais le site"),
+    ("runner/operations/triggers/loki/final_vengeance.py", "matches", "getattr(<call>)", "R"):
+        ("INERTE-AMONT", "sujet = `self.owner_id`, et le gate qui precede est le 2e conjoint de "
+                         "`matches` : `mourant = ev.dying_id ?? ev.target_id` puis "
+                         "`if mourant is None or int(mourant) != int(self.owner_id): return False` "
+                         "(`get_OwnerIsTarget` via `FinalJusticeAbility.Trigger` -- le porteur EST "
+                         "le mourant). L'evenement de mort est EMIS par le run "
+                         "(`damage.py::_kill_unit_operation`), donc son sujet est toujours un mort "
+                         "DU RUN, jamais un cadavre-au-chargement -- qui n'est tue par rien. ⚠ La "
+                         "degradation serait PERMISSIVE si le site etait atteint (`sc is None` -> "
+                         "`traits = set()` -> le `NOT HasTrait(Owner, 0x3f6 = FinalJustice)` "
+                         "passerait), ce qui rend le gate amont load-bearing et non decoratif"),
+
     # ---- INERTE-FRAIS : entite creee pendant le run --------------------------------------------
     ("runner/operations/spawn.py", "_spawn_config_grot", "ctx.traits", "R"):
         ("INERTE-FRAIS", "`ctx` est construit 3 lignes plus haut par `build_summon_context`"),

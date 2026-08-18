@@ -195,6 +195,19 @@ CONDITIONS_PORTEES_ATTESTEES = {
     # MOBILE. On n'invente jamais un verrou.
     "InstinctiveBehaviour_BlockMovement",
     "IntoxicatingElixir",                    # #943, cf. le bloc ci-dessus
+    # #547-r11 -- `1060 Lifewards_BondEffect`, entree au registre avec #963-r3 sans sa ligne ICI ni
+    # son verdict de pose dans `probe_366_camo_seed_inventory.POSE_VECTOR`. Elle rendait donc
+    # `master` ROUGE sur les DEUX fichiers a la fois -- exactement la forme decrite pour les six
+    # classes de #943 quelques lignes plus haut, et la meme reparation : les deux lignes, ecrites
+    # ensemble. `LifewardsBondEffect$$CreateActiveCondition` a ete RELUE VERBATIM sur `t6dpr4k06g`
+    # pour cette tranche ; son corps ENTIER est
+    #     IsAdjacent( Owner@<DSLSelectors+0x30>, Parent(Owner@+0x30, root: 0),
+    #                 UnitSelectionType.OnlyAliveAndTargetable = 3 )
+    # -- MEME famille GEOMETRIQUE que `SupaCyborkBody_CritDmgReduction` et
+    # `CloseCombatWeakness_ReduceDmg` ci-dessus, donc MEME arbitrage : le flag capte decrit la
+    # position REELLE au moment de la capture et ne predit rien d'une TUILE SIMULEE, d'ou
+    # `active_condition_ported = True`.
+    "Lifewards_BondEffect",
     "MartialSuperiority_Visual",
     "MawClawsOfThyrax_ExtraCritDmg",         # #943, cf. le bloc ci-dessus
     # #552-r1 -- `HasEffect(bonded, 27, null, 6) & AreEqual(BondedEntityFromEffect(EffectFromOwner(
