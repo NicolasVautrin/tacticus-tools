@@ -47,8 +47,40 @@ Lectures partagees avec `cursed_plague_bell.py`, non re-derivees ici :
     seule entree `ValueModification.per_source` par instance -- ce qui rend le retrait exact.
 
 FORME DU PORT : canal EAGER `applied_stat_mods` + son symetrique `reverted_stats()`, comme
-`CursedPlagueBellExtraMoveEffect`. AUCUN `CreateActiveCondition` n'existe pour cette classe : la duree
-de vie est portee par le `turns = 1` du vecteur `AddEffect`.
+`CursedPlagueBellExtraMoveEffect`. La duree de vie est portee par le `turns = 1` du vecteur
+`AddEffect`.
+
+================================================================================================
+LES QUATRE AUTRES SURCHARGES -- DECLAREES, ICF-DEDUPLIQUEES, ET RELUES (#577-r1, 2026-08-18)
+================================================================================================
+⚠ **CE FICHIER A AFFIRME << AUCUN `CreateActiveCondition` n'existe pour cette classe >>. C'EST
+FAUX DANS LA LETTRE**, et l'affirmation reposait sur l'absence des tables -- ce que le CLAUDE.md
+proscrit explicitement (`methods.tsv` / `functions.tsv` sont indexees par ADRESSE, l'ICF fond les
+corps identiques). Le `global-metadata.dat` du build DECLARE neuf methodes pour
+`IdunBattle.Entities.Effects.Loki.RelentlessMarchEffect` ; les tables n'en publient que quatre.
+Les quatre autres, resolues par la table `methodPointers` du PE (base localisee par INTERSECTION
+sur 414 couples `(rid, VA)` connus, **414/414 reproduits**) :
+
+  * **`CreateTargetSelector` (slot 64)** -- corps PARTAGE avec l'ICF par defaut
+    (`...Loki.WhisperingWebEffect$$CreateTargetSelector`) : `return <DSLSelectors+0x30>` = **`Owner`**.
+    C'est LOAD-BEARING pour `#577-r1` : `IdunBattle.Operations.RefreshEffectsOperation$$
+    GetDesiredEffectTargets` appelle le slot `IEffect+0xd` (`BaseEffect$$GetTargets`), qui execute
+    CE selecteur -- **et non celui du `AddEffect`**. `AddEffectBehaviour$$Execute` cree UNE
+    entite-effet PAR cible (`AddEffectOperation$$AddNewEffect` : `<+0x14> = owner.Id`), donc
+    `Targets` vaut `{Owner}` et `$$GetTargetsToRemove` ne peut JAMAIS rendre le porteur. Toute
+    explication de la disparition de 1011 par un << re-ciblage >> est refutee par cette ligne.
+  * **`CreateActiveCondition` (slot 62)** -- corps partage avec `...Loki.ObsessiveAnnunciation_
+    ExtraDmgEffect$$CreateActiveCondition` et `...Loki.RelentlessMarchDangerZoneEffect$$…` :
+    `return <DSLTriggers+0x40>`, l'un des deux triggers CONSTANTS que
+    `IdunBattleLogic.Entities.DSLTriggers$$.ctor` met en cache (MEME classe et MEME argument de
+    ctor que `<DSLTriggers+0x70>`). `ShouldBeActive` ne peut donc pas l'eteindre : le defaut `True`
+    de `BaseEffect.is_active` EST le mirror -- il l'etait par accident, il l'est maintenant par
+    lecture, et ne PAS surcharger `is_active` est le bon geste.
+  * **`GetExtraMovementAmount`** -- corps `b8 01 00 00 00 c3` = **`return 1`**. CORROBORATION
+    INDEPENDANTE du `DSLFormulas$$Direct(1)` lu plus haut : le +1 ne vient pas du gameconfig, et
+    deux lectures disjointes le disent.
+  * **`UpdateInternal` (slot 66)** -- corps `c2 00 00` = `ret`, VIDE, partage avec
+    `BaseEffect$$UpdateInternal`. Rien a porter, et c'est un RESULTAT.
 """
 from __future__ import annotations
 

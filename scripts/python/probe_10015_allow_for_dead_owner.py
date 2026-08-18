@@ -133,13 +133,40 @@ NATIF_DU_PORT: dict[str, str] = {
     "SplitAbility":
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility",
 }
-#: ATTENTION -- N'ENTRE ICI QUE CE QUI A ETE LU. `Bounce`, `DrawFire` et `ThrillSeekers` ont ete ECARTES de cet
-#: appariement, chacun pour une raison DIFFERENTE et chacune fatale a un cliquet : les deux premiers
-#: n'existent sous ce nom dans AUCUNE classe du registre (l'appariement serait perime des l'ecriture),
-#: et `ThrillSeekersAbility` (natif) a DEUX contreparties portees
-#: (`ThrillSeekersFullHealthTargetAbility`, `ThrillSeekersDamageTakenAbility`) dont la face n'a pas
-#: ete relue -- les inscrire d'office fabriquerait deux desaccords non instruits. Ils entrent dans
-#: le residu `#10015`, pas dans le cliquet.
+#: ATTENTION -- N'ENTRE ICI QUE CE QUI A ETE LU. `Bounce` et `DrawFire` ont ete ECARTES de cet
+#: appariement : ils n'existent sous ce nom dans AUCUNE classe du registre (l'appariement serait
+#: perime des l'ecriture). `ThrillSeekers` a ete ecarte pour une AUTRE raison, qui est structurelle
+#: et definitive : une native, DEUX classes portees -- le critere du NOM ne peut PAS le reproduire,
+#: donc l'inscrire ICI ferait rougir 2a (`TEMOIN PERDU`). C'est ce qui motive le second dict
+#: ci-dessous.
+
+#: LES APPARIEMENTS **LUS HORS BIJECTION** -- consommes par 2b SEUL, JAMAIS par 2a (#10015).
+#:
+#: ⚠ **POURQUOI UN SECOND DICT, ET PAS UNE LIGNE DE PLUS DANS `NATIF_DU_PORT`.** Les deux dicts
+#: repondent a deux questions differentes. `NATIF_DU_PORT` est le TEMOIN de 2a : il exige que le
+#: critere mecanique du NOM le REPRODUISE. Y inscrire un couple que le critere ne peut
+#: STRUCTURELLEMENT pas reproduire -- N classes portees pour UNE native -- ferait rougir 2a en
+#: `TEMOIN PERDU`, et le seul geste naturel (« j'inscris ce que je viens de lire ») desarmerait le
+#: cliquet. Ici, au contraire, l'appariement est LU et n'a rien a prouver au critere : il ETEND le
+#: perimetre de la confrontation aux classes que 2b ne visitait pas.
+#:
+#: ⚠ **C'EST LA SEULE PORTE PAR OU CES CLASSES ENTRENT SOUS CLIQUET.** Les 66 `sans_natif` etaient
+#: comptees et jamais confrontees : trois desaccords y dormaient (`CursedOfTheWalkingPoxSummon`,
+#: les DEUX `ThrillSeekers*`), tous les trois natif VRAI / port FAUX, et le probe restait VERT.
+#: Un compte de non-couverture n'est pas une couverture.
+NATIF_LU_HORS_BIJECTION: dict[str, str] = {
+    #: UNE native, DEUX classes portees (les deux branches de l'`op_BitwiseOr` du `CreateTrigger`).
+    #: `get_AllowForDeadOwner = TRUE` (OVERRIDE) -- corrige le 2026-08-18, cf. `loki/thrill_seekers.py`.
+    "ThrillSeekersFullHealthTargetAbility":
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility",
+    "ThrillSeekersDamageTakenAbility":
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility",
+    #: Le nom du port porte un suffixe `Summon` que la native n'a pas -> hors critere du NOM.
+    #: `get_AllowForDeadOwner = TRUE` (OVERRIDE), concordant avec `ownerNeedsToBeAlive = 0` de son
+    #: `On(0x35)` -- corrige le 2026-08-18, cf. `loki/cursed_of_the_walking_pox.py`.
+    "CursedOfTheWalkingPoxSummonAbility":
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility",
+}
 
 #: LA DETTE. Chaque entree est un desaccord CONSTATE, avec la valeur du port ; le cliquet exige
 #: qu'il soit TOUJOURS la et TOUJOURS dans ce sens. Il ne peut donc que retrecir -- et un desaccord
@@ -445,7 +472,7 @@ def classes_du_registre():
     return abilites, effets
 
 
-def confronter_port(tsv: dict) -> int:
+def confronter_port(tsv: dict, lister_non_couvertes: bool = False) -> int:
     abilites, effets = classes_du_registre()
     parents = parents_du_build()
     print("registre : %d classes ABILITY, %d classes EFFET" % (len(abilites), len(effets)))
@@ -486,9 +513,24 @@ def confronter_port(tsv: dict) -> int:
         print("  2a : le critere du NOM reproduit les %d appariement(s) LU(S) au decompile (%d/%d)"
               % (len(NATIF_DU_PORT), len(NATIF_DU_PORT), len(NATIF_DU_PORT)))
 
-    # --- 2b : LA CONFRONTATION, sur TOUT ce que le critere apparie ----------------------------
+    # --- 2b : LA CONFRONTATION, sur TOUT ce que le critere apparie ET sur ce qui est LU ---------
+    #: L'union des DEUX sources d'appariement. Elle doit etre DISJOINTE : un couple present des
+    #: deux cotes signifierait que le critere le reproduit -- et alors sa place est dans
+    #: `NATIF_DU_PORT`, ou 2a le CONTROLE, pas ici ou rien ne le contredit. On le fait ROUGIR.
+    confrontables = dict(bijectifs)
+    for nom, plein in sorted(NATIF_LU_HORS_BIJECTION.items()):
+        if nom in bijectifs:
+            print("  APPARIEMENT EN DOUBLE : %-24s le critere du NOM le rend deja (%s) -- sa place"
+                  " est dans `NATIF_DU_PORT`, ou 2a le controle" % (nom, bijectifs[nom]))
+            rc = 1
+            continue
+        if nom not in abilites:
+            print("  APPARIEMENT PERIME : %-26s n'est plus dans le registre d'abilities" % (nom,))
+            rc = 1
+            continue
+        confrontables[nom] = plein
     accord = 0
-    for nom, plein in sorted(bijectifs.items()):
+    for nom, plein in sorted(confrontables.items()):
         cls = abilites[nom]
         port = bool(getattr(cls, "fire_on_death", False))
         val, chaine = valeur_heritee(tsv, parents, plein, "get_AllowForDeadOwner")
@@ -510,14 +552,25 @@ def confronter_port(tsv: dict) -> int:
         elif attendu != port:
             print("  DETTE DEPLACEE : %-29s port=%s, la dette disait %s" % (nom, port, attendu))
             rc = 1
-    print("  2b : %d classe(s) confrontee(s) -- ACCORD %d, dette declaree %d"
-          % (len(bijectifs), accord, len(DESACCORDS_CONNUS)))
+    print("  2b : %d classe(s) confrontee(s) (%d par le NOM + %d LUE(S) hors bijection)"
+          " -- ACCORD %d, dette declaree %d"
+          % (len(confrontables), len(bijectifs), len(confrontables) - len(bijectifs), accord,
+             len(DESACCORDS_CONNUS)))
     #: PORTEE -- ce que cet etage NE couvre PAS, imprime a chaque run : un cliquet qui tait son
     #: perimetre se lit comme une couverture totale. Les deux causes sont DISTINCTES et le restent.
+    restants = [n for n in sans_natif if n not in NATIF_LU_HORS_BIJECTION]
     print("  NON COUVERT : %d sans natif de meme nom (le port SCINDE une native en N classes),"
-          " %d nom(s) ambigu(s)" % (len(sans_natif), len(ambigus)))
+          " %d nom(s) ambigu(s)" % (len(restants), len(ambigus)))
     for nom in sorted(ambigus):
         print("      AMBIGU %-38s -> %s" % (nom, ambigus[nom]))
+    #: ⚠ **UN COMPTE N'EST PAS UNE LISTE.** Ces 6x classes etaient DENOMBREES et jamais NOMMEES :
+    #: pour les instruire il fallait ré-appeler `apparier_mecaniquement` depuis un script jetable.
+    #: Trois desaccords y ont dormi. On les imprime a la demande, avec la valeur du port, pour que
+    #: la prochaine passe parte d'un inventaire et non d'un chiffre.
+    if lister_non_couvertes:
+        print("  --- NON COUVERTES, une par une (classe portee | fire_on_death du PORT) ---")
+        for nom in sorted(restants):
+            print("      %-46s port=%s" % (nom, bool(getattr(abilites[nom], "fire_on_death", False))))
     return rc
 
 
@@ -749,6 +802,9 @@ def main() -> int:
     ap.add_argument("--inertie", action="store_true", help="etage 3 seul (morsure)")
     ap.add_argument("--atomique", action="store_true",
                     help="etage 4 seul (gate atomique <-> file de BattleEvent)")
+    ap.add_argument("--non-couvertes", action="store_true",
+                    help="LISTE les classes portees que le critere du NOM n'apparie pas (un COMPTE "
+                         "n'est pas un INVENTAIRE) -- non bloquant")
     a = ap.parse_args()
 
     print("=== #10015 -- `fire_on_death` = `ITriggeredAbility` slot 8 `get_AllowForDeadOwner` ===")
@@ -809,7 +865,7 @@ def main() -> int:
 
     print("")
     print("etage 2 -- confrontation du port")
-    rc = confronter_port(tsv) or rc
+    rc = confronter_port(tsv, lister_non_couvertes=a.non_couvertes) or rc
 
     print("")
     print("etage 4 -- le gate ATOMIQUE et sa FILE, indissociables (#10015-r1)")

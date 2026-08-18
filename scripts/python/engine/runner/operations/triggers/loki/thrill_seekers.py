@@ -109,7 +109,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....components import HealthComponent
+from ....components import HealthComponent, UnitComponent
 from ....abilities.behaviours.context import entities_from_state
 from .....entities.behaviours import If as IfBehaviour
 from .....entities.selectors.tiles import Caster
@@ -170,7 +170,27 @@ def thrill_seekers_tree():
 
 class _ThrillSeekersBase(TriggeredAbility):
     """Corps PARTAGE des deux branches de l'`op_BitwiseOr` du `CreateTrigger` : le natif n'a qu'UN
-    `CreateBehaviour`, les deux branches l'executent a l'identique (patron `TerrifyingCrescendo`)."""
+    `CreateBehaviour`, les deux branches l'executent a l'identique (patron `TerrifyingCrescendo`).
+
+    ⚠ **`fire_on_death = True` (#10015)**, mirror de `ITriggeredAbility` slot 8 =
+    `get_AllowForDeadOwner`, LU sur `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    ThrillSeekersAbility` (`OVERRIDE`, corps `b0 01 c3` = `return true` ; entree versionnee
+    `data/symbols/<build>/metadata/allow_for_dead_owner.tsv`). La propriete appartient a la classe
+    NATIVE, qui est UNIQUE : elle se pose donc sur la BASE, pas sur chacune des deux branches
+    portees. Ce couple etait invisible du cliquet `probe_10015` parce que ces deux classes portees
+    pour une seule native sont, par construction, hors de son appariement par le NOM.
+
+    ⚠ **ET IL NE VIENT JAMAIS SEUL** : `get_AllowForDeadOwner` ouvre le gate d'AMONT
+    (`triggers/dispatch/core.py`, qui saute tout porteur non vivant), alors que le gate d'AVAL est
+    porte PAR BRANCHE, par le 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$On(this,
+    triggerType, ownerNeedsToBeAlive)` -- LU : `On` construit `EventAbilityTrigger(type) &
+    (ownerNeedsToBeAlive ? <DSLTriggers+0x20> : <DSLTriggers+0x70 = YesTrigger>)`. Les deux branches
+    n'ont PAS la meme valeur (`On(6, **1**)` contre `On(0xf, **0**)`), donc poser `fire_on_death`
+    sans reporter le gate de la branche 1 la rendrait PLUS permissive que le natif -- exactement la
+    degradation silencieuse que `LightImUp` a payee dans l'autre sens (« deux gates distincts »)."""
+
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -- LU (cf. la docstring ci-dessus).
+    fire_on_death = True
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         if state.effects is None:
@@ -182,6 +202,14 @@ class _ThrillSeekersBase(TriggeredAbility):
         return {"trait": "ThrillSeekers", "unit": self.owner_id, "on_event": ev.event_id,
                 "placed": bool(placed), "refreshed": bool(refreshed),
                 "crit_chance_bonus": (placed[0]["amount"] if placed else None)}
+
+
+def _owner_unit_component(state: State, unit_id: Optional[int]):
+    """Le `UnitComponent` du PORTEUR -- le canal ou vit `alive`, que le gate `ownerNeedsToBeAlive`
+    de la branche 1 interroge. `None` = pas d'entite/pas de composant : on ne refuse RIEN sur une
+    absence de mesure (le gate ne mord que sur un `alive` LU a `False`)."""
+    ent = state.get_entity(unit_id) if unit_id is not None else None
+    return ent.get_component(UnitComponent) if ent is not None else None
 
 
 def _is_wounded(state: State, unit_id: Optional[int]) -> bool:
@@ -198,11 +226,21 @@ def _is_wounded(state: State, unit_id: Optional[int]) -> bool:
 
 class ThrillSeekersFullHealthTargetAbility(_ThrillSeekersBase):
     """Branche 1 de `...ThrillSeekersAbility$$CreateTrigger` :
-    `On(PreAttackHit=6) & IsFirstHitInSeries & get_OwnerIsCaster & Not(IsWounded(target))`
+    `On(PreAttackHit=6, ownerNeedsToBeAlive=1) & IsFirstHitInSeries & get_OwnerIsCaster
+     & Not(IsWounded(target))`
     = « le porteur commence une attaque (1er coup) sur un ennemi a PLEINE VIE » -> devient *Thrilled*."""
     event_id = _ON_PRE_ATTACK_HIT
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # `ownerNeedsToBeAlive = 1` -- le 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$On`,
+        # LU : il conjugue `<DSLTriggers+0x20>` (le trigger « le porteur est vivant ») a l'event.
+        # ⚠ CETTE BRANCHE-CI SEULEMENT : la branche 2 passe `0`, donc `<DSLTriggers+0x70 =
+        # YesTrigger>` et AUCUN gate. Tant que `fire_on_death` etait FAUX, le gate d'amont du
+        # dispatch masquait la difference en refusant les DEUX ; depuis #10015 il ne refuse plus
+        # RIEN, et ce test est ce qui garde la branche 1 fidele.
+        ouc = _owner_unit_component(state, self.owner_id)
+        if ouc is not None and not ouc.alive:
+            return False
         if ev.actor_id != self.owner_id:                 # get_OwnerIsCaster (le porteur EST l'attaquant)
             return False
         if not ev.is_first_hit:                          # IsFirstHitInSeries (Nullable vide -> False)

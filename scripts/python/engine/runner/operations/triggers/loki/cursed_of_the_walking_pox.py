@@ -179,6 +179,20 @@ class CursedOfTheWalkingPoxSummonAbility(TriggeredAbility):
     l'attaque / l'armure / le mouvement / les coups supplementaires COURANTS du porteur."""
     event_id = _ON_POST_UNIT_KILL
     TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.CursedOfTheWalkingPox)     # 0x430 = 1072
+    #: `ITriggeredAbility` slot 8 = `get_AllowForDeadOwner` -- **VRAI**, LU sur
+    #: `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility` (`OVERRIDE`,
+    #: corps `b0 01 c3` ; entree versionnee `data/symbols/<build>/metadata/allow_for_dead_owner.tsv`).
+    #: ⚠ CONCORDANT avec le `CreateTrigger`, qui passe `ownerNeedsToBeAlive = **0**` a
+    #: `IdunBattleLogic.Entities.DSLTriggers$$On` (donc `& <DSLTriggers+0x70 = YesTrigger>`, aucun
+    #: gate d'aval) et dont le `CreateBehaviour` -- `Spawn(Owner, First(CanAddUnit(TargetTiles),1),
+    #: UnitIdFromUnit(Owner), CopyOwner)` -- ne porte AUCUN `If(IsAlive(Owner))` non plus.
+    #: CONTRE-EPREUVE, sur un arbre presque identique : `...Active.Loki.PossessionAbility$$
+    #: CreateTrigger` a la MEME forme (`On(0x35) & OwnerIsActor & AreEnemies & NOT
+    #: IsObjectOrSteppable & NOT TriggeringAbilityIs(self)`) mais passe `ownerNeedsToBeAlive = 1`,
+    #: et sa classe vaut FAUX. La valeur ne se DEDUIT donc pas de la forme du trigger : elle se LIT.
+    #: Le regime que ca ouvre : un Poxwalker qui acheve un ennemi et meurt dans le MEME echange
+    #: (riposte, overwatch) engendre quand meme son clone -- ce que le port refusait. #10015
+    fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # `get_OwnerIsActor` : l'ACTEUR d'`On(PostUnitKill)` est le TUEUR (le foyer
@@ -191,10 +205,15 @@ class CursedOfTheWalkingPoxSummonAbility(TriggeredAbility):
         owner, target = state.get_entity(self.owner_id), state.get_entity(victim)
         if owner is None or target is None:
             return False
-        # Un acteur mort n'agit pas (#70) -- le porteur peut avoir ete tue dans la meme sequence.
-        ouc = owner.get_component(UnitComponent)
-        if ouc is not None and not ouc.alive:
-            return False
+        # ⚠ **PAS DE GATE `owner alive` ICI, ET C'EST UNE LECTURE (#10015).** Le port en portait un
+        # (« Un acteur mort n'agit pas », #70) qui n'a AUCUNE contrepartie native : `CreateTrigger`
+        # passe `ownerNeedsToBeAlive = 0` a `IdunBattleLogic.Entities.DSLTriggers$$On` (donc
+        # `& <DSLTriggers+0x70 = YesTrigger>`), ses huit conjonctions ne contiennent aucun
+        # `IsAlive(Owner)`, `CreateBehaviour` n'en porte pas non plus, et la classe declare
+        # `get_AllowForDeadOwner = TRUE`. Le porteur tue dans le MEME echange que sa victime
+        # engendre donc bien son clone. Le seul gate d'identite qui reste est `get_OwnerIsActor`
+        # ci-dessus, conjugue a `victim != owner` -- ce qui exclut deja le repli `actor = killed`
+        # de `damage.py::_kill_unit_operation` quand aucun tueur n'est renseigne.
         # `IsDead(Target@+0x60)` : la victime doit etre morte. Sur ce vecteur elle l'est par
         # construction ; le noeud est ECRIT parce qu'il est LU (et il mord si un revive l'a annulee
         # -- cf. `case-462-...-r4` : `On(0x35)` est le SEUL des cinq events que la garde revive ne

@@ -180,6 +180,7 @@ from ..loki import the_lantern_attack as _the_lantern_attack        # noqa: F401
 from ..loki import solar_atomizer_attack as _solar_atomizer_attack  # noqa: F401  (#894-r2, ph.2 de 1174)
 from ..loki import (instruments_of_vengeance_attack                 # noqa: F401  (#889-r7, ph.2
                     as _instruments_of_vengeance_attack)            #             de 1215)
+from ..loki import nova_shield_attack as _nova_shield_attack        # noqa: F401  (#895-r4, ph.2 de 1194)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)

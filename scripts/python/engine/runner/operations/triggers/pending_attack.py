@@ -285,6 +285,47 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
         "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.InstrumentsOfVengeance_PendingAttackEffect",
         int(TriggeredAbilityType.InstrumentsOfVengeance_PendingAttack),   # 0x5ef, LU au corps
         ATTACKER_EFFECT_SOURCE),                                 # SURCHARGE lue, cf. ci-dessus
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility$$ExecuteBehaviour`
+    # (1194, #895-r4) : `AddBondEffect(0x586, AbilityStateReference, source = Owner@DSLSelectors+0x30,
+    # targets = Owner@+0x30, bondedEntity = Owner@+0x30, options = <ZERO>)`, dernier terme de
+    # `((CreateShield & AddStaticStatModifierEffect(0x588)) & AddEffect(0x587)) & <ce noeud>`.
+    #
+    # ⚠ **LA CLASSE NATIVE EST GENERIQUE ET PARAMETREE -- il n'existe AUCUN `NovaShield*Effect`.**
+    # C'est la seule entree de la table dans ce cas, et un relecteur qui chercherait une classe
+    # portant « Nova » ne trouverait rien : `IdunBattle.Core.Services.EffectsDatabase.
+    # u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_414` a pour corps ENTIER
+    # `new IdunBattle.Entities.Effects.OwnerPendingAttackEffect(0x4aa, 0x52d)`, et le ctor est
+    # `APendingAttackEffect..ctor(this, Nullable(AbilityOrEffect(sourceAbility)))` suivi de
+    # `this[+0x480] = attackAbility`. L'appariement lambda -> `EffectType` ne repose donc PAS sur
+    # l'indice de la lambda (qui serait un argument d'ordre de source) mais sur le COUPLE
+    # `(sourceAbility = 1194 NovaShield, attackAbility = 1325 NovaShield_Attack)`, qui ne nomme
+    # qu'un seul effet du build. `frida/classes.tsv` confirme la derivation ET la taille DISTINCTE :
+    # `OwnerPendingAttackEffect | 1160 | IdunBattle.Entities.Effects.APendingAttackEffect` (1160 et
+    # non 1152 -- le champ `+0x480` en plus), d'ou son `GetTriggeredAbilityType` = `return
+    # *(uint*)(this + 0x480)` et non un litteral.
+    #
+    # ⚠ **LES TROIS LECTURES COINCIDENT SUR CE PORTEUR** (`source`, `targets` et `bondedEntity`
+    # valent tous `Owner@+0x30`), exactement comme chez `InstrumentsOfVengeance` : le choix
+    # `ATTACKER_BONDED` n'est donc PAS discriminant live et il vient du corps de la BASE
+    # (`ABondEffect$$BondedEntitySelector`), l'effet ayant bien un composant de bond puisqu'il est
+    # pose par `AddBondEffect`. Aucune surcharge de `GetAttackingUnitSelector` n'est publiee pour
+    # `OwnerPendingAttackEffect`.
+    int(EffectType.NovaShield_PendingAttack): PendingAttackSpec(
+        "IdunBattle.Entities.Effects.OwnerPendingAttackEffect",   # GENERIQUE : ctor(0x4aa, 0x52d)
+        int(TriggeredAbilityType.NovaShield_Attack)),             # 0x52d = 1325, LU au ctor
+    # ⚠ **`NovaCharge_PendingAttack` (1411) ET `NovaBoost_PendingAttack` (1409) NE SONT PAS
+    # INSCRITS, ET C'EST DELIBERE.** Leurs lambdas sont lues (`b__14_411` -> `(0x4a9, 0x52c)`,
+    # `b__14_409` -> `(0x4a8, 0x52b)`, meme classe generique), mais la regle de ce module est
+    # qu'une entree dont la phase 2 n'est pas atteignable fait consommer la marque par le
+    # `RemoveEffect` du meme arbre SANS que rien ne frappe -- un no-op pire que l'absence.
+    #   * `NovaCharge_Attack` (1324) : l'arbre est LU (DEUX volets, marques 0x584/0x585, second jeu
+    #     `MinMaxDamage2`/`GetDamageProfileOrDefault2(0x12)`/`GetHits2`) et tous ses noeuds sont
+    #     portes -- mais la phase 1 n'est pas CONFRONTABLE : le masque de 1193 porte
+    #     `CasterHas7Tiles` et le boss monte par `rl_duel` n'a qu'un pied, donc `abilityTargets`
+    #     rend 0 et la marque ne peut pas etre posee live. Residu #895-r4.
+    #   * `NovaBoost_Attack` (1323) : trois noeuds MANQUENT (`DSLSelectors$$CanAddMultiTileUnit`,
+    #     `DSLBehaviors$$RemoveReservation`, et un `SortTilesByUtility` acceptant une
+    #     `UtilityDefinition` a DEUX `WeightedUtility` dans UN bucket). Residu #895-r4.
 }
 
 
