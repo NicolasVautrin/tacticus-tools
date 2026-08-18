@@ -1,7 +1,7 @@
 """HeroicFusilladePlaybook — splash NonComparable (util plate=1, gates Hero + ennemi voisin)."""
 from __future__ import annotations
 
-from engine import battle_query as bq
+import hexgeo
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, NonComparablePlaybook, _traits, _turns_started_gate
@@ -33,10 +33,51 @@ class HeroicFusilladePlaybook(NonComparablePlaybook):
     `move+1180->79` pour Judh **team 2** dès ts=2, cibles Hero + gate2 verts. Toute la chaîne de
     décision native (strategy -> tactic -> generateurs -> playbook) est partagée entre joueurs et
     sans branche PlayerType (IdunBattle.Core.Services.AiControl$$GetAi route les PlayerType 0 ET 1 vers la MÊME
-    instance +0x20) — cf. case-31 §A.4."""
+    instance +0x20) — cf. case-31 §A.4.
+
+    ## `#433-r4-r1-r4-r2-r2` TRANCHE : le gate2 est GEOMETRIQUE, et il DOIT le rester
+
+    Le residu accusait ce module de << compter des voisins SANS elevation NI voisinage >>. La
+    lecture du call-site le REFUTE : c'est le seul comportement CORRECT ici, et brancher les deux
+    canaux serait la regression.
+
+    Le natif appelle `IBattleQuery` **slot 119** = `GetSurroundingUnits` (arite 3 --
+    `metadata/interface_slots.tsv`), avec les litteraux `(<tuiles de la cible>, range = 1,
+    includeCenter = 0)`. Cette famille descend jusqu'a
+    `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`, dont le
+    corps est une TRIPLE BOUCLE CUBE, lue verbatim :
+
+        c = PositionComponent.GetCubeCoordinate(tile)
+        for x in [c.x - r, c.x + r]:
+          for y in [c.y - r, c.y + r]:
+            for z in [c.z - r, c.z + r]:
+              if (x + y + z != 0) continue
+              t = StateExtensions.GetTileAt(state, CubeCoordinate(x,y,z).ToAxialCoordinate())
+              if (t == null) continue
+              <filtres OPTIONNELS : onlyEmptyOrSteppable @+0x50, includeCenter @+0x52,
+               portee de mouvement @+0x30, TileUtil$$IsTileValidForList @+0x54>
+              yield t
+
+    -- c'est-a-dire le DISQUE HEX de rayon `r`, **sans aucune porte d'elevation** et **sans jamais
+    consulter la liste d'adjacence STOCKEE** du `ConnectivityComponent`. C'est l'exact CONTRAIRE
+    de `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, que
+    mirrore `battle_query.is_adjacent` (liste stockee PUIS `|dElev| < 2`), et c'est la meme
+    distinction que `GrotTankPlaybook` documente pour SON `GetSurroundingUnits(summonTile, 3, null)`.
+
+    Le port compte donc par `hexgeo.distance(...) == 1`, ECRIT EXPLICITEMENT plutot qu'obtenu par
+    le repli de `count_adjacent` : les deux rendaient le meme nombre (`is_adjacent(t, p, None,
+    None)` EST `hexgeo.distance == 1`), mais l'un citait la mauvaise primitive native, donc un
+    futur branchement des canaux -- exactement ce que le residu reclamait -- aurait FAUSSE ce
+    call-site en silence. `includeCenter = 0` est porte par l'exclusion `e != tpos`, deja presente.
+
+    ECART NOMME, et il est du cote GEOMETRIQUE : le natif ecarte une tuile que
+    `StateExtensions$$GetTileAt` ne rend pas (hors plateau), la ou le port n'a que des positions
+    d'ennemis -- toutes sur le plateau par construction. Aucun regime ne les separe."""
     ABILITY_ID = int(ActiveAbilityType.HeroicFusillade)  # 1180
     MIN_UTILITY = 1.0
     PRIORITY = 0
+    #: Le `1` LITTERAL de l'appel `GetSurroundingUnits(<cible>, 1, includeCenter: 0)` (cf. l'en-tete).
+    _SPLASH_RADIUS = 1
 
     def should_evaluate(self, ctx: NCContext) -> bool:
         """Slot 4 de la vtable (0x298, resolu live #46) -> corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate :
@@ -73,7 +114,12 @@ class HeroicFusilladePlaybook(NonComparablePlaybook):
             if "Hero" not in _traits((tu or {}).get("visualId")):   # gate1 : HasTrait(cible, Hero=0x10)
                 continue
             others = [e for e in (ctx.epos or []) if e != tpos]     # gate2 : >=1 ennemi ring-1 (splash)
-            if bq.count_adjacent(tpos, others) < 1:                 # GetSurroundingUnits(r=1) & IsEnemy
+            # `GetSurroundingUnits(<cible>, 1, includeCenter: 0)` filtre `IsEnemy` -- DISQUE HEX
+            # GEOMETRIQUE (triple boucle cube d'`IterateSurroundingTiles`), donc NI porte
+            # d'elevation NI liste d'adjacence stockee : cf. le bloc `#433-r4-r1-r4-r2-r2 TRANCHE`
+            # de l'en-tete de classe. Surtout PAS `battle_query.count_adjacent`, qui mirrore
+            # `GetAdjacent*` -> `IterateAdjacentTiles`, une primitive DIFFERENTE.
+            if not any(hexgeo.distance(tpos, e) <= self._SPLASH_RADIUS for e in others):
                 continue
             if ctx.debug:
                 import sys
