@@ -985,6 +985,21 @@ def multi_threat_eliminator_tree(range_val: int, extra_hit: int) -> ChainLeftOve
             GetNextHitTargetSelector(this),                       # +0x88
             Get(GetNumberConstant(0x2b) = extraHit))              # +0x90  extraHits
 
+    ⚠ `DSLFormulas$$Get(int)` **EST** `DSLFormulas$$Direct(int)`, et ce n'est PAS une analogie de nom
+    (#512-r5, MESURE sur `t6dpr4k06g`). Les deux corps chargent le MEME `Il2CppClass*`, appellent le
+    MEME allocateur et le MEME ctor avec le MEME argument -- leurs empreintes structurelles
+    (`data/symbols/<build>/fingerprints/functions.tsv`) sont identiques sur les CINQ couches, et le
+    desassemblage rend les MEMES 5 adresses decisives ; seuls les booleens
+    `s_Il2CppMethodInitialized` different, un octet d'amorcage qui ne designe ni classe ni valeur.
+    Donc `Get(extraHit)` vaut bien la valeur `extraHit`, et le `extra_hit` scalaire passe ci-dessous
+    est fidele. ⚠ ET IL FALLAIT RESOUDRE LA BONNE SURCHARGE : `$$Get` en a TROIS
+    (`Get(s:System.String) -> IStringFormula`, `Get(vector:IdunBattle.Utils.Hex.Edge) ->
+    IVectorFormula`, `Get(amount:System.Int32) -> IAmountFormula`), que `ghidra/functions.tsv` nomme
+    identiquement -- et les deux premieres allouent bel et bien d'AUTRES classes. Confronter
+    `$$Direct` a la surcharge `string` est ce qui avait fait ecrire que les deux factories
+    divergeaient. Mesure re-jouable : `probe_512r5_get_vs_direct.py` ; cliquet
+    `tests/engine/test_512r5_get_est_direct_offline.py`.
+
     `attackRangeType = Ranged` (gameconfig) -> `is_melee=False`. Famille de factory = **ATTACK** (le nom
     natif est `...AttackDamage`, et le behaviour construit par iteration porte le meme mold de champs que
     `AttackDamageBehaviour`) -> `native_factory="attack"` (2 tirages/coup a cc=0)."""
