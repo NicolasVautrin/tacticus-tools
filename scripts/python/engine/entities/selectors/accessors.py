@@ -408,14 +408,24 @@ class SurroundingTiles(TargetsSelector):
             # `SurroundingTiles(Target@0x178 = la TUILE ciblee, range)`).
             origins = [_center_pos(c, board) for c in raw]
         seen, out, excluded = set(), [], set()
+        #: `op_Subtraction Tiles(origin)` -- SUR L'ORIGINE ENTIERE, PAS PAR ELEMENT (#10023).
+        #: L'exclusion vivait DANS la boucle : chaque element etant sa propre main tile, une origine
+        #: de sept entites-TUILE (`CasterTile(as_ids=True)`) faisait retrancher les SEPT. Le natif
+        #: resout d'abord chaque tuile en son OCCUPANT
+        #: (`IdunBattle.DSL.TargetsSelector$$SelectUnit` : `IsUnitFoot || IsTile -> GetUnit`), donc
+        #: les sept pieds de Mortarion rendent SEPT FOIS Mortarion et `GetMainTile` UNE tuile.
+        #: L'ecart etait INVISIBLE sur toute origine a UN element (9 des 10 call-sites de
+        #: `engine/**`) : seule une origine MULTI-HEX le montre, et la face DECISION
+        #: (`the_lantern.TheLanternPlaybook.target_area`, qui exclut `feet[:1]`) le disait deja --
+        #: les deux faces divergeaient d'exactement une tuile.
+        if not self.include_center:
+            m = _main_tile(raw, board)
+            if m is not None:
+                excluded.add(m)
         for origin in origins:
             if origin is None:
                 continue
             feet = _origin_tiles(origin, board)          # IterateTiles(center, state)
-            if not self.include_center:
-                m = _main_tile(origin)                    # op_Subtraction Tiles(origin) : MAIN TILE seule
-                if m is not None:
-                    excluded.add(m)
             for c in feet:
                 for (col, row) in hexgeo.disk(c[0], c[1], r):
                     t = board.id_at(col, row)

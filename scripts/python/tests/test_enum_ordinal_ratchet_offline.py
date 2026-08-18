@@ -31,13 +31,57 @@ sys.path.insert(0, str(REPO / "scripts" / "python"))
 import probe_283_enum_ordinal_sweep as SW  # noqa: E402
 
 
+def _refs() -> dict:
+    return {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
+
+
+def _olds() -> dict:
+    """LA MEME SOURCE QUE LE PROBE, et c'est le point (#10023).
+
+    Ce fichier construisait `olds` lui-meme, a partir de `SW.previous_build()`. Il DUPLIQUAIT donc
+    le cablage au lieu de le LIRE -- et quand le probe a change de source, les tests ont continue
+    d'interroger l'ancienne. Un cliquet qui reconstruit ce qu'il garde ne garde pas ce qui tourne."""
+    return SW.memoire_archivee_par_enum()
+
+
 def _exec_hits(src: str, sigs: "dict | None" = None) -> list:
     tree = ast.parse(src)
-    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq))
-            for c, fq in SW.ENUMS.items()}
-    sw = SW._ExecSweep(SW._prose_par_ligne(src), refs, sigs)
+    sw = SW._ExecSweep(SW._prose_par_ligne(src), _refs(), sigs)
     sw.visit(tree)
     return sw.hits
+
+
+def _temoins(court: str = "EventTriggerType", n: int = 1) -> list:
+    """(MEMBRE, ordinal ARCHIVE, ordinal COURANT) -- DERIVES des tables versionnees, jamais ecrits.
+
+    ⚠ CE HELPER EST LA REPARATION DE FOND DE CE FICHIER (#10023). Ses fixtures figeaient
+    `PreUnitAbility` / `0x2b`, `UnitDefeated` / `0x37`, `UnitRevived` / `0x2e` -- les couples du
+    renumerotage `gqfc5mff6c -> rnca9r7q6c`. Un littéral qui suit un build est un cliquet qui se
+    re-casse : au versionnement de `t6dpr4k06g`, les sept tests sont devenus ROUGES sans qu'une
+    ligne du detecteur ait bouge. Derive, le temoin suit la table ; fige, il suit le calendrier.
+
+    Les membres AMBIGUS (`_ambigus`) sont ECARTES : la prose de ces fixtures ne NOMME pas l'enum,
+    donc `_paires_prose` y travaille en regime << surs >> et ne verrait pas un nom partage.
+
+    NON-VIDE ASSERTIONNE : si plus AUCUN build archive ne porte d'ordinal decale, ces fixtures ne
+    peuvent plus rien prouver -- et le rouge doit tomber ICI, en le DISANT, pas en laissant cinq
+    tests de discrimination passer au vert sur des ensembles vides."""
+    ref = _refs()[court]
+    memo = SW.memoire_archivee(SW.ENUMS[court])
+    amb = SW._ambigus(SW.current_build())
+    out = []
+    for m in sorted(ref):
+        if m in amb:
+            continue
+        anciens = sorted(o for o in SW._ords(memo.get(m)) if o != ref[m])
+        if anciens:
+            out.append((m, anciens[0], ref[m]))
+    assert len(out) >= n, (
+        "moins de %d temoin(s) de decalage pour %s sur les archives %s : les fixtures de "
+        "DISCRIMINATION de ce fichier ne prouvent plus rien. Ne PAS relacher l'assertion -- soit "
+        "une archive porteuse a ete supprimee (la restaurer), soit il faut fabriquer des tables "
+        "SYNTHETIQUES pour ces cinq tests." % (n, court, SW.builds_avec_table_enums()))
+    return out[:n] if n else out         # `n = 0` -> TOUS (recensement, pas fixture)
 
 
 # ------------------------------------------------- 1. le cliquet : les trois gates sont verts
@@ -125,8 +169,7 @@ def test_ne_signale_PAS_l_usage_symbolique_correct():
 def test_la_prose_ne_signale_pas_l_homonyme_extraHit():
     """LE piege qui interdit tout `sed` : `0x2b` est aussi la cle de config `extraHit`
     (~100 occurrences legitimes). Sans le NOM du membre accole, rien ne doit sortir."""
-    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
-    olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
+    refs, olds = _refs(), _olds()
     amb = SW._ambigus(SW.current_build())
     rxs = {c: SW._compile_prose(r, amb) for c, r in refs.items()}
     cites, _, _ = SW._scan_prose_fichier(
@@ -135,17 +178,21 @@ def test_la_prose_ne_signale_pas_l_homonyme_extraHit():
 
 
 def test_la_prose_detecte_la_citation_perimee_et_la_qualifie_ancien():
-    """`On(0x2b = PreUnitAbility)` : le NOM donne l'attendu (42 = 0x2a), et l'origine `ancien`
-    PROUVE que 0x2b etait bien son ordinal sur le build precedent -- c'est ce qui autorise la
-    reecriture automatique."""
-    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
-    olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
+    """`On(<ordinal ARCHIVE> = <Membre>)` : le NOM donne l'attendu, et l'origine `ancien` PROUVE
+    que ce nombre etait bien son ordinal sur un build archive -- c'est ce qui autorise la
+    reecriture automatique.
+
+    Le couple est DERIVE (`_temoins`), plus figé sur `0x2b = PreUnitAbility` : c'est ce littéral
+    qui a rendu ce test rouge au versionnement de `t6dpr4k06g` (#10023)."""
+    membre, ancien, courant = _temoins()[0]
+    refs, olds = _refs(), _olds()
     amb = SW._ambigus(SW.current_build())
     rxs = {c: SW._compile_prose(r, amb) for c, r in refs.items()}
-    cites, _, _ = SW._scan_prose_fichier('# le trigger = On(0x2b = PreUnitAbility) & gate\n',
-                                      refs, olds, rxs)
+    cites, _, _ = SW._scan_prose_fichier(
+        '# le trigger = On(0x%x = %s) & gate\n' % (ancien, membre), refs, olds, rxs)
     assert cites, "la citation perimee n'est plus detectee"
-    assert cites[0][2] == "PreUnitAbility" and cites[0][5] == "ancien"
+    assert cites[0][2] == membre and cites[0][5] == "ancien", cites
+    assert cites[0][4] == courant, cites
 
 
 # ----------------------------- 2bis. les TROIS surfaces ajoutees par #420 mordent, et elles
@@ -153,8 +200,7 @@ def test_la_prose_detecte_la_citation_perimee_et_la_qualifie_ancien():
 
 def _larges(src: str) -> list:
     """La 3e valeur de `_scan_prose_fichier` = les hits du GATE 4bis."""
-    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
-    olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
+    refs, olds = _refs(), _olds()
     amb = SW._ambigus(SW.current_build())
     rxs = {c: SW._compile_prose(r, amb) for c, r in refs.items()}
     lgs = {c: SW._compile_larges(r, olds.get(c, {}), amb) for c, r in refs.items()}
@@ -163,18 +209,22 @@ def _larges(src: str) -> list:
 
 def test_4bis_mord_sur_le_separateur_LARGE_que_l_etape_4_ratait():
     """LA raison d'etre du gate : `` `...,0x37` UnitDefeated `` a vecu dans le depot sans
-    rougir nulle part -- le backtick sort du separateur `[\\s=:]{0,4}` de l'etape 4."""
-    h = _larges("# sequence : `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill\n")
+    rougir nulle part -- le backtick sort du separateur `[\\s=:]{0,4}` de l'etape 4.
+
+    Les DEUX couples sont derives (`_temoins`), pas recopies de la citation d'epoque."""
+    (m1, a1, _), (m2, a2, _) = _temoins(n=2)
+    h = _larges("# sequence : `...,0x%x` %s -> `...,0x%x` %s\n" % (a1, m1, a2, m2))
     noms = {x[2] for x in h}
-    assert noms == {"UnitDefeated", "PostUnitKill"}, h
+    assert noms == {m1, m2}, h
 
 
 def test_4bis_mord_sur_la_forme_TRIPLE_du_depot():
     """`On(<Membre> = <dec> = <hex>)` : les deux bases encadrent le membre, donc le 2e nombre
     n'est adjacent a AUCUN nom. C'est ainsi que `On(UnitRevived = 45 = 0x2e)` -- moitie juste,
     moitie perime -- a survecu."""
-    h = _larges("# emet `On(UnitRevived = 45 = 0x2e)` puis purge\n")
-    assert [(x[2], x[3]) for x in h] == [("UnitRevived", "0x2e")], h
+    membre, ancien, courant = _temoins()[0]
+    h = _larges("# emet `On(%s = %d = 0x%x)` puis purge\n" % (membre, courant, ancien))
+    assert [(x[2], x[3]) for x in h] == [(membre, "0x%x" % ancien)], h
 
 
 def test_4bis_ne_mord_PAS_sur_un_nombre_type_par_On():
@@ -198,9 +248,10 @@ def test_4bis_exempte_le_rappel_HISTORIQUE_qui_nomme_le_build_archive():
     detruire ce qu'elle prouve. L'exemption porte sur +/-3 LIGNES, pas sur le token : un bloc
     de commentaires `#` est decoupe en un token PAR LIGNE, et le nom du build est en general
     sur la ligne suivante (cas mesure : `probe_hazeord_blast_radius.py`)."""
-    sans = "# cette table portait `55: UnitDefeated`, ce qui etait juste\n# avant la MAJ\n"
-    avec = ("# cette table portait `55: UnitDefeated`, ce qui etait juste\n"
-            "# sur le build %s -- plus depuis\n" % SW.previous_build())
+    membre, ancien, _courant = _temoins()[0]
+    tete = "# cette table portait `%d: %s`, ce qui etait juste\n" % (ancien, membre)
+    sans = tete + "# avant la MAJ\n"
+    avec = tete + "# sur le build %s -- plus depuis\n" % SW.builds_avec_table_enums()[0]
     assert _larges(sans), "le detecteur ne mord plus : l'exemption ne prouverait rien"
     assert not _larges(avec), "le rappel historique n'est pas exempte"
 
@@ -210,8 +261,7 @@ def test_etape2_ne_compte_PAS_un_litteral_HORS_PLAGE():
     `UtilityDecider.CalculateUtility` LEVE au lieu de compter 0). Aucun membre ne porte 99999
     sur aucun des deux builds -> ce n'est pas un ordinal fige, c'est une sentinelle. C'etait
     l'unique faux positif du probe, et il le faisait echouer sur `origin/master`."""
-    refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq)) for c, fq in SW.ENUMS.items()}
-    olds = {c: SW._by_name(SW.enum_map(SW.previous_build(), fq)) for c, fq in SW.ENUMS.items()}
+    refs, olds = _refs(), _olds()
     src = "x = f(utility_type=99999)\n"
     sw = SW._ExecSweep(SW._prose_par_ligne(src), refs, None, olds)
     sw.visit(ast.parse(src))
@@ -281,8 +331,8 @@ def test_etape5_ne_confond_PAS_un_slot_d_INTERFACE_avec_une_publication():
 
 
 def _ann(ligne: str, v: int):
-    ref = SW._by_name(SW.enum_map(SW.current_build(), SW.ENUMS["EventTriggerType"]))
-    old = SW._by_name(SW.enum_map(SW.previous_build(), SW.ENUMS["EventTriggerType"]))
+    ref = _refs()["EventTriggerType"]
+    old = SW.memoire_archivee(SW.ENUMS["EventTriggerType"])     # la source du probe (#10023)
     return SW.annotation_de_ligne(ligne, v, ref, old)
 
 
@@ -293,13 +343,19 @@ def test_l_annotation_On_Membre_rend_la_quote_DECIDABLE_et_le_GATE_MORD():
     * coherent avec le build courant -> `ancree` : la quote sort des indecidables ;
     * egal a l'ordinal ARCHIVE du membre nomme -> `perimee` : FAIL, meme critere PROUVE que
       4bis. C'est ce cas-la qui mordra au PROCHAIN changement de build, sans qu'une ligne du
-      depot ait bouge -- le gisement exact de #283."""
-    assert _ann("#  FUN_1800280e0(0x4d, .., 0x2a);   # On(PreUnitAbility)", 0x2a)[0] == "ancree"
-    etat, membre = _ann("#  FUN_1800280e0(0x4d, .., 0x2b);   # On(PreUnitAbility)", 0x2b)
-    assert (etat, membre) == ("perimee", "PreUnitAbility"), (etat, membre)
+      depot ait bouge -- le gisement exact de #283.
+
+    Le couple est DERIVE. Ecrit en dur (`PreUnitAbility` / `0x2b`), il a mordu sur NOUS au
+    versionnement de `t6dpr4k06g` : `0x2b` n'etait plus l'ordinal archive de personne (#10023) --
+    le mode d'echec que ce test PREDIT, subi par le test lui-meme."""
+    membre, ancien, courant = _temoins()[0]
+    quote = "#  FUN_1800280e0(0x4d, .., 0x%x);   # On(%s)"
+    assert _ann(quote % (courant, membre), courant)[0] == "ancree"
+    etat, vu = _ann(quote % (ancien, membre), ancien)
+    assert (etat, vu) == ("perimee", membre), (etat, vu)
     # ... et le detecteur DOIT mordre, sinon les deux assertions ci-dessus ne prouveraient rien
-    assert SW._by_name(SW.enum_map(SW.previous_build(),
-                                   SW.ENUMS["EventTriggerType"]))["PreUnitAbility"] == 0x2b
+    assert ancien in SW._ords(
+        SW.memoire_archivee(SW.ENUMS["EventTriggerType"]).get(membre)), membre
 
 
 def test_une_ancre_NUE_ou_a_membre_INCONNU_reste_un_COMPTEUR():
@@ -357,14 +413,34 @@ def test_aucune_ancre_ANNOTEE_du_depot_ne_cite_un_ordinal_PERIME():
 # ------------------------------------------------------- 3. le diff des tables reste derivable
 
 def test_le_diff_des_quatre_enums_est_derivable_offline():
-    """Les deux tables sont VERSIONNEES : le rapport de changement doit rester calculable dans
-    un worktree frais, sans session ni dump."""
-    prev = SW.previous_build()
-    assert prev, "aucun build archive sous data/symbols -- le diff n'est plus derivable"
+    """Les tables archivees sont VERSIONNEES : le rapport de changement doit rester calculable
+    dans un worktree frais, sans session ni dump.
+
+    ⚠ CE TEST FIGEAIT `PreUnitAbility == 43` SUR `previous_build()`, ET C'EST CE LITTERAL QUI L'A
+    FAIT ROUGIR (#10023). `43` etait l'ordinal du membre sur `gqfc5mff6c` ; au versionnement de
+    `t6dpr4k06g`, `previous_build()` a designe `rnca9r7q6c`, ou le membre vaut deja `42`. Le fait
+    mesure n'avait pas change -- c'est la QUESTION qui avait bouge sous lui. Reecrire `43` en `42`
+    aurait rendu le test vert ET vacant (il aurait compare une table a elle-meme), en le
+    reprogrammant pour re-casser au build suivant.
+
+    Ce qui est garde ici est donc l'ENONCE, pas son instance : la memoire archivee est LISIBLE et
+    porte EFFECTIVEMENT un decalage. Le fait historique, pour memoire :
+    `gqfc5mff6c -> rnca9r7q6c` a deplace 171 membres, dont `PreUnitAbility` (43 -> 42)."""
+    archives = SW.builds_avec_table_enums()
+    assert archives, "aucun build archive PORTANT frida/enums.tsv -- le diff n'est plus derivable"
+    cur = SW.current_build()
     for court, fq in SW.ENUMS.items():
-        o, n = SW.enum_map(prev, fq), SW.enum_map(SW.current_build(), fq)
-        assert o and n, "enum %s absent d'une des deux tables" % court
-    # Le fait mesure qui ouvre le dossier, re-derive : `PreUnitAbility` a bien recule d'un cran.
-    ett = SW.ENUMS["EventTriggerType"]
-    assert SW._by_name(SW.enum_map(prev, ett))["PreUnitAbility"] == 43
-    assert SW._by_name(SW.enum_map(SW.current_build(), ett))["PreUnitAbility"] == 42
+        n = SW.enum_map(cur, fq)
+        assert n, "enum %s absent de la table du build courant" % court
+        for b in archives:
+            assert SW.enum_map(b, fq), "enum %s absent de la table archivee %s" % (court, b)
+    # NON-VIDE : sans un seul decalage archive, tout le volet DISCRIMINATION de ce fichier
+    # (5 tests) tourne a vide. Le compte est imprime dans le message pour que la perte se lise.
+    decales = {court: len(_temoins(court, n=0)) for court in SW.ENUMS}
+    assert sum(decales.values()) > 0, (
+        "aucun ordinal decale sur les archives %s : le detecteur d'ordinaux perimes n'a plus de "
+        "quoi mordre -- ventilation %s" % (archives, decales))
+    # Et le temoin d'`EventTriggerType` doit exister NOMMEMENT : c'est celui qu'exercent les cinq
+    # fixtures de discrimination ci-dessus.
+    membre, ancien, courant = _temoins()[0]
+    assert ancien != courant and membre

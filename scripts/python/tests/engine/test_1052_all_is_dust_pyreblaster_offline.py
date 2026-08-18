@@ -26,6 +26,7 @@ if str(_PY) not in sys.path:
     sys.path.insert(0, str(_PY))
 
 from engine.battle_query import get_tiles_behind_filled, is_on_straight_line   # noqa: E402
+from engine.dsl.event_trigger_type import EventTriggerType                    # noqa: E402
 from engine.entities.effect_type import EffectType                            # noqa: E402
 from engine.entities.effects.factory import (ABILITY_INIT_OWNER_EFFECTS,      # noqa: E402
                                              EFFECT_CLASSES)
@@ -67,7 +68,15 @@ ALL_IS_DUST_TRIGGERED = 1158        # `TriggeredAbilityType.AllIsDust`   = 0x486
 ALL_IS_DUST_EFFECT = 1189           # `EffectType.AllIsDust`             = 0x4a5
 PYREBLASTER_TRIGGERED = 1098        # `TriggeredAbilityType.Pyreblaster` = 0x44a
 FIRE_EFFECT = 5                     # `EffectType.Fire`
-ATTACK_IN_ATOMIC_GROUP = 0x4a       # `EventTriggerType.AttackInAtomicGroup` = 74
+#: ⚠ CELUI-CI SE DERIVE DU MIRROR, ET C'EST UNE EXCEPTION MOTIVEE (#10023). Les quatre au-dessus
+#: sont des `TriggeredAbilityType`/`EffectType`, hors des QUATRE enums que garde `probe_283` --
+#: leur ordinal fige ne serait vu par personne s'il glissait. `EventTriggerType`, lui, EST sous ce
+#: cliquet : l'etape 2 refuse tout littéral en contexte enum, et elle rougissait sur cette ligne
+#: (`FIGE ... = 74 -- juste aujourd'hui, faux au prochain build`). L'ordinal MESURE a la
+#: conversion n'est pas perdu pour autant : il est fige en forme CONFRONTEE dans
+#: `test_ordinaux_figes_a_la_conversion` -- littéral ET membre dans la meme comparaison, la seule
+#: ecriture qui figeasse ET rougisse au renumerotage.
+ATTACK_IN_ATOMIC_GROUP = int(EventTriggerType.AttackInAtomicGroup)
 
 
 def _ctx(extra=0, dir_=0, add=0):
@@ -85,6 +94,10 @@ def test_ordinaux_figes_a_la_conversion():
     assert int(TriggeredAbilityType.Pyreblaster) == PYREBLASTER_TRIGGERED
     assert int(EffectType.AllIsDust) == ALL_IS_DUST_EFFECT
     assert int(EffectType.Fire) == FIRE_EFFECT
+    #: L'ordinal MESURE a la conversion, en forme CONFRONTEE : le littéral et le membre dans la
+    #: MEME chaine. Un renumerotage d'`EventTriggerType` fait rougir ICI, alors qu'un mirror
+    #: regenere laisserait `probe_313` vert (cf. CLAUDE.md).
+    assert ATTACK_IN_ATOMIC_GROUP == 74 == int(EventTriggerType.AttackInAtomicGroup)
 
 
 # ------------------------------------------------------------------------ 2. AllIsDust -- le gate

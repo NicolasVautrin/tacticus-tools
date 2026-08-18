@@ -446,6 +446,62 @@ def previous_build() -> "str | None":
     return None
 
 
+def builds_avec_table_enums() -> list:
+    """Les builds ARCHIVES qui portent `frida/enums.tsv` -- la MEMOIRE disponible, dans l'ordre
+    du repertoire. `previous_build()` n'en est que le dernier element."""
+    return [b for b in archived_builds()
+            if (REPO / "data" / "symbols" / b).joinpath(*_TABLE_ENUMS).is_file()]
+
+
+def memoire_archivee(fq: str) -> dict:
+    """{MEMBRE: frozenset(ordinaux portes sur AU MOINS UN build archive)} -- la source de `olds`.
+
+    ⚠ CE N'EST PAS `previous_build()`, ET LA DIFFERENCE EST TOUT LE SUJET (#10023). Un ordinal
+    fige dans le depot y a ete recopie d'un build DONNE, qui n'est pas forcement l'avant-dernier :
+    la citation, elle, ne bouge plus, alors que << le build precedent >> AVANCE a chaque
+    archivage. Prendre la seule table de `previous_build()` fait donc OUBLIER, en silence, tout
+    renumerotage anterieur d'un cran.
+
+    Mesure du 2026-08-17, qui ouvre le dossier : `t6dpr4k06g` (courant) est IDENTIQUE a
+    `rnca9r7q6c` (= `previous_build()`) sur les quatre enums -- 0 ordinal divergent. Le seul
+    renumerotage jamais mesure est `gqfc5mff6c -> rnca9r7q6c` (**171** membres deplaces :
+    36 + 73 + 55 + 7). Sous `previous_build()` seul, le detecteur voyait **0** couple decale et
+    devenait donc VACANT : `_compile_larges` rendait `None`, `annotation_de_ligne` ne pouvait plus
+    rendre `perimee`, et l'origine d'une citation retombait sur `inconnu`. Sept tests de
+    `test_enum_ordinal_ratchet_offline.py` l'ont dit en ROUGE -- c'est exactement ce pour quoi ils
+    assertionnent leur propre non-vide.
+
+    L'UNION est MONOTONE : un build archive de plus ne peut qu'AJOUTER de la memoire. C'est ce qui
+    rend le detecteur insensible a la cadence des builds, la propriete que la lecture par
+    `previous_build()` n'avait pas."""
+    out = {}
+    for b in builds_avec_table_enums():
+        for m, o in _by_name(enum_map(b, fq)).items():
+            out.setdefault(m, set()).add(o)
+    return {m: frozenset(v) for m, v in out.items()}
+
+
+def memoire_archivee_par_enum() -> dict:
+    """{nom court: memoire_archivee(fq)} pour les QUATRE enums -- ce que les etapes appellent
+    `olds`."""
+    return {court: memoire_archivee(fq) for court, fq in ENUMS.items()}
+
+
+def _ords(x) -> frozenset:
+    """Normalise une entree de `olds` en ensemble d'ordinaux.
+
+    Les deux formes coexistent VOLONTAIREMENT : `memoire_archivee` rend un `frozenset` par membre
+    (plusieurs builds archives), tandis qu'un appelant qui veut confronter a UN build precis passe
+    encore un `int` (`_by_name(enum_map(<build>, fq))`). Accepter les deux evite de dupliquer
+    chaque consommateur -- et un `None` (membre inconnu de toute archive) rend l'ensemble VIDE,
+    jamais une exception."""
+    if x is None:
+        return frozenset()
+    if isinstance(x, int):
+        return frozenset((x,))
+    return frozenset(x)
+
+
 # ------------------------------------------------------------------------------------------
 # Etape 0 -- le diff
 # ------------------------------------------------------------------------------------------
@@ -798,7 +854,11 @@ class _ExecSweep(ast.NodeVisitor):
         self.sigs = sigs or {}
         # valeurs qui EXISTENT dans l'enum, sur le build courant OU sur un build archive. Un
         # littéral hors de cet ensemble ne DESIGNE aucun membre : ce n'est pas un ordinal.
-        self.connues = {c: set(r.values()) | set((olds or {}).get(c, {}).values())
+        # `_ords` : une entree de `olds` est soit un ordinal (un build precis), soit l'ensemble
+        # des ordinaux archives du membre (`memoire_archivee`, #10023).
+        self.connues = {c: set(r.values()) | {o
+                                              for v in (olds or {}).get(c, {}).values()
+                                              for o in _ords(v)}
                         for c, r in refs.items()}
         self.hits: list = []
         self.hors: list = []
@@ -934,14 +994,16 @@ _CACHE_283: dict = {}
 
 
 def _cache_283(cur: str, prev):
-    """Le cache PAR FICHIER de `step_exec` (#1029), un par couple de builds.
+    """Le cache PAR FICHIER de `step_exec` (#1029), un par JEU DE TABLES.
 
-    ⚠ LE CONTEXTE PORTE LES DEUX BUILDS, et c'est ce qui rend le cache sur : `step_exec` compare
-    les litteraux aux ordinaux du build COURANT **et** du PRECEDENT (`refs` et `olds`). Un cache
-    servi sous un autre couple attesterait une comparaison faite contre d'autres tables -- le meme
-    vice que partager un verdict entre deux ancrages de grille.
+    ⚠ LE CONTEXTE PORTE TOUS LES BUILDS LUS, et c'est ce qui rend le cache sur : `step_exec`
+    compare les litteraux aux ordinaux du build COURANT **et** de TOUTES les archives (`refs` et
+    `olds`, #10023 -- c'etait la seule archive la plus recente avant). Un cache servi sous un autre
+    jeu attesterait une comparaison faite contre d'autres tables -- le meme vice que partager un
+    verdict entre deux ancrages de grille. `prev` est donc une LISTE de builds, pas un seul :
+    archiver une table de plus doit INVALIDER le cache, puisqu'elle change ce qui est connu.
     """
-    cle = "%s|%s" % (cur, prev or "-")
+    cle = "%s|%s" % (cur, ",".join(prev) if isinstance(prev, (list, tuple)) else (prev or "-"))
     if cle not in _CACHE_283:
         import verdict_cache
         ici = Path(__file__).resolve().parent
@@ -963,9 +1025,9 @@ def _cache_283(cur: str, prev):
 
 
 def step_exec(verbose: bool) -> list:
-    cur, prev = current_build(), previous_build()
+    cur = current_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
-    olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
+    olds = memoire_archivee_par_enum()      # TOUTES les archives, pas la derniere (#10023)
     fails, infos, oks, hors, confrontes = [], [], [], [], []
     # Lecture PARALLELE (#457-r6) : l'ouverture pese ~7 ms par fichier sous `scripts/`, soit
     # ~13 s des ~37 s de cette etape. L'ordre du rapport ne change pas -- il vient du
@@ -980,7 +1042,7 @@ def step_exec(verbose: bool) -> list:
             octets[_ignore(p)] = data
 
     import verdict_cache
-    cache = _cache_283(cur, prev)
+    cache = _cache_283(cur, builds_avec_table_enums())
     shas = {rel: verdict_cache.sha_texte(repr(data)) for rel, data in octets.items()}
     arbres, sources = {}, {}
 
@@ -1243,14 +1305,19 @@ def _compile_larges(membres: dict, anciens: dict, amb: set) -> "tuple | None":
     Deux formes mesurees et ECARTEES : l'alternation generique membres x `_NUM` (etape prose
     46 s -> >300 s) et la boucle par membre avec pre-filtre `membre in txt` (171 tests de
     sous-chaine par token, >120 s)."""
-    couples = [(m, anciens[m]) for m, o in membres.items()
-               if anciens.get(m) is not None and anciens[m] != o]
+    # `anciens[m]` porte l'ENSEMBLE des ordinaux archives du membre (#10023) : un membre peut
+    # avoir ete renumerote plusieurs fois, et chacune de ses valeurs passees est un candidat de
+    # citation perimee. `_ords` accepte aussi la forme a un seul ordinal.
+    couples = [(m, o_arch) for m, o in membres.items()
+               for o_arch in sorted(_ords(anciens.get(m))) if o_arch != o]
     if not couples:
         return None
-    a = "|".join(re.escape(m) for m, _ in sorted(couples, key=lambda c: -len(c[0])))
+    a = "|".join(re.escape(m) for m in sorted({m for m, _ in couples}, key=len, reverse=True))
     n = "|".join(sorted({x for _, o in couples for x in ("0x%x" % o, "%d" % o)},
                         key=len, reverse=True))
-    attendu = {m: o for m, o in couples}
+    attendu = {}
+    for m, o in couples:
+        attendu.setdefault(m, set()).add(o)
     # La VIRGULE et le SLASH sont exclus du separateur : ils SEPARENT une liste, ils ne LIENT
     # pas. Deux mesures, meme forme : `"SummonDislikeDoorOpening 30, HeroLikeDoorOpening 31"`
     # et `(SummonDislikeDoorOpening 30 / HeroLikeDoorOpening 31)` appariaient `30` a
@@ -1356,7 +1423,7 @@ def _paires_larges(txt: str, larges: "tuple | None", enum_nomme: bool,
             if not est_event and _ON_AVANT.search(txt, 0, g.start(gn)):
                 continue
             v = int(num, 16) if num.lower().startswith("0x") else int(num)
-            if attendu.get(m) == v:
+            if v in attendu.get(m, ()):
                 out.append((m, num, g.start(gn)))
     return out
 
@@ -1380,12 +1447,12 @@ def _scan_prose_fichier(src: str, refs: dict, olds: dict, rxs: dict,
                 if ref[m] == v:
                     justes += 1
                     continue
-                anc = olds.get(court, {}).get(m)
+                anc = _ords(olds.get(court, {}).get(m))
                 # Ligne REELLE de la citation, calculee depuis l'offset ABSOLU : la ligne
                 # d'OUVERTURE du token pointe la 1re ligne du module pour toute docstring, ce
                 # qui rendait 10 sites illisibles dans le rapport.
                 cites.append((_ligne_de(src, base + a), court, m, num, ref[m],
-                              "ancien" if anc == v else "inconnu", base + a, base + b))
+                              "ancien" if v in anc else "inconnu", base + a, base + b))
             if not larges_rx:
                 continue
             for m, num, a in _paires_larges(txt, larges_rx.get(court), nomme,
@@ -1399,10 +1466,10 @@ def _scan_prose_fichier(src: str, refs: dict, olds: dict, rxs: dict,
 
 
 def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False) -> tuple:
-    cur, prev = current_build(), previous_build()
+    cur = current_build()
     amb = _ambigus(cur)
     refs = {c: _by_name(enum_map(cur, fq)) for c, fq in ENUMS.items()}
-    olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
+    olds = memoire_archivee_par_enum()      # TOUTES les archives, pas la derniere (#10023)
     rxs = {c: _compile_prose(r, amb) for c, r in refs.items()}
     larges_rx = {c: _compile_larges(r, olds.get(c, {}), amb) for c, r in refs.items()}
 
@@ -1471,7 +1538,8 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
     # separateur etroit de l'etape 4 ne voyait PAS, et qui donc ne rougissaient nulle part.
     vus = sorted({p for p in prouves})
     print("[283] etape 4bis : citations NOMMEES a separateur large et PROUVEES perimees "
-          "(nombre == ordinal de %s) -- %d" % (prev or "-", len(vus)))
+          "(nombre == un ordinal ARCHIVE : %s) -- %d"
+          % (", ".join(builds_avec_table_enums()) or "-", len(vus)))
     for rel, ln, court, m, num, attendu in vus:
         print("   FAIL %s:%d  %s.%s cite %s ; le build %s dit %d" % (rel, ln, court, m, num,
                                                                      cur, attendu))
@@ -1618,7 +1686,7 @@ def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict,
         if ref.get(m) == v:
             return "ancree", m
     for m in membres:
-        if old.get(m) == v and ref.get(m) != v:
+        if v in _ords(old.get(m)) and ref.get(m) != v:
             return ("perimee", m) if n_ancres <= 1 else ("ambigue", m)
     return "nue", None
 
@@ -1664,7 +1732,8 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
     if res is None:
         res = _balayer_step_on(racine)
         _ON_CACHE[racine] = res
-    cur, prev = current_build(), previous_build()
+    cur = current_build()
+    archives = ", ".join(builds_avec_table_enums()) or "-"
     stables = res[0]
     decales, ancrees, fails, ambigues = [list(x) for x in res[1:]]
     n_on = sum(1 for d in decales if d[5] == "On")
@@ -1694,9 +1763,10 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
             print("   ANCREE %s:%d  %s(%s) = On(%s)"
                   % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre))
     for rel, ln, s, membre, anc, courant, quoi in sorted(fails):
-        print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur %s et vaut %s sur %s"
+        print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur les archives (%s) et "
+              "vaut %s sur %s"
               % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre, membre, anc,
-                 prev or "-", courant, cur))
+                 archives, courant, cur))
     #: COMPTE ET IMPRIME, jamais muet : une annotation qui ne peut pas etre attribuee est un
     #: ECART, pas un vert. Si ce compte enfle, c'est que le depot ecrit des lignes ou plusieurs
     #: evenements se disputent une seule annotation -- il faut alors les separer, pas relacher.
@@ -1717,10 +1787,19 @@ def _balayer_step_on(racine: str) -> tuple:
     """Le BALAYAGE de l'etape 5, sans une seule impression. Foyer unique, appele par `step_on`.
 
     Rend `(stables, decales, ancrees, fails, ambigues)`, les quatre derniers en TUPLE."""
-    cur, prev = current_build(), previous_build()
+    cur = current_build()
     new = enum_map(cur, ENUMS["EventTriggerType"])
-    old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
-    ref_n, old_n = _by_name(new), _by_name(old)
+    ref_n = _by_name(new)
+    #: MEMOIRE de TOUTES les archives, pas seulement `previous_build()` (#10023) : une quote du
+    #: depot cite l'ordinal du build ou elle a ete ecrite, qui n'avance pas avec l'archivage.
+    old_n = memoire_archivee(ENUMS["EventTriggerType"])
+    #: {ordinal: {noms qu'il a portes sur les archives}} -- `None` compris quand un build archive
+    #: ne portait PAS cet ordinal (c'est ce qui distinguait deja un ordinal NEUF d'un stable).
+    proprios: dict = {}
+    for b in builds_avec_table_enums():
+        table = enum_map(b, ENUMS["EventTriggerType"])
+        for v in set(table) | set(new):
+            proprios.setdefault(v, set()).add(table.get(v))
     stables, decales, ancrees, fails, ambigues = 0, [], [], [], []
     for suf in (".py", ".md"):
         # Lecture PARALLELE (#457-r6), mode BRUT (`newline=""`) comme l'etape 4.
@@ -1771,16 +1850,19 @@ def _balayer_step_on(racine: str) -> tuple:
                     lignes[ln - 1] if 0 < ln <= len(lignes) else "", v, ref_n, old_n,
                     par_ligne[ln], quoi)
                 if etat == "perimee":
-                    fails.append((rel, ln, s, membre, old_n.get(membre),
+                    fails.append((rel, ln, s, membre,
+                                  ",".join(str(x) for x in sorted(_ords(old_n.get(membre)))),
                                   ref_n.get(membre), quoi))
                 elif etat == "ancree":
                     ancrees.append((rel, ln, s, membre, quoi))
                 elif etat == "ambigue":
                     ambigues.append((rel, ln, s, membre, par_ligne[ln], quoi))
-                elif old.get(v) == new.get(v):
-                    stables += 1   # sous le point de decalage : le meme sur les 2 builds
+                elif proprios.get(v, {new.get(v)}) == {new.get(v)}:
+                    stables += 1   # AUCUNE archive ne donne un autre proprietaire a cet ordinal
                 else:
-                    decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
+                    decales.append((rel, ln, s,
+                                    "/".join(sorted(str(x) for x in proprios.get(v, ()))),
+                                    new.get(v), quoi))
     return stables, tuple(decales), tuple(ancrees), tuple(fails), tuple(ambigues)
 
 

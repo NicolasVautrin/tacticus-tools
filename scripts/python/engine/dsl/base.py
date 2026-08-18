@@ -720,7 +720,7 @@ def _origin_tiles(origin, board=None) -> list:
     return []
 
 
-def _main_tile(origin) -> tuple | None:
+def _main_tile(origin, board=None) -> tuple | None:
     """La MAIN TILE d'une origine -- mirror `IdunBattle.Entities.EntityExtensions$$GetMainTile`, et
     c'est EXACTEMENT ce que soustrait le natif quand `includeCenter == 0` :
 
@@ -730,8 +730,23 @@ def _main_tile(origin) -> tuple | None:
     et `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile` PAR
     ENTITE. Donc l'exclusion du centre retire UNE SEULE tuile : les pieds SECONDAIRES d'une origine
     multi-hex RESTENT dans l'anneau, et l'origine peut donc se selectionner elle-meme. Retrancher
-    toute l'empreinte serait une SECONDE erreur, pas une correction."""
-    ts = _origin_tiles(origin)
+    toute l'empreinte serait une SECONDE erreur, pas une correction.
+
+    ⚠ ET C'EST VRAI MEME QUAND L'ORIGINE EST UNE LISTE DE SEPT TUILES (#10023). Relu VERBATIM sur
+    `t6dpr4k06g`, `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` itere le SLOT 3 de
+    son inner (`SelectAllUnits`) avant son `GetMainTile`, et
+    `IdunBattle.DSL.TargetsSelector$$SelectUnit` (surcharge par ENTITE) ouvre par
+
+        if (IsUnitFoot(entity) || IsTile(entity))
+            entity = UnitExtensions$$GetUnit(entity, state);      // la TUILE -> son OCCUPANT
+
+    Les sept entites-TUILE de l'empreinte de Mortarion resolvent donc TOUTES vers Mortarion, et
+    `GetMainTile(Mortarion)` rend UNE tuile. `Tiles(CasterTiles)` = `{mainTile}`, pas les sept.
+
+    `board` sert au domaine ID (`list[int]`, ce que rend `CasterTile(as_ids=True)`) : sans lui,
+    `_origin_tiles` ne sait pas convertir un id de tuile en position et rend `[]` -- une exclusion
+    silencieusement VIDE, pas une erreur."""
+    ts = _origin_tiles(origin, board)
     return ts[0] if ts else None
 
 
