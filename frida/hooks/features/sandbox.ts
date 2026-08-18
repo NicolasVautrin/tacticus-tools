@@ -112,6 +112,7 @@ import { invokeMethod } from "../il2cpp/invoke.js";
 import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { log } from "../runtime/diag.js";
 // ⚠ IMPORTÉE, PAS RECOPIÉE. `premiereInstance` porte une mesure qu'une copie perdrait : la
 // surcharge de `FindObjectsByType` à 3 arguments (`FindObjectsInactive.Include`), sans
 // laquelle un objet désactivé rend « 0 instance » sur une classe qui résout parfaitement.
@@ -492,6 +493,60 @@ export function register(ctx: Ctx): void {
                 // retour d'appel comme une preuve d'effet -- ne pas recommencer.
                 avertissement: "appel passé -- vérifier l'état réel du jeu, un retour d'appel "
                     + "ne prouve pas que la bataille est montée",
+            };
+        });
+    };
+
+    /** SORTIR d'une bataille montée : `IdunMainView$$EndBattleAndGoToMeta()`, sans paramètre.
+     *
+     *  ⚠⚠ CE RPC A DÉJÀ TUÉ LE PROCESS. Mesuré le 2026-08-16 sur une bataille montée par
+     *  `sandboxStartMatch` : l'appel passe, `IsBattleActive` retombe à `false`, le loader
+     *  repart -- toutes les lectures d'après-coup sont VERTES -- puis le process meurt pendant
+     *  le chargement du méta (minidump de 38 Mo). Ce n'est donc pas une voie de sortie fiable :
+     *  c'est une EXPÉRIENCE, et elle est nommée comme telle.
+     *
+     *  ⚠ LA CAUSE PROBABLE EST LA SOURCE, PAS CETTE MÉTHODE. `TestSceneBattleModeSource` porte
+     *  `HandleStartMatch` et `HandleStartSpawningUnitsOfTurn`, et RIEN d'autre -- ni
+     *  `HandleFinishBattle` ni `HandleBattleSurrender`, que `SandboxGameModeSource` porte tous
+     *  les deux. Le méta réclame score/loot/replay à une source qui ne sait pas répondre. C'est
+     *  aussi pourquoi une RETRAITE ne fait RIEN sur ce montage : personne ne la reçoit.
+     *
+     *  ⇒ La vraie sortie passe par une source qui porte les `Handle*`. Ce RPC sert à MESURER
+     *  ce qui se passe sans elle, pas à s'en passer. */
+    ctx.rpc.sandboxEndBattle = (body?: { confirmer?: boolean }):
+        Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return { ok: false, error: "REFUS : `confirmer: true` exigé. Cet appel a DÉJÀ tué "
+                + "le process une fois (chargement du méta depuis une source qui ne porte pas "
+                + "`HandleFinishBattle`). Ce n'est pas une sortie, c'est une expérience." };
+        }
+        return queueOnMainThread(() => {
+            if (chargementEnCours() === true) {
+                return { ok: false, error: "chargement de scène EN COURS -- on n'empile pas un "
+                    + "changement de scène sur un autre" };
+            }
+            const klass = findClassAnywhere("idun", "IdunMainView");
+            if (!klass) return { ok: false, error: "classe `IdunMainView` introuvable" };
+            const inst = premiereInstance(klass);
+            if (estRefus(inst)) return inst;
+            const mi = findMethodByParamCount(klass, "EndBattleAndGoToMeta", 0);
+            if (!mi) {
+                return { ok: false, error: "`EndBattleAndGoToMeta` sans paramètre INTROUVABLE "
+                    + "-- ne pas se replier sur une surcharge : on ne sait pas ce qu'elle fait" };
+            }
+            log("[sandbox] EndBattleAndGoToMeta -- si le process meurt, cette ligne est la "
+                + "dernière sortie, et le minidump WER porte la suite");
+            try {
+                invokeMethod(mi.info, inst, null);
+            } catch (e) {
+                return { ok: false, error: "l'appel a levé : " + (e as Error).message };
+            }
+            return {
+                ok: true,
+                avertissement: "L'APPEL EST PASSÉ, ce qui ne dit RIEN de la suite. La fois "
+                    + "précédente, toutes les mesures d'après-coup étaient vertes et le process "
+                    + "est mort PENDANT le chargement du méta, donc APRÈS. Relire l'état, puis "
+                    + "vérifier que le process vit encore -- c'est lui le verdict.",
             };
         });
     };
