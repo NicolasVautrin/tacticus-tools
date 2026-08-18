@@ -152,10 +152,36 @@ test_1022_aether_stride_live.py`, **7 tests verts**.
 
 ### NON couvert, et nommé
 
-- **L'attaque elle-même** (`PerformAIAbilityUnitBehaviour$$Execute`) : le summon se pose hors de
-  portée de tout ennemi dans ce montage, donc `attacks` est vide **des deux côtés** — accord en
-  régime dégénéré, qui ne dit rien du choix de cible ni du dégât. Le prédicat, lui, est confronté par
-  contraste. Résidu `#1022-r3`.
+- ~~**L'attaque elle-même** (`PerformAIAbilityUnitBehaviour$$Execute`) … Résidu `#1022-r3`~~ —
+  **RÉGIME DÉGÉNÉRÉ LEVÉ (2026-08-18), et il a livré un bug de port.**
+  ⚠ **Les deux moitiés de la solution envisagée étaient fausses.** « L'équipe adverse n'est pas
+  pilotable sous `--no-ai` » est **réfuté par le harnais voisin lui-même** :
+  `tests/engine/runner/_charge_regime.py::place` porte, mot pour mot, « `applyAction` ne verifie NI
+  propriete NI portee : les DEUX camps sont pilotables ». Et « chercher un board où les trois
+  contraintes coexistent » n'aurait **rien donné**, structurellement : les spawns des deux équipes
+  sont aux deux bouts (`C1_74` : team 1 en row 0, team 2 en rows 5-8) et l'ancre du cast doit rester
+  à portée du caster, donc dans son camp. Le montage **POSE** donc l'ennemi (`necroWarden`
+  téléporté de `(6,8)` à `(0,2)`).
+  **Mesure**, montage `MC1_67`/777 inchangé par ailleurs :
+
+  | étage | natif | port | verdict |
+  |---|---|---|---|
+  | F — cible frappée par le summon | `[77]` | `[77]` | **ACCORD** |
+  | F — dégât total | **2761** | **29** | **DÉSACCORD** (facteur ~95) |
+  | G — `attack` du summon | 698 | 7 | étage d'ENTRÉE |
+  | G — `health` du summon | 5983 | 60 | idem |
+  | G — `level` / `mult` | 1 / 100 | 0 / 100 | idem |
+
+  Le rapport des dégâts suit celui des attaques (95× contre 99,7×) : la cause n'est **ni** la
+  formule **ni** le choix de cible, c'est le **substrat de stats** du summon — le port le fait naître
+  sur les valeurs brutes du gameconfig là où `IdunBattle.Entities.Factories.UnitFactory` lui donne
+  les stats calculées du match. ⚠ Et ce n'est **pas** un défaut général de `build_summon_context` :
+  sur un autre porteur (#577, `necroNpc1Warrior`), le `hp` du summon concorde à l'unité près des deux
+  côtés. Résidu **`#1022-r4`**, avec cliquet inverse dans le test live.
+  ⚠ **Second effet, non anticipé** : dès que le summon frappe pour de bon, `damage_ops/normal.py`
+  **refuse** le rejeu (`state.rng non calé`) — le montage doit dumper le MT **avant** le cast. Tant
+  que l'attaque était vide, cette absence ne se voyait pas ; c'est un exemple exact de prémisse que
+  seul un régime non dégénéré révèle.
 - **La branche « le caster possède `0x5d8` »** : `ultraDreadnought` n'a pas `CabalOfSorcerers`, donc
   `carry` ne s'assemble pas. Même statut que la branche jumelle de 1158 (résidu de `case-91` §7).
 - **Le 4ᵉ argument d'`AddTriggeredAbility`** (`AbilityState(Owner, AbilityType)`) : la feuille portée

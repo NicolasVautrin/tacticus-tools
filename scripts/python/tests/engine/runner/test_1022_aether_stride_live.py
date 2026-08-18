@@ -145,8 +145,42 @@ def aether(rpc, build_runner):
         pytest.fail("aucune (ancre, psyker deplacable) sur ce board -- le terme PerformAIAttack "
                     "resterait INERTE et l'accord ne prouverait rien de lui", pytrace=False)
 
+    # --- AMENER UN ENNEMI AU CONTACT DE L'EMPREINTE (#1022-r3) -----------------------------------
+    # Sans lui, `PerformAIAbilityUnitBehaviour$$Execute` s'execute mais ne frappe PERSONNE : natif
+    # et port rendent 0 degat, et l'accord est en REGIME DEGENERE -- il ne dit rien du choix de
+    # cible ni de la magnitude. La fiche du residu disait « l'equipe adverse n'est pas pilotable
+    # sous --no-ai » et concluait qu'il fallait chercher un autre board : c'est FAUX, et le harnais
+    # voisin l'ecrit noir sur blanc (`_charge_regime.py::place` : « `applyAction` ne verifie NI
+    # propriete NI portee : les DEUX camps sont pilotables »). Aucun board n'aurait donne la
+    # configuration de toute facon -- les spawns des deux equipes sont aux deux bouts et l'ancre
+    # doit etre a portee du caster, donc dans son camp.
+    aire_cast = STS.get_area(board, occ, board.coord(cible))
+    vs_libres = sorted(_voisines(board, aire_cast) - _occupied(rpc, rid))
+    dv_e = rpc("decisionView", {"runnerId": rid, "allAbilities": True}).get("units") or []
+    adverses = [u for u in dv_e if u.get("alive") and u.get("pos") and not u.get("ctrl")]
+    ennemi = None
+    if any(hexgeo.distance((u["pos"]["col"], u["pos"]["row"]), f) <= 1
+           for u in adverses for f in aire_cast):
+        ennemi = ("DEJA", None)
+    for u in (adverses if ennemi is None else ()):
+        for dest in vs_libres:
+            rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": u["id"], "to": {"col": dest[0], "row": dest[1]}}})
+            now = next((x for x in (rpc("decisionView", {"runnerId": rid, "allAbilities": True})
+                                    .get("units") or []) if x.get("id") == u["id"]), None)
+            p = (now or {}).get("pos") or {}
+            if (p.get("col"), p.get("row")) == dest:
+                ennemi = (u["id"], dest)
+                break
+        if ennemi is not None:
+            break
+
     pre_dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True})
     pre_ob = rpc("observeBattle", {"runnerId": rid})
+    # Le MT est dumpe AVANT le cast : des que le summon frappe pour de bon, le rejeu offline doit
+    # consommer le MEME flux que le natif, sinon `damage_ops/normal.py` REFUSE (`state.rng non
+    # cale`) -- un refus explicite, jamais un degat invente.
+    pre_rng = rpc("dumpRng", {"runnerId": rid})
     avant = {u.get("squadId") for u in (pre_ob.get("units") or [])}
     anc = board.coord(cible)
     res = rpc("applyAction", {"runnerId": rid, "action": {
@@ -154,17 +188,33 @@ def aether(rpc, build_runner):
         "to": {"col": anc[0], "row": anc[1]}}})
     obs = rpc("observeBattle", {"runnerId": rid}).get("units") or []
     neufs = [u for u in obs if u.get("squadId") not in avant]
+    pv_avant = {u.get("squadId"): u.get("hp") for u in (pre_ob.get("units") or [])}
+    pv_apres = {u.get("squadId"): u.get("hp") for u in obs}
+    touches = {s: int(pv_avant[s]) - int(pv_apres[s]) for s in pv_avant
+               if s in pv_apres and pv_apres[s] is not None and pv_avant[s] is not None
+               and pv_apres[s] < pv_avant[s]}
     return {"rid": rid, "caster": caster, "board": board, "anchor": anc, "tile": cible,
             "occ": occ, "regle": regle, "psyker": psyker, "pre": (pre_dv, pre_ob),
             "res": res, "feet": feet_from_events(res.get("actions") or [], board),
-            "neufs": neufs}
+            "neufs": neufs, "ennemi": ennemi, "rng": pre_rng, "touches": touches}
 
 
 def _port_cast(aether, pre=None):
-    """Rejoue 1208 COTE PORT sur l'etat PRE-cast (meme caster, meme tuile)."""
+    """Rejoue 1208 COTE PORT sur l'etat PRE-cast (meme caster, meme tuile).
+
+    ⚠ LE MT EST CALE quand le montage a un ennemi au contact : le summon frappe alors pour de
+    bon, et `damage_ops/normal.py` REFUSE un rejeu sans twister (`state.rng non cale`) plutot que
+    d'inventer un degat. Sans ennemi, le rail n'atteint jamais l'operation de degat et l'absence
+    de MT ne se voyait pas."""
     from engine.runner.abilities.thousandsons import AetherStrideAbility
+    from engine.runner.prng import IntBasedMersenneTwister
     pre_dv, pre_ob = pre or aether["pre"]
     state = load_state(pre_dv, pre_ob, board=aether["board"])
+    dump = aether.get("rng") or {}
+    if isinstance(dump, dict) and dump.get("mt"):
+        mt = IntBasedMersenneTwister()
+        mt.mt, mt.mti = list(dump["mt"]), dump["mti"]
+        state.rng = mt
     return state, AetherStrideAbility().execute_behaviour(state, aether["caster"], aether["tile"])
 
 
@@ -314,9 +364,8 @@ def test_port_perform_ai_attack_fires_only_with_an_adjacent_psyker_friend(aether
     CONTRE-EPREUVE retire ce seul rail en ecartant le psyker de l'etat PRE-cast, sans rien changer
     d'autre -- le noeud doit alors ne PAS s'executer.
 
-    NON COUVERT, et nomme : l'ATTAQUE elle-meme (`PerformAIAbilityUnitBehaviour$$Execute`). Le
-    summon se pose hors de portee de tout ennemi dans ce montage, donc `attacks` est vide des DEUX
-    cotes -- un accord en regime degenere, qui ne dit rien du choix de cible ni du degat."""
+    L'ATTAQUE elle-meme (`PerformAIAbilityUnitBehaviour$$Execute`) est confrontee par les deux
+    tests qui suivent, depuis que le montage AMENE un ennemi au contact (#1022-r3)."""
     import copy
     _state, diag = _port_cast(aether)
     assert diag["ai_attacks"], \
@@ -338,3 +387,74 @@ def test_port_perform_ai_attack_fires_only_with_an_adjacent_psyker_friend(aether
     assert not diag2["ai_attacks"], \
         ("SANS psyker adjacent le noeud ne doit PAS s'executer -- il s'est execute : %s"
          % (diag2["ai_attacks"],))
+
+
+def _attaques_du_port(diag):
+    return [x for a in (diag.get("ai_attacks") or []) for x in (a.get("attacks") or [])]
+
+
+def test_le_summon_frappe_LA_MEME_cible_que_le_natif(aether):
+    """L'ATTAQUE de `PerformAIAttack`, enfin CONFRONTEE (#1022-r3).
+
+    Le residu disait : « accord natif/port a 0 degat, en regime DEGENERE », et concluait qu'il
+    fallait « soit un board ou les trois contraintes coexistent, soit amener un ennemi (l'equipe
+    adverse n'est pas pilotable sous `--no-ai`) ». **Les deux moities de cette conclusion sont
+    fausses.** L'equipe adverse EST pilotable -- `applyAction` ne verifie ni propriete ni portee,
+    ce que `_charge_regime.py::place` ecrit deja -- et aucun board n'aurait donne la configuration,
+    puisque les spawns des deux equipes sont aux deux bouts et que l'ancre doit rester a portee du
+    caster. Le montage POSE donc un ennemi au contact de l'empreinte.
+
+    ⚠ CE TEST ASSERTIONNE SON PROPRE NON-VIDE AVANT DE COMPARER. Un `[] == []` (ou `0 == 0`) est
+    exactement le regime degenere qu'on vient de supprimer : sans ces deux gardes, le test
+    redeviendrait vert le jour ou le montage cesserait d'amener l'ennemi."""
+    _state, diag = _port_cast(aether)
+    att = _attaques_du_port(diag)
+    assert aether["ennemi"] is not None, (
+        "TEMOIN DEGENERE : aucun ennemi n'a pu etre pose au contact de l'empreinte -- "
+        "`PerformAIAttack` frappe dans le vide et l'accord ne prouverait rien")
+    assert att, ("TEMOIN DEGENERE cote PORT : `attacks` est vide, il n'y a aucune attaque a "
+                 "confronter (ai_attacks=%s)" % (diag.get("ai_attacks"),))
+    assert aether["touches"], (
+        "TEMOIN DEGENERE cote NATIF : aucune unite n'a perdu de PV pendant le cast, le summon "
+        "natif n'a donc frappe personne")
+    cibles_port = sorted({int(x["target"]) for x in att if x.get("target") is not None})
+    cibles_natif = sorted(int(s) for s in aether["touches"])
+    assert cibles_port == cibles_natif, (
+        "le summon ne frappe pas la MEME unite : port=%s natif=%s (degats natifs %s)"
+        % (cibles_port, cibles_natif, aether["touches"]))
+
+
+def test_la_magnitude_du_summon_DIVERGE_et_l_etage_est_NOMME(aether):
+    """CLIQUET INVERSE, et il est ecrit pour etre LEVE, pas pour durer.
+
+    La cible concorde (test precedent), la MAGNITUDE non : mesure du 2026-08-18 sur ce montage
+    meme, port **29** contre natif **2761**. La cause n'est ni la formule de degat ni le choix de
+    cible -- c'est le SUBSTRAT DE STATS du summon, decompose par etage :
+
+        grandeur   | port | natif
+        attack     |    7 |   698
+        health     |   60 |  5983
+        level      |    0 |     1
+
+    Le port fait naitre le summon sur les valeurs BRUTES du gameconfig, la ou
+    `IdunBattle.Entities.Factories.UnitFactory` lui donne les stats calculees du match
+    (`unitConfig.level = 1`, `abilityVariablesMultiplier = 100`). Le rapport des degats (95x) suit
+    celui des attaques (99,7x) : c'est un etage d'ENTREE, pas un ecart de pipeline.
+
+    ⚠ Ce n'est PAS un defaut general de `build_summon_context` : sur un AUTRE porteur (#577,
+    `necroNpc1Warrior`), le `hp` du summon concorde a l'unite pres des deux cotes. C'est le
+    call-site de 1208 qui n'apporte pas le niveau.
+
+    Ce test rougit des que l'ecart se ferme -- et c'est voulu : il faut alors le remplacer par
+    l'assertion d'ACCORD, pas le rendre plus permissif. Residu **#1022-r4**."""
+    _state, diag = _port_cast(aether)
+    att = _attaques_du_port(diag)
+    assert att and aether["touches"], "regime degenere -- cf. le test precedent"
+    degat_port = sum(int(x.get("total") or 0) for x in att)
+    degat_natif = sum(int(v) for v in aether["touches"].values())
+    assert degat_port > 0 and degat_natif > 0, (
+        "TEMOIN DEGENERE : un des deux degats est nul (port=%s natif=%s), l'inegalite ci-dessous "
+        "serait vraie pour une mauvaise raison" % (degat_port, degat_natif))
+    assert degat_port != degat_natif, (
+        "L'ECART DE MAGNITUDE S'EST FERME (port=%s natif=%s) -- #1022-r4 est resolu : REMPLACER ce "
+        "cliquet inverse par l'assertion d'ACCORD, ne pas l'assouplir" % (degat_port, degat_natif))
