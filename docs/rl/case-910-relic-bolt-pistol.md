@@ -207,6 +207,48 @@ se voit sans un mutant. C'est l'argument pour lequel les mutants ne sont pas une
   `runner/operations/damage.py::_crit_params` — la face EXÉCUTION. L'IA ne voit donc ni le +perçage
   ni le +crit-dégât de la relique, pour AUCUN de leurs implémenteurs (1115, 1116, 1222, `SmashaEad`,
   `EmpyricAmbush`, `AmuletOfTheVoidwyrm`, `SupaCyborkBody`…). Résidu `#910-r1`.
+
+  ⚠ **[2026-08-18] RE-MESURE AU DÉCOMPILÉ — SUR LES DEUX CANAUX ACCUSÉS, UN SEUL EST UN ÉCART.**
+  La phrase ci-dessus prête à la face DÉCISION un manque qui, sur l'axe CRIT, est une **propriété du
+  natif** :
+
+  * **AXE CRIT — RÉFUTÉ.** `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` est le SEUL
+    corps de prédiction (`PredictAttack` y mène ; `DamagePredictionQuery$$GetAttackPrediction` ne
+    fait que monter l'`AttackPredictionRequest` puis appeler le slot 5). Son décompilé **intégral**
+    (2 782 lignes) ne contient AUCUN appel à `GetCritChance`, `GetCritDamage` ni
+    `CalculateCriticalDamage` — les trois seuls consommateurs de `GetCritChanceBonusFromEffects` /
+    `GetCritDamageBonusFromEffects`, tous derrière les slots **10** (`RollCritical`) et **11**
+    (`CalculateCriticalDamage`) d'`IDamagePrediction`, c'est-à-dire la face EXÉCUTION. Le seul canal
+    crit qu'écrit la prédiction est `MightCrit@+0xB1 = DamageCalculations$$CouldCrit(attacker)`, et
+    `CouldCrit` lit les stats **NUES** (`GetStat(9) >= 1 && GetStat(10) > 0`). Le port, qui ne les
+    passe pas non plus, est **FIDÈLE** : « fermer » cet axe aurait fait mordre le canal PLUS LARGE
+    que le jeu.
+  * **AXE PERÇAGE — CONFIRMÉ, avec une PORTÉE et une CAUSE que l'énoncé ne portait pas.**
+    **Portée** : le perçage est inliné dans
+    `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor`, dont la
+    première ligne est `if (damageProfile == null) return 0`. Le chemin
+    `SortUnitsByDamageUtilitySelector` passe `damageProfile: null` : le canal y est fermé **côté
+    natif aussi**. L'écart ne mord donc que la prédiction d'attaque normale du PLAYBOOK, qui porte
+    un profil. **Cause** : le natif verse le perçage d'effet dans `DamageModifiers@+0x20` via le
+    slot **24** `PiercingBonusForAttack`, qu'invoque
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` (son
+    homologue défenseur invoque le slot **25** `PiercingMalusForDefense`, et
+    `CalculateBaseDamageWithAllModifiers` SOMME les deux). Le port a **deux** mirrors de ce slot 24
+    et n'en câble **aucun** à sa boucle attaquant partagée (`_attacker_effect_bonuses`) :
+    `create_piercing_bonus_for_attack` n'est appelé que par la boucle DÉFENSEUR (variante
+    `OwnerIsTarget`), et `create_effect_piercing_bonus_for_attack` est poussé à la main dans
+    `select_weapon_pierce(effect_bonus=…)` par les seuls call-sites COMBAT.
+  * **Ce qui reste, et pourquoi ce n'est pas une ligne.** La face DÉCISION monte DÉJÀ
+    `piercing_bonus_from_effects` (`playbook/prediction/_shared.py`, #1052) — mais avec un ctx
+    **appauvri** : il manque `ability_type`, `target_traits`, `owner_ctx`, `is_overwatch`,
+    `unit_ctx_of`. `GravitonRifle_ExtraPierce` (gate `CurrentAbilityIs`) et
+    `RelicBoltPistol_ExtraPierce` (gate `HasTrait(target)`) y seraient donc **muets** : câbler la
+    valeur sans enrichir le ctx donnerait un zéro silencieux.
+
+  Les deux verdicts sont **figés et sous cliquet** :
+  `scripts/python/probe_910r1_canaux_effect_bonus_face_decision.py` (balayage AST, `rc 1` si l'un
+  des deux axes bascule ; contre-épreuve jouée — un appel crit-from-effects greffé sur la face
+  DÉCISION le fait rougir).
 * **`astarCyrus` et `darkaSternguard`** (2 des 7 porteurs) ne sont pas au pool : état 3 de la gate
   relique (injection catalogue). NON CONFRONTÉS — sans conséquence sur le verdict, car les deux
   canaux ne lisent **rien** du porteur hors son `AbilityState` (aucun trait, aucune stat, aucune

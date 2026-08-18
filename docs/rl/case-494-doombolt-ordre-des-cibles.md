@@ -346,3 +346,107 @@ raison, poser une géométrie PLATE au build (mesure : sur les 1870 régimes de 
 montage discriminant à plat, **0** survit dès qu'une des trois cibles classantes reçoit le bonus
 d'élévation — la fenêtre « létal MAIS sous le seuil d'overkill » est exactement ce qu'un ×1,5 fait
 sortir).
+
+## 11. #494-r2 — `isMelee` ne vient PAS de l'arme, et le régime annoncé était le SYMÉTRIQUE du vrai
+
+### 11.1 Le natif, LU
+
+`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`, verbatim :
+
+```
+isMelee  = DamagePrediction.IsMeleeAttack(ability, attacker, attackerPos, defender);
+extraMax = isMelee ? 0 : UnitExtensions.GetStat(attacker, 0x19);   // StatType.ExtraMaxDamage
+base     = GetBaseDamageFix64(damage, isMaxOut, ..., extraMax);
+```
+
+et `IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` ne fait QUE déléguer au slot **2**
+d'`IBattleQuery` = `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, c'est-à-dire le switch sur
+`IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType(ability)` :
+`None(0)` et `Ranged(2)` rendent `false` **sans condition de distance**, `Melee(1)` rend `true`
+**sans condition**, et seul `Normal(3)` teste
+`!UnitExtensions.HasFlag(caster, 0x15 = UnitFlag.ForceRangedAttack) && AreEntitiesAdjacent(casterPosition, target)`.
+**L'arme n'entre nulle part.**
+
+### 11.2 La prémisse de la fiche était FAUSSE sur un point, et le vrai régime est plus large
+
+La fiche annonçait, comme régime de divergence, « une unité purement ranged » : mesuré
+(`scripts/python/probe_494r2_attack_range_type_normal.py`, gameconfig du build `t6dpr4k06g`),
+il n'y en a **AUCUNE** — **0** ranged-only, **271** melee-only, **331** mixtes, **81** sans arme.
+Le régime qui mord est son **symétrique** :
+
+| régime | natif (slot 2) | ancien port (arme) | |
+|---|---|---|---|
+| attaquant ADJACENT | melee | melee | d'accord |
+| NON adjacent, arme ranged EN PORTÉE | ranged | ranged | d'accord |
+| NON adjacent, AUCUNE arme éligible | **ranged** | **melee** | **ÉCART** |
+
+`get_attack_weapon_for_default_normal_attack` rend `(None, False)` sur un ensemble vide, donc
+`select_weapon_pierce` rendait `is_ranged = False`, donc l'ancien `normal_attack_is_melee` rendait
+`True` — l'INVERSE du natif — pour **toute** unité melee-only évaluée contre une cible non adjacente.
+
+### 11.3 La branche prise est bien `Normal(3)`, et c'est une MESURE
+
+Les **18** ids d'attaque normale du build (les deux génériques, la boss, les 14 de la table passive
+de `services/custom_normal_attack.py` et celui de la table active) n'ont **AUCUNE** entrée
+`gameconfig.abilities` : `GetAbilityAttackRangeType` rend donc « pas d'entrée » et le natif prend
+`Normal(3)`. Le port **résout et passe le nom quand même** — c'est ce qui le garde juste le jour où
+un build en renseignera un. Le cran est exécutable : `test_494r2_normal_attack_is_melee_offline`
+étage 2 rougit si un de ces 18 ids reçoit un `attackRangeType`.
+
+### 11.4 Le RAYON de la correction est celui du natif — et c'est ce qui autorise le fix à la SOURCE
+
+`IdunBattle.Entities.Abilities.AbilityEntities..ctor` a **33** paramètres et **aucun** ne porte la
+nature du coup (ni `isMelee`, ni `isRanged`) : le natif n'a pas de champ à propager, toutes ses
+gates RECALCULENT le prédicat par ce même slot 2
+(`IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger`). Corriger la SOURCE
+côté port — et laisser la valeur se propager dans `attacker_modifiers(is_ranged=…)` /
+`defender_modifiers(is_melee=…)` — est donc le mirror, pas un élargissement. Ampleur du canal :
+**99** classes d'effet du port lisent `is_melee`/`is_ranged` dans un slot de dégât ou de perçage.
+
+### 11.5 Le foyer RUNNER, et pourquoi c'est un module
+
+Trois sites du runner montaient chacun à sa façon le substrat du slot 2 (positions, graphe du
+board, élévation, `UnitFlagsComponent`) : `operations/damage_utility.py` (face DÉCISION),
+`abilities/loki/heavy_bolt_pistol.py` (face COMBAT) et
+`operations/triggers/loki/empyric_ambush.py` (face TRIGGER, qui va jusqu'à ré-écrire le switch).
+Le montage n'appartient à aucun des trois, et `abilities/targeting.py` — où vivent `_visual_id` et
+`normal_attack_type_for` — **charge** `operations/damage_utility.py`, donc l'y poser fermerait un
+cycle. D'où `engine/runner/battle_query_state.py`, qui s'importe SEUL et ne tire ni l'un ni l'autre.
+Il accepte déjà `caster_position=` : c'est le point d'ancrage de `#419-r1-tr14-r4-r3`.
+
+### 11.6 Validation
+
+* **Garde vue ROUGE avant le fix**, par restauration de l'ancien corps
+  (`git checkout HEAD~3 -- damage_utility.py`) : 2 failed / 10 passed, message verbatim
+  `AssertionError: le consommateur GetMultiHitAttackPrediction doit recevoir is_melee=False
+  (cible NON adjacente, branche Normal(3)) -- recu [True]`.
+* **Contre-épreuve intégrée** : l'étage 1 rejoue l'ANCIENNE décision (`select_weapon_pierce`) sur le
+  même montage et **exige qu'elle diffère** — sans ce cran, un montage où les deux coïncident
+  passerait pour un succès (l'accord en régime dégénéré que la doctrine interdit).
+* **Deux témoins où le canal ne doit PAS s'ouvrir** : attaquant adjacent, et attaquant à distance
+  AVEC arme ranged en portée. Verts des deux côtés.
+* **Étage 4 — le CÂBLAGE** : la valeur corrigée doit ARRIVER à `GetMultiHitAttackPrediction` (d'où
+  elle commande les deux familles de modificateurs). Substitution du consommateur, trois crans dont
+  la voie « l'appelant connaît déjà l'ability » (`is_melee` fourni → passé tel quel), qui interdit
+  un fix recalculant TOUJOURS.
+* **Non-régression rejouée** : offline `test_494r1_ordre_cibles_offline`, `test_333_minmax_avg_
+  rounding_offline`, `test_960_ecstatic_slaughter_armour_shrieking_souls_offline`,
+  `test_bl_1029r_drachnyen_extra_attack_offline`, `test_943r4_adjacence_cablee_offline` (73 passed) ;
+  live `test_419r6r1_face_decision_live` (4), `test_504_kill_maim_burn_live` (7),
+  `test_finaljustice_live` (1), `test_566_vexilla_magnifica_live` (25), `test_votann_lot1_live` (21).
+
+### 11.7 Ce qui n'est PAS couvert
+
+**Sans effet gaté melee/ranged, le fix est arithmétiquement NEUTRE.** La valeur corrigée n'entre
+dans la clé que par `attacker_modifiers` / `defender_modifiers` ; sur un roster normalisé sans
+effet de cette famille, les deux modèles rendent la même clé et **aucun montage live ne les
+sépare** — c'est exactement le régime dégénéré qu'on ne doit pas prendre pour une preuve. Le montage
+qui discriminerait est nommé : `worldKharn` (le seul porteur `lineup` de `KillMaimBurn`, et il est
+**melee-only**, maxRange 0) contre des cibles à distance ≥ 2, l'une d'elles portant un des 99 effets
+gatés ; ou `thousAhriman` (`Doombolt`, maxRange **2**) contre une cible à distance ≥ 3, seul régime
+où son arme ranged sort de portée.
+
+**`StatType.ExtraMaxDamage` reste hors du chemin PRÉDICTION du port.** Le natif l'applique dans
+`PredictAttackRaw` **hors** de la garde `damageProfile != null`, et le port ne renseigne `extra_max`
+que sur l'étage COMBAT (`damage_ops/normal.py`). Ce canal-là n'est donc toujours pas confronté sur
+la face DÉCISION — et c'est ce que la fiche annonçait comme piège de confrontation.
