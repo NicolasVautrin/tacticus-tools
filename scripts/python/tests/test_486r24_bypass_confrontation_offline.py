@@ -66,6 +66,8 @@ DECLENCHEUR = {
         "le contrat et le cliquet, declares ci-dessus.",
 }
 
+import ast
+import re
 import sys
 from pathlib import Path
 
@@ -184,18 +186,100 @@ def test_le_PERIMETRE_EFFECTIF_porte_la_cascade_sans_que_le_declarant_l_ecrive()
     assert not DC.couvre(globs_cliquet, "scripts/python/engine_agreement_stages.py")
 
 
+def _racines_absolues(rel: str) -> set:
+    """Les racines de module qu'un fichier importe en NIVEAU 0, lues a l'AST.
+
+    C'est le seul canal par lequel une cible TOP-LEVEL (`scripts/python/<x>.py`) peut etre
+    legitimement attribuee a un module : un import relatif, lui, se resout DANS son paquet."""
+    try:
+        arbre = ast.parse((ROOT / rel).read_bytes())
+    except (OSError, SyntaxError, ValueError):
+        return set()
+    out: set = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Import):
+            out.update(a.name.split(".")[0] for a in n.names)
+        elif isinstance(n, ast.ImportFrom) and not n.level and n.module:
+            out.add(n.module.split(".")[0])
+    return out
+
+
+def _porteurs_d_import_relatif_de_board() -> list:
+    """Les modules qui ecrivent VRAIMENT `from .board import ...`, DERIVES de l'arbre.
+
+    Le temoin ne s'ECRIT pas : il se DERIVE. La version anterieure de ce test nommait
+    `engine/entities/pathfinding/pathfinders.py`, qui n'a JAMAIS porte cet import (`git log -S`
+    rend zero commit) et dont `cibles` -- qui ne rend que les cibles DIRECTES -- ne pouvait donc
+    pas fabriquer la fausse cible. Verifie par contre-epreuve le 2026-08-18 : en remettant la
+    resolution buguee (`_paquet` -> `[]`), `walk_pathfinder.py` et `beeline_pathfinder.py`
+    fabriquent bien `scripts/python/board.py`, et `pathfinders.py` ne le fabrique PAS. Le test
+    etait donc VACUEUX depuis son ecriture."""
+    base = ROOT / "scripts" / "python" / "engine" / "entities" / "pathfinding"
+    out = []
+    for p in sorted(base.glob("*.py")):
+        src = p.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^from \.board import ", src, re.M):
+            out.append("scripts/python/" + str(p.relative_to(ROOT / "scripts" / "python")
+                                              ).replace("\\", "/"))
+    return out
+
+
 def test_un_import_RELATIF_ne_se_resout_PAS_contre_la_racine():
     """LA MOITIE QU'ON N'ATTENDAIT PAS. Resoudre `from .board import X` comme le nom `board` ne
     fait pas que MANQUER `engine/entities/pathfinding/board.py` -- il FABRIQUE une cible fausse,
-    `scripts/python/board.py`, qu'AUCUN module du depot n'importe (mesure du 2026-08-07 :
-    0 importateur sur les 4 189 fichiers versionnes). C'est ce faux positif que #531 citait
-    comme preuve que << le harnais live tire `board` >>."""
+    `scripts/python/board.py`. C'est ce faux positif que #531 citait comme preuve que << le
+    harnais live tire `board` >>.
+
+    LES DEUX MOITIES SONT ASSERTIONNEES, et c'est ce qui manquait. L'ancienne version ne testait
+    que l'ABSENCE de la fausse cible sur un fichier qui ne portait aucun import relatif de
+    `board` : elle passait sur un recensement VIDE. Ici le temoin est DERIVE, sa liste doit etre
+    NON VIDE, et chaque porteur doit rendre la BONNE cible autant que ne pas rendre la fausse --
+    retirer l'import relatif fait donc rougir au lieu de rendre le test muet."""
+    porteurs = _porteurs_d_import_relatif_de_board()
+    assert porteurs, ("ANTI-VACUITE : aucun module ne porte `from .board import` -- ce test ne "
+                      "prouverait plus rien. Choisir un autre temoin, pas supprimer le cran.")
     f = DC.Fermeture(ROOT)
-    cibles = f.cibles("scripts/python/engine/entities/pathfinding/pathfinders.py")
-    assert "scripts/python/board.py" not in cibles, \
-        "un import relatif ne doit JAMAIS resoudre contre `scripts/python/`"
+    bonne = "scripts/python/engine/entities/pathfinding/board.py"
+    for rel in porteurs:
+        cibles = f.cibles(rel)
+        assert bonne in cibles, \
+            "%s : l'import relatif doit resoudre DANS son paquet (sous-approximation)" % rel
+        assert "scripts/python/board.py" not in cibles, \
+            "%s : un import relatif ne doit JAMAIS resoudre contre `scripts/python/`" % rel
+
+
+def test_aucune_cible_TOP_LEVEL_de_la_cascade_n_est_FABRIQUEE(fermeture):
+    """LE GARDE QUI REMPLACE l'assertion `board.py not in casc`, devenue FAUSSE (#1044).
+
+    Cette assertion-la etait un temoin INDIRECT : elle ne tenait que tant qu'aucun membre de la
+    cascade n'importait `board` pour de bon. Le commit `897590ea` (2026-08-14) a fait entrer
+    `probe_1044_levier_traits` dans `tests/engine/conftest.py`, qui tire `rl_duel`, qui ecrit
+    `from board import Board` depuis le 2026-06-15 : la cible est desormais REELLE, et le test
+    accusait une bonne nouvelle. Mesure du 2026-08-18 : `scripts/python/board.py` est atteint par
+    `oracle.py`, `rl_duel.py` et `rl_probe_step.py` -- les trois l'importent ABSOLUMENT.
+
+    L'INVARIANT qui remplace le temoin, et qui ne se perime pas quand la cascade grossit : une
+    cible TOP-LEVEL n'est attribuee a un module que s'il l'importe en NIVEAU 0. C'est exactement
+    ce que la resolution buguee violait, pour n'importe quel nom -- pas seulement `board`.
+
+    Contre-epreuve jouee (2026-08-18) : avec `_paquet` rendu inerte, ce meme critere rend
+    1 faute (`walk_pathfinder.py` -> `scripts/python/board.py`) ; sans le bug, il en rend 0 sur
+    725 modules, pour 306 attributions top-level examinees."""
     casc = DC.chemins_du_harnais("scripts/python/tests/engine/test_x_offline.py", ROOT)
-    assert "scripts/python/board.py" not in casc
+    assert casc, "cascade VIDE : le critere ne visiterait rien"
+    examinees, fautes = 0, []
+    for rel in sorted(set(casc)):
+        racines = _racines_absolues(rel)
+        for cible in sorted(fermeture.cibles(rel)):
+            queue = cible[len("scripts/python/"):]
+            if "/" in queue:
+                continue
+            examinees += 1
+            if queue[:-len(".py")] not in racines:
+                fautes.append((rel, cible))
+    assert examinees, ("ANTI-VACUITE : aucune cible TOP-LEVEL attribuee dans toute la cascade -- "
+                       "le critere passerait vert sans rien avoir regarde")
+    assert not fautes, "cible(s) TOP-LEVEL FABRIQUEE(s) : %s" % (fautes[:10],)
 
 
 @pytest.mark.parametrize("rel,niveau,attendu", [
