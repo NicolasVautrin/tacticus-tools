@@ -648,6 +648,26 @@ def predict_attack_raw(
     # #202 WeaverOfFate : le flag max-out est evalue ICI, foyer unique (mirror natif : PredictAttackRaw
     # appelle IsAttackMaxOutDamage IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a lui-meme) puis passe a `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64`
     # -> min = max (bornes degenerees). Un `predefined` (bornes d'ability RandomAmount) est degenere pareil.
+    # #449-r3 -- `predefined` EST le mirror du byte `AttackPredictionRequest+0x6a`, et le ROUTAGE
+    # natif est desormais LU EN ENTIER (build charge). `PredictAttackRaw` choisit sa cellule ainsi :
+    #
+    #     if (!request.<+0x6a>)                       -> cellule PLATE
+    #     else if (configuration.<+0x31>)             -> cellule PLATE     # IgnoreDamageSpread
+    #     else -> GetBaseDamageFix64(damage, IsAttackMaxOutDamage(.), extraMaxDamage)
+    #
+    # ou la cellule PLATE est `MinMaxDamageFix64(damage, maxOverride ?? damage)` -- `damage` =
+    # `Math.Max(0, GetValueOrDefault(request+0x58))`, `maxOverride` = un `Nullable` relu juste
+    # avant. `configuration+0x31` est `BattleConfiguration.Damage.IgnoreDamageSpread` (#449-r2-r4).
+    # TROIS consequences, toutes portees ici : le SPREAD, l'EXTRA-MAX (#884-r1) et le MAX-OUT
+    # (#202/#1013-r1) n'existent QUE sur la voie `GetBaseDamageFix64` -- une cellule `predefined`
+    # n'en voit AUCUN, et c'est pour ca que `extra_max` peut etre passe sans condition par les
+    # appelants : cette ligne-ci le filtre deja.
+    # ⚠ CE QUI RESTE OUVERT (#449-r3) : le NOM du champ. `IdunBattle.Core.Services.
+    # AttackPredictionRequest` est un `System.ValueType` de 0xb8 octets qui ne declare **AUCUNE**
+    # methode (ni ctor, ni accesseur) dans `data/symbols/<build>/frida/methods.tsv`, et n'a AUCUN
+    # symbole ghidra : ses noms de champ ne vivent que dans la table de champs de la metadonnee
+    # IL2CPP, que nos dumps ne portent pas. Le nommer exige donc un AXE D'OUTILLAGE neuf, pas une
+    # relecture -- et le deviner depuis le role serait une hypothese, pas une lecture.
     is_max_out = is_attack_max_out_damage(attacker_effects)
     mm = predefined if predefined is not None \
         else get_base_damage_fix64(initial_damage, extra_max, spread_pct, is_max_out=is_max_out)
