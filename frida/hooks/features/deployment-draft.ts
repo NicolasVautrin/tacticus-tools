@@ -680,10 +680,15 @@ let hudInstance: NativePointer | null = null;
  *  `EmptyMachineOfWarPlatformTapped` / `EmptySpawnPointTapped` = les clics sur le PLATEAU ;
  *  `HandleOnSwitchTo*Tapped` = les BOUTONS de bascule ; `ShowStandardUnitSelection` =
  *  l'affichage du roster héros, celui qui LÈVE si `_units` est nul. */
+// ⚠ LES CINQ APPELANTS DE `PrepareFor...` SONT TOUS LÀ, et c'est la leçon : la première liste
+// n'en portait que trois, donc un tir de `PrepareFor...` restait SANS ORIGINE et rendait les
+// compteurs mutuellement incompatibles. `PutUnitIntoHand` et `SetCurrentlySelectedUnit` sont les
+// deux qui manquaient -- ce sont les chemins de SÉLECTION, pas ceux de la bascule de MODE.
 const CHEMINS_BASCULE = [
     "EmptyMachineOfWarPlatformTapped", "EmptySpawnPointTapped",
     "HandleOnSwitchToMachinesOfWarUnitsTapped", "HandleOnSwitchToStandardUnitsTapped",
     "ShowStandardUnitSelection", "PrepareForStandardUnitMachineOfWarSelectionSwitch",
+    "PutUnitIntoHand", "SetCurrentlySelectedUnit",
 ] as const;
 const cheminsListeners: Record<string, InvocationListener> = {};
 const cheminsEtat: Record<string, unknown> = {};
@@ -952,7 +957,15 @@ function armerHud(): true | Refus {
         if (cheminsListeners[nom] !== undefined) continue;
         const mi = findMethod(k, nom);
         if (!mi || mi.ptr.isNull()) { cheminsEtat[nom] = { introuvable: true }; continue; }
-        cheminsEtat[nom] = { fires: 0, transitions: [] };
+        // ⚠ ON PUBLIE LA VA, ET CE N'EST PAS DÉCORATIF. Mesuré le 2026-08-19 : trois compteurs
+        // MUTUELLEMENT INCOMPATIBLES (`PrepareFor...` à 1 tir alors que ses DEUX seuls appelants
+        // étaient l'un à 0 et l'autre sous une garde fausse). Un ancrage peut tomber sur un corps
+        // DÉDUPLIQUÉ ou sur une surcharge voisine ; sans l'adresse, on croit le compteur et on
+        // conclut à l'envers. La tête est contrôlée pour la même raison (cf. §8).
+        const t = lireTete(mi.ptr);
+        cheminsEtat[nom] = { fires: 0, transitions: [], va: ghidraVA(mi.ptr),
+                             teteTriviale: t.erreur === null ? teteTriviale(t) : null,
+                             teteErreur: t.erreur };
         cheminsListeners[nom] = Interceptor.attach(mi.ptr, {
             onEnter(args) {
                 const s = this as unknown as { av: boolean | null; hud: NativePointer };
