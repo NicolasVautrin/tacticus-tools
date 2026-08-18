@@ -297,5 +297,50 @@ def test_e7_le_foyer_partage_propage_le_profil_jusqu_a_l_effet():
         "bonus `Melta` absent ou d'une autre magnitude que `meltaDamageExtraDmgPct` : %r" % (avec,))
 
 
+# --------------------------------------------------------------------------------------------- #
+# E8 -- LE FOYER : `attacker_modifiers_at_profile` PASSE le profil qu'on lui demande
+# --------------------------------------------------------------------------------------------- #
+def test_e8_le_foyer_passe_le_profil_demande_a_la_collecte_et_au_trench(monkeypatch):
+    """E1..E5 utilisent un re-collecteur SYNTHETIQUE : ils gardent le CABLAGE du canal #179, pas le
+    foyer que les appelants lui donnent. Sans cet etage-ci, `attacker_modifiers_at_profile`
+    pourrait cesser de propager le profil (le figer a `None`, par exemple) sans qu'un seul test ne
+    bouge -- mesure faite : ce mutant-la etait MUET avant cet etage.
+
+    On substitue les TROIS dependances du foyer dans SON module (`damage_model`, qui les lie en
+    forme A chez lui : `monkeypatch.setattr` sur le module MORD) et on lit ce qu'elles recoivent.
+    Les deux feuilles positionnelles sont verifiees APPELEES, parce que le builder natif les porte
+    dans le meme etage et que `calculate_trench_reduction` lit elle aussi le profil."""
+    from engine.runner import damage_model as DM
+    vus: dict = {"collecte": [], "elevation": 0, "trench": []}
+
+    def _fake_collecte(state, uid, hp, **kw):
+        vus["collecte"].append(kw.get("damage_profile"))
+        return DamageModifiers(), []
+
+    def _fake_elev(state, mods, a, t):
+        vus["elevation"] += 1
+
+    def _fake_trench(state, mods, a, t, damage_profile=None):
+        vus["trench"].append(damage_profile)
+
+    monkeypatch.setattr(DM, "attacker_modifiers", _fake_collecte)
+    monkeypatch.setattr(DM, "apply_elevation_bonus", _fake_elev)
+    monkeypatch.setattr(DM, "apply_trench_reduction", _fake_trench)
+
+    st, att, tgt = _etat()
+    for prof in (ARME, MELTA, None):
+        DM.attacker_modifiers_at_profile(st, att, 100, tgt, prof, is_ranged=True)
+
+    assert vus["collecte"] == [ARME, MELTA, None], (
+        "le profil demande n'arrive pas a la collecte d'effets : %s" % vus["collecte"])
+    assert vus["trench"] == [ARME, MELTA, None], (
+        "le profil demande n'arrive pas a `apply_trench_reduction`, qui le LIT "
+        "(`IgnoreTrenchReduction`) : %s" % vus["trench"])
+    assert vus["elevation"] == 3, (
+        "`apply_elevation_bonus` n'est pas appelee a chaque collecte : des mods AMPUTES par "
+        "rapport a ceux de la phase d'arme feraient accuser l'elevation au lieu du profil "
+        "(appels=%d)" % vus["elevation"])
+
+
 if __name__ == "__main__":                       # pragma: no cover
     raise SystemExit(pytest.main([os.path.abspath(__file__), "-q"]))

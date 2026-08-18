@@ -221,10 +221,13 @@ def test_e2ter_le_recenseur_mord_sur_un_temoin_ecrit(tmp_path):
       C `from <src> import foo` DANS la fonction + appel    -> LIBRE   (mord, par re-execution)
       RE-EXPORT : forme A SANS aucun appel                  -> LIBRE   (ne change la morsure de
                                                                         personne)
+      HOMONYME  : forme A depuis un AUTRE module + appel     -> LIBRE   (ce n'est pas notre nom)
 
-    Les quatre sont ECRITS ici : un recenseur qui n'en verrait aucune, ou qui les verrait toutes,
+    Les cinq sont ECRITS ici : un recenseur qui n'en verrait aucune, ou qui les verrait toutes,
     tombe. Le second cas est le plus important -- c'est le sur-comptage qui ferait attester des
-    modules sains, donc grossir la liste blanche."""
+    modules sains, donc grossir la liste blanche. L'HOMONYME garde la reconnaissance par SUFFIXE
+    de module (`_lie_en_forme_a`) : sans lui, un recenseur qui accepterait n'importe quel
+    `ImportFrom` portant le nom passerait ce test sans que rien ne le dise."""
     src = "engine.entities.pathfinding.tile_blocking"
     (tmp_path / "forme_a.py").write_text(
         "from %s import make_can_continue\n"
@@ -237,6 +240,9 @@ def test_e2ter_le_recenseur_mord_sur_un_temoin_ecrit(tmp_path):
         "    return make_can_continue(None, [], board=None)\n" % src, encoding="utf-8")
     (tmp_path / "reexport.py").write_text(
         "from %s import make_can_continue\n__all__ = ['make_can_continue']\n" % src, encoding="utf-8")
+    (tmp_path / "homonyme.py").write_text(
+        "from engine.services.un_autre_module import make_can_continue\n"
+        "def f():\n    return make_can_continue(None, [], board=None)\n", encoding="utf-8")
 
     vu = liaisons_figees_statiques(src, "make_can_continue", racine=tmp_path)
     assert vu == {"forme_a.py"}, (

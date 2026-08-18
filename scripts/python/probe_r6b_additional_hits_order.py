@@ -124,7 +124,9 @@ def _extra_rolls_variant(k):
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
               hit_interceptor=None, failed_block0=None, damaging_done0=False,
-              source_ability=None):
+              source_ability=None, attacker_mods_for_profile=None):
+        # #488-r3 : `attacker_mods_for_profile` complete la signature. REIMPLEMENTATION -- le
+        # parametre est accepte et NON LU, comme `source_ability`.
         # #1020-r6 : `source_ability` complete la signature du port. REIMPLEMENTATION -- le
         # parametre est accepte et NON LU, comme `damaging_done0`.
         # #963-r2 : `damaging_done0` (`isFirstDamagingHit`) complete la signature. REIMPLEMENTATION
