@@ -31,6 +31,37 @@ if _PYROOT not in sys.path:
 
 import hexgeo                                                             # noqa: E402
 from engine.playbook.noncomparable import PLAYBOOKS                       # noqa: E402
+
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12/#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # Le registre COMPLET des playbooks NonComparable : les etages 1b, 3, 4 et 5 le PARCOURENT
+        # (inventaire des sans-borne, appartenance au foyer d'ordre, presence des deux entrees
+        # neuves), donc toute entree neuve peut les faire changer d'avis.
+        "scripts/python/engine/playbook/noncomparable/**/*.py",
+        # PROPRE aux etages 2 et 6 : deux foyers hors du paquet NonComparable.
+        "scripts/python/engine/playbook/savior_protocols.py",
+        "scripts/python/engine/runner/abilities/tau.py",
+        # L'etage 4b confronte sa premisse au registre COMBAT (1054/1055 hors `ABILITY_CLASSES`).
+        "scripts/python/engine/runner/abilities/handler.py",
+        # Les enums que les etages CITENT par leur membre nomme.
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        # `hexgeo` : les etages 2 et 6 mesurent des DISTANCES hex ; sa parite `odd-q` a deja ete
+        # inversee une fois, et un tel changement rendrait ces crans faux SANS les faire rougir.
+        "scripts/python/hexgeo.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Les sept etages figent des lectures du DECOMPILE (valeurs de `.cctor`, arite d'un "
+              "ctor de Bucket, slot d'interface, litteraux de call-site) et les confrontent au "
+              "PORT. Ils changent d'avis quand le port change -- d'ou la fermeture ci-dessus, "
+              "prise LARGE sur le paquet NonComparable parce que quatre etages le parcourent au "
+              "lieu de nommer des classes. `build: True` : les slots d'interface (119, 27, 146, "
+              "0x42) et les offsets de statiques (`Fix64` +0x20/+0x30) sont RE-DERIVES au "
+              "changement de build -- un nouveau build peut a lui seul rendre une citation "
+              "fausse, donc ce fichier doit se rejouer.",
+}
 from engine.playbook.noncomparable._base import (NCContext,               # noqa: E402
                                                  tiles_in_native_order)
 from engine.entities.active_ability_type import ActiveAbilityType         # noqa: E402

@@ -137,22 +137,13 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         return [{"target": (tid if tid is not None else st), "ability": self.ABILITY_ID,
                  "to": (t if t != ctx.origin else None), "pred": u}]
 
-    def _eligible_spawn_tiles(self, ctx: NCContext) -> list[tuple]:
-        """Mirror `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` pour un cast TILE-target : union des
-        tuiles de spawn legales via l'RPC abilityTargets (kind="tile") — meme voie que
-        AberrantHypermorphPlaybook."""
-        if ctx.ability_targets is None:
-            return []
-        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
-        tiles: list[tuple] = []
-        for u in (at.get("units") or []):
-            for a in (u.get("abilities") or []):
-                if a.get("abilityId") == self.ABILITY_ID:
-                    tiles = [(t["tile"].get("col"), t["tile"].get("row"))
-                             for t in (a.get("targets") or [])
-                             if t.get("kind") == "tile" and t.get("tile")
-                             and t["tile"].get("col") is not None]
-        return tiles
+    # `_eligible_spawn_tiles` A ETE SUPPRIME (#971-r4). Il ne lisait que la vue `targets` du RPC --
+    # l'UNION sur toutes les tuiles de move -- alors que `GetEligibleTargetsSelectable` interroge
+    # `GetValidTargets(caster, UnitPosition(P), abilityType)` **PAR POSITION**. Le foyer commun
+    # `_base.eligible_target_tiles` rend les DEUX vues (`fromHere` + union), et
+    # `_base.tiles_in_native_order` en derive l'ordre par position. Garder les deux voies aurait
+    # laisse un second lecteur de la seule union, donc un second ordre -- exactement le fork que
+    # ce residu existait pour fermer.
 
     def _nearest_enemy_tile(self, ctx: NCContext) -> "tuple | None":
         """Mirror `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy`, VERBATIM :
