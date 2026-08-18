@@ -225,13 +225,26 @@ def test_contre_epreuve_le_port_davant_diverge(monkeypatch):
     monkeypatch.setattr(MV, "is_like_flying", lambda traits: False, raising=False)
     import engine.entities.pathfinding.fly_pathfinder as _F
     monkeypatch.setattr(_F, "is_like_flying", lambda traits: False)
-    # ⚠ LE BINDING QUI DECIDE (#484). `_num_tiles_moved` ne lit pas `is_like_flying` : il passe par
-    # `movement_query.get_pathfinder_type_for_unit`, qui l'importait DANS sa fonction jusqu'a
-    # `492c722f` (« hisser 624 imports differes »). Hisse, le nom est copie dans le namespace de
-    # `movement_query` et NI `MV` NI `_F` ne l'atteignent : le mutant rendait la MEME valeur, donc
-    # la contre-epreuve ne prouvait plus que le fix #448-r1-r1-r1-r1 sert a quelque chose.
-    from engine.services import movement_query as _MQ
-    monkeypatch.setattr(_MQ, "is_like_flying", lambda traits: False)
+    # ⚠ LE BINDING QUI DECIDE (#484, puis #10031). `_num_tiles_moved` ne lit pas `is_like_flying` :
+    # il passe par `movement_query.get_pathfinder_type_for_unit`, qui l'importait DANS sa fonction
+    # jusqu'a `492c722f` (« hisser 624 imports differes »). Hisse en FORME A, le nom etait copie
+    # dans le namespace de `movement_query` et NI `MV` NI `_F` ne l'atteignaient : le mutant rendait
+    # la MEME valeur, donc la contre-epreuve ne prouvait plus rien. La reponse d'alors fut de
+    # patcher AUSSI `_MQ.is_like_flying` -- un contournement AU SITE DE MESURE, qui a reverdi CE
+    # fichier en laissant la cause en place ; le meme desarmement a garde MUETS 13 jours le pendant
+    # LIVE de `#381-r4` et son probe, qu'aucun cliquet ne joue.
+    # `#10031` a repare le FOYER : `movement_query` est en FORME B, il resout `is_like_flying` A
+    # L'APPEL, donc patcher la SOURCE (`_F`, deux lignes plus haut) SUFFIT de nouveau -- et le patch
+    # `_MQ` est devenu impossible (`AttributeError`, le nom n'existe plus la-bas). La contre-epreuve
+    # de morsure ci-dessous remplace ce patch : elle DIT si un futur re-hissage la rend muette, au
+    # lieu de la laisser rendre silencieusement la meme valeur.
+    from morsure_substitution import liaisons_figees_statiques
+    figees = {m for m in liaisons_figees_statiques(
+        "engine.entities.pathfinding.fly_pathfinder", "is_like_flying")
+        if m.startswith("services/")}
+    assert not figees, ("la negation de la branche volante ne mord pas : %s a(ont) fige "
+                        "`is_like_flying` en forme A -- le mutant rendrait la MEME valeur "
+                        "(#484, #10031)" % sorted(figees))
     avant = _num_tiles_moved(P._synth_state(b, ["Flying"], src), 1, src, dst)
     assert fixed == 2
     assert avant != fixed, "le mutant rend la MEME valeur : le test ne mesure rien"

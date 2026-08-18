@@ -37,9 +37,24 @@ from ..entities.effect_type import EffectType
 # `movable_positions_for_unit`), donc aucun cycle a l'import.
 from ..entities.pathfinding.pathfinders import PathfinderType
 from ..entities.pathfinding import beeline_pathfinder as _beeline
-from ..entities.pathfinding.fly_pathfinder import is_like_flying
 from ..entities.pathfinding.pathfinders import movable_positions_for_unit
-from ..entities.pathfinding.tile_blocking import make_can_continue
+# FORME B (liaison de MODULE) pour `is_like_flying` et `make_can_continue` -- OBLIGATOIRE, et
+# MESUREE : ces deux noms sont les DEUX cibles de mutation de `probe_381r4_imperative_collapses.py`
+# (`--mutate no-fly` / `--mutate no-gate`) et du contre-temoin `_no_gate()` de
+# `tests/engine/runner/test_381r4_imperative_collapses_live.py`. Ils etaient DIFFERES (fonction-locaux,
+# forme C) a l'origine de `#381-r4` ; `492c722f` (« hisser 624 imports differes ») les a passes en
+# forme A, ce qui a DESARME les deux instruments EN SILENCE pendant 13 jours -- le probe rendait
+# `0 sortie changee / rc 1` et le test live `aucune geometrie ou le gate #131 change l'atterrissage`,
+# deux rouges qui accusaient la geometrie alors que c'etait la LIAISON. Mesure au retablissement :
+# `no-gate` passe de 0 a 483 sorties changees sur C2_26 (chiffre a RE-DERIVER par le probe, jamais
+# cite de memoire : il bouge avec le board et avec les collapses). Cliquet :
+# `tests/engine/services/test_10031_morsure_des_mutations_offline.py` (#10031), qui mesure la
+# MORSURE elle-meme -- il ne depend d'aucun board ni d'aucun porteur, donc il rougit meme quand les
+# donnees rendent une mutation inerte pour une autre raison (c'est le cas du bras `no-fly` : aucun
+# porteur des abilities confrontees n'est `IsLikeFlying`, son zero ne pouvait donc PAS distinguer
+# « instrument desarme » de « donnee inerte »). Ne JAMAIS re-hisser en forme A.
+from ..entities.pathfinding import fly_pathfinder as _fly_pathfinder
+from ..entities.pathfinding import tile_blocking as _tile_blocking
 from ..entities.traits.unit_trait import UnitTrait, has_trait
 from ..runner.components import OwnerComponent
 from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
@@ -392,7 +407,7 @@ def get_pathfinder_type_for_unit(has_effect, traits, ignore_special_movement: bo
     canal : `state.effects.has_effect` cote runner, `ctx.has_effect` cote DSL) ; `None` = pas de
     canal -> aucun effet special, la branche finale. `traits` = les NOMS de trait (gameconfig),
     lus par `UnitExtensions$$IsLikeFlying`."""
-    fly = 1 if is_like_flying(traits) else 0
+    fly = 1 if _fly_pathfinder.is_like_flying(traits) else 0
     if not ignore_special_movement and has_effect is not None:
         for et in SPECIAL_MOVEMENT_EFFECT_TYPES:
             if has_effect(int(et)):
@@ -650,7 +665,7 @@ def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_r
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
               else None) or []
-    cc = make_can_continue(getattr(state, "effects", None), traits, board=board)
+    cc = _tile_blocking.make_can_continue(getattr(state, "effects", None), traits, board=board)
     hef = unit_has_effect_fn(state, unit_id)
     # ── ETAGE `RangeBonus` (#1048) ──────────────────────────────────────────────────────────────
     # `AnyOrFillMoveableTiles` applique les bonus de portee en DEUX temps, et le port suit le meme

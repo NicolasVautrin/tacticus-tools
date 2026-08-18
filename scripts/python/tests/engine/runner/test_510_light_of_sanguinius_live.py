@@ -163,8 +163,30 @@ def test_le_cablage_du_registre_est_complet():
     lead_cls = ABILITY_CLASSES.get(lead)
     assert lead_cls is not None and lead not in TARGETING_OPTIONS_UNPORTED
     assert int(lead_cls.TARGETING_OPTIONS.rules) == int(opts.rules)
-    # ... et la table n'est PAS vide : le retrait de 1177 est CIBLE, pas un effacement.
-    assert len(TARGETING_OPTIONS_UNPORTED) > 10
+    # ⚠ IL Y AVAIT ICI UN PLANCHER -- `assert len(TARGETING_OPTIONS_UNPORTED) > 10`, ecrit pour dire
+    # « le retrait de 1177 est CIBLE, pas un effacement ». Il a rendu `master` ROUGE en tombant sur
+    # le PROGRES : la table est VIDE depuis `c3eb44a2` (#996-r1-r3, 2026-08-14, `1015 PrecisionShot`
+    # -- « actives=175 ported=174 no-op=0 »), les 15+ entrees en etant sorties une a une par
+    # MIGRATION de leur masque sur leur classe, chaque sortie etant nommee dans `targeting.py`.
+    # PREMISSE EXPIREE, donc, et le plancher RETIRE -- sans remplacant, parce que la mesure dit
+    # qu'un remplacant serait DOMINE. Les SEPT mutations jouees a l'ablation, et l'assertion qui
+    # tombe en TETE pour chacune :
+    #     1177 sort du registre .................. l.135 `cls is not None`
+    #     1177 revient dans la table ............. l.136 disjonction
+    #     masque efface de la classe ............. l.142 `opts is not None`
+    #     masque FAUX (0x4002) ................... l.145 la somme de bits
+    #     `AbilityAttackType` absent ............. l.153
+    #     le temoin 1204 sort du registre ........ l.164
+    #     table RE-PEUPLEE a 12 entrees BIDON .... AUCUNE -- le plancher etait satisfiable par du BRUIT
+    # Le plancher n'arrive en tete d'AUCUNE des six mutations reelles, et la septieme montre qu'il ne
+    # distinguait pas une table peuplee legitimement d'une table peuplee n'importe comment.
+    # NE PAS EN REPOSER UN. Ce que le plancher pretendait garder est tenu ailleurs, en INVARIANT :
+    #   * `tests/engine/runner/test_targeting_options_sources.py` --
+    #     `test_la_deuxieme_source_reste_CONSULTEE_meme_table_vide` injecte une entree BIDON par
+    #     monkeypatch, donc le MECANISME de la 2e source est garde INDEPENDAMMENT du contenu de la
+    #     table (5 passed) ; `test_les_deux_sources_de_masque_sont_disjointes` garde le contrat ;
+    #   * `probe_181_targeting_gaps.py` -- « masques manquants == 0 » sur tout le registre
+    #     (182/182 au 2026-08-18), l'invariant que CLAUDE.md oppose deja explicitement aux seuils.
 
 
 def test_l_effet_1376_est_enregistre_et_porte_ses_deux_magnitudes():
