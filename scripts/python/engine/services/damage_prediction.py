@@ -593,6 +593,21 @@ def attacker_could_crit(attacker_ctx) -> bool:
         MightCrit = GetStat(attacker, 9 = CritChance) >= 1  ET  GetStat(attacker, 10 = CritDamage) > 0
 
     Le store est INCONDITIONNEL (le seul `if` englobant est le null-guard C# du champ service).
+
+    #589-r1-r1-r2-r1-r3 / #910-r1 -- LA PREVISION NE CONSULTE **AUCUN** CANAL CRIT D'EFFET, et
+    c'est desormais etabli par ENUMERATION, pas par une absence de nom. Un grep de noms sur un
+    decompile ne peut PAS refuter un appel dispatche par INTERFACE : il ne le voit pas. On enumere
+    donc les dispatches eux-memes. `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`
+    (2778 lignes, build charge) n'invoque que **TROIS** slots d'`IDamageCalculations` --
+    `0 CalculateBlockChances`, `7 CouldCrit`, `12 CalculateDamageBlockedByShield`
+    (`data/symbols/<build>/metadata/interface_slots.tsv`, table LUE). Les deux slots crit du meme
+    contrat, `5 ApplyCritDamage` et `6 RollCritical`, n'y sont **PAS** ; et aucun appel DIRECT
+    nomme `CalculateCriticalDamage` / `GetCritChanceBonusFromEffects` /
+    `GetCritDamageBonusFromEffects` n'y figure non plus (un appel intra-classe, lui, sort par son
+    NOM -- `GetBaseDamageFix64` et `IsAttackMaxOutDamage` y sont bien visibles).
+    => le port, qui ne passe pas ces canaux non plus, est **FIDELE** sur cet axe. Les fermer
+    ferait mordre le canal PLUS LARGE que le jeu. Cliquet :
+    `tests/engine/test_589r3_prediction_sans_canaux_crit_offline.py`.
     ⚠ **`CouldCrit` lit `GetStat` NU** — PAS la couche calc-time `GetCritChanceBonusFromEffects` /
     `GetCritDamageBonusFromEffects` que le COMBAT ajoute (`AttackDamageOperation._crit_params`).
     `ctx.crit_chance` / `ctx.crit_damage` SONT `GetStat(Current)` (stat-modifications incluses), donc
