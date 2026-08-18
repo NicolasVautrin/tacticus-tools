@@ -454,8 +454,16 @@ def confronte_cultdemagogue(rpc, rid, sid) -> dict:
                 "raison": "aucune configuration ne separe les deux termes 1 sous le plafond "
                           "nrOfSummons=%d avec %d encombreurs" % (plafond, len(amis))}
 
-    essais = []
+    # ⚠ LE CRITERE DE SELECTION DU MONTAGE NE REGARDE JAMAIS LE PORT. Il ne porte que sur des
+    # proprietes du PLATEAU et du SELECTEUR NATIF -- (a) l'ecart de tuiles libres sous le plafond,
+    # (b) la cible PAUVRE enumeree la premiere. Trier sur << les deux ancres du port different >>
+    # laisserait le port choisir son propre temoin : un port ramene a l'ancre CASTER ferait alors
+    # echouer la RECHERCHE (<< aucun montage n'arme le regime >>) au lieu de faire echouer le
+    # VERDICT, et le rouge accuserait le harnais au lieu du port.
+    essais, retenu = [], None
     for cfg in cfgs:
+        if retenu is not None and retenu["discriminant"]:
+            break
         for pauvre, riche in ((ens[0], ens[1]), (ens[1], ens[0])):
             autres = [e for e in ens if e not in (pauvre, riche)]
             err = _pose(rpc, byid, coord, walk, cfg, me["id"], pauvre, riche, amis, autres)
@@ -465,26 +473,29 @@ def confronte_cultdemagogue(rpc, rid, sid) -> dict:
             ordre = _ordre_des_cibles(rpc, rid, me["id"])
             essais.append({"pivot": cfg["pivot"], "ecart": cfg["ecart"], "ordre": ordre,
                            "pauvre": pauvre, "riche": riche})
-            if not ordre or riche not in ordre:
-                continue
-            if ordre[0] != pauvre:
+            if not ordre or riche not in ordre or ordre[0] != pauvre:
                 continue
             port_cible, port_caster = _decisions_du_port(sid, rid, rpc, me["id"])
-            if port_cible.get("target") == port_caster.get("target"):
-                continue                      # pas encore discriminant : on continue de chercher
             natif = _action_native(rpc, rid, me["id"])
-            return {"ok": True, "uid": me["id"], "plafond": plafond,
-                    "geo": {"pauvre": pauvre, "riche": riche,
-                            "libres_pauvre": cfg["libres_pauvre"],
-                            "libres_riche": cfg["libres_riche"],
-                            "ecart": cfg["ecart"], "encombreurs": len(cfg["enc"]),
-                            "ordre": ordre},
-                    "natif": natif, "port_cible": port_cible, "port_caster": port_caster,
-                    "essais": len(essais)}
-    return {"ok": False,
-            "raison": "aucun des %d montages joues n'arme le regime (il faut a la fois un ecart de "
-                      "tuiles libres ET que la cible PAUVRE soit enumeree la premiere). Derniers "
-                      "essais : %s" % (len(essais), essais[-3:])}
+            candidat = {"ok": True, "uid": me["id"], "plafond": plafond,
+                        "geo": {"pauvre": pauvre, "riche": riche,
+                                "libres_pauvre": cfg["libres_pauvre"],
+                                "libres_riche": cfg["libres_riche"],
+                                "ecart": cfg["ecart"], "encombreurs": len(cfg["enc"]),
+                                "ordre": ordre},
+                        "natif": natif, "port_cible": port_cible, "port_caster": port_caster,
+                        "discriminant": port_cible.get("target") != port_caster.get("target")}
+            if retenu is None or candidat["discriminant"]:
+                retenu = candidat
+            if candidat["discriminant"]:
+                break
+    if retenu is None:
+        return {"ok": False,
+                "raison": "aucun des %d montages joues ne satisfait les DEUX conditions de plateau "
+                          "(ecart de tuiles libres sous le plafond ET cible PAUVRE enumeree la "
+                          "premiere). Derniers essais : %s" % (len(essais), essais[-3:])}
+    retenu["essais"] = len(essais)
+    return retenu
 
 
 def verdict_cultdemagogue(res: dict) -> int:
