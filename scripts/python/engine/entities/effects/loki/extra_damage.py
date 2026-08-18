@@ -1514,7 +1514,49 @@ class VitarusEffect(BaseEffect):
       * `is_prediction` -- **AUCUN** `if is_prediction: return None` ici, et c'est LU : le natif
         n'a pas de gate de prediction, et son `IsNormalAttack` est VRAI pour l'attaque normale du
         porteur (qui EST dans `decisionView`). Recopier le gate de `SmashaEad` serait la faute
-        inverse (cf. `TwistedScience` / `PrimarchOfTheFirstLegion` dans ce meme module)."""
+        inverse (cf. `TwistedScience` / `PrimarchOfTheFirstLegion` dans ce meme module).
+
+    ===============================================================================================
+    MAGNITUDE ET PLACEMENT -- BIT-CONFRONTES LIVE (#1005-r1, 2026-08-18, build `t6dpr4k06g`)
+    ===============================================================================================
+    Le residu demandait d'isoler le PLACEMENT du canal additif, en supposant DEUX canaux au choix
+    (`for_addition` POST-percage vs `attacker_additive_pre` PRE-percage). **Cette prémisse est
+    REFUTEE : il n'y a qu'UN canal, et il est PRE-percage.** Trois sources, deux structurelles et
+    une live -- le detail des deux premieres vit au foyer, `services/effect_bonus.py::for_addition` :
+
+      1. DECOMPILE -- `DamagePrediction$$CalculateBaseDamageWithAllModifiers` (l'etage POST-percage)
+         ne lit **jamais** `DamageModifiers.Addition@+0x10` ; seulement `@+0x20` / `@+0x28` /
+         `@+0x18` / `@+0x30` / l'`Override`. Un additif attaquant ne peut donc pas y etre consomme.
+      2. RECENSEMENT -- les 17 call-sites d'`apply_pierce_and_modifiers` sous `engine/**` passent
+         TOUS `attacker_additive_pre=True` ; aucun ne passe `False`.
+      3. MESURE LIVE DISCRIMINANTE -- montage a variable UNIQUE, qui elimine la variance du roll en
+         lisant les BORNES de prediction au lieu des degats tires. `bloodMephiston` porte
+         `Vitarus` (`--equip-relic`, `TertiaryAbilityLevel = 1`), un `orksNob` adjacent, board
+         `MC1_67`, seed 31337 -- MEME unite, MEME position `(3,4)`, MEME regime d'effets des deux
+         cotes (`RapidAssault_*` DEJA consomme aux deux lectures, ce qui est le piege du montage :
+         le mesurer avant/apres sa consommation contaminerait le delta). Seule variable : le feu
+         sur la tuile de la cible, allume puis eteint par le va-et-vient de `VitarusAbility`.
+
+             feu PRESENT  : [5814 - 7623]        (3 coups de melee, `3hmp100`)
+             feu ABSENT   : [3609 - 5418]
+             DELTA        :  2205    2205        -- IDENTIQUE sur les DEUX bornes
+
+         `2205 = 3 x 735` et `735 = 490 x 1.5`. Les deux hypotheses se separent NUMERIQUEMENT :
+
+             POST-percage (additif NU)     -> delta attendu = 3 x 490       = 1470   REFUTE
+             PRE-percage  (additif SCALE)  -> delta attendu = 3 x 490 x 1.5 = 2205   CONFIRME
+
+         Reconstruction bit-exacte des deux bornes, per-coup : `(802 + 490) x 1.5 = 1938 = 5814/3`
+         et `(1204 + 490) x 1.5 = 2541 = 7623/3`. Le facteur `1.5` est le MEME sur min et max, donc
+         multiplicatif et applique APRES l'additif -- c'est exactement la signature du PRE-percage.
+
+    ⚠ **UN ECART SUPERIEUR A LA VALEUR NOMINALE N'EST PAS UNE ANOMALIE A FITTER.** Le residu notait
+    « ~+539/coup alors que `extraDmg[1] = 490` » et cherchait a reconcilier les 49. Il n'y a rien a
+    reconcilier : `490` est la magnitude EXACTE (aucun multiplicateur de rarete -- la liste
+    `variablesAffectedByRarityBonus` est ABSENTE du gameconfig de `Vitarus`), et tout ecart mesure
+    vaut `extraDmg x <%-mod du coup>`, un facteur qui change d'un montage a l'autre. Fitter le
+    scalaire aurait fabrique une constante fausse ; c'est la DECOMPOSITION PAR ETAGE (bornes de
+    prediction, variable unique) qui tranche."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
