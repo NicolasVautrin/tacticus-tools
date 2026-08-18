@@ -149,7 +149,12 @@ def mode_echantillon(n: int, graine: int, workers: int, timeout: int,
             sorties.append(s)
             fh = s.open("w", encoding="utf-8", errors="replace")
             procs.append((subprocess.Popen(
-                [sys.executable, "-m", "pytest", "-q", "-rs", "--tb=line",
+                # `-rsfE` et PAS `-rs` : `-r` REMPLACE la liste des caracteres rapportes, donc un
+                # `-rs` seul EFFACE les lignes `FAILED ...` du short summary. Mesure de la faute,
+                # faite sur ce probe meme : premier tir a 30 fichiers, `2 failed` au bilan et
+                # `0 item rouge` au recensement. Le cran `_coherence` ci-dessous rougit desormais
+                # sur cet ecart au lieu de le taire.
+                [sys.executable, "-m", "pytest", "-q", "-rsfE", "--tb=line",
                  "-p", "no:cacheprovider", *part],
                 cwd=str(PYDIR), stdout=fh, stderr=subprocess.STDOUT, text=True), fh))
         for p, fh in procs:
@@ -182,10 +187,21 @@ def mode_echantillon(n: int, graine: int, workers: int, timeout: int,
     bilan = dict(zip(("passed", "failed", "skipped", "error"), (0, 0, 0, 0)))
     for cle in bilan:
         bilan[cle] = sum(int(x) for x in re.findall(r"(\d+) %s" % cle, txt))
+    # CRAN DE COHERENCE -- un recenseur qui compte MOINS que le bilan de pytest MENT, et il ment
+    # dans le sens rassurant. C'est arrive sur ce fichier meme (`-rs` au lieu de `-rsfE`), et un
+    # « 0 rouge » se serait lu comme un inventaire. On ne rougit PAS sur l'inegalite inverse : le
+    # bilan est agrege sur plusieurs processus et une meme ligne peut y etre comptee autrement.
+    attendu = bilan["failed"] + bilan["error"]
+    coherent = len(echecs) >= attendu
     res = {"echantillon": n, "univers": len(live), "graine": graine, "workers": workers,
            "fichiers_rouges": fich_rouges, "items_rouges": echecs,
            "ventilation": dict(classe), "non_classe": non_classe, "rc_pytest": rc,
-           "fichiers_tires": tire, "skips_par_fichier": dict(skips), "bilan": bilan}
+           "fichiers_tires": tire, "skips_par_fichier": dict(skips), "bilan": bilan,
+           "coherent": coherent}
+    assert coherent, (
+        "RECENSEUR INCOHERENT : pytest annonce %d failed/error, le recensement n'en liste que %d. "
+        "Le parseur ne voit pas ce que la passe a produit -- ne PAS lire ce resultat comme un "
+        "inventaire." % (attendu, len(echecs)))
     if verbose:
         pct = 100.0 * n / len(live)
         print("[10033] ECHANTILLON -- %d fichier(s) sur %d (%.1f %%), graine %d, %d worker(s)"
