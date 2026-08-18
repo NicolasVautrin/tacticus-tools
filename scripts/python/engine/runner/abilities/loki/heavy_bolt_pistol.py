@@ -116,12 +116,13 @@ from ....entities.ability_variable_type import AbilityVariableType
 from ....entities.behaviours import op_add
 from ....entities.selectors.accessors import Target
 from ....entities.triggered_ability_type import TriggeredAbilityType
-from ....entities.unit_flag import UnitFlag
-from ....services.battle_query import is_melee_attack as _is_melee_attack
 from ....services.custom_normal_attack import substitutes_normal_attack
 from ..behaviours.combat import AttackWithAttackDamage, InformWeapon
 from ..behaviours.context import entities_from_state
-from ...components import PositionComponent, UnitFlagsComponent
+# FORME B (`import X` + `X.f()`), la SEULE des trois qui garde un `monkeypatch` mordant, et le
+# foyer RUNNER du montage du slot 2 depuis `#494-r2` -- ce module ne remonte plus les entrees
+# lui-meme (#10024).
+from ... import battle_query_state as _bq_state
 
 if TYPE_CHECKING:
     from ...state import State
@@ -226,12 +227,6 @@ def bonus_attack_tree(profile: str):
                                multi=False))
 
 
-def _pos_of(state: "State", uid: Optional[int]):
-    e = state.get_entity(int(uid)) if uid is not None else None
-    pc = e.get_component(PositionComponent) if e is not None else None
-    return (pc.col, pc.row) if pc is not None else None
-
-
 def is_melee_attack(state: "State", caster_id: int, target_id: Optional[int]) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` (slot 2 d'`IBattleQuery`) -- la gate du
     `If`, evaluee pour l'ability `HeavyBoltPistol`.
@@ -253,21 +248,17 @@ def is_melee_attack(state: "State", caster_id: int, target_id: Optional[int]) ->
     devine pas un drapeau qu'on ne mesure pas.
 
     Positions manquantes -> `False` : le natif deref sans garde, on ne mirroir pas une levee, et
-    l'absence de position ne peut pas valoir « au contact »."""
+    l'absence de position ne peut pas valoir « au contact ».
+
+    ⚠ **LE MONTAGE N'EST PLUS RECOPIE ICI (#10024).** Ce corps remontait lui-meme les quatre entrees
+    du natif (positions, cartes du board, `UnitFlagsComponent`) -- et il les remontait a la MAIN
+    TILE, la ou le 3e parametre natif est une `IdunBattle.Core.UnitPosition`, c'est-a-dire une
+    EMPREINTE (cf. `services.battle_query.as_unit_position`). Le foyer RUNNER de ce montage existe
+    depuis `#494-r2` (`engine.runner.battle_query_state`) : on l'appelle, on ne le duplique pas.
+    Deux montages du meme slot qui derivent, c'est un bug silencieux par construction."""
     if target_id is None:
         return False
-    cpos, tpos = _pos_of(state, caster_id), _pos_of(state, target_id)
-    if cpos is None or tpos is None:
-        return False
-    board = state.board
-    neigh = elev = None
-    if board is not None:
-        neigh, _walk, elev = board.walk_maps_by_pos()
-    e = state.get_entity(int(caster_id))
-    fl = e.get_component(UnitFlagsComponent) if e is not None else None
-    forced = bool(fl is not None and fl.has(UnitFlag.ForceRangedAttack))   # HasFlag(caster, 0x15)
-    return bool(_is_melee_attack(PASSIVE, cpos, tpos, elev_by_pos=elev,
-                                 force_ranged_attack=forced, neigh_by_pos=neigh))
+    return bool(_bq_state.is_melee_attack(state, PASSIVE, caster_id, target_id))
 
 
 def has_bonus_attack(passive_abilities=None, active_abilities=None, visual_id=None, traits=None,

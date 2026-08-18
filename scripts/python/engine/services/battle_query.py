@@ -91,7 +91,98 @@ def are_tiles_adjacent(a_pos, t_pos, board=None):
     return hexgeo.distance(a_pos, t_pos) == 1
 
 
-def are_entities_adjacent(feet_a, feet_b, board=None) -> bool:
+def as_unit_position(value) -> list:
+    """`IdunBattle.Core.UnitPosition` -- l'EMPREINTE, normalisee en liste de `(col, row)`.
+
+    LECTURE (build `t6dpr4k06g`), et c'est elle qui rend le reste de ce module possible :
+    `UnitPosition` est un `System.ValueType` a **UN SEUL CHAMP**, une `List<IEntity>` de TUILES.
+    Les quatre membres le disent tous :
+      * `IdunBattle.Core.UnitPosition$$.ctor(tile:IdunBattle.Core.IEntity)` construit une `List`
+        VIDE, n'y ajoute `tile` que si elle est non nulle, et ecrit la liste au champ `+0x0` ;
+      * `IdunBattle.Core.UnitPosition$$get_MainTile` rend `list[0]` (et `null` sur liste vide) --
+        la main tile est donc la PREMIERE tuile de l'empreinte, jamais son identite ;
+      * `IdunBattle.Core.UnitPosition$$IsEmpty` est exactement `MainTile == null` ;
+      * `IdunBattle.Core.UnitPosition$$NullPosition` rend une `List` VIDE.
+    C'est pourquoi `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` peut passer son 3e
+    parametre TEL QUEL a la surcharge `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(tiles:IList<IEntity>,
+    unit:IEntity)` : au niveau ABI, la struct EST le pointeur de liste (8 octets).
+
+    ⚠ ET `IdunBattle.Entities.EntityExtensions$$GetUnitPosition(unit, state)` EST UN ALIAS DE
+    `IdunBattle.Entities.EntityExtensions$$GetTiles(unit, state)` -- son corps entier est
+    `return GetTiles(unit, state);`. La position d'une unite qui n'a pas d'ancre d'ability est donc
+    son EMPREINTE COMPLETE, pas sa main tile. C'etait l'ecart `#10024`.
+
+    ADAPTATEUR, pas deduction : le port accepte les DEUX ecritures parce que ses appelants ont les
+    deux, et chacune a son artefact natif.
+      * une TUILE `(col, row)` -> `[(col, row)]`, ce qu'ecrit litteralement `UnitPosition$$.ctor(tile)`
+        -- le cas de la position CANDIDATE, qu'`IdunBattle.Entities.Abilities.AbilityEntities$$get_CasterPosition`
+        emballe ainsi (`return +0x48 != 0 ? +0x48 : new UnitPosition(+0x40)`) ;
+      * une SEQUENCE de tuiles -> l'empreinte telle quelle (`EntityExtensions$$GetTiles`) ;
+      * `None` / vide -> `[]`, soit `UnitPosition$$NullPosition`.
+    Le discriminant est le PREMIER element : un scalaire numerique -> c'est une tuile ; autre chose
+    -> c'est une empreinte. Aucune autre forme n'est acceptee.
+
+    ⚠ **DEUX FORMES DE TUILE, ET C'EST LU AU PRODUCTEUR, PAS SUPPOSE** -- exactement le meme piege
+    que celui qui a fait LEVER `dsl/base.py::_feet` (`KeyError: 0`) quand le capteur `#419-r1-tr10-r2`
+    a ouvert le canal DECISION :
+      * face COMBAT (`runner.components.get_unit_feet`) -> des COUPLES `(col, row)` ;
+      * face DECISION (`decisionView.units[].feet`, `projection.ts::readEntityFeet`) -> des DICTS
+        `{"col", "row"}`, la forme de `readTileCoord`.
+    Les deux sont normalisees ici. Une forme INCONNUE est **SAUTEE**, jamais devinee : sans ce
+    refus, `list("ab")` fabriquerait la tuile `('a', 'b')` -- un couple parfaitement plausible qui
+    ne designe rien, donc un faux silencieux, la faute meme que ce module interdit ailleurs."""
+    if value is None:
+        return []
+    if isinstance(value, dict):                      # une TUILE dict, pas une empreinte
+        t = _tuile(value)
+        return [] if t is None else [t]
+    if isinstance(value, (str, bytes)):
+        return []                                    # jamais une tuile ni une empreinte
+    try:
+        items = list(value)
+    except TypeError:
+        return []                       # ni tuile ni empreinte -> `NullPosition`
+    if not items:
+        return []                       # `UnitPosition$$NullPosition` : liste VIDE
+    head = items[0]
+    if isinstance(head, (int, float)) and not isinstance(head, bool):
+        t = _tuile(items)                            # `.ctor(tile)` : UNE tuile `(col, row)`
+        return [] if t is None else [t]
+    out = []
+    for brut in items:
+        if brut is None:
+            continue                    # `.ctor` n'ajoute pas une tuile nulle
+        t = _tuile(brut)
+        if t is not None:
+            out.append(t)
+    return out
+
+
+def _tuile(brut):
+    """UNE tuile, sous l'une des deux formes que le port produit -> `(col, row)`, ou `None`.
+
+    `None` est un REFUS, jamais un `(0, 0)` de repli : une tuile inventee ferait accorder ou
+    refuser une adjacence sur une position qui n'existe pas."""
+    if isinstance(brut, dict):
+        c, r = brut.get("col"), brut.get("row")
+        return None if c is None or r is None else (int(c), int(r))
+    if isinstance(brut, (str, bytes)):
+        return None
+    try:
+        seq = list(brut)
+    except TypeError:
+        return None
+    if len(seq) < 2:
+        return None
+    a, b = seq[0], seq[1]
+    if isinstance(a, bool) or isinstance(b, bool):
+        return None
+    if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+        return None
+    return (a, b)
+
+
+def are_entities_adjacent(feet_a, feet_b, board=None, elev_by_pos=None, neigh_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(entity1, entity2)` -- la surcharge
     ENTITE/ENTITE, celle que le DSL invoque (slot 0x60 d'`IBattleQuery`) :
 
@@ -110,26 +201,34 @@ def are_entities_adjacent(feet_a, feet_b, board=None) -> bool:
     Une liste VIDE rend donc FAUX (aucune paire evaluee) ; une liste NULLE fait LEVER cote natif --
     ici `None` est traite comme vide, le port n'ayant pas de domaine null distinct.
 
-    UN SEUL LIEU boucle sur les empreintes dans tout le port, et c'est celui-ci :
+    UN SEUL LIEU boucle sur les empreintes dans tout le port, et c'est celui-ci -- TROIS voies de
+    substrat, par ordre de fidelite decroissante :
       * `board` fourni -> DELEGUE a `engine.runner.abilities.targeting.are_entities_adjacent`, le
         foyer pose par #R30 (tuiles resolues par `board.id_at`, gate d'elevation et court-circuit
         d'identite par `targeting.are_tiles_adjacent`). Rien n'est reimplemente ici : le verdict
         de ciblage et le verdict DSL sortent litteralement de la meme fonction.
-      * `board` ABSENT (contexte de FORMULE, scene de test) -> DEGRADATION NOMMEE : meme double
-        boucle, primitive `are_tiles_adjacent(a, b, None)` ci-dessus = adjacence hex pure +
-        court-circuit d'identite, SANS porte d'elevation (aucune elevation lisible). Sure sur un
-        board plat, jamais un mirror.
+      * `elev_by_pos` / `neigh_by_pos` (les CARTES du board, `Board.walk_maps_by_pos()`) -> meme
+        double boucle, primitive `engine.battle_query.are_entities_adjacent`, qui porte le MEME
+        `ConnectivityComponent$$IsNeighbour` et la MEME porte `|dElev| < 2`. C'est la voie des
+        trois slots ci-dessous (#10024) : ils recoivent des cartes, pas un `Board`.
+      * NI l'un NI l'autre (contexte de FORMULE, scene de test) -> DEGRADATION NOMMEE : la meme
+        primitive avec ses deux cartes a `None`, c.-a-d. adjacence hex pure + court-circuit
+        d'identite, SANS porte d'elevation (aucune elevation lisible). Sure sur un board plat,
+        jamais un mirror. Value-preserving par rapport a l'ecriture d'avant #10024
+        (`are_tiles_adjacent(a, b, None)`) : les deux rendent `a == b` puis `hexgeo.distance == 1`.
 
-    `feet_a`/`feet_b` = listes de `(col, row)` (mirror `EntityExtensions$$GetTiles`, cf.
-    `dsl/base.py::_feet` cote DSL et `runner/components.get_unit_feet` cote ECS)."""
-    fa = [f for f in (feet_a or ()) if f is not None]
-    fb = [f for f in (feet_b or ()) if f is not None]
+    `feet_a`/`feet_b` sont normalises par `as_unit_position` ci-dessus -- une TUILE y vaut une
+    empreinte a un element (`UnitPosition$$.ctor(tile)`), une SEQUENCE de tuiles vaut l'empreinte
+    (`EntityExtensions$$GetTiles`, cf. `dsl/base.py::_feet` cote DSL et
+    `runner/components.get_unit_feet` cote ECS)."""
+    fa = as_unit_position(feet_a)
+    fb = as_unit_position(feet_b)
     if not fa or not fb:
         return False                       # `AreTilesAdjacent(IList, IList)` : boucle vide -> false
     if board is not None:
         from ..runner.abilities.targeting import are_entities_adjacent as _r30   # lazy : anti-cycle
         return bool(_r30(board, fa, fb))
-    return any(are_tiles_adjacent(a, b, None) is True for a in fa for b in fb)
+    return any(_bq.are_entities_adjacent(a, b, elev_by_pos, neigh_by_pos) for a in fa for b in fb)
 
 
 def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=None,
@@ -158,10 +257,21 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     NATIF PREND pour les attaques normales concretes (leur id per-unite n'a pas d'entree nommee au
     gameconfig, cf. `light_im_up` residu `#419-r1-tr5-r3`).
 
-    `caster_position` = la tuile d'ATTAQUE (`case.CasterPosition.MainTile`), pas la tuile reelle :
-    c'est litteralement le 3e argument du natif. L'adjacence passe par le foyer
-    `battle_query.are_entities_adjacent` (`AreEntitiesAdjacent`, court-circuit d'identite #433-r1),
-    pas par `is_adjacent` (`IterateAdjacentTiles`, qui ne rend jamais la tuile source).
+    `caster_position` = le 3e argument du natif, une **`IdunBattle.Core.UnitPosition`, c'est-a-dire
+    une EMPREINTE** (#10024) -- pas une main tile. Deux lectures le fixent, et le port les portait
+    toutes deux a faux :
+      * le corps ci-dessus appelle la surcharge `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent(tiles:IList<IEntity>,
+        unit:IEntity)` (xref LUE : `BattleQuery$$IsMeleeAttack` -> cette surcharge-la, et non les
+        deux autres), qui fait `MovementUtil.AreTilesAdjacent(tiles, GetTiles(unit))` = un OU sur
+        **toutes les paires** empreinte du caster x empreinte de la cible ;
+      * `IdunBattle.Entities.EntityExtensions$$GetUnitPosition` -- ce que passe tout appelant sans
+        ancre d'ability -- a pour corps entier `return GetTiles(unit, state);`.
+    Le port acceptait deux TUPLES et comparait deux MAIN TILES : sur une unite multi-hex (MoW,
+    Galatian pose au sol, escouades multi-pieds), il REFUSAIT une adjacence que le natif accorde,
+    sans erreur ni trace. Le predicat delegue desormais a `are_entities_adjacent` ci-dessus, foyer
+    UNIQUE de la double boucle. Une TUILE reste acceptee et vaut l'empreinte a un element
+    (`UnitPosition$$.ctor(tile)`), ce qui est la forme EXACTE d'une position CANDIDATE
+    (`AbilityEntities+0x40` emballe par `$$get_CasterPosition`).
 
     `force_ranged_attack` = `UnitFlag.ForceRangedAttack` (21) ; le capteur
     `combatSnapshot.unitFlags` ne le publie pas (residu `#419-r1-tr5-r1`), donc l'appelant le laisse
@@ -170,6 +280,11 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     ⚠ HOMONYME A NE PAS CONFONDRE : `engine.entities.effects.base.is_melee_attack(is_ranged)` est un
     AUTRE artefact -- le gate TRI-ETAT (`is_ranged is False`) que les effets d'attaquant consomment
     une fois la nature du coup DEJA resolue. Celui-ci la RESOUT."""
+    # ⚠ ECART NOMME, ANTERIEUR A #10024 ET **NON TOUCHE PAR ELLE** : le natif teste `ability.HasValue`
+    # PUIS branche, et ses cases `Melee(1)` / `Ranged(2)` / `None(0)` ne lisent AUCUNE position --
+    # une ability `attackRangeType: Melee` interrogee sans position rend donc `true` cote natif et
+    # `false` ici. Le garder tel quel est un choix : cette tranche porte l'axe MAIN TILE -> EMPREINTE,
+    # et deplacer cette garde changerait un verdict sur un axe DIFFERENT. Residu `#10024-r1`.
     if caster_position is None or target_position is None:
         return False
     rt = attack_range_type(ability_name)    # `BattleQuery$$GetAbilityAttackRangeType` (etage separe)
@@ -185,8 +300,10 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     # est le `ConnectivityComponent` BRUT (`IsNeighbour`) et non le champ `neighbours` gate ; lire
     # le second est NEANMOINS exact ici, parce que la porte est un terme SEPARE du meme predicat :
     # `(|dElev| < 2) & IsNeighbour` == `(|dElev| < 2) & (arete de C ^ gate)` == `C ^ gate`.
-    return bool(_bq.are_entities_adjacent(tuple(caster_position), tuple(target_position),
-                                          elev_by_pos, neigh_by_pos))
+    # `AreEntitiesAdjacent(casterPosition, target)` -- surcharge (IList, IEntity), donc la DOUBLE
+    # boucle du foyer ci-dessus, jamais une comparaison de main tiles (#10024).
+    return bool(are_entities_adjacent(caster_position, target_position,
+                                      elev_by_pos=elev_by_pos, neigh_by_pos=neigh_by_pos))
 
 
 def attack_range_type(ability_name):
@@ -266,8 +383,10 @@ def is_ranged_attack(ability_name, caster_position, target_position, elev_by_pos
     # False (melee), le defaut conservateur deja retenu par `_is_ranged_position`.
     if caster_position is None or target_position is None:
         return False
-    return not bool(_bq.are_entities_adjacent(tuple(caster_position), tuple(target_position),
-                                              elev_by_pos, neigh_by_pos))
+    # MEME surcharge (IList, IEntity) que le slot 2, donc MEME foyer d'EMPREINTE (#10024) : ce
+    # slot-ci lit `casterPosition:IdunBattle.Core.UnitPosition` exactement comme son frere.
+    return not bool(are_entities_adjacent(caster_position, target_position,
+                                          elev_by_pos=elev_by_pos, neigh_by_pos=neigh_by_pos))
 
 
 def get_attack_range_type(ability_name, caster_position, target_position, elev_by_pos=None,
@@ -335,8 +454,11 @@ def get_attack_range_type(ability_name, caster_position, target_position, elev_b
         return "Ranged"
     if caster_position is None or target_position is None:
         return "Ranged"                     # `AreEntitiesAdjacent` sur une position absente = FAUX
-    return "Melee" if bool(_bq.are_entities_adjacent(
-        tuple(caster_position), tuple(target_position), elev_by_pos, neigh_by_pos)) else "Ranged"
+    # TROISIEME frere du meme switch, MEME surcharge (IList, IEntity) -> MEME foyer d'EMPREINTE
+    # (#10024). Les trois slots partagent litteralement l'appel dans le decompile.
+    return "Melee" if bool(are_entities_adjacent(
+        caster_position, target_position,
+        elev_by_pos=elev_by_pos, neigh_by_pos=neigh_by_pos)) else "Ranged"
 
 
 def _find_by_hits(cands: list, prefer_hits) -> dict:
