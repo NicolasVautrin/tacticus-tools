@@ -450,7 +450,7 @@ sans laquelle on ne sait meme pas si l'etage est actif.
 |---|---|---|
 | ~~**#10022-r1**~~ | ✅ **RESOLU** (`case-10022-r1-randomize-ai-input.md`) : `false` partout ou une bataille se joue, y compris sur le regime confrontable -> l'etage MORD | Restait ouvert : `#10022-r6` (offset du capteur non arme, lecture live jamais jouee) |
 | **#10022-r2** | Porter l'etage d'arbitrage `UtilityDecider` (les 4 sentinelles dans `calculate_utility`, `decide`, `calculate_utilities_for_cases`, `UtilityBucket.<+0x18>`) + les 5 utilites triviales (`Remaining`, `PreferNonBoss`, `PreferSummonsAndObjects`, `PreferAbilities`, `LastAbilities`) | Le coeur. Inclut la levee de l'incertitude §3.3 au desassemblage |
-| **#10022-r3** | Porter `UnitWithShortestPathToEnemyUtility` (72) | Le seul departage effectif du regime confrontable (§8) ; pathfinding + `OrderBy` + 2 elagages |
+| ~~**#10022-r3**~~ | ✅ **RESOLU** (`case-10022-r3-shortest-path-to-enemy.md`) : porte ET confronte live -- bras positif 5/5 discriminantes, bras negatif (`RandomizeAiInput = true`) qui etablit la causalite de `-r1` | Restait ouvert : `#10022-r7` (generalisation : 2e couple board/seed, multi-hex, ennemi non ciblable) |
 | **#10022-r4** | Porter `UnitOrderUtility` (77) + `Priority` + `GetCustomUnitOrderUtility` par slot de vtable | Ferme aussi `#967-r1` ; exige le balayage par slot, pas par table (`case-170`) |
 | **#10022-r5** | Identifier `BaseUnitComponent.<+0x58>` puis porter `PreferFreshlySpawnedUtility` (70) | Bloque : le champ n'a aucun accesseur nomme (`GetTurnsFinished` lit son voisin `+0x5c`) |
 

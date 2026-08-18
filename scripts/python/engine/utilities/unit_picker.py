@@ -137,7 +137,13 @@ class ShortestPathToEnemyUtility(BaseUtility):
           * `enemies_of(entity) -> iterable` = `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfUnit`,
             dont le corps entier est
             `GetAllEnemyUnitsOfPlayer(state, EntityExtensions.GetCurrentPlayer(unit, state), null)`.
-            **AUCUN filtre de ciblabilite** ici, contrairement a `FindClosestEnemy`.
+            Ce dernier, LU verbatim, retient une entite quand **DEUX** conditions tiennent :
+            (a) son `TeamId` (`GetCurrentPlayer(e, state).<+0x20>.<+0x24>`) DIFFERE de celui du
+            porteur, et (b) elle **ne porte PAS le trait `0x1b` = `UnitTrait.Steppable`** (27) --
+            un `GetBaseUnitComponent` nul la retient aussi. C'est le SEUL filtre.
+            ⚠ **AUCUN filtre de ciblabilite** ici, contrairement a `FindClosestEnemy` (qui, lui,
+            ecarte Environment / non-ciblable / `IsIrrelevantObject` / mort / hors `GetOnlyTargets`).
+            Un ennemi en deep-strike, sous taunt ou neutre compte donc pour CETTE utilite.
           * `hex_distance(pos_a, pos_b) -> int` = le `slot 0x6c` d'`IBattleQuery`. Sert AU TRI et a
             l'elagage 1, jamais au resultat.
           * `path_node_count(unit, from_pos, to_pos) -> int | None` =
