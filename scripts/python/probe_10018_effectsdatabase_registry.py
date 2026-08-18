@@ -38,9 +38,6 @@ if str(_PYDIR) not in sys.path:
 # FORME B (module + acces attributaire) : le foyer UNIQUE des chemins d'artefact par build.
 import build_pin                                            # noqa: E402  (apres `sys.path`)
 
-#: Le build contre lequel les ordinaux de `CLASSES_LUES` ont ete transcrits a la main. DECLARATION,
-#: pas resolution : il est CONFRONTE par `build_epingle()` et ne construit plus aucun chemin.
-BUILD_ATTENDU = "t6dpr4k06g"
 
 SYM_FONCTION = "IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects"
 NOM_ENUM = "IdunBattle.Entities.Enum.EffectType"
@@ -82,14 +79,23 @@ CLASSES_LUES = {
 def build_epingle() -> str:
     """Le build contre lequel `CLASSES_LUES` a ete transcrit -- CONFRONTE, jamais suppose.
 
-    #10027. `BUILD_ATTENDU` servait a CONSTRUIRE les chemins (`data/symbols/<hash>/...`,
-    `games/<hash>/GameAssembly.dll`), ce que le foyer `build_pin` existe precisement pour
-    interdire : un chemin en dur court-circuite `data/symbols/CURRENT` ET le binaire installe, donc
-    aucune garde de synchronisation ne peut le voir. Le litteral RESTE -- il declare l'origine des
-    six ordinaux lus a la main dans ghidra -- mais il ne resout plus rien : il est passe a
-    `require_pinned`, qui REFUSE des qu'il ne colle plus au build charge."""
+    #10027. Un `BUILD_ATTENDU = "<hash>"` servait a CONSTRUIRE les chemins
+    (`data/symbols/<hash>/...`, `games/<hash>/GameAssembly.dll`), ce que le foyer `build_pin`
+    existe precisement pour interdire : un chemin en dur court-circuite `data/symbols/CURRENT` ET
+    le binaire installe, donc aucune garde de synchronisation ne peut le voir.
+
+    Le litteral RESTE -- il declare l'origine des six ordinaux lus a la main dans ghidra -- mais il
+    ne resout plus rien : il est passe a `require_pinned`, qui REFUSE des qu'il ne colle plus au
+    build charge.
+
+    ⚠ IL EST ECRIT **DANS L'APPEL**, et ce n'est pas un detail de style : `probe_431` reconnait le
+    foyer par un critere LOCAL ET EXACT (l'argument doit etre un litteral du `Call`), par refus
+    assume de lire un contexte. Le sortir dans une constante de module, meme passee a
+    `require_pinned` deux lignes plus bas, le fait donc reclasser RESOLUTION -- mesure du
+    2026-08-18, c'est le dernier des quatre rouges de cette tranche, et il n'est tombe qu'a
+    l'inlining."""
     return build_pin.require_pinned(
-        BUILD_ATTENDU, "les 6 ordinaux de `CLASSES_LUES`, transcrits d'une session ghidra",
+        "t6dpr4k06g", "les 6 ordinaux de `CLASSES_LUES`, transcrits d'une session ghidra",
         "les relire dans `EffectsDatabase$$InitializeEffects` sur le build courant")
 
 
