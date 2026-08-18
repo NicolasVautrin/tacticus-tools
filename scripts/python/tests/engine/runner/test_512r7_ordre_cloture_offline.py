@@ -42,7 +42,7 @@ CE QUE CE FICHIER GARDE (par MESURE sur l'operation REELLE, aucune lecture de so
   (4) le vecteur `On(0x3c = UnitBlocked)` reste AVANT `On(8)` et AVANT la cloture (il vient du meme
       `EvaluateAfterHitTriggers`) ;
   (5) le jumeau `execute_normal_like` : `8` AVANT `9` (cette voie n'emet pas `On(0x42)` -- ecart
-      distinct, residu ouvert, cf. le commentaire de son call-site).
+      distinct, residu **#512-r9**, cf. le commentaire de son call-site).
 
 ⚠ RAYON DE SOUFFLE, MESURE AVANT LE DEPLACEMENT (`probe_437_on9_blast_radius.py` etape 1, et le
 recensement par event_id du meme jour) : **37** classes-triggers ecoutent `On(9)`, **1** ecoute

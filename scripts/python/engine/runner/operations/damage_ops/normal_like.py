@@ -343,7 +343,7 @@ class _NormalLike:
         # d'`HazeOfCorruption`, qui vivent sous UN SEUL `Attack(bonded, Owner@0x148, beh)`.
         # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule) ; `profiles` = le SET
         # des profils de l'attaque (ici le seul profil d'arme -- cette voie n'a pas de groupe #179).
-        # ⚠ NON COUVERT, ET C'EST UN ECART CONNU DE CE VECTEUR (residu #512-r8) : cette facade
+        # ⚠ NON COUVERT, ET C'EST UN ECART CONNU DE CE VECTEUR (residu #512-r9) : cette facade
         # n'emet AUCUN `On(0x42 = FinalDamage)`, alors que `RegisterFinalDamage` est appelee par les
         # DEUX `Execute` natives. Le rang relatif `8` -> `9` repare ici est donc juste ; ce qui
         # manque est un evenement ENTIER, pas son ordre.
