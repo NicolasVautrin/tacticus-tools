@@ -519,7 +519,7 @@ def canaux_de_seed() -> dict:
          qu'il consomme par ACCES ATTRIBUTAIRE sur une liaison de MODULE** (forme B) ;
 
     ⚠ LA FORME B EST UNE VOIE DE CONSOMMATION, ET ELLE NE LAISSE AUCUNE TRACE DANS UN RECENSEMENT
-    D'`ImportFrom` (#10035). Ce cran ne lisait que les `ImportFrom` visant `...factory`. Or
+    D'`ImportFrom` (#10036). Ce cran ne lisait que les `ImportFrom` visant `...factory`. Or
     `spawn.py` est passe en **forme B** -- `from ...entities.effects import factory as _factory`,
     puis `_factory.get_owner_bond_effects_added_on_ability_init(ab)` -- qui est *exactement* la
     forme que le CLAUDE.md PRESCRIT (la seule des trois qui morde sous `monkeypatch.setattr`).

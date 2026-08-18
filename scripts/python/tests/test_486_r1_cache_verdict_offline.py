@@ -648,6 +648,100 @@ def test_TOUT_cache_versionne_est_INSCRIT_au_registre():
         % ", ".join(inconnus))
 
 
+#: Le SEUL producteur du depot dont le NOM DE CACHE est calcule a l'execution : il fabrique
+#: `probe_175r2_derivation_<getter>` a partir d'une variable de module que ses APPELANTS
+#: repositionnent. Voir `test_UN_PRODUCTEUR_A_NOM_DYNAMIQUE...` ci-dessous.
+PRODUCTEUR_DYNAMIQUE = "probe_175r2_can_be_immune_to"
+GABARIT_DYNAMIQUE = "probe_175r2_derivation_%s"
+
+
+def _getters_du_producteur_dynamique() -> dict:
+    """`{module: valeur de sa constante GETTER}` -- le producteur PLUS tout module qui
+    repositionne son `GETTER`. DERIVE, jamais enumere : c'est ce qui le rend capable de voir le
+    getter qu'on n'a pas encore ecrit."""
+    import migrate_485r1_barils_reexport as MIG
+
+    racine = _PYDIR
+    out: dict = {}
+    for p in sorted(racine.rglob("*.py")):
+        try:
+            src = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if PRODUCTEUR_DYNAMIQUE not in src:
+            continue                                  # PRE-FILTRE bon marche, ne tranche rien
+        try:
+            arbre = ast.parse(src)
+        except SyntaxError:
+            continue
+        mod = MIG.nom_module(p, racine)
+        #: La constante `GETTER` du module, au NIVEAU MODULE. C'est elle que le repositionnement
+        #: ecrit -- on ne lit pas la valeur assignee, qui peut etre la RESTAURATION (`ancien_g`).
+        litteral = None
+        for n in arbre.body:
+            if isinstance(n, ast.Assign) and any(
+                    isinstance(c, ast.Name) and c.id == "GETTER" for c in n.targets):
+                if isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
+                    litteral = n.value.value
+        if mod == PRODUCTEUR_DYNAMIQUE:
+            if litteral:
+                out[mod] = litteral
+            continue
+        resolveur = MIG.ResolveurDeModules(arbre, mod, racine)
+        vise = False
+        for n in ast.walk(arbre):
+            if not isinstance(n, ast.Assign):
+                continue
+            for c in n.targets:
+                #: Le repositionnement s'ecrit en TUPLE (`P175.GETTER, P175.DECODEUR = ...`) :
+                #: ne regarder que les cibles simples le raterait.
+                for cible in (c.elts if isinstance(c, ast.Tuple) else [c]):
+                    if (isinstance(cible, ast.Attribute) and cible.attr == "GETTER"
+                            and isinstance(cible.value, ast.Name)
+                            and resolveur.resoudre(cible.value.id, cible.value)
+                            == PRODUCTEUR_DYNAMIQUE):
+                        vise = True
+        if vise and litteral:
+            out[mod] = litteral
+    return out
+
+
+def test_UN_PRODUCTEUR_A_NOM_DYNAMIQUE_a_TOUS_ses_caches_au_registre():
+    """LE CRAN A LA SOURCE (#10036). `test_TOUT_cache_versionne_est_INSCRIT_au_registre` ne voit
+    un oubli que si le `.tsv` est DEJA sur le disque -- c'est-a-dire APRES qu'on a joue le probe,
+    et en pratique apres le merge. Il a laisse passer QUATRE inscriptions manquantes de la meme
+    famille, la derniere etant `probe_175r2_derivation_get_KeepOnRevive`.
+
+    ⚠ LA CAUSE RACINE N'EST PAS L'INATTENTION, C'EST LE NOM CALCULE. `probe_175r2_can_be_immune_to`
+    construit son cache sous `probe_175r2_derivation_%s % getter`, ou `getter` est une variable de
+    MODULE que ses appelants repositionnent (`probe_982r4`, `probe_547r13`, `probe_1088`). Un
+    cinquieme getter fait donc apparaitre un cinquieme fichier **sans qu'aucune ligne de code neuve
+    ne le nomme** : ni `_constructions()` (qui voit UNE construction) ni le balayage du disque (qui
+    ne voit rien tant que le probe n'a pas tourne) ne peuvent le montrer AU COMMIT.
+
+    Ce test derive l'ensemble des noms que le producteur PEUT produire -- depuis sa propre
+    constante et depuis tout module qui repositionne la sienne -- et exige la ligne de registre.
+    Il rougit donc dans la PR qui ajoute le repositionneur, avant qu'aucun `.tsv` n'existe."""
+    getters = _getters_du_producteur_dynamique()
+    #: NON-VIDE ASSERTIONNE : si la derivation cassait (module renomme, `GETTER` devenu autre
+    #: chose), l'ensemble serait vide et ce test passerait AU VERT sans rien avoir mesure.
+    assert PRODUCTEUR_DYNAMIQUE in getters, (
+        "la derivation ne trouve meme pas la constante `GETTER` de `%s` : elle est CASSEE, et un "
+        "ensemble vide passerait pour un vert" % PRODUCTEUR_DYNAMIQUE)
+    repositionneurs = {m: g for m, g in getters.items() if m != PRODUCTEUR_DYNAMIQUE}
+    assert len(repositionneurs) >= 2, (
+        "seulement %d repositionneur(s) derive(s) (%s) : le recensement ne mord plus -- il en "
+        "existe au moins trois (`probe_982r4`, `probe_547r13`, `probe_1088`)"
+        % (len(repositionneurs), sorted(repositionneurs)))
+    manquants = sorted((GABARIT_DYNAMIQUE % g, m) for m, g in getters.items()
+                       if (GABARIT_DYNAMIQUE % g) not in CACHES_VERSIONNES)
+    assert not manquants, (
+        "cache(s) que `%s` PEUT produire, sans ligne au registre : %s -- inscris-les avec leur "
+        "module producteur et leur regime, DANS LE MEME COMMIT que le repositionneur"
+        % (PRODUCTEUR_DYNAMIQUE,
+           ", ".join("%s (repositionne par %s)" % f for f in manquants)))
+
+
 def test_TOUTE_ligne_du_registre_a_son_fichier():
     """SENS 2 -- du registre vers le disque. Sans lui, une ligne perimee ferait croire a une
     couverture qui n'existe plus, et les etages parametres sur le registre tourneraient a vide."""

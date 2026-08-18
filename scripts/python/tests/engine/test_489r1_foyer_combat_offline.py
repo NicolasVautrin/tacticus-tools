@@ -317,7 +317,7 @@ def test_etage3_les_DEUX_phases_de_1217_posent_la_liste():
 def _noeud_de(fonction):
     """(arbre du MODULE, noeud de la fonction, nom pointe du module, racine du paquet).
 
-    ⚠ ON PARSE LE MODULE, PAS LE CORPS -- et c'est la moitie du correctif #10035.
+    ⚠ ON PARSE LE MODULE, PAS LE CORPS -- et c'est la moitie du correctif #10036.
     `inspect.getsource(fonction)` rend le corps SEUL : les imports de tete n'y sont pas, donc
     AUCUNE resolution de `X.foo()` n'y est possible, quelle que soit la finesse du reste. La
     fonction est ensuite retrouvee par son `__qualname__`, construit selon la regle du langage
@@ -366,7 +366,7 @@ def _porte_le_nom(module_absolu: str, nom: str) -> bool:
 
 
 def _appelle(fonction, nom: str) -> bool:
-    """La fonction APPELLE-t-elle `nom` ? Les DEUX formes d'appel comptent (#10035).
+    """La fonction APPELLE-t-elle `nom` ? Les DEUX formes d'appel comptent (#10036).
 
     Il ne reconnaissait qu'un `ast.Name` -- donc `nom(...)` (formes A et C). Or `combat.py` ecrit
     `_abase.ability_pierce_effect_bonus(...)`, un `ast.Attribute` : c'est la **FORME B** que le
@@ -397,7 +397,7 @@ def _appelle(fonction, nom: str) -> bool:
 
 
 def test_etage4_le_HELPER_voit_la_forme_B_SANS_devenir_permissif():
-    """LE CRAN DE L'ETAGE 4 LUI-MEME (#10035). Un `_appelle` repare en matchant n'importe quel
+    """LE CRAN DE L'ETAGE 4 LUI-MEME (#10036). Un `_appelle` repare en matchant n'importe quel
     attribut du bon nom ne garderait plus RIEN -- et il retournerait le sens NEGATIF de
     `test_etage4_la_famille_ABILITY_ne_thread_PAS` en faux rouge des qu'un homonyme apparait.
 
