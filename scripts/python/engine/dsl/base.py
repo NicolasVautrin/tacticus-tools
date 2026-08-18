@@ -720,33 +720,167 @@ def _origin_tiles(origin, board=None) -> list:
     return []
 
 
-def _main_tile(origin, board=None) -> tuple | None:
-    """La MAIN TILE d'une origine -- mirror `IdunBattle.Entities.EntityExtensions$$GetMainTile`, et
-    c'est EXACTEMENT ce que soustrait le natif quand `includeCenter == 0` :
+def _origin_entities(origin) -> list:
+    """Les ENTITES d'une origine -- meme aplatissement que `_origin_tiles`, mais SANS deplier ni
+    convertir : `IdunBattle.DSL.TargetsSelector$$SelectUnit` s'applique PAR ENTITE, et c'est cette
+    granularite-la que `_main_tiles` doit voir.
+
+    La difference tient en un exemple : sur un dict d'unite MULTI-HEX, `_origin_tiles` rend les
+    SEPT tuiles de l'empreinte, ici on rend UNE entite. Sur une liste de sept ids de tuile, on rend
+    SEPT entites -- que `SelectUnit` re-resout ensuite vers la meme unite.
+
+    PAS de dedoublonnage, comme le natif : `TargetsSelector$$SelectAllUnits` fait `List.Add` sans
+    test d'appartenance et `UnitsMainTilesSelector$$Select` aussi. Les doublons sont sans effet sur
+    `IdunBattle.DSL.CombinedSelector$$SelectExclusion`, qui teste `rightResults.Contains(e)`."""
+    if origin is None:
+        return []
+    if isinstance(origin, dict):
+        return [origin]
+    if isinstance(origin, bool):
+        return []
+    if isinstance(origin, tuple) and len(origin) == 2 and all(
+            isinstance(x, int) for x in origin):
+        return [origin]
+    if isinstance(origin, int):
+        return [origin]
+    if isinstance(origin, (list, tuple)):
+        out: list = []
+        for it in origin:
+            out.extend(_origin_entities(it))
+        return out
+    return []
+
+
+def _est_unite(e, units) -> bool:
+    """`IdunBattle.Entities.EntityExtensions$$IsUnit(entity)` -- le natif teste le TYPE de
+    l'entite (`UnitEntity` vs `TileEntity` vs `FootEntity`). Cote port il n'y a pas de type : DEUX
+    canaux LUS, en UNION, et aucun des deux n'est complet seul.
+
+      * APPARTENANCE a la population `units` (mirror d'`AbilityEntities+0x40`, ce que tous les
+        call-sites passent) -- par identite d'abord, par `id` ensuite. Incomplete si un appelant
+        passe un SOUS-ENSEMBLE (aucun ne le fait aujourd'hui : les 6 appelants de `_within` et le
+        selecteur d'`accessors` passent `ctx.units` entier -- mesure a l'etage 0 de
+        `probe_10023r1_tiles_origine_non_occupee.py`).
+      * EMPREINTE (`feet`) : `runner/abilities/behaviours/context.py::_tile_entity` -- le SEUL
+        producteur d'entite-TUILE du port -- n'en pose JAMAIS, la ou `_unit_dict` la pose. Une
+        entite-tuile ne peut donc pas etre prise pour une unite par ce canal.
+
+    Incomplete elle aussi : un dict d'unite de TEST n'ayant que `pos` (cf. le repli documente de
+    `_feet`) n'est reconnu par aucun des deux s'il est hors `units`. Il retombe alors sur la
+    resolution d'occupant, qui le retrouve tant qu'il est vivant et sur sa tuile."""
+    if not isinstance(e, dict):
+        return False
+    if e.get("feet"):
+        return True
+    if not units:
+        return False
+    eid = e.get("id")
+    for u in units:
+        if u is e:
+            return True
+        if eid is not None and isinstance(u, dict) and u.get("id") == eid:
+            return True
+    return False
+
+
+def _select_unit(entity, board=None, units=None):
+    """Mirror 1:1 d'`IdunBattle.DSL.TargetsSelector$$SelectUnit` (surcharge par ENTITE), relu
+    VERBATIM sur `t6dpr4k06g` :
+
+        if (EntityExtensions$$IsUnitFoot(entity) || EntityExtensions$$IsTile(entity))
+            entity = UnitExtensions$$GetUnit(entity, state);
+        if (entity != null && IsUnit(entity)
+            && UnitExtensions$$MatchesUnitSelectionType(entity, selectionType, state))
+            return entity;
+        return null;
+
+    et la resolution de tuile, `IdunBattle.Entities.UnitExtensions$$GetUnit` (surcharge ENTITE
+    generique), rend **null** sur une tuile VIDE :
+
+        if (entity is TileEntity) {
+            content = entity+0x38;                    // TileContentComponent
+            if (!content.IsFilled()) return null;     // <<< AUCUNE unite a rendre
+            entity = state.GetEntity(content+0x10);   // le PIED, re-resolu en son unite
+        }
+
+    C'est ce `null`-la que le port ne portait pas : une origine TUILE VIDE ne designe AUCUNE
+    entite, donc `Tiles(origin)` est vide et le natif ne retranche RIEN (#10023-r1).
+
+    ⚠ `MatchesUnitSelectionType` n'est PAS porte -- meme residu ouvert que
+    `_occupants_by_tile` (`#433-r3-r2`). Ici le call-site est LU : `UnitsMainTilesSelector$$Select`
+    invoque le slot 3 de son inner avec `selectionType: 0` = `0` (« tout »), donc le gate est
+    INERTE sur ce chemin precis et son absence ne peut rien changer."""
+    #: `IsUnit(entity)` : une entite deja-UNITE n'est ni tuile ni pied, le natif ne la resout pas.
+    #: Ordre du decompile : ce test vient APRES la resolution, mais il ne peut etre vrai que pour
+    #: ce qui n'a pas ete resolu -- le placer ici garde une unite MORTE, que `_occupants_by_tile`
+    #: ecarte (#57m) et que `MatchesUnitSelectionType(0)` accepte.
+    if _est_unite(entity, units):
+        return entity
+    occ = _occupants_by_tile(units or ())
+    for p in _origin_tiles(entity, board):
+        u = occ.get(p)
+        if u is not None:
+            return u
+    return None
+
+
+def _main_tiles(origin, board=None, units=None) -> list:
+    """`Tiles(origin)` -- mirror d'`IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select`,
+    et c'est EXACTEMENT ce que soustrait le natif quand `includeCenter == 0` :
 
         // IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles, branche includeCenter == 0
         SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)
+        // IdunBattleLogic.Entities.DSLSelectors$$Tiles
+        Tiles(entities) = new UnitsMainTilesSelector(inner: entities, state)
+        // UnitsMainTilesSelector$$Select
+        foreach (entity in inner.<slot 3 = SelectAllUnits>(entities, selectionType: 0)) {
+            tile = EntityExtensions$$GetMainTile(entity, state);
+            if (tile != null) result.Add(tile);
+        }
 
-    et `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile` PAR
-    ENTITE. Donc l'exclusion du centre retire UNE SEULE tuile : les pieds SECONDAIRES d'une origine
-    multi-hex RESTENT dans l'anneau, et l'origine peut donc se selectionner elle-meme. Retrancher
-    toute l'empreinte serait une SECONDE erreur, pas une correction.
+    TROIS proprietes, et le port n'en tenait qu'une :
 
-    ⚠ ET C'EST VRAI MEME QUAND L'ORIGINE EST UNE LISTE DE SEPT TUILES (#10023). Relu VERBATIM sur
-    `t6dpr4k06g`, `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` itere le SLOT 3 de
-    son inner (`SelectAllUnits`) avant son `GetMainTile`, et
-    `IdunBattle.DSL.TargetsSelector$$SelectUnit` (surcharge par ENTITE) ouvre par
+      1. `GetMainTile` est applique **PAR ENTITE**. Une origine multi-hex ne retranche donc QU'UNE
+         tuile -- ses pieds SECONDAIRES restent dans l'anneau, et l'origine peut se selectionner
+         elle-meme (#10023). Retrancher toute l'empreinte serait une SECONDE erreur.
+      2. Mais une origine a N unites DISTINCTES en retranche **N** : la boucle ajoute une tuile par
+         entite. `ts[0]` n'en rendait qu'une (#10023-r1).
+      3. Une entite qui ne resout vers AUCUNE unite -- typiquement une TUILE VIDE -- n'ajoute
+         RIEN : `SelectAllUnits` saute les `null` de `SelectUnit`. Le port retranchait la tuile.
 
-        if (IsUnitFoot(entity) || IsTile(entity))
-            entity = UnitExtensions$$GetUnit(entity, state);      // la TUILE -> son OCCUPANT
+    Ordre de sortie = celui des entites, dedoublonne a la PREMIERE apparition. Le natif, lui, ne
+    dedoublonne pas (`List.Add`) ; c'est sans effet, `CombinedSelector$$SelectExclusion` testant
+    `rightResults.Contains(e)`.
 
-    Les sept entites-TUILE de l'empreinte de Mortarion resolvent donc TOUTES vers Mortarion, et
-    `GetMainTile(Mortarion)` rend UNE tuile. `Tiles(CasterTiles)` = `{mainTile}`, pas les sept.
+    SUBSTRAT -- `units` est le canal d'occupation (mirror `TileContentComponent`), `board` celui du
+    domaine ID (`list[int]`, ce que rend `CasterTile(as_ids=True)`). `units` FALSY = **NON MESURE**,
+    pas « aucune unite » : une bataille native a toujours des unites, donc un `units` vide est un
+    contexte de test, jamais un etat de jeu. On y rend la PREMIERE tuile de l'origine -- le
+    comportement d'avant, EXACT sur toute origine mono-hex occupee -- plutot qu'un `[]` fabrique
+    depuis une non-mesure, qui desarmerait l'exclusion partout."""
+    if not units:
+        ts = _origin_tiles(origin, board)                 # DEGRADATION NOMMEE, pas un mirror
+        return ts[:1]
+    out: list = []
+    for e in _origin_entities(origin):
+        u = _select_unit(e, board, units)                 # TargetsSelector$$SelectUnit
+        if u is None:
+            continue
+        feet = _feet(u)                                   # EntityExtensions$$GetMainTile = feet[0]
+        if feet and feet[0] not in out:
+            out.append(feet[0])
+    return out
 
-    `board` sert au domaine ID (`list[int]`, ce que rend `CasterTile(as_ids=True)`) : sans lui,
-    `_origin_tiles` ne sait pas convertir un id de tuile en position et rend `[]` -- une exclusion
-    silencieusement VIDE, pas une erreur."""
-    ts = _origin_tiles(origin, board)
+
+def _main_tile(origin, board=None, units=None) -> tuple | None:
+    """La PREMIERE main tile d'une origine -- forme SCALAIRE de `_main_tiles` ci-dessus, pour les
+    consommateurs natifs qui n'en lisent qu'une (`MinDistanceFormula` sur `Tiles(target)` d'une
+    cible mono-entite, cf. `entities/selectors/units.UnitsDirectlyBehind`).
+
+    ⚠ NE PAS l'utiliser pour une EXCLUSION `op_Subtraction Tiles(origin)` : le natif y retranche
+    TOUTES les main tiles, et une origine a N unites distinctes en a N (#10023-r1). C'est
+    `_main_tiles` qu'il faut."""
+    ts = _main_tiles(origin, board, units)
     return ts[0] if ts else None
 
 
@@ -981,8 +1115,11 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
     elif order == "adjacent":
         excluded = tuple(centers)                     # `AdjacentTilesSelector` : !tiles.Contains(a)
     else:
-        m = _main_tile(center)                        # `op_Subtraction Tiles(origin)` : UNE tuile
-        excluded = () if m is None else (m,)
+        #: `op_Subtraction Tiles(origin)` -- LES main tiles des unites que l'origine designe, donc
+        #: `board` (domaine ID) ET `units` (occupation) sont OBLIGATOIRES ici : sans `board` une
+        #: origine `list[int]` rendait `[]`, exclusion silencieusement VIDE ; sans `units` une
+        #: origine TUILE retranchait la tuile la ou le natif ne retranche rien (#10023-r1).
+        excluded = tuple(_main_tiles(center, board, units))
     r = int(radius)
     # L'ENSEMBLE vient de l'enumeration native des que l'iterateur natif en est une (#515).
     # `None` = aucun centre resolvable -> repli geometrique nomme ; `[]` = zero voisin, EXACT.

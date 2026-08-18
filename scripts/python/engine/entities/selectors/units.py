@@ -446,7 +446,11 @@ class UnitsDirectlyBehind(TargetsSelector):
         # distance du CANDIDAT est un MIN sur SES pieds (`It` est un selecteur d'unite, et
         # `MinDistanceFormula` balaie `SelectTiles` des deux cotes).
         tfeet = _feet(ctx.target)
-        tmain = _main_tile(ctx.target)
+        #: `Tiles(target)` du SEUIL -- forme scalaire legitime : `Tiles` s'applique a UNE entite
+        #: (la cible), donc `UnitsMainTilesSelector` n'en rend qu'une. `board`/`units` sont passes
+        #: parce que la cible peut arriver en domaine TUILE (cast TILE-TARGET), et le natif la
+        #: resout alors en son OCCUPANT avant `GetMainTile` (#10023-r1).
+        tmain = _main_tile(ctx.target, getattr(ctx, "board", None), ctx.units)
         cpos = ctx.caster_pos or _pos(ctx.caster)
         if not tfeet or cpos is None:
             return []

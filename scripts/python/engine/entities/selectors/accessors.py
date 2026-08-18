@@ -11,7 +11,7 @@ import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
-                         _effect_field, resolve_unit, _origin_tiles, _main_tile, _select_tile)
+                         _effect_field, resolve_unit, _origin_tiles, _main_tiles, _select_tile)
 
 
 # --- Accesseurs SELECTEUR (mirror `DSLFactory.X` -> tuiles/entites/sujet natifs ; kind S). ---
@@ -418,10 +418,13 @@ class SurroundingTiles(TargetsSelector):
         #: `engine/**`) : seule une origine MULTI-HEX le montre, et la face DECISION
         #: (`the_lantern.TheLanternPlaybook.target_area`, qui exclut `feet[:1]`) le disait deja --
         #: les deux faces divergeaient d'exactement une tuile.
+        #: ⚠ `units` est OBLIGATOIRE ici : `Tiles(origin)` passe par
+        #: `IdunBattle.DSL.TargetsSelector$$SelectUnit`, qui resout une entite-TUILE en son
+        #: OCCUPANT (`UnitExtensions$$GetUnit` -> `TileContentComponent.IsFilled`). Une tuile VIDE
+        #: n'y rend AUCUNE entite, donc le natif ne retranche RIEN ; et une origine a N unites
+        #: distinctes en retranche N (#10023-r1).
         if not self.include_center:
-            m = _main_tile(raw, board)
-            if m is not None:
-                excluded.add(m)
+            excluded.update(_main_tiles(raw, board, getattr(ctx, "units", None)))
         for origin in origins:
             if origin is None:
                 continue
