@@ -46,8 +46,13 @@ class PerformAIAction(AbilityBehaviour):
         if (!asGroup)  foreach (u in units) proc.ComputerAction(u, resetTurnFlags)    # iface slot 0x34
         else                                proc.ComputerAction(units, resetTurnFlags) # iface slot 0x35
 
-    `Core.Services.OperationProcessor$$ComputerAction (mono) / Core.Services.OperationProcessor$$ComputerAction (groupe) ->
-    `IdunBattle.Operations.ComputerActionOperation$$Execute / IdunBattle.Operations.ComputerActionOperation$$Execute.
+    `Core.Services.OperationProcessor$$ComputerAction(unit:IdunBattle.Core.IEntity, forced)` (mono)
+    / `Core.Services.OperationProcessor$$ComputerAction(units:System.Collections.Generic.IList<IdunBattle.Core.IEntity>, forced)` (groupe) ->
+    `IdunBattle.Operations.ComputerActionOperation$$Execute(unit:IdunBattle.Core.IEntity, forced)`
+    / `IdunBattle.Operations.ComputerActionOperation$$Execute(units:System.Collections.Generic.IList<IdunBattle.Core.IEntity>, forced)`.
+    (#1032-r5 -- les surcharges sont NOMMEES par le parametre qui les separe, lu dans
+    `data/symbols/<build>/frida/methods.tsv` : la migration VA -> SYMBOLE les avait fondues, et la
+    ligne rendait `X / X`, ou seule la glose entre parentheses portait encore le contraste.)
 
     Les deux booleens (LUS du decompile, pas devines) :
       • `asGroup` (+0x58) : FAUX -> une action AI **par unite, sequentielle et independante**

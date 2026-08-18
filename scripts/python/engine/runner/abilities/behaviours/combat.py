@@ -432,11 +432,24 @@ class AttackWithAttackDamage(AbilityBehaviour):
         self.ability_type = ability_type
         # `native_factory` = LA FACTORY NATIVE de la feuille (cas fable rngcrit-1202) — deux operations
         # natives DISTINCTES avec des consommations RNG per-coup differentes :
-        #   "attack"  (defaut) = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage/
-        #             350/520/6b0) -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
+        # ⚠ #1032-r5 -- LES DEUX LIGNES CI-DESSOUS ONT ETE REPAREES : la migration VA -> SYMBOLE
+        # avait fondu les surcharges sur un seul nom, laissant `X (+overloads X/350/520/6b0)` et
+        # `X/X -> core X` -- des tautologies, dont l'une trainait meme trois demi-adresses orphelines.
+        # Les surcharges se nomment par le PARAMETRE qui les separe, lu dans `frida/methods.tsv`.
+        #   "attack"  (defaut) = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage`, dont
+        #             CINQ surcharges construisent l'`AttackDamageBehaviour` ; elles se distinguent par
+        #             `damageProfile` (`IdunBattle.DSL.IDamageProfileSelector` ou
+        #             `System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>`) et par `hits`
+        #             (`IdunBattle.DSL.IAmountFormula`, passe TEL QUEL au ctor, ou `System.Int32`,
+        #             EMBALLE d'abord dans un montant constant) -- lu au decompile, jamais deduit du
+        #             nom, que le pseudo-C affiche identique pour les cinq.
+        #             -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
         #             IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : valeur BRUTE (GetDamage-top) + resolve slot-8 GASPILLE = 2 tirages/
         #             coup a cc=0 (mesure bit-exact VigilanceEternal, 5 seeds x 2 cibles).
-        #   "ability" = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+        #   "ability" = une ENVELOPPE `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+        #             (celle a `damageProfile`/`hits`) qui delegue au COEUR
+        #             `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`,
+        #             seule des QUATRE a construire l'`AbilityDamageBehaviour`
         #             -> AbilityDamageBehaviour -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
         #             GetDamage par coup SEUL (IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage = 0 RNG) = 1 tirage/
         #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de

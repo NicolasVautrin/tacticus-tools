@@ -1,7 +1,12 @@
 """#419-r1-tr9-r4-r1-r3 -- LE CLIQUET QUI MANQUAIT : un SYMBOLE CITE doit EXISTER.
 
-LE GISEMENT. Le port citait `IdunBattleLogic.Entities.DSLFactory$$Is*` -- une orthographe qui
-n'existe dans AUCUN des deux dumps du build courant. La cause est une SCISSION DE CLASSE (#1032-r3) :
+LE GISEMENT. Le port ecrivait la classe `DSLFactory` devant les predicats `IsNormalAttack`,
+`IsMeleeAttack`, `IsRangedAttack`, `IsFirstHitGroupInAttack` -- une orthographe qui n'existe dans
+AUCUN des deux dumps du build courant.
+(&#9888; CES QUATRE NOMS SONT ECRITS SANS LEUR CLASSE, ET C'EST DELIBERE : ce fichier est DANS le
+perimetre du recenseur, donc y ecrire la citation FAUTIVE en entier la ferait compter -- exactement
+le piege que la docstring du probe documente pour elle-meme.)
+La cause est une SCISSION DE CLASSE (#1032-r3) :
 le build de mai portait UNE classe `DSLFactory` qui declarait tout le DSL ; le build courant l'a
 scindee en cinq (`DSLFactory` ne garde que l'etat et ses quatre sous-fabriques `get_Sel` / `get_Val`
 / `get_Do` / `get_If`), et les methodes ont migre vers `DSLSelectors` / `DSLTriggers` /

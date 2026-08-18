@@ -12,7 +12,9 @@ avec `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$Ge
 FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
   - factory native = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> native_factory="attack" (2 tirages/coup a cc=0),
     CLASSIFIE PAR XREFS (call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage ; SanctorumMissile ABSENT des xrefs de
-    IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage ability). Piege rngcrit-1202 / tip #2.
+    la famille ability -- ses enveloppes comme son COEUR
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
+    ; #1032-r5, cette ligne disait `X/X`). Piege rngcrit-1202 / tip #2.
   - splash = unites ADJACENTES a la cible (AUCUN filtre d'equipe = FRIENDLY-FIRE, band UNIT `Units(AdjacentTiles(
     target))`) MOINS le CASTER (hex de Morvenn EXCLU), Unobscured depuis le caster. Band TILE EmptyOrHasSteppable
     (tuiles vides/steppables) NON porte -- inerte pour le degat-unite (le frere natif GetAdjacentDamageTargetsUnits

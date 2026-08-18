@@ -535,8 +535,16 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
                                           GetHits(this)=ConfigConst(0x2f)=nrOfHits=2,
                                           AbilityOrEffect(this+0x10 = 0x490 = 1168) ) )
 
-    - **native_factory = "ability"** : le decompile appelle litteralement `DSLFactory.
-      IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (overload core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage), PAS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
+    - **native_factory = "ability"** : `...PlagueWindAbility$$ExecuteBehaviour` appelle l'ENVELOPPE
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>, hits:System.Int32)`,
+      qui delegue au COEUR `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
+      -- la seule des quatre surcharges qui construise l'`AbilityDamageBehaviour`. PAS
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
+      &#9888; #1032-r5 -- CETTE LIGNE DISAIT `X (overload core X)`, une TAUTOLOGIE : la migration
+      VA -> SYMBOLE avait fondu l'enveloppe et son coeur sur le meme nom. Les deux surcharges sont
+      desormais NOMMEES par le parametre qui les separe, lu dans `frida/methods.tsv` ; l'enveloppe
+      exacte est tranchee par les XREFS de `list_xrefs`, jamais par le pseudo-C (qui affiche le
+      meme nom pour les quatre).
       1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench) — MEME route que
       Stormcaller/SpiritLeech (classification par XREF, jamais au juge).
     - `MinMaxDamage` = bornes `minDmg`(0xc)/`maxDmg`(0xd)[activeAbilityLevel] scalees par

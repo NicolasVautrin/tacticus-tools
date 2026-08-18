@@ -140,7 +140,12 @@ def plasma_grenade_tree():
     id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
     tgt = Target()
     # rngcrit-1202 : la factory native de PlasmaGrenade est `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
-    # (XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x1ba/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x22e -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage = AbilityDamageBehaviour), PAS
+    # (XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x1ba/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x22e ->
+    # l'ENVELOPPE `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(damageProfile:System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>, hits:System.Int32)`
+    # -> le COEUR `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage(abilityOrEffect, options:IdunBattle.Entities.Behaviours.AbilityDamageBehaviourOptions)`
+    # = AbilityDamageBehaviour -- #1032-r5 : cette chaine disait `X -> core X`, une tautologie nee
+    # de la migration VA -> SYMBOLE ; le parametre qui separe les quatre surcharges est LU dans
+    # `data/symbols/<build>/frida/methods.tsv`), PAS
     # AttackWithAttackDamage comme l'ancien commentaire le disait -> AbilityDamageOperation = 1 tirage/
     # coup (AUCUN resolve slot-8 gaspille) -> native_factory="ability".
     main = AttackWithAttackDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False,

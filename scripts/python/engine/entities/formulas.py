@@ -939,7 +939,11 @@ class Get(Const):
     """`IdunBattleLogic.Entities.DSLFormulas$$Get(value)` = `Const`/`Direct` : enveloppe une valeur littérale int/enum en
     nœud (MÊME singleton DAT_183202d40 + ctor `(value,0)` que `Direct`). Le nom de ctor mislabelé
     `IceTileEffect...d__5` est un trampoline gshared — la classe réelle est le nœud constante, PAS un
-    accesseur. (Les overloads IdunBattleLogic.Entities.DSLSelectors$$Get/IdunBattleLogic.Entities.DSLSelectors$$Get sur arg objet = sélecteurs distincts, hors batch.)"""
+    accesseur. (Les deux surcharges `IdunBattleLogic.Entities.DSLSelectors$$Get(entity:IdunBattle.Core.IEntity)`
+    et `IdunBattleLogic.Entities.DSLSelectors$$Get(entities:System.Collections.Generic.IList<IdunBattle.Core.IEntity>)`
+    rendent un `TargetsSelector`, pas un `IAmountFormula` : ce sont des sélecteurs distincts, hors
+    batch. #1032-r5 -- cette parenthèse disait `X/X` : la migration VA -> SYMBOLE avait fondu les
+    deux surcharges, et il ne restait qu'un « les overloads » sans overloads.)"""
 
 
 class VisualUnitIdFromUnitId(AAmountFormula):
