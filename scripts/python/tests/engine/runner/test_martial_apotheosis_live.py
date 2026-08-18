@@ -87,6 +87,10 @@ import pytest
 import gameconfig as GC
 
 import hexgeo
+# Forme B (`import <module>` puis `<module>.<nom>`) : elle MORD sous `monkeypatch.setattr`, la ou
+# une liaison `from ... import <nom>` gele le binding. Les deux helpers servent a ISOLER l'oracle
+# de bande crit (cf. le bloc BANDE DU COUP de `test_ma_ab_and_params`).
+from engine.runner import damage_model as DM
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
@@ -482,7 +486,11 @@ def test_ma_ab_and_params(ma_env):
     `execute_ability_attack` depuis le MEME MT (bit-exact). ATTENTION : le pick consomme 1 tirage MEME a
     pool==1 (#130) -- la baseline le reproduit explicitement. Params confrontes a l'ORACLE CONFIG
     (cf. en-tete, aucun scalaire fige) : nb de coups == `constants.nrOfHits`, percage == `PiercingRatio`
-    du profil `constants.damageProfile`, melee, chaque coup dans [bmin,bmax]."""
+    du profil `constants.damageProfile`, melee, et chaque coup dans SA bande -- `[bmin,bmax]` s'il
+    est normal, `[bmin+CRIT_DAMAGE, bmax+CRIT_DAMAGE]` s'il est CRITIQUE, le crit etant une ADDITION
+    (`IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` : `return critDamage +
+    currentDamage`). La bande unique d'avant ne decrivait que le regime non-critique et n'etait
+    juste que sur 2 decalages de flux RNG sur 8 (cf. le bloc BANDE DU COUP dans le corps)."""
     from engine.runner.components import StatsComponent
     state = ma_env["build_state"]()
     board = ma_env["board"]
@@ -551,10 +559,73 @@ def test_ma_ab_and_params(ma_env):
     assert port_ph == ref_ph, f"A/B : arbre {port_ph} != baseline execute_ability_attack {ref_ph}"
     assert port_ph is not None and len(port_ph) == want_hits, \
         f"{len(port_ph or [])} coups emis par l'arbre != oracle config nrOfHits={want_hits}, per_hit={port_ph}"
-    for v in port_ph:
-        assert bmin <= v <= bmax, f"coup {v} hors plage config [{bmin},{bmax}]"
+    # ------------------------------------------------------------------ BANDE DU COUP
+    # Elle DEPEND DU CRIT, et c'est LU au natif -- pas deduit du profil de degat.
+    # `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` lit
+    # `IdunBattle.Entities.UnitExtensions$$GetStat(attacker, 0xa = CRIT_DAMAGE)`, y AJOUTE
+    # `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`, clampe par
+    # `System.Math.Max(0, .)`, puis delegue a
+    # `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage`, dont le corps est, VERBATIM :
+    #
+    #     if (!UnitExtensions.HasTrait(defender, 0x1c))   // 0x1c = Impervious
+    #         return critDamage + currentDamage;          // <- ADDITION PURE
+    #     ... shield + GetStat(defender, 4=ARMOR) + GetStat(defender, 5=HEALTH)
+    #
+    # Un coup CRITIQUE sort donc LEGITIMEMENT au-dessus de `maxDmg` : sa bande est
+    # `[bmin + cd, bmax + cd]`, de MEME LARGEUR que la bande normale.
+    #
+    # ⚠ CE QUI A ROUGI. L'assertion d'avant (`bmin <= v <= bmax` pour TOUS les coups) ne decrivait
+    # que le regime NON-CRITIQUE. Elle ne tenait que tant que le flux RNG ne faisait critter aucun
+    # des deux coups -- et `crit_chance` vaut 41 sur ce porteur. MESURE (meme montage, MT du runner
+    # decale de k tirages, k = 0..7) : elle est JUSTE sur **2 decalages sur 8**, et l'arbre courant
+    # tombe sur `crits=[True, True]`, `per_hit=[3957, 3926]` -- deux valeurs parfaitement dans
+    # `[1496+2082, 1894+2082]`. Ce n'etait donc ni un ecart de calcul (l'A/B ci-dessus est
+    # bit-exact) ni une regression : une bande ECRITE TROP ETROITE, qui passait par accident de
+    # flux. La bande par regime, elle, est juste sur **8/8** et exerce les DEUX regimes.
+    #
+    # ORACLE, ET IL N'EST PAS CIRCULAIRE : `cd` est la STAT MESUREE du caster (canal
+    # `combatSnapshot` -> `UnitContext.crit_damage`), pas un calcul du port. Les TROIS termes qui
+    # ecarteraient l'oracle sont MESURES et exiges nuls -- meme patron que le garde `ExtraPierce`
+    # ci-dessus : le montage ISOLE l'oracle au lieu de le supposer isole.
+    cd = int(getattr(_sc.ctx, "crit_damage", 0) or 0)
+    _eff_caster = list(state.effects.active_effects(cid) or []) if state.effects is not None else []
+    assert not _eff_caster, (
+        f"setup n'isole plus le crit : le caster porte {[getattr(e, 'name', e) for e in _eff_caster]} "
+        f"-> `GetCritDamageBonusFromEffects` peut ne plus etre nul, et la bande critique devient "
+        f"[bmin+cd+<bonus>, bmax+cd+<bonus>]")
+    _ice = int(DM.ice_crit_damage_addition(state, cid, t_id, _sc.ctx) or 0)
+    assert _ice == 0, (
+        f"setup n'isole plus le crit : bonus crit-sur-Ice={_ice} (cible sur une tuile Ice active) "
+        f"-> la bande critique devient [bmin+cd+{_ice}, bmax+cd+{_ice}]")
+    assert "Impervious" not in DM.target_trait_names(state, t_id), (
+        "setup n'isole plus le crit : la cible porte `Impervious` (0x1c) -> `ApplyCritDamage` "
+        "ne rend PLUS `critDamage + currentDamage` mais `shield + ARMOR + HEALTH`, et l'oracle "
+        "de bande ci-dessous ne decrit plus ce que le natif calcule")
+    crits = list((res.get("attack") or {}).get("crits") or [])
+    assert len(crits) == len(port_ph), (
+        f"le port ne rend pas un drapeau de crit par coup EMIS (crits={crits}, per_hit={port_ph}) "
+        f"-- l'appariement coup <-> bande serait arbitraire")
+    # NON-DEGENERESCENCE DU CONTROLE. Si `cd` valait 0, les deux bandes se confondraient : le split
+    # crit / non-crit ne discriminerait plus rien et la boucle ci-dessous se reduirait a l'ancienne
+    # assertion tout en ayant l'air d'en faire davantage. On le DIT plutot que de le subir -- et un
+    # rouge ici n'accuse pas le port, il accuse le MONTAGE, qui aurait cesse d'exercer le regime.
+    #   ⚠ Le cran qu'on serait tente d'ajouter a la place -- « un coup critique doit etre
+    #   STRICTEMENT au-dessus de `bmax` » -- est DOMINE, dans les deux regimes : quand
+    #   `cd > bmax - bmin`, `bmin + cd > bmax` le rend vrai par pure arithmetique ; quand
+    #   `cd <= bmax - bmin`, il faudrait le desarmer parce que les bandes se chevauchent. Il ne
+    #   mord donc jamais : ce serait une assertion vacante deguisee en garde-fou.
+    assert cd > 0, (
+        f"controle DEGENERE : CRIT_DAMAGE={cd} sur {CARRIER} -> la bande critique EST la bande "
+        f"normale, et le split crit / non-crit ne prouve plus rien")
+    print(f"[MA D] crits={crits} crit_damage={cd} bande_nc=[{bmin},{bmax}] "
+          f"bande_cr=[{bmin + cd},{bmax + cd}]")
+    for v, c in zip(port_ph, crits):
+        lo, hi = (bmin + cd, bmax + cd) if c else (bmin, bmax)
+        assert lo <= v <= hi, (
+            f"coup {v} hors bande config {'CRITIQUE' if c else 'normale'} [{lo},{hi}] "
+            f"(bmin={bmin} bmax={bmax} crit_damage={cd} crits={crits} per_hit={port_ph})")
     print(f"[MA D] OK : A/B tree==baseline ({want_hits} coups {prof} pierce {want_pierce}, bit-exact), "
-          f"params == oracle config")
+          f"params == oracle config, chaque coup dans SA bande (crit = +CRIT_DAMAGE, addition)")
 
 
 # ------------------------------------------------------------- (E) LIVE replay-diff turn-start
