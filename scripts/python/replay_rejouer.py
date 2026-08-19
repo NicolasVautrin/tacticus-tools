@@ -401,8 +401,17 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
             attendu = len(p.get("OutputStream") or "")
             ecart = produit - attendu
             marque = "OK  " if ecart == 0 else "DIFF"
-            print("[%2d] %-26s %s  produit=%6d  attendu=%6d  ecart=%+d  (pas neufs=%d)"
-                  % (i, nom, marque, produit, attendu, ecart, len(steps) - nb_av))
+            # (!)A QUI EST LE TOUR, A CHAQUE COUP. Sans ca on lit << l'IA ne joue pas >> la ou
+            # le vrai fait est << MON tour s'est termine trop tot >> : dans la reference le
+            # premier tour ne finit qu'au `EndTurnMessage`, pose A LA MAIN par le joueur. Un
+            # `currentPlayer` qui bascule AVANT ce message est donc la divergence, et elle se
+            # voit ici -- pas au bout de la partie.
+            ap_bs = jeu.rpc("battleStatus", [{"runnerId": rid}], timeout=60000)
+            cp_ap = (ap_bs or {}).get("currentPlayer") if isinstance(ap_bs, dict) else None
+            tour = ("MOI" if cp_ap == entite_joueur
+                    else ("personne" if cp_ap in (None, 0) else "entite %s" % cp_ap))
+            print("[%2d] %-26s %s  produit=%6d  attendu=%6d  ecart=%+d  (pas neufs=%d)  tour=%s"
+                  % (i, nom, marque, produit, attendu, ecart, len(steps) - nb_av, tour))
             traces.append((i, nom, nb_av, len(steps), p.get("OutputStream") or ""))
             if ecart != 0:
                 divergences.append((i, nom, produit, attendu))

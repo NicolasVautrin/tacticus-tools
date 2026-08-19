@@ -79,6 +79,43 @@ pas une mesure**. Il se lit en direct sur l'instance : `IdunMainView.gameViews` 
 les cinq champs. Tant que ce n'est pas fait, cette fiche NE nomme pas la cause — elle nomme la
 porte.
 
+## ⚠ LES TROIS SONT MESURES FAUX (2026-08-19, #10040) — la cause est AILLEURS
+
+Lus sur l'instance vivante (`vueExceptionEtat {joueur}`, qui publie desormais la carte COMPLETE
+des 70 champs d'`IdunGameViews` plus `IsPlayerAiControlled`), montage boss de guilde en sandbox,
+arrete pile au changement de tour :
+
+| entree de la porte | mesure | verdict |
+|---|---|---|
+| `IsPlayerAiControlled(entite 4)` | `true` | candidat 1 FAUX |
+| `<IsPaused>` / `_isLogicPausedFromUI` / `...Visuals` / `...Exception` | `0, 0, 0, 0` | candidat 2 FAUX |
+| `_queuedComputerActions` (`+0x1f8`) | `0x0` | candidat 3 FAUX -- verrou NON pose |
+| `_coroutine` (`+0xe0`), `_input` (`+0xe8`), `_stateMachineActions` (`+0x170`) | non nuls | les gardes d'`Update` passent |
+| `_isDisposed` (`+0x168`) | `0` | passe |
+
+**Et `QueueComputerActions` EST appelee** : son seul appelant est
+`IdunBattle.View.Game.IdunGameViews$$Update`, qui l'invoque SANS CONDITION une fois les gardes
+franchies (verifie au decompile). Elle echoue donc sur son PREMIER test, avec le joueur que lui
+donne `IdunGameViews$$get_CurrentPlayerEntityId` -- lequel rend **0**. Mesure de controle :
+`IsPlayerAiControlled(0)` = `false`.
+
+**La cause est en amont : la vue n'apprend le joueur courant qu'en CONSOMMANT LE FLUX.**
+`get_CurrentPlayerEntityId` lit `_matchView` (`+0x158`, non nul), et le seul ecrivain de ce
+champ dans la couche bataille est
+`IdunBattle.View.BattleStream.StepHandlers.PrepareTurnStepHandler$$ExecuteInternal` ->
+`idun.MatchView$$SetCurrentPlayer` (xrefs : les autres appelants sont `battle_HUD_test` et les
+handlers de joueur TEMPORAIRE). La chaine reelle est donc :
+
+    moteur -> flux de sortie -> MessageExecutionQueue -> StepHandlers
+           -> MatchView.SetCurrentPlayer -> IdunGameViews.get_CurrentPlayerEntityId
+           -> QueueComputerActions -> l'IA joue
+
+⚠ **Rejouer par `IdunRunner$$Apply` COURT-CIRCUITE ce pipeline.** Le moteur execute
+parfaitement -- mesure : notre flux est le PREFIXE EXACT de la reference, `EndTurn` et
+`StartTurn` compris (14 088 caracteres identiques sur les 53 488 du pas) -- mais la VUE ne
+recoit jamais les pas, donc son joueur courant reste a 0 et l'IA n'est jamais enfilee.
+Ce n'est ni un verrou, ni une pause, ni un defaut du moteur : c'est une porte d'ENTREE.
+
 ## Le releve qui l'a rendu visible
 
 `replaySteps`, decoupage **par message d'entree**, meme montage et meme seed :

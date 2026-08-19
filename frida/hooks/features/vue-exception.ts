@@ -27,7 +27,8 @@
 // repare pas : a n'utiliser que pour poursuivre une observation deja en cours.
 
 import {
-    class_get_name, findClassAnywhere, findMethod, findMethodByParamCount,
+    class_get_fields, class_get_name, class_get_parent, field_get_name, field_get_offset,
+    findClassAnywhere, findMethod, findMethodByParamCount,
     getFieldOffset, getStack, getSystemType, s,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
@@ -141,6 +142,76 @@ function drapeauxDe(vues: NativePointer): Record<string, unknown> {
     return out;
 }
 
+/**
+ * LES ENTREES DE LA PORTE `IdunGameViews$$QueueComputerActions`, lues sur l'instance vivante.
+ *
+ * Le decompile (cf. `docs/rl/case-596-r3-emetteur-du-message-de-tour.md`) :
+ *
+ *     IsPlayerAiControlled(this, joueurCourant) != 0
+ *       && this+0x80 == 0 && this+0x81 == 0 && this+0x82 == 0 && this+0x83 == 0
+ *       && this+0x1f8 == 0                                  <- VERROU DE REENTRANCE
+ *          -> this+0x1f8 = IdunBattle.Utils.EmptyEnumerator.Instance
+ *             puis StartCoroutine(...) via le slot 0 d'interface sur this+0xe0
+ *
+ * Trois candidats y etaient nommes, aucun tranche. Les quatre booleens sont mesures a 0
+ * (`vueExceptionEtat`), donc restent le VERROU et `IsPlayerAiControlled`. Ce RPC les rend.
+ *
+ * ⚠ AUCUN OFFSET EN DUR. Le verrou est identifie par le NOM du champ situe a l'offset du
+ * decompile, et ce nom est RENDU -- si le build deplace le champ, on le voit au lieu de lire un
+ * voisin en silence. On publie donc la CARTE des champs pointeur, pas une valeur isolee.
+ */
+function porteDe(vues: NativePointer, joueur: number | null): Record<string, unknown> {
+    let klass: NativePointer;
+    try { klass = vues.readPointer(); }
+    catch (e) { return { erreur: "classe illisible : " + (e as Error).message }; }
+
+    // LA CARTE COMPLETE, pas une selection d'offsets.
+    //
+    // ⚠ POURQUOI TOUT, ET PAS LES DEUX CHAMPS QU'ON CROIT UTILES. `Update` traverse QUATRE
+    // gardes avant d'appeler `QueueComputerActions`, et deux d'entre elles LEVENT sur un champ
+    // nul (`+0xe8`, `+0x170` = `StateMachineActions`). Publier deux offsets choisis obligeait a
+    // un rebuild+reinject par hypothese ; la carte se lit une fois et repond a toutes.
+    // On rend l'octet ET le pointeur : un drapeau et une reference ne se lisent pas pareil, et
+    // c'est au lecteur de savoir lequel a un sens pour le champ qu'il regarde.
+    const champs: Array<Record<string, unknown>> = [];
+    let k: NativePointer = klass;
+    while (!k.isNull()) {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        let f: NativePointer;
+        while (!(f = class_get_fields(k, it) as NativePointer).isNull()) {
+            const nom = s(field_get_name(f) as NativePointer) ?? "?";
+            const off = field_get_offset(f) as number;
+            if (off <= 0) continue;
+            let ptrV: string | null = null;
+            let octet: number | null = null;
+            try { ptrV = vues.add(off).readPointer().toString(); } catch { ptrV = null; }
+            try { octet = vues.add(off).readU8(); } catch { octet = null; }
+            champs.push({ nom, offset: off, hex: "0x" + off.toString(16),
+                          pointeur: ptrV, octet });
+        }
+        k = class_get_parent(k) as NativePointer;
+    }
+    champs.sort((a, b) => (a.offset as number) - (b.offset as number));
+
+    // `IsPlayerAiControlled` : une LECTURE (aucune ecriture), donc invocable sans danger.
+    let aiControlled: unknown = "NON MESURE";
+    if (joueur !== null) {
+        const mi = findMethodByParamCount(klass, "IsPlayerAiControlled", 1);
+        if (mi === null) {
+            aiControlled = "`IsPlayerAiControlled` INTROUVABLE (1 parametre)";
+        } else {
+            try {
+                const arg = Memory.alloc(4); arg.writeS32(joueur);
+                const r = invokeMethod(mi.info, vues, [arg]) as NativePointer;
+                // Un bool revient BOXE : la valeur est a +0x10, jamais sur le pointeur.
+                aiControlled = r.isNull() ? null : r.add(0x10).readU8() !== 0;
+            } catch (e) { aiControlled = "LEVE : " + (e as Error).message; }
+        }
+    }
+    return { joueurTeste: joueur, isPlayerAiControlled: aiControlled, champs };
+}
+
 function lireException(e: NativePointer, ctx: CpuContext): Capture {
     let classe: string | null = null;
     try { classe = s(class_get_name(e.readPointer()) as NativePointer); } catch { /* null */ }
@@ -235,17 +306,23 @@ export function register(ctx: Ctx): void {
      *  les captures, donc une exception REELLEMENT captee (`fires: 1`) etait invisible, et il a
      *  fallu un reinject pour la relire -- qui l'a effacee. Un capteur ne doit jamais laisser un
      *  echec ACCESSOIRE masquer ce qu'il a deja mesure. */
-    ctx.rpc.vueExceptionEtat = (body?: { surVues?: string }): unknown => {
+    ctx.rpc.vueExceptionEtat = (body?: { surVues?: string; joueur?: number }): unknown => {
         const base = { ok: true, arme: listener !== null, fires, captures };
+        // `joueur` = l'ENTITE du joueur courant (`battleStatus.currentPlayer`), pas son id.
+        // Absent, la porte est rendue SANS `IsPlayerAiControlled` -- jamais avec une valeur
+        // inventee pour un joueur qu'on aurait suppose.
+        const j = typeof body?.joueur === "number" ? body.joueur : null;
         if (typeof body?.surVues === "string" && /^0x[0-9a-fA-F]+$/.test(body.surVues)) {
             const p = ptr(body.surVues);
             return { ...base, nbVues: 1, ecartees: 0,
-                     vues: [{ instance: p.toString(), drapeaux: drapeauxDe(p) }] };
+                     vues: [{ instance: p.toString(), drapeaux: drapeauxDe(p),
+                              porte: porteDe(p, j) }] };
         }
         const r = vuesVivantes();
         if (estRefus(r)) return { ...base, vues: null, refusVues: r.error };
         return { ...base, nbVues: r.vues.length, ecartees: r.ecartees,
-                 vues: r.vues.map((p) => ({ instance: p.toString(), drapeaux: drapeauxDe(p) })) };
+                 vues: r.vues.map((p) => ({ instance: p.toString(), drapeaux: drapeauxDe(p),
+                                            porte: porteDe(p, j) })) };
     };
 
     /** RETIRER le verrou `_isLogicPausedFromException` sur les instances vivantes.
