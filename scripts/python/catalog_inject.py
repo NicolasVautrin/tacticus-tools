@@ -454,17 +454,40 @@ def unit_trait_members() -> frozenset:
 
 
 def _traits_raw(gc: dict) -> list:
-    """[GrandAlliance] + [Subfaction si presente] + traits (+ "NPC" pour un kind npc), AVANT
+    """[GrandAlliance] + [Subfaction si presente] + traits (+ "NPC" pour un npc NON-HERO), AVANT
     confrontation au vocabulaire de l'enum. Mirror de l'ordre observe dans les 175 entrees
     (l'alliance d'abord, la sous-faction ensuite :
-    custoAtlacoya -> ['Imperial','SistersSilence','Hero','Parry','Terrifying'])."""
+    custoAtlacoya -> ['Imperial','SistersSilence','Hero','Parry','Terrifying']).
+
+    ⚠ `NPC` N'EST PAS POSE A TOUT `kind == npc`, ET LE CROIRE COUTAIT 322 TRAITS EN TROP.
+    Cette fonction l'ajoutait INCONDITIONNELLEMENT ; le natif, lui, ne le pose QUE si l'unite
+    ne porte pas `Hero`. Mesure du 2026-08-19 sur les 508 entrees npc d'un catalogue forge par
+    la fabrique native (`forge_seed_bc.py`) -- croisement (le gameconfig declare `Hero`) x
+    (la BC porte `NPC`) :
+
+        gc Hero=True  / BC NPC=False   322      gc Hero=True  / BC NPC=True     0
+        gc Hero=False / BC NPC=True    186      gc Hero=False / BC NPC=False    0
+
+    508/508, les deux cellules de contre-exemple a ZERO -- et la regle vaut aussi bien sur
+    l'ENTREE (`gc["traits"]`) que sur la sortie. Les 322 concernes sont les `*Boss*` /
+    `*Npc<Hero>` : des heros reemployes en boss, qui gardent `Hero`. Les 186 qui portent `NPC`
+    sont les objets de plateau et le bestiaire (`LootObj_*`, `powup*`, termagants...).
+
+    ⚠ POURQUOI `--validate` NE L'A JAMAIS VU, et pourquoi il restera vert apres ce correctif :
+    il re-synthetise les 175 entrees du seed CAPTURE, qui n'en comptait que **4** de kind npc,
+    toutes NON-`Hero`. Sur cet echantillon les deux regles rendent le meme resultat -- le temoin
+    ne pouvait pas les distinguer. Ce n'est donc pas un controle qui a failli, c'est un REGIME
+    DEGENERE : l'accord ne prouvait rien parce qu'aucun cas discriminant n'y figurait. Le cas
+    n'est devenu observable qu'en amenant les 508 npc au catalogue.
+    """
     out = []
     if gc.get("GrandAllianceId"):
         out.append(gc["GrandAllianceId"])
     if gc.get("Subfaction"):
         out.append(gc["Subfaction"])
-    out += list(gc.get("traits") or [])
-    if gc.get("kind") == "npc":
+    traits = list(gc.get("traits") or [])
+    out += traits
+    if gc.get("kind") == "npc" and "Hero" not in traits:
         out.append("NPC")
     return out
 
