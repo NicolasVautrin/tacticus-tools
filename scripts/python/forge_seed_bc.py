@@ -130,7 +130,20 @@ def _semantique_campagne(bc: dict) -> list[str]:
 
 
 def npc_avec_progression() -> list[str]:
-    """Les ids `units.npc` suffixes de leur `ProgressionIndex` MAX.
+    """Les ids `units.npc`, suffixes de leur `ProgressionIndex` MAX -- SAUF quand il vaut 0.
+
+    ⚠ SUFFIXER `:0` FAIT LEVER LE BUILDER, et c'est ce qui a fait croire que certaines
+    unites n'etaient pas montables. Mesure du 2026-08-19, sur le meme lot :
+
+        les 14 `powup*` avec `:0`  -> `GetGuildWarsConfig` LEVE (« system error »)
+        les 14 `powup*` NUS        -> OK, et `powupDamage` sort `PassiveAbilities: [1139]`
+                                      -- exactement ce que le mirror offline synthetise
+
+    Un suffixe `:0` n'apporte donc RIEN (l'index 0 est deja le defaut) et casse. Le
+    diagnostic « ces unites ne sont pas montables » etait FAUX : c'est la forme de l'id
+    qu'on leur donnait qui l'etait. L'enjeu est concret -- un power-up sans son passif
+    est INERTE au ramassage, et `probe_10004_powerup_spawn_live.py` avertit que sans son
+    entree au catalogue « la fabrique ne construit rien, SANS LA MOINDRE ERREUR ».
 
     Le suffixe n'etait pas « ignore » : `UnitProgression$$GetUnit(String)`, auquel le
     delegue etait lie, ne REGARDE jamais le dictionnaire npc -- il interroge le cache
@@ -146,7 +159,8 @@ def npc_avec_progression() -> list[str]:
         rows = (npc[uid] or {}).get("stats") or []
         idxs = [r.get("ProgressionIndex") for r in rows
                 if isinstance(r, dict) and isinstance(r.get("ProgressionIndex"), int)]
-        out.append(f"{uid}:{max(idxs)}" if idxs else uid)
+        n = max(idxs) if idxs else 0
+        out.append(f"{uid}:{n}" if n > 0 else uid)
     return out
 
 
