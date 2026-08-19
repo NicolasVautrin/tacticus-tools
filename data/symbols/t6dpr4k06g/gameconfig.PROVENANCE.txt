@@ -1,0 +1,24 @@
+gameconfig.json du build t6dpr4k06g
+
+SOURCE : le JEU le telecharge lui-meme dans
+    %USERPROFILE%\AppData\LocalLow\Snowprint\Warhammer 40,000_ Tacticus\gameconfig\<hash>.json
+Il n'y a RIEN a dumper via Frida : c'est un fichier deja sur disque. << Re-dumper >> = recopier
+le plus RECEMMENT ECRIT de ce dossier vers ici.
+
+  fichier repris : f3e2d2323a6a5c0cffead5a4c9bcaf8a.json  (ecrit le 15/08/2026 23:19:33)
+  archive le     : 19/08/2026
+  fullConfigHash : e6845735a9866017eb7c7d567c369b0d
+
+⚠ LE GAMECONFIG SE PERIME SEPAREMENT DU BUILD. La version du jeu n'avait PAS bouge (1.41.183,
+hash de build t6dpr4k06g inchange) et pourtant le jeu avait telecharge une config PLUS RECENTE
+23 h apres celle qu'on avait archivee. Un hash de build identique ne prouve donc RIEN sur la
+fraicheur des donnees -- verifier la date du fichier dans le dossier ci-dessus.
+
+DELTA de cette mise a jour (ancien 6b82f9aa... -> nouveau f3e2d232...), mesure par diff
+recursif : 10 differences, TOUTES sur l'evenement Arsenal of War. Le palier [19] des trois
+tiers perd ndless/ndlessCap et son equiredProgress passe de 50 -> 550 (low),
+80 -> 1945 (mid), 120 -> 3330 (high). Aucune autre cle ajoutee, retiree ni modifiee.
+
+LECTURE : scripts/python/gameconfig.py sait retrouver l'instantane ACTIF tout seul (le plus
+recemment ecrit du dossier source), et teste la PROPRIETE "clientGameConfig" plutot que la
+taille.
