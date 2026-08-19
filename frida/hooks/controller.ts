@@ -60,6 +60,7 @@ import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
 import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
+import * as replayFinAuto from "./features/replay-fin-auto.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -518,6 +519,12 @@ export function wireRpc(ctx: Ctx): void {
      // `il2cpp_raise_exception`), alors qu'un `onEnter` sans `onLeave` est un jet quel que soit
      // le chemin. Chemins FROIDS (un passage par cast), donc arme au register.
      visuelAbandonne,
+     // `replayFinAuto` prend le replay A LA FRAME OU LA BATAILLE SE TERMINE, depuis la pompe.
+     // Il remplace un sondage externe qui a PERDU deux replays : le runner disparait a la fin,
+     // et une interrogation qui tombe apres ne rend plus que « runner has no ReplayRecorder » --
+     // un message qui accuse le mecanisme alors que seul le TIMING etait en cause. DESARME par
+     // defaut ; desarme, il ne coute qu'un test de booleen par frame.
+     replayFinAuto,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne

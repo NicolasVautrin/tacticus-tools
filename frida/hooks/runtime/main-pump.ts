@@ -23,6 +23,8 @@ import { state, clearLogUnpinned } from "../game/state.js";
 import { install } from "../game/recorder.js";
 import { clearTraceOrigin } from "../game/trace-origin.js";
 import { log, traceEnter } from "./diag.js";
+import { surveillerFinDeBataille, capturerAvantDetachement }
+    from "../features/replay-fin-auto.js";
 
 // ------------------------------------------------------------- TRANSPARENCE
 //
@@ -139,6 +141,11 @@ export function installMainPump(): void {
             // (if any) stay intact: they're our standalones, independent of
             // the device's battle lifecycle.
             if (state.liveRunner) {
+                // ⚠ AVANT le nettoyage : c'est la DERNIERE frame ou le replay est
+                // atteignable. Une capture faite apres ne rend plus que « runner has no
+                // ReplayRecorder » — un message qui accuse le mecanisme alors que seul le
+                // TIMING etait en cause. Deux replays ont ete perdus ainsi.
+                capturerAvantDetachement();
                 state.watchedRunners.delete(state.liveRunner.toString());
                 state.liveRunner = null;
                 state.runnerInstance = null;
@@ -168,6 +175,9 @@ export function installMainPump(): void {
         }
 
         state.frameNo++;
+        // Second déclencheur de capture : `stage -> Finished` alors que le runner est
+        // ENCORE attaché. Ne coûte qu'un test de booléen tant que le module est désarmé.
+        surveillerFinDeBataille();
         drainPending();
         } catch (e) { noteFault("main-pump", e); }
 
