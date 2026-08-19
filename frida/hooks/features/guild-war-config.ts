@@ -357,6 +357,42 @@ function champ(obj: NativePointer, nom: string): NativePointer | RefusVue {
     return p as NativePointer;
 }
 
+/** BORNE HAUTE d'exploration des indices de zone.
+ *
+ *  ⚠ CE N'EST PAS LE NOMBRE DE ZONES, et la version precedente confondait les deux : elle
+ *  bouclait `idx < 12` en dur. Mesure du 2026-08-19 (`t6dpr4k06g`) : `GetWarZone(aff, idx)` rend
+ *  un objet jusqu'a l'indice **14**, et `GetBattlefieldConfig().battlefieldLevels[].zoneTiers`
+ *  declare **15** types de zone -- `Trenches1/2/3`, `HQ`, `ArtilleryPosition1/2`, `LandingPad1/2`,
+ *  `Armoury`, `Bunker1/2`, `SupplyDepot`, `MedicaeStation1/2`, `AntiAirBattery`. Le `12` jetait
+ *  donc `HQ`, `MedicaeStation1` et `MedicaeStation2` -- UN CINQUIEME DE LA CARTE -- et il le
+ *  faisait EN SILENCE : le RPC publiait `total: 36` (3 x 12), un compte parfaitement coherent
+ *  avec lui-meme et faux. Un occupant reel (`Drakar69`, `MedicaeStation1`) etait donc introuvable,
+ *  et le lecteur en concluait « il ne defend rien » -- exactement le vice que le depot nomme
+ *  « une liste TRONQUEE fait conclure a une ABSENCE ».
+ *
+ *  On explore donc LARGE et on CONFRONTE au compte declare par le jeu (`nbTypesDeZone`). */
+const PLAFOND_INDEX_ZONE = 64;
+
+/** Le nombre de types de zone que le JEU declare, ou `null` si non mesurable.
+ *
+ *  Source : `GuildWarPhaseProgression$$GetBattlefieldConfig()` ->
+ *  `GuildWarBattlefieldConfigDto.battlefieldLevels[].zoneTiers`. Tous les niveaux portent la meme
+ *  liste ; on prend le maximum, pour qu'un niveau tronque ne rabaisse pas l'attendu. */
+function nbTypesDeZone(k: NativePointer, sur: NativePointer): number | null {
+    const r = appeler(k, sur, "GetBattlefieldConfig", 0, []);
+    if (estRefus(r)) return null;
+    const j = enJson(r as NativePointer) as Record<string, unknown> | null;
+    if (j === null || typeof j !== "object") return null;
+    const niveaux = j.battlefieldLevels;
+    if (!Array.isArray(niveaux)) return null;
+    let max = 0;
+    for (const n of niveaux) {
+        const t = (n as Record<string, unknown>)?.zoneTiers;
+        if (Array.isArray(t) && t.length > max) max = t.length;
+    }
+    return max > 0 ? max : null;
+}
+
 /** Invoque une methode d'instance NOMMEE et rend son retour, ou un refus NOMME. */
 function appeler(k: NativePointer, sur: NativePointer, nom: string, nbArgs: number,
                  args: NativePointer[]): NativePointer | RefusVue {
@@ -547,7 +583,8 @@ export function register(ctx: Ctx): void {
         const mZone2 = findMethodByParamClasses(k, "GetWarZone", ["FrontLineAffiliation", "Int32"]);
         if (mZone2) {
             for (let aff = 0; aff < 3; aff++) {
-                for (let idx = 0; idx < 12; idx++) {
+                // MEME BORNE que `guildWarZones` -- le `12` en dur jetait 3 des 15 types de zone.
+                for (let idx = 0; idx < PLAFOND_INDEX_ZONE; idx++) {
                     let z: NativePointer;
                     try { z = invokeMethod(mZone2.info, sur, [i32(aff), i32(idx)]); } catch { break; }
                     if (!z || z.isNull()) continue;
@@ -692,8 +729,9 @@ export function register(ctx: Ctx): void {
         };
 
         const zones: Array<Record<string, unknown>> = [];
+        const attendu = nbTypesDeZone(k, sur);
         for (let aff = 0; aff < 3; aff += 1) {
-            for (let idx = 0; idx < 12; idx += 1) {
+            for (let idx = 0; idx < PLAFOND_INDEX_ZONE; idx += 1) {
                 let z: NativePointer;
                 try { z = invokeMethod(mZone2.info, sur, [i32(aff), i32(idx)]); } catch { break; }
                 if (!z || z.isNull()) continue;
@@ -756,8 +794,25 @@ export function register(ctx: Ctx): void {
             }
             return champs.some((c) => c.toLowerCase().includes(f));
         });
+        // COUVERTURE : le compte trouve, confronte a celui que le JEU declare. Sans ce cran, une
+        // enumeration tronquee publie un total coherent avec lui-meme et FAUX -- c'est ce qui a
+        // fait conclure « Drakar69 ne defend rien » alors qu'il tenait `MedicaeStation1` (#10038).
+        const parFront = new Map<number, number>();
+        for (const z of zones) {
+            const a = Number(z.affiliation);
+            parFront.set(a, (parFront.get(a) ?? 0) + 1);
+        }
+        const maxParFront = parFront.size ? Math.max(...parFront.values()) : 0;
+        const couverture = {
+            typesDeZoneDeclares: attendu,
+            zonesParFront: Object.fromEntries(parFront),
+            plafondExplore: PLAFOND_INDEX_ZONE,
+            // `null` = PAS mesurable (config illisible), jamais rabattu sur « complet ».
+            complete: attendu === null ? null : maxParFront >= attendu,
+            manque: attendu === null ? null : Math.max(0, attendu - maxParFront),
+        };
         return { ok: true, total: zones.length, rendues: retenues.length,
-                 filtre: body?.filtre ?? null, zones: retenues,
+                 filtre: body?.filtre ?? null, couverture, zones: retenues,
                  note: "`zoneId` est le `warZoneId` attendu par `guildWarSourceForger` ; "
                      + "`zonePartIndex` et le `slot` d'un slot sont ses deux autres coordonnees." };
     });
