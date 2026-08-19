@@ -636,6 +636,132 @@ export function register(ctx: Ctx): void {
         return res;
     });
 
+    /** L'INVENTAIRE LISIBLE DES ZONES -- celui qui rend un `warZoneId` trouvable par un HUMAIN.
+     *
+     *  body: { filtre?: string, avecUnites?: boolean }
+     *    - `filtre` : sous-chaine insensible a la casse, comparee au PSEUDO de l'occupant, au
+     *      type de zone et au `zoneId`. C'est la forme utile : « donne-moi la zone de nicodsf ».
+     *    - `avecUnites: true` ajoute l'apercu des ids d'unites defendantes par slot.
+     *
+     *  ⚠ POURQUOI CE RPC EXISTE. `guildWarBoardRead` rend l'etat COMPLET -- 637 Ko sur le plateau
+     *  du 2026-08-19, et les zones n'y sont designees que par des GUID (`zoneId`,
+     *  `occupiedByUserId`). Aucun humain ne peut y retrouver « la zone d'Untel », alors que
+     *  `guildWarSourceForger` EXIGE justement un `warZoneId`. Le chainon manquant est
+     *  `GuildWarPhaseProgression$$GetOccupyingGuildMember(warZoneId, zonePartIndex)`, qui rend le
+     *  MEMBRE -- donc le pseudo. Ce RPC ne fait que boucler dessus et rendre du compact.
+     *
+     *  ⚠ LECTURE PURE : `GetWarZone` et `GetOccupyingGuildMember` lisent la progression deja
+     *  synchronisee cote client. Aucune ecriture, aucun octet reseau, aucune tentative consommee.
+     *
+     *  ⚠ UN FILTRE QUI NE REND RIEN DIT COMBIEN IL A ECARTE (`total` vs `rendues`) : un zero
+     *  filtre ne doit pas se lire comme « pas de zones ». */
+    ctx.rpc.guildWarZones = (body?: {
+        filtre?: string; avecUnites?: boolean;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        const prog = progressionPhase();
+        if (estRefus(prog)) return { ok: false, error: (prog as RefusVue).error };
+        const sur = prog as NativePointer;
+        const k = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                    "GuildWarPhaseProgression");
+        if (!k) return { ok: false, error: "classe `GuildWarPhaseProgression` introuvable" };
+        const mZone2 = findMethodByParamClasses(k, "GetWarZone", ["FrontLineAffiliation", "Int32"]);
+        if (!mZone2) {
+            return { ok: false,
+                     error: "`GetWarZone(FrontLineAffiliation, Int32)` INTROUVABLE -- chemin PERIME" };
+        }
+        const i32 = (v: number) => { const p = Memory.alloc(4); p.writeS32(v); return p; };
+
+        /** Le pseudo, cherche PAR NOM DE CHAMP dans le membre serialise. On essaie plusieurs
+         *  noms parce qu'aucun n'est garanti par le build ; ce qui n'est PAS negociable, c'est
+         *  qu'un echec rende `null` ET publie le brut, jamais une chaine inventee. */
+        const CLES_NOM = ["playerName", "userName", "displayName", "nickname", "name"];
+        const nomDeMembre = (o: unknown): string | null => {
+            if (o === null || typeof o !== "object") return null;
+            const d = o as Record<string, unknown>;
+            for (const c of CLES_NOM) {
+                const v = d[c];
+                if (typeof v === "string" && v.length > 0) return v;
+            }
+            for (const v of Object.values(d)) {
+                if (v !== null && typeof v === "object") {
+                    const r = nomDeMembre(v);
+                    if (r !== null) return r;
+                }
+            }
+            return null;
+        };
+
+        const zones: Array<Record<string, unknown>> = [];
+        for (let aff = 0; aff < 3; aff += 1) {
+            for (let idx = 0; idx < 12; idx += 1) {
+                let z: NativePointer;
+                try { z = invokeMethod(mZone2.info, sur, [i32(aff), i32(idx)]); } catch { break; }
+                if (!z || z.isNull()) continue;
+                const j = enJson(z) as Record<string, unknown> | null;
+                if (j === null || typeof j !== "object") continue;
+                const zoneId = typeof j.zoneId === "string" ? j.zoneId : null;
+                const parts: Array<Record<string, unknown>> = [];
+                for (const [champ, pi] of [["zonePart1", 0], ["zonePart2", 1]] as const) {
+                    const zp = j[champ] as Record<string, unknown> | undefined;
+                    if (zp === undefined || zp === null) continue;
+                    let occupant: string | null = null;
+                    let occupantBrut: unknown = null;
+                    let occupantRefus: string | null = null;
+                    if (zoneId !== null) {
+                        const o = appeler(k, sur, "GetOccupyingGuildMember", 2,
+                                          [createManagedString(zoneId), i32(pi)]);
+                        if (estRefus(o)) { occupantRefus = (o as RefusVue).error; }
+                        else {
+                            const oj = enJson(o);
+                            occupant = nomDeMembre(oj);
+                            if (occupant === null) occupantBrut = oj;
+                        }
+                    } else {
+                        occupantRefus = "`zoneId` absent de la zone -- occupant NON MESURE";
+                    }
+                    const brutSlots = Array.isArray(zp.warZoneSlots) ? zp.warZoneSlots : [];
+                    const slots = brutSlots.map((s: Record<string, unknown>, i: number) => {
+                        const du = Array.isArray(s?.defendingUnits) ? s.defendingUnits : [];
+                        const l: Record<string, unknown> = {
+                            slot: i,
+                            unites: du.length,
+                            tentatives: s?.attemptNumber ?? null,
+                            perdues: s?.unitsLost ?? null,
+                            // `defeatedByUserId` non nul = slot DEJA BATTU. Le publier tel quel :
+                            // c'est la seule facon de distinguer « intact » de « rase ».
+                            battu: s?.defeatedByUserId != null,
+                            mow: s?.defendingMachineOfWar != null,
+                        };
+                        if (body?.avecUnites === true) {
+                            l.apercu = du.map((u: Record<string, unknown>) => {
+                                const ui = u?.unitInfo as Record<string, unknown> | undefined;
+                                return ui?.id ?? null;
+                            });
+                        }
+                        return l;
+                    });
+                    parts.push({ zonePartIndex: pi, occupiedByUserId: zp.occupiedByUserId ?? null,
+                                 occupant, occupantRefus, occupantBrut, slots });
+                }
+                zones.push({ affiliation: aff, index: idx, zoneId,
+                             type: j.warZoneType ?? null, revealed: j.revealed ?? null, parts });
+            }
+        }
+
+        const f = (body?.filtre ?? "").toLowerCase();
+        const retenues = f === "" ? zones : zones.filter((z) => {
+            const champs: string[] = [String(z.type ?? ""), String(z.zoneId ?? "")];
+            for (const p of z.parts as Array<Record<string, unknown>>) {
+                champs.push(String(p.occupant ?? ""), String(p.occupiedByUserId ?? ""));
+            }
+            return champs.some((c) => c.toLowerCase().includes(f));
+        });
+        return { ok: true, total: zones.length, rendues: retenues.length,
+                 filtre: body?.filtre ?? null, zones: retenues,
+                 note: "`zoneId` est le `warZoneId` attendu par `guildWarSourceForger` ; "
+                     + "`zonePartIndex` et le `slot` d'un slot sont ses deux autres coordonnees." };
+    });
+
     /** Resout TOUTE la chaine et rend ce qui manque. N'INVOQUE RIEN -- a jouer avant
      *  `guildWarBuildBc`, pour lire un refus AVANT de tenter plutot qu'apres coup. */
     ctx.rpc.guildWarProbe = (): Promise<unknown> => queueOnMainThread(() => {

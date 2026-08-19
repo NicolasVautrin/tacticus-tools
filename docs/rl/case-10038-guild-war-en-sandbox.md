@@ -46,6 +46,24 @@ tromper — mesuré : catalogue tronqué, ennemis en ids nus au lieu de `<id>:pv
 ⚠ **Le n°7 est le plus coûteux parce qu'il RAPPORTE UN SUCCÈS.** La valeur vit à `+0x10`
 (cf. `rosterFraisGuildBoss`, même correctif côté guild boss).
 
+## 2bis. TROUVER LA ZONE — `guildWarZones`, par PSEUDO
+
+`guildWarSourceForger` exige un `warZoneId`, et l'inventaire complet (`guildWarBoardRead`, 637 Ko)
+ne désigne les zones que par des GUID. `guildWarZones { filtre: "<pseudo>" }` les rend compactes et
+nommées, via `GuildWarPhaseProgression$$GetOccupyingGuildMember(warZoneId, zonePartIndex)` :
+`zoneId`, `type`, `zonePartIndex`, le PSEUDO de l'occupant, et par slot `battu` / `tentatives` /
+`unites`. Lecture pure, aucune tentative consommée.
+
+⚠ **`battu` n'est pas cosmétique** : sur `VAE〙Nicodsf` (`SupplyDepot`, `zonePartIndex 1`), les
+index 1, 2 et 3 sont RASÉS — les cinq défenseurs à 0 PV. Monter dessus donne une bataille
+dégénérée que rien ne signale. Et **« slot 1 » est ambigu** : l'UI numérote à partir de 1, l'API à
+partir de 0.
+
+⚠ **LA CARTE NE VIENT PAS DE LÀ.** `warZoneConfigParOrdinal` rend `boardId: null` sur les 16
+ordinaux (mur gshared de `GetWarZoneConfig`). La table qui répond est `guildWarZoneConfigs` ->
+`config.zoneTypeConfigs[<type>]` — mesuré : `SupplyDepot` = `MC1_31` / sps **3**,
+`AntiAirBattery` = `PVP_desert_10` / sps **1**.
+
 ## 3. La recette (ordre STRICT — c'est le piège principal)
 
 Tout s'arme **avant** `sandbox_mode.py start`.
