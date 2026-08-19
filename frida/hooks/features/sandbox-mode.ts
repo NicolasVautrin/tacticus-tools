@@ -540,10 +540,22 @@ function champsDeLaSource(src: NativePointer): Record<string, string | null> {
 // ⚠ LES DEUX SURCHARGES D'`Initialize` ONT LA MÊME ARITÉ (6). L'une prend un `IPseudoRNG`
 // déjà construit, l'autre l'`Int32` qui nous intéresse — `findMethodByParamCount` rendrait
 // donc l'une OU l'autre, sans le dire. On désambiguïse par la CLASSE du paramètre 1.
+// ⚠ LE PARAGRAPHE CI-DESSUS EST UN RE — DONC IL SE CONFRONTE, IL NE SE CITE PAS.
+// « le seed est l'horloge » et « rien n'est rejouable » sont des conclusions LUES au décompilé.
+// Elles peuvent avoir été justes et ne plus l'être (un build change), ou avoir toujours porté
+// sur une autre source que celle qu'on monte. Le mode OBSERVATION ci-dessous les rend
+// vérifiables en deux montages : si deux batailles consécutives rendent des valeurs proches et
+// croissantes, c'est bien une horloge ; si elles rendent deux fois la même, ou une constante,
+// la conclusion écrite est fausse pour cette source-là.
 let seedImpose: number | null = null;
 let seedUnCoup = true;
+let seedObserve = false;
 let seedListener: InvocationListener | null = null;
-const seedJournal: Array<{ remplace: string; par: number }> = [];
+/** `par: null` + `mode: "observe"` = on a REGARDE sans rien écrire. Le distinguer d'une
+ *  imposition est le point : un journal qui ne dirait pas lequel des deux a eu lieu ferait
+ *  passer une observation pour une prise de contrôle. */
+const seedJournal: Array<{ remplace: string; par: number | null;
+                           mode: "impose" | "observe" }> = [];
 
 function methodeInitializeSeed(): { info: NativePointer; ptr: NativePointer } | Refus {
     const k = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
@@ -563,33 +575,47 @@ function methodeInitializeSeed(): { info: NativePointer; ptr: NativePointer } | 
  *  ⚠ Ce n'est PAS un `replace` : on laisse le natif s'exécuter, on ne fait que réécrire
  *  l'argument 2 à l'entrée. Le journal garde ce qui a été remplacé, pour que « la bataille
  *  a bien pris mon seed » soit une MESURE et pas une croyance. */
-function armerSeed(seed: number | null, unCoup: boolean): Record<string, unknown> | Refus {
-    if (seed === null) {
+function armerSeed(seed: number | null, unCoup: boolean,
+                   observer = false): Record<string, unknown> | Refus {
+    if (seed === null && !observer) {
         if (seedListener) { try { seedListener.detach(); } catch { /* best effort */ } }
         seedListener = null;
         seedImpose = null;
+        seedObserve = false;
         return { ok: true, arme: false, journal: seedJournal.slice(-8) };
     }
     const mr = methodeInitializeSeed();
     if (estRefus(mr)) return mr;
-    seedImpose = seed | 0;
+    seedObserve = observer;
+    // En OBSERVATION on n'impose rien : `seedImpose` reste nul, et le `onEnter` n'écrit pas.
+    seedImpose = seed === null ? null : (seed | 0);
     seedUnCoup = unCoup;
     if (!seedListener) {
         seedListener = Interceptor.attach(mr.ptr, {
             onEnter(args) {
-                if (seedImpose === null) return;
                 // `this`=args[0], `configuration`=args[1], `rngSeed`=args[2].
                 let avant = "?";
                 try { avant = args[2].toString(); } catch { /* best effort */ }
-                args[2] = ptr(seedImpose >>> 0);
-                seedJournal.push({ remplace: avant, par: seedImpose });
+                if (seedImpose === null) {
+                    // LECTURE PURE : on journalise la valeur que le jeu allait utiliser, et on
+                    // la LAISSE. Sans ce bras, la seule façon de connaître un seed était de le
+                    // remplacer -- donc de ne jamais pouvoir observer celui du jeu.
+                    if (!seedObserve) return;
+                    seedJournal.push({ remplace: avant, par: null, mode: "observe" });
+                } else {
+                    args[2] = ptr(seedImpose >>> 0);
+                    seedJournal.push({ remplace: avant, par: seedImpose, mode: "impose" });
+                    if (seedUnCoup) seedImpose = null;   // un seul coup : la bataille SUIVANTE
+                }
                 if (seedJournal.length > 32) seedJournal.shift();
-                if (seedUnCoup) seedImpose = null;   // un seul coup : la bataille SUIVANTE
             },
         });
     }
-    return { ok: true, arme: true, seed: seedImpose, unCoup,
-             methode: "IdunBattle.Runner.IdunRunner$$Initialize (surcharge Int32)" };
+    return { ok: true, arme: true, seed: seedImpose, unCoup, observe: seedObserve,
+             methode: "IdunBattle.Runner.IdunRunner$$Initialize (surcharge Int32)",
+             note: seedImpose === null
+                 ? "OBSERVATION : le seed du jeu est journalise, jamais remplace."
+                 : "IMPOSITION : l'argument `rngSeed` sera reecrit a l'entree." };
 }
 
 // --- `_gameViews` : le champ SANS LEQUEL UN MODE À VAGUES NE TOURNE PAS -------------------
@@ -718,22 +744,36 @@ export function register(ctx: Ctx): void {
         return armerInjectionGameViews();
     };
 
-    /** Imposer le seed de la PROCHAINE bataille, pour la rendre REJOUABLE.
+    /** Imposer le seed de la PROCHAINE bataille, pour la rendre REJOUABLE -- ou seulement
+     *  L'OBSERVER.
      *
-     *  body: { seed: <Int32> | null, unCoup?: boolean }
-     *    - `seed: null`   -> desarme
+     *  body: { seed: <Int32> | null, unCoup?: boolean, observer?: boolean }
+     *    - `observer: true` -> LECTURE PURE : journalise le seed que le jeu allait utiliser,
+     *                          sans jamais le remplacer. C'est le seul moyen de savoir D'OU
+     *                          vient un seed (horloge ? constante ? serveur ?) : tant que la
+     *                          seule voie etait de l'imposer, la question etait indecidable.
+     *    - `seed: null`   -> desarme (sauf si `observer: true`)
      *    - `unCoup: true` (defaut) -> n'agit que sur la bataille suivante, puis se desarme
      *
-     *  Le retour porte le JOURNAL : ce qui a ete remplace, et par quoi. Un seed « impose »
-     *  qui n'a jamais tire se verrait donc, au lieu de passer pour applique. */
-    ctx.rpc.sandboxModeSeed = (body?: { seed?: number | null; unCoup?: boolean }): unknown => {
+     *  Le retour porte le JOURNAL : ce qui a ete remplace, par quoi, et sous quel MODE. Un seed
+     *  « impose » qui n'a jamais tire se verrait donc, au lieu de passer pour applique. */
+    ctx.rpc.sandboxModeSeed = (body?: {
+        seed?: number | null; unCoup?: boolean; observer?: boolean;
+    }): unknown => {
         // ⚠ `body == null` et NON `=== undefined` : un RPC appelé sans argument arrive à
         // `null`, pas à `undefined`, et le test strict laissait passer jusqu'au déréférencement
         // (« cannot read property 'seed' of null »). Mesuré à la première lecture.
+        if (body?.observer === true) {
+            return armerSeed(body.seed === undefined || body.seed === null
+                                 ? null : (body.seed | 0),
+                             body.unCoup !== false, true);
+        }
         if (body == null || body.seed === undefined) {
             return { ok: true, arme: seedListener !== null, seedCourant: seedImpose,
+                     observe: seedObserve,
                      unCoup: seedUnCoup, journal: seedJournal.slice(-8),
-                     note: "lecture seule -- passer `seed` pour armer, `seed: null` pour desarmer" };
+                     note: "lecture seule -- `observer: true` pour JOURNALISER le seed du jeu "
+                         + "sans le remplacer ; `seed` pour armer ; `seed: null` pour desarmer" };
         }
         return armerSeed(body.seed === null ? null : (body.seed | 0), body.unCoup !== false);
     };
