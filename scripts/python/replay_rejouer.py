@@ -29,6 +29,7 @@ ASCII only en sortie (console Windows cp1252).
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 import urllib.error
@@ -198,7 +199,19 @@ def main(argv):
     # << pas son tour >> qui declenche l'IA. On le LIT, on ne le suppose pas.
     rec = d.get("RecordedPlayerIds") or []
     joueur = rec[0] if rec else 11
-    print("joueur   : %s (RecordedPlayerIds=%s)" % (joueur, rec))
+    # (!)`battleStatus.currentPlayer` EST UN ID D'ENTITE, PAS UN ID DE JOUEUR -- et les confondre
+    # est ce qui a fait jouer l'IA A MA PLACE. Le flux nomme les deux cote a cote
+    # (`Action=AddPlayer Entity=3` + `Tag=Player_Id:11`) : la table se LIT dans la reference,
+    # elle ne se devine pas. Sans elle, `currentPlayer != 11` etait vrai MEME PENDANT MON TOUR,
+    # donc le pilote lancait l'IA a chaque coup : mesure du 2026-08-19, elle a deplace MES
+    # unites (squads 112 et 116) la ou la reference bougeait un ennemi (squad 84).
+    entites = entites_des_joueurs(d)
+    entite_joueur = entites.get(joueur)
+    print("joueur   : %s (RecordedPlayerIds=%s) -- entite %s"
+          % (joueur, rec, entite_joueur if entite_joueur is not None else "NON RESOLUE"))
+    if entite_joueur is None:
+        print("(!) table joueur->entite NON LUE dans le flux de reference : on ne pilotera PAS "
+              "l'IA (piloter sur une comparaison fausse est pire que ne pas piloter).")
     print()
 
     sid = args.session if args.session is not None else session_vivante(args.hote)
@@ -223,7 +236,7 @@ def main(argv):
             return 2
         print("bataille VIVANTE : stage=%s  unites=%s  currentPlayer=%s"
               % (b.get("stageName"), b.get("unitsAlive"), b.get("currentPlayer")))
-        return boucle(jeu, -1, pas, joueur, args)
+        return boucle(jeu, -1, pas, joueur, args, entite_joueur)
 
     # 1. Le runner : BC VERBATIM, seed IMPOSE, enregistreur ARME -- et SURTOUT PAS DEMARRE.
     #
@@ -246,7 +259,7 @@ def main(argv):
         return 1
 
     try:
-        return boucle(jeu, rid, pas, joueur, args)
+        return boucle(jeu, rid, pas, joueur, args, entite_joueur)
     finally:
         if not args.garder:
             try:
@@ -256,11 +269,39 @@ def main(argv):
                 print("(!) runner %d NON dispose : %s" % (rid, e))
 
 
-def boucle(jeu, rid, pas, joueur, args):
+def entites_des_joueurs(replay):
+    """La table `Player_Id -> entite`, LUE dans le flux de reference du premier coup.
+
+    Le flux pose les deux cote a cote :
+
+        Action=AddPlayer Entity=3
+            Tag=Player_Id:11
+
+    Rend `{}` si le flux ne la porte pas -- un appelant DOIT alors s'abstenir de comparer,
+    jamais retomber sur l'id de joueur (c'est exactement la confusion qu'on repare).
+    """
+    table = {}
+    msgs = replay.get("Messages") or []
+    if not msgs:
+        return table
+    flux = msgs[0].get("OutputStream") or ""
+    for m in re.finditer(r"Action=AddPlayer Entity=(\d+)\s*\n\s*Tag=Player_Id:(\d+)", flux):
+        table[int(m.group(2))] = int(m.group(1))
+    return table
+
+
+def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
     """Rejouer les coups un par un et confronter le flux. `rid < 0` = le runner VIVANT."""
     if True:
         divergences = []
-        for i, p in enumerate(pas):
+        # (!)L'INDICE AFFICHE EST CELUI DU REPLAY, pas celui de la tranche. Un `--depuis 6`
+        # renumerotait a zero, donc le premier ecart se lisait a un numero qui n'existe dans
+        # aucun fichier -- et on allait le chercher au mauvais coup.
+        base = max(0, getattr(args, "depuis", 0) or 0)
+        # (i du replay, nom, 1er pas produit, dernier pas produit, texte attendu)
+        traces = []
+        for j, p in enumerate(pas):
+            i = base + j
             inner = p.get("Message") or {}
             mj = inner.get("MessageJson")
             if not mj:
@@ -273,18 +314,34 @@ def boucle(jeu, rid, pas, joueur, args):
             av = jeu.rpc("replaySteps", [{"runnerId": rid, "maxSteps": 4000}], timeout=120000)
             nb_av = len((av or {}).get("steps") or []) if isinstance(av, dict) else 0
 
-            # (!)`AddMachineMessage` NE SE DESERIALISE PAS UTILEMENT. Mesure : il passe la
-            # deserialisation puis fait lever `Apply` en << system error >>, parce que
-            # Newtonsoft ne joue pas le ctor a 2 arguments qui rend le message utilisable. On
-            # le CONSTRUIT (`applyAddMachine`), comme le depot le fait deja partout ailleurs.
-            # Les `AddUnitMessage`, eux, se rejouent tels quels -- ecart de flux NUL.
+            # (!)`AddMachineMessage` NE SE REJOUE PAS, ET LA BONNE PORTE EST EN AMONT.
+            #
+            # Mesure : rejoue en phase `Setup` il fait lever `Apply` en << system error >>, et
+            # ce n'est PAS un defaut de deserialisation -- `applyAddMachine`, qui CONSTRUIT le
+            # message par son ctor a 2 arguments, echoue a l'identique. La cause est
+            # structurelle : `applyAddMachine` est le chemin RUNTIME (post-`StartMatch`), qui
+            # fabrique des machines ORPHELINES ; la voie propre est `BC.PredefinedMachines` ->
+            # `IdunBattle.Operations.SetupGameOperation$$AddPredefinedMachines`, qui ne cree la
+            # Machine que si `GetPlatform` reussit et lie plateforme <-> machine.
+            #
+            # Donc : si la MoW est DEJA sur le plateau (montee par la BC, cf.
+            # `sandbox_boss.py --mow`), on saute le coup en le DISANT. Sinon on refuse
+            # d'inventer -- et on nomme le montage qui manque.
             if nom == "AddMachineMessage":
                 corps = json.loads(mj)
-                r_m = jeu.rpc("applyAddMachine",
-                              [{"runnerId": rid, "unitId": corps.get("UnitId"),
-                                "playerId": corps.get("PlayerId")}], timeout=180000)
-                rep = {"stats": {"replayed": 1 if (isinstance(r_m, dict) and r_m.get("ok"))
-                                 else 0}, "erreurs": r_m}
+                voulu = corps.get("UnitId")
+                o = jeu.rpc("observeBattle", [{}] if rid < 0 else [{"runnerId": rid}],
+                            timeout=120000)
+                posees = [m.get("visualId") for m in ((o or {}).get("mows") or [])]
+                if voulu in posees:
+                    print("[%2d] %-26s DEJA MONTEE par la BC (%s) -- coup saute"
+                          % (i, nom, voulu))
+                    continue
+                print("[%2d] %-26s REFUS : `%s` n'est pas sur le plateau (montees : %s). "
+                      "Remonter avec `sandbox_boss.py --mow %s:%s` -- ce coup ne se rejoue "
+                      "PAS par message."
+                      % (i, nom, voulu, posees or "aucune", voulu, corps.get("PlayerId")))
+                break
             else:
                 rep = jeu.rpc("replayMessages",
                               [{"runnerId": rid,
@@ -302,12 +359,13 @@ def boucle(jeu, rid, pas, joueur, args):
             # pas, mais leur sortie de stream s'ACCUMULE sur le pas suivant. Mesure du
             # 2026-08-19 : sans faire jouer l'IA, le pas 14 rendait 14 088 caracteres pour
             # 53 488 attendus, et le flux partait sur `User_MoveUnit Entity=112` (une de MES
-            # unites) la ou la reference portait `Entity=84` (un ennemi). L'ecart n'accusait
-            # donc pas le moteur -- il disait que personne ne jouait en face.
+            # unites) la ou la reference portait `Entity=84` (un ennemi).
             #
-            # La regle est l'etat, pas un compteur : tant que ce n'est pas le tour du joueur
-            # ENREGISTRE, l'IA joue. Borne pour ne jamais boucler sans fin.
-            for _ in range(TOURS_IA_MAX):
+            # ⚠ MAIS LA COMPARAISON SE FAIT SUR L'ENTITE, PAS SUR L'ID DE JOUEUR. Comparer
+            # `currentPlayer` (une ENTITE : 3, 4, 5) a `joueur` (un ID : 11, 12, 13) est vrai
+            # MEME PENDANT MON TOUR -- le pilote lancait donc l'IA a chaque coup, et c'est ELLE
+            # qui a bouge mes unites au coup 14. Sans table lue, on NE PILOTE PAS.
+            for _ in range(TOURS_IA_MAX if entite_joueur is not None else 0):
                 bs = jeu.rpc("battleStatus", [{"runnerId": rid}], timeout=60000)
                 if not isinstance(bs, dict) or not bs.get("ok", True):
                     break
@@ -319,11 +377,11 @@ def boucle(jeu, rid, pas, joueur, args):
                 if bs.get("stageName") != "Running":
                     break
                 cp = bs.get("currentPlayer")
-                if cp in (None, 0, joueur):
+                if cp in (None, 0, entite_joueur):
                     break
                 r_ia = jeu.rpc("playTurn", [{"runnerId": rid}], timeout=180000)
                 if not isinstance(r_ia, dict):
-                    print("     (!) playTurn NON MESURE (joueur %s) -- on n'insiste pas" % cp)
+                    print("     (!) playTurn NON MESURE (entite %s) -- on n'insiste pas" % cp)
                     break
 
             # (!)`replaySteps` rend la LONGUEUR du flux, jamais son texte -- le contenu ne
@@ -345,30 +403,68 @@ def boucle(jeu, rid, pas, joueur, args):
             marque = "OK  " if ecart == 0 else "DIFF"
             print("[%2d] %-26s %s  produit=%6d  attendu=%6d  ecart=%+d  (pas neufs=%d)"
                   % (i, nom, marque, produit, attendu, ecart, len(steps) - nb_av))
+            traces.append((i, nom, nb_av, len(steps), p.get("OutputStream") or ""))
             if ecart != 0:
                 divergences.append((i, nom, produit, attendu))
 
-        # LE VERDICT AU CARACTERE : le texte entier, en une fois.
+        # LE VERDICT AU CARACTERE, COUP PAR COUP.
+        #
+        # (!)LE DIFF DE BOUT EN BOUT NE MARCHE PAS ICI, et c'est mesure : il s'arrete au
+        # PREMIER caractere different, or sur une bataille MONTEE c'est le caractere 24 801 --
+        # les PV du boss, qui derivent pendant que la guilde tape. Un ecart accepte masquait
+        # donc TOUT ce qui suit, y compris le seul qui nous interesse. On confronte donc chaque
+        # coup a l'`OutputStream` du meme coup, et on rend la ventilation.
         print()
         entier = jeu.rpc("replayOutputStream", [{"runnerId": rid, "maxChars": 40000000}],
                          timeout=180000)
-        produit_txt = (entier or {}).get("outputStream") or ""
-        attendu_txt = "".join(x.get("OutputStream") or "" for x in pas)
-        k = premiere_divergence(produit_txt, attendu_txt)
-        print("FLUX ENTIER : produit=%d car., attendu=%d car." % (len(produit_txt),
-                                                                  len(attendu_txt)))
-        if k is None:
-            print("BIT-EXACT : les deux flux sont IDENTIQUES, caractere par caractere.")
+        produit_txt = ((entier or {}).get("outputStream")
+                       or (entier or {}).get("stream") or "")
+        tous = jeu.rpc("replaySteps", [{"runnerId": rid, "maxSteps": 4000}], timeout=120000)
+        longueurs = [int(s.get("outputStreamLength") or 0)
+                     for s in ((tous or {}).get("steps") or [])]
+        bornes = []
+        n = 0
+        for L in longueurs:
+            bornes.append(n)
+            n += L
+        bornes.append(n)
+
+        if not produit_txt or not longueurs:
+            print("VERDICT NON MESURE : flux=%d caracteres, %d pas -- on ne conclut RIEN."
+                  % (len(produit_txt), len(longueurs)))
+            return 1
+
+        identiques, differents, hors = 0, [], 0
+        for i, nom, d_pas, f_pas, att in traces:
+            if f_pas > len(bornes) - 1:
+                hors += 1
+                continue
+            prod = produit_txt[bornes[d_pas]:bornes[f_pas]]
+            k = premiere_divergence(prod, att)
+            if k is None:
+                identiques += 1
+            else:
+                differents.append((i, nom, k, prod, att))
+
+        print("COUP PAR COUP : %d identiques au caractere, %d differents, %d hors flux."
+              % (identiques, len(differents), hors))
+        if not differents:
+            print("BIT-EXACT sur les %d coups confrontes." % identiques)
         else:
-            print("PREMIER ECART au caractere %d." % k)
-            print("  ATTENDU : %s" % extrait(attendu_txt, k).replace("\n", "\\n")[:340])
-            print("  PRODUIT : %s" % extrait(produit_txt, k).replace("\n", "\\n")[:340])
+            i, nom, k, prod, att = differents[0]
+            print()
+            print("PREMIER COUP QUI DIFFERE : coup %d (%s), a +%d dans SON flux." % (i, nom, k))
+            print("  ATTENDU : %s" % extrait(att, k).replace("\n", "\\n")[:340])
+            print("  PRODUIT : %s" % extrait(prod, k).replace("\n", "\\n")[:340])
+            if len(differents) > 1:
+                print()
+                print("  les autres : %s"
+                      % ", ".join("%d(%s)" % (x[0], x[1]) for x in differents[1:12]))
         if divergences:
             print()
-            print("Coups dont la LONGUEUR differe : %d sur %d ; le premier est le seul qui "
-                  "compte, les suivants en decoulent." % (len(divergences), len(pas)))
-            i, nom, pr, at = divergences[0]
-            print("  premier : coup %d (%s), produit=%d attendu=%d" % (i, nom, pr, at))
+            print("Coups dont la LONGUEUR differe : %d sur %d ; un ecart de longueur est une "
+                  "divergence de STRUCTURE, un ecart a longueur egale est une VALEUR (tirage)."
+                  % (len(divergences), len(pas)))
         return 0
 
 

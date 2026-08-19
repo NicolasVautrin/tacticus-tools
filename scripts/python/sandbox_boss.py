@@ -35,6 +35,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -121,11 +122,32 @@ def main(argv):
     ap.add_argument("--encounter-index", type=int, default=0)
     ap.add_argument("--include-locked", action="store_true")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--depuis-replay", metavar="fichier",
+                    help="reproduire la mise en place d'un replay officiel : seed = son "
+                         "`RngSeed`, puis les poses et la MoW dans SON ordre")
+    ap.add_argument("--mow", action="append", default=[], metavar="unitId:playerId",
+                    help="poser une Machine of War par la BC (`PredefinedMachines`), "
+                         "repetable ; ex. `--mow blackForgefiend:11`")
     ap.add_argument("--sans-replay", action="store_true",
                     help="ne PAS armer la capture de replay en fin de bataille")
     ap.add_argument("--confirmer", action="store_true",
                     help="sans lui : LECTURE seule, rien n'est arme ni monte")
     args = ap.parse_args(argv)
+
+    # (!)LE SEED VIENT DU REPLAY, sinon la comparaison ne prouve rien : sans lui les tirages
+    # divergent (mesure du 2026-08-19 -- degat 3600 contre 3507, crit 1 contre 0), et on lit
+    # une divergence de MOTEUR la ou il n'y a qu'un tirage different.
+    if args.depuis_replay and args.seed is None:
+        try:
+            args.seed = json.loads(Path(args.depuis_replay)
+                                   .read_text(encoding="utf-8")).get("RngSeed")
+        except Exception as e:  # noqa: BLE001
+            print("REFUS : replay ILLISIBLE (%s: %s)" % (type(e).__name__, e))
+            return 2
+        if args.seed is None:
+            print("REFUS : le replay ne porte pas de `RngSeed` -- on ne monte pas sans.")
+            return 2
+        print("seed du replay : %s" % args.seed)
 
     sid = args.session if args.session is not None else session_vivante(args.hote)
     if sid is None:
@@ -185,6 +207,34 @@ def main(argv):
         return 1
     bc = d["json"]
     print("  %-28s ok   %d caracteres" % ("guildBossSourceBc", len(bc)))
+
+    # 3bis. Les Machines of War, POSEES PAR LA BC -- pas par un message rejoue.
+    #
+    # (!)`AddMachineMessage` est la MAUVAISE porte, et la mesure le dit : rejoue en phase
+    # `Setup` il fait lever `Apply` en << system error >>, y compris construit par son ctor a
+    # 2 arguments (`applyAddMachine`), donc ce n'est PAS un defaut de deserialisation. La voie
+    # propre est `BC.PredefinedMachines` -> `IdunBattle.Operations.SetupGameOperation$$AddPredefinedMachines`
+    # -> `AddMachineOperation$$Execute`, qui ne cree la Machine QUE si `GetPlatform` reussit et
+    # lie ensuite plateforme <-> machine. `applyAddMachine`, lui, est le chemin RUNTIME
+    # (post-`StartMatch`) : il fabrique des machines ORPHELINES, sans plateforme.
+    #
+    # Forme mesuree (cf. `rl_collect_batch._patch_predefined_machines`) :
+    #     {"Id": <playerId>, "MachineOfWar": {"UnitId": "<unitId>"}}
+    if args.mow:
+        obj = json.loads(bc)
+        machines = []
+        for spec in args.mow:
+            morceaux = spec.split(":")
+            if len(morceaux) != 2 or not morceaux[0] or not morceaux[1].isdigit():
+                print("  %-28s REFUS `%s` -- attendu `unitId:playerId`" % ("--mow", spec))
+                return 2
+            machines.append({"Id": int(morceaux[1]),
+                             "MachineOfWar": {"UnitId": morceaux[0]}})
+        obj["PredefinedMachines"] = machines
+        bc = json.dumps(obj, ensure_ascii=False)
+        print("  %-28s %d posee(s) : %s"
+              % ("PredefinedMachines", len(machines), ", ".join(args.mow)))
+
     if etape(jeu, "sandboxModeBcOverride", {"configJson": bc}) is None:
         return 1
 
@@ -220,6 +270,99 @@ def main(argv):
     for methode in ("deploymentPhaseStatus", "deploymentPlateau"):
         e = jeu.rpc(methode, [{}])
         print("%s : %s" % (methode, court(e, 500)))
+
+    # 7. LE DEPLOIEMENT DU REPLAY, s'il est demande.
+    if args.depuis_replay:
+        print()
+        if deployer_depuis_replay(jeu, args.depuis_replay) != 0:
+            return 1
+    return 0
+
+
+def attendre_les_poses(jeu, attendues, secondes=30):
+    """Attendre que les poses ENFILEES aient VRAIMENT atterri. Rend les unites du joueur."""
+    miennes = []
+    for _ in range(max(1, int(secondes / 1.5))):
+        o = jeu.rpc("observeBattle", [{}], timeout=120000)
+        miennes = [u for u in ((o or {}).get("units") or []) if u.get("teamId") == 1]
+        if len(miennes) >= attendues:
+            return miennes
+        time.sleep(1.5)
+    print("  %-28s %d/%d apres %ds -- on n'attend plus"
+          % ("attente des poses", len(miennes), attendues, secondes))
+    return miennes
+
+
+def deployer_depuis_replay(jeu, chemin):
+    """Reproduire la MISE EN PLACE d'un replay officiel, unites PUIS MoW.
+
+    (!)L'ORDRE EST LE SUJET, pas un detail de confort : les entites sont allouees dans l'ordre
+    de pose, et un replay se confronte au CARACTERE. Les 5 unites prennent 110..119 (squad pair,
+    unite impaire), la MoW prend 120 -- exactement comme la reference. Poser la MoW AVANT (ce que
+    fait `--mow`, par `BC.PredefinedMachines`) lui donne 96 et repousse le boss de 96 a 99 : la
+    comparaison devient inexploitable.
+
+    (!)LA MoW EXIGE LES DEUX ETAGES. `AddPlaceholderMachine` (rejoue par `deploymentMemoire`) ne
+    pose qu'un PLACEHOLDER DE VUE -- `observeBattle.mows` reste VIDE, alors que la trace dit
+    << MoW REPOSEE >>. C'est `applyAddMachine` qui cree l'entite. Et il remonte une ERREUR alors
+    que la machine EST creee, correctement liee a sa plateforme : on verifie donc par
+    `observeBattle`, jamais par le retour de l'appel.
+    """
+    d = json.loads(Path(chemin).read_text(encoding="utf-8"))
+    poses, mow = [], None
+    for m in d.get("Messages") or []:
+        c = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
+        if c.get("Name") == "AddUnitMessage":
+            p = (c.get("UnitFeetPositions") or [{}])[0]
+            poses.append({"unitId": c.get("UnitId"), "playerId": c.get("PlayerId"),
+                          "col": p.get("Column"), "row": p.get("Row")})
+        elif c.get("Name") == "AddMachineMessage":
+            mow = {"unitId": c.get("UnitId"), "playerId": c.get("PlayerId"), "position": 2}
+        elif c.get("Name") == "StartBattleMessage":
+            break
+    print("DEPLOIEMENT DU REPLAY : %d unite(s)%s"
+          % (len(poses), (" + MoW %s" % mow["unitId"]) if mow else " (aucune MoW)"))
+    if not poses:
+        print("REFUS : aucun `AddUnitMessage` avant le start -- rien a deployer.")
+        return 1
+
+    if etape(jeu, "deploymentMemoire", {"poser": {"poses": poses, "mow": mow}}) is None:
+        return 1
+    if etape(jeu, "deploymentMemoire", {"rejouer": True, "confirmer": True}) is None:
+        return 1
+    # (!)LE REJEU EST ENFILE SUR LE THREAD PRINCIPAL -- il n'est PAS fini au retour de l'appel.
+    # Lire tout de suite rend << 0 unite posee >> et fait conclure a un echec de pose : mesure
+    # du 2026-08-19, la memoire annoncait encore << POSEE depuis l'exterieur >> alors que le
+    # rejeu tournait. On ATTEND l'EFFET, on ne croit pas le retour.
+    miennes = attendre_les_poses(jeu, len(poses))
+    e = jeu.rpc("deploymentMemoire", [{}])
+    print("  %-28s rejeux=%s  %s" % ("deploymentMemoire", (e or {}).get("rejeux"),
+                                     court((e or {}).get("dernier"), 200)))
+
+    if mow is not None and len(miennes) == len(poses):
+        # Le retour est IGNORE a dessein : il rend une erreur alors que la machine est creee.
+        jeu.rpc("applyAddMachine", [{"unitId": mow["unitId"],
+                                     "playerId": mow["playerId"]}], timeout=180000)
+
+    o = jeu.rpc("observeBattle", [{}], timeout=120000)
+    unites = (o or {}).get("units") or []
+    mows = (o or {}).get("mows")
+    mows = [mows] if isinstance(mows, dict) else (mows or [])
+    miennes = [u for u in unites if u.get("teamId") == 1]
+    print("  %-28s %d unite(s) au joueur : %s"
+          % ("observeBattle", len(miennes),
+             " ".join("%s=%s" % (u.get("entityId"), u.get("visualId")) for u in miennes)))
+    print("  %-28s %s" % ("MoW",
+                          " ".join("%s=%s" % (m.get("machineId"), m.get("visualId"))
+                                   for m in mows) or "AUCUNE"))
+    if len(miennes) != len(poses):
+        print("REFUS : %d unite(s) posee(s) pour %d attendue(s)." % (len(miennes), len(poses)))
+        return 1
+    if mow is not None and not mows:
+        print("REFUS : la MoW n'est PAS sur le plateau (le placeholder de vue ne suffit pas).")
+        return 1
+    print("Mise en place CONFORME. Confronter : "
+          "`python scripts/python/replay_rejouer.py --vivant --depuis %d`" % (len(poses) + 1))
     return 0
 
 
