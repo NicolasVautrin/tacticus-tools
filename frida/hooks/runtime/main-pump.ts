@@ -18,7 +18,7 @@
 // preserves the main-thread context, so hooks downstream of `drainPending`
 // fire correctly.
 
-import { findClass, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
+import { findClass, findClassAnywhere, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
 import { state, clearLogUnpinned } from "../game/state.js";
 import { install } from "../game/recorder.js";
 import { clearTraceOrigin } from "../game/trace-origin.js";
@@ -117,6 +117,56 @@ const gvRunnerOff = gameViewsClass
     ? getFieldOffset(gameViewsClass, "_runner") : -1;
 const updateMi = gameViewsClass ? findMethod(gameViewsClass, "Update") : null;
 
+// --- POMPE UI : vidanger DANS LE TICK DE L'EVENT SYSTEM ------------------
+//
+// ⚠ POURQUOI UNE SECONDE VIDANGE. La pompe principale draine dans `IdunGameViews.Update`,
+// c'est-à-dire EN PLEINE FRAME DE LA VUE DE BATAILLE. Mesuré le 2026-08-20 : les travaux qui ne
+// touchent que des structures de données y passent, mais tout appel qui manipule des widgets et
+// des `GameObject` LÈVE en « system error » -- `UnitDeploymentHud$$HandleOnSwitchToMachinesOfWarUnitsTapped`,
+// `FindFirstObjectByType`, et `HandleOnStartBattleTapped` dès que le chemin MoW est en jeu (le
+// même appel PASSE avec 5 unités et aucune machine).
+//
+// Le HUD n'a pas d'`Update` : il est piloté par `UnityEngine.EventSystems.EventSystem$$Update`,
+// le tick d'entrée de l'UI -- c'est de là que part le clic humain. On offre donc ce point de
+// vidange, et il est EXCLUSIF : quand il est armé, la pompe principale ne draine plus, sinon un
+// travail partirait dans l'un ou l'autre contexte au hasard et la mesure ne voudrait rien dire.
+//
+// ⛔ `attach`, jamais `replace` : on n'a rien à faire AVANT l'original, et un `replace` sur une
+// méthode par frame est exactement ce que le `Ne jamais` du projet proscrit.
+let uiPumpListener: InvocationListener | null = null;
+let uiDrainActif = false;
+
+export function pompeUiEtat(): Record<string, unknown> {
+    return { installee: uiPumpListener !== null, actif: uiDrainActif };
+}
+
+export function pompeUiArmer(actif: boolean): Record<string, unknown> {
+    if (!actif) {
+        uiDrainActif = false;
+        return { ok: true, ...pompeUiEtat(), note: "la pompe principale redraine" };
+    }
+    if (uiPumpListener === null) {
+        const k = findClassAnywhere("UnityEngine.EventSystems", "EventSystem");
+        if (!k) return { ok: false, error: "`UnityEngine.EventSystems.EventSystem` INTROUVABLE" };
+        const mi = findMethod(k, "Update");
+        if (!mi || mi.ptr.isNull()) return { ok: false, error: "`EventSystem$$Update` INTROUVABLE" };
+        try {
+            uiPumpListener = Interceptor.attach(mi.ptr, {
+                onEnter() {
+                    if (!uiDrainActif) return;
+                    try { drainPending(); } catch (e) { noteFault("ui-pump", e); }
+                },
+            });
+        } catch (e) {
+            return { ok: false, error: "ancrage REFUSÉ : " + (e as Error).message };
+        }
+    }
+    uiDrainActif = true;
+    return { ok: true, ...pompeUiEtat(),
+             note: "les travaux enfilés se vident désormais dans le tick de l'UI ; la pompe "
+                 + "principale ne draine plus tant que c'est armé" };
+}
+
 export function installMainPump(): void {
     if (!updateMi || updateMi.ptr.isNull()) {
         log("[main-pump] IdunGameViews.Update not found");
@@ -178,7 +228,8 @@ export function installMainPump(): void {
         // Second déclencheur de capture : `stage -> Finished` alors que le runner est
         // ENCORE attaché. Ne coûte qu'un test de booléen tant que le module est désarmé.
         surveillerFinDeBataille();
-        drainPending();
+        // EXCLUSIF : si la pompe UI est armée, c'est ELLE qui draine (cf. son en-tête).
+        if (!uiDrainActif) drainPending();
         } catch (e) { noteFault("main-pump", e); }
 
         // RELAIS INCONDITIONNEL — cf. TRANSPARENCE en tête de fichier.

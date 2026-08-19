@@ -86,6 +86,7 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 // qui rend `null` sur ce qu'il est censé identifier ne sert qu'à moitié.
 import { readIl2cppString } from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { pompeUiArmer, pompeUiEtat } from "../runtime/main-pump.js";
 import {
     getCampaignGameModeSourcePtr, getPvpGameModeSourcePtr, getUnitProgressionPtr,
 } from "./campaign-builder.js";
@@ -3438,6 +3439,21 @@ export function register(ctx: Ctx): void {
     };
 
     /**
+     * VIDANGER LA POMPE DANS LE TICK DE L'UI plutôt que dans celui de la vue de bataille.
+     *
+     * Le HUD n'a pas d'`Update` : il est piloté par `UnityEngine.EventSystems.EventSystem$$Update`.
+     * Nos travaux, eux, partaient de `IdunGameViews$$Update` -- en pleine frame de la vue de
+     * bataille -- et tout appel manipulant des widgets y LÈVE. Ce RPC déplace le point de
+     * vidange ; il est EXCLUSIF (cf. `runtime/main-pump.ts`).
+     */
+    ctx.rpc.pompeUiArmer = (body?: { armer?: boolean }): unknown => {
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...pompeUiEtat() };
+        }
+        return pompeUiArmer(body.armer === true);
+    };
+
+    /**
      * BASCULER LE HUD EN SÉLECTION « MACHINES OF WAR » — ou en revenir.
      *
      * `idun.ui.UnitDeploymentHud$$HandleOnSwitchToMachinesOfWarUnitsTapped()` (aucun paramètre
@@ -3470,6 +3486,12 @@ export function register(ctx: Ctx): void {
             const k = findClassAnywhere(NS_HUD, CLS_HUD);
             const mi = k ? findMethodByParamCount(k, methode, 0) : null;
             if (!mi) return { ok: false, error: `\`${methode}\` INTROUVABLE (0 paramètre)` };
+            // ⚠ VÉRIFIER LE CORPS RÉSOLU. IL2CPP déduplique les corps triviaux : `findMethod`
+            // peut rendre une adresse PARTAGÉE, et on invoquerait alors autre chose sans que
+            // rien ne le dise. On publie l'adresse Ghidra et la tête, comme le fait déjà
+            // l'armement du relais de START -- au lecteur de confronter au décompilé.
+            const va = ghidraVA(mi.ptr);
+            const tete = lireTete(mi.ptr);
             const compte = (): number | null => {
                 try {
                     const d = hudInstance!.add(0x240).readPointer();
@@ -3481,10 +3503,11 @@ export function register(ctx: Ctx): void {
             const avant = compte();
             try { invokeMethod(mi.info, hudInstance, []); }
             catch (e) {
-                return { ok: false, methode, allUnitModelsAvant: avant,
+                return { ok: false, methode, ghidraVA: va, tete, allUnitModelsAvant: avant,
                          error: "LEVÉ : " + (e as Error).message };
             }
-            return { ok: true, methode, allUnitModelsAvant: avant, allUnitModelsApres: compte(),
+            return { ok: true, methode, ghidraVA: va, tete,
+                     allUnitModelsAvant: avant, allUnitModelsApres: compte(),
                      selectionMoW: (() => {
                          try { return hudInstance!.add(0x221).readU8() !== 0; } catch { return null; }
                      })() };
