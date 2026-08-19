@@ -441,20 +441,39 @@ export function register(ctx: Ctx): void {
         });
     };
 
+    /** ⚠ `runnerId` OMIS (ou `-1`) = le runner VIVANT.
+     *
+     *  Et cette voie n'est pas un doublon du rejeu générique : `AddMachineMessage` ne se
+     *  DÉSÉRIALISE pas utilement. Mesuré le 2026-08-19 en rejouant un replay officiel —
+     *  `{"Name":"AddMachineMessage","UnitId":"blackForgefiend","PlayerId":11}` passe la
+     *  désérialisation puis fait lever `Apply` en « system error ». Newtonsoft ne joue PAS le
+     *  ctor à 2 arguments, qui est ce qui rend le message utilisable ; on le construit donc,
+     *  au lieu de le relire. Les cinq `AddUnitMessage` du même replay, eux, se rejouent tels
+     *  quels — écart de flux NUL. */
     ctx.rpc.applyAddMachine = (args: {
-        runnerId: number; unitId: string; playerId: number;
+        runnerId?: number; unitId: string; playerId: number;
     }) => {
         const applyMi = runnerApplyMi;
         if (!applyMi) throw new Error("IdunRunner.Apply not resolved");
         return queueOnMainThread(() => {
-            const entry = getRunner(args.runnerId);
+            const rid = typeof args.runnerId === "number" ? args.runnerId : -1;
+            let runner: NativePointer;
+            if (rid >= 0) {
+                runner = getRunner(rid).runner;
+            } else {
+                const live = state.liveRunner;
+                if (!live || live.isNull()) {
+                    return { ok: false, error: "aucun runner VIVANT et aucun `runnerId` donné" };
+                }
+                runner = live;
+            }
             const msg = buildAddMachineMessage(args.unitId, args.playerId);
             try {
-                const events = captureEvents(args.runnerId, entry.runner,
+                const events = captureEvents(rid, runner,
                     "AddMachineMessage", () => {
-                        invokeMethod(applyMi.info, entry.runner, [msg]);
+                        invokeMethod(applyMi.info, runner, [msg]);
                     });
-                return { ok: true, eventCount: events.length };
+                return { ok: true, runnerId: rid, vivant: rid < 0, eventCount: events.length };
             } finally {
                 try { gcRoot.remove(msg); } catch { /* best effort */ }
             }
@@ -480,10 +499,29 @@ export function register(ctx: Ctx): void {
      * localiser la PREMIERE divergence au coup pres au lieu de constater un ecart global.
      */
     ctx.rpc.replayMessages = (args: {
-        runnerId: number;
+        /** `-1` (ou omis) = le runner VIVANT, celui de la bataille montée à l'écran. */
+        runnerId?: number;
         messages: Array<{ idx?: number; cls: string; ns?: string; json: string }>;
     }) => queueOnMainThread(() => {
-        const entry = getRunner(args.runnerId);
+        // ⚠ LE RUNNER VIVANT EST UNE CIBLE LEGITIME, ET C'EST MEME LA BONNE. Le pompeur de
+        // l'IA vit dans la VUE (`IdunGameViews.<RunComputerActionsForCurrentPlayerInMultiple
+        // Frames>`) : un runner du REGISTRE n'en a pas, donc personne n'y fait jouer l'IA ni
+        // les unités AUTOMATIQUES (summons, objets), et rejouer dessus obligerait à
+        // ré-implémenter à la main un enchaînement de tours que le jeu fait tout seul.
+        // Sur une bataille SANDBOX la vue est là : on rejoue les coups du joueur, le reste
+        // suit nativement -- et c'est aussi le chemin d'une vraie partie.
+        const rid = typeof args.runnerId === "number" ? args.runnerId : -1;
+        let runner: NativePointer;
+        if (rid >= 0) {
+            runner = getRunner(rid).runner;
+        } else {
+            const live = state.liveRunner;
+            if (!live || live.isNull()) {
+                return { ok: false, error: "aucun runner VIVANT (pas de bataille montée) et "
+                    + "aucun `runnerId` donné -- on ne devine pas la cible" };
+            }
+            runner = live;
+        }
         const liste: ReplayMessage[] = (args.messages || []).map((m, i) => ({
             idx: typeof m.idx === "number" ? m.idx : i,
             src: "replayMessages",
@@ -493,8 +531,8 @@ export function register(ctx: Ctx): void {
             prng: null,
             json: m.json,
         }));
-        const r = replayOnRunner(entry.runner, liste);
-        return { ok: true, runnerId: args.runnerId, stage: r.stage, stats: r.stats,
+        const r = replayOnRunner(runner, liste);
+        return { ok: true, runnerId: rid, vivant: rid < 0, stage: r.stage, stats: r.stats,
                  erreurs: r.stats.errors.slice(0, 10) };
     });
 
