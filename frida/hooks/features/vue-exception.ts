@@ -360,8 +360,30 @@ export function register(ctx: Ctx): void {
             return refus("classe ILLISIBLE a cette adresse -- on ne lit PAS des champs sur un "
                 + "objet qu'on n'a pas identifie.");
         }
-        return { ok: true, adresse: p.toString(), classe: nom,
-                 champs: carteDesChamps(p, klass) };
+        const out: Record<string, unknown> = { ok: true, adresse: p.toString(), classe: nom,
+                                               champs: carteDesChamps(p, klass) };
+        // ⚠ UNE LISTE NE SE LIT PAS PAR SES CHAMPS. `List<T>` ne publie que `_items` et
+        // `_size` : la carte d'une liste ne dit RIEN de ce qu'elle contient, et c'est justement
+        // dans un ELEMENT que se cache la difference qu'on cherche (5 entrees passent, 6
+        // lèvent). On rend donc l'adresse et la CLASSE de chaque element, prêtes à être
+        // redonnées à ce même RPC.
+        if (nom === "List`1") {
+            try {
+                const items = p.add(getFieldOffset(klass, "_items")).readPointer();
+                const taille = p.add(getFieldOffset(klass, "_size")).readS32();
+                const els: Array<Record<string, unknown>> = [];
+                for (let i = 0; i < Math.min(taille, 32); i += 1) {
+                    const e = items.add(0x20 + i * Process.pointerSize).readPointer();
+                    let cn: string | null = null;
+                    try { cn = e.isNull() ? null : s(class_get_name(e.readPointer()) as NativePointer); }
+                    catch { cn = null; }
+                    els.push({ index: i, adresse: e.toString(), classe: cn });
+                }
+                out.taille = taille;
+                out.elements = els;
+            } catch (e) { out.elementsErreur = (e as Error).message; }
+        }
+        return out;
     };
 
     /** RETIRER le verrou `_isLogicPausedFromException` sur les instances vivantes.

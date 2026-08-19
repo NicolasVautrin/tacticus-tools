@@ -23,7 +23,7 @@
 // emitted record carries `crashNo` / `excNo` / `initNo` counters so the
 // caller can correlate across the three streams.
 
-import { emit } from "./ai-trace/state.js";
+import { derniersEvenements, emit } from "./ai-trace/state.js";
 import { decodeManagedException } from "../il2cpp/invoke.js";
 import {
     class_get_name, s as cstr, IL2CPP_MODULE_NAME,
@@ -168,7 +168,7 @@ function installManagedExceptionHook(): boolean {
             const excPtr = args[0];
             try {
                 const decoded = decodeManagedException(excPtr);
-                emit({
+                const rec = {
                     evt: "unhandled_exception",
                     excNo: excSeen,
                     className: decoded.className,
@@ -177,7 +177,17 @@ function installManagedExceptionHook(): boolean {
                     // browsable but enough frames survive for diagnosis.
                     stack: decoded.stack
                         ? decoded.stack.slice(0, 2000) : null,
-                });
+                };
+                emit(rec);
+                // ⚠ ON LA GARDE ICI AUSSI, et c'est CELLE-CI qui nomme la cause. Un
+                // « system error » remonté par Frida n'a pas de message ; la pile SEH ne
+                // rendait que des `mono_type_size` (le symbole exporté le plus proche, donc
+                // aucune information). L'exception MANAGÉE, elle, porte sa classe, son message
+                // et sa pile C# — mesuré le 2026-08-20 : le compteur SEH ne bougeait même pas
+                // sur le commit de la MoW, alors qu'`il2cpp_unhandled_exception` était dans la
+                // trace. On cherchait la panne dans le mauvais des trois étages.
+                derniersCrashes.push(rec as unknown as Record<string, unknown>);
+                if (derniersCrashes.length > 24) derniersCrashes.shift();
             } catch { /* never throw */ }
         },
     });
@@ -393,9 +403,14 @@ export function register(ctx: Ctx): void {
      * ce RPC, la seule façon d'en connaître la cause était de deviner. Les RVA se résolvent en
      * SYMBOLE par `python scripts/python/ghidra_symbols.py whereis <VA>` (VA = 0x180000000 + RVA).
      */
-    ctx.rpc.crashDerniers = (body?: { combien?: number }): unknown => {
+    ctx.rpc.crashDerniers = (body?: { combien?: number; evt?: string }): unknown => {
         const n = typeof body?.combien === "number" ? Math.max(1, body.combien) : 6;
-        return { ok: true, total: crashesSeen, rendus: Math.min(n, derniersCrashes.length),
-                 crashes: derniersCrashes.slice(-n) };
+        // On rend TOUT ce qui est passe par `emit`, pas seulement les SEH : le vrai porteur de
+        // la cause est `invoke_native_error` (methode fautive + pile + exception managee si
+        // IL2CPP a eu le temps de l'ecrire), emis par le point d'etranglement `invokeMethod`.
+        let evs = derniersEvenements(48);
+        if (typeof body?.evt === "string") evs = evs.filter((e) => e.evt === body.evt);
+        return { ok: true, totalSeh: crashesSeen, seh: derniersCrashes.slice(-n),
+                 evenements: evs.slice(-n) };
     };
 }

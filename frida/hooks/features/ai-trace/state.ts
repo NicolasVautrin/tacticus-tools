@@ -125,7 +125,25 @@ export function projectFirstTile(
 
 // ---- Emit + low-level helpers ------------------------------------------
 
+/**
+ * Les derniers evenements emis, RETENUS DANS LE SCRIPT.
+ *
+ * ⚠ `send()` part vers l'hote, qui ne PERSISTE rien hors campagne de traces : mesure du
+ * 2026-08-20, les JSONL d'`ai-traces` faisaient 0 octet alors qu'un `invoke_native_error`
+ * tombait a chaque commit de MoW -- avec la methode fautive et sa pile dedans. On perdait donc
+ * la seule chose qui NOMME la cause, et un << system error >> sans message faisait deviner.
+ */
+const derniers: Array<Record<string, unknown>> = [];
+
+export function derniersEvenements(n = 12): Array<Record<string, unknown>> {
+    return derniers.slice(-Math.max(1, n));
+}
+
 export function emit(record: Record<string, unknown>): void {
+    try {
+        derniers.push(record);
+        if (derniers.length > 48) derniers.shift();
+    } catch { /* best effort */ }
     try {
         send({ t: "ai_trace", seq: traceState.seq++,
             ts: Date.now(), ...record });
