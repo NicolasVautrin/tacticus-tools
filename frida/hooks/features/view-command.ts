@@ -390,6 +390,80 @@ export function register(ctx: Ctx): void {
         };
     });
 
+    /** TOUTES les instances vivantes d'une classe UNITY, par (ns, cls) -- pas seulement la
+     *  premiere.
+     *
+     *  body: { ns, cls, max? } -> { ok, chaine, instances: [{ptr, classeReelle}] }
+     *
+     *  ⚠ POURQUOI CE RPC EXISTE. Les trois cibles nommees repondent aux questions PREVUES ; tout
+     *  le reste du graphe de vue etait hors de portee, faute d'un point d'entree. Mesure du
+     *  2026-08-19 : diagnostiquer une file visuelle figee exigeait de lire un
+     *  `Loki_NormalAttackVisuals` VIVANT (`Status`, `_weaponWeaponVisualConfig`) -- objet qu'aucun
+     *  chemin de champs n'atteint, parce qu'il n'est stocke NULLE PART : il vit le temps d'un pas
+     *  de flux. Seule l'enumeration Unity le trouve.
+     *
+     *  ⚠ ET IL REND LA LISTE, PAS LA PREMIERE. Meme mesure : apres une retraite suivie d'un
+     *  remontage, DEUX `IdunMainView` coexistent et `FindObjectsByType` rend d'abord la MORTE
+     *  (celle dont `gameViews` est nul). Un lecteur bati sur « la premiere » conclut « pas de
+     *  bataille » alors qu'elle tourne. Ici l'appelant voit les N et tranche lui-meme.
+     *
+     *  ⚠ CE QU'IL NE PEUT PAS TROUVER, et il le DIT : une classe qui ne derive pas
+     *  d'`UnityEngine.Object` rend `instances: []` avec `chaine` publiee -- c'est la chaine
+     *  d'heritage qui explique le zero, pas une absence d'instance. Un `Update()` ne fait pas un
+     *  MonoBehaviour (`IdunGameViews`, `ViewCommandExecutor`, `thor.Menu.MenuSystems`).
+     *
+     *  LECTURE PURE : `FindObjectsByType` n'ecrit rien. */
+    ctx.rpc.viewInstances = (body?: {
+        ns?: string; cls?: string; max?: number;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        const ns = body?.ns ?? "";
+        const cls = body?.cls ?? "";
+        if (!cls) return { ok: false, error: "`cls` requis (et `ns`, sauf namespace global)" };
+        const klass = findClassAnywhere(ns, cls);
+        if (!klass) return { ok: false, error: `classe introuvable : ${ns}.${cls}` };
+        const chaine = chaineHeritage(klass);
+        const kObj = findClassAnywhere("UnityEngine", "Object");
+        if (!kObj) return { ok: false, error: "UnityEngine.Object introuvable", chaine };
+        const mi3 = findMethodByParamCount(kObj, "FindObjectsByType", 3);
+        const mi2 = findMethodByParamCount(kObj, "FindObjectsByType", 2);
+        if (!mi3 && !mi2) {
+            return { ok: false, chaine,
+                     error: "`FindObjectsByType` INTROUVABLE (2 et 3 parametres) -- chemin PERIME" };
+        }
+        const tri = Memory.alloc(4); tri.writeS32(0);
+        const inclure = Memory.alloc(4); inclure.writeS32(1);
+        let arr: NativePointer;
+        try {
+            arr = mi3
+                ? invokeMethod(mi3.info, null, [getSystemType(klass), inclure, tri])
+                : invokeMethod(mi2!.info, null, [getSystemType(klass), tri]);
+        } catch (e) {
+            return { ok: false, chaine,
+                     error: "`FindObjectsByType` a leve : " + (e as Error).message };
+        }
+        // `null` et « 0 instance » sont deux etats DIFFERENTS : le premier veut dire que la classe
+        // n'est pas enumerable (pas un `UnityEngine.Object`), le second qu'elle l'est et qu'il
+        // n'y en a aucune de vivante. Les confondre a deja fait conclure a tort.
+        if (arr.isNull()) {
+            return { ok: true, chaine, instances: null, total: null,
+                     note: "`FindObjectsByType` a rendu NULL -- classe NON ENUMERABLE (elle ne "
+                         + "derive pas d'`UnityEngine.Object`). Voir `chaine`." };
+        }
+        const n = arr.add(0x18).readS32();
+        const max = Math.max(1, Math.min(body?.max ?? 32, 256));
+        const instances: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < Math.min(n, max); i += 1) {
+            let p: NativePointer;
+            try { p = arr.add(0x20 + i * Process.pointerSize).readPointer(); } catch { continue; }
+            if (p.isNull()) continue;
+            let cn: string | null = null;
+            try { cn = s(class_get_name(p.readPointer()) as NativePointer); } catch { /* null */ }
+            instances.push({ ptr: p.toString(), classeReelle: cn });
+        }
+        return { ok: true, chaine, total: n, rendues: instances.length, tronque: n > max,
+                 instances };
+    });
+
     /** QUI est joignable, et par quelle voie. Publie la CHAINE D'HERITAGE : c'est elle qui
      *  explique pourquoi l'un s'enumere et l'autre non. */
     ctx.rpc.viewSurface = (): Promise<unknown> => queueOnMainThread(() => {
