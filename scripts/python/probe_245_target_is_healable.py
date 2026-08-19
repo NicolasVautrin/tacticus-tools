@@ -98,7 +98,7 @@ BOARD, SEED = "MC1_67", "777"
 # consequence ici, l'armure n'entre dans `EntityCanBeHealed` par aucun terme (elle n'apparait que
 # dans le disjunct `GetStat(Armor, Missing)` du JUMEAU `EntityCanBeRepaired`, bit 16, hors sujet).
 HP_PLAYER = HP_TARGET = 300000
-WARMUP_ENDTURNS = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 
 # Regles NON PORTEES admises en ecart PERMISSIF (port == 0). `TargetIsHealable` n'y est PLUS : c'est
 # tout l'objet de cette fiche.
@@ -364,7 +364,7 @@ def _run(sid, aid: int, seed: str, board_id: str) -> dict:
     print("\n########## ability %d  runner=%d board=%s seed=%s  roster=%s"
           % (aid, rid, board_id, seed, roster))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
 
         d0 = _dv(sid, rid)

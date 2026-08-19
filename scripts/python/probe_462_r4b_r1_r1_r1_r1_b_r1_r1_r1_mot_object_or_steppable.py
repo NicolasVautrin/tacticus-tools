@@ -631,8 +631,8 @@ def jouer_bras(sid, bras: str) -> dict:
 def step_live() -> int:
     import rl_collect_batch as R
     sid = R._resolve_session()
-    w = R._rpc(sid, "warmupGameSingletons", [{}], timeout=180)
-    print("session %s | warmup %s" % (sid, str(w)[:120]))
+    w = R._rpc(sid, "autoBootExtraire", [{}], timeout=180)
+    print("session %s | amorce %s" % (sid, str(w)[:120]))
     print("")
     out = {}
     for bras in ("crate", "warden"):

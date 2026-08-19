@@ -199,7 +199,7 @@ let raisonUnwrap: string | null = null;
 let _readyEnvoye = false;
 
 // UnitProgression instance — captured at the first natural
-// UnitProgression.GetUnit(string) call. Used by the per-faction warmup
+// UnitProgression.GetUnit(string) call. Used by the per-faction amorce
 // step to pre-resolve metadata for enemy units of a faction the user
 // hasn't touched.
 let unitProgressionPtr: NativePointer | null = null;
@@ -727,7 +727,7 @@ function readString(strPtr: NativePointer): string | null {
     } catch { return null; }
 }
 
-/** Per-faction warmup — call UnitProgression.GetUnit(id) for each unit id
+/** Per-faction amorce — call UnitProgression.GetUnit(id) for each unit id
  * in the targetMatch's first variation. Each call forces IL2CPP to resolve
  * the unit's class metadata + parent chain (faction-specific cctors).
  *
@@ -738,16 +738,16 @@ function readString(strPtr: NativePointer): string | null {
  *
  * Cheap idempotent: GetUnit on already-warm classes is a fast hashmap
  * lookup. */
-function warmupTargetUnits(targetMatch: NativePointer): number {
+function prechargerUnitesCibles(targetMatch: NativePointer): number {
     if (unitProgressionPtr === null || getUnitMi === null) return 0;
-    let warmed = 0;
+    let precharges = 0;
     try {
         // targetMatch.units (List<List<string>>) at offset 0x70
         const unitsListList = targetMatch.add(0x70).readPointer();
         if (unitsListList.isNull()) return 0;
         const variationCount = listSize(unitsListList);
         if (variationCount <= 0) return 0;
-        // Use only the first variation — sufficient for metadata warmup.
+        // Use only the first variation — sufficient for metadata amorce.
         const variation0 = listGet(unitsListList, 0);
         if (variation0.isNull()) return 0;
         const unitCount = listSize(variation0);
@@ -765,13 +765,13 @@ function warmupTargetUnits(targetMatch: NativePointer): number {
             try {
                 const idManaged = createManagedString(idOnly);
                 invokeMethod(getUnitMi.info, unitProgressionPtr!, [idManaged]);
-                warmed += 1;
+                precharges += 1;
             } catch { /* unknown id — skip */ }
         }
     } catch (e) {
-        log("[campaign-builder] warmupTargetUnits failed: " + (e as Error).message);
+        log("[campaign-builder] prechargerUnitesCibles failed: " + (e as Error).message);
     }
-    return warmed;
+    return precharges;
 }
 
 export function register(ctx: Ctx): void {
@@ -1265,7 +1265,7 @@ export function register(ctx: Ctx): void {
         let json: string | null = null;
         const pathUsed = "mute";
 
-        // Resolve the live CampaignGameModeSource. Captured at warmup via the
+        // Resolve the live CampaignGameModeSource. Captured at amorce via the
         // ctor.onLeave hook. Heap-scan fallback covers re-injection after the
         // user already navigated into a campaign (rare).
         let sourcePtr = campaignGameModeSourcePtr;
@@ -1282,14 +1282,14 @@ export function register(ctx: Ctx): void {
         // the swapped state.
         if (sourcePtr !== null && ensureCgmsResolved()) {
             log("[campaign-builder] entering mute path on source @ " + sourcePtr);
-            // Per-faction warmup — pre-resolve the metadata for each enemy
+            // Per-faction amorce — pre-resolve the metadata for each enemy
             // unit class referenced by this match. Without this, building
             // a campaign of a faction the user hasn't touched (e.g. tyranid
             // event after warming up via Indomitus/necron) crashes the same
             // way as cold-start for path 1.
-            const warmed = warmupTargetUnits(targetMatch);
-            if (warmed > 0) {
-                log("[campaign-builder] warmed up " + warmed
+            const precharges = prechargerUnitesCibles(targetMatch);
+            if (precharges > 0) {
+                log("[campaign-builder] warmed up " + precharges
                     + " unit classes via UnitProgression.GetUnit");
             }
             const origCampaignId = sourcePtr.add(offCurrentCampaignId).readPointer();
@@ -1376,7 +1376,7 @@ export function register(ctx: Ctx): void {
 
     /** Diagnostic — what's available to the builder right now.
      *   hasGameConfig       → catalog dump works (lastGameConfig captured)
-     *   hasUnitProgression  → per-faction warmup is possible
+     *   hasUnitProgression  → per-faction amorce is possible
      *   hasInstance         → path 2 mute progression-swap is ready
      * Build needs `hasInstance` (campaignGameModeSourcePtr captured = user clicked a battle
      * once in-game). The frontend polls this every 5 s. Cheap by design —
@@ -1406,7 +1406,7 @@ export function register(ctx: Ctx): void {
      *
      *  On lit donc les prédicats que le jeu lui-même consulte, sur
      *  `IdunMetaLogic.UserProgress.CampaignProgression` — l'instance vit à `_campaignProgression`
-     *  sur le `CampaignGameModeSource` capturé au warmup. Tri-état : `null` = PAS MESURÉ
+     *  sur le `CampaignGameModeSource` capturé a l'amorce. Tri-état : `null` = PAS MESURÉ
      *  (méthode irrésolue ou invoke en faute), jamais rabattu sur `false` — un `false` muet se
      *  lirait « ce nœud est verrouillé » et ferait renoncer à une bataille jouable.
      *
@@ -1418,7 +1418,7 @@ export function register(ctx: Ctx): void {
         if (typeof loc !== "number") return { ok: false, error: "passer locationIndex (0-base)" };
         const src = campaignGameModeSourcePtr;
         if (src === null) {
-            return { ok: false, error: "aucun CampaignGameModeSource capture — warmup requis" };
+            return { ok: false, error: "aucun CampaignGameModeSource capture — amorce requis" };
         }
         // Offset résolu PAR NOM sur la classe réelle : une constante en dur survivrait au
         // changement de build et lirait un champ voisin comme si c'était la progression.

@@ -503,7 +503,7 @@ export function register(ctx: Ctx): void {
         }
     }
 
-    /** Diagnostic — three flags so the caller can show a precise warmup
+    /** Diagnostic — three flags so the caller can show a precise amorce
      *  banner:
      *    hasProgression : catalog dump works (no nav needed)
      *    hasInstance    : build path works (source captured)

@@ -50,7 +50,7 @@ SUFFIXES_ARMEMENT = ("On", "Off", "Arm", "Disarm", "Enable", "Disable", "SetEnab
 #: hook de trace.
 RE_LECTEURS = re.compile(r"(Dump|Status|Clear|Reset|Layout|Counters|Backtraces|List)")
 LECTEURS_NOMMES = {
-    "observeBattle", "listRunners", "disposeRunner", "warmupGameSingletons",
+    "observeBattle", "listRunners", "disposeRunner", "autoBootExtraire",
     "ping", "info", "hitTrace", "summary",
     # `dump` (status.ts) est un lecteur de log. Il apparait ici surtout comme HOMONYME :
     # une chaine `"dump"` d'un dict de probe coincide avec un nom de RPC declare. C'est

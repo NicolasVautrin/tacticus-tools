@@ -61,11 +61,11 @@ def main() -> int:
     args = ap.parse_args()
 
     sid = R._resolve_session()
-    w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
     if not (isinstance(w, dict) and w.get("ok")):
-        print("warmup KO:", str(w)[:200])
+        print("amorce KO:", str(w)[:200])
         return 2
-    print("session %s warmup=%s" % (sid, w.get("skipped") or "done"))
+    print("session %s amorce=%s" % (sid, w.get("skipped") or "done"))
 
     def rpc(method, body=None, timeout=60):
         return _unwrap(R._rpc(sid, method, [body] if body is not None else [], timeout=timeout))

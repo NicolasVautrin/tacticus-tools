@@ -104,7 +104,7 @@ SETUP = {
 
 BOARD = "MC1_67"
 SEED = "777"
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 MAX_TILES = 6                     # tuiles echantillonnees par regime (probe TILE-target)
 _seq = itertools.count()
 
@@ -514,7 +514,7 @@ def run_one(sid, aid: int, seed: str, board_name: str) -> dict:
     rid, state_file = _build(sid, seed, board_name, cfg["p"], cfg["a"])
     print("[build] ability=%d runner=%d board=%s seed=%s" % (aid, rid, board_name, seed))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
 
         via = cfg["via"]

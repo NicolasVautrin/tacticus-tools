@@ -36,7 +36,6 @@ import {
     getDrainState, setDrain, resetDrainCounters, isDrainRefusal,
     listCreationMethods,
 } from "./drain.js";
-import { getWarmState, isWarmed } from "./warm-gate.js";
 import {
     findTacticusCandidates, injectBundle, TacticusCandidate,
 } from "./admin.js";
@@ -315,14 +314,7 @@ export function buildRouter(defaultLogDir: string): Router {
                     status: session.status,
                     startedAt: session.startedAt,
                     errorMessage: session.errorMessage,
-                    // #285-r1 : une session peut etre `running` et FROIDE. Les
-                    // deux etats ne se deduisent pas l'un de l'autre, et c'est
-                    // exactement leur confusion qui a laisse monter 3 runners
-                    // sur une session non warmee. Publie ICI, a cote du statut,
-                    // pour qu'aucun lecteur n'ait a aller le chercher ailleurs.
-                    warmed: isWarmed(session.id),
                 } : null,
-                warmGate: getWarmState(),
                 version: metaVersion,
             });
         } catch (e) {
@@ -373,25 +365,31 @@ export function buildRouter(defaultLogDir: string): Router {
                 metaError = (e as Error).message;
             }
 
-            // WARMUP ENCHAINE — ce n'est PAS une commodite, c'est la suppression
-            // d'un mode d'erreur. Le warmup est OBLIGATOIRE apres chaque inject et
-            // AVANT tout RPC/probe : un reinject repart avec les caches `MethodInfo*`
-            // vides et la couche d'init IL2CPP non ré-amorcée, et un probe lance sans
-            // warmup ne CRASHE PAS forcement — il marche si le jeu etait deja chaud
-            // par hasard, puis part en `0x2c` au premier build froid. C'est-a-dire
-            // que l'oubli est SILENCIEUX, donc il ne faut pas pouvoir l'oublier.
-            // L'appelant qui veut vraiment injecter sans warmer passe `warmup: false`.
-            let warmup: unknown = null;
-            let warmupError: string | null = null;
-            if (req.body?.warmup === false) {
-                warmupError = "saute sur demande explicite (warmup: false) — "
-                    + "aucun RPC/probe ne doit tourner avant un warmup manuel";
+            // AMORCE ENCHAINEE — une LECTURE de deux champs sur `IdunNavigation`
+            // (`_gameConfig`, `_unitProgression`), rien d'autre. Elle ne pilote AUCUNE
+            // UI et n'entre dans AUCUNE bataille.
+            //
+            // ⚠ CE QU'ELLE REMPLACE, ET POURQUOI. L'inject enchainait un cycle qui
+            // ENTRAIT EN BATAILLE puis se retirait (~14 s), au motif que sans lui les
+            // caches `MethodInfo*` seraient vides et l'init IL2CPP non amorcee -> crash
+            // `0x2c`. Mesure du 2026-08-19 sur un process FROID (jeu relance, aucune
+            // bataille jamais entree) : le runner se monte en 8,1 s et se JOUE
+            // (`aiturn`, 156 events, stage `Running`), sans aucun crash. Le seul
+            // manquant reel etait `lastGameConfig` -- sans lui `previewBis` refuse et
+            // crit/block valent 0 sur toutes les unites (#419-r5). Et ce pointeur se
+            // lit sur un ECRAN META, pas dans une bataille.
+            //
+            // Elle n'est pas non plus une porte : un echec est RAPPORTE, il ne refuse
+            // rien. `amorce: false` pour l'eviter explicitement.
+            let amorce: unknown = null;
+            let amorceError: string | null = null;
+            if (req.body?.amorce === false) {
+                amorceError = "sautee sur demande explicite (amorce: false)";
             } else {
                 try {
-                    warmup = await rpcCall(
-                        session.id, "warmupGameSingletons", [{ force: true }], 240000);
+                    amorce = await rpcCall(session.id, "autoBootExtraire", [{}], 30000);
                 } catch (e) {
-                    warmupError = (e as Error).message;
+                    amorceError = (e as Error).message;
                 }
             }
 
@@ -403,8 +401,8 @@ export function buildRouter(defaultLogDir: string): Router {
                 bundleBytes,
                 meta,
                 metaError,
-                warmup,
-                warmupError,
+                amorce,
+                amorceError,
             });
         } catch (e) {
             const msg = (e as Error).message;
@@ -423,24 +421,20 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
-    // Warmup — POINT D'ENTREE UNIQUE cote host. Il n'y en avait AUCUN jusqu'au
-    // 2026-07-31 : chaque appelant devait connaitre le nom du RPC et le poster a la
-    // main sur `/api/scripts/:id/rpc`, ce qui laissait a chacun le soin de choisir
-    // ses options — donc de se tromper. Ici il n'y a rien a choisir : le cycle rend
-    // la main sur l'ECRAN CAMPAGNE. `/api/admin/inject` l'enchaine deja tout seul ;
-    // cette route sert aux cas ou la session existe deja et parait froide.
-    router.post("/api/admin/warmup", async (_req: Request, res: Response) => {
+    // AMORCE — point d'entree unique cote host, pour les cas ou la session existe
+    // deja. `/api/admin/inject` l'enchaine tout seul ; celle-ci sert a la rejouer
+    // (elle est idempotente : elle relit les memes deux champs).
+    router.post("/api/admin/amorce", async (_req: Request, res: Response) => {
         try {
             const sid = pickRunningSession();
             if (sid === null) {
                 res.status(409).json({
                     error: "aucune session Frida vivante — injecter d'abord "
-                        + "(POST /api/admin/inject, qui enchaine deja le warmup)",
+                        + "(POST /api/admin/inject, qui enchaine deja l'amorce)",
                 });
                 return;
             }
-            const result = await rpcCall(
-                sid, "warmupGameSingletons", [{ force: true }], 240000);
+            const result = await rpcCall(sid, "autoBootExtraire", [{}], 30000);
             const ok = (result as { ok?: boolean } | null)?.ok === true;
             res.status(ok ? 200 : 500).json({ sessionId: sid, ...(result as object) });
         } catch (e) {

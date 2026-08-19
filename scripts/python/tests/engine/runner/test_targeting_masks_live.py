@@ -62,7 +62,7 @@ FOES = "orksWarboss,orksNob,tyranWingedPrime,ultraInceptorSgt,eldarRanger"
 DA_UNITS = "darkaTerminator,darkaHellblaster,darkaAzrael,darkaAsmodai,darkaCompanion"
 EA_UNITS = "eldarFarseer,eldarMauganRa,worldJakhal,worldKharn,eldarAutarch"
 STORM_SPEEDER = "darkaStormSpeeder"
-WARMUP_ENDTURNS = 6                                    # purge les `initialCooldownTurns` du tour 1
+TOURS_DE_CHAUFFE = 6                                    # purge les `initialCooldownTurns` du tour 1
 MOW_AMMO = 5                                           # cf. masks_da : sans munitions, 1213 = 0x1
 
 # Raisons de DISPONIBILITE rendues EN AMONT du filtre de cible (cf. l'en-tete) -> hors contrat.
@@ -139,7 +139,7 @@ def _measure(rpc, rid: int, cases: list) -> dict:
         if O.oracle_court_circuite(cr):
             pytest.fail(
                 f"ability {at} ({vis}) : `AttackQuery$$GetInvalidTargetReason` refuse EN AMONT de "
-                f"la cascade apres {WARMUP_ENDTURNS} fins de tour -- `casterReason` = "
+                f"la cascade apres {TOURS_DE_CHAUFFE} fins de tour -- `casterReason` = "
                 f"TargetingRule.ValidRequest. Tous les `targetReason` vaudraient `1` pour TOUTE "
                 f"cible : le masque ne serait PAS confronte, et un vert ici ne mesurerait RIEN. "
                 f"Cause lisible : {O.cause_du_court_circuit(cr)}", pytrace=False)
@@ -157,7 +157,7 @@ def _measure(rpc, rid: int, cases: list) -> dict:
     return {"rid": rid, "rows": rows, "alive": [u["id"] for u in alive]}
 
 
-def _advance(rpc, rid: int, n: int = WARMUP_ENDTURNS) -> None:
+def _advance(rpc, rid: int, n: int = TOURS_DE_CHAUFFE) -> None:
     """Purge les cooldowns initiaux (`initialCooldownTurns`, ex. PlasmaCannon `cd1`) : tant qu'ils
     tiennent, le natif rend `ValidRequest` pour TOUTE cible et le filtre de cible n'est jamais
     atteint -- l'oracle ne dirait alors rien du masque. Le runner est bati `--no-ai` : un `endturn`

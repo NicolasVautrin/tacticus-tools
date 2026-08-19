@@ -23,7 +23,7 @@ Sans les DEUX theatres separes, la charge du Warboss + les Ork Boyz du `PerformA
 contact de la cible du Nob : elle MEURT (preview nulle) et `GetStuckIn.GetBonusHitChance` bascule a
 100 % (2 Orks adjacents a la cible) -> le +1 coup serait noye. Le probe imprime les INVARIANTS.
 
-ASCII only. Ne reinjecte JAMAIS (warmup-if-needed seulement).
+ASCII only. Ne reinjecte JAMAIS (amorce-si-besoin seulement).
 """
 from __future__ import annotations
 
@@ -66,8 +66,8 @@ def main(seed="31337", board="MC1_67", mid_dist="3", rank=None):
     mid_dist = int(mid_dist)
     sid = R._resolve_session()
     print("[probe95] session", sid)
-    w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
-    print("[probe95] warmup ok=", (w or {}).get("ok"))
+    w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
+    print("[probe95] amorce ok=", (w or {}).get("ok"))
     STATE.unlink(missing_ok=True)
     p = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(seed),
                         "--state-file", str(STATE), "--board", board,

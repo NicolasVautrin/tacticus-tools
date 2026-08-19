@@ -97,7 +97,7 @@ def main():
     import hexgeo
 
     sid = _sid()
-    print("warmup ok=%s" % (_rpc(sid, "warmupGameSingletons", {}, timeout=240) or {}).get("ok"))
+    print("amorce ok=%s" % (_rpc(sid, "autoBootExtraire", {}, timeout=240) or {}).get("ok"))
     sf = ROOT / "logs" / "probe_r5c_state.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     rid = _build(a.seed, a.board, sf)

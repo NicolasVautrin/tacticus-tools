@@ -110,8 +110,8 @@ def main():
     import hexgeo
 
     sid = _sid()
-    w = _rpc(sid, "warmupGameSingletons", {}, timeout=240)
-    print("warmup ok=%s" % (isinstance(w, dict) and w.get("ok")))
+    w = _rpc(sid, "autoBootExtraire", {}, timeout=240)
+    print("amorce ok=%s" % (isinstance(w, dict) and w.get("ok")))
     sf = ROOT / "logs" / "probe_r5b_state.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     rid = _build(a.seed, a.board, sf)

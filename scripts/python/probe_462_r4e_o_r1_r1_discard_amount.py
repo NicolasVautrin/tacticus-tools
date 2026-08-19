@@ -235,8 +235,8 @@ def main() -> int:
     # ligne, le bras greffe rendait `off=[212,146,325,291,201,320]` contre `live=[212]` -- un rouge
     # qui accuse le PORT d'une panne de HARNAIS. Cf. `bind_live_rpc` (`engine/runner/snapshot.py`).
     SNAP.bind_live_rpc(_rpc)
-    w = _unwrap(R._rpc(_SID, "warmupGameSingletons", [{}], timeout=180))
-    print("warmup ok=", isinstance(w, dict) and w.get("ok"))
+    w = _unwrap(R._rpc(_SID, "autoBootExtraire", [{}], timeout=180))
+    print("amorce ok=", isinstance(w, dict) and w.get("ok"))
 
     out = []
     try:

@@ -36,7 +36,7 @@ def _unwrap(r):
 def _mkrpc():
     import rl_collect_batch as R
     sid = R._resolve_session()
-    _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
 
     def _call(method, body=None, timeout=60):
         return _unwrap(R._rpc(sid, method, [body] if body is not None else [], timeout=timeout))

@@ -199,7 +199,7 @@ def main(argv=None) -> int:
     print("[build] runner=%d board=%s seed=%s p_units=%s a_units=%s"
           % (rid, a.board, a.seed, ",".join(p_units), a.a_units))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
 
         # GEOMETRIE. `CultDemagogue` cible un ENNEMI a `constants.range` = 2 et pose ses decoys sur

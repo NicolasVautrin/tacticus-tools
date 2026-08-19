@@ -183,8 +183,8 @@ def _volet_live(R, load_state, Board, state_file, seed, tours):
     def _dv(rid):
         return _rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
 
-    w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=240))
-    print("warmup ok=", isinstance(w, dict) and w.get("ok"), (w or {}).get("skipped") or "")
+    w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=240))
+    print("amorce ok=", isinstance(w, dict) and w.get("ok"), (w or {}).get("skipped") or "")
 
     args = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
             "--state-file", state_file, "--board", BOARD, "--roster", "1",

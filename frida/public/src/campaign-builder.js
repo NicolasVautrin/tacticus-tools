@@ -433,7 +433,7 @@ export async function initCampaignBuilder(activeVersion) {
     // First load: cached catalog only, no scan.
     await refresh(false);
 
-    // Push-based warmup signal: agent emits `builder_ready` once
+    // Push-based amorce signal: agent emits `builder_ready` once
     // CampaignGameModeSource is captured (user clicked a battle in-game).
     // No more polling for hasInstance — the front reacts instantly and
     // triggers a single agent-side refreshCatalog (cheap now: lastSource
@@ -442,7 +442,7 @@ export async function initCampaignBuilder(activeVersion) {
     registerWsHandler("builder_ready", async (payload) => {
         if (builderReadyConsumed) return;
         builderReadyConsumed = true;
-        status("warmup detected (" + (payload?.via ?? "?")
+        status("amorce detected (" + (payload?.via ?? "?")
             + ") — refreshing catalog…");
         try {
             await refresh(true);

@@ -100,7 +100,7 @@ def main(argv=None) -> int:
     print("[build] runner=%d board=%s seed=%s" % (rid, a.board, a.seed))
     verdicts = {}
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
 
         # --- GEOMETRIE : le tauntant AU CONTACT d'un ennemi (CrushingClaws = RANGE_ADJACENT) ----

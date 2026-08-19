@@ -106,7 +106,7 @@ UNOBSCURED = int(TR.TargetIsUnobscured)
 DISARMED_BY = {"genesKelermorph": 1180, "custoKyrus": 1202}
 P_UNITS = ["genesKelermorph", "custoKyrus"]
 A_UNITS = "necroWarden,necroWarden,necroWarden,necroWarden"
-WARMUP_ENDTURNS = 6                     # purge les `initialCooldownTurns`
+TOURS_DE_CHAUFFE = 6                     # purge les `initialCooldownTurns`
 
 
 # --------------------------------------------------------------------------- plomberie RPC
@@ -300,7 +300,7 @@ def main(argv=None) -> int:
           % (rid, a.board, a.seed, ",".join(p_units), a.a_units))
     all_rows = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
 
         dv, state, board = _capture(sid, rid)

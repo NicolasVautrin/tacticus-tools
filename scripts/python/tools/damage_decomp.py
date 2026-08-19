@@ -28,7 +28,7 @@ def _ok(r: Any) -> bool:
 
 
 def arm(rpc) -> dict:
-    """Arme + reset modifier-observe (idempotent). A appeler APRES warmup, AVANT l'attaque a diagnostiquer."""
+    """Arme + reset modifier-observe (idempotent). A appeler APRES amorce, AVANT l'attaque a diagnostiquer."""
     inst = rpc("modifierObserveInstall", {}, 30)
     rpc("modifierObserveReset", {}, 15)
     return inst if isinstance(inst, dict) else {"raw": inst}

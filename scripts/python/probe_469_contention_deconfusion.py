@@ -393,7 +393,7 @@ def releve(repo: Path, clone: Path | None, repet: int, etiquette: str, grep: boo
     L'alternance est load-bearing : jouer toutes les sondes gitP puis toutes les gitC les
     exposerait a des charges DIFFERENTES, et c'est exactement la confusion qu'on veut eviter.
     """
-    _sonde_fs(repo)                     # warmup : le 1er passage mesure le cache froid, pas la charge
+    _sonde_fs(repo)                     # amorce : le 1er passage mesure le cache froid, pas la charge
     ch = Charge()
     ser = {"cpu1": [], "cpu4": [], "spawn": [], "gitP": [], "gitC": [], "fs": [],
            "fs_ouvertures": [], "fs_volume": [],

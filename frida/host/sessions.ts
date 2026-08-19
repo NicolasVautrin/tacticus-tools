@@ -18,11 +18,7 @@ import { pruneRunnersBySession, removeRunner } from "./battle-store.js";
 import {
     acquireSlot, releaseSlot, noteDispatch, noteSettle, concurrencyFactor,
 } from "./rpc-queue.js";
-import { assertCreationAllowed, isCreationMethod } from "./drain.js";
-import {
-    ensureWarmForCreation, forgetSession as forgetWarmState,
-    noteRpcResult as noteWarmupResult, WARMUP_METHOD,
-} from "./warm-gate.js";
+import { assertCreationAllowed } from "./drain.js";
 
 export interface RunSession {
     id: number;
@@ -147,9 +143,6 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
         pruneRunnersBySession(sessionId).catch((e) => {
             console.log(`[sessions] prune (${reason}) failed for ${sessionId}: ${e.message}`);
         });
-        // Une session morte n'est plus chaude (#285-r1) : son script est parti,
-        // donc les caches Frida-side qu'un warmup avait remplis aussi.
-        forgetWarmState(sessionId);
         persist();
     };
     fridaSession.detached.connect(() => finalize("detached"));
@@ -377,16 +370,6 @@ export async function rpcCall(
     assertCreationAllowed(method);
     const session = requireLiveSession(id);
 
-    // Porte de WARMUP (#285-r1) — APRES le drain, et pour les memes methodes.
-    // L'ordre importe : pendant une fenetre de maintenance on veut refuser la
-    // creation TOUT DE SUITE, pas payer 12 s de warmup avant de la refuser.
-    // La porte WARME au lieu de refuser (cf. l'en-tete de warm-gate.ts) ; elle
-    // ne leve que si le warmup lui-meme echoue.
-    if (isCreationMethod(method)) {
-        await ensureWarmForCreation(id, method,
-            (sid) => rpcCall(sid, WARMUP_METHOD, [{ force: true }], 240000));
-    }
-
     // Frida exposes rpc.exports as an object of async functions under
     // script.exports — we awaited it once to get the map.
     const exports = (await (session.fridaScript as unknown as {
@@ -426,10 +409,6 @@ export async function rpcCall(
         });
         const out = await Promise.race([call, timeoutP]);
         noteRunnerDeath(method, callArgs);
-        // Symetrique de `noteRunnerDeath` : le host apprend qu'une session est
-        // CHAUDE en relisant le warmup qui vient de reussir, quelle que soit la
-        // route qui l'a lance (#285-r1).
-        noteWarmupResult(id, method, out);
         return out;
     } finally {
         if (timer) clearTimeout(timer);

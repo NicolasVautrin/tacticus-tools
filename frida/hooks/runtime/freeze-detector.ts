@@ -4,7 +4,7 @@
 // operation bloque la boucle Unity trop longtemps, et appelle alors
 // `UnityEngine.Diagnostics.Utils.ForceCrash(0,0)`. C'est LUI qui rend interdits les
 // heap scans (`Memory.scan` suspend les threads ~10 s), qui fait tomber le jeu pendant
-// un warmup un peu long, et qui oblige `battle-config.ts` a decouper son travail en
+// une amorce un peu long, et qui oblige `battle-config.ts` a decouper son travail en
 // chunks. C'est la contrainte de fond du harnais, pas une fatalite.
 //
 // CHAINE NATIVE (lue au decompile, build gqfc5mff6c) :

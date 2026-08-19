@@ -1483,7 +1483,7 @@ class MovableTilesInRange(TargetsSelector):
         # `ListPool(IterateReachableTiles(start, depth, unit))`, et
         # `BasePathfinder.u003CIterateReachableTilesu003Ed__12$$MoveNext` ne l'EMET PAS : sa branche
         # `depth == 1` rend `GetValidNeighbours(start, unit, null)` et rien d'autre, et sa branche
-        # generale amorce `visited` VIDE en ne mettant `start` que dans la FILE (le niveau 0).
+        # general'amorce `visited` VIDE en ne mettant `start` que dans la FILE (le niveau 0).
         # C'est donc l'etage PATHFINDING qui l'exclut, pas ce filtre-ci -- d'ou la soustraction ici.
         # Tant que `ignore_units_on_tiles` valait `False` a TOUS les call-sites portes, l'ecart etait
         # INOBSERVABLE (le stop_set retire le depart de toute facon) ; `TheQuickeningAbility$$

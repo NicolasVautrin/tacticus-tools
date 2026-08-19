@@ -396,7 +396,7 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
     rid, state = P587._build_bc(sid, seed, board, str(seed_bc))
     print("    runner %d ; %s -> `CultDemagogue` -> %s" % (rid, P583.ANCHOR_VIS, CASTER_VIS))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P583._drive_and_summon(sid, rid)
         forcer_contact(sid, rid)
@@ -474,7 +474,7 @@ def run_sonde(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
           % (CASTER_VIS, rep["traitsAfter"], GRAFT_ACTIVE))
     rid, state = P587._build_bc(sid, seed, board, str(seed_bc))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P583._drive_and_summon(sid, rid)
         forcer_contact(sid, rid)

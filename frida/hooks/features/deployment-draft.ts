@@ -440,7 +440,7 @@ function armerPhase(): true | Refus {
 //   Or `SandboxGameModeSource` fait **0x58 octets** (`classes.tsv`) : il **N'A PAS de `+0x70`**.
 //   Rejouer ce corps sur un `this` sandbox lirait HORS DES BORNES de l'objet.
 //
-// ⇒ On EMPRUNTE le résultat à la source CAMPAGNE VIVANTE, capturée par le warmup
+// ⇒ On EMPRUNTE le résultat à la source CAMPAGNE VIVANTE, capturée par l'amorce
 // (`getCampaignGameModeSourcePtr`). Même compte, même progression, et c'est SA méthode qui
 // construit le dictionnaire — on n'en fabrique aucun. Le mirror est un emprunt, pas une copie.
 //
@@ -1153,7 +1153,7 @@ function armerUneDelegation(
             const src = p.ptr;
             if (src === null || src.isNull()) {
                 d.dernier = { ok: false, detail: `aucune source \`${p.cls}\` (prêteur `
-                    + `${p.nom}) -- pour la campagne : warmup non joué ou session froide ; pour `
+                    + `${p.nom}) -- pour la campagne : amorce non joué ou session froide ; pour `
                     + "le guild boss : `guildBossSourceForger` n'a pas été appelé ; pour le "
                     + "guild war : `guildWarSourceForger` n'a pas été appelé. "
                     + "RIEN SUBSTITUÉ." };
@@ -1891,7 +1891,7 @@ function etatPrefab(): Record<string, unknown> {
 // Mesuré sur la session 50, sur les DEUX unités réellement refusées
 // (`spaceBlackmane`, `admecRuststalker`) : `HasPrefabForUnitId` rend **true** pour chacune.
 // Le montage `useAccountUnits` charge **68** prefabs (compté sur `Add`, hook armé APRÈS le
-// warmup, donc tous les fires viennent de NOTRE montage). ⇒ **La cause « prefab manquant »
+// amorce, donc tous les fires viennent de NOTRE montage). ⇒ **La cause « prefab manquant »
 // est RÉFUTÉE** ; elle avait été déduite du décompilé sans jamais être mesurée.
 //
 // L'étage supérieur est tranché, lui aussi par mesure. `StateMachineActions` porte
@@ -4062,7 +4062,7 @@ export function register(ctx: Ctx): void {
      * match dans ce chemin : ni adversaire, ni `_currentEncounter`, ni `_currentBattle`.
      *
      * ⇒ Une source « vide » ne l'est pas faute de combat : elle l'est faute de CÂBLAGE. Le
-     * service manquant est celui que le warmup capte déjà (`IdunNavigation._unitProgression`),
+     * service manquant est celui que l'amorce capte déjà (`IdunNavigation._unitProgression`),
      * donc l'écrire ne fabrique rien — on branche l'instance que le jeu emploie partout.
      *
      * ⚠ C'EST UNE ÉCRITURE SUR UN OBJET VIVANT, donc `confirmer: true`, et on RELIT après.
@@ -4101,7 +4101,7 @@ export function register(ctx: Ctx): void {
                      note: "déjà câblé par le jeu -- on n'écrase pas ce qu'on n'a pas posé" };
         }
         if (prog === null || prog.isNull()) {
-            return refus("aucune `IUnitProgression` captée -- le warmup ne l'a pas posée. "
+            return refus("aucune `IUnitProgression` captée -- l'amorce ne l'a pas posée. "
                 + "Sans elle on n'a rien à câbler, et on n'en fabrique pas.");
         }
         if (body?.confirmer !== true) {
@@ -4379,7 +4379,7 @@ export function register(ctx: Ctx): void {
     }): Promise<unknown> | unknown => queueOnMainThread(() => {
         const src = getCampaignGameModeSourcePtr();
         if (!src || src.isNull()) {
-            return { ok: false, error: "aucune `CampaignGameModeSource` captée -- le warmup ne "
+            return { ok: false, error: "aucune `CampaignGameModeSource` captée -- l'amorce ne "
                 + "l'a pas posée, ou la session a été réinjectée depuis" };
         }
         const kSrc = findClassAnywhere("IdunBattle.ViewLogic.BattleSource",
@@ -4428,7 +4428,7 @@ export function register(ctx: Ctx): void {
             // déréférencement a été RETIRÉ le 2026-08-17 comme cause présumée de deux gels du
             // jeu. Il a ensuite été DISCULPÉ : un troisième gel, même signature
             // (`__loadingStep = 12`), s'est produit sur un inject NU, sans qu'aucun RPC ne soit
-            // appelé -- les trois appartiennent au cycle inject/warmup (résidu #10021).
+            // appelé -- les trois appartiennent au cycle inject (résidu #10021).
             // Il revient donc, mais sur demande explicite : suivre un pointeur de champ reste
             // le geste le plus risqué de ce module, et rien ne prouve qu'il soit TOUJOURS sain.
             let classeProgression: string | null = null;
@@ -4479,7 +4479,7 @@ export function register(ctx: Ctx): void {
      * (`_currentCampaignId` `+0x68`, `_currentLocationIndex` `+0x70`) et RÉSOUT sa config
      * (`_currentMatch : CampaignConfigDto` `+0x78`). C'est un RÉSOLVEUR lié à une sélection
      * courante. Déléguer lui importe donc **les règles du nœud où elle pointe** — celui que le
-     * warmup a ouvert — et **pas** des règles « génériques » ni celles d'un nœud choisi.
+     * amorce a ouvert — et **pas** des règles « génériques » ni celles d'un nœud choisi.
      * Dire « la sandbox devient fidèle » serait faux : elle IMPERSONNE UN NŒUD PARTICULIER.
      * Choisir ce nœud voudrait dire écrire `_currentCampaignId`/`_currentLocationIndex` et
      * re-résoudre `_currentMatch` — NON MESURÉ, et un DTO déjà résolu deviendrait périmé.
@@ -4516,8 +4516,8 @@ export function register(ctx: Ctx): void {
             }
             const src = getCampaignGameModeSourcePtr();
             if (src === null || src.isNull()) {
-                return refus("aucune `CampaignGameModeSource` capturée : le warmup ne l'a pas prise, "
-                    + "ou la session est froide. On ne délègue PAS à rien -- rejouer le warmup.");
+                return refus("aucune `CampaignGameModeSource` capturée : l'amorce ne l'a pas prise, "
+                    + "ou la session est froide. On ne délègue PAS à rien -- rejouer l'amorce.");
             }
             if (body.only !== undefined) {
                 const connus = DELEGUEES.map((x) => x.nom);

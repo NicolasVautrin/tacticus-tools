@@ -82,7 +82,7 @@ def main(argv=None) -> int:
     print("[469d] bruit de fond : %d process CPU" % a.k)
     try:
         time.sleep(2.0)
-        _temoin(a.n)                              # warmup, jamais compte
+        _temoin(a.n)                              # amorce, jamais compte
         mesures = {"normale": [], "basse": []}
         refus = 0
         for c in range(a.cycles):

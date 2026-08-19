@@ -871,8 +871,8 @@ export function register(ctx: Ctx): void {
             dependancesRefus: estRefus(deps) ? (deps as RefusVue).error : null,
             univers: univers ? univers.toString() : null,
             universRefus: univers ? null
-                : "`IdunUniverse` NON CAPTURE -- le warmup ne l'a pas pose (rejouer "
-                  + "`POST /api/admin/warmup`)",
+                : "`IdunUniverse` NON CAPTURE -- l'amorce ne l'a pas pose (rejouer "
+                  + "`POST /api/admin/amorce`)",
             serialiseurPret: isSerializerReady(),
             deserialiseurPret: isDeserializerReady(),
             // Ce que `guildWarBuildBc` exigera, pour que l'appelant sache CE QUI manque.
@@ -1258,7 +1258,7 @@ export function register(ctx: Ctx): void {
             const d = deps as Deps;
             const univers = getCapturedUniverse();
             if (!univers) {
-                return { ok: false, error: "`IdunUniverse` NON CAPTURE -- rejouer le warmup" };
+                return { ok: false, error: "`IdunUniverse` NON CAPTURE -- rejouer l'amorce" };
             }
 
             // --- le builder, monte comme `LoadBattleInternal` le monte -------------------------

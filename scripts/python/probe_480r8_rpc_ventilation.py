@@ -293,8 +293,8 @@ def modules_non_enregistres(decl: dict[str, list[str]]) -> dict[str, list[str]]:
     # Forme collective : `[a, b, c]\n    .forEach((f) => f.register(ctx))`.
     # ⚠ NE PAS ecrire `\.forEach\s*\([^)]*register` : la classe negative bute sur la
     # parenthese de `(f)` et le motif ne matche JAMAIS. Mesure du 2026-08-05 -- cette
-    # version rendait 48 modules « non enregistres » dont `warmup-singletons` et `launch`,
-    # c'est-a-dire `warmupGameSingletons`/`playTurn`/`initRunner`, qui tournent tous les
+    # version rendait 48 modules « non enregistres » dont `amorce-singletons` et `launch`,
+    # c'est-a-dire `autoBootExtraire`/`playTurn`/`initRunner`, qui tournent tous les
     # jours. Un faux positif massif, rattrape parce que le resultat contredisait un fait
     # connu -- pas parce que le probe s'en est apercu.
     for bloc in re.findall(r"\[([^\]]*)\]\s*\.\s*forEach\s*\(.{0,80}?register", code, re.S):
@@ -576,7 +576,7 @@ def main(argv=None) -> int:
     # forcement expose, sinon le harnais serait casse en permanence. S'il en apparait un ici,
     # c'est le CAPTEUR qui ment, et il doit le dire au lieu de publier son resultat. Cette
     # garde existe parce que la 1re version de cette etape a rendu 216 RPC « non exposes »,
-    # dont `warmupGameSingletons` et `playTurn`.
+    # dont `autoBootExtraire` et `playTurn`.
     faux = sorted(n for v in orphelins.values() for n in v
                   if any(groupe_de(f) == "host" for f in c1[n]))
     if faux:

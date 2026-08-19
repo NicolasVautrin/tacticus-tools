@@ -381,7 +381,7 @@ def _run(rpc, r: dict, axis: str, seed: str, board_id: str, drop_passive: bool =
                 "abilityType": pnorm["id"]}}, 150)
             wh, _ = live_amounts(w, car["id"])
             wc, _ = live_amounts(w, foe["id"])
-            r["warmup_hits_on_carrier"], r["warmup_counter_on_foe"] = wh, wc
+            r["amorce_hits_on_carrier"], r["amorce_counter_on_foe"] = wh, wc
         if _place_at_distance(rpc, rid, FOE, CARRIER, want_dist) != want_dist:
             raise RuntimeError("distance %s non retablie apres echauffement" % want_dist)
         if _ensure_turn(rpc, rid, foe["owner"]) is None:

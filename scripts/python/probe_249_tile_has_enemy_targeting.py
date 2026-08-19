@@ -109,7 +109,7 @@ P_UNITS = ",".join([BULL, ORD_, FILLER])
 A_UNITS = ",".join([FOE_VIS] * 3)
 BOARD = "MC1_67"
 SEED = "777"
-WARMUP_ENDTURNS = 4
+TOURS_DE_CHAUFFE = 4
 VARIANTS = ("apres", "avant", "sansBit19", "sansRules", "sansRange")
 PHASES = ("VIDE", "ALLIE", "ENNEMI")
 _seq = itertools.count()
@@ -470,7 +470,7 @@ def main(argv=None) -> int:
     rid, state_file = _build(sid, a.seed, a.board)
     print("[build] runner=%d board=%s seed=%s" % (rid, a.board, a.seed))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         _my_turn(sid, rid, BULL)
         dv, _st, board = _freeze(sid, rid)

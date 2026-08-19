@@ -171,7 +171,7 @@ export async function initMoWBuilder(activeVersion) {
     registerWsHandler("mow_builder_ready", async (payload) => {
         if (readyConsumed) return;
         readyConsumed = true;
-        status("MoW warmup detected (" + (payload?.via ?? "?")
+        status("MoW amorce detected (" + (payload?.via ?? "?")
             + ") — refreshing catalog…");
         try {
             await refresh(true);

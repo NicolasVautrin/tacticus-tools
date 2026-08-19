@@ -102,7 +102,7 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
 
     const unitProg = getUnitProgressionPtr();
     if (!unitProg) {
-        result.err = "unitProgressionPtr not captured — warmup required";
+        result.err = "unitProgressionPtr not captured — amorce required";
         return result;
     }
     const state = resolveFormulaState(unitProg);

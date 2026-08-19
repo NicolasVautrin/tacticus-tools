@@ -104,8 +104,8 @@ def test_etage2_le_corpus_discrimine() -> None:
 
     # Non-vide DIRIGE : un RPC reellement cable cote host doit se voir dans le corpus
     # executable, et un RPC de diagnostic reellement documente doit se voir dans la doc.
-    assert exec_idx.get("warmupGameSingletons"), (
-        "le corpus executable ne voit pas `warmupGameSingletons`, pourtant appele par le host")
+    assert exec_idx.get("autoBootExtraire"), (
+        "le corpus executable ne voit pas `autoBootExtraire`, pourtant appele par le host")
     assert doc_idx.get("dumpComps"), (
         "le corpus doc ne voit pas `dumpComps`, pourtant nomme dans `rpc-api.md`")
 

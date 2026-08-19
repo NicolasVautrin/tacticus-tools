@@ -5,7 +5,7 @@ Hypothese : disposeRunner mute le singleton (`_currentBattle.Units`),
 provoquant des failures intermittentes a partir de la N-eme battle.
 
 Methodo :
-  1. Warmup une fois (-> pool=106)
+  1. Amorce une fois (-> pool=106)
   2. Loop N fois :
        a) buildNormalizedBC -> pool_size
        b) initRunner(safe roster) -> rid

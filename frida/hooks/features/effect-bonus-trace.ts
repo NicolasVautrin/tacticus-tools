@@ -58,7 +58,7 @@
 // ── DISCIPLINE (section « Ne jamais » du CLAUDE.md) ───────────────────────────────────────────
 // `DamageModifiers$$Add` est sur le chemin de degat, donc CHAUD. Ce module :
 //   * n'arme RIEN au `register` (comme `hitTrace`, `modifierObserve`, `scorerDamageTrace`) ;
-//   * s'arme sur `effectBonusTraceOn` UNIQUEMENT, sur etat stable (post-warmup) ;
+//   * s'arme sur `effectBonusTraceOn` UNIQUEMENT, sur etat stable (post-amorce) ;
 //   * porte un BUDGET d'evenements (`budget`, defaut 4000) qui coupe la capture toute seule —
 //     un capteur laisse ON par megarde s'eteint au lieu de saturer une session partagee ;
 //   * ne fait AUCUNE allocation ni backtrace dans le chemin chaud quand `trace.on` est faux.
@@ -609,7 +609,7 @@ function installAllHooks(): { factory: boolean; face: boolean; add: boolean } {
 export function register(ctx: Ctx): void {
     /** ARME les hooks (idempotent) et OUVRE la capture.
      *  body: { budget? } — nombre total d'evenements avant auto-extinction (defaut 4000).
-     *  ⚠ A n'appeler que sur session STABLE (post-warmup) : ces hooks sont sur le chemin de
+     *  ⚠ A n'appeler que sur session STABLE (post-amorce) : ces hooks sont sur le chemin de
      *  degat. Le register n'arme RIEN de lui-meme, par construction. */
     ctx.rpc.effectBonusTraceOn = (
         body?: { budget?: number; runnerId?: number },

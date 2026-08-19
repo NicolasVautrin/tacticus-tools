@@ -88,8 +88,8 @@ def main() -> int:
     except Exception as e:
         print("SKIP: pas de session Frida (%s)" % str(e)[:120])
         return 2
-    if not _ok(_unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))):
-        print("SKIP: warmup KO")
+    if not _ok(_unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))):
+        print("SKIP: amorce KO")
         return 2
 
     print("=== case-1547 : le porteur natif de 1547 est-il confrontable ? ===")

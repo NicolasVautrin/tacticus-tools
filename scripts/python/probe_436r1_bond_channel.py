@@ -237,7 +237,7 @@ def main(argv=None) -> int:
     rid, state_file = _build(sid, a.seed, a.board, P_UNITS, a.a_units)
     print("[build] runner=%d board=%s seed=%s" % (rid, a.board, a.seed))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
 
         tauntee_id = _make_adjacent(sid, rid, "tyranTyrantGuard")

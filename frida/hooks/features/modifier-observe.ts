@@ -36,7 +36,7 @@
 //
 // Auto-arms best-effort at register (battle classes may not be resolved yet at
 // script load → the install is retried via the modifierObserveInstall RPC,
-// which is what the scenario driver calls after warmup).
+// which is what the scenario driver calls after amorce).
 
 import { Ctx } from "../controller.js";
 import {
@@ -590,7 +590,7 @@ function installOnce(): {
 
     // #68 : hook CritDamageInfo..ctor RETIRE — Thread.backtrace sur ce ctor (chemin de degat TRES chaud,
     // fire a chaque prediction) suspend les threads -> freeze -> UnityFreezeDetector tue le jeu pendant le
-    // warmup (anti-pattern CLAUDE.md). Nommer le leaf ExecuteHit slot 0xb = via un chemin SANS backtrace-hot.
+    // amorce (anti-pattern CLAUDE.md). Nommer le leaf ExecuteHit slot 0xb = via un chemin SANS backtrace-hot.
 
     // #68 TEMP : CalculateDamageOperation — incoming AttackHit damage (msg[0]) vs outgoing (out[+4]).
     try {
@@ -830,9 +830,9 @@ function installOnce(): {
 
 export function register(ctx: Ctx): void {
     // #98 : auto-arm au register NEUTRALISE. `installOnce()` fait des Interceptor.replace sur des
-    // chemins de degat ULTRA-CHAUDS -> crash du jeu sous churn reinject/warmup s'il s'arme au mauvais
+    // chemins de degat ULTRA-CHAUDS -> crash du jeu sous churn reinject s'il s'arme au mauvais
     // moment (incident 2026-07-10, cause du disable #75). On N'ARME QUE on-demand via
-    // modifierObserveInstall (queueOnMainThread), sur un etat STABLE (post-warmup, hors churn). Le
+    // modifierObserveInstall (queueOnMainThread), sur un etat STABLE (post-amorce, hors churn). Le
     // register n'expose plus que les RPC ci-dessous.
 
     ctx.rpc.modifierObserveInstall = (): Promise<unknown> =>

@@ -110,7 +110,7 @@ BOARD = "MC1_67"
 SEED = 777
 RANK = 17
 CARRIER_HEALTH = 5000
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 N_ENEMIES = 4
 
 _seq = itertools.count()
@@ -445,7 +445,7 @@ def collect(sid, rid, carriers):
 
     C'est ce que le probe imprime ET ce que la garde pytest (`test_splash_range_clamp_live.py`)
     consomme -- une seule definition du montage, pas deux."""
-    for _ in range(WARMUP_ENDTURNS):
+    for _ in range(TOURS_DE_CHAUFFE):
         _act(sid, rid, {"kind": "endturn"}, 60)
     dv0 = _dv(sid, rid)
     print("[plateau] %s" % sorted(set((u.get("visualId"), u.get("owner"))

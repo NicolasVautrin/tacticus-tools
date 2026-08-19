@@ -9,9 +9,9 @@
 //
 // ON-DEMAND, JAMAIS auto-armé. `ExecuteHit` est sur le chemin de dégât le plus
 // chaud du jeu ; l'incident du 2026-07-10 (Interceptor auto-armé sur ces chemins
-// pendant le churn reinject/warmup) est la raison pour laquelle `modifier-observe`
+// pendant le churn reinject) est la raison pour laquelle `modifier-observe`
 // n'arme plus rien au register non plus. Armer via `hitTraceArm`, sur un état
-// STABLE (post-warmup), et désarmer après la mesure.
+// STABLE (post-amorce), et désarmer après la mesure.
 //
 // LAYOUT DES ARGUMENTS — CALIBRÉ, PAS SUPPOSÉ. La signature managée est
 //   ExecuteHit(hitIndex:Int32, attacker:IEntity, defender:IEntity,
@@ -161,7 +161,7 @@ function readHealthSlot(args: InvocationArguments, slot: number): number | null 
 function ensureInstalled(): boolean {
     if (state.installed) return true;
     const klass = findClassAnywhere("IdunBattle.Operations", "AttackDamageOperation");
-    if (!klass) { log("[hit-trace] AttackDamageOperation non résolue (pre-warmup ?)"); return false; }
+    if (!klass) { log("[hit-trace] AttackDamageOperation non résolue (pre-amorce ?)"); return false; }
     const mi = findMethodByParamCount(klass, "ExecuteHit", 8);
     if (!mi) { log("[hit-trace] ExecuteHit(8) introuvable"); return false; }
     let entry = methodEntry(mi.info);
@@ -222,7 +222,7 @@ export function register(ctx: Ctx): void {
         state.installed = false;
     });
 
-    /** Arme le hook. À appeler sur état STABLE (post-warmup).
+    /** Arme le hook. À appeler sur état STABLE (post-amorce).
      *  `runnerId` → armement NOMINATIF ; sans lui → GLOBAL (comportement historique). */
     ctx.rpc.hitTraceArm = (body?: { runnerId?: number }): unknown => {
         const ok = ensureInstalled();

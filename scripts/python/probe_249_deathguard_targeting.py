@@ -101,7 +101,7 @@ M_A_UNITS = "ultraTitus,ultraTitus"
 M_MOW = "deathCrawler"
 M_BOARD, M_SEED = "C1_02", "4242"          # board MoW-capable (slot MachineOfWarPosition)
 
-WARMUP_ENDTURNS = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 _seq = itertools.count()
 
 # LES TROIS CODES QUE LA CASCADE PORTEE NE SAIT PAS RENDRE -- chacun est une regle NON PORTEE,
@@ -498,7 +498,7 @@ def _run_units(sid, seed, board_id):
     print("\n########## montage UNITES  runner=%d board=%s seed=%s" % (rid, board_id, seed))
     out = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         rot, lord, bring, near, far = _drive_units(sid, rid)
         _my_turn(sid, rid, "deathRotbone")
@@ -560,7 +560,7 @@ def _run_mow(sid, seed, board_id):
     print("\n########## montage MoW  runner=%d board=%s seed=%s" % (rid, board_id, seed))
     out = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         dv = _dv(sid, rid)
         mow = next((m for m in (dv.get("mows") or []) if m.get("visualId") == M_MOW), None)
@@ -600,7 +600,7 @@ def _run_mow(sid, seed, board_id):
         # `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason` court-circuite en
         # `GenericBrokenTargetingRule(ValidRequest)` pour TOUTE cible, AVANT la cascade de ciblage
         # -- confronter le port a ce regime compare deux fonctions natives differentes. Les
-        # `WARMUP_ENDTURNS` ci-dessus SUFFISENT en fait (re-jeu #287-r10), mais compter des tours
+        # `TOURS_DE_CHAUFFE` ci-dessus SUFFISENT en fait (re-jeu #287-r10), mais compter des tours
         # n'est pas mesurer : ce foyer MESURE `casterReason` et rend une PHRASE s'il ne tombe pas.
         # ⚠ `jouer_adverse=False` est OBLIGATOIRE ici : le montage est GEOMETRIQUE (l'aura Contagion
         # vient d'etre montee a la main), et faire jouer l'IA adverse la detruirait.

@@ -2,8 +2,8 @@
 //
 // BattleConfiguration is the per-battle config stitched by
 // CampaignGameModeSource.LoadBattle() and stored at _currentBattle (+0x80).
-// We read from the warmup-captured campaignGameModeSourcePtr — so any inspection RPC requires
-// a successful warmup first.
+// We read from the amorce-captured campaignGameModeSourcePtr — so any inspection RPC requires
+// a successful amorce first.
 //
 // Layout reference (from decompilation):
 //   BattleConfiguration                     class
@@ -178,7 +178,7 @@ const BCBC_OFF_HEIGHT = 0x1C;
 
 // --- Helpers ---
 
-/** Resolve the live BattleConfiguration from the warmup-captured campaignGameModeSourcePtr.
+/** Resolve the live BattleConfiguration from the amorce-captured campaignGameModeSourcePtr.
  * Si Campaign source absent ou BC null, fallback sur MoW Event source
  * (offset _currentBattle different : 0xF0 vs 0x80). User doit avoir navigué
  * manuellement vers le MoW Event in-game pour que ce dernier soit capturé. */
@@ -306,8 +306,8 @@ function inspectBattleConfig(): BattleConfigSnapshot {
     if (bc === null) {
         return {
             ok: false,
-            err: "no live BattleConfiguration — warmup not run OR " +
-                 "LoadBattle hasn't fired yet (warmup retreats too early?)",
+            err: "no live BattleConfiguration — amorce not run OR " +
+                 "LoadBattle hasn't fired yet (amorce retreats too early?)",
         };
     }
 
@@ -1131,7 +1131,7 @@ export function register(ctx: Ctx): void {
         return queueOnMainThread(() => {
             const bc = getLiveBattleConfig();
             if (bc === null) return {
-                ok: false, err: "no live BC — warmup first" };
+                ok: false, err: "no live BC — amorce first" };
             if (!predefinedMachinesOfWarClass
                 || !predefinedMachinesOfWarCtor
                 || !predefinedMachineOfWarClass
@@ -1203,7 +1203,7 @@ export function register(ctx: Ctx): void {
                 return {
                     ok: false,
                     err: "no live BattleConfiguration captured — " +
-                         "warmupGameSingletons first",
+                         "autoBootExtraire first",
                 };
             }
             // Same hard cap as initAndStart — this path never disposed

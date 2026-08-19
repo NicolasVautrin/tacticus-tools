@@ -73,7 +73,7 @@ P_MOW = "tyranBiovore"
 A_UNITS = "necroWarden,necroWarden,necroWarden"
 BOARD = "MC1_67"
 SEED = "777"
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 _seq = itertools.count()
 
 
@@ -274,7 +274,7 @@ def run(seed: str = SEED, board_id: str = BOARD, sid=None, rid=None, keep: bool 
     own = rid is None
     rid = rid if rid is not None else _build(sid, seed, board_id)
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         pairing = _drive_contact(sid, rid)
         _my_turn(sid, rid)

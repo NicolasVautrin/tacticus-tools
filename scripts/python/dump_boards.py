@@ -26,7 +26,7 @@ SOURCES (live) :
     -> configJson (BC live serialisee).
 
 PRE-REQUIS : session Frida warmee (les RPC ont besoin de lastGameConfig +
-serializer prets). Le script fait le warmup lui-meme (idempotent).
+serializer prets). Le script fait l'amorce lui-meme (idempotent).
 
 USAGE (depuis scripts/python) :
     python dump_boards.py                 # boards (3 kinds) + seed-bc.json
@@ -101,8 +101,8 @@ def main() -> int:
                     help="ne pas (re)capturer data/seed-bc.json")
     ap.add_argument("--seed-bc-only", action="store_true",
                     help="capturer UNIQUEMENT data/seed-bc.json (pas de boards)")
-    ap.add_argument("--no-warmup", action="store_true",
-                    help="sauter le warmup (deja fait cette session)")
+    ap.add_argument("--no-amorce", action="store_true",
+                    help="sauter l'amorce (deja fait cette session)")
     a = ap.parse_args()
     kinds = [] if a.seed_bc_only else [k.strip() for k in a.kinds.split(",") if k.strip()]
     bad = [k for k in kinds if k not in KINDS]
@@ -119,11 +119,11 @@ def main() -> int:
         return 2
     print(f"[dump_boards] session={sid} kinds={kinds} -> {R.BOARDS_DIR}")
 
-    if not a.no_warmup:
-        print("[dump_boards] warmup (idempotent)...")
-        w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    if not a.no_amorce:
+        print("[dump_boards] amorce (idempotent)...")
+        w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
         if not (isinstance(w, dict) and w.get("ok")):
-            print(f"[error] warmup KO: {str(w)[:200]}", file=sys.stderr)
+            print(f"[error] amorce KO: {str(w)[:200]}", file=sys.stderr)
             return 2
 
     total_w = total_e = 0

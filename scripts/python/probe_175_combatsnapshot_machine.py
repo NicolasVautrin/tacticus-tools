@@ -92,7 +92,7 @@ def live_session() -> int:
         st = json.loads(r.read())
     s = st.get("session")
     if not s or s.get("status") != "running":
-        sys.exit("[error] aucune session Frida vivante -- injecter puis warmup")
+        sys.exit("[error] aucune session Frida vivante -- injecter puis amorce")
     return int(s["id"])
 
 

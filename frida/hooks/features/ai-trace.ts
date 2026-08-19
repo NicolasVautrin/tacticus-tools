@@ -14,9 +14,9 @@
 // et l'INSTALLATION des hooks est LAZY (premier `aiTraceEnable`) : ~50
 // trampolines (39 L3 MoveNext + L3atk + Predict* + L1/L2) sur les chemins
 // IL2CPP les plus chauds — attachés au register, ils taxaient CHAQUE fire
-// de la bataille réelle du warmup même gated (pattern de l'incident
-// modifier-observe 2026-07-10 : churn inject/warmup + hooks chauds = crash).
-// Un inject+warmup frais ne porte donc plus AUCUN trampoline ai-trace.
+// de la bataille réelle de l'amorce même gated (pattern de l'incident
+// modifier-observe 2026-07-10 : churn inject + hooks chauds = crash).
+// Un inject frais ne porte donc plus AUCUN trampoline ai-trace.
 //
 // Anchors used in projections (driven by aiTraceSetProjection RPC):
 //   caster, target, closestEnemy, unit  (IEntity heap obj)
@@ -87,7 +87,7 @@ function isPathSpec(x: unknown): x is PathSpec {
 
 export function register(ctx: Ctx): void {
     // PAS d'installOnce() ici — install LAZY au premier aiTraceEnable (cf. en-tête : zéro
-    // trampoline sur les hot paths pendant inject/warmup ; l'enable arme sur état CALME).
+    // trampoline sur les hot paths pendant inject ; l'enable arme sur état CALME).
 
     ctx.rpc.aiTraceStatus = (): unknown => ({
         installed: traceState.installed,
@@ -103,7 +103,7 @@ export function register(ctx: Ctx): void {
             return { ok: false, error: "level must be L1|L2|L3" };
         }
         // Install LAZY au premier enable (main thread : findClass/attach sur état calme,
-        // post-warmup). Les enables suivants ne repayent rien (installOnce idempotent).
+        // post-amorce). Les enables suivants ne repayent rien (installOnce idempotent).
         if (!traceState.installed) {
             return queueOnMainThread(() => {
                 installOnce();

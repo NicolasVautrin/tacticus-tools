@@ -45,7 +45,7 @@ def test_thunderous_assault_targeting_mask_matches_native(host, live_session):
     sid = live_session
     rid, state_file = P._build(sid, SEED, BOARD)
     try:
-        for _ in range(P.WARMUP_ENDTURNS):
+        for _ in range(P.TOURS_DE_CHAUFFE):
             P._act(sid, rid, {"kind": "endturn"}, 60)
         cid, _ally_id, _near_id, far_id = P._drive_contact(sid, rid)
         d0 = P._dv(sid, rid)

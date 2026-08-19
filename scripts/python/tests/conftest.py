@@ -12,9 +12,9 @@ donc un harnais d'AGRÉMENT property-based :
     runner n'existe — il n'entre jamais dans le critère pass/fail.
   • Pas de session → SKIP propre (on confronte le live, ou rien).
 
-INIT live = warmup-if-needed : `warmupGameSingletons` SANS `force` est idempotent
+INIT live = amorce-si-besoin : `autoBootExtraire` SANS `force` est idempotent
 (no-op si déjà chaud ; cycle de nav complet si froid / après reinject — agent frais
-⇒ ptr null ⇒ vrai warmup).
+⇒ ptr null ⇒ vrai amorce).
 """
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def _new_state_path() -> Path:
 #   2. si le cap tient jusqu'au bout, ECHOUER FORT (`pytest.fail`) au lieu de
 #      skipper : « je n'ai pas pu valider » n'est pas « il n'y avait rien a
 #      valider ». Un skip vert sur un cap plein est un faux negatif silencieux.
-# Les autres causes d'indisponibilite du harnais (build KO, pas de session, warmup
+# Les autres causes d'indisponibilite du harnais (build KO, pas de session, amorce
 # KO) sont converties en ECHEC par `pytest_runtest_makereport` plus bas -- y compris
 # quand elles viennent d'un test qui construit son runner LUI-MEME sans passer par la
 # fabrique `build_runner`.
@@ -238,7 +238,7 @@ _HARNESS_DOWN_MARKERS = (
     _CAP_MARKER,
     _DRAIN_MARKER,
     "pas de session Frida active",
-    "warmup KO",
+    "amorce KO",
 )
 
 
@@ -324,8 +324,8 @@ def host():
 
 @pytest.fixture(scope="session")
 def live_session(host):
-    """Session Frida résolue + warmup-if-needed (doctrine : warmup avant tout RPC).
-    Skip si pas de session ou warmup KO — toute la suite se confronte au live.
+    """Session Frida résolue + amorce-si-besoin (doctrine : amorce avant tout RPC).
+    Skip si pas de session ou amorce KO — toute la suite se confronte au live.
 
     #363 — LIE AUSSI LE TRANSPORT RPC AMBIANT (`snapshot.bind_live_rpc`) pour la durée de la
     session pytest. C'est ce qui rend le seed de l'ability TERTIAIRE (l'item RELIQUE ÉQUIPÉ, #357)
@@ -346,9 +346,9 @@ def live_session(host):
         sid = host._resolve_session()
     except Exception as e:                            # pas de host / pas de session
         pytest.skip(f"pas de session Frida active (lance Tacticus + inject): {e}")
-    w = _unwrap(host._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    w = _unwrap(host._rpc(sid, "autoBootExtraire", [{}], timeout=180))
     if not (isinstance(w, dict) and w.get("ok")):
-        pytest.skip(f"warmup KO (jeu indisponible): {str(w)[:200]}")
+        pytest.skip(f"amorce KO (jeu indisponible): {str(w)[:200]}")
 
     def _ambient(method: str, body=None, timeout: float = 60):
         return _unwrap(host._rpc(sid, method, [body] if body is not None else [], timeout=timeout))

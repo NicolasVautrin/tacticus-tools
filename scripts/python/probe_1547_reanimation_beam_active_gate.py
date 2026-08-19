@@ -276,9 +276,9 @@ def main() -> int:
     except Exception as e:
         print("SKIP: pas de session Frida (%s)" % str(e)[:120])
         return 2
-    w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
     if not _ok(w):
-        print("SKIP: warmup KO (%s)" % str(w)[:160])
+        print("SKIP: amorce KO (%s)" % str(w)[:160])
         return 2
 
     print("=== case-1547 : le flag IsActive de l'instance 1547 renverse-t-il l'issue ? ===")

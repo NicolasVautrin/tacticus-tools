@@ -224,9 +224,9 @@ def run(seed: str = "777", board: str = "MC1_67", verbose: bool = True,
     from probe_366_r1_saga_other_space_wolves import execute_hero
 
     sid = R._resolve_session()
-    w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
     if not (isinstance(w, dict) and w.get("ok")):
-        return {"ok": False, "why": "warmup KO : %s" % str(w)[:200]}
+        return {"ok": False, "why": "amorce KO : %s" % str(w)[:200]}
 
     def rpc(method, body=None, timeout=60):
         return _unwrap(R._rpc(sid, method, [body] if body is not None else [], timeout=timeout))

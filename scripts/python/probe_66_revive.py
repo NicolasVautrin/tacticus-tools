@@ -95,10 +95,10 @@ def _fresh_rng(seed_int):
 
 def main():
     sid = R._resolve_session()
-    w = R._rpc(sid, "warmupGameSingletons", [{}], timeout=180)
+    w = R._rpc(sid, "autoBootExtraire", [{}], timeout=180)
     w = w.get("result") if isinstance(w, dict) and "result" in w else w
     if not (isinstance(w, dict) and w.get("ok")):
-        print("SKIP: warmup KO", str(w)[:150]); return
+        print("SKIP: amorce KO", str(w)[:150]); return
 
     def rpc(method, body, t=90):
         r = R._rpc(sid, method, [body], timeout=t)

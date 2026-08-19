@@ -44,8 +44,8 @@ def effs(d, uid):
 
 def main():
     sid = R._resolve_session()
-    w = R._rpc(sid, "warmupGameSingletons", [{}], timeout=180)
-    print("warmup:", str(w)[:120])
+    w = R._rpc(sid, "autoBootExtraire", [{}], timeout=180)
+    print("amorce:", str(w)[:120])
     import subprocess
     sf = sys.argv[1] if len(sys.argv) > 1 else "logs/probe114b.json"
     cmd = [sys.executable, sibling_script("rl_duel.py"), "build", "--seed", "114900",

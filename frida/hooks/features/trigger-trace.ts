@@ -121,7 +121,7 @@ function ensureInstalled(): boolean {
     }
     const klass = findClassAnywhere(
         "IdunBattle.Entities.Abilities", "BaseTriggeredAbility");
-    if (!klass) return false;   // classe pas encore resolue (pre-warmup) -> retry plus tard
+    if (!klass) return false;   // classe pas encore resolue (pre-amorce) -> retry plus tard
     const nameBuf = Memory.allocUtf8String("ShouldTrigger");
     const mi = _classGetMethodFromName(klass, nameBuf, 2) as NativePointer;
     if (mi.isNull()) {
@@ -176,7 +176,7 @@ function ensureInstalled(): boolean {
 export function register(ctx: Ctx): void {
     // Auto-arme best-effort au register. Les classes de bataille ne sont
     // souvent PAS resolues au chargement du script -> ensureInstalled retry
-    // (lazy) au premier triggerTrace()/triggerTraceInstall apres warmup.
+    // (lazy) au premier triggerTrace()/triggerTraceInstall apres amorce.
     try { ensureInstalled(); } catch (e) {
         log("[trigger-trace] auto-arm skip: " + (e as Error).message);
     }

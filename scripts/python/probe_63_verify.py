@@ -54,8 +54,8 @@ def _show(tag, r):
 
 
 def main():
-    w = _unwrap(R._rpc(_SID, "warmupGameSingletons", [{}], timeout=180))
-    print("warmup ok=", isinstance(w, dict) and w.get("ok"))
+    w = _unwrap(R._rpc(_SID, "autoBootExtraire", [{}], timeout=180))
+    print("amorce ok=", isinstance(w, dict) and w.get("ok"))
     try:
         print("necroDestroyer->necroOverlord (MELEE, doit rester bitexact)")
         _show("melee", replay_normal_attack(_rpc, _build, "necroDestroyer", target="necroOverlord"))

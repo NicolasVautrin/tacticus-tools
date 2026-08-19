@@ -167,8 +167,8 @@ def main():
     att = sys.argv[1] if len(sys.argv) > 1 else "templHelbrecht"
     tgt = sys.argv[2] if len(sys.argv) > 2 else "ultraApothecary"
     dist = int(sys.argv[3]) if len(sys.argv) > 3 else 2
-    w = _unwrap(R._rpc(_SID, "warmupGameSingletons", [{}], timeout=180))
-    print("warmup ok=", isinstance(w, dict) and w.get("ok"))
+    w = _unwrap(R._rpc(_SID, "autoBootExtraire", [{}], timeout=180))
+    print("amorce ok=", isinstance(w, dict) and w.get("ok"))
     try:
         run(att, tgt, dist)
     finally:

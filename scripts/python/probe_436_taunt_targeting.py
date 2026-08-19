@@ -247,7 +247,7 @@ def main(argv=None) -> int:
     print("[build] runner=%d board=%s seed=%s p_units=%s a_units=%s"
           % (rid, a.board, a.seed, ",".join(P_UNITS), a.a_units))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
 
         # GEOMETRIE. Le futur TAUNTE n'est PAS choisi d'avance : on amene le tauntant au CONTACT

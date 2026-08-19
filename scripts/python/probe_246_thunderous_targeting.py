@@ -96,7 +96,7 @@ P_UNITS = CASTER_VIS + "," + ALLY_VIS
 A_UNITS = FOE_VIS + "," + FOE_VIS + "," + FOE_VIS
 BOARD = "MC1_67"
 SEED = "777"
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 _seq = itertools.count()
 
 
@@ -293,7 +293,7 @@ def main(argv=None) -> int:
     rid, state_file = _build(sid, a.seed, a.board)
     print("[build] runner=%d board=%s seed=%s" % (rid, a.board, a.seed))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         cid, ally_id, near_id, far_id = _drive_contact(sid, rid)
         # CAS LIMITE : un ennemi a distance EXACTEMENT 2. `onlyAdjacent` doit le refuser -- c'est la

@@ -99,7 +99,7 @@ import { invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 // ⚠ L'import d'`ensureRefs` (`ui-nav.ts`) a disparu AVEC le module : il ne servait qu'au
 // repli d'`uiWindows`, retiré en même temps que les endpoints d'interface. Ce fichier ne
-// garde que l'ÉCOUTE des transitions de fenêtre (`ecouterTransitions`), dont le warmup
+// garde que l'ÉCOUTE des transitions de fenêtre (`ecouterTransitions`), dont l'amorce
 // dépend — elle observe, elle ne clique pas.
 import { Ctx } from "../controller.js";
 
@@ -198,7 +198,7 @@ function membre(
 // Ce sont des INTERFACES : rien ne garantit que l'objet reçu soit un `idun.ui.ScreenVisibility`,
 // et lire `<GuiId>k__BackingField` à SON offset sur un objet d'une autre classe rend un entier
 // arbitraire. C'est mesuré, pas redouté : le journal publiait `ordinal -1988785488` sur deux
-// transitions de chaque cycle de warmup (#390-r2, deux runs identiques à 28/28 transitions).
+// transitions de chaque cycle d'amorce (#390-r2, deux runs identiques à 28/28 transitions).
 // D'où `classe` ci-dessous — le nom IL2CPP de la classe RÉELLE de l'objet. L'ordinal reste
 // publié tel quel (le rabattre sur `null` masquerait la mesure) ; `classe` est ce qui le rend
 // LISIBLE : `idun.ui.BlurredBackgroundScreen` n'est pas un écran, c'est le wrapper de fond
@@ -207,7 +207,7 @@ function membre(
 // PAIRES (`montre-debut <wrapper>` puis `montre-debut PauseMenu`).
 
 /** LES LIBELLÉS DE TRANSITION — foyer unique. Ils sont publiés dans `uiWindowEvents` ET
- *  consommés comme SIGNAL par `warmup-retreat-signal.ts` (#390-r2), qui ne peut pas importer
+ *  consommés comme SIGNAL par `ui-windows.ts` (#390-r2), qui ne peut pas importer
  *  ce module (il est pur, donc exécutable hors Frida) et redéclare donc les siens. C'est
  *  `frida/tools/probe-390-r2-signal-retraite.ts` étage 2 qui garde les deux appariés — une
  *  divergence rendrait le signal muet sans rien casser d'autre. */
@@ -279,7 +279,7 @@ function noter(quoi: string, screen: NativePointer): void {
             quoi, gui: guiDeLEcran(screen), classe: classeDe(screen),
         };
         // Diffusion AVANT le gate : un abonné n'a pas à dépendre de l'état du journal de
-        // l'opérateur, et le warmup ne doit pas avoir à l'armer (donc à l'éteindre après,
+        // l'opérateur, et l'amorce ne doit pas avoir à l'armer (donc à l'éteindre après,
         // ce qui écraserait une observation en cours).
         for (const cb of abonnes) {
             try { cb(vue); } catch { /* un abonné qui jette n'emporte pas les autres */ }
@@ -316,11 +316,11 @@ function ancrer(klass: NativePointer, nom: string, quoi: string): number {
 }
 
 /** UNE ÉCOUTE PUSH DES TRANSITIONS — ce qu'un consommateur INTERNE au bundle peut attendre
- *  sans sonder. Ajouté par #390-r2 pour `retreatToCampaign` (`warmup-singletons.ts`), qui
+ *  sans sonder. Ajouté par #390-r2 pour `retreatToCampaign` (`auto-boot.ts`), qui
  *  détectait la sortie de bataille en interrogeant l'UI toutes les 250 ms.
  *
  *  ⚠ POURQUOI CE N'EST **PAS** UN `uiWindowEvents({start:true})` SUIVI D'UN `{stop:true}`.
- *  Le drapeau `actif`, le tampon et `recus` sont l'état de l'OPÉRATEUR : un `start` du warmup
+ *  Le drapeau `actif`, le tampon et `recus` sont l'état de l'OPÉRATEUR : un `start` de l'amorce
  *  puis son `stop` ÉTEINDRAIT un journal qu'un humain venait d'armer, et un `clear` effacerait
  *  ses transitions. L'abonnement est purement ADDITIF — il ne lit ni n'écrit `actif`, ne touche
  *  pas au tampon, et se retire à `fermer()`.
@@ -328,7 +328,7 @@ function ancrer(klass: NativePointer, nom: string, quoi: string): number {
  *  ⚠ `ancrages === null` = LE SIGNAL N'EXISTE PAS (classe introuvable). Tri-état : l'appelant
  *  doit le DIRE et retomber sur son filet, jamais le lire comme « rien ne s'est passé ».
  *
- *  COÛT MESURÉ (#390-r2, build rnca9r7q6c) : un cycle de warmup complet — entrée en bataille,
+ *  COÛT MESURÉ (#390-r2, build rnca9r7q6c) : un cycle d'amorce complete — entrée en bataille,
  *  pause, retraite, retour campagne — produit **28** transitions, dont 6 après le clic de
  *  confirmation. Ces points sont FROIDS ; ils ne sont pas dans le régime de `ui-mutations.ts`
  *  (`GameObject$$SetActive`), qui lui n'est jamais auto-armé. */

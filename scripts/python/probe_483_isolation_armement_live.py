@@ -33,11 +33,11 @@ LE MONTAGE, et pourquoi chaque etape existe :
      il faut aussi la voir se fermer, sinon « toujours ouvert » satisferait I1 et I2.
 
 Discipline runner : deux runners montes ICI, disposes ICI (jamais ceux des autres).
-Session froide -> `--warmup`. ASCII only.
+Session froide -> `--amorce`. ASCII only.
 
 Usage :
   python scripts/python/probe_483_isolation_armement_live.py --board MC1_67 --seed 777
-  python scripts/python/probe_483_isolation_armement_live.py --warmup
+  python scripts/python/probe_483_isolation_armement_live.py --amorce
 
 Codes de sortie : 0 = VERT, 1 = ROUGE, 3 = NON MESURE.
 """
@@ -133,10 +133,10 @@ def run(a) -> int:
         sid = _resolve_session()
     except RuntimeError as e:                                          # host muet / pas de session
         raise NonMesure("aucune session Frida exploitable : %s" % str(e)[:250])
-    if a.warmup:
-        print("[warmup] warmupGameSingletons(force=True) ...")
-        w = _r(sid, "warmupGameSingletons", {"force": True}, 240)
-        print("[warmup] %s" % json.dumps(w)[:200])
+    if a.amorce:
+        print("[amorce] autoBootExtraire(force=True) ...")
+        w = _r(sid, "autoBootExtraire", {"force": True}, 240)
+        print("[amorce] %s" % json.dumps(w)[:200])
 
     st = _exiger_bundle_483(sid)
     print("[bundle] traceArmedStatus present -- familles : %s" % ", ".join(st["kinds"]))
@@ -231,8 +231,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--board", default="MC1_67", help="board explicite (OBLIGATOIRE en pratique)")
     ap.add_argument("--seed", type=int, default=777)
-    ap.add_argument("--warmup", action="store_true",
-                    help="warmupGameSingletons(force) si la session parait froide")
+    ap.add_argument("--amorce", action="store_true",
+                    help="autoBootExtraire(force) si la session parait froide")
     a = ap.parse_args()
     try:
         return run(a)

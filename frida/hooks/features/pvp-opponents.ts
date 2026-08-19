@@ -13,7 +13,7 @@
 //
 // ⚠ On passe par le `ViewCommandExecutor`, PAS par `PvpScreen._pvpProgression` (qui existe
 // aussi). L'ecran n'est instancie que si l'utilisateur l'a ouvert ; l'executeur, lui, est
-// capte au warmup et porte les 44 progressions du compte. Mesure du 2026-08-17, build
+// capte a l'amorce et porte les 44 progressions du compte. Mesure du 2026-08-17, build
 // `t6dpr4k06g` : `_pvpProgression` y est declare `IPvpProgression`, aux cotes de 40 autres
 // `*Progression` -- c'est le porteur canonique, et `view-command.ts` en est le foyer unique.
 //

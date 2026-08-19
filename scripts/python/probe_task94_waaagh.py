@@ -29,7 +29,7 @@ def main(caster="orksWarboss", enemy="necroWarden", ability=1058, seed="777", ma
     ability, maxd = int(ability), int(maxd)
     sid = R._resolve_session()
     print("[probe] session", sid)
-    _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
     STATE.unlink(missing_ok=True)
     p = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", seed,
                         "--state-file", str(STATE), "--board", "MC1_67",

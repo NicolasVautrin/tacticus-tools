@@ -59,7 +59,7 @@ def montage():
     grp = P.GROUPS["heroes"]
     rid, state_file = P._build(sid, "777", "MC1_67", grp["p_units"])
     try:
-        for _ in range(P.WARMUP_ENDTURNS):
+        for _ in range(P.TOURS_DE_CHAUFFE):
             P._act(sid, rid, {"kind": "endturn"}, 60)
         anchor = grp["p_units"][0]
         P._drive_spectrum(sid, rid, anchor)

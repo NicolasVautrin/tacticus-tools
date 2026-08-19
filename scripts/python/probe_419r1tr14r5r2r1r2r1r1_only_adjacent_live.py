@@ -205,7 +205,7 @@ def run_greffe(sid, seed: str = "4192", board: str = "MC1_67", sans_canal: bool 
           % (P583.NOWEAPON_VIS, GRAFT_ACTIVE, rep["abilityId"], rep["configAdded"]))
     rid, state = _build_bc(sid, seed, board, str(tmp))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P583._drive_and_summon(sid, rid)
         print("  contact force : %s"
@@ -248,7 +248,7 @@ def run(sid, seed: str = "4192", board: str = "MC1_67", sans_canal: bool = False
     print("=== montage : %s -> `CultDemagogue` -> %s (SANS ARME) + %s (ARME)  (runner %d)"
           % (P583.ANCHOR_VIS, P583.NOWEAPON_VIS, P583.ARMED_VIS, rid))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P583._drive_and_summon(sid, rid)
         print("  contact force : %s" % P583.forcer_contact(sid, rid))

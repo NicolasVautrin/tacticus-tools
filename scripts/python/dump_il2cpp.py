@@ -13,8 +13,8 @@ principale) et emet le dump en UN message `{t:"il2cpp_full", methods, classes, e
 dans le log jsonl de la session. On le desenveloppe et on l'ecrit au format attendu par
 `preprocess_il2cpp_dump.py` (cles `methods`/`classes`/`enums` a la racine).
 
-NB : ne demande PAS de warmup — le one-shot lit les metadonnees IL2CPP, peuplees au demarrage
-du process, pas les singletons de jeu que le warmup amorce.
+NB : ne demande PAS de amorce — le one-shot lit les metadonnees IL2CPP, peuplees au demarrage
+du process, pas les singletons de jeu que l'amorcette amorce.
 
 Usage :
     python scripts/python/dump_il2cpp.py --pid <pid>     # pid du Tacticus vise

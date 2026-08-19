@@ -86,7 +86,7 @@ A_UNITS = "necroWarden,necroWarden"
 BOARD = "C1_02"                         # board MoW-capable (slot MachineOfWarPosition des 2 cotes)
 SEED = "777"
 MOW_AMMO = 9                            # desarme le court-circuit `CanCurrentlyBeUsed` (munitions)
-WARMUP_ENDTURNS = 6                     # purge `initialCooldownTurns` de 1142 (= 1)
+TOURS_DE_CHAUFFE = 6                     # purge `initialCooldownTurns` de 1142 (= 1)
 #: Le 2e argument du call-site (`<slot 0x1b>(caster, 2)`) -- c'est lui qui NOMME le bit.
 TURNS_ARG = 2
 
@@ -199,7 +199,7 @@ def _run_bras(sid, label, rounds, seed, board):
         # PURGE du `initialCooldownTurns` : sans elle `CanCurrentlyBeUsed` est faux et
         # `AttackQuery$$GetInvalidCasterReason` court-circuite AVANT la cascade.
         n_end = 0
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             d = _dv(sid, rid)
             mow = _mow_by_vis(d, BATTERY)
             ab = next((a for a in ((mow or {}).get("abilities") or [])

@@ -268,7 +268,7 @@ const BUC_ID_OFF = baseUnitComponentClass
 // champs STATIQUES LITTÉRAUX de l'enum (`dumpEnumClass` → `il2cpp_field_static_get_value`),
 // et une classe jamais initialisée n'a pas de disposition exploitable — c'est le piège que
 // `damage-prediction.ts` documente sur `List\`1` (`boxedSize: 0`, tous les champs à
-// `offset: 0`). Le premier appel de `combatSnapshot` arrive après le warmup, donc après
+// `offset: 0`). Le premier appel de `combatSnapshot` arrive après l'amorce, donc après
 // l'init IL2CPP. Même idiome que `unitFlagTypes()` / `unitTraitTypes()` ci-dessous.
 //
 // La RÉSOLUTION vit dans `game/rarity.ts` — pas ici — parce qu'elle est paramétrée par un
@@ -294,7 +294,7 @@ function rarityResolution(): RarityResolution {
 // LAZY pour la même raison que `rarityResolution()` juste au-dessus : la résolution dérive le
 // layout d'un `Nullable<T>` INFLATÉ et le nom PLEIN de son enum, et une classe jamais initialisée
 // n'a pas de disposition exploitable. Le premier appel de `combatSnapshot` arrive après le
-// warmup.
+// amorce.
 //
 // La RÉSOLUTION vit dans `game/tertiary-ability.ts` — pas ici — parce qu'elle est paramétrée par
 // un `TertiaryProbe` et donc EXÉCUTABLE hors Frida

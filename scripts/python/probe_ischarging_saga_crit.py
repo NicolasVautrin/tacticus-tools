@@ -22,7 +22,7 @@ Le probe COMPTE aussi les appels reels de la face (parade au « canal branche, j
 
 Usage (depuis scripts/python, session DEJA warmee) :
     python probe_ischarging_saga_crit.py [--seed 777] [--board MC1_67] [--regimes CHARGE,NO_STEP]
-    python probe_ischarging_saga_crit.py --warmup      # si (et seulement si) la session est FROIDE
+    python probe_ischarging_saga_crit.py --amorce      # si (et seulement si) la session est FROIDE
 
 ASCII only (console cp1252).
 """
@@ -83,9 +83,9 @@ def main() -> int:
                     help="CritChance,CritDamage forces sur les p-units (le crit d'un heros vient "
                          "de ses items I_Crit, absents d'un build frais)")
     ap.add_argument("--regimes", default="CHARGE,STEP_ADJACENT,NO_STEP")
-    ap.add_argument("--warmup", action="store_true",
-                    help="warmup la session AVANT (a n'utiliser que si elle est FROIDE : "
-                         "un `already-ready` est un STOP, pas un re-warmup)")
+    ap.add_argument("--amorce", action="store_true",
+                    help="amorce la session AVANT (a n'utiliser que si elle est FROIDE : "
+                         "un `already-ready` est un STOP, pas un re-amorce)")
     ap.add_argument("--runner", type=int, default=None,
                     help="runnerId deja construit (sinon on en construit un et on le dispose)")
     a = ap.parse_args()
@@ -95,10 +95,10 @@ def main() -> int:
     from _charge_regime import ChargeRegimeHarness
 
     sid = R._resolve_session()
-    if a.warmup:
-        w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{"force": True}], timeout=180))
+    if a.amorce:
+        w = _unwrap(R._rpc(sid, "autoBootExtraire", [{"force": True}], timeout=180))
         if not (isinstance(w, dict) and w.get("ok")):
-            print("[probe] warmup KO : %s" % str(w)[:200])
+            print("[probe] amorce KO : %s" % str(w)[:200])
             return 2
 
     def rpc(method, body=None, timeout=60):

@@ -7,7 +7,7 @@
 // est donc ANNULE sans un mot -- et le symptome est trompeur : le jeu reste vivant, repond aux
 // RPC, mais n'affiche plus rien.
 //
-// C'est ce qui a bloque le jeu TROIS fois pendant #993 : le warmup se retirait de bataille entre
+// C'est ce qui a bloque le jeu TROIS fois pendant #993 : l'amorce se retirait de bataille entre
 // 8 et 10 s apres le lancement, le retour au meta etait refuse, et il fallait relancer le jeu.
 //
 // MESURE DU 2026-08-13 (statique relue toutes les ~900 ms apres `StartCampaignMatch`) :
@@ -24,7 +24,7 @@
 //   une bataille encore en chargement. Chacun de ces signaux dit « la bataille existe » ; aucun
 //   ne dit « le chargeur a fini ».
 //
-// PORTEE. Rien ici n'est propre au warmup : c'est l'etat du chargeur, et il conditionne TOUT
+// PORTEE. Rien ici n'est propre a l'amorce : c'est l'etat du chargeur, et il conditionne TOUT
 // changement de scene (entree en bataille, retour au meta, navigation qui recharge). Tout geste
 // qui en declenche un devrait le consulter d'abord.
 //

@@ -11,7 +11,7 @@
 //               builders/archive panels are hidden from left aside (they're
 //               not useful while observing a live battle).
 // The hook live runs in BOTH modes (the hook is heavy and conditions
-// catalog warmup, recorder, etc. — see project memory). Toggle just
+// catalog amorce, recorder, etc. — see project memory). Toggle just
 // re-arranges visibility, never re-attaches Frida.
 
 import { state, saveViewMode } from "./state.js";

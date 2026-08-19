@@ -1009,8 +1009,8 @@ def main():
     if a.mutate:
         print("MUTATION:", _mutation(a.mutate))
 
-    w = _unwrap(R._rpc(_SID, "warmupGameSingletons", [{}], timeout=240))
-    print("warmup ok=", isinstance(w, dict) and w.get("ok"),
+    w = _unwrap(R._rpc(_SID, "autoBootExtraire", [{}], timeout=240))
+    print("amorce ok=", isinstance(w, dict) and w.get("ok"),
           (w or {}).get("skipped") or "")
 
     seeds = [s.strip() for s in a.seeds.split(",") if s.strip()]

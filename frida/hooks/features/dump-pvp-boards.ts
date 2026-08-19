@@ -88,7 +88,7 @@ function dumpPvpAndSyncBoards(opts?: {
     const gameConfig = getLastGameConfig();
     if (!gameConfig) {
         return { ok: false, pvpCount: 0, syncCount: 0, globalCount: 0, boards: [],
-            err: "lastGameConfig not captured — run buildCampaignConfig once or warmup" };
+            err: "lastGameConfig not captured — run buildCampaignConfig once or amorce" };
     }
 
     // Resolve GameConfigDto.battles field offset dynamically

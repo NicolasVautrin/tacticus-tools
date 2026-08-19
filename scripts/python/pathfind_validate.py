@@ -17,7 +17,7 @@ On teste les 3 modes d'adjacence (native / native_sym / evenq) et on rapporte
 lequel reproduit le mieux le natif.
 
 Usage : python pathfind_validate.py [--seed 777] [--runner N] [--adjacency MODE]
-Pré-requis : session Frida warmée (warmupGameSingletons) — cf. CLAUDE.md.
+Pré-requis : session Frida warmée (autoBootExtraire) — cf. CLAUDE.md.
 """
 from __future__ import annotations
 

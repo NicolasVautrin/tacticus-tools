@@ -100,7 +100,7 @@ P_UNITS = CASTER_VIS + "," + ALLY_VIS
 A_UNITS = ",".join([FOE_VIS] * 3)
 BOARD = "MC1_67"
 SEED = "777"
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 _seq = itertools.count()
 
 
@@ -288,7 +288,7 @@ def main(argv=None) -> int:
     rid, state_file = _build(sid, a.seed, a.board)
     print("[build] runner=%d board=%s seed=%s" % (rid, a.board, a.seed))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         cid, ally_id, foes = _drive(sid, rid)
         _my_turn(sid, rid)               # rendre la main au camp du caster avant de figer l'etat

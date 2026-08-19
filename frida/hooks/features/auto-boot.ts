@@ -89,7 +89,7 @@ export async function extractDependenciesAndNavigate(navInstance: NativePointer)
         //
         // Mesure du 2026-08-10 : quatre reinjects successifs pendant un travail sur
         // l'ecran Operations ont ramene le jeu sur la campagne Indomitus a chaque fois.
-        // `{ warmup: false }` n'y changeait rien -- ce n'est pas le warmup qui navigue,
+        // `{ amorce: false }` n'y changeait rien -- ce n'est pas l'amorce qui navigue,
         // c'est ce module, par un chemin independant. Le symptome se lit comme un caprice
         // du jeu alors qu'il vient de nous.
         //
@@ -518,7 +518,7 @@ export function register(ctx: Ctx): void {
         log("[auto-boot] Warning: LevelMapWidgetContainer class not found during registration");
     }
 
-    // Active discovery loop (zero-click warmup for late-attach / warm-restarts)
+    // Active discovery loop (zero-click amorce for late-attach / warm-restarts)
     let discoveryAttempts = 0;
     const maxDiscoveryAttempts = 8;
     
@@ -550,15 +550,15 @@ export function register(ctx: Ctx): void {
      * EXTRACTION SEULE — le catalogue d'items SANS bataille, SANS navigation, SANS heap scan.
      *
      * ⚠ POURQUOI CE RPC EXISTE, ET CE QU'IL REMPLACE. Mesuré le 2026-08-19 sur un process
-     * FROID (jeu relancé, aucune bataille jamais entrée, `warmGate.autoWarmups = 0` vérifié
-     * avant et après) : un runner se monte ET SE JOUE sans aucun warmup — `rl_duel build` en
+     * FROID (jeu relancé, aucune bataille jamais entrée, `amorce.autoAmorces = 0` vérifié
+     * avant et après) : un runner se monte ET SE JOUE sans aucune amorce — `rl_duel build` en
      * 8,1 s, `aiturn` 156 events, stage `Running`, jeu vivant. Aucun crash `0x2c`. Le SEUL
      * manquant était `lastGameConfig` : `previewBis` refusait par « no lastGameConfig
      * captured », et sans lui CritChance/CritDamage/BlockChance/BlockDamage valent 0 sur
      * TOUTES les unités (#419-r5).
      *
      * Or ce pointeur ne vient PAS d'une bataille : il est lu dans `IdunNavigation._gameConfig`,
-     * donc sur un ÉCRAN MÉTA. Le warmup, qui entre en bataille puis se retire pour l'obtenir,
+     * donc sur un ÉCRAN MÉTA. L'amorce, qui entre en bataille puis se retire pour l'obtenir,
      * faisait un détour de ~14 s — et c'est ce détour qui pilote l'UI, donc qui peut coincer
      * le jeu. Ici : deux champs lus, rien d'autre.
      *
@@ -641,7 +641,7 @@ export function register(ctx: Ctx): void {
     /** Rallume (ou reeteint) la navigation AUTOMATIQUE au boot.
      *
      *  Elle est eteinte par defaut depuis le 2026-08-10 : elle ramenait le jeu sur la
-     *  campagne a chaque injection, y compris avec `{ warmup: false }`, en plein travail
+     *  campagne a chaque injection, y compris avec `{ amorce: false }`, en plein travail
      *  sur un autre ecran. body: { actif: boolean } */
     ctx.rpc.setAutoBootNavigation = (body?: { actif?: boolean }) =>
         queueOnMainThread(() => {

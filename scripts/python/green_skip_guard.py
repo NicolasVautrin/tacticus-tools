@@ -28,7 +28,7 @@ CE QUE CE PLUGIN N'EST PAS
 --------------------------
 Ce n'est pas le pendant du bloc « un SKIP harnais indisponible est un ECHEC » de
 `tests/conftest.py` (#77), et les deux ne se recouvrent pas. Celui-la lit la RAISON d'un skip
-(cap de runners, drain, session absente, warmup KO) et la convertit test par test. Celui-ci ne lit
+(cap de runners, drain, session absente, amorce KO) et la convertit test par test. Celui-ci ne lit
 AUCUNE raison : il lit un BILAN, a l'echelle du fichier. Un skip de MONTAGE parfaitement legitime
 -- « la cible n'a pas de tuile libre au contact » -- ne porte aucun marqueur de harnais, passe donc
 intact le premier garde, et c'est exactement ce qui a rendu #455 invisible.

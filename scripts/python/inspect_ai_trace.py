@@ -112,7 +112,7 @@ def _slice_decisions(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]
 
     Open window on ai_turn_begin, append until first ai_action_applied
     (inclusive), then start a new window. Records before any ai_turn_begin
-    are skipped (warmup noise).
+    are skipped (amorce noise).
     """
     windows: list[list[dict[str, Any]]] = []
     cur: list[dict[str, Any]] = []

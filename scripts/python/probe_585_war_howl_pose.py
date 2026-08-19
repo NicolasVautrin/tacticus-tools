@@ -127,9 +127,9 @@ def main(argv=None):
 
     import rl_collect_batch as R
     sid = R._resolve_session()
-    w = _unwrap(R._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
+    w = _unwrap(R._rpc(sid, "autoBootExtraire", [{}], timeout=180))
     if not (isinstance(w, dict) and w.get("ok")):
-        print("[576] warmup KO : %s" % str(w)[:200])
+        print("[576] amorce KO : %s" % str(w)[:200])
         return 2
 
     def rpc(method, body=None, timeout=60):

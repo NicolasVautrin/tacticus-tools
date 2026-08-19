@@ -177,7 +177,7 @@ def _run_arm(sid, seed, board, arm, passives, want_type, tmpdir):
     try:
         # `initialCooldownTurns` non purges -> `AttackQuery.GetInvalidTargetReason` rend
         # `ValidRequest` (0x1) pour TOUT. MESURE : sans ces endturns, rien n'est mesurable.
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P247._drive_spectrum(sid, rid, CASTER_VIS, wants=WANTS)
         dv, payloads = P436._capture(sid, rid)

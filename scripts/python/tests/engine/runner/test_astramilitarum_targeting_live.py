@@ -72,7 +72,7 @@ def scene():
     except Exception as e:                                           # noqa: BLE001
         pytest.skip("build KO: %s" % e)
     try:
-        for _ in range(P.WARMUP_ENDTURNS):
+        for _ in range(P.TOURS_DE_CHAUFFE):
             P._act(sid, rid, {"kind": "endturn"}, 60)
         foes = P._drive(sid, rid)
         P._my_turn(sid, rid)

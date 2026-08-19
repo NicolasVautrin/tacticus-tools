@@ -812,7 +812,7 @@ def step_gatelive(sid, seed="777", board="MC1_67"):
     rid, _state = P436._build(sid, seed, board, P436.P_UNITS, P436.A_UNITS_DEFAUT)
     print("[build] runner=%d board=%s seed=%s" % (rid, board, seed))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         tauntee = P436._make_adjacent(sid, rid, "tyranTyrantGuard")
         if tauntee is None:

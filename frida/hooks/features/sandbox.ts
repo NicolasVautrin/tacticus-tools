@@ -37,7 +37,7 @@
 // ⚠⚠ LA SORTIE DE BATAILLE FAIT CRASHER LE JEU — LE CYCLE DE VIE N'EST PAS BOUCLÉ
 // ------------------------------------------------------------------------------
 // Mesuré le 2026-08-16 : le MONTAGE marche (boss de guilde à 22 200 785 PV, ses adds, sans
-// campagne ni warmup), mais `IdunMainView$$EndBattleAndGoToMeta` sur une bataille montée
+// campagne ni amorce), mais `IdunMainView$$EndBattleAndGoToMeta` sur une bataille montée
 // ainsi rend `IsBattleActive = false` PUIS `loader = 0` — les deux lectures RÉUSSISSENT —
 // et le process MEURT ensuite, pendant le chargement du meta (`Tacticus.exe.80832.dmp`,
 // 38 Mo). Les mesures d'après-coup étaient VERTES : le crash arrive après elles.

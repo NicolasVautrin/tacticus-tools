@@ -9,7 +9,7 @@ Property-based, indépendant version/seed :
     détectées et exclues (exception connue, pas un échec).
 
 Aucun snapshot gelé : l'oracle est le natif en cours d'exécution. Skip si pas de
-session (cf. conftest : live_session warmup-if-needed, live_runner reuse-or-build).
+session (cf. conftest : live_session amorce-si-besoin, live_runner reuse-or-build).
 """
 from __future__ import annotations
 

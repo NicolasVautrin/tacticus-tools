@@ -245,7 +245,7 @@ def main(argv=None) -> int:
     print("[build] runner=%d board=%s seed=%s p=%s a=%s"
           % (rid, a.board, a.seed, ",".join(p_units), a_units))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
 
         victim_id = P436._make_adjacent(sid, rid, "genesPrimus", only_vis=a.graft)

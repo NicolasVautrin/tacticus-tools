@@ -67,7 +67,7 @@ let firesVus = 0;
 function enJson(p: NativePointer): { valeur: unknown; erreur: string | null } {
     if (p.isNull()) return { valeur: null, erreur: "l'argument est NUL" };
     if (!isSerializerReady()) {
-        return { valeur: null, erreur: "serialiseur Newtonsoft PAS PRET (warmup incomplet ?)" };
+        return { valeur: null, erreur: "serialiseur Newtonsoft PAS PRET (amorce incomplet ?)" };
     }
     try {
         const j = serializeToJson(p);

@@ -235,7 +235,7 @@ function objetVise(
  *  ⚠ La valeur de retour est DECODEE et le decodeur DIT ce qu'il ne sait pas lire. Jeter le
  *  retour rendrait « a refuse » et « a marche » indiscernables.
  *
- *  EXTRAIT DU RPC AU #993 : le cycle de warmup lance sa bataille par
+ *  EXTRAIT DU RPC AU #993 : le cycle d'amorce lance sa bataille par
  *  `ViewCommandExecutor$$StartCampaignMatch`, et doit passer par CE corps -- avec sa resolution
  *  de cible, sa coercition d'arguments et son refus inconditionnel de `Cheat*`. Une seconde
  *  table de coercition divergerait en silence, comme le rappelle deja l'import d'`argIl2cpp`. */
@@ -518,7 +518,7 @@ export function register(ctx: Ctx): void {
     };
 
     /** APPELER une commande. Corps dans `invoquerCommande` -- ce n'est ici qu'une exposition,
-     *  parce que le cycle de warmup appelle le MEME corps (#993). */
+     *  parce que le cycle d'amorce appelle le MEME corps (#993). */
     ctx.rpc.viewInvoke = (body?: {
         cible?: string; surPointeur?: string; methode?: string;
         args?: unknown[]; confirmer?: boolean;

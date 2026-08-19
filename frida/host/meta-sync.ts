@@ -114,7 +114,7 @@ export async function syncCampaignCatalog(sessionId: number, allowHeapScan = fal
     // `allowHeapScan` opt-in: when false, the agent will refuse to scan the
     // IL2CPP heap (which freezes Tacticus's main thread ~10 s) and instead
     // throws a clear "click any campaign battle to warm up" error. The /↻
-    // refresh button explicitly passes true to force a scan if the warmup
+    // refresh button explicitly passes true to force a scan if the amorce
     // capture failed.
     const r = await rpcCall(sessionId, "dumpCampaignCatalog",
         [{ allowHeapScan }],
@@ -276,7 +276,7 @@ export async function syncMetadata(
         errors.push({ name: "enums", error: (e as Error).message });
     }
 
-    // Catalog sync moved out of "fast" path: pre-warmup it falls back to a
+    // Catalog sync moved out of "fast" path: pre-amorce it falls back to a
     // 10 s `findGameConfigDtoViaHeap` heap scan that suspends the game's main
     // thread, tripping Tacticus's UnityFreezeDetector and crashing the
     // process. Triggered explicitly by /api/campaigns/catalog/refresh after

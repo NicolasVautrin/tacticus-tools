@@ -108,7 +108,7 @@ ROLES = {
     "features/overwatch-fix/index.ts": "MONTAGE",
     # --- INFRA ---
     "features/status.ts": "INFRA",
-    "features/warmup-singletons.ts": "INFRA",
+    "features/amorce-singletons.ts": "INFRA",
     "features/auto-boot.ts": "INFRA",
     "features/ui-nav.ts": "INFRA",
     "features/crash-trap.ts": "INFRA",

@@ -68,7 +68,7 @@ def capture(seed: str = "777", *, sid: int | None = None, max_turns: int = 6,
     """Capture la trace scorer d'un scenario ISOLE (build -> trace AVANT drive -> dump par origine ->
     dispose). Retourne `{rid, my_team, events, allmods, final, eventBufferSize, allModsBufferSize}`.
     `want(entry)->bool` filtre les `events` retournes (defaut : tous). `sid` auto-resolu si None.
-    Pre-requis : session Frida DEJA warmee par l'orchestrateur (le helper ne warmup PAS)."""
+    Pre-requis : session Frida DEJA warmee par l'orchestrateur (le helper ne amorce PAS)."""
     sid = sid if sid is not None else R._resolve_session()
     rid, my_team = _build(seed, state_rel)
     try:

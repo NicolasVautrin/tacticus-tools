@@ -137,7 +137,7 @@ DETTE = {
         "`probe_287r9_expose_mesure_live.py --ability 1169 --mow deathCrawler --board C1_02`) : au "
         "tour 1 `casterReason=ValidRequest`, `cooldown=1`, `hasAmmo=true` -- donc le cooldown seul, "
         "PAS les munitions ; a un tour de la, `0`. Le re-jeu du probe montre que ses 6 `endturn` de "
-        "warmup suffisaient EN FAIT (6 lignes `natif=0x0` sur des tuiles marchables), mais rien ne "
+        "amorce suffisaient EN FAIT (6 lignes `natif=0x0` sur des tuiles marchables), mais rien ne "
         "le VERIFIAIT : c'est du deblocage par COMPTAGE. `debloquer_oracle(..., jouer_adverse=False)` "
         "pose desormais le cran AVANT le volet 1169, et ROUGIT s'il echoue. `jouer_adverse=False` "
         "est obligatoire ici : le montage est GEOMETRIQUE (aura Contagion montee a la main)."),

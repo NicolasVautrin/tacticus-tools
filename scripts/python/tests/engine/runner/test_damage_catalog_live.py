@@ -92,8 +92,8 @@ def _confrontable_ids(kits):
     """Gate de confrontabilite (CLAUDE.md) appliquee AU CHOIX DE L'ECHANTILLON.
 
     Le pool spawnable est une donnee LIVE (`rl_duel build --list-pool` -> RPC `buildNormalizedBC`),
-    indisponible a la COLLECTE : la fixture `live_session` -- donc le warmup -- n'a pas encore
-    tourne, et un RPC IL2CPP avant warmup, c'est le crash 0x2c. On le DERIVE donc des ENTREES
+    indisponible a la COLLECTE : la fixture `live_session` -- donc l'amorce -- n'a pas encore
+    tourne, et un RPC IL2CPP avant amorce, c'est le crash 0x2c. On le DERIVE donc des ENTREES
     VERSIONNEES, et `test_derivation_du_pool_fidele` confronte cette derivation au pool REEL a
     chaque passe : sans ce garde la derivation partirait a la derive en silence, ce qui est
     exactement le vice que ce fichier a porte deux mois.

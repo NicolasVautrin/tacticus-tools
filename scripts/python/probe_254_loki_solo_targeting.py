@@ -100,7 +100,7 @@ M_A_UNITS = "necroWarden,necroWarden"
 # DEUX couples board/seed distincts (exigence de la campagne : l'accord doit tenir sur les deux).
 COUPLES = [("MC1_67", "777"), ("C4_09", "31337")]
 
-WARMUP_ENDTURNS = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 _seq = itertools.count()
 
 # LES REGLES QUE LA CASCADE PORTEE NE SAIT PAS RENDRE -- chacune est inventoriee comme NON PORTEE en
@@ -420,7 +420,7 @@ def _run_units(sid, seed, board_id, couple: str):
     print("\n########## montage UNITES  runner=%d board=%s seed=%s" % (rid, board_id, seed))
     out = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         njal, marsh, foe3, foe4 = _drive_units(sid, rid)
         _my_turn(sid, rid, "spaceStormcaller")
@@ -467,7 +467,7 @@ def _run_tiles(sid, seed, board_id, couple: str):
     print("\n########## montage TUILES  runner=%d board=%s seed=%s" % (rid, board_id, seed))
     out = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         _my_turn(sid, rid, "bloodMephiston")
         st, dv, _b, bg = _load_offline(sid, rid, adjacency="evenq")
@@ -552,7 +552,7 @@ def _run_mv71(sid, seed, board_id, couple: str):
     rid, sf = _build(seed, board_id, M_P_UNITS, M_A_UNITS)
     out = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         d = _dv(sid, rid)
         vus = {int(u["id"]): u.get("visualId") for u in (d.get("units") or [])

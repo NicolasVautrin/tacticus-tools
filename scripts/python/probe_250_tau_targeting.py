@@ -120,7 +120,7 @@ A_MOW = "ultraDreadnought"          # une MoW ENNEMIE : la seule cible qui separ
 A_UNITS = "necroWarden,necroWarden,necroWarden"
 BOARD = "C4_09"                     # MoW-capable (MachineOfWarPosition pose pour les DEUX camps)
 SEED = "777"
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 HUB_VIS = "tauAunShi"             # l'ancre de la geometrie : c'est SON masque qui exige l'adjacence
 NEAR_ALLY_VIS = "tauDarkstrider"  # l'allie AU CONTACT du hub (ligne « allie adjacent »)
 FAR_ALLY_VIS = "tauCrisis"        # l'allie HORS contact -- et la seule ligne qui exerce la PORTEE
@@ -627,7 +627,7 @@ def measure_all(sid, seed=SEED, board=BOARD):
             seed_bc.unlink(missing_ok=True)
 
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         far = _by_vis(_dv(sid, rid), FAR_ALLY_VIS)
         if far is None:
@@ -833,7 +833,7 @@ def measure_dynamic_bites(sid, seed=SEED, board=BOARD):
             seed_bc.unlink(missing_ok=True)
 
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         geom = _drive_isolated(sid, rid, "tauDarkstrider", "tauAunShi")
         _hand_to(sid, rid, "tauDarkstrider")

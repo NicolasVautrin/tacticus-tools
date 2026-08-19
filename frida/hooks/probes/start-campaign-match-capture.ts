@@ -1,6 +1,6 @@
 // #991 — OBSERVER `StartCampaignMatch` AVANT d'y toucher, et MESURER si son `this` est joignable.
 //
-// LA QUESTION. Le cycle de warmup (`features/warmup-singletons.ts`) pilote l'UI pour lancer une
+// LA QUESTION. Le cycle d'amorce (`features/auto-boot.ts`) pilote l'UI pour lancer une
 // bataille : `to-campaign` -> `click-node` -> `click-play`. Ces trois etapes ont un seul effet
 // utile, appeler
 // `idun.shared.commands.ViewCommandExecutor$$StartCampaignMatch(campaignId, locationIndex,
@@ -10,7 +10,7 @@
 //
 // ⚠ CE MODULE N'INVOQUE RIEN, ET C'EST LE POINT. `StartCampaignMatch` ECRIT : elle lance une
 // vraie bataille (`StartMatch` -> `thor.Loader$$LoadBattle`). Le fait qu'on produise deja cette
-// mutation par l'UI a chaque warmup n'autorise pas a INVENTER quatre arguments et regarder ce que
+// mutation par l'UI a chaque amorce n'autorise pas a INVENTER quatre arguments et regarder ce que
 // ca donne -- c'est exactement le geste qui a rendu `ok:true` puis tue le jeu ailleurs. On
 // OBSERVE d'abord ce que l'UI passe REELLEMENT, et un eventuel invoke, plus tard, REJOUERA des
 // valeurs VUES.
@@ -26,7 +26,7 @@
 //   - MAIS `idun.UI.IdunNavigation$$Init` prend `viewCommandExecutor` en PREMIER parametre et le
 //     RANGE dans un champ de `this` (lu au decompile : `*(this + 0x248) = *(deps + 0x18)`), et
 //     `IdunNavigation` EST joignable -- le depot la resout deja (`features/auto-boot.ts`,
-//     `features/warmup-singletons.ts`). Mesure live du 2026-08-12 par le RPC `classFields` :
+//     `features/auto-boot.ts`). Mesure live du 2026-08-12 par le RPC `classFields` :
 //     `_viewCommandExecutor` / offset `0x248` / type `IViewCommandExecutor`, et `_menuSystems`
 //     a `0x228`. L'offset n'est PAS ecrit ici : on resout par NOM (`getFieldOffset`), parce que
 //     `auto-boot.ts` documente un `_unitProgression` qui a bouge `0x1F0 -> 0x1D8` entre deux
@@ -57,7 +57,7 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 
-/** Combien d'appels garder. Un warmup en produit UN ; 32 couvre plusieurs cycles sans peser. */
+/** Combien d'appels garder. Une amorce en produit UN ; 32 couvre plusieurs cycles sans peser. */
 const CAP = 32;
 
 interface Capture {
@@ -188,7 +188,7 @@ function disarm(): { ok: boolean; armed: boolean } {
  *  un gel ne se signale PAS : il se lit comme un RPC qui ne revient pas.
  *
  *  Ce module ne s'arme pas tout seul, donc le chemin nominal ne depose RIEN. Mais rien n'empeche
- *  un operateur d'armer la capture puis de lancer un warmup : c'est exactement le regime ou le
+ *  un operateur d'armer la capture puis de lancer une amorce : c'est exactement le regime ou le
  *  cycle programmatique (#993) invoque `StartCampaignMatch`. Le piege existe, il est donc DESARME
  *  par du code, pas par une phrase. */
 export function deposerCapteur(): boolean {
@@ -214,7 +214,7 @@ export function reposerCapteur(): { ok: boolean; err?: string; armed?: boolean }
  *     par NOM, plus la classe CONCRETE au bout.
  *
  *  ⚠ DUPLICATION ASSUMEE ET DECLAREE : la resolution de la nav vivante existe deja en foyer
- *  unique dans `features/warmup-singletons.ts` (`findLiveIdunNavigation`). Elle n'y est pas
+ *  unique dans `features/auto-boot.ts` (`findLiveIdunNavigation`). Elle n'y est pas
  *  exportee, et ce fichier-la est en cours de reecriture par une autre tranche (chaine de
  *  retraite) -- le toucher creerait un conflit sur un foyer partage. La fusion des deux
  *  (exporter le foyer, l'importer ici) est un residu ouvert, pas un oubli. */

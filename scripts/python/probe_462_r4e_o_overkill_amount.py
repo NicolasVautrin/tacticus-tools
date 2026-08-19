@@ -202,8 +202,8 @@ def main() -> int:
         print("MUTATION: overkill_hit_emits -> toujours VRAI (SITE (A) ouvert, "
               "port d'avant #462-r4e-o-r1)")
 
-    w = _unwrap(R._rpc(_SID, "warmupGameSingletons", [{}], timeout=180))
-    print("warmup ok=", isinstance(w, dict) and w.get("ok"))
+    w = _unwrap(R._rpc(_SID, "autoBootExtraire", [{}], timeout=180))
+    print("amorce ok=", isinstance(w, dict) and w.get("ok"))
     out = []
     try:
         for name in ([a.only] if a.only else list(REGIMES)):

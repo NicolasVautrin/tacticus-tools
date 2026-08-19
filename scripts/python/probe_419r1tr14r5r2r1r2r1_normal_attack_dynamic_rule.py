@@ -362,7 +362,7 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
     print("=== montage : %s -> `CultDemagogue` -> %s (SANS ARME) + %s (ARME)  (runner %d)"
           % (ANCHOR_VIS, NOWEAPON_VIS, ARMED_VIS, rid))
     try:
-        for _ in range(P247.WARMUP_ENDTURNS):
+        for _ in range(P247.TOURS_DE_CHAUFFE):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         _drive_and_summon(sid, rid)
         print("  contact force : %s" % forcer_contact(sid, rid))

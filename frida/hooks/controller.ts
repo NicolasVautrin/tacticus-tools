@@ -41,7 +41,6 @@ import * as stackSample from "./features/stack-sample.js";
 import * as retreatCapture from "./features/retreat-capture.js";
 import * as fsmInput from "./features/fsm-input.js";
 import * as battleEvents from "./features/battle-events.js";
-import * as warmupSingletons from "./features/warmup-singletons.js";
 import * as battleConfig from "./features/battle-config.js";
 import * as observe from "./features/observe.js";
 import * as dumpPvpBoards from "./features/dump-pvp-boards.js";
@@ -89,8 +88,8 @@ import * as aiStep from "./features/ai-step/index.js";
 // modifier-observe = diagnostic PERMANENT on-demand (decompo par etage prediction+combat — l'outil
 // doctrine « divergence de degat = decomposition, jamais fit », promu au build standard par #98).
 // Le register N'ARME AUCUN hook (auto-arm neutralise depuis l'incident 2026-07-10 : Interceptor sur
-// chemins de degat ultra-chauds pendant le churn reinject/warmup = crash) — il n'expose que les RPC
-// modifierObserveInstall/Status/Reset ; l'armement est on-demand, sur etat STABLE (post-warmup).
+// chemins de degat ultra-chauds pendant le churn reinject = crash) — il n'expose que les RPC
+// modifierObserveInstall/Status/Reset ; l'armement est on-demand, sur etat STABLE (post-amorce).
 import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
 import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
@@ -456,10 +455,10 @@ export function wireRpc(ctx: Ctx): void {
      // joueur, exigeait un écran de départ précis, et chaque clic devait être validé par son
      // EFFET (`interactable` précède la fin de l'animation). Ce qui écrit sur le compte passe
      // par les porteurs natifs de `ViewCommandExecutor`.
-     // `ui-windows.ts` SURVIT sans `register` : le warmup importe `ecouterTransitions`, qui
-     // OBSERVE les transitions de fenêtre et ne clique rien.
+     // `ui-windows.ts` SURVIT sans `register` : d'autres modules importent
+     // `ecouterTransitions`, qui OBSERVE les transitions de fenêtre et ne clique rien.
      viewCommand, sandbox, sandboxMode, stackSample, retreatCapture,
-     fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
+     fsmInput, battleEvents, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.
      // `ui-mutations` ancre un chemin CHAUD (GameObject.SetActive) — armé par `{start:true}`,
@@ -535,7 +534,7 @@ export function wireRpc(ctx: Ctx): void {
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
-     // TOUT geste de changement de scene -- pas seulement le warmup (#993).
+     // TOUT geste de changement de scene -- pas seulement l'amorce (#993).
      gameLoader,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,

@@ -79,7 +79,7 @@ def main():
     from engine.services.battle_query import are_tiles_adjacent
 
     sid = _sid()
-    _rpc(sid, "warmupGameSingletons", {}, timeout=240)
+    _rpc(sid, "autoBootExtraire", {}, timeout=240)
     sf = ROOT / "logs" / "probe_r5_state.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     rid = _build(a.seed, sf)

@@ -79,7 +79,7 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
 FOE_VIS = "necroWarden"
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 _seq = itertools.count()
 
 
@@ -466,7 +466,7 @@ def measure(sid, aid: int, geom: str, board_id: str, seed: str) -> dict:
                              mow=(caster_vis if is_mow else ""),
                              seed_bc=(seed_bc_with_ammo() if is_mow else None))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         summons = []
         if is_mow:

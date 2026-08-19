@@ -215,7 +215,7 @@ function installClassInitHook(): boolean {
 //
 // Volume hazard: IL2CPP uses 0xE06D7363 internally for EVERY managed
 // exception propagation (NullRef, IndexOutOfRange, NotImplemented, ...).
-// During warmup we saw 113 throws in 36s — Thread.backtrace overhead
+// During amorce we saw 113 throws in 36s — Thread.backtrace overhead
 // (32 frames * DebugSymbol.fromAddress) destabilised the cible.
 //
 // Strategy:

@@ -3,7 +3,7 @@
 //
 // POURQUOI CE MODULE EXISTE
 // -------------------------
-// Le warmup sort de bataille en PILOTANT L'UI (pause -> retraite -> confirmation), et #390-r2
+// L'amorce sort de bataille en PILOTANT L'UI (pause -> retraite -> confirmation), et #390-r2
 // a donne un signal FIABLE pour savoir que c'est fini (`GuiId.PauseMenu` retire au
 // `ScreenVisibilityManager`). Ce qui manque est en amont : **provoquer** la retraite sans
 // toucher a l'ecran, comme `fsm-input.ts` le fait deja pour le DEPLOIEMENT -- il parle au FSM
@@ -40,7 +40,7 @@
 // Chemins FROIDS : ces methodes tirent au plus une fois par bataille. Rien a voir avec les
 // getters d'UI que le depot proscrit de hooker (27 000 appels/s). Les ancrages sont donc poses
 // AU CHARGEMENT et non derriere un `{start:true}` : il faut qu'ils soient deja la quand le
-// warmup se retire, et un armement prealable serait une etape de plus a ne pas oublier.
+// amorce se retire, et un armement prealable serait une etape de plus a ne pas oublier.
 
 import {
     class_get_name, findClassAnywhere, findCtorByParamCount, findMethod,
@@ -104,7 +104,7 @@ let mainViewVu = 0;
 
 /** L'instance epinglee est-elle ENCORE VIVANTE ?
  *
- *  ⚠ MESURE DU 2026-08-12, ET C'EST UN DEFAUT QUE CE MODULE AVAIT. Apres le warmup,
+ *  ⚠ MESURE DU 2026-08-12, ET C'EST UN DEFAUT QUE CE MODULE AVAIT. Apres l'amorce,
  *  `retreatStatus` rendait `mainView: 0x231e1c75cf0` alors que `FindObjectsByType` rendait
  *  **0 instance** : la scene de bataille etait dechargee. Le pointeur EPINGLE survit (c'est le
  *  role de `gcRoot`), mais l'objet Unity derriere est DETRUIT. Invoquer dessus, c'est appeler
@@ -134,7 +134,7 @@ function encoreVivant(obj: NativePointer): boolean | null {
  *  C'est la comptabilite du JEU, pas un proxy : le harnais deduisait jusqu'ici cet etat de
  *  l'etat des ECRANS. `null` = NON MESURE (methode introuvable), jamais rabattu sur `false`.
  *
- *  EXPORTEE depuis #993 : le cycle de warmup s'en sert comme etat initial ET comme signal de fin
+ *  EXPORTEE depuis #993 : le cycle d'amorce s'en sert comme etat initial ET comme signal de fin
  *  de retraite. Le corps reste ICI -- c'est le module qui detient la RE de la chaine de sortie,
  *  et deux lectures de `get_IsBattleActive` divergeraient en silence. */
 export function enBataille(): boolean | null {
@@ -199,7 +199,7 @@ function mainViewCourante(): NativePointer | null {
  *
  *  Les deux conditions sont distinctes et toutes deux necessaires : `mainView !== null` dit qu'un
  *  ancrage a tire, `encoreVivant` dit que l'objet Unity derriere existe encore. Mesure du
- *  2026-08-12 : apres un warmup, le pointeur epingle survit alors que `FindObjectsByType` rend
+ *  2026-08-12 : apres une amorce, le pointeur epingle survit alors que `FindObjectsByType` rend
  *  **0 instance**. Un predicat qui ne testerait que le premier rendrait `true` sur une coquille.
  *
  *  Rend `false` (et non `null`) quand la vivacite n'est pas mesurable : ici l'appelant ATTEND que
@@ -315,7 +315,7 @@ function installer(): void {
     }
 
     // Les PREDICATS. On ancre la base `AGameModeSource` ET la concrete `CampaignGameModeSource` :
-    // le mode du warmup est campagne, mais laquelle des deux porte le corps EXECUTE est une
+    // le mode de l'amorce est campagne, mais laquelle des deux porte le corps EXECUTE est une
     // MESURE, pas une deduction -- `classeReelle` le dira.
     for (const cls of ["AGameModeSource", "CampaignGameModeSource"]) {
         const k = findClassAnywhere(NS_SOURCE, cls);
@@ -372,7 +372,7 @@ const INVOCABLES = ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurr
 /** PROVOQUER la retraite sans toucher a l'ecran -- LE FOYER, dont `retreatInvoke` n'est que
  *  l'exposition.
  *
- *  EXTRAIT DU RPC AU #993, et l'extraction est le point : le cycle de warmup a besoin d'appeler
+ *  EXTRAIT DU RPC AU #993, et l'extraction est le point : le cycle d'amorce a besoin d'appeler
  *  exactement ce corps-la, avec ses trois refus et son depot d'ancrages. Le recopier ailleurs
  *  ferait exister deux chaines de retraite dont une seule serait corrigee -- c'est litteralement
  *  ce qui est arrive a la chaine de CLICS (#332), corrigee dans l'etape 1bis et laissee intacte
@@ -403,7 +403,7 @@ export function provoquerRetraite(body?: {
         return { ok: false, error: vivant === false
             ? "REFUS : l'instance IdunMainView epinglee est DETRUITE (scene de bataille "
               + "dechargee). Le pointeur survit par `gcRoot`, l'objet Unity non -- mesure : "
-              + "apres un warmup, `FindObjectsByType` rend 0 instance alors que le pointeur "
+              + "apres une amorce, `FindObjectsByType` rend 0 instance alors que le pointeur "
               + "est toujours la. Il n'y a pas de bataille a quitter."
             : "REFUS : vivacite de l'instance NON MESUREE "
               + "(UnityEngine.Object$$op_Inequality introuvable) -- on n'invoque pas sur "
@@ -522,7 +522,7 @@ export function register(ctx: Ctx): void {
         if (!d) return { ok: false, error: "delegate inerte NON FABRIQUE : " + (err ?? "?") };
         return { ok: false,
             error: "NON EXECUTE : il faut l'instance vivante de CampaignGameModeSource "
-                 + "(`lastSource` du warmup), que ce module ne detient pas encore. "
+                 + "(`lastSource` de l'amorce), que ce module ne detient pas encore. "
                  + "Le delegate, lui, est pret.",
             delegate: d.ptr.toString(), offsets: d.offsets,
             ardoise: lireArdoise(d.ardoise) };

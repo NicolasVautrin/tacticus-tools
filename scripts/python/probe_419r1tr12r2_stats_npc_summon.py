@@ -213,9 +213,9 @@ def etape4_summon_catalogue(seed: dict) -> int:
 def etapes_live(sid: int) -> int:
     from rl_collect_batch import _rpc, _load_board_dump
     rc = 0
-    print("\n[live] warmup...")
-    w = _rpc(sid, "warmupGameSingletons", [{}], timeout=180)
-    print(f"[live] warmup -> {json.dumps(w)[:200]}")
+    print("\n[live] amorce...")
+    w = _rpc(sid, "autoBootExtraire", [{}], timeout=180)
+    print(f"[live] amorce -> {json.dumps(w)[:200]}")
 
     board = _load_board_dump("MC1_67")
     seed = R._load_seed_bc(None)

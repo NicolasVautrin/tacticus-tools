@@ -19,7 +19,7 @@ log("[*] il2cpp base=" + il2cppBase + " size=" + il2cppSize);
 //                       // GC write barriers, freezing the main thread.
 // EN PREMIER : desarmer le UnityFreezeDetector avant toute autre pose de hook. C'est lui
 // qui appelle `ForceCrash` quand la boucle Unity bloque trop longtemps — donc lui qui tuait
-// le jeu sur un warmup un peu long ou un heap scan. Tout ce qui suit devient survivable.
+// le jeu sur une amorce un peu long ou un heap scan. Tout ce qui suit devient survivable.
 installFreezeDetectorNeutralizer();
 
 installMainPump();

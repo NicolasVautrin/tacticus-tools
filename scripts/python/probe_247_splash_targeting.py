@@ -105,7 +105,7 @@ GROUPS = {
         "summon_casts": [("orksWarboss", 1058), ("tyranWingedPrime", 1112)],
     },
 }
-WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 
 
 # --------------------------------------------------------------------------- plomberie RPC
@@ -470,7 +470,7 @@ def main(argv=None) -> int:
     print("[build] runner=%d group=%s board=%s seed=%s p_units=%s"
           % (rid, a.group, a.board, a.seed, ",".join(grp["p_units"])))
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         # ORDRE : la GEOMETRIE d'abord, les invocations ENSUITE. `Waaagh` (1058) borne ses cibles
         # legales a `constants.range` = 3 ET les restreint par sa regle dynamique -- tant que les
@@ -483,7 +483,7 @@ def main(argv=None) -> int:
             _cast_summons(sid, rid, grp["summon_casts"])
             # les invoques naissent avec leur `initialCooldownTurns` -> l'oracle court-circuiterait
             # (`ValidRequest`) ; on purge, personne ne bouge (`--no-ai`).
-            for _ in range(WARMUP_ENDTURNS):
+            for _ in range(TOURS_DE_CHAUFFE):
                 _act(sid, rid, {"kind": "endturn"}, 60)
         _give_turn_to(sid, rid, anchor)
 

@@ -83,7 +83,7 @@ COUPLES = ((BLACK_RAGE, LUCIEN), (1153, ALLY))
 A_UNITS = "necroWarden,necroWarden,necroWarden"
 BOARD = "MC1_67"
 SEED = "777"
-WARMUP_ENDTURNS = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
+TOURS_DE_CHAUFFE = 6                # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 
 #: `TargetingRule.ValidRequest` -- le code que `AttackQuery$$GetInvalidCasterReason` rend AVANT la
 #: cascade quand un etage AMONT mord (ability indisponible, cooldown, munitions). Un bras qui le
@@ -231,7 +231,7 @@ def run(seed: str = SEED, board_id: str = BOARD, sid=None, rid=None, keep: bool 
     rid = rid if rid is not None else _build(sid, seed, board_id)
     rows: list[dict] = []
     try:
-        for _ in range(WARMUP_ENDTURNS):
+        for _ in range(TOURS_DE_CHAUFFE):
             _act(sid, rid, {"kind": "endturn"}, 60)
         _my_turn(sid, rid)
 

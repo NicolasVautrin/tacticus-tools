@@ -24,7 +24,7 @@ Pendant tout ce temps, les hooks ai-trace (L1+L2) ecrivent dans
 Pre-requis :
   - host tourne (http://127.0.0.1:8765)
   - session Frida active
-  - warmupGameSingletons fait UNE fois apres reinject
+  - autoBootExtraire fait UNE fois apres reinject
   - ai-trace L1+L2 enabled (auto-enable)
 
 Usage:
@@ -1307,7 +1307,7 @@ def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = _TARGET_RARITY,
             f"CritChance/CritDamage/BlockChance/BlockDamage valent 0 sur "
             f"TOUTES les unites et le crit devient structurellement "
             f"impossible (#419-r5). Si le catalogue d'items n'est pas "
-            f"capture, faire un warmup ; pour assumer le regime sans items, "
+            f"capture, faire une amorce ; pour assumer le regime sans items, "
             f"passer equip_items=False.")
     specs = res.get("itemSpecs") or {}
     # Un `ok: true` NE SUFFIT PAS -- `previewBis` rend `ok: true` avec des specs VIDES quand le

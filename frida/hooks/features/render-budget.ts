@@ -128,7 +128,7 @@ function clampArg0(mi: { ptr: NativePointer } | null, get: () => number | null,
 // POURQUOI ON DEROGE ICI a la regle « le register n'arme rien » (controller.ts, incident du
 // 2026-07-10) : cette regle vise les Interceptor sur des chemins de degat ULTRA-CHAUDS
 // (`ExecuteHit`, getters de serialisation a 27 000 appels/s) dont la surcharge de trampoline
-// destabilise IL2CPP pendant le churn reinject/warmup. `set_vSyncCount` / `set_targetFrameRate`
+// destabilise IL2CPP pendant le churn reinject. `set_vSyncCount` / `set_targetFrameRate`
 // sont a l'exact oppose : appeles AU PLUS UNE FOIS PAR FRAME, sur du code UnityEngine sans rapport
 // avec le moteur de bataille. Le cout mesure du bridage sur le harnais est NUL (106,4 ms/RPC bride
 // contre 134,8 ms a 90 Hz, cf. plus haut) -- l'auto-arm ne peut donc pas ralentir un probe.
