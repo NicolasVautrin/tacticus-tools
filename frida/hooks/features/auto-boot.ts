@@ -13,6 +13,9 @@ import {
     s, getSystemType, methodEntry, findCtorByParamCount
 } from "../il2cpp/helpers.js";
 import { invokeMethod, createManagedString } from "../il2cpp/invoke.js";
+// Repli d'instance par appel MOTEUR (`UnityEngine.Object.FindObjectsByType`) — pas un scan
+// de tas : cf. `autoBootExtraire`.
+import { premiereInstance } from "./view-command.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
@@ -542,6 +545,83 @@ export function register(ctx: Ctx): void {
 
     // Start discovery after a 6-second delay to allow scene settling during boot
     setTimeout(attemptActiveDiscovery, 6000);
+
+    /**
+     * EXTRACTION SEULE — le catalogue d'items SANS bataille, SANS navigation, SANS heap scan.
+     *
+     * ⚠ POURQUOI CE RPC EXISTE, ET CE QU'IL REMPLACE. Mesuré le 2026-08-19 sur un process
+     * FROID (jeu relancé, aucune bataille jamais entrée, `warmGate.autoWarmups = 0` vérifié
+     * avant et après) : un runner se monte ET SE JOUE sans aucun warmup — `rl_duel build` en
+     * 8,1 s, `aiturn` 156 events, stage `Running`, jeu vivant. Aucun crash `0x2c`. Le SEUL
+     * manquant était `lastGameConfig` : `previewBis` refusait par « no lastGameConfig
+     * captured », et sans lui CritChance/CritDamage/BlockChance/BlockDamage valent 0 sur
+     * TOUTES les unités (#419-r5).
+     *
+     * Or ce pointeur ne vient PAS d'une bataille : il est lu dans `IdunNavigation._gameConfig`,
+     * donc sur un ÉCRAN MÉTA. Le warmup, qui entre en bataille puis se retire pour l'obtenir,
+     * faisait un détour de ~14 s — et c'est ce détour qui pilote l'UI, donc qui peut coincer
+     * le jeu. Ici : deux champs lus, rien d'autre.
+     *
+     * ⛔ CE RPC NE NAVIGUE PAS. `triggerAutoBoot`, lui, allume `navigationAutoActive` et ramène
+     * le jeu sur la campagne — c'est précisément pourquoi il est éteint par défaut depuis le
+     * 2026-08-10.
+     * ⛔ ET IL NE SCANNE PAS LE TAS. `tryActiveDiscoveryOfSources` fait des heap scans de 30 à
+     * 60 s, proscrits hors action explicite.
+     *
+     * ⚠ Il EXIGE que l'instance d'`IdunNavigation` ait été captée par le hook passif. Si elle
+     * ne l'est pas, il le DIT et ne se rabat sur RIEN : un pointeur deviné ici serait pire que
+     * l'absence, parce qu'un `_gameConfig` non nul mais faux désarme silencieusement les
+     * replis en aval (ils ne s'arment que sur `null`).
+     */
+    ctx.rpc.autoBootExtraire = () => queueOnMainThread(() => {
+        // ⚠ DEUX SOURCES, PAR ORDRE D'AUTORITÉ — et la seconde est indispensable.
+        // Le hook de capture est PASSIF (`Init` / `ShowScreenAndHideOthers`) : il ne tire qu'à
+        // une transition d'écran. Un inject POSTÉRIEUR au boot le manque, et `captured: false`
+        // se lit alors comme « pas de navigation » alors que l'instance est bien là, vivante.
+        // Mesuré le 2026-08-19 : la session auto-restaurée au boot du host l'avait
+        // (`0x29df434a960`), la session injectée ensuite ne l'avait pas -- même jeu, même
+        // écran. Une source unique fait donc échouer le RPC sur un ordre d'arrivée.
+        // Le repli passe par `FindObjectsByType`, un appel MOTEUR (pas un scan de tas).
+        let nav = lastNavigationInstance;
+        let source = "hook passif (`Init` / `ShowScreenAndHideOthers`)";
+        if (nav === null || nav.isNull()) {
+            const k = findClassAnywhere("idun.UI", "IdunNavigation");
+            if (!k) return { ok: false, error: "`idun.UI.IdunNavigation` INTROUVABLE sur ce build" };
+            const trouve = premiereInstance(k);
+            if (!(trouve instanceof NativePointer)) {
+                return { ok: false, error: "aucune `IdunNavigation` joignable -- " + trouve.error };
+            }
+            if (trouve.isNull()) {
+                return { ok: false, error: "`FindObjectsByType` a rendu un pointeur NUL" };
+            }
+            nav = trouve;
+            source = "REPLI `FindObjectsByType` -- le hook passif n'avait pas tiré";
+        }
+        const navClass = nav.readPointer();
+        // Offsets résolus PAR NOM : la disposition d'`IdunNavigation` bouge entre versions
+        // d'Unity (cf. le commentaire d'`extractDependenciesAndNavigate`).
+        const upOff = getFieldOffset(navClass, "_unitProgression");
+        const gcOff = getFieldOffset(navClass, "_gameConfig");
+        const gcPtr = gcOff >= 0 ? nav.add(gcOff).readPointer() : ptr(0);
+        const upPtr = upOff >= 0 ? nav.add(upOff).readPointer() : ptr(0);
+        if (!gcPtr.isNull()) setLastGameConfig(gcPtr);
+        if (!upPtr.isNull()) setUnitProgressionPtr(upPtr);
+        const dto = getLastGameConfig();
+        return {
+            ok: dto !== null && !dto.isNull(),
+            navigation: nav.toString(),
+            // ⚠ PUBLIÉE, jamais tue : un résultat obtenu par le repli ne doit pas se lire
+            // comme un résultat obtenu sur l'instance que le jeu emploie.
+            source,
+            champs: { _gameConfig: `+0x${gcOff.toString(16)}`,
+                      _unitProgression: `+0x${upOff.toString(16)}` },
+            // TRI-ÉTAT : `null` = pas capturé. Jamais rendu comme une chaîne vide, qui se
+            // lirait comme « capturé mais sans contenu ».
+            gameConfigDto: dto !== null && !dto.isNull() ? dto.toString() : null,
+            unitProgression: upPtr.isNull() ? null : upPtr.toString(),
+            note: "aucune bataille, aucune navigation, aucun scan de tas",
+        };
+    });
 
     ctx.rpc.triggerAutoBoot = () => {
         return queueOnMainThread(() => {
