@@ -86,6 +86,19 @@ ancrage contrôlé). C'est `PutUnitIntoHand(unitId)` qui porte le geste — et *
 pour 1 pose, même argument. L'argument ne discrimine donc pas ; c'est la **présence sur le
 plateau** qui sépare la dépose de la saisie.
 
+## Le replay
+
+Armé **par défaut** par le lanceur (`--sans-replay` l'écarte). Un runner monté en sandbox porte
+bien un `ReplayRecorder` armé — mesuré le 2026-08-19, `recorderArmed: true` en pleine bataille.
+
+⚠ **Le replay ne se SONDE pas, il se PREND À LA FRAME.** Le runner disparaît à la fin de la
+bataille : un sondage externe arrive toujours trop tard et rend `runner has no ReplayRecorder` —
+un message qui accuse le mécanisme alors que seul le TIMING est en cause. Un replay entier a
+déjà été perdu ainsi. `replayFinAuto` capture dans la pompe, à la transition, donc sans course.
+Deux déclencheurs : `stage -> Finished`, et `_runner -> null` (retraite, changement de scène).
+
+Relire : `replayFinEtat {avecReplay: true}`.
+
 ## Quand ça REFUSE
 
 Le lanceur nomme toujours la cause. Les trois qu'on rencontre :

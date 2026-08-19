@@ -67,6 +67,13 @@ ARMEMENTS = [
     ("sandboxModeGameViews",      {"armer": True, "confirmer": True}),
 ]
 
+# ARME PAR DEFAUT, et c'est un choix : le replay se prend dans la frame ou la bataille se
+# termine, sinon il est PERDU -- le runner disparait a la fin, et un sondage externe arrive
+# toujours trop tard (un replay a deja ete perdu apres une bataille entiere). Mesure du
+# 2026-08-19 : un runner monte en sandbox porte bien un `ReplayRecorder` arme. Cout desarme :
+# un test de booleen par frame ; arme : un balayage une frame sur 15. `--sans-replay` l'ecarte.
+ARMEMENT_REPLAY = ("replayFinAuto", {"armer": True})
+
 
 def session_vivante(hote):
     """L'id de la session Frida, ou None. `null` = PAS MESURE, jamais rabattu sur un zero."""
@@ -110,6 +117,8 @@ def main(argv):
     ap.add_argument("--encounter-index", type=int, default=0)
     ap.add_argument("--include-locked", action="store_true")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--sans-replay", action="store_true",
+                    help="ne PAS armer la capture de replay en fin de bataille")
     ap.add_argument("--confirmer", action="store_true",
                     help="sans lui : LECTURE seule, rien n'est arme ni monte")
     args = ap.parse_args(argv)
@@ -176,7 +185,10 @@ def main(argv):
         return 1
 
     # 4. La phase de deploiement. Tout AVANT le montage.
-    for methode, corps in ARMEMENTS:
+    armements = list(ARMEMENTS)
+    if not args.sans_replay:
+        armements.append(ARMEMENT_REPLAY)
+    for methode, corps in armements:
         if etape(jeu, methode, corps) is None:
             return 1
 
@@ -198,6 +210,9 @@ def main(argv):
 
     # 6. Ce qui s'est REELLEMENT monte -- l'appel passe ne dit RIEN du montage.
     print()
+    if not args.sans_replay:
+        print("replay : arme -- il sera pris a la frame de la fin de bataille "
+              "(`replayFinEtat` pour le relire).")
     for methode in ("deploymentPhaseStatus", "deploymentPlateau"):
         e = jeu.rpc(methode, [{}])
         print("%s : %s" % (methode, court(e, 500)))
