@@ -31,7 +31,9 @@
 
 import { state } from "../game/state.js";
 import { readBattleStatus } from "../game/match-state.js";
-import { replayOutputStream } from "./replay-output-stream.js";
+import {
+    ReplayOfficielResult, replayOfficiel, replayOutputStream,
+} from "./replay-output-stream.js";
 import { runnerOff } from "../game/runner.js";
 import { Ctx } from "../controller.js";
 
@@ -47,13 +49,20 @@ export interface CaptureFin {
     stageName: string | null;
     winner: number | null;
     frameNo: number;
-    /** Le replay serialise. `null` = la capture a echoue, et `err` dit pourquoi. */
+    /** NOTRE TRACE : l'output stream (`Group=... Action=...`). Sert a valider le port Python.
+     *  ⚠ N'EST PAS REJOUABLE -- `DeserializeReplay` attend le JSON du `ReplayDto`. */
     replay: string | null;
     longueur: number;
     tronque: boolean;
     stepCount: number | null;
     recorderArmed: boolean | null;
     err: string | null;
+    /** LE REPLAY OFFICIEL, tel que `ReplaySerializer$$SerializeReplay` le produit. Rejouable
+     *  tel quel par `replayLancer`. `null` = non obtenu, et `officielErr` dit pourquoi. */
+    officiel: string | null;
+    officielLongueur: number;
+    officielTronque: boolean;
+    officielErr: string | null;
 }
 
 let arme = false;
@@ -81,8 +90,19 @@ function capturer(raison: string, stageName: string | null, winner: number | nul
     if (!arme || dejaCapture) return;
     dejaCapture = true;
     let c: CaptureFin;
+    let officielErr: string | null = null;
     try {
         const r = replayOutputStream({ maxChars: MAX_CHARS });
+        // ⚠ LE REPLAY OFFICIEL SE PREND ICI, DANS LA MEME FRAME, ET C'EST TOUT L'INTERET.
+        // Le flux ci-dessus est notre TRACE (`Group=... Action=...`), pas un replay : il n'est
+        // PAS rejouable, `DeserializeReplay` attend le JSON du `ReplayDto`. Les confondre a
+        // fait chercher un replay ailleurs et lancer celui d'une autre saison -- et le runner
+        // ayant disparu a la fin, l'artefact officiel n'etait plus rattrapable. On prend donc
+        // LES DEUX au meme instant : la trace pour valider le port, le replay pour rejouer.
+        // Un echec de l'un ne doit pas emporter l'autre, d'ou le try separe.
+        let officiel: ReplayOfficielResult | null = null;
+        try { officiel = replayOfficiel({ maxChars: MAX_CHARS }); }
+        catch (e) { officiel = null; officielErr = (e as Error).message; }
         c = {
             raison, stageName, winner, frameNo: state.frameNo,
             replay: r.outputStream,
@@ -91,20 +111,30 @@ function capturer(raison: string, stageName: string | null, winner: number | nul
             stepCount: r.stepCount,
             recorderArmed: r.recorderArmed,
             err: r.err,
+            officiel: officiel ? officiel.json : null,
+            officielLongueur: officiel ? officiel.longueur : 0,
+            officielTronque: officiel ? officiel.tronque === true : false,
+            officielErr: officiel ? officiel.err : officielErr,
         };
     } catch (e) {
         c = {
             raison, stageName, winner, frameNo: state.frameNo,
             replay: null, longueur: 0, tronque: false, stepCount: null,
             recorderArmed: null, err: (e as Error).message,
+            officiel: null, officielLongueur: 0, officielTronque: false,
+            officielErr: "capture entiere levee avant la serialisation",
         };
     }
     derniereCapture = c;
     captures.push(c);
     if (captures.length > CAPTURES_MAX) captures.shift();
-    send({ t: "diag", msg: "[replay-fin-auto] " + raison + " -- "
-        + (c.replay === null ? "CAPTURE ECHOUEE : " + c.err
-                             : c.longueur + " caracteres" + (c.tronque ? " (TRONQUE)" : "")) });
+    send({ t: "diag", msg: "[replay-fin-auto] " + raison + " -- trace : "
+        + (c.replay === null ? "ECHEC (" + c.err + ")"
+                             : c.longueur + " car." + (c.tronque ? " TRONQUEE" : ""))
+        + " | replay OFFICIEL : "
+        + (c.officiel === null ? "ECHEC (" + c.officielErr + ")"
+                               : c.officielLongueur + " car."
+                                 + (c.officielTronque ? " TRONQUE" : "")) });
 }
 
 /** Appele par la pompe A CHAQUE FRAME. Ne fait rien tant que le module n'est pas arme. */
@@ -153,15 +183,26 @@ export function register(ctx: Ctx): void {
         };
     };
 
-    /** Le replay capture. Rendu SANS le contenu par defaut : une reponse de plusieurs Mo
-     *  n'a pas a partir a chaque coup d'oeil. `avecReplay: true` pour le contenu. */
-    ctx.rpc.replayFinEtat = (body?: { avecReplay?: boolean; index?: number }): unknown => {
+    /** Le replay capture. Rendu SANS les contenus par defaut : deux artefacts de plusieurs Mo
+     *  n'ont pas a partir a chaque coup d'oeil.
+     *
+     *  ⚠ DEUX ARTEFACTS, ET ILS NE SERVENT PAS A LA MEME CHOSE. `avecReplay: true` rend NOTRE
+     *  TRACE (l'output stream, pour valider le port Python) ; `avecOfficiel: true` rend LE
+     *  REPLAY OFFICIEL, le seul que `replayLancer` sache relire. Les confondre a fait chercher
+     *  un replay ailleurs. Ils sont donc nommes separement, jamais sous un `replay` unique. */
+    ctx.rpc.replayFinEtat = (body?: {
+        avecReplay?: boolean; avecOfficiel?: boolean; index?: number;
+    }): unknown => {
         const avec = body?.avecReplay === true;
+        const avecOff = body?.avecOfficiel === true;
         const resume = (c: CaptureFin): Record<string, unknown> => ({
             raison: c.raison, stageName: c.stageName, winner: c.winner, frameNo: c.frameNo,
             longueur: c.longueur, tronque: c.tronque, stepCount: c.stepCount,
             recorderArmed: c.recorderArmed, err: c.err,
             replay: avec ? c.replay : null,
+            officielLongueur: c.officielLongueur, officielTronque: c.officielTronque,
+            officielErr: c.officielErr,
+            officiel: avecOff ? c.officiel : null,
         });
         const i = body?.index;
         if (typeof i === "number") {

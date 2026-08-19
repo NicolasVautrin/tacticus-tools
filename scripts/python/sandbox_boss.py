@@ -65,6 +65,10 @@ ARMEMENTS = [
     ("deploymentStartArmer",      {"armer": True}),
     ("deploymentRunnerStartArmer", {"armer": True}),
     ("sandboxModeGameViews",      {"armer": True, "confirmer": True}),
+    # Une exception AVALEE tue la bataille sans rien dire -- et c'est exactement ce qu'on a
+    # regarde sans le voir : la sandbox a disparu, `vueExceptionEtat` etait DESARME, donc
+    # personne n'avait rien capture. Le capteur coute une lecture, l'absence coute un mystere.
+    ("vueExceptionArmer",         {"armer": True}),
 ]
 
 # ARME PAR DEFAUT, et c'est un choix : le replay se prend dans la frame ou la bataille se

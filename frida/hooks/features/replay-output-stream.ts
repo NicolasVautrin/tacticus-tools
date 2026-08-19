@@ -100,12 +100,13 @@
 // PRNG pour toute la bataille), d'ou le defaut a `false`.
 
 import {
-    class_get_element_class, class_is_valuetype, findClass, findMethod,
-    getFieldOffset, readMsgIdentity,
+    class_get_element_class, class_is_valuetype, findClass, findClassAnywhere, findMethod,
+    findMethodByParamCount, getFieldOffset, readMsgIdentity,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { getRunner, listRunners } from "../game/runner-registry.js";
 import { getReplayMi, runnerOff } from "../game/runner.js";
+import { queueOnMainThread } from "../runtime/queue.js";
 import { state } from "../game/state.js";
 import { Ctx } from "../controller.js";
 
@@ -298,6 +299,160 @@ export function replayOutputStream(
         recorderArmed: armed,
         err: text === null ? "output stream unreadable"
             : (emptyAndDisarmed ? DISARMED_ERR : null),
+    };
+}
+
+// ---------------------------------------------------------------------------------------------
+// LE REPLAY OFFICIEL — celui que le JEU produit, pas notre trace.
+//
+// ⚠ LA DISTINCTION A COUTE UN GEL, ET ELLE N'EST PAS COSMETIQUE. `replayOutputStream` ci-dessus
+// rend la serialisation TEXTE des groupes racine du StreamDispatcher (`Group=... Action=...`) :
+// c'est un artefact d'OBSERVATION, fait pour valider le port Python. Il n'est PAS rejouable --
+// `ReplaySerializer$$DeserializeReplay` teste `StartsWith("{")` et attend le JSON du `ReplayDto`,
+// ou du base64+gzip. Croire que la capture de fin de bataille produisait un replay a fait
+// chercher un replay ailleurs, et lancer celui d'une AUTRE saison.
+//
+// L'artefact officiel se produit par la methode que le jeu emploie lui-meme :
+//
+//     ReplaySerializer$$SerializeReplay(replay : IdunBattleLogic.Replay.Replay,
+//                                       optimize : Boolean) -> System.String
+//
+// STATIQUE (invoquee avec `this` nul), et son entree est le MEME objet `Replay` que
+// `ReplayRecorder$$GetReplay` rend deja ici. Sa sortie est exactement ce que contiennent
+// `data/replays/**/*.json` et ce que `replayLancer` consomme.
+//
+// ⚠ `optimize` est un TYPE VALEUR : il se passe par l'ADRESSE d'un octet, jamais par le mot
+// lui-meme -- `false` partirait comme pointeur nul.
+
+const NS_SER = "thor.Scripts.Idun.Source.IdunBattle.ReplaySerialization";
+/** `undefined` = pas encore cherche ; `null` = cherche et INTROUVABLE (on ne recherche pas
+ *  a chaque appel, mais on ne confond pas non plus les deux etats). */
+let serializeMi: { info: NativePointer; ptr: NativePointer } | null | undefined;
+
+function miSerializeReplay(): { info: NativePointer; ptr: NativePointer } | null {
+    if (serializeMi !== undefined) return serializeMi;
+    const k = findClassAnywhere(NS_SER, "ReplaySerializer");
+    const mi = k ? findMethodByParamCount(k, "SerializeReplay", 2) : null;
+    serializeMi = mi && !mi.ptr.isNull() ? mi : null;
+    return serializeMi;
+}
+
+// ⚠ ON ANCRE LES CALLEES, JAMAIS `SerializeReplay` ELLE-MEME. Ancrer la methode qu'on invoque
+// gele le jeu (regle du depot, payee). Les callees suffisent : la DERNIERE qui tire nomme
+// l'etage ou l'`access violation accessing 0x0` se produit, et c'est tout ce qu'on cherche.
+// Ordre du corps decompile : ShallowClone -> ReplayDto..ctor -> GzipCompress -> ToBase64String.
+const ETAGES: Array<{ nom: string; ns: string; cls: string; methode: string }> = [
+    { nom: "1.ShallowClone", ns: "IdunBattleLogic.Replay", cls: "Replay",
+      methode: "ShallowClone" },
+    { nom: "2.ReplayDto..ctor", ns: NS_SER, cls: "ReplayDto", methode: ".ctor" },
+    { nom: "3.GzipCompress", ns: "Snowprint.source.Core.Zip", cls: "ZipUtil",
+      methode: "GzipCompress" },
+    { nom: "4.ToBase64String", ns: "System", cls: "Convert", methode: "ToBase64String" },
+];
+const etageListeners: Record<string, InvocationListener> = {};
+const etageEtat: Record<string, unknown> = {};
+
+export interface ReplayOfficielResult {
+    ok: boolean;
+    runnerId: number;
+    /** Le replay OFFICIEL. Rejouable tel quel par `replayLancer`. */
+    json: string | null;
+    /** Longueur REELLE, meme si `json` est tronque. */
+    longueur: number;
+    tronque: boolean;
+    optimise: boolean;
+    stepCount: number | null;
+    recorderArmed: boolean | null;
+    err: string | null;
+}
+
+function vide(runnerId: number, err: string): ReplayOfficielResult {
+    return { ok: false, runnerId, json: null, longueur: 0, tronque: false,
+             optimise: false, stepCount: null, recorderArmed: null, err };
+}
+
+/** Le replay OFFICIEL du runner visé, serialise par le jeu lui-meme.
+ *
+ *  ⚠ A PRENDRE AVANT QUE LE RUNNER DISPARAISSE : a la fin de la bataille il n'est plus
+ *  atteignable, et aucun sondage exterieur ne rattrape ca (cf. `replay-fin-auto`). */
+export function replayOfficiel(
+    args?: { runnerId?: number; maxChars?: number; optimize?: boolean },
+): ReplayOfficielResult {
+    const runnerId = args?.runnerId ?? -1;
+    const maxChars = args?.maxChars ?? DEFAULT_MAX_CHARS;
+    const optimize = args?.optimize === true;
+
+    const mi = miSerializeReplay();
+    if (!mi) {
+        return vide(runnerId, "`ReplaySerializer$$SerializeReplay` INTROUVABLE (2 parametres) "
+            + "-- chemin PERIME sur ce build");
+    }
+    if (!getReplayMi || getReplayMi.ptr.isNull()) {
+        return vide(runnerId, "ReplayRecorder.GetReplay not resolved");
+    }
+    const entry = resoudreRunner(runnerId);
+    if (!entry) {
+        return vide(runnerId, runnerId >= 0
+            ? "runner " + runnerId + " not found"
+            : "aucun runner VIVANT (pas de bataille montee) et aucun `runnerId` donne");
+    }
+    const recorder = entry.runner.add(runnerOff.replayRecorder).readPointer();
+    if (recorder.isNull()) {
+        return vide(runnerId, "runner has no ReplayRecorder (not initialized?)");
+    }
+    const armed: boolean = recorderPlayersOff >= 0
+        ? !recorder.add(recorderPlayersOff).readPointer().isNull()
+        : entry.recordReplay === true;
+
+    let replay: NativePointer;
+    try { replay = invokeMethod(getReplayMi.info, recorder, null); }
+    catch (e) { return vide(runnerId, "GetReplay a leve : " + (e as Error).message); }
+    if (replay.isNull()) return vide(runnerId, "ReplayRecorder.GetReplay returned null");
+
+    let stepCount: number | null = null;
+    if (replayMessagesOff >= 0) {
+        try {
+            const msgs = replay.add(replayMessagesOff).readPointer();
+            if (!msgs.isNull()) stepCount = msgs.add(0x18).readS32();
+        } catch { /* diagnostic seulement */ }
+    }
+
+    // ⚠ ON N'EMPRUNTE PAS `il2cpp_runtime_invoke` ICI, ET C'EST MESURE. Il rend
+    // `access violation accessing 0x0` sur cette methode-la, dans les DEUX branches d'`optimize`
+    // (donc avant tout branchement du corps), alors que `mi.ptr` est non nul et que le recorder
+    // est arme (`stepCount = 3`, flux a 37 Ko au meme instant). On appelle donc le corps compile
+    // par l'ABI NATIVE que le jeu emploie lui-meme : pour une methode STATIQUE d'IL2CPP, c'est
+    // `(arg0, arg1, MethodInfo*)` -- le `MethodInfo*` est un argument REEL, pas une commodite,
+    // et c'est par lui que le prologue resout ses references de type (`FUN_1801f5220` sur les
+    // trois DAT du corps decompile). Un `bool` passe alors PAR VALEUR, pas par adresse.
+    let strPtr: NativePointer;
+    try {
+        const fn = new NativeFunction(mi.ptr, "pointer",
+                                      ["pointer", "uint8", "pointer"]);
+        strPtr = fn(replay, optimize ? 1 : 0, mi.info) as NativePointer;
+    } catch (e) {
+        // ⚠ ON GARDE `recorderArmed` ET `stepCount` DANS L'ECHEC. La version precedente les
+        // jetait (retour `vide`), donc au moment ou ils tranchent -- « rien a serialiser » vs
+        // « la serialisation echoue sur des donnees BIEN presentes » -- ils valaient `null`.
+        return { ...vide(runnerId, "SerializeReplay a leve : " + (e as Error).message),
+                 recorderArmed: armed, stepCount };
+    }
+    if (strPtr.isNull()) {
+        return { ...vide(runnerId, "SerializeReplay a rendu NUL"),
+                 recorderArmed: armed, stepCount };
+    }
+
+    const { text, length, truncated } = readLargeManagedString(strPtr, maxChars);
+    // Un replay VIDE sur un recorder DESARME accuse le montage, pas la bataille -- meme
+    // distinction que pour le flux, et pour la meme raison.
+    const videEtDesarme = !armed && length === 0;
+    return {
+        ok: text !== null && !videEtDesarme && length > 0,
+        runnerId, json: text, longueur: length, tronque: truncated,
+        optimise: optimize, stepCount, recorderArmed: armed,
+        err: text === null ? "replay illisible"
+            : (videEtDesarme ? DISARMED_ERR
+                : (length === 0 ? "replay VIDE alors que le recorder est arme" : null)),
     };
 }
 
@@ -590,6 +745,54 @@ export function register(ctx: Ctx): void {
     ctx.rpc.replayOutputStream = (a?: { runnerId?: number; maxChars?: number }) =>
         replayOutputStream(a);
     ctx.rpc.replayOutputStreamStatus = () => replayOutputStreamStatus();
+    /** Le replay OFFICIEL du runner vivant (ou d'un `runnerId` du registre), serialise par le
+     *  jeu. C'est le seul artefact que `replayLancer` sache relire -- `replayOutputStream`,
+     *  lui, rend NOTRE TRACE, qui ne l'est pas. LECTURE PURE, aucun hook. */
+    /** ⚠ ENFILE SUR LE THREAD PRINCIPAL, ET CE N'EST PAS UNE PRECAUTION DE STYLE. Mesure du
+     *  2026-08-19 : appelee depuis le thread RPC, `SerializeReplay` rend
+     *  `access violation accessing 0x0` -- capteurs d'etage a l'appui, la faute est
+     *  `il2cpp_object_new(<classe ReplayDto>)` avec un pointeur de classe NUL. La MEME methode,
+     *  appelee depuis la pompe (`replay-fin-auto`), rend 125 632 caracteres sans une erreur.
+     *  L'allocation IL2CPP veut le thread principal ; le diagnostic « pas appelable hors
+     *  contexte manage » etait trop large. */
+    ctx.rpc.replayOfficiel = (a?: { runnerId?: number; maxChars?: number; optimize?: boolean }) =>
+        queueOnMainThread(() => replayOfficiel(a));
+    /** LOCALISER l'etage ou `SerializeReplay` tombe. Capteurs PURS sur ses callees -- ils ne
+     *  lisent qu'un compteur, n'invoquent RIEN, et laissent la methode invoquee libre de tout
+     *  ancrage. `{ armer: true }` puis `replayOfficiel`, puis relire : la derniere qui a tire
+     *  borne la faute. `{ armer: false }` retire. */
+    ctx.rpc.replayOfficielDiag = (body?: { armer?: boolean }): unknown => {
+        if (body?.armer === false) {
+            for (const k of Object.keys(etageListeners)) {
+                try { etageListeners[k].detach(); } catch { /* best effort */ }
+                delete etageListeners[k];
+            }
+            Interceptor.flush();
+            return { ok: true, action: "retire", etages: etageEtat };
+        }
+        if (body?.armer !== true) {
+            return { ok: true, lecture: true, arme: Object.keys(etageListeners).length,
+                     etages: etageEtat,
+                     note: "`armer: true` pose des capteurs PURS sur les callees de "
+                         + "`SerializeReplay` -- jamais sur elle-meme (ancrer ce qu'on invoque "
+                         + "gele le jeu)." };
+        }
+        for (const e of ETAGES) {
+            if (etageListeners[e.nom] !== undefined) continue;
+            const k = findClassAnywhere(e.ns, e.cls);
+            if (!k) { etageEtat[e.nom] = { introuvable: "classe " + e.ns + "." + e.cls }; continue; }
+            const mi = findMethod(k, e.methode);
+            if (!mi || mi.ptr.isNull()) {
+                etageEtat[e.nom] = { introuvable: "methode " + e.methode }; continue;
+            }
+            etageEtat[e.nom] = { fires: 0, ptr: mi.ptr.toString() };
+            etageListeners[e.nom] = Interceptor.attach(mi.ptr, {
+                onEnter() { (etageEtat[e.nom] as { fires: number }).fires++; },
+            });
+        }
+        Interceptor.flush();
+        return { ok: true, action: "arme", etages: etageEtat };
+    };
     ctx.rpc.replaySteps = (a?: { runnerId?: number; maxSteps?: number }) =>
         replaySteps(a);
     ctx.rpc.replayRngEvents = (a?: {

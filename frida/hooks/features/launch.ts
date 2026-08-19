@@ -461,6 +461,43 @@ export function register(ctx: Ctx): void {
         });
     };
 
+    /**
+     * REJOUER des messages BRUTS sur un runner DEJA construit.
+     *
+     * ⚠ POURQUOI PAS `loadFromSavedBundle`, QUI REJOUE DEJA UNE LISTE. Il construit le runner
+     * lui-meme, par `buildEmptyRunner(configJson)` : donc SANS seed impose et SANS
+     * `recordReplay`. Pour un test de determinisme les deux sont indispensables -- le seed
+     * parce qu'il est le sujet meme de la mesure, l'enregistreur parce que sans lui
+     * `replayOutputStream` rend un flux VIDE, SANS ERREUR (#477-r1). On construit donc par
+     * `initAndStart({ seed, recordReplay: true })`, et on rejoue ICI.
+     *
+     * ⚠ ET ON NE RESTAURE PAS LE PRNG. `replayOnRunner` sait le faire (`m.prng` -> `restoreMt`),
+     * c'est ce qu'il faut pour REPRODUIRE un log ; c'est exactement ce qu'il ne faut PAS ici,
+     * ou la question est justement de savoir si le seed suffit a redonner les memes tirages.
+     * Passer `prng: null` (le defaut) laisse le hasard se re-deriver.
+     *
+     * Appeler avec UN message a la fois permet de confronter le flux pas a pas, donc de
+     * localiser la PREMIERE divergence au coup pres au lieu de constater un ecart global.
+     */
+    ctx.rpc.replayMessages = (args: {
+        runnerId: number;
+        messages: Array<{ idx?: number; cls: string; ns?: string; json: string }>;
+    }) => queueOnMainThread(() => {
+        const entry = getRunner(args.runnerId);
+        const liste: ReplayMessage[] = (args.messages || []).map((m, i) => ({
+            idx: typeof m.idx === "number" ? m.idx : i,
+            src: "replayMessages",
+            cls: m.cls,
+            ns: m.ns ?? "IdunBattle.Messages",
+            unitId: null,
+            prng: null,
+            json: m.json,
+        }));
+        const r = replayOnRunner(entry.runner, liste);
+        return { ok: true, runnerId: args.runnerId, stage: r.stage, stats: r.stats,
+                 erreurs: r.stats.errors.slice(0, 10) };
+    });
+
     ctx.rpc.startBattle = (args: { runnerId: number }) => {
         const startMi = runnerStartMatchMi;
         if (!startMi) throw new Error("IdunRunner.StartMatch not resolved");
