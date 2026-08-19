@@ -719,10 +719,55 @@ const CHEMINS_BASCULE = [
     "EmptyMachineOfWarPlatformTapped", "EmptySpawnPointTapped",
     "HandleOnSwitchToMachinesOfWarUnitsTapped", "HandleOnSwitchToStandardUnitsTapped",
     "ShowStandardUnitSelection", "PrepareForStandardUnitMachineOfWarSelectionSwitch",
-    "PutUnitIntoHand", "SetCurrentlySelectedUnit",
+    "PutUnitIntoHand", "SetCurrentlySelectedUnit", "RemoveUnit",
 ] as const;
 const cheminsListeners: Record<string, InvocationListener> = {};
 const cheminsEtat: Record<string, unknown> = {};
+
+/**
+ * Les chemins dont l'ARGUMENT porte une identité d'unité, et comment le lire.
+ *
+ * ⚠ POURQUOI L'ARGUMENT, ET PAS SEULEMENT LE COMPTEUR. Symptôme mesuré le 2026-08-19 : une
+ * unité ôtée du plateau revient au roster et RESTE sur le plateau. La cause est structurelle —
+ * le HUD ne connaît que des `PlaceholderUnitView`, nos unités sont RÉELLES sur le runner, et
+ * le seul relais qui atteigne une unité réelle est celui du bouton « tout enlever »
+ * (`HandleOnRemoveAllHeroesPressed`, cf. `armerClear`). La dépose unité par unité n'en a aucun.
+ *
+ * ⚠ RESTE À SAVOIR QUELLE MÉTHODE LA PORTE, ET LES COMPTEURS SEULS NE LE DISENT PAS :
+ * `PutUnitIntoHand` a tiré 9 fois pour 4 poses acceptées, donc elle porte AUSSI la prise en
+ * main depuis le roster — son nom le dit. Y accrocher un `RemoveUnitMessage` ferait disparaître
+ * une unité au simple clic sur le roster. L'identité capturée ici est ce qui tranchera :
+ * une dépose nomme l'unité DU PLATEAU, une prise en main nomme celle qu'on saisit.
+ */
+const CHEMINS_ARG: Record<string, "chaine" | "unitConfigId"> = {
+    PutUnitIntoHand: "chaine",
+    RemoveUnit: "unitConfigId",
+};
+
+/**
+ * Ce qu'on peut LIRE d'un `IdunBattle.Configuration.UnitConfigId`.
+ *
+ * C'est un type VALEUR de 48 octets (`classes.tsv`), donc passé PAR ADRESSE. On ne prétend PAS
+ * en connaître la disposition : on rend les six mots, et pour chacun la chaîne IL2CPP qu'il
+ * désigne s'il en désigne une. Les trois `.ctor` déclarent `pureId : System.String` en tête, ce
+ * qui fait du premier mot le candidat — mais c'est la LECTURE qui le dira, pas ce commentaire.
+ *
+ * `readIl2cppString` borne la longueur et avale ses propres accès invalides : le passer sur un
+ * mot qui n'est pas une chaîne rend `null`, jamais une lecture sauvage.
+ */
+function lireUnitConfigId(p: NativePointer): Record<string, unknown> {
+    if (p.isNull()) return { nul: true };
+    const mots: Array<{ i: number; hex: string; chaine: string | null }> = [];
+    for (let i = 0; i < 6; i++) {
+        try {
+            const m = p.add(i * 8).readPointer();
+            mots.push({ i, hex: m.toString(), chaine: readIl2cppString(m) });
+        } catch { mots.push({ i, hex: "ILLISIBLE", chaine: null }); }
+    }
+    const porteur = mots.find((m) => m.chaine !== null);
+    return { unitId: porteur ? porteur.chaine : null,
+             motPorteur: porteur ? porteur.i : null, mots };
+}
 
 /**
  * L'ÉTAT VIVANT DE LA BASCULE HÉROS <-> MACHINES OF WAR.
@@ -994,21 +1039,46 @@ function armerHud(): true | Refus {
         // DÉDUPLIQUÉ ou sur une surcharge voisine ; sans l'adresse, on croit le compteur et on
         // conclut à l'envers. La tête est contrôlée pour la même raison (cf. §8).
         const t = lireTete(mi.ptr);
-        cheminsEtat[nom] = { fires: 0, transitions: [], va: ghidraVA(mi.ptr),
+        cheminsEtat[nom] = { fires: 0, transitions: [], args: [], va: ghidraVA(mi.ptr),
                              teteTriviale: t.erreur === null ? teteTriviale(t) : null,
                              teteErreur: t.erreur };
+        const genreArg = CHEMINS_ARG[nom];
         cheminsListeners[nom] = Interceptor.attach(mi.ptr, {
             onEnter(args) {
-                const s = this as unknown as { av: boolean | null; hud: NativePointer };
+                const s = this as unknown as {
+                    av: boolean | null; hud: NativePointer; arg: unknown;
+                };
                 s.hud = args[0];
                 s.av = lireDrapeauMoW(args[0]);
+                // ⛔ LECTURE DE MÉMOIRE SEULEMENT, jamais une invocation. C'est la leçon des
+                // deux gels : appeler un natif depuis un callback d'interception fige le jeu.
+                s.arg = undefined;
+                if (genreArg !== undefined) {
+                    try {
+                        s.arg = genreArg === "chaine"
+                            ? readIl2cppString(args[1])
+                            : lireUnitConfigId(args[1]);
+                    } catch (e) { s.arg = { erreur: (e as Error).message }; }
+                }
             },
             onLeave() {
-                const s = this as unknown as { av: boolean | null; hud: NativePointer };
-                const e = cheminsEtat[nom] as { fires: number; transitions: unknown[] };
+                const s = this as unknown as {
+                    av: boolean | null; hud: NativePointer; arg: unknown;
+                };
+                const e = cheminsEtat[nom] as {
+                    fires: number; transitions: unknown[]; args: unknown[];
+                };
                 e.fires++;
                 if (e.transitions.length < 16) {
                     e.transitions.push({ avant: s.av, apres: lireDrapeauMoW(s.hud) });
+                }
+                if (s.arg !== undefined && e.args.length < 16) e.args.push(s.arg);
+                // LE RELAIS DE DÉPOSE. Il vit ICI et pas sur un ancrage à lui : le chemin est
+                // le même que celui qu'on observe, et en poser deux sur une seule méthode ne
+                // ferait qu'ajouter un ordre de tir à raisonner.
+                if (deposeAuto && nom === "PutUnitIntoHand"
+                    && typeof s.arg === "string" && s.arg !== "") {
+                    retirerSiSurLePlateau(s.arg);
                 }
             },
         });
@@ -2583,6 +2653,47 @@ function armerClear(): true | Refus {
     return true;
 }
 
+let deposeAuto = false;
+let deposeDernier: unknown = null;
+const deposeTrace: unknown[] = [];
+
+/**
+ * LA DÉPOSE UNITÉ PAR UNITÉ — le pendant du relais de CLEAR, sur un seul héros.
+ *
+ * ⚠ LE CHEMIN A ÉTÉ MESURÉ, PAS DEVINÉ, et la première hypothèse était FAUSSE.
+ * `UnitDeploymentHud$$RemoveUnit(unitConfigId)` porte le nom qu'il faut et ne tire JAMAIS
+ * (0 tir sur un cycle complet pose + dépose, ancrage contrôlé : VA `0x180e2f220`, tête non
+ * triviale). C'est `PutUnitIntoHand(unitId)` qui porte les DEUX gestes — mesuré 2 tirs pour
+ * 1 pose acceptée, avec le MÊME argument (`worldKharn`) les deux fois.
+ *
+ * ⇒ L'ARGUMENT NE DISCRIMINE PAS. Ce qui discrimine est l'ÉTAT DU PLATEAU : si l'unité nommée
+ * y est déjà, le tir est une DÉPOSE (elle revient en main) ; sinon c'est une SAISIE depuis le
+ * roster, et il n'y a rien à retirer. Le no-op est donc le comportement CORRECT dans un cas
+ * sur deux — il est tracé pour qu'on ne le confonde pas avec un raté.
+ *
+ * ⛔ ON N'INVOQUE RIEN DEPUIS LE CALLBACK : on ENFILE. La décision elle-même (relire le
+ * plateau, résoudre l'entité) se prend sur la file du thread principal, hors de toute
+ * interception — c'est la leçon des deux gels, et c'est exactement ce que fait `armerClear`.
+ * Le plateau lu en différé reste valable : tout le défaut est que le natif ne le touche pas.
+ */
+function retirerSiSurLePlateau(unitId: string): void {
+    queueOnMainThread(() => {
+        const u = unitesDuPlateau();
+        if (!Array.isArray(u)) {
+            return { ok: false, unitId, error: "plateau non lisible : " + String(u) };
+        }
+        const cible = u.find((x) => x.duJoueur && x.unitId === unitId);
+        if (!cible) {
+            return { ok: true, unitId, action: "aucune",
+                     raison: "pas sur le plateau -- c'est une SAISIE, pas une dépose" };
+        }
+        return { ok: true, unitId, action: "retire", entityId: cible.entityId,
+                 retrait: retirerDuRunner([cible.entityId]) };
+    }).then(
+        (r) => { deposeDernier = r; if (deposeTrace.length < 16) deposeTrace.push(r); },
+        (e) => { deposeDernier = { ok: false, unitId, error: String(e) }; });
+}
+
 let syncAuto = false;
 let syncDernier: unknown = null;
 
@@ -3446,6 +3557,37 @@ export function register(ctx: Ctx): void {
         const r = armerClear();
         if (r !== true) return r;
         clearAuto = true;
+        return { ok: true, ...etat() };
+    };
+
+    /**
+     * Relais sur la DÉPOSE unité par unité — le pendant de `deploymentClearArmer`, qui ne
+     * couvre que le bouton « tout enlever ». Armé, ôter une unité du plateau ôte AUSSI
+     * l'unité RÉELLE du runner. Cf. `retirerSiSurLePlateau` pour le chemin, mesuré.
+     */
+    ctx.rpc.deploymentDeposeArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const etat = () => ({
+            actif: deposeAuto,
+            ancre: cheminsListeners["PutUnitIntoHand"] !== undefined,
+            chemin: cheminsEtat["PutUnitIntoHand"] ?? null,
+            dernier: deposeDernier, trace: deposeTrace,
+        });
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`armer: true` + `confirmer: true` : ôter une unité du plateau "
+                         + "APPLIQUERA un `RemoveUnitMessage` sur la bataille en cours. Le "
+                         + "chemin est `PutUnitIntoHand`, qui porte AUSSI la saisie depuis le "
+                         + "roster -- c'est la présence sur le plateau qui les sépare." };
+        }
+        if (body.armer === false) { deposeAuto = false; return { ok: true, ...etat() }; }
+        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
+        // ⚠ L'ANCRAGE VIT DANS `armerHud`, comme pour `deploymentSyncArmer` : sans lui, rien
+        // ne tirera et l'armement rendrait un `actif: true` qui ne tient RIEN.
+        const r = armerHud();
+        if (r !== true) return r;
+        deposeAuto = true;
         return { ok: true, ...etat() };
     };
 
@@ -4514,10 +4656,20 @@ export function register(ctx: Ctx): void {
                     + "l'armement. Et le wrapper fait répondre la sandbox comme LE NŒUD DE CAMPAGNE "
                     + "où pointe la source capturée -- pas comme une source générique.");
             }
-            const src = getCampaignGameModeSourcePtr();
-            if (src === null || src.isNull()) {
-                return refus("aucune `CampaignGameModeSource` capturée : l'amorce ne l'a pas prise, "
-                    + "ou la session est froide. On ne délègue PAS à rien -- rejouer l'amorce.");
+            // ⚠ LA GARDE PORTE SUR LE PRÊTEUR RETENU, PAS SUR LA CAMPAGNE. Elle testait
+            // `getCampaignGameModeSourcePtr()` quel que soit `source` — un reste de l'époque où
+            // la campagne était le seul prêteur. Mesuré le 2026-08-19 : un montage guild boss
+            // ENTIÈREMENT gréé (source forgée, BC de la source, override posé) était refusé au
+            // motif « rejouer l'amorce », alors qu'`armerUneDelegation` résout sur
+            // `sourcePreteuse()` et n'aurait pas lu la campagne une seule fois. Une garde qui
+            // accuse une dépendance dont le chemin ne se sert pas fait réparer la mauvaise cause.
+            const p = sourcePreteuse();
+            if (p.ptr === null || p.ptr.isNull()) {
+                return refus(`aucune source \`${p.cls}\` (prêteur ${p.nom}) -- on ne délègue PAS `
+                    + "à rien. Campagne : l'amorce ne l'a pas prise (session froide, ou la "
+                    + "navigation auto est éteinte) ; guild boss : `guildBossSourceForger "
+                    + "{confirmer:true}` n'a pas été appelé ; guild war : "
+                    + "`guildWarSourceForger` n'a pas été appelé.");
             }
             if (body.only !== undefined) {
                 const connus = DELEGUEES.map((x) => x.nom);
