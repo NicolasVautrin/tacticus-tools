@@ -1,16 +1,21 @@
 #!/usr/bin/env python
 """catalog_inject -- INJECTION DE PORTEURS AU CATALOGUE `BattleConfiguration.Units`.
 
-PROBLEME (cases #92 / #54). Le seed BC sur disque (`data/seed-bc.json`) est la capture d'UNE
-bataille reelle : son `Units[]` ne contient que les 175 unites que le compte du joueur possedait
-ce jour-la. Des heros/MoW du gameconfig n'y sont PAS (les Votann, thousDaemonPrince,
-necroReanimator, darkaStormSpeeder, ...) -> `rl_duel build --p-units <id>` les refuse (hors pool)
-et leurs abilities sont INCONFRONTABLES.
+PROBLEME (cases #92 / #54). Le seed BC sur disque a longtemps ete la capture d'UNE bataille
+reelle : son `Units[]` ne contenait que les 175 unites presentes ce jour-la, et des heros/MoW du
+gameconfig n'y etaient PAS -> `rl_duel build --p-units <id>` les refusait (hors pool) et leurs
+abilities etaient INCONFRONTABLES.
 
-⚠ LE COMPTE SE RE-DERIVE, IL NE SE CITE PAS : cette ligne annoncait « 17 » et en portait **21** a
-la re-mesure du 2026-08-15 (#254-bc-r1). L'ecart se creuse a chaque MAJ du jeu, sans un mot ;
-`catalog_gap` / `catalog_gap_report` et l'epingle `MISSING_LINEUP_ENTRIES` sont ce qui le DIT
-desormais (`python catalog_inject.py --missing`).
+⚠ CE N'EST PLUS UNE CAPTURE (#10039). `data/seed-bc.json` est desormais FORGE par
+`Idun.Source.IdunBattle.View.BattleConfigBuilder` (`forge_seed_bc.py`), donc le catalogue porte
+tout le roster : `lineup` 127/127, `summons` 65/65, `npc` 489/491. L'injection reste NECESSAIRE
+pour ce que la fabrique ne monte pas (`MISSING_NPC_ENTRIES`) et pour tout id qu'un catalogue
+custom aurait ecarte -- mais elle n'est plus la voie NORMALE d'amener un heros.
+
+⚠ LE COMPTE SE RE-DERIVE, IL NE SE CITE PAS : cette ligne a annonce « 17 » quand il y en avait
+21, puis « 21 » quand il n'y en a plus aucun. `catalog_gap` / `catalog_gap_report` et les epingles
+`MISSING_LINEUP_ENTRIES` / `MISSING_NPC_ENTRIES` sont ce qui le DIT
+(`python catalog_inject.py --missing`).
 
 POURQUOI `Units[]` EST LE CATALOGUE (RE, decompile = verite) :
   `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(this, string unitId)` resout un unitId en
@@ -33,12 +38,20 @@ per-build `data/symbols/<build>/frida/enums.tsv` (ActiveAbilityType / TriggeredA
 Les 8 stats de combat (Health/Damage/Armor/FixedArmor/Crit*/Block*) NE sont PAS inventees : elles
 sont laissees a 0 et RECALCULEES par le natif `IStatsFormula.StatsUsingProgressionIndexFor` au
 travers du RPC `buildNormalizedBC` (cf. frida/hooks/features/normalize-bc/json-build.ts), au meme
-titre que pour les 175 entrees deja presentes.
+titre que pour les entrees deja presentes.
 
-FIDELITE PROUVEE, PAS POSTULEE : `--validate` re-synthetise les 175 entrees du seed BC et diffe
-champ par champ contre la capture reelle. Attendu : 0 divergence sur tous les champs derives
-(VisualId, QuestUnitId, Faction, Subfaction, Traits, Movement, NumberOfMembers, Weapons +
-DamageProfile complet, ActiveAbilities, PassiveAbilities, ConfigId).
+FIDELITE PROUVEE, PAS POSTULEE : `--validate` re-synthetise CHAQUE entree du catalogue et diffe
+champ par champ contre ce que la fabrique native a produit. Attendu : 0 divergence sur tous les
+champs derives (VisualId, QuestUnitId, Faction, Subfaction, Traits, Movement, NumberOfMembers,
+Weapons + DamageProfile complet, ActiveAbilities, PassiveAbilities, ConfigId), hors
+`STALE_UNIT_ENTRIES` -- qui epingle ce que la synthese ne PEUT pas reproduire (l'etat JOUEUR).
+
+⚠ LE TEMOIN A CHANGE D'ECHELLE, ET DEUX BRANCHES DU MIRROR NPC ONT ROUGI. La capture ne portait
+que 4 npc, tous non-MoW et tous pourvus d'un passif ; le catalogue forge en porte 508. Deux
+branches n'avaient donc JAMAIS ete confrontees, et les deux etaient fausses (branche MoW du
+multiplicateur d'ability, hierarchie « Secondary »). Detail : `npc_progression_multiplier_pct` et
+`npc_stats`. Un accord obtenu en regime degenere ne prouve rien -- c'est la meme lecon que le
+`NPC` pose a tort a tout kind npc, que 4 entrees ne pouvaient pas non plus distinguer.
 
 USAGE
     python catalog_inject.py --validate
@@ -799,18 +812,34 @@ def npc_stats_row(unit_id: str, level: int | None = None) -> dict:
     return rows[min(_to_zero_based_index(lvl), len(rows) - 1)]
 
 
-def npc_progression_multiplier_pct(progression_index: int) -> int:
+def npc_progression_multiplier_pct(progression_index: int, is_mow: bool = False) -> int:
     """`AbilityVariablesMultiplierPercentage` d'un npc -- mirror EXACT de
-    `IdunMetaLogic.UserProgress.UnitConfigUtil$$GetAbilityVariablesMultiplierPercentageForProgressionIndex` :
-    la fonction INDEXE `unitsConfig+0x80` (= `units.heroProgressionSteps`) par le progression index
-    et rend le champ +0x24 (`abilityStatMultiplierPct`).
+    `IdunMetaLogic.UserProgress.UnitConfigUtil$$GetAbilityVariablesMultiplierPercentageForProgressionIndex`.
+
+    Les DEUX surcharges commencent par le MEME branchement, et c'est lui qui compte :
+
+        cVar = IsMachineOfWar(unitsConfig, unitId)
+        liste = cVar == 0 ? unitsConfig+0x80 : unitsConfig+0x88
+        step  = liste[progressionIndex]
+        return step+0x24                      (le second champ, +0x2c, est un autre regime)
+
+    Cote gameconfig, `+0x80` = `units.heroProgressionSteps`, `+0x88` =
+    `units.heroProgressionStepsMoW`, et `+0x24` = `abilityStatMultiplierPct`. C'est exactement le
+    couple de listes qu'`ability_multiplier_pct` cite depuis toujours -- mais ce mirror-ci
+    n'indexait QUE la liste des heros.
+
+    ⚠ CE QUE LA BRANCHE MoW COUTAIT, ET POURQUOI PERSONNE NE L'AVAIT VUE. Le seed BC etait une
+    capture a 4 npc, aucun MoW : l'ecart ne pouvait pas apparaitre. Sur le catalogue FORGE (508
+    entrees npc, dont 11 MoW) les 11 divergent, TOUTES du meme cote -- `adeptNpcMoWExorcist:19`
+    porte ProgressionIndex 13, le jeu ecrit **165** (`heroProgressionStepsMoW[13]`) et ce mirror
+    rendait **180** (`heroProgressionSteps[13]`). Apres correctif : 11/11 concordants, 0 miss.
 
     A la difference d'`ability_multiplier_pct` (qui doit DEVINER le palier d'un heros non possede
     en cherchant le premier `maxRank >= rank`), le progression index d'un npc est CONNU : il est
-    ecrit dans sa ligne `stats[]`. Mesure sur le seed BC : `necroNpc3Deathmark:7` porte
-    ProgressionIndex 4 et `AbilityVariablesMultiplierPercentage` 120 = `steps[4]`.
+    ecrit dans sa ligne `stats[]`. Mesure : `necroNpc3Deathmark:7` porte ProgressionIndex 4 et
+    `AbilityVariablesMultiplierPercentage` 120 = `steps[4]`.
     """
-    steps = G._cfg()["units"]["heroProgressionSteps"]
+    steps = G._cfg()["units"]["heroProgressionStepsMoW" if is_mow else "heroProgressionSteps"]
     idx = max(0, min(int(progression_index), len(steps) - 1))
     return steps[idx]["abilityStatMultiplierPct"]
 
@@ -827,26 +856,47 @@ def npc_stats(unit_id: str, level: int | None = None) -> dict:
     `Idun.Source.IdunBattle.View.BattleConfigBuilder$$SetupAbilities` les prend des slots `0x1c` /
     `0x1d` d'`IUnitModel` (`GetPrimaryAbility()` / `GetSecondaryAbility()`, champ `+0x08` = le
     niveau) et les ecrit en `UnitConfiguration+0xb8` / `+0xbc`. Sans ability de cette hierarchie il
-    n'y a aucun niveau a lire, et le champ reste au DEFAUT 1.
-    MESURE (les 4 npc du seed BC) : `necroNpc1Warrior:7` est le SEUL sans `activeAbilities` et le
-    SEUL a porter `ActiveAbilityLevel = 1` ; les 3 autres portent `AbilityLevel` (17). La branche
-    VIDE de `PassiveAbilityLevel` n'est PAS confrontee (les 4 npc ont un passif) : elle est ecrite
-    par symetrie et reste sans consequence -- une liste d'abilities vide ne donne rien a niveler a
-    `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`.
+    n'y a aucun niveau a lire, et le champ reste au DEFAUT 1
+    (`IdunMetaLogic.UserProgress.Model.TieredUnitModel$$GetPrimaryAbility` /
+    `$$GetSecondaryAbility` construisent un `Idun.Shared.Level(1)` quand le `Nullable` est vide).
+
+    ⚠ « SECONDAIRE » N'EST PAS « PASSIVE », ET LES CONFONDRE COUTAIT 12 ENTREES. La hierarchie se
+    lit dans `IdunMetaLogic.UserProgress.UnitProgression$$GetHierarchyForAbility` :
+
+        if name == unitConfig.PrimaryAbility            -> 1  (Primary)
+        if isMoW and name == <mythique>                 -> 3
+        if <progression+0xd8>.Contains(name)            -> 3  (trait)
+        else                                            -> 2  (Secondary)
+
+    et `IdunMetaLogic.Client.DTO.Config.BaseUnitConfigDto$$get_PrimaryAbility` rend
+    `config+0x78[0]` -- la PREMIERE `activeAbilities`, ou `null` si la liste est vide. Donc
+    « Secondary existe » veut dire « le kit porte au moins une ability qui n'est pas la premiere
+    active » : un passif, OU une DEUXIEME active. Ce mirror ne regardait que `passiveAbilities`.
+
+    MESURE. Sur les 4 npc de l'ancienne capture, `PassiveAbilityLevel` n'etait PAS confronte (les
+    4 avaient un passif) -- la branche vide etait ecrite par symetrie, et fausse. Sur le catalogue
+    FORGE (508 npc), la regle ci-dessus rend **507/508** ; les 12 qui divergeaient sont celles a
+    deux actives et zero passif (`tauNpc5StealthSuit:19` et les 11 `*NpcMoW*`), pour lesquelles le
+    jeu ecrit `AbilityLevel` la ou ce mirror ecrivait 1. Le 508e est `LootObj_CoinCrate:23`, une
+    entree que la forge produit ENTIEREMENT a zero (cf. `NPC_WITNESS_STALE`).
     """
     pure = str(unit_id).split(":")[0]
     gc = G.unit(pure) or {}
     row = npc_stats_row(unit_id, level)
     out = {f: int(row.get(f) or 0) for f in COMBAT_STAT_FIELDS}
     ab = int(row.get("AbilityLevel") or 1)
+    actives = list(gc.get("activeAbilities") or [])
+    passives = list(gc.get("passiveAbilities") or [])
     out.update({
         "Rank": int(row.get("Rank") or 0),
         "StarLevel": int(row.get("StarLevel") or 0),
         "Level": ab,
-        "ActiveAbilityLevel": ab if (gc.get("activeAbilities") or []) else 1,
-        "PassiveAbilityLevel": ab if (gc.get("passiveAbilities") or []) else 1,
-        "AbilityVariablesMultiplierPercentage":
-            npc_progression_multiplier_pct(row.get("ProgressionIndex") or 0),
+        # Primary = `activeAbilities[0]` ; Secondary = tout le reste du kit (2e active OU passif).
+        "ActiveAbilityLevel": ab if actives else 1,
+        "PassiveAbilityLevel": ab if (passives or len(actives) >= 2) else 1,
+        "AbilityVariablesMultiplierPercentage": npc_progression_multiplier_pct(
+            row.get("ProgressionIndex") or 0,
+            is_mow="MachineOfWar" in (gc.get("traits") or [])),
     })
     return out
 
@@ -1097,14 +1147,37 @@ def npc_entries_of(bc: dict) -> list[dict]:
             if str(u.get("Id", "")).split(":")[0] in npc]
 
 
+#: Entrees npc que le catalogue porte MAL, et que le mirror ne doit donc PAS chercher a reproduire.
+#:
+#: `LootObj_CoinCrate:23` sort de la forge avec `VisualId` / `QuestUnitId` PORTANT LE SUFFIXE
+#: (`"LootObj_CoinCrate:23"` au lieu de `"LootObj_CoinCrate"`), `Weapons: null`,
+#: `NumberOfMembers: 0` et TOUS ses champs de progression a zero -- alors que ses deux jumelles
+#: `LootObj_CoinCrate:1` et `:18`, memes `stats[]`, sortent correctement. C'est la signature exacte
+#: du repli decrit par `forge_seed_bc` : `IdunMetaLogic.UserProgress.UnitProgression$$GetUnit`
+#: interroge le cache des HEROS et fabrique un `CachedUnitModel` sur echec, sans jamais tester le
+#: dictionnaire npc -- l'unite sort alors a Health 0 / Level 1 / Rank 0, SANS erreur. La donnee
+#: manquante est donc du cote du CATALOGUE, pas du mirror : l'accuser ici ferait porter au mirror
+#: une valeur que le gameconfig contredit. Residu ouvert (cf. le rapport de #10039-r1).
+NPC_WITNESS_STALE = {
+    "LootObj_CoinCrate:23": ("Rank", "StarLevel", "Level", "ActiveAbilityLevel",
+                             "PassiveAbilityLevel", "AbilityVariablesMultiplierPercentage"),
+}
+
+
 def npc_witness_diff(bc: dict) -> tuple[list[tuple[str, dict]], int]:
     """TEMOIN NON DEGENERE du chemin npc : confronte `npc_stats` aux entrees npc que LE JEU a
-    ecrites dans le seed BC capture.
+    ecrites dans le catalogue.
 
     Ce n'est pas un accord entre deux lectures de la meme table : le cote gauche est calcule
     depuis `units.npc[id].stats[]` du gameconfig VIVANT, le cote droit est ce que
-    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` a produit en bataille
-    reelle et que la capture a fige. Rend `([(unitId, {champ: (attendu, capture)})], n_divergences)`.
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` a produit. Rend
+    `([(unitId, {champ: (attendu, catalogue)})], n_divergences)`.
+
+    ⚠ LE TEMOIN A CHANGE D'ECHELLE, ET CA A TROUVE DEUX DEFAUTS. La capture ne portait que **4**
+    npc, tous non-MoW et tous pourvus d'un passif : deux branches du mirror n'y etaient donc
+    JAMAIS confrontees. Le catalogue forge en porte **508**, et les a fait rougir toutes les deux
+    (branche MoW du multiplicateur, hierarchie Secondary) -- voir `npc_progression_multiplier_pct`
+    et `npc_stats`. Un accord obtenu sur 4 entrees ne disait rien de ces branches.
     """
     rows, div = [], 0
     for u in npc_entries_of(bc):
@@ -1113,6 +1186,18 @@ def npc_witness_diff(bc: dict) -> tuple[list[tuple[str, dict]], int]:
         rows.append((u["Id"], bad))
         div += len(bad)
     return rows, div
+
+
+def npc_witness_unpinned(bc: dict) -> dict:
+    """Les divergences du temoin npc HORS `NPC_WITNESS_STALE`. Dict vide = le mirror reproduit ce
+    que le jeu a ecrit sur tout ce qui n'est pas une entree de catalogue nommement fautive."""
+    rows, _div = npc_witness_diff(bc)
+    out: dict = {}
+    for uid, bad in rows:
+        reste = {f: v for f, v in bad.items() if f not in NPC_WITNESS_STALE.get(uid, ())}
+        if reste:
+            out[uid] = reste
+    return out
 
 
 def apply_explicit_stats(bc: dict, unit_id: str, **kw) -> dict:
@@ -1302,40 +1387,49 @@ def missing_from_seed_bc(seed_bc: dict) -> list:
     return sorted(k for k in G._index()["lineup"] if k not in have)
 
 
-# ══ L'AXE AJOUT du catalogue capture (#254-bc-r1) ═════════════════════════════════════════════════
+# ══ L'AXE AJOUT du catalogue (#254-bc-r1) ═════════════════════════════════════════════════════════
 #
 # CE QUE `STALE_UNIT_ENTRIES` NE COUVRE PAS. L'epingle voisine garde la derive des entrees
-# PRESENTES dans la capture (une unite dont le gameconfig a change le kit). Une unite que le
-# gameconfig a AJOUTEE depuis la capture n'y est pas du tout : elle releve de
+# PRESENTES (une unite dont le catalogue et le gameconfig ne s'accordent pas). Une unite que le
+# gameconfig porte et que le catalogue n'a PAS DU TOUT n'y est pas : elle relevait de
 # `missing_from_seed_bc`, qui ENUMERE sans comparer -- donc rien ne disait si l'ecart se CREUSAIT.
 #
-# ET IL S'EST CREUSE, EN SILENCE : la fiche du residu relevait **17** manquantes ; re-mesure le
-# 2026-08-15 sur `t6dpr4k06g`, il y en a **21**. Le module lui-meme annonce encore « 17 » dans sa
-# docstring d'en-tete. Personne n'a rien vu passer -- c'est exactement le regime que ce garde ferme.
+# ET IL S'ETAIT CREUSE, EN SILENCE : la fiche du residu relevait **17** manquantes ; re-mesure le
+# 2026-08-15, il y en avait **21**. Personne n'avait rien vu passer -- c'est le regime que ce garde
+# ferme, et il le ferme dans les DEUX sens (une neuve rougit, une resorbee aussi).
 #
-# TROIS CATEGORIES, TROIS REGIMES DIFFERENTS -- et les confondre serait le vice du garde en SEUIL :
+# ══ CE QUE LA FORGE A CHANGE (#10039) : LES DEUX EPINGLES SONT TOMBEES A ZERO ══════════════════
 #
-#   `lineup`  (127)  -> 21 absents. EPINGLES NOMINALEMENT ci-dessous, gardes dans les DEUX sens.
-#                       Chacun est un porteur qui ne s'amene qu'en INJECTANT (case-92 Sec.6).
-#   `summons` (65)   -> **0** absent. C'est un INVARIANT, pas un compte : il est ce qui rend la
-#                       voie summon confrontable SANS injection (on spawne le summoner). Le jour ou
-#                       le jeu en ajoute un, cette propriete tombe -- et il faut le savoir.
-#   `npc`     (491)  -> 487 absents, et c'est NORMAL : la capture ne porte que les 4 npc de CETTE
-#                       bataille, les autres s'injectent a la demande. Rapporte, jamais garde.
+# `data/seed-bc.json` n'est plus la capture d'UNE bataille (175 entrees, 4 npc) : c'est un
+# catalogue FORGE par `Idun.Source.IdunBattle.View.BattleConfigBuilder`, dont l'argument
+# `availableMainPlayerUnits` amene TOUT le roster. Mesure :
 #
-# CE GARDE N'EST PAS UN RATTRAPAGE. Comme #254-bc, il MESURE et il DIT ; injecter les 21 au seed
-# partage changerait le pool spawnable de tous les tests live.
-MISSING_LINEUP_ENTRIES = frozenset({
-    "adeptCelestine", "astarCyrus", "astarLysander", "bloodTerminator", "darkaSternguard",
-    "darkaStormSpeeder", "eldarLhykhis", "emperExultant", "emperFlawlessBlade", "emperLucius",
-    "necroChronomancer", "necroReanimator", "spaceWolfPriest", "tauFarsight", "thousDaemonPrince",
-    "thousSekhetar", "votanBeserk", "votanChampion", "votanIronmaster", "votanMemnyr", "votanUthar",
-})
+#   `lineup`  (127)  -> **0** absent (etait 21). L'etat 3 de la gate de confrontabilite
+#                       (« porteur hors pool, a injecter ») n'a plus AUCUN membre : plus un seul
+#                       heros n'exige `write_augmented_seed_bc` pour arriver au catalogue.
+#                       ⚠ L'epingle reste VIDE, elle ne disparait pas : le gisement se rouvre des
+#                       que le jeu livre un heros que la fabrique ne sait pas monter.
+#   `summons` (65)   -> **0** absent. INVARIANT, pas un compte : c'est ce qui rend la voie summon
+#                       confrontable SANS injection (on spawne le summoner).
+#   `npc`     (491)  -> **2** absents (etait 487), EPINGLES NOMINALEMENT ci-dessous. Les npc ne
+#                       sont donc plus « rapportes et non gardes » : l'ecart est devenu assez
+#                       petit pour etre NOMME, donc il est garde comme les deux autres.
+#
+# CE GARDE N'EST PAS UN RATTRAPAGE. Comme #254-bc, il MESURE et il DIT.
+MISSING_LINEUP_ENTRIES: frozenset = frozenset()
+
+#: Les deux npc que `forge_seed_bc` n'arrive pas a monter -- `GetGuildWarsConfig` LEVE sur eux.
+#: Ils ont pourtant leur ProgressionIndex dans leur table : ce sont des cas d'INVERSION DE VOIE
+#: deja documentes (`Maugetar` est declare en `activeAbilities` alors que c'est un
+#: `TriggeredAbilityType` 1498, cf. le CLAUDE.md, section « La conversion se fait PAR NOM »).
+#: Ils s'amenent par la voie d'injection classique (`write_augmented_seed_bc`, case-92 Sec.6).
+MISSING_NPC_ENTRIES = frozenset({"admecBossBelisarius", "eldarBossMauganRaUltra"})
 
 
 def catalog_gap(seed_bc: dict) -> dict:
-    """`{kind: {"total": n, "missing": [...]}}` -- ce que le gameconfig VIVANT porte et que la
-    capture n'a pas, ventile par categorie d'unite. Pendant de `stale_unit_entries` sur l'axe AJOUT.
+    """`{kind: {"total": n, "missing": [...]}}` -- ce que le gameconfig VIVANT porte et que le
+    catalogue n'a pas, ventile par categorie d'unite. Pendant de `stale_unit_entries` sur l'axe
+    AJOUT.
     """
     have = {u["Id"].split(":")[0] for u in seed_bc.get("Units") or []}
     idx = G._index()
@@ -1347,26 +1441,34 @@ def catalog_gap(seed_bc: dict) -> dict:
     return out
 
 
+#: Les deux axes epingles NOMINALEMENT, et gardes dans les DEUX sens. `summons` n'y est pas : son
+#: ecart est un INVARIANT a zero, pas une epingle -- cf. le bloc au-dessus de `MISSING_LINEUP_ENTRIES`.
+CATALOG_GAP_PINS = (("lineup", "MISSING_LINEUP_ENTRIES"), ("npc", "MISSING_NPC_ENTRIES"))
+
+
 def catalog_gap_report(seed_bc: dict) -> str | None:
     """Une ligne ASCII decrivant l'ecart d'AJOUT, ou `None` s'il est exactement celui qui est
-    epingle. Les entrees hors `MISSING_LINEUP_ENTRIES` sont marquees, dans les DEUX sens.
+    epingle. Les entrees hors epingle sont marquees, dans les DEUX sens et pour les DEUX axes.
     """
     gap = catalog_gap(seed_bc)
-    lineup = set(gap["lineup"]["missing"])
-    neuves = sorted(lineup - MISSING_LINEUP_ENTRIES)
-    injectees = sorted(MISSING_LINEUP_ENTRIES - lineup)
-    smn = gap["summons"]["missing"]
-    if not neuves and not injectees and not smn:
-        return None
     parts = []
-    if neuves:
-        parts.append("lineup NEUVES hors epingle (%d) : %s" % (len(neuves), ",".join(neuves)))
-    if injectees:
-        parts.append("lineup epinglees mais PRESENTES (%d) : %s"
-                     % (len(injectees), ",".join(injectees)))
+    for kind, nom in CATALOG_GAP_PINS:
+        pin = globals()[nom]
+        missing = set(gap[kind]["missing"])
+        neuves = sorted(missing - pin)
+        entrees = sorted(pin - missing)
+        if neuves:
+            parts.append("%s NEUVES hors epingle (%d) : %s" % (kind, len(neuves),
+                                                               ",".join(neuves)))
+        if entrees:
+            parts.append("%s epinglees mais PRESENTES (%d) : %s"
+                         % (kind, len(entrees), ",".join(entrees)))
+    smn = gap["summons"]["missing"]
     if smn:
         parts.append("SUMMONS absents du catalogue (%d) : %s -- la voie summon n'est plus "
                      "confrontable sans injection pour eux" % (len(smn), ",".join(smn)))
+    if not parts:
+        return None
     return ("ecart d'AJOUT catalogue<-gameconfig (#254-bc-r1) : " + " | ".join(parts))
 
 
@@ -2498,41 +2600,108 @@ def validate_abilities(seed_bc: dict) -> tuple[int, int, dict]:
 # catalogues du BC a chaque chargement. Le TROISIEME -- `BC.Units`, celui que
 # `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig` parcourt et dont
 # `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` tire les passifs montes --
-# reste la CAPTURE. Sa peremption etait donc parfaitement MUETTE : un runner bati sur ce seed
-# deploie le kit du build de la capture, sans un mot, et rien ne le dit a personne.
+# n'est PAS rattrape. L'ecart entre ce bloc et le gameconfig est donc parfaitement MUET : rien ne
+# le dit a personne, et c'est ce que cette epingle repare.
 #
 # CE QUE CE SILENCE A COUTE (mesure, pas hypothese) : #354 a lu l'inertie qui en decoule comme un
 # fait du jeu (« porteur retire »), puis SUPPRIME trois vecteurs de test valides ; #392 a du les
-# restaurer. Le meme silence tient `MyWillBeDoneOverlord` INERTE dans tout runner bati sur ce seed
-# (#392-r1), donc ses deux entrees de `ABILITY_TRIGGERS` ne sont jamais dispatchees par cette voie.
+# restaurer.
 #
 # CE MODULE NE RATTRAPE PAS -- il MESURE et il DIT. Rafraichir le bloc `Units` change le pool
 # spawnable et les stats de reference de tous les tests live : c'est #254-bc, une decision
 # d'arbitrage, pas un geste de passage.
 #
-# LA DERIVE ATTENDUE, ET SON ATTRIBUTION. `data/seed-bc.json` a UN SEUL commit (`f467e649`) : le
-# bloc `Units` est reste celui de `gqfc5mff6c`. `necroOverlord` a change de kit a `rnca9r7q6c` --
-# attribue mecaniquement par les DEUX tables d'enum versionnees :
-#   * `MyWillBeDoneOverlord` est ABSENTE de `gqfc5mff6c/frida/enums.tsv` (468 membres de
-#     `IdunBattle.Entities.Enum.TriggeredAbilityType`) et vaut 1556 dans `rnca9r7q6c` (477) ->
-#     le gameconfig de `gqfc5mff6c` ne POUVAIT pas l'attribuer ; c'est donc la capture qui est en
-#     arriere, pas la synthese qui invente. La capture porte `1045 MartialApotheosis`.
-#   * `Resilient` (1009) existe dans les DEUX enums -> le trait gagne est un pur changement de
-#     gameconfig, meme migration.
-# Toute AUTRE derive est INATTENDUE : elle accuse la synthese (ou une capture re-faite), et doit
+# ══ CE QUE L'EPINGLE GARDE DEPUIS #10039 : L'ETAT JOUEUR, PAS UNE PEREMPTION DE BUILD ══════════
+#
+# `data/seed-bc.json` n'est plus la capture d'UNE bataille figee sur `gqfc5mff6c` : c'est un
+# catalogue FORGE par `Idun.Source.IdunBattle.View.BattleConfigBuilder` (717 entrees, lineup
+# 127/127, summons 65/65, npc 489/491) contre le build et le gameconfig COURANTS. La derive
+# inter-build qu'on epinglait ici -- `necroOverlord` gagnant `MyWillBeDoneOverlord` et `Resilient`
+# a la MAJ vers `rnca9r7q6c` -- a donc DISPARU : les deux cotes viennent desormais du meme build.
+#
+# CE QUI RESTE, ET QUI N'EST PAS DU MEME ORDRE : 26 entrees, en QUATRE familles.
+#
+#   [20] ETAT JOUEUR -- `ActiveAbilities` / `PassiveAbilities` VIDES cote catalogue.
+#        La fabrique enumere l'`IUnitProgression` du COMPTE : une unite que le joueur ne possede
+#        pas sort a `Rank 0` avec ses abilities NON DEBLOQUEES, donc listes vides ; `synthesize`,
+#        elle, lit le kit COMPLET du gameconfig (c'est ce qu'on veut d'une entree a INJECTER au
+#        rank 17). L'ecart est STRUCTUREL, pas une faute de mirror.
+#        Le critere se DERIVE, il n'est pas devine -- croisement (BC abilities vides) x (entree
+#        divergente) sur les 127 lineup : 107 / 20, et les DEUX cellules de contre-exemple a ZERO.
+#        Ce sont exactement les 21 unites que `MISSING_LINEUP_ENTRIES` epinglait comme absentes du
+#        catalogue, moins `thousDaemonPrince` (que la fabrique sort AVEC ses actives) : le meme
+#        gisement, vu de l'autre cote maintenant que la forge les amene toutes.
+#        ⚠ `Rank == 0` NE SUFFIT PAS a les designer : 48 entrees lineup sont a Rank 0 et seules 20
+#        divergent (`thousDaemonPrince` est a Rank 0 / StarLevel 0 avec ses deux actives).
+#   [ 5] SYNTH_ERROR -- 5 `GuildBoss*Npc*` que la fabrique met au catalogue et que le gameconfig
+#        ne declare NULLE PART (`units.lineup/.npc/.summons`). Rien a synthetiser : le mirror ne
+#        peut pas inventer une entree que sa seule source ignore.
+#   [ 1] `LootObj_CoinCrate:23` -- entree que la forge produit fautive (`VisualId` suffixe,
+#        `Weapons: null`, progression a zero). Meme cause que `NPC_WITNESS_STALE`, meme residu.
+#
+# Toute AUTRE derive est INATTENDUE : elle accuse la synthese (ou un catalogue re-forge), et doit
 # etre lue avant d'etre inscrite ici.
+_STALE_PLAYER_STATE_AB = ("ActiveAbilities", "PassiveAbilities")
 STALE_UNIT_ENTRIES = {
-    "necroOverlord": ("PassiveAbilities", "Traits"),
+    # [20] etat JOUEUR : unites non possedees, abilities non debloquees (Rank 0)
+    "adeptCelestine": _STALE_PLAYER_STATE_AB,
+    "astarCyrus": _STALE_PLAYER_STATE_AB,
+    "astarLysander": _STALE_PLAYER_STATE_AB,
+    "bloodTerminator": _STALE_PLAYER_STATE_AB,
+    "darkaSternguard": _STALE_PLAYER_STATE_AB,
+    "eldarLhykhis": _STALE_PLAYER_STATE_AB,
+    "emperExultant": _STALE_PLAYER_STATE_AB,
+    "emperFlawlessBlade": _STALE_PLAYER_STATE_AB,
+    "emperLucius": _STALE_PLAYER_STATE_AB,
+    "necroChronomancer": _STALE_PLAYER_STATE_AB,
+    "spaceWolfPriest": _STALE_PLAYER_STATE_AB,
+    "tauFarsight": _STALE_PLAYER_STATE_AB,
+    "thousSekhetar": _STALE_PLAYER_STATE_AB,
+    "votanBeserk": _STALE_PLAYER_STATE_AB,
+    "votanChampion": _STALE_PLAYER_STATE_AB,
+    "votanIronmaster": _STALE_PLAYER_STATE_AB,
+    "votanMemnyr": _STALE_PLAYER_STATE_AB,
+    "votanUthar": _STALE_PLAYER_STATE_AB,
+    # ... les deux MoW du lot n'ont AUCUN passif au gameconfig : leur ecart n'a qu'un champ.
+    "darkaStormSpeeder": ("ActiveAbilities",),
+    "necroReanimator": ("ActiveAbilities",),
+    # [5] absentes du gameconfig -- rien a synthetiser
+    "GuildBoss1Npc1TyranTermagantLeviathan:1": ("SYNTH_ERROR",),
+    "GuildBoss1Npc2TyranTermagantKronos:1": ("SYNTH_ERROR",),
+    "GuildBoss1Npc3TyranTermagantGorgon:1": ("SYNTH_ERROR",),
+    "GuildBoss2Npc1TyranRipperSwarmLeviathan:1": ("SYNTH_ERROR",),
+    "GuildBoss5Npc2PoxwalkerSummon:1": ("SYNTH_ERROR",),
+    # [1] entree que la FORGE produit fautive (cf. NPC_WITNESS_STALE)
+    "LootObj_CoinCrate:23": ("NumberOfMembers", "QuestUnitId", "VisualId", "Weapons"),
 }
 
 
+def player_state_gap(seed_bc: dict) -> dict:
+    """Croisement qui ATTRIBUE la famille [20] ci-dessus, au lieu de la constater.
+
+    Rend `{(bc_abilities_vides, divergente): [unitId, ...]}` sur les entrees `units.lineup`. Les
+    deux cellules de contre-exemple (`(True, False)` et `(False, True)`) doivent etre VIDES : c'est
+    ce qui etablit que l'ecart est l'etat JOUEUR et rien d'autre. Un recensement qui ne croiserait
+    pas pourrait attribuer juste par hasard.
+    """
+    lineup = set(G._index()["lineup"])
+    stale = stale_unit_entries(seed_bc)
+    out: dict = {}
+    for u in seed_bc.get("Units") or []:
+        if str(u.get("Id", "")).split(":")[0] not in lineup:
+            continue
+        vide = not (u.get("ActiveAbilities") or u.get("PassiveAbilities"))
+        out.setdefault((vide, u["Id"] in stale), []).append(u["Id"])
+    return out
+
+
 def stale_unit_entries(seed_bc: dict) -> dict:
-    """`{unitId: {champ: (synthetise, capture)}}` -- les entrees `Units` que le gameconfig VIVANT
-    ne rebatirait plus a l'identique. Dict vide = le bloc `Units` est a jour.
+    """`{unitId: {champ: (synthetise, catalogue)}}` -- les entrees `Units` que la synthese depuis le
+    gameconfig ne rebatit PAS a l'identique. Dict vide = les deux cotes concordent partout.
 
     Meme confrontation que `validate` (donc les memes champs exclus : etat JOUEUR et champs
     recalcules par `buildNormalizedBC`), re-indexee PAR UNITE : c'est l'unite qui arrive en
-    bataille avec un kit perime, pas le champ.
+    bataille avec un kit different, pas le champ.
     """
     out: dict = {}
     _n, diffs = validate(seed_bc)
@@ -2543,22 +2712,32 @@ def stale_unit_entries(seed_bc: dict) -> dict:
 
 
 def stale_unit_report(seed_bc: dict) -> str | None:
-    """Une ligne ASCII decrivant la peremption du bloc `Units`, ou `None` s'il est a jour.
+    """Une ligne ASCII decrivant l'ecart du bloc `Units`, ou `None` s'il n'y en a aucun.
 
     Les entrees dont les champs derives sont EXACTEMENT ceux de `STALE_UNIT_ENTRIES` sont
     attendues (#254-bc) ; toute autre est marquee `INATTENDUE` -- jamais fondue dans le lot.
+
+    ⚠ IL PARLE TOUJOURS, MAIS IL NE HURLE QU'UNE FOIS. Contrairement a `catalog_gap_report` (qui se
+    TAIT en regime nominal), celui-ci DIT a chaque chargement que le bloc `Units` n'est pas
+    rattrape : c'est le point de #254-bc, le silence est precisement ce qui a coute. En revanche il
+    ne detaille les 26 entrees attendues que si quelque chose d'INATTENDU s'y trouve -- une ligne
+    de 3 000 caracteres a chaque `_load_seed_bc` ne se lit plus, donc ne garde plus rien.
     """
     stale = stale_unit_entries(seed_bc)
     if not stale:
         return None
-    parts = []
+    inattendues = []
     for uid in sorted(stale):
         fields = sorted(stale[uid])
         attendu = STALE_UNIT_ENTRIES.get(uid)
-        tag = "" if attendu is not None and fields == sorted(attendu) else " INATTENDUE"
-        parts.append("%s{%s}%s" % (uid, ",".join(fields), tag))
-    return ("bloc Units NON rattrape (#254-bc) : %d entree(s) perimee(s) vs le gameconfig courant "
-            "-- %s" % (len(stale), " | ".join(parts)))
+        if attendu is None or fields != sorted(attendu):
+            inattendues.append("%s{%s}" % (uid, ",".join(fields)))
+    tete = ("bloc Units NON rattrape (#254-bc) : %d entree(s) que la synthese ne rebatit pas a "
+            "l'identique" % len(stale))
+    if not inattendues:
+        return tete + " -- TOUTES epinglees (STALE_UNIT_ENTRIES)"
+    return (tete + " -- %d INATTENDUE(S), a LIRE avant d'epingler : %s"
+            % (len(inattendues), " | ".join(inattendues)))
 
 
 # --------------------------------------------------------------------------- CLI
@@ -2705,15 +2884,15 @@ def main(argv: list[str]) -> int:
             for field, rows in sorted(infidele.items()):
                 print(f"  MISMATCH {field}: {len(rows)}")
                 for r in rows[:4]:
-                    print(f"    {r[0]}: attendu={r[1]!r} capture={r[2]!r}")
+                    print(f"    {r[0]}: attendu={r[1]!r} catalogue={r[2]!r}")
         else:
             print("[validate] OK - 0 divergence de FIDELITE sur les champs derives")
         rapport = stale_unit_report(seed)
         if rapport:
-            print(f"[validate] PEREMPTION (pas un defaut de synthese) : {rapport}")
+            print(f"[validate] ECART EPINGLE (pas un defaut de synthese) : {rapport}")
             for uid in sorted(stale_unit_entries(seed)):
                 for field, (synth, real) in sorted(stale_unit_entries(seed)[uid].items()):
-                    print(f"    {uid}.{field}: gameconfig={synth!r} capture={real!r}")
+                    print(f"    {uid}.{field}: gameconfig={synth!r} catalogue={real!r}")
         nc, ni, adiffs = validate_abilities(seed)
         derivees = {name for rows in adiffs.values() for name, _s, _r in rows}
         print(f"[validate] catalogue ABILITIES : {nc} entrees confrontees "
@@ -2757,8 +2936,8 @@ def main(argv: list[str]) -> int:
                   f"{len(g['missing']):4d}")
         rapport = catalog_gap_report(seed)
         print("[gap] " + (rapport if rapport else
-                          "ecart d'AJOUT conforme a l'epingle (%d lineup, 0 summon)"
-                          % len(MISSING_LINEUP_ENTRIES)))
+                          "ecart d'AJOUT conforme a l'epingle (%d lineup, %d npc, 0 summon)"
+                          % (len(MISSING_LINEUP_ENTRIES), len(MISSING_NPC_ENTRIES))))
         return 0
 
     if a.show:

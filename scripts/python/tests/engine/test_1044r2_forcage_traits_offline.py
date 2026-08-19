@@ -25,11 +25,12 @@ CE QUE CE FICHIER GARDE, ETAGE PAR ETAGE :
   [1] les TROIS ordinaux, QUALIFIES sur le mirror -- `0x10`/`2`/`0x7e6` designent bien
       `Hero`/`Summon`/`NPC`, et pas trois entiers qui se trouvent la ;
   [2] le mirror `add_unit_type_traits` : table des trois branches + le `return 0` ;
-  [3] l'ECART reel du repli (14 gagnent `Hero`, 0 perdent) et la PARTITION EXHAUSTIVE (= 175) --
-      un recenseur qui ne partitionne pas peut sous-compter sans qu'on le voie ;
+  [3] l'ECART reel du repli (`gagnent` / `perdent`) et la PARTITION EXHAUSTIVE (= le nombre
+      d'entrees du catalogue) -- un recenseur qui ne partitionne pas peut sous-compter sans qu'on
+      le voie ; les comptes eux-memes sont dans `ATTENDU`, RE-DERIVES et jamais cites de memoire ;
   [4] LE POINT QUI DECIDE : evaluer le forcage sur le KIT (seul substrat du repli) fait diverger
-      47 verdicts, TOUS dans le sens permissif. C'est ce qui rend « nommer la borne » une MESURE
-      et non un renoncement ;
+      BEAUCOUP plus de verdicts qu'il n'en repare, TOUS dans le sens permissif. C'est ce qui rend
+      « nommer la borne » une MESURE et non un renoncement ;
   [5] la borne est ECRITE la ou un futur portage la lira (docstring d'`unit_trait_names`), et
       `entity_trait_names` court-circuite bien la derivation quand la mesure existe.
 
@@ -62,8 +63,9 @@ DECLENCHEUR = {
         # PROPRE A CE FICHIER : le substrat borne, le mirror du forcage, et la SOURCE des chiffres.
         "scripts/python/engine/entities/traits/unit_trait.py",
         "scripts/python/probe_1044r2_ecart_forcage_traits.py",
-        # Les 175 unites et leurs `Traits` vivent dans le seed BC ; le kit, dans le gameconfig
-        # qu'il porte. Un seed different change TOUS les comptes de l'etage 3 et 4.
+        # Les entrees et leurs `Traits` vivent dans le seed BC ; le kit, dans le gameconfig qu'il
+        # porte. Un seed different change TOUS les comptes de l'etage 3 et 4 -- c'est arrive au
+        # passage de la capture (175) au catalogue forge (717), et ce declencheur l'a vu.
         "data/seed-bc.json",
     ),
     # Les trois ordinaux sont apparies par NOM au build : un renumerotage change l'etage 1.
@@ -75,9 +77,23 @@ DECLENCHEUR = {
               "kit). Aucun runner, aucune session Frida.",
 }
 
-#: Les comptes MESURES le 2026-08-14 (`probe_1044r2_ecart_forcage_traits.py`, seed BC a 175 unites).
-ATTENDU = {"gagnent": 14, "perdent": 0, "deja_hero_kit": 0, "deja_hero_bc": 98,
-           "intactes": 63, "divergents": 47, "total": 175}
+#: Les comptes MESURES (`probe_1044r2_ecart_forcage_traits.py`).
+#:
+#: ⚠ RE-DERIVES le 2026-08-19 (#10039) : `data/seed-bc.json` n'est plus la capture d'UNE bataille
+#: (175 entrees) mais un catalogue FORGE par `Idun.Source.IdunBattle.View.BattleConfigBuilder`
+#: (717 entrees, lineup 127/127, summons 65/65, npc 489/491). TOUS les comptes de l'etage 3 et 4
+#: en dependent -- c'est exactement ce que le message de l'etage 3 annonce, et pourquoi
+#: `data/seed-bc.json` figure au DECLENCHEUR ci-dessus.
+#:
+#: Ce qui n'a PAS bouge, et c'est le point du fichier : `perdent` reste **0** (propriete
+#: STRUCTURELLE, cf. etage 3b) et le rapport `divergents` >> `gagnent` est CONFIRME, meme
+#: RENFORCE -- 47/14 (facteur 3,4) sur la capture, 233/17 (facteur 13,7) sur le catalogue. La
+#: borne n'a pas seulement tenu : le substrat plus large la rend plus nette.
+#:
+#: Avant (capture, 175) : gagnent 14, perdent 0, deja_hero_kit 0, deja_hero_bc 98, intactes 63,
+#: divergents 47.
+ATTENDU = {"gagnent": 17, "perdent": 0, "deja_hero_kit": 0, "deja_hero_bc": 438,
+           "intactes": 262, "divergents": 233, "total": 717}
 
 
 def _mesure():
@@ -176,8 +192,12 @@ def test_etage3b_le_zero_de_perdent_est_STRUCTUREL():
 # ---------------------------------------------------------------------------------------------
 def test_etage4_porter_sur_le_KIT_casserait_plus_qu_il_ne_repare():
     """CE QUI REND « NOMMER LA BORNE » UNE MESURE. Le forcage se decide sur `BC.Units[].Traits` ;
-    le repli n'a que le kit gameconfig. Evaluer le MEME forcage sur le kit fait diverger 47
-    verdicts, contre 14 cas repares -- et dans le sens PERMISSIF (`Hero` ouvre des gates)."""
+    le repli n'a que le kit gameconfig. Evaluer le MEME forcage sur le kit fait diverger BEAUCOUP
+    plus de verdicts qu'il n'en repare -- et dans le sens PERMISSIF (`Hero` ouvre des gates).
+
+    Le rapport est ce qui compte, pas le chiffre : 47/14 sur la capture a 175 entrees, 233/17 sur
+    le catalogue forge a 717. L'assertion de rapport ci-dessous est donc la garde REELLE ; le
+    chiffre exact vit dans `ATTENDU` et se re-derive."""
     m = _mesure()
     assert m["divergents"] == ATTENDU["divergents"], (
         "divergences kit/BC : mesure %d, fige %d" % (m["divergents"], ATTENDU["divergents"]))

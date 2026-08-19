@@ -86,15 +86,34 @@ def _write(bc: dict, tag: str, withheld=()) -> Path:
     return p
 
 
-def _missing_ability_keys(bc: dict, unit_id: str) -> list:
-    """Cles `"<node>/<ability>"` que le gameconfig attribue a `unit_id` et qui NE sont PAS dans le
-    BC -- c'est exactement l'absence que le bras `clone` veut faire mesurer au natif."""
+def _strip_ability_configs(bc: dict, unit_id: str) -> list:
+    """RETIRE du BC les configs d'ability du kit de `unit_id` et rend leurs cles `"<node>/<nom>"`.
+
+    C'est exactement l'absence que le bras `clone` veut faire mesurer au natif : l'unite EXISTE au
+    catalogue, ses ids d'ability sont dans son entree `Units`, mais `BC.Abilities` ne porte AUCUNE
+    config pour eux -> `AbilitiesDatabase.GetConfig` rend une config vide et le cast leve.
+
+    ⚠ IL FALLAIT LA RETIRER, PAS LA CONSTATER ABSENTE (#10039). Cette fonction ENUMERAIT les
+    configs manquantes -- ce qui marchait tant que `data/seed-bc.json` etait la capture d'UNE
+    bataille, dont `BC.Abilities` ne portait que les abilities des unites presentes. Le catalogue
+    est desormais FORGE par `Idun.Source.IdunBattle.View.BattleConfigBuilder` et porte TOUT le
+    roster : plus aucune config ne manque, l'enumeration rendait `[]`, et le bras `clone` livrait
+    au runner exactement la meme chose que ses deux temoins. La discrimination A KO / B OK / C OK
+    avait disparu une SECONDE fois, par une autre porte que #375 -- meme signature : un bras
+    negatif neutralise en silence, donc un run vert qui ne mesure rien.
+
+    Le sidecar `withheld` (#380) reste indispensable APRES le retrait : sans lui la 2e boucle de
+    `refresh_ability_configs` reposerait au chargement toute config qu'une entree `Units` reclame.
+    """
     act, pas = CI._ability_names(unit_id)
     node = bc.get("Abilities") or {}
     out = []
     for names, key in ((act, "ActiveAbilities"), (pas, "PassiveAbilities")):
-        have = node.get(key) or {}
-        out += ["%s/%s" % (key, n) for n in names if n not in have]
+        have = node.get(key)
+        for n in names:
+            out.append("%s/%s" % (key, n))
+            if isinstance(have, dict):
+                have.pop(n, None)
     return sorted(out)
 
 
@@ -109,7 +128,12 @@ def build_seed(mode: str, unit_id: str, clone_base: str, ability: int, tag: str)
         print("[%s] configs d'ability posees: %s" % (mode, added_ab))
         return _write(bc, tag)
     bc = copy.deepcopy(seed)
-    bc["Units"] = list(bc.get("Units") or []) + [_clone_unit(seed, unit_id, clone_base, ability)]
+    # ⚠ Le clone REMPLACE l'entree homonyme au lieu de s'y ajouter (#10039). Depuis que le
+    # catalogue est forge, `unit_id` y est DEJA : `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig`
+    # parcourt `BC.Units` et rend la PREMIERE entree dont l'`Id` matche -- le clone pose en queue
+    # ne serait donc jamais lu, et les trois bras redeviendraient indiscernables.
+    garde = [u for u in (bc.get("Units") or []) if u.get("Id") != unit_id]
+    bc["Units"] = garde + [_clone_unit(seed, unit_id, clone_base, ability)]
     if mode == "clone-cfg":
         act, pas = CI._ability_names(unit_id)
         node = bc.setdefault("Abilities", {})
@@ -122,9 +146,9 @@ def build_seed(mode: str, unit_id: str, clone_base: str, ability: int, tag: str)
                     added.append(n)
         print("[%s] configs d'ability posees: %s" % (mode, added))
         return _write(bc, tag)
-    withheld = _missing_ability_keys(bc, unit_id)
-    print("[%s] AUCUNE config d'ability posee (etat AVANT correctif) ; RETENUES au chargement "
-          "(#380): %s" % (mode, withheld))
+    withheld = _strip_ability_configs(bc, unit_id)
+    print("[%s] configs d'ability RETIREES du catalogue (etat AVANT correctif) ; RETENUES au "
+          "chargement (#380): %s" % (mode, withheld))
     return _write(bc, tag, withheld=withheld)
 
 

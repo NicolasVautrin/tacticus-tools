@@ -20,6 +20,14 @@ gameconfig VIVANT est livre EN AVANCE sur le binaire. Mesure du 2026-07-31 (`rnc
 s'arrete a quatre sous-factions (9000..9003). Chaque livraison de contenu peut en apporter un autre,
 et le symptome (« initAndStart: system error ») ne nomme jamais le coupable.
 
+⚠ ET LE FILTRE EST DESORMAIS CONFRONTE A LA FABRIQUE, PLUS SEULEMENT AU TYPE (#10039). Le
+raisonnement ci-dessus est un raisonnement de TYPAGE : le champ est un `List<UnitTrait>`, donc un
+nom hors enum y est inexprimable. Depuis que `data/seed-bc.json` est FORGE par
+`Idun.Source.IdunBattle.View.BattleConfigBuilder` (et non plus la capture d'une bataille ou
+`astarLysander` etait absent), on peut confronter le filtre a ce que la fabrique NATIVE ecrit
+pour ce porteur meme -- et elle ecarte `ImperialFists` exactement comme lui. Le filtre n'est donc
+plus « une consequence du type » : c'est un comportement OBSERVE du jeu.
+
 Ces tests sont 100 % OFFLINE (gameconfig + table d'enums versionnee) : aucun runner, aucune session.
 """
 from __future__ import annotations
@@ -90,29 +98,62 @@ def test_lysander_est_deployable_et_ce_qui_est_ecarte_est_dit():
         assert t in garde, "%s a perdu %s" % (LYSANDER, t)
 
 
-def test_les_175_entrees_capturees_ne_sont_pas_touchees_par_le_filtre():
-    """Le filtre n'a AUCUN effet sur la cohorte que le jeu a reellement construite.
+def test_le_JEU_ecarte_LUI_MEME_ce_que_le_filtre_ecarte():
+    """LA CONFRONTATION DIRECTE, que la capture ne permettait pas (#10039).
 
-    C'est ce qui distingue un mirror d'une rustine : `--validate` doit rester ce qu'il etait.
+    CE QUE CE TEST GARDAIT AVANT, ET POURQUOI IL A CHANGE DE FORME. Il verifiait que le filtre
+    « n'a AUCUN effet sur la cohorte que le jeu a reellement construite » -- une garde par
+    l'ABSENCE de cas : `astarLysander`, le seul porteur de #270-d, n'etait pas dans la capture
+    (175 entrees), donc le filtre ne pouvait rien y toucher. Cette forme etait la meilleure
+    disponible, mais elle ne disait rien de ce que le jeu fait quand le cas SE PRESENTE.
+
+    Le catalogue est desormais FORGE par `Idun.Source.IdunBattle.View.BattleConfigBuilder`, et il
+    porte `astarLysander`. On peut donc confronter le filtre a la fabrique NATIVE au lieu de
+    l'eviter -- et le verdict est le meilleur possible : le jeu ecarte EXACTEMENT ce que le filtre
+    ecarte. Mesure verbatim :
+
+        gameconfig  : ['Imperial', 'ImperialFists', 'Hero', 'TeleportStrike', 'TerminatorArmour',
+                       'Resilient', 'CrushingStrike']
+        _traits()   : ['Imperial', 'Hero', 'TeleportStrike', 'TerminatorArmour', 'Resilient',
+                       'CrushingStrike']
+        BC forgee   : ['Imperial', 'Hero', 'TeleportStrike', 'TerminatorArmour', 'Resilient',
+                       'CrushingStrike']
+
+    Ce n'est plus « le filtre ne touche rien » : c'est « le filtre reproduit la fabrique ».
     """
     if not CI.SEED_BC.exists():
         pytest.skip("seed BC absent (%s) -- regenere: python dump_boards.py" % CI.SEED_BC)
     bc = json.loads(CI.SEED_BC.read_text(encoding="utf-8"))
     members = _members()
-    hors_capture = {u["Id"]: [t for t in (u.get("Traits") or []) if t not in members]
-                    for u in bc["Units"]}
-    hors_capture = {k: v for k, v in hors_capture.items() if v}
-    assert hors_capture == {}, (
-        "la capture elle-meme porte des traits hors enum -- le build a change sous nos "
-        "pieds : %r" % hors_capture)
-    touchees = {}
+    hors = {u["Id"]: [t for t in (u.get("Traits") or []) if t not in members] for u in bc["Units"]}
+    hors = {k: v for k, v in hors.items() if v}
+    assert hors == {}, (
+        "le catalogue lui-meme porte des traits hors enum -- le build a change sous nos "
+        "pieds : %r" % hors)
+
+    # Les entrees sur lesquelles le filtre MORD, DERIVEES du catalogue (jamais nommees a la main).
+    mordues = {}
     for u in bc["Units"]:
         gc = G.unit(u["Id"].split(":")[0])
         if gc is None:
             continue
-        drop = [t for t in CI._traits_raw(gc) if t not in members]
+        drop = CI.dropped_traits(gc)
         if drop:
-            touchees[u["Id"]] = drop
-    assert touchees == {}, (
-        "le filtre retirerait un trait d'entrees CAPTUREES, donc il change le catalogue au "
-        "lieu de le mirrorer : %r" % touchees)
+            mordues[u["Id"]] = drop
+    assert mordues, (
+        "le filtre ne mord sur AUCUNE entree du catalogue : la confrontation est VIDE et ce test "
+        "ne prouve rien. Si le gameconfig n'est plus en avance sur le binaire, le dire -- ne pas "
+        "laisser un vert vacueux.")
+
+    # ... et sur CHACUNE, ce que la fabrique native a ecrit == ce que le filtre rend.
+    ecarts = {}
+    for uid in mordues:
+        gc = G.unit(uid.split(":")[0])
+        reel = [t for t in ((next(u for u in bc["Units"] if u["Id"] == uid).get("Traits")) or [])]
+        if reel != CI._traits(gc):
+            ecarts[uid] = {"forge": reel, "filtre": CI._traits(gc), "ecarte": mordues[uid]}
+    assert ecarts == {}, (
+        "le filtre ne reproduit PAS ce que la fabrique native a ecrit -- il change le catalogue "
+        "au lieu de le mirrorer : %r" % ecarts)
+    print("\n[270d] filtre confronte a la fabrique native sur %d entree(s) : %r"
+          % (len(mordues), mordues))

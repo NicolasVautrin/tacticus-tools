@@ -10,14 +10,24 @@ Ces tests sont la MORSURE, figee :
   * il ROUGIT sur le cas connu de #369 (patch `LightImUp`, sidecar retire) ;
   * il VERDIT des que le sidecar est en place ;
   * il ROUGIT sur des patchs FABRIQUES pour l'occasion (`Constants`, `BC.Utilities`) ;
-  * il ne rend AUCUN faux positif sur le seed BC partage, dont la derive de capture est du
-    rattrapage #254 legitime et non un patch ;
+  * il ne rend AUCUN faux positif sur le seed BC partage ;
+  * le 3e terme (`base`), qui SEUL separe « la base a derive » de « la fixture a patche », est
+    exerce PAR CONSTRUCTION -- les deux bras sont fabriques, pas attendus d'un accident de build ;
   * l'axe ABSENCE (une config volontairement manquante, comblee par le chargeur) est couvert lui
     aussi : signal present sans retenue, eteint avec.
 
 Ils tiennent AUSSI la reparation de `probe_226_seed_bc_ability_configs` : son bras `clone` (dont le
 POINT est l'absence de config) repartait du chargeur AVEC la config, donc identique a ses deux bras
 temoins -- la mesure « A KO / B OK / C OK » n'etait plus reproductible.
+
+⚠ ET CE BRAS S'EST NEUTRALISE UNE SECONDE FOIS, PAR UNE AUTRE PORTE (#10039). `data/seed-bc.json`
+n'est plus la capture d'UNE bataille mais un catalogue FORGE par
+`Idun.Source.IdunBattle.View.BattleConfigBuilder` : `BC.Abilities` y porte TOUT le roster, donc
+« enumerer les configs manquantes » rendait `[]` et le bras `clone` ne retenait plus rien. Meme
+signature que #375 -- un bras negatif desarme en silence, un run vert qui ne mesure rien. Le probe
+RETIRE desormais les configs au lieu de les constater absentes (`_strip_ability_configs`), et
+remplace l'entree `Units` homonyme au lieu de s'y ajouter (`BattleQuery$$GetUnitConfig` rend la
+PREMIERE entree qui matche : un clone pose en queue n'aurait jamais ete lu).
 
 ASCII only (cp1252).
 """
@@ -105,15 +115,62 @@ def test_un_patch_de_bc_utilities_rougit_et_n_a_AUCUNE_epingle(tmp_path, base_bc
 
 
 def test_le_seed_bc_partage_ne_rend_aucun_faux_positif():
-    """La capture PARTAGEE derive du gameconfig (rattrapage #254) : c'est LEGITIME, pas un patch.
+    """Le seed BC PARTAGE n'est accuse de RIEN : aucune de ses configs n'est un patch.
 
-    Un recenseur qui les confondrait rougirait sur tout et ne servirait a rien. C'est le 3e terme
-    (`base`) qui les separe.
+    ⚠ ET IL N'EN DERIVE PLUS AUCUNE (#10039). Tant que `data/seed-bc.json` etait la capture d'UNE
+    bataille figee sur un build anterieur, ses configs d'ability derivaient du gameconfig courant
+    et `stale` etait non vide -- ce test s'en servait comme temoin que le 3e terme (`base`) etait
+    exerce. Le catalogue est maintenant FORGE contre le gameconfig VIVANT :
+    `catalog_inject.validate_abilities` rend 0 divergence, donc `stale` est VIDE, et l'exiger ici
+    reviendrait a exiger que le seed partage soit perime.
+
+    Le 3e terme n'est pas pour autant sans temoin : il est exerce PAR CONSTRUCTION dans
+    `test_le_3e_terme_separe_la_derive_du_patch`, qui fabrique les deux cotes au lieu d'attendre
+    qu'un accident de build les fournisse.
     """
     rep = P380.check_seed_bc(CI.SEED_BC)
     assert rep["overwritten"] == [], rep["overwritten"]
     assert rep["utilities"]["state"] in ("OK", "STALE"), rep["utilities"]
-    assert rep["stale"], "sur ce build la capture DOIT deriver (sinon le 3e terme n'est pas teste)"
+    assert rep["stale"] == [], (
+        "le seed BC partage porte des configs d'ability qui derivent du gameconfig -- il n'est "
+        "donc plus une forge fraiche : le re-forger (`forge_seed_bc.py`) ou lire la derive avant "
+        "de conclure : %r" % ([r["key"] for r in rep["stale"]],))
+
+
+def test_le_3e_terme_separe_la_derive_du_patch(tmp_path, base_bc):
+    """LA MORSURE du 3e terme, fabriquee au lieu d'etre subie.
+
+    Avec deux termes seulement, « la base a derive » (rattrapage #254, LEGITIME) et « la fixture a
+    patche » (ecrasement, FAUTE) se presentent A L'IDENTIQUE : `custom != synth`. C'est `base` qui
+    les separe -- `custom == base` => derive, `custom != base` => deviation deliberee.
+
+    On monte donc une `base` qui DERIVE (une constante d'ability changee), et on regarde les deux
+    bras : le custom qui la recopie doit sortir en `stale`, celui qui met une AUTRE valeur en
+    `overwritten`. Un test qui attendrait qu'un build fournisse la derive tout seul cesse de
+    mordre des que la base redevient fraiche -- c'est exactement ce qui vient d'arriver.
+    """
+    victim = next(n for n, c in sorted(base_bc["Abilities"]["PassiveAbilities"].items())
+                  if (c.get("Constants") or {}) and CI.G.ability(n) is not None)
+    key = sorted(base_bc["Abilities"]["PassiveAbilities"][victim]["Constants"])[0]
+
+    base = copy.deepcopy(base_bc)
+    base["Abilities"]["PassiveAbilities"][victim]["Constants"][key] = "111111"
+
+    # (a) le custom RECOPIE la base -> derive de la base, pas un patch.
+    derive = tmp_path / "bc-derive.json"
+    derive.write_text(json.dumps(base), encoding="utf-8")
+    rep = P380.check_seed_bc(derive, base=base)
+    assert [r["key"] for r in rep["stale"]] == ["PassiveAbilities/" + victim], rep["stale"]
+    assert rep["overwritten"] == [], rep["overwritten"]
+
+    # (b) le custom met une AUTRE valeur -> deviation DELIBEREE, meme base.
+    patch = copy.deepcopy(base)
+    patch["Abilities"]["PassiveAbilities"][victim]["Constants"][key] = "222222"
+    p = tmp_path / "bc-patch.json"
+    p.write_text(json.dumps(patch), encoding="utf-8")
+    rep = P380.check_seed_bc(p, base=base)
+    assert [r["key"] for r in rep["overwritten"]] == ["PassiveAbilities/" + victim], rep
+    assert rep["stale"] == [], rep["stale"]
 
 
 # --- l'axe ABSENCE : un patch n'est pas toujours une valeur --------------------------------------
