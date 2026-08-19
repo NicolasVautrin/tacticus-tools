@@ -38,9 +38,15 @@ import { log, traceEnter } from "./diag.js";
 // seulement en vidant cet anneau à la main. Le relais est donc désormais
 // INCONDITIONNEL — notre code ne peut plus décider que le jeu ne tourne pas.
 //
-// Ce qui reste volontairement NON attrapé : une faute DANS `origUpdate`, qui est
-// celle du jeu. L'avaler la rendrait invisible alors que c'est le seul cas où le
-// message de Frida désigne vraiment un problème du jeu.
+// ⚠ ET UNE FAUTE *DANS* `origUpdate` EST ATTRAPÉE AUSSI — la version précédente de ce
+// fichier disait le contraire (« l'avaler la rendrait invisible »), et c'était FAUX,
+// mesuré quelques heures plus tard. Frida l'avalait DÉJÀ : une exception managée qui
+// s'échappe de l'`Update` du jeu traverse notre `NativeCallback`, et Frida la convertit
+// en `Error: system error` sur le canal que personne ne lit. Elle n'atteignait donc plus
+// `IdunMainView` ni `HandleException` de toute façon. L'attraper ici ne change RIEN au
+// comportement du jeu et la rend NOMMÉE — c'est strictement mieux que le statu quo.
+// La distinguer de la nôtre est le point : la clé porte `origUpdate`, donc « c'est nous »
+// et « c'est le jeu » ne se confondent pas.
 //
 // La faute est NOMMÉE et DÉDOUBLONNÉE : à 60 frames/s, une faute permanente émettrait
 // 60 messages par seconde et noierait le canal qu'on essaie justement de rendre
@@ -166,7 +172,8 @@ export function installMainPump(): void {
         } catch (e) { noteFault("main-pump", e); }
 
         // RELAIS INCONDITIONNEL — cf. TRANSPARENCE en tête de fichier.
-        origUpdate(selfPtr, methodInfo as NativePointer);
+        try { origUpdate(selfPtr, methodInfo as NativePointer); }
+        catch (e) { noteFault("main-pump/origUpdate", e); }
     }, "void", ["pointer", "pointer"]));
 }
 
@@ -191,7 +198,8 @@ export function installMenuPump(): void {
         } catch (e) { noteFault("menu-pump", e); }
 
         // RELAIS INCONDITIONNEL — cf. TRANSPARENCE en tête de fichier.
-        origUpdate(self as NativePointer, methodInfo as NativePointer);
+        try { origUpdate(self as NativePointer, methodInfo as NativePointer); }
+        catch (e) { noteFault("menu-pump/origUpdate", e); }
     }, "void", ["pointer", "pointer"]));
     log("[menu-pump] attached (via replace) to UnityFreezeDetector.Update");
 }

@@ -59,6 +59,7 @@ import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
 import * as vueException from "./features/vue-exception.js";
+import * as visuelAbandonne from "./features/visuel-abandonne.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -511,6 +512,12 @@ export function wireRpc(ctx: Ctx): void {
      // `QueueComputerActions` exige ce drapeau a zero : une exception attrapee TUE la bataille
      // en silence -- ni popup ni trace des que `HandleBattleException` de la source rend faux.
      vueException,
+     // `visuelAbandonne` ancre en OBSERVATION PURE le couple `Init`/`Execute` des visuels
+     // d'ability. Il repond a une question que rien d'autre ne sait poser : `exception-tracer`
+     // rend ZERO sur ce chemin (un null-deref IL2CPP passe par le helper interne, pas par
+     // `il2cpp_raise_exception`), alors qu'un `onEnter` sans `onLeave` est un jet quel que soit
+     // le chemin. Chemins FROIDS (un passage par cast), donc arme au register.
+     visuelAbandonne,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
