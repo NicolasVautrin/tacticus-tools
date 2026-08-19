@@ -59,6 +59,18 @@ export interface CaptureFin {
 let arme = false;
 let dejaCapture = false;
 let derniereCapture: CaptureFin | null = null;
+
+// ⚠ COMPTEURS D'APPEL — parce qu'un capteur MUET a deux causes indiscernables sans eux :
+// « il n'a rien vu » et « il n'a jamais ete appele ». Mesure du 2026-08-19 : premiere mise en
+// service, `dejaCapture` est reste FAUX apres un detachement de runner AVERE (le RPC
+// `battleStatus` etant passe de `Running` a `no runner`), sans aucune faute de pompe. Le code
+// etait dans le bundle, l'armement etait vrai -- et il n'existait aucun moyen de savoir si la
+// branche avait tire. Ces compteurs repondent a ca, et rien d'autre.
+let appelsSurveillance = 0;
+let appelsDetachement = 0;
+let balayagesEffectifs = 0;
+/** Le dernier motif de non-capture, pour que le refus se lise au lieu de se deviner. */
+let dernierRefus: string | null = null;
 /** Toutes les captures de la session, pour qu'une seconde bataille n'efface pas la premiere. */
 const captures: CaptureFin[] = [];
 const CAPTURES_MAX = 8;
@@ -97,10 +109,12 @@ function capturer(raison: string, stageName: string | null, winner: number | nul
 
 /** Appele par la pompe A CHAQUE FRAME. Ne fait rien tant que le module n'est pas arme. */
 export function surveillerFinDeBataille(): void {
+    appelsSurveillance++;
     if (!arme || dejaCapture) return;
     if (state.frameNo % PERIODE_FRAMES !== 0) return;
     const runner = state.liveRunner;
-    if (!runner) return;
+    if (!runner) { dernierRefus = "balayage : `state.liveRunner` NUL"; return; }
+    balayagesEffectifs++;
     try {
         const statePtr = runner.add(runnerOff.state).readPointer();
         if (statePtr.isNull()) return;
@@ -117,7 +131,9 @@ export function surveillerFinDeBataille(): void {
 /** Appele par la pompe quand `IdunGameViews._runner` passe a `null`, AVANT le nettoyage de
  *  `state.liveRunner` -- c'est la derniere frame ou le replay est atteignable. */
 export function capturerAvantDetachement(): void {
-    if (!arme || dejaCapture) return;
+    appelsDetachement++;
+    if (!arme) { dernierRefus = "detachement vu, mais module DESARME"; return; }
+    if (dejaCapture) { dernierRefus = "detachement vu, mais deja capture"; return; }
     capturer("runner detache (fin de scene ou retraite)", dernierStage, null);
 }
 
@@ -156,6 +172,15 @@ export function register(ctx: Ctx): void {
         }
         return {
             ok: true, arme, dejaCapture, total: captures.length,
+            // Ce bloc distingue « rien a capturer » de « jamais appele » — sans lui, les deux
+            // se lisent pareil (capteur muet) et on accuse le mauvais etage.
+            appels: {
+                surveillance: appelsSurveillance,
+                balayagesEffectifs,
+                detachement: appelsDetachement,
+                dernierStageVu: dernierStage,
+                dernierRefus,
+            },
             derniere: derniereCapture === null ? null : resume(derniereCapture),
             toutes: captures.map((c) => ({ raison: c.raison, longueur: c.longueur,
                                            frameNo: c.frameNo, err: c.err })),
