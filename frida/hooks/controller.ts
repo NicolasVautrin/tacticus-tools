@@ -61,6 +61,7 @@ import * as guildWarConfig from "./features/guild-war-config.js";
 import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
 import * as replayFinAuto from "./features/replay-fin-auto.js";
+import * as guildWarLeaderboard from "./features/guild-war-leaderboard.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -525,6 +526,12 @@ export function wireRpc(ctx: Ctx): void {
      // un message qui accuse le mecanisme alors que seul le TIMING etait en cause. DESARME par
      // defaut ; desarme, il ne coute qu'un test de booleen par frame.
      replayFinAuto,
+     // `guildWarLeaderboard` OBSERVE l'arrivee du classement de saison, il ne le DEMANDE jamais :
+     // les deux methodes qui le produisent passent par le reseau, donc les invoquer emettrait une
+     // requete. On ancre le convergent `CacheGuildDetails`, qui recoit la liste COMPLETE en
+     // argument -- et pas le cache qu'il alimente, lequel ne garde que les guildes et JETTE les
+     // positions. DESARME par defaut.
+     guildWarLeaderboard,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
