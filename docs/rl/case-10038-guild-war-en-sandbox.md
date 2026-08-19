@@ -336,6 +336,22 @@ Taux cumulé : **4 abandons / 393 casts ≈ 1,0 %** sous montage, contre **0 / 1
 native. À ce taux, le contrôle natif a ~16 % de chance d'être un hasard : **« montage vs jeu de
 base » n'est TOUJOURS pas tranché** — il y faudrait ~400 casts natifs de plus.
 
+⚠ **ET `pumpFaults` « system error » N'EST PAS UN TÉMOIN DE CE BUG — je l'ai écrit, c'est FAUX.**
+Ce dossier et le handoff présentaient ces fautes comme « cohérentes avec une faute d'accès
+matérielle », donc comme un indice. Mesuré le 2026-08-19 sur **deux** batailles guild war
+**sans le moindre blocage** (94 puis 73 casts, écart **0** partout) : `pumpFaults` compte quand
+même **1** « system error » sur `origUpdate` à chaque fois. Elle apparaît donc en régime SAIN.
+Sa cause est le bruit décrit ci-dessous — une exception d'`Enum.TryParse` qui traverse notre
+`NativeCallback` et que Frida renomme. **Un compteur qui bouge aussi quand tout va bien ne peut
+pas servir d'indice.**
+
+⚠ **CE QUI, EN REVANCHE, DISCRIMINE : `access-violation` vaut ZÉRO en régime normal.** Sur la
+même bataille, le gestionnaire de faute a vu **345** exceptions, **toutes** de type `system`
+(`parType: {system: 345}`), et **aucune** `access-violation`. Le jeu n'en produit donc pas en
+fonctionnement normal — quand il en tombera une, elle sera lisible sans ambiguïté.
+
+Cumul après ces deux manches : **4 abandons / 560 casts ≈ 0,71 %**.
+
 ## 6. Reste ouvert
 
 - **Les salves d'ouverture.** `EnvironmentAbilities` de la zone reste VIDE : la popup les
