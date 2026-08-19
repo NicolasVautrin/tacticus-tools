@@ -3438,6 +3438,60 @@ export function register(ctx: Ctx): void {
     };
 
     /**
+     * BASCULER LE HUD EN SÉLECTION « MACHINES OF WAR » — ou en revenir.
+     *
+     * `idun.ui.UnitDeploymentHud$$HandleOnSwitchToMachinesOfWarUnitsTapped()` (aucun paramètre
+     * managé) : c'est l'onglet que le joueur tape avant de choisir sa machine.
+     *
+     * ⚠ CE RPC EXISTE POUR UNE MESURE, PAS SUR UNE CERTITUDE. Le START lève parce que son
+     * prédicat (`<HandleOnStartBattleTapped>b__150_0`) cherche CHAQUE unité posée dans
+     * `_allUnitModels` (`+0x240`, `Dictionary`, 102 entrées mesurées) et LÈVE SANS GARDE quand
+     * la clé manque -- ce qui est le cas de la MoW. Reste à établir ce qui l'y met : le
+     * basculement lui-même ne touche QUE `_unitModels` (`+0x238`, vidé par
+     * `PrepareForStandardUnitMachineOfWarSelectionSwitch`) au décompilé. On rend donc le compte
+     * du dictionnaire AVANT et APRÈS, et c'est la mesure qui tranchera.
+     *
+     * ⛔ ÉCRITURE : détruit des widgets, réinitialise les filtres, ré-affiche la collection.
+     */
+    ctx.rpc.deploymentMowBasculer = (body?: { confirmer?: boolean; retour?: boolean }):
+        Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return refus("ECRITURE -- exige `confirmer: true`. Ce RPC rejoue l'onglet "
+                + "« Machines of War » du HUD (widgets détruits, filtres réinitialisés).");
+        }
+        const methode = body?.retour === true
+            ? "HandleOnSwitchToStandardUnitsTapped"
+            : "HandleOnSwitchToMachinesOfWarUnitsTapped";
+        return queueOnMainThread((): Record<string, unknown> => {
+            if (hudInstance === null || hudInstance.isNull()) {
+                return { ok: false, error: "aucun `UnitDeploymentHud` capturé -- il ne s'attrape "
+                    + "qu'à son `Show`, donc à l'AFFICHAGE de la phase de déploiement." };
+            }
+            const k = findClassAnywhere(NS_HUD, CLS_HUD);
+            const mi = k ? findMethodByParamCount(k, methode, 0) : null;
+            if (!mi) return { ok: false, error: `\`${methode}\` INTROUVABLE (0 paramètre)` };
+            const compte = (): number | null => {
+                try {
+                    const d = hudInstance!.add(0x240).readPointer();
+                    if (d.isNull()) return null;
+                    const off = getFieldOffset(d.readPointer(), "_count");
+                    return off < 0 ? null : d.add(off).readS32();
+                } catch { return null; }
+            };
+            const avant = compte();
+            try { invokeMethod(mi.info, hudInstance, []); }
+            catch (e) {
+                return { ok: false, methode, allUnitModelsAvant: avant,
+                         error: "LEVÉ : " + (e as Error).message };
+            }
+            return { ok: true, methode, allUnitModelsAvant: avant, allUnitModelsApres: compte(),
+                     selectionMoW: (() => {
+                         try { return hudInstance!.add(0x221).readU8() !== 0; } catch { return null; }
+                     })() };
+        });
+    };
+
+    /**
      * APPUYER SUR START — `idun.ui.UnitDeploymentHud$$HandleOnStartBattleTapped(success)`.
      *
      * ⚠ POURQUOI CE POINT-LA, ET PAS `UnitDeploymentState$$StartBattle`. Ce dernier prend la
