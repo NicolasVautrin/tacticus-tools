@@ -62,7 +62,41 @@ interface Ancre {
     enVol: string[];
     /** Photos prises a l'entree, en parallele de `enVol` — meme empilement, meme depilement. */
     photos: Record<string, unknown>[];
+    /** Le THREAD de chaque appel en vol, empile/depile comme `enVol`. */
+    threads: number[];
     refus: string | null;
+}
+
+// ⚠ << UN `onEnter` SANS `onLeave` EST UN JET >> — CETTE PREMISSE, ECRITE EN TETE DE FICHIER,
+// EST INCOMPLETE, ET LA MESURE DU 2026-08-19 L'A MISE EN DEFAUT.
+//
+// Sur la 5e reproduction, avec tous les capteurs armes : les CINQ conditions gardees de
+// `ParseTargetsFromQueue` sont NON NULLES a l'entree (photo prise sur place), le helper de jet
+// n'a PAS tire (`jetsVus: 0`), et il n'y a AUCUNE `access-violation` (0 sur 311 exceptions,
+// toutes `system`). Autrement dit : rien n'indique un jet, et pourtant l'appel n'est pas revenu.
+//
+// Il reste une explication que la premisse EXCLUT A TORT : l'appel est peut-etre ENCORE EN VOL.
+// Un `onEnter` sans `onLeave` veut dire << pas revenu >>, ce qui couvre le jet ET l'appel qui
+// dure. Les deux se distinguent par le THREAD : si l'appel tourne encore, son thread existe et
+// il est distinct du thread principal (celui-ci n'est PAS bloque -- 364 frames en 3 s).
+//
+// D'ou ce releve. Il ne prouve rien a lui seul ; il RETIRE une confusion que le compteur
+// entrees/sorties ne peut pas lever.
+
+/** Le thread du dernier appel REVENU normalement — la reference a laquelle comparer un
+ *  orphelin. `null` = aucun appel sain observe. */
+let dernierThreadSain: number | null = null;
+
+/** `null` = PAS MESURE (l'enumeration a echoue), jamais rabattu sur << mort >> : un capteur qui
+ *  rend `false` sur sa propre panne fermerait a tort l'hypothese << encore en vol >>. */
+function threadVivant(id: number): boolean | null {
+    try { return Process.enumerateThreads().some((t) => t.id === id); }
+    catch { return null; }
+}
+
+function threadsVivants(): number[] | null {
+    try { return Process.enumerateThreads().map((t) => t.id); }
+    catch { return null; }
 }
 
 const ANCRES: Ancre[] = [
@@ -73,7 +107,7 @@ const ANCRES: Ancre[] = [
         cls: "Ability_Power_GroupHandler",
         methode: "SetupAndExecuteAbility",
         argVisuel: 1, externe: true,
-        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], threads: [], refus: null,
     },
     {
         symbole: "IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$Init",
@@ -81,7 +115,7 @@ const ANCRES: Ancre[] = [
         cls: "AbilityVisualsBase",
         methode: "Init",
         argVisuel: 0,
-        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], threads: [], refus: null,
     },
     {
         symbole: "IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$ParseTargetsFromQueue",
@@ -89,7 +123,7 @@ const ANCRES: Ancre[] = [
         cls: "AbilityVisualsBase",
         methode: "ParseTargetsFromQueue",
         argVisuel: 0, photo: true,
-        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], threads: [], refus: null,
     },
     {
         symbole: "IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$Execute",
@@ -97,7 +131,7 @@ const ANCRES: Ancre[] = [
         cls: "AbilityVisualsBase",
         methode: "Execute",
         argVisuel: 0,
-        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], threads: [], refus: null,
     },
 ];
 
@@ -388,6 +422,8 @@ function ancrer(): void {
                 onEnter(args) {
                     a.entrees++;
                     if (a.externe) profondeur++;
+                    try { a.threads.push(Process.getCurrentThreadId()); }
+                    catch { a.threads.push(-1); }
                     try { a.enVol.push(args[a.argVisuel].toString()); }
                     catch { a.enVol.push("<argument illisible>"); }
                     if (a.photo) {
@@ -401,9 +437,11 @@ function ancrer(): void {
                     a.sorties++;
                     if (a.externe && profondeur > 0) profondeur--;
                     // Le deroulage d'exception SAUTE ce bloc : ce qui reste dans `enVol` est
-                    // exactement ce qui n'est jamais revenu.
+                    // exactement ce qui n'est jamais revenu -- jet OU appel encore en vol.
                     a.enVol.pop();
                     if (a.photo) a.photos.pop();
+                    const t = a.threads.pop();
+                    if (typeof t === "number" && t > 0) dernierThreadSain = t;
                 },
             }));
         } catch (e) {
@@ -512,6 +550,14 @@ export function register(ctx: Ctx): void {
             // Les PHOTOS, elles, datent de l'ENTREE — c'est ce qui les rend opposables a un
             // objet poole, contrairement a la relecture ci-dessus.
             photos: a.photo ? a.photos : undefined,
+            // LE THREAD de chaque appel resté en vol, et s'il VIT ENCORE. C'est ce qui
+            // distingue << a jete >> de << tourne toujours >> : un thread mort ferme la
+            // seconde hypothese, un thread vivant la rend probable.
+            threadsEnVol: a.threads.map((t) => ({ thread: t, vivant: threadVivant(t) })),
         })),
+        // La reference : le thread des appels qui, eux, sont revenus.
+        dernierThreadSain,
+        threadsVivants: threadsVivants(),
     });
 }
+
