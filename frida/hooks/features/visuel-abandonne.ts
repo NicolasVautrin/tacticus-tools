@@ -54,10 +54,14 @@ interface Ancre {
     argVisuel: number;
     /** L'ancre la plus EXTERNE du cast — c'est elle qui porte `profondeur`. */
     externe?: boolean;
+    /** Photographier les champs A L'ENTREE (cf. `photographier`). */
+    photo?: boolean;
     entrees: number;
     sorties: number;
     /** Les `this`/visuels entres et pas encore ressortis, dans l'ordre. */
     enVol: string[];
+    /** Photos prises a l'entree, en parallele de `enVol` — meme empilement, meme depilement. */
+    photos: Record<string, unknown>[];
     refus: string | null;
 }
 
@@ -69,7 +73,7 @@ const ANCRES: Ancre[] = [
         cls: "Ability_Power_GroupHandler",
         methode: "SetupAndExecuteAbility",
         argVisuel: 1, externe: true,
-        entrees: 0, sorties: 0, enVol: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
     },
     {
         symbole: "IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$Init",
@@ -77,15 +81,15 @@ const ANCRES: Ancre[] = [
         cls: "AbilityVisualsBase",
         methode: "Init",
         argVisuel: 0,
-        entrees: 0, sorties: 0, enVol: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
     },
     {
         symbole: "IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$ParseTargetsFromQueue",
         ns: "IdunBattle.View.AbilityConfigs",
         cls: "AbilityVisualsBase",
         methode: "ParseTargetsFromQueue",
-        argVisuel: 0,
-        entrees: 0, sorties: 0, enVol: [], refus: null,
+        argVisuel: 0, photo: true,
+        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
     },
     {
         symbole: "IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$Execute",
@@ -93,9 +97,81 @@ const ANCRES: Ancre[] = [
         cls: "AbilityVisualsBase",
         methode: "Execute",
         argVisuel: 0,
-        entrees: 0, sorties: 0, enVol: [], refus: null,
+        entrees: 0, sorties: 0, enVol: [], photos: [], refus: null,
     },
 ];
+
+// --------------------------- LES CINQ CONDITIONS DE JET, PHOTOGRAPHIEES A L'ENTREE
+//
+// Le decompile de `ParseTargetsFromQueue` donne une liste FINIE : le corps retombe sur le
+// helper de jet FINAL si l'une de ces cinq valeurs est nulle --
+//   (A) `HitTargets` (+0xf8) ; (B) le tableau de filtre `{0x1a, 0x1b}` alloue localement ;
+//   (C) `MainGroup` (+0x108) ; (D) `GetGroupMessages(MainGroup, 0x3d)` ; (E)
+//   `GetGroupMessages(MainGroup, filtre)`.
+//
+// POURQUOI A L'ENTREE, ET PAS APRES COUP. Le post-mortem a deja conclu << donnee INTACTE >>
+// sur ces memes champs -- une conclusion qui ne vaut RIEN sur un `MonoBehaviour` POOLE : entre
+// l'abandon et la relecture, l'instance peut avoir ete rendue au pool puis re-louee, donc on
+// relit l'etat d'un AUTRE usage sous le meme pointeur. La photo prise a l'entree ne souffre
+// pas de ca. (Ce que la relecture etablit quand meme : `RootGroup`/`MainGroup` designaient
+// toujours le meme groupe abandonne -- donc CE recyclage-la n'a pas eu lieu. La photo tranche
+// pour de bon.)
+//
+// LECTURE PURE : que des `readPointer` sur des offsets resolus par nom.
+
+function photographier(p: NativePointer): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    let klass: NativePointer;
+    try { klass = p.readPointer(); }
+    catch (e) { return { erreur: "`this` illisible : " + (e as Error).message }; }
+
+    /** Rend le pointeur du champ, ou une CHAINE qui dit pourquoi on n'a pas pu — jamais
+     *  `null` par defaut : << champ absent >> et << champ nul >> ne se confondent pas. */
+    const lire = (nom: string, ...alias: string[]): NativePointer | string => {
+        for (const a of [nom, ...alias]) {
+            try {
+                const off = getFieldOffset(klass, a);
+                if (off > 0) return p.add(off).readPointer();
+            } catch { /* alias suivant */ }
+        }
+        return "<champ introuvable>";
+    };
+    const dire = (v: NativePointer | string): unknown =>
+        typeof v === "string" ? v : (v.isNull() ? null : v.toString());
+
+    const hit = lire("HitTargets", "<HitTargets>k__BackingField");
+    const main = lire("MainGroup", "<MainGroup>k__BackingField");
+    const root = lire("RootGroup", "<RootGroup>k__BackingField");
+    const utils = lire("Utils", "<Utils>k__BackingField");
+    out.HitTargets = dire(hit);   // (A)
+    out.MainGroup = dire(main);   // (C)
+    out.RootGroup = dire(root);
+    out.Utils = dire(utils);
+
+    // `Utils.StreamMessages` (+0x88) est deref SANS garde en tete de boucle : s'il manque,
+    // c'est une faute d'ACCES, pas un jet propre.
+    if (typeof utils !== "string" && !utils.isNull()) {
+        try {
+            const off = getFieldOffset(utils.readPointer(), "StreamMessages");
+            out.StreamMessages = off > 0
+                ? (utils.add(off).readPointer().isNull() ? null : "pose")
+                : "<champ introuvable>";
+        } catch (e) { out.StreamMessages = "<illisible : " + (e as Error).message + ">"; }
+    } else {
+        out.StreamMessages = "<Utils absent>";
+    }
+
+    // Le nombre de messages du groupe : c'est ce que (D)/(E) filtrent.
+    if (typeof main !== "string" && !main.isNull()) {
+        try {
+            const off = getFieldOffset(main.readPointer(), "_messages");
+            out.messagesDuGroupe = off > 0 && !main.add(off).readPointer().isNull()
+                ? main.add(off).readPointer().add(0x18).readS32()
+                : null;
+        } catch { out.messagesDuGroupe = "<illisible>"; }
+    }
+    return out;
+}
 
 const listeners: InvocationListener[] = [];
 let ancre = false;
@@ -147,6 +223,118 @@ let jetsVus = 0;
 /** Profondeur de cast d'ability en cours — portee par l'ancre la plus EXTERNE
  *  (`SetupAndExecuteAbility`), donc elle couvre `Init` ET `ParseTargetsFromQueue`. */
 let profondeur = 0;
+
+// ------------------------------------ LA FAUTE MATERIELLE, ATTRAPEE LA OU ELLE TOMBE
+//
+// POURQUOI CE CAPTEUR-CI, ET PAS UN DE PLUS SUR LE HELPER DE JET. Le helper epingle
+// (`FUN_1801f5460`) EST le jet des cinq branches gardees de `ParseTargetsFromQueue` -- et il
+// n'a JAMAIS tire. Donc l'abandon ne passe par aucune de ces cinq branches : ce qui reste est
+// un deref NON garde, c'est-a-dire une faute d'ACCES materielle. Le decompile en expose un
+// tres visible des la tete de fonction, un triple deref sur une statique de classe, sans le
+// moindre test.
+//
+// Une faute d'acces ne s'observe pas avec un `Interceptor` : elle ne franchit aucun appel.
+// `Process.setExceptionHandler` la voit LA OU ELLE TOMBE, avec l'instruction fautive et
+// l'adresse deref. C'est le seul instrument qui nomme le deref coupable.
+//
+// ⚠ IL N'Y A PAS DE `removeExceptionHandler` DANS FRIDA. Le gestionnaire est donc pose UNE
+// fois et garde par un drapeau : << desarmer >> l'eteint, ne le retire pas. Le dire plutot que
+// laisser croire a un retrait.
+//
+// ⚠ ET IL NE GERE JAMAIS RIEN. Il rend TOUJOURS `false`, donc la chaine SEH du jeu se deroule
+// exactement comme si on n'etait pas la : ce capteur ne peut pas changer l'issue qu'il
+// observe. Rendre `true` reprendrait l'execution et FABRIQUERAIT un comportement -- c'est
+// precisement la faute que << un natif qui ECRIT s'OBSERVE d'abord >> interdit.
+
+// ⚠ ET IL FILTRE SUR `access-violation`, PARCE QU'IL VOIT *TOUTES* LES EXCEPTIONS.
+// Mesure du 2026-08-19, premiere mise en service : sur une bataille sans le moindre blocage, il
+// a retenu **6** << fautes >> pendant des casts (et compte **353** hors cast). Toutes portaient
+// `type: "system"`, AUCUNE `memory`, une adresse fautive HORS module (`0x7ffd...`, une DLL
+// systeme), la MEME pile aux six, et surtout `onFinished: true` -- des casts REUSSIS. La pile,
+// resolue : `IdunMeta.Utils.Extensions.Enum$$TryParse<T>` -> `System.Enum$$Parse` ->
+// `System.Enum$$TryParseEnum` -> helper de jet -> `RaiseException`. Autrement dit un `TryParse`
+// implemente par try/catch autour de `Parse` : du bruit de fonctionnement normal, des centaines
+// de fois par bataille.
+//
+// Un capteur qui rend ce bruit-la sous le nom de << faute >> ne se contente pas d'etre inutile :
+// il FABRIQUE une correlation (6 fautes, 6 casts) qu'un lecteur presse prendrait pour la cause.
+// D'ou le filtre. Les types ECARTES sont COMPTES et publies (`parType`) -- sans quoi << 0
+// retenue >> se lirait comme << aucune exception >>, ce qui serait faux de trois ordres de
+// grandeur.
+
+interface FauteNative {
+    type: string;
+    /** L'instruction fautive, en RVA (jamais en VA : une VA ne survit pas au build). */
+    ou: string | null;
+    ouBrut: string;
+    /** Le module qui porte l'instruction — `null` si elle tombe hors de tout module connu.
+     *  Une faute hors `GameAssembly.dll` n'accuse PAS le jeu. */
+    module: string | null;
+    /** L'acces qui a faute, et l'adresse VISEE — c'est elle qui nomme le champ nul. */
+    operation: string | null;
+    adresseVisee: string | null;
+    cadres: string[];
+    horsModule: number;
+    profondeur: number;
+    /** Ce qui etait en vol, pour rattacher la faute a une ability. */
+    enVol: Record<string, unknown> | null;
+}
+
+/** Le SEUL type retenu. Les autres sont comptes, jamais rendus comme des fautes. */
+const TYPE_RETENU = "access-violation";
+
+const fautes: FauteNative[] = [];
+const FAUTES_MAX = 8;
+let sehPose = false;
+let sehActif = false;
+let fautesVues = 0;
+/** Fautes tombees HORS cast — comptees seulement, pour que << 0 retenue >> ne se lise pas
+ *  comme << aucune faute dans le process >>. */
+let fautesHorsCast = 0;
+/** Toutes les exceptions vues, PAR TYPE, cast ou pas — la mesure de ce qu'on ecarte. */
+const parType: Record<string, number> = {};
+
+function poserSeh(): boolean {
+    if (sehPose) return sehPose;
+    sehPose = true;
+    Process.setExceptionHandler((d): boolean => {
+        // JAMAIS gere — cf. l'avertissement ci-dessus. Tous les retours sont `false`.
+        try {
+            if (!sehActif) return false;
+            parType[d.type] = (parType[d.type] ?? 0) + 1;
+            if (d.type !== TYPE_RETENU) return false;
+            if (profondeur <= 0) { fautesHorsCast++; return false; }
+            fautesVues++;
+            if (fautes.length >= FAUTES_MAX) return false;
+            let cadres: string[] = [];
+            let horsModule = 0;
+            try {
+                for (const a of Thread.backtrace(d.context, Backtracer.ACCURATE)) {
+                    const r = rvaDe(a);
+                    if (r === null) { horsModule++; continue; }
+                    cadres.push(r);
+                }
+            } catch (e) { cadres = ["<pile illisible : " + (e as Error).message + ">"]; }
+            const ext = ANCRES.find((a) => a.externe);
+            const dernier = ext && ext.enVol.length ? ext.enVol[ext.enVol.length - 1] : null;
+            let quoi: Record<string, unknown> | null = null;
+            if (dernier) { try { quoi = decrireVisuel(ptr(dernier)); } catch { quoi = null; } }
+            let mod: string | null = null;
+            try { mod = Process.findModuleByAddress(d.address)?.name ?? null; } catch { mod = null; }
+            fautes.push({
+                type: d.type,
+                ou: rvaDe(d.address),
+                ouBrut: d.address.toString(),
+                module: mod,
+                operation: d.memory ? d.memory.operation : null,
+                adresseVisee: d.memory ? d.memory.address.toString() : null,
+                cadres, horsModule, profondeur, enVol: quoi,
+            });
+        } catch { /* un capteur ne doit JAMAIS changer l'issue qu'il observe */ }
+        return false;
+    });
+    return sehPose;
+}
 
 function rvaDe(a: NativePointer): string | null {
     try {
@@ -202,6 +390,12 @@ function ancrer(): void {
                     if (a.externe) profondeur++;
                     try { a.enVol.push(args[a.argVisuel].toString()); }
                     catch { a.enVol.push("<argument illisible>"); }
+                    if (a.photo) {
+                        // Empile TOUJOURS, meme en echec : `photos` doit rester en phase avec
+                        // `enVol`, sinon le depilement associe une photo au mauvais appel.
+                        try { a.photos.push(photographier(args[a.argVisuel])); }
+                        catch (e) { a.photos.push({ erreur: (e as Error).message }); }
+                    }
                 },
                 onLeave() {
                     a.sorties++;
@@ -209,6 +403,7 @@ function ancrer(): void {
                     // Le deroulage d'exception SAUTE ce bloc : ce qui reste dans `enVol` est
                     // exactement ce qui n'est jamais revenu.
                     a.enVol.pop();
+                    if (a.photo) a.photos.pop();
                 },
             }));
         } catch (e) {
@@ -275,10 +470,33 @@ export function register(ctx: Ctx): void {
         return { ...r, jetsVus, piles: piles.length, plafond: PILES_MAX, refus: refusJet };
     };
 
+    /** ARMER la capture de FAUTE MATERIELLE. Le gestionnaire ne GERE rien (il rend toujours
+     *  `false`), donc il ne peut pas changer l'issue qu'il observe. `armer: false` l'ETEINT ;
+     *  il ne le retire pas — Frida n'offre aucun retrait, et le pretendre serait faux. */
+    ctx.rpc.visuelAbandonneFaute = (body?: { armer?: boolean }): unknown => {
+        const veut = body?.armer !== false;
+        if (veut) poserSeh();
+        sehActif = veut;
+        return {
+            ok: true, actif: sehActif, pose: sehPose,
+            typeRetenu: TYPE_RETENU, parType,
+            fautesVues, fautesHorsCast, retenues: fautes.length, plafond: FAUTES_MAX,
+            note: "rend TOUJOURS `false` a Windows : la chaine SEH du jeu se deroule inchangee. "
+                + "`armer:false` ETEINT le gestionnaire, il ne le retire pas (Frida n'a pas de "
+                + "`removeExceptionHandler`). Seul `" + TYPE_RETENU + "` est retenu : les autres "
+                + "types sont du bruit de fonctionnement (`Enum.TryParse`), comptes dans "
+                + "`parType`.",
+        };
+    };
+
     ctx.rpc.visuelAbandonneEtat = (): unknown => ({
         ok: true,
         ancre,
         jet: { arme: listenerJet !== null, refus: refusJet, jetsVus, piles },
+        faute: {
+            actif: sehActif, pose: sehPose, typeRetenu: TYPE_RETENU, parType,
+            fautesVues, fautesHorsCast, fautes,
+        },
         etages: ANCRES.map((a) => ({
             symbole: a.symbole,
             refus: a.refus,
@@ -291,6 +509,9 @@ export function register(ctx: Ctx): void {
                 try { return decrireVisuel(ptr(s)); }
                 catch { return { ptr: s, relecture: "impossible" }; }
             }),
+            // Les PHOTOS, elles, datent de l'ENTREE — c'est ce qui les rend opposables a un
+            // objet poole, contrairement a la relecture ci-dessus.
+            photos: a.photo ? a.photos : undefined,
         })),
     });
 }
