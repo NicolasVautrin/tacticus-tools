@@ -106,13 +106,68 @@ complète, les mêmes compteurs montent tous.
 **Tourne** : les poses deviennent des unités réelles, la résolution de dégâts fonctionne (PV qui
 descendent des deux côtés), la retraite sort proprement, aucun doublon.
 
-**L'IA ADVERSE N'EST PAS CONDUITE.** Mesuré : la main passe au joueur adverse
-(`currentPlayer = 4`, ses 5 unités dans `toActivate`) et **rien ne se produit**. `cheatRunAi`
-la fait jouer correctement (`delta 6`, ennemis avancés de la rangée 9 aux rangées 5–7, actions
-consommées, main rendue au joueur). Donc le moteur et l'IA vont bien : il manque **le déclencheur
-automatique**. En sandbox le jeu est en hotseat — il attend qu'on joue les deux camps — alors qu'un
-guild war veut un adversaire piloté. Remède à écrire : un relais qui appelle l'IA quand le tour
-bascule sur un joueur `PlayerType = AI`.
+**L'IA ADVERSE N'EST PAS CONDUITE — parce que LE FLUX VISUEL DE LA VUE EST GELÉ.**
+
+⚠ **La version précédente de ce paragraphe disait « il manque le déclencheur automatique, la
+sandbox est en hotseat ». C'est RÉFUTÉ**, et le remède qu'elle prescrivait (« écrire un relais qui
+appelle l'IA quand le tour bascule ») aurait masqué la panne au lieu de la réparer. Le déclencheur
+EXISTE et tourne à chaque frame.
+
+La chaîne native, décompilée puis confrontée aux objets vivants le 2026-08-19 (`t6dpr4k06g`) :
+
+```
+IdunBattle.View.Game.IdunGameViews$$Update                       (chaque frame)
+  -> QueueComputerActions()
+       si IsPlayerAiControlled(joueurCourant)
+          ET !IsPaused ET !_isLogicPausedFromUI
+          ET !_isLogicPausedFromVisuals ET !_isLogicPausedFromException
+          ET _queuedComputerActions == null
+       -> StartCoroutine(RunComputerActionsForCurrentPlayerInMultipleFrames)
+            -> IdunRunner.AiControl.RunComputerActionsForPlayer(id)
+```
+
+Le joueur courant de la VUE n'est pas celui du RUNNER :
+`IdunGameViews$$get_CurrentPlayerEntityId` = `_matchView.CurrentDraftingPlayerId ?? _matchView.CurrentPlayerId`,
+et `MatchView` est un **miroir poussé** par `PrepareTurnStepHandler$$ExecuteInternal`, seul appelant
+de `MatchView$$SetCurrentPlayer`.
+
+| étage | mesuré |
+|---|---|
+| runner | `currentPlayer 4`, `turn 4`, 5 unités dans `toActivate`, `hasAction: true` |
+| vue | `MatchView.CurrentPlayerId = 3`, `IsCurrentPlayerHumanControlled = true`, `CurrentDraftingPlayerId = null` |
+| verdict | `IsCurrentPlayerAiControlled() = false`, `IsLogicPaused = true`, `_queuedComputerActions = null` |
+| cause | `MessageExecutionQueue` : `_lastActivity = "Ability_Active:Loki_NormalAttack"`, `_lastActivityStep = "start"`, `IsIdle() = false`, **9 messages en file** — INCHANGÉ sur 3 relevés à 2,5 s |
+
+⇒ Le pas de tour est **derrière** l'animation coincée. Il n'y a rien à déclencher : il y a une file
+à débloquer. Ça explique aussi « je joue 2 unités puis l'UI refuse mes moves » — la première attaque
+a gelé la file, tout le reste attend.
+
+⚠ **ET LE JEU N'A AUCUNE RÉCUPÉRATION.** `MessageExecutionQueue$$CheckLastActivityTimeout` (appelé
+par `Update` quand `!_disableTimeouts`) ne fait que **JOURNALISER** au-delà de 10 s, puis
+`ManualStopwatch$$Reset`. Il ne force jamais la complétion. Un pas visuel coincé bloque donc la
+bataille indéfiniment, et la seule trace est une ligne de log toutes les 10 s.
+
+**CE QUE ÇA ÉCARTE** — quatre hypothèses, toutes mesurées FAUSSES :
+`PreventAIControl` (slot 0x13 d'`IGameModeSource`) rend `false` pour 11, 12 ET 13 — aucun verrou
+hotseat ; `IsPlayerAiControlled(entité 4)` rend **true** — l'ennemi EST reconnu piloté par l'IA ;
+`UseSyncPvpEnemyTurnInputState` = false ; la section `Player.Players` de notre BC est **identique**
+à celle du guild boss qui marche (11 = PlayerType 0, 12 = PlayerType 1), tout comme
+`DisableTimeouts`, `DisableAnimatorRecovery`, `NoAutomaticUnitTurns` et
+`Turn.IsStartTurnAutomaticAfterHuman`. Ni la BC ni la source de mode ne sont en cause.
+Écarté aussi : `_unitViews.count = 10` pour 10 unités, `_pendingUnitViews` vide — ce n'est pas une
+vue d'unité manquante.
+
+**PISTE OUVERTE** : `IdunBattle.View.AbilityConfigs.Loki.Loki_NormalAttackVisuals` referme son pas
+sur `OnCasterAnimationEventInternal` — un ÉVÉNEMENT D'ANIMATION du caster. Pas d'événement, pas de
+complétion. À instrumenter au prochain montage (`PickWeapon` / `GetWeapon` /
+`GetFallbackWeaponVisualConfig` / `TriggerFireAnimationEvents`), pour savoir QUEL caster et si
+l'arme retombe sur un fallback nul.
+
+⚠ **MÉTHODE — tout ce qui précède a été mesuré SANS UN SEUL REINJECT**, par les RPC génériques déjà
+embarqués : `classFields(ns, cls)` pour NOMMER les champs, `classInterfaceSlots` pour nommer le slot
+0x13, et `viewField` / `viewJson` / `viewList` / `viewInvoke` avec `surPointeur` pour marcher les
+objets vivants depuis `IdunMainView.gameViews`. Réflexe à garder : avant d'écrire une sonde et de
+dépenser une fenêtre, vérifier ce que la surface générique atteint déjà.
 
 ⚠ **DEUX PIÈGES DE LECTURE, tous deux payés cher dans cette tranche.**
 
