@@ -308,8 +308,27 @@ function lireTete(p: NativePointer): Tete {
     }
 }
 
-/** Le corps ressemble-t-il à une constante dédupliquée ? Voir l'en-tête. */
+/**
+ * Le corps ressemble-t-il à une constante dédupliquée ? Voir l'en-tête.
+ *
+ * ⚠ UN SAUT N'EST PAS UN CORPS TRIVIAL, ET LES CONFONDRE A COÛTÉ UN CAPTEUR ENTIER, EN SILENCE.
+ * `lireTete` cherche un `0xc3` N'IMPORTE OÙ dans les huit premiers octets — il ne décode rien.
+ * Sur un THUNK (`e9 <rel32>`), le premier octet du DÉPLACEMENT peut valoir `0xc3` et se lit
+ * alors comme un `ret`. Mesuré le 2026-08-19 sur
+ * `IdunBattle.View.Game.IdunGameViews$$Enable`, dont la tête est `e9 c3 db a1 ff 48 89 4c` :
+ * le garde annonçait « corps TRIVIAL, ret à l'octet 1 », l'ancrage était refusé, `vuesJeu`
+ * restait NUL — et la MoW n'était donc jamais reposée au retry, sans qu'aucun message ne
+ * nomme la cause.
+ *
+ * Un corps trivial dédupliqué commence par `b8 <imm32> c3`, `33 c0 c3`, `31 c0 c3` ou `c3` nu :
+ * JAMAIS par un saut. Écarter les têtes de saut ne relâche donc rien du garde — ça lui retire
+ * un faux positif.
+ */
 function teteTriviale(t: Tete): boolean {
+    if (t.hex === null) return false;
+    const premier = parseInt(t.hex.slice(0, 2), 16);
+    // `e9` = jmp rel32, `eb` = jmp rel8 : une trampoline, pas une constante.
+    if (premier === 0xe9 || premier === 0xeb) return false;
     return t.retA !== null;
 }
 
@@ -2470,6 +2489,10 @@ function retirerDuRunner(cibles: number[] | null): Record<string, unknown> | Ref
             if (msg !== null) { try { gcRoot.remove(msg); } catch { /* best effort */ } }
         }
     }
+    // ⚠ ON NE TOUCHE PAS À LA MÉMOIRE ICI, ET C'EST UN CHOIX. Tenir `memoirePoses` à jour geste
+    // par geste, c'est maintenir un DOUBLE du plateau : deux états qui doivent rester égaux,
+    // donc qui divergent. La mémoire se prend en UNE FOIS, au START, sur le plateau RÉEL
+    // (`instantanerAuStart`) -- ce qui rend cette synchronisation-ci inutile ET plus sûre.
     // ⚠ READ-AFTER-WRITE. Une observation prise AVANT la mutation ne dit rien de ce qu'elle a
     // fait, et « `Apply` n'a pas levé » n'est PAS « l'unité a disparu » : mesuré sur
     // `AddUnitMessage`, l'appel passe sans erreur et rien n'apparaît quand la configuration
@@ -2693,6 +2716,52 @@ function memoriser(p: Pose): void {
 }
 
 /**
+ * L'INSTANTANÉ DE LA MÉMOIRE, PRIS UNE SEULE FOIS : À L'APPUI SUR START.
+ *
+ * ⚠ POURQUOI PAS UNE SYNCHRONISATION À CHAQUE GESTE. Tenir la mémoire à jour pose par pose et
+ * retrait par retrait, c'est maintenir un DOUBLE du plateau : deux états qui doivent rester
+ * égaux, donc qui finissent par diverger — et la divergence est SILENCIEUSE, elle ne se voit
+ * qu'au retry suivant, sous la forme d'une unité qu'on croyait retirée et qui revient. Le
+ * plateau est la vérité, et il est LISIBLE. On le recopie donc une fois, au moment où la
+ * composition est arrêtée.
+ *
+ * ⛔ ENFILÉ. `unitesDuPlateau` invoque des natifs, et un natif invoqué depuis un callback
+ * d'interception a déjà FIGÉ le jeu (cf. le callback de `armerBouton`).
+ *
+ * ⚠ LA MoW N'EST PAS DANS CET INSTANTANÉ, ET C'EST STRUCTUREL : `unitesDuPlateau` énumère des
+ * `AUnitView`, une MoW est une `MachineView`. `memoireMoW` reste donc alimentée par SON capteur
+ * (`UnitDeployment_PlaceMachineOfWarUnitOnBoard`), qui la voit au clic. Écraser `memoireMoW`
+ * ici la perdrait à chaque START.
+ */
+function instantanerAuStart(): void {
+    queueOnMainThread(() => unitesDuPlateau()).then((u) => {
+        if (!Array.isArray(u)) {
+            memoireDernier = "instantané au START ANNULÉ -- plateau non lisible : " + String(u);
+            return;
+        }
+        const miennes = (u as UniteDuPlateau[]).filter(
+            (x) => x.duJoueur && x.unitId !== null && x.col !== null && x.row !== null);
+        if (miennes.length === 0) {
+            // ⚠ ON NE VIDE JAMAIS SUR UN ZÉRO. Un plateau lu vide au moment du START est bien
+            // plus probablement une lecture prématurée qu'une équipe vide — et écraser la
+            // mémoire par ce zéro perdrait exactement la composition que le retry doit rendre.
+            // Un zéro qui EFFACE est le pire des deux résultats possibles.
+            memoireDernier = "instantané au START IGNORÉ -- 0 unité du joueur lue ; la mémoire "
+                + `précédente est CONSERVÉE (${memoirePoses.length} pose(s))`;
+            return;
+        }
+        memoirePoses.length = 0;
+        for (const x of miennes) {
+            memoirePoses.push({ unitId: x.unitId as string, playerId: x.playerId ?? 11,
+                                col: x.col as number, row: x.row as number });
+        }
+        memoireDernier = `instantané au START : ${memoirePoses.length} pose(s) prises sur le `
+            + "plateau RÉEL"
+            + (memoireMoW ? ` + MoW ${memoireMoW.unitId} (capteur propre)` : " (aucune MoW)");
+    }, (e) => { memoireDernier = "instantané au START LEVÉ : " + String(e); });
+}
+
+/**
  * Rejoue la mémoire si le camp du joueur est VIDE.
  *
  * ⛔ Appelé depuis la FILE du thread principal, jamais depuis un callback d'interception.
@@ -2715,6 +2784,33 @@ function rejouerMemoire(): void {
 }
 
 /**
+ * L'`IdunGameViews` sur laquelle reposer la MoW — par ORDRE D'AUTORITÉ, jamais par une source
+ * unique.
+ *
+ * ⚠ C'EST LA CAUSE MESURÉE DU « LA MoW N'EST PAS RÉCUPÉRÉE AU RETRY » (2026-08-19).
+ * `vuesJeu` n'est rempli que par le hook `IdunGameViews$$Enable` d'`armerPhase`, et ce hook
+ * était REFUSÉ par le faux positif du garde de trivialité (cf. `teteTriviale`). Pendant ce
+ * temps, le MÊME fichier tenait une vue VIVANTE dans `vuesDePose` — captée par
+ * `AddPlaceholderUnit`, armée sans encombre. Relevé en séance : `deploymentMemoire` publiait
+ * `vuesJeu: null` et `dernier: "... | MoW: aucune IdunGameViews captée"` alors que
+ * `deploymentPrefabStatus` publiait `vueDePose: 0x1c716011000` et `Enable : ARMÉ`.
+ * Le rejeu lisait la variable VIDE des deux. Deux sources pour une même chose, et on
+ * interrogeait la mauvaise.
+ *
+ * ⇒ On passe par l'échelle `dicoVivant()` que le reste du fichier emploie déjà, et on PUBLIE la
+ * source : une MoW reposée par le repli `FindObjectsByType` ne doit pas se lire comme une MoW
+ * reposée sur la vue observée.
+ */
+function vueDeLaMoW(): { vues: NativePointer; source: string } | Refus {
+    if (vuesJeu !== null && !vuesJeu.isNull()) {
+        return { vues: vuesJeu, source: "vue OBSERVÉE dans `IdunGameViews$$Enable`" };
+    }
+    const d = dicoVivant();
+    if ("ok" in d) return d;
+    return { vues: d.vues, source: d.source };
+}
+
+/**
  * Re-pose la MoW par `IdunGameViews$$AddPlaceholderMachine`.
  *
  * ⛔ ENFILÉ, jamais appelé depuis un callback d'interception.
@@ -2723,8 +2819,9 @@ function rejouerMemoire(): void {
  */
 function rejouerLaMoW(m: PoseMoW): void {
     queueOnMainThread((): Record<string, unknown> => {
-        if (vuesJeu === null || vuesJeu.isNull()) {
-            return { ok: false, error: "aucune `IdunGameViews` captée -- la MoW n'est PAS reposée" };
+        const v = vueDeLaMoW();
+        if ("ok" in v) {
+            return { ok: false, error: "aucune `IdunGameViews` joignable -- " + v.error };
         }
         const k = findClassAnywhere(NS_VIEWS, CLS_VIEWS);
         const mi = k ? findMethodByParamCount(k, "AddPlaceholderMachine", 4) : null;
@@ -2735,12 +2832,15 @@ function rejouerLaMoW(m: PoseMoW): void {
             const manuel = Memory.alloc(1); manuel.writeU8(1);
             const pid = Memory.alloc(4); pid.writeS32(m.playerId);
             const pos = Memory.alloc(4); pos.writeS32(m.position);
-            invokeMethod(mi.info, vuesJeu, [createManagedString(m.unitId), manuel, pid, pos]);
-            return { ok: true, unitId: m.unitId };
+            invokeMethod(mi.info, v.vues, [createManagedString(m.unitId), manuel, pid, pos]);
+            return { ok: true, unitId: m.unitId, vue: v.vues.toString(), source: v.source };
         } catch (e) { return { ok: false, error: "LEVÉ : " + (e as Error).message }; }
     }).then((r) => {
-        const rr = r as { ok?: boolean; error?: string };
-        if (rr.ok !== true) memoireDernier = (memoireDernier ?? "") + ` | MoW: ${rr.error}`;
+        const rr = r as { ok?: boolean; error?: string; source?: string };
+        // ⚠ ON PUBLIE AUSSI LE SUCCÈS. La version d'avant ne consignait que l'échec : une MoW
+        // reposée et une MoW jamais tentée rendaient exactement la même trace.
+        memoireDernier = (memoireDernier ?? "")
+            + (rr.ok === true ? ` | MoW REPOSÉE (${rr.source})` : ` | MoW: ${rr.error}`);
     }, (e) => { memoireDernier = (memoireDernier ?? "") + ` | MoW levée: ${String(e)}`; });
 }
 
@@ -2776,6 +2876,27 @@ function committerUnePose(p: Pose): void {
         // ~90 passes de pump, soit environ une seconde à 60 images/s.
         verifierPuisNettoyer(p, rr.avant ?? null, 90);
     }, (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
+}
+
+/** Images de pump laissées passer entre un retrait et la pose qui prend sa place. */
+const DELAI_REMPLACEMENT = 6;
+
+/**
+ * Enfile une pose APRÈS `reste` images de pump.
+ *
+ * ⛔ On repasse par la FILE à chaque image, on ne dort pas : une attente bloquante dans la file
+ * du thread principal FIGE le jeu. Même idiome que `verifierPuisNettoyer`.
+ *
+ * ⚠ POURQUOI ATTENDRE. Le retrait ne prend effet qu'au passage du flux de bataille
+ * (`IdunBattle.View.BattleStream.StepHandlers.RemoveUnitStepHandler`) : une pose émise dans la
+ * même image tombe sur une case ENCORE OCCUPÉE, et une pose sur case occupée échoue EN SILENCE
+ * (mesuré le 2026-08-17 : `ultraApothecary` sur la case de `ultraTigurius`).
+ */
+function poserApresDelai(p: Pose, reste: number): void {
+    if (reste <= 0) { committerUnePose(p); return; }
+    queueOnMainThread(() => ({ attendre: true })).then(
+        () => poserApresDelai(p, reste - 1),
+        (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
 }
 
 function armerBouton(): true | Refus {
@@ -2895,6 +3016,9 @@ function armerStart(): true | Refus {
                 ? "retour 1 -- c'est la valeur du CHEMIN D'ECHEC du décompilé, pas un succès"
                 : "retour 0 -- passé par le démarrage réel (slot 0x69)";
             if (startTrace.length < 16) startTrace.push(self.e);
+            // ⛔ ON ENFILE, ON N'INVOQUE RIEN ICI. C'est LE point de prise de la mémoire : la
+            // composition ne bougera plus, et le plateau la porte en entier.
+            if (memoireAuto) instantanerAuStart();
         },
     });
     Interceptor.flush();
@@ -3050,6 +3174,9 @@ export function register(ctx: Ctx): void {
             // ligne. La publier à part évite de la croire absente quand on lit `poses`.
             mow: memoireMoW,
             vuesJeu: vuesJeu === null ? null : vuesJeu.toString(),
+            // ⚠ SANS CE CAPTEUR, L'INSTANTANÉ NE SE PREND JAMAIS. Le publier évite de lire
+            // `arme: true` comme « la mémoire se remplira » alors qu'elle restera vide.
+            capteurStartArme: listenerStart !== null,
             rejeux: memoireRejeux, dernier: memoireDernier,
         });
         if (body?.oublier === true) {
@@ -3084,12 +3211,20 @@ export function register(ctx: Ctx): void {
         }
         if (body?.armer === undefined) {
             return { ok: true, lecture: true, ...etat(),
-                     note: "`armer: true` : chaque pose est retenue et REJOUÉE au retour de la "
+                     note: "`armer: true` : la composition est PRISE EN UNE FOIS à l'appui sur "
+                         + "START (instantané du plateau réel), puis REJOUÉE au retour de la "
                          + "phase de déploiement (retry). Le rejeu ne part que si le camp du "
                          + "joueur est VIDE." };
         }
         memoireAuto = body.armer === true;
-        return { ok: true, action: memoireAuto ? "arme" : "retire", ...etat() };
+        // ⚠ L'INSTANTANÉ SE PREND AU START : sans le capteur de START, la mémoire ne se remplit
+        // JAMAIS et le retry reviendrait à vide -- en silence. On l'arme donc ici, et on DIT si
+        // l'armement a échoué plutôt que de rendre un `arme: true` qui ne tiendrait rien.
+        let start: true | Refus | "non demandé" = "non demandé";
+        if (memoireAuto) start = armerStart();
+        return { ok: true, action: memoireAuto ? "arme" : "retire", ...etat(),
+                 capteurStart: start === true ? "ARMÉ"
+                     : (start === "non demandé" ? start : "REFUSÉ : " + start.error) };
     };
 
     ctx.rpc.deploymentCommit = (body?: {
@@ -3200,6 +3335,95 @@ export function register(ctx: Ctx): void {
             });
         }
         return queueOnMainThread(() => retirerDuRunner(body.entityIds ?? null));
+    };
+
+    /**
+     * REMPLACER UNE UNITÉ SANS PASSER PAR LE CLEAR.
+     *
+     * Le CLEAR est un geste TOTAL : il vide le camp et fait tout re-saisir. Échanger une seule
+     * unité n'a jamais eu besoin de ça — deux verbes suffisent, et ils existaient déjà :
+     *
+     *   1. `RemoveUnitMessage` sur la SEULE unité visée -- les autres ne bougent pas ;
+     *   2. quelques images de pump (cf. `poserApresDelai`) ;
+     *   3. `AddUnitMessage` de la remplaçante, sur la case LIBÉRÉE par défaut.
+     *
+     * ⚠ RIEN N'EST SYNCHRONISÉ AVEC LA MÉMOIRE ICI, ET C'EST VOULU. La composition retenue pour
+     * le retry est prise EN UNE FOIS au START (`instantanerAuStart`), sur le plateau réel : on
+     * peut donc échanger autant d'unités qu'on veut, dans n'importe quel ordre, sans jamais
+     * risquer qu'un double de comptabilité dérive de ce que l'écran montre.
+     *
+     * ⚠ La remplaçante doit être dans la BC de la bataille montée, comme toute pose : `Apply`
+     * passe SANS ERREUR et rien n'apparaît si sa configuration y manque (mesuré sur
+     * `spaceBlackmane`). Le verdict se lit à `deploymentPoseDiag`, pas au retour de ce RPC.
+     */
+    ctx.rpc.deploymentRemplacer = (body?: {
+        confirmer?: boolean;
+        /** L'unité à ôter, par son entité. Prioritaire sur `sortante`. */
+        entityId?: number;
+        /** L'unité à ôter, par son `unitId` -- plus commode à écrire. */
+        sortante?: string;
+        /** La remplaçante. `playerId`, `col` et `row` sont HÉRITÉS de la sortante si omis. */
+        entrante?: { unitId: string; playerId?: number; col?: number; row?: number };
+        /** Images de pump entre le retrait et la pose. Défaut `DELAI_REMPLACEMENT`. */
+        delaiFrames?: number;
+    }): Promise<unknown> | unknown => {
+        const delai = body?.delaiFrames ?? DELAI_REMPLACEMENT;
+        return queueOnMainThread(() => {
+            const u = unitesDuPlateau();
+            if (!Array.isArray(u)) return refus("plateau non lisible : " + u);
+            const miennes = u.filter((x) => x.duJoueur);
+            const cible = body?.entityId !== undefined
+                ? miennes.find((x) => x.entityId === body.entityId)
+                : (body?.sortante !== undefined
+                    ? miennes.find((x) => x.unitId === body.sortante)
+                    : undefined);
+            if (!cible) {
+                // ⚠ Un refus NOMME ce qu'il a vu : « introuvable » sans l'inventaire se lit
+                // comme « le plateau est vide » alors que c'est souvent une faute de frappe.
+                return refus("unité sortante INTROUVABLE. Demandé : "
+                    + (body?.entityId !== undefined
+                        ? `entityId ${body.entityId}`
+                        : `unitId \`${body?.sortante ?? "<rien>"}\``)
+                    + ". Sur le plateau, côté joueur : "
+                    + (miennes.length === 0
+                        ? "AUCUNE unité"
+                        : miennes.map((x) => `${x.unitId}#${x.entityId}(${x.col},${x.row})`)
+                            .join(", ")));
+            }
+            const entrante = body?.entrante;
+            if (!entrante || typeof entrante.unitId !== "string" || entrante.unitId === "") {
+                return refus("`entrante: { unitId }` exigé -- ce RPC REMPLACE. Pour ôter seul, "
+                    + "c'est `deploymentRetirer`.");
+            }
+            const pose: Pose = {
+                unitId: entrante.unitId,
+                playerId: entrante.playerId ?? cible.playerId ?? 11,
+                col: entrante.col ?? cible.col ?? -1,
+                row: entrante.row ?? cible.row ?? -1,
+            };
+            if (pose.col < 0 || pose.row < 0) {
+                return refus(`la case de \`${cible.unitId}\` n'est pas lisible `
+                    + `(col=${cible.col}, row=${cible.row}) et aucune n'a été donnée : `
+                    + "préciser `entrante.col` / `entrante.row` plutôt que deviner");
+            }
+            const apercu = {
+                sortante: { unitId: cible.unitId, entityId: cible.entityId,
+                            col: cible.col, row: cible.row },
+                entrante: pose, delaiFrames: delai,
+            };
+            if (body?.confirmer !== true) {
+                return { ok: true, lecture: true, ...apercu,
+                         note: "`confirmer: true` exigé : ce RPC APPLIQUE un `RemoveUnitMessage` "
+                             + "puis un `AddUnitMessage` au runner VIVANT" };
+            }
+            const r = retirerDuRunner([cible.entityId]);
+            if ((r as { ok?: boolean }).ok === false) return r;
+            poserApresDelai(pose, delai);
+            return { ok: true, ...apercu, retrait: r,
+                     note: "la pose est ENFILÉE, pas encore appliquée -- elle part après le "
+                         + "délai. Le verdict se lit à `deploymentPoseDiag` / "
+                         + "`deploymentPlateau`, jamais ici." };
+        });
     };
 
     /** Relais sur le bouton CLEAR de l'écran. Armé, un appui ôte AUSSI les unités réelles. */
