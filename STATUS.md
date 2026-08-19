@@ -3,7 +3,7 @@
 ## TL;DR
 
 **Projet stable end-to-end sur Tacticus Windows PC** (Unity 6 IL2CPP).
-Pipeline validée : `INJECT (UI) → warmup (clic battle in-game) →
+Pipeline validée : `INJECT (UI) → amorce (clic battle in-game) →
 push builder_ready → catalog auto-refresh → build node`. Aucun crash,
 aucun freeze. Code mort path 0/1 supprimé. Docs à jour. **Commit
 `e25aefc` poussé sur origin/master.**
@@ -19,7 +19,7 @@ aucun freeze. Code mort path 0/1 supprimé. Docs à jour. **Commit
 14:01:57  ✓ captured_config eventStandard2 loc=24 (540 KB) — battle naturel
 14:02:00  ✓ build event lancé via front
           → entering mute path
-          → warmed up 3 unit classes (per-faction warmup)
+          → precharge 3 unit classes (prechargement par faction)
           → progression swap: type 0→4, id → "eventStandard2", battlesList swapped
           → LoadBattle returned in 59 ms
           → serialized 548 KB
@@ -47,7 +47,7 @@ scan auto.
 ### Build path (path 2 mute progression-swap)
 
 1. Resolve `targetMatch` via `gameConfig.battles.campaigns[type][id].battles[locIdx]`
-2. **Per-faction warmup** : `UnitProgression.GetUnit(unitId)` pour chaque
+2. **Prechargement par faction** : `UnitProgression.GetUnit(unitId)` pour chaque
    enemy unit unique du match (pré-résout les classes IL2CPP cold)
 3. Sur `source._campaignProgression` (offset +0x20), save+swap :
    - `+0x18` `_campaignType` (S32) → request type
@@ -65,7 +65,7 @@ scan auto.
 - Front `ws.js` : `registerWsHandler(t, fn)` pluggable handlers
 - Front `campaign-builder.js` : handler idempotent `builder_ready` →
   `refresh(true)` une seule fois
-- Plus de polling de `builderStatus` pour le warmup (le `setInterval`
+- Plus de polling de `builderStatus` pour le amorce (le `setInterval`
   défensif persiste mais ne déclenche que `refresh(false)` cache disque)
 
 ### Heap scans = explicit-only
@@ -114,7 +114,7 @@ n'était pas le coupable). Defer serialize via `gcRoot.add` +
 | Capture passive `captured_config` | mode-source-capture defer | ✅ 540+ KB |
 | Push `builder_ready` → auto refresh | WebSocket pluggable handler | ✅ |
 | Catalog dump | `unwrapGameConfig` (no heap scan) | ✅ 1.17 MB |
-| Build event INACTIVE (eventStandard2) | path 2 progression-swap + per-faction warmup | ✅ 59 ms |
+| Build event INACTIVE (eventStandard2) | path 2 progression-swap + prechargement par faction | ✅ 59 ms |
 | Cleanup (path 0/1/diag/ad-bypass) | suppression + rebuild | ✅ |
 
 ## Docs réécrits (commit `e25aefc`)
@@ -162,7 +162,7 @@ CampaignProgression (path 2 swap) :
 | 23 | ⏳ | UI banner "warm-up needed" — moins urgent depuis push `builder_ready` |
 | 24 | ✅ | Test progression-swap path for inactive event configs |
 | 25 | ⏳ | Add MachinesOfWar Event support to builder (code path séparé `MachinesOfWarEventGameModeSource` avec son DTO) |
-| 26–28 | ✅ | (front polish, archive captures, per-faction warmup) |
+| 26–28 | ✅ | (front polish, archive captures, prechargement par faction) |
 
 ## Memory entries (CLAUDE)
 

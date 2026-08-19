@@ -39,7 +39,7 @@ cd frida && npm run dev
 ### Cycle d'Injection
 1. Lancer Tacticus, attendre le menu principal.
 2. Cliquer **INJECT** dans l'UI Web.
-3. **Warmup requis** : Cliquer sur un battle de campagne en jeu pour capturer les sources (`lastSource`, `Universe`, etc.).
+3. **Amorce** : Cliquer sur un battle de campagne en jeu pour capturer les sources (`lastSource`, `Universe`, etc.).
 
 ### Build des Hooks
 Si tu modifies le code dans `frida/hooks/` :

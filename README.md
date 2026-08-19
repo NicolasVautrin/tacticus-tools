@@ -73,7 +73,7 @@ l'état de Tacticus :
 Cliquer INJECT → l'agent (~110 KB) est injecté, les hooks essentiels sont
 posés. **Aucun heap scan, aucun freeze**.
 
-### 4. Warmup en jeu
+### 4. Amorce
 
 Ouvrir une campagne quelconque + cliquer un battle (n'importe lequel). Ce
 clic naturel déclenche :
@@ -89,7 +89,7 @@ events disponibles. Cliquer une node :
 - L'agent fait un **progression-swap** (mute mode) sur la live
   `CampaignProgression` — swap temporaire de `_campaignType`,
   `_campaignId`, `_battlesConfigCampaigns`
-- Per-faction warmup (`UnitProgression.GetUnit` sur les enemy units du
+- Prechargement par faction (`UnitProgression.GetUnit` sur les enemy units du
   match) pour pré-résoudre les classes IL2CPP non-touchées
 - Appel `LoadBattle(true)` → BattleConfiguration générée
 - Restore tout dans le `finally`
