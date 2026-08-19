@@ -307,6 +307,35 @@ System.Object` — `viewInstances` rend `instances: null` (classe NON dérivée 
 pas `[]`. Passer par `IdunGameViews$$GetUnitViewAt` / `$$GetUnitView`, jamais par l'énumération.
 `Loki_NormalAttackVisuals`, lui, EST un `MonoBehaviour` et s'énumère.
 
+### 5quater. LES 12 RELAIS SONT ÉCARTÉS — le suspect nommé est RÉFUTÉ
+
+Le test que ce dossier annonçait comme « jamais réalisé » a été joué le 2026-08-19, sur une
+bataille montée sur `MedicaeStation1` part 1 slot 3 (occupant `VAE`-Gaunt) : **les 12 relais de
+déploiement DÉSARMÉS et l'override BC RETIRÉ au cast 39**, en plein combat, `0` échec au
+désarmement. L'abandon est tombé **entre les casts 39 et 44**, donc APRÈS la coupure, avec la
+signature EXACTE des trois reproductions précédentes — écart **1** sur `SetupAndExecuteAbility`,
+`Init` et `ParseTargetsFromQueue`, **0** sur `Execute` ; groupe `<EntityId> 93`,
+`<Source> "Loki_NormalAttack"`, `onFinished: false`.
+
+⇒ **« Un relais qui reste armé PENDANT le combat » ne cause pas ce bug.** C'était le suspect que
+§6 nommait ; il tombe.
+
+⚠ **NE PAS ÉLARGIR LA CONCLUSION.** Retirer l'override ne retire PAS la BC guild war de la
+bataille EN COURS — elle continue de tourner dessus. Ce qui est écarté, ce sont les 12 relais
+ACTIFS pendant le combat, **pas le montage entier**. Restent armés les deux pompes
+(indispensables) et le capteur — un `attach` pur, posé APRÈS les deux premières reproductions,
+donc hors de cause.
+
+⚠ **ET « JEU BLOQUÉ » N'EST PAS UN GEL.** Deux lectures de `pumpFaults.frameNo` espacées de 3 s
+rendent **+372 frames** (~124 f/s) pendant que l'écran ne bouge plus. Le témoin vaut parce que
+`pumpFaults` et `visuelAbandonneEtat` sont **SYNCHRONES** : ils répondent même thread principal
+bloqué. Tout RPC mis en file, lui, expirerait — et `ping` ne prouve rien, pour la même raison
+(déjà payé une fois : une réponse en 141 ms sur un jeu dont la boucle était arrêtée).
+
+Taux cumulé : **4 abandons / 393 casts ≈ 1,0 %** sous montage, contre **0 / 183** en sandbox
+native. À ce taux, le contrôle natif a ~16 % de chance d'être un hasard : **« montage vs jeu de
+base » n'est TOUJOURS pas tranché** — il y faudrait ~400 casts natifs de plus.
+
 ## 6. Reste ouvert
 
 - **Les salves d'ouverture.** `EnvironmentAbilities` de la zone reste VIDE : la popup les
@@ -317,9 +346,11 @@ pas `[]`. Passer par `IdunGameViews$$GetUnitViewAt` / `$$GetUnitView`, jamais pa
 - **La MoW adverse** est nulle : le record l'attend sous forme MODÈLE (la popup la tire de
   `GetMachineOfWarUnits`), pas sous la forme DTO du slot.
 - **POURQUOI un `Loki_NormalAttackVisuals` sort NON INITIALISÉ** (§5ter). Le mécanisme est
-  mesuré, la cause ne l'est pas. Piste à confronter : ces visuels sont des `MonoBehaviour`
-  **POOLÉS** (3 instances vivantes, 2 `Finished`) — une location qui ne passe pas par son
-  `Setup` rendrait exactement cette signature. `IdunUnitViewPool` est le voisin à lire.
+  mesuré, la cause ne l'est pas — et **nos 12 relais sont désormais écartés** (§5quater), donc
+  c'est la piste qui reste. À confronter : ces visuels sont des `MonoBehaviour` **POOLÉS**
+  (3 instances vivantes, 2 `Finished`) — une location qui ne passe pas par son `Setup` rendrait
+  exactement cette signature, et le pooling est déjà connu pour mentir sur l'identité d'un
+  pointeur. `IdunUnitViewPool` est le voisin à lire.
 - **La file bloquée n'a pas de sortie connue.** `MessageExecutionQueue` expose
   `OnMessageFinishedProcessing(message)` et `ProcessNextMessage()` ; forcer l'un des deux est
   une ÉCRITURE dans une bataille vivante, **jamais tentée**. À n'essayer que sur une bataille
