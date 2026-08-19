@@ -1427,4 +1427,70 @@ export function register(ctx: Ctx): void {
             };
         });
     };
+
+    /** L'ETAT DE LA GUERRE, LISIBLE MEME AVANT QU'ELLE COMMENCE.
+     *
+     *  POURQUOI CE RPC EXISTE. En phase de PREPARATION, `guildWarZones` rend `total: 0` et
+     *  `guildWarZoneConfigs` refuse (« `GetAllPossibleScores` n'a pas atteint le calculateur »).
+     *  Les deux sont CORRECTS -- les zones ne sont attribuees qu'au demarrage -- mais ils ne
+     *  distinguent pas « guerre pas encore commencee » de « cette guilde ne fait pas de GW »
+     *  ni de « le client n'a pas rafraichi ». Trois causes, un seul zero : indecidable.
+     *
+     *  `GetGuildWarIdEvenIfItHasntStartedYet` tranche, et son nom dit qu'il est ECRIT POUR CA :
+     *  un identifiant non nul = une guerre est bien programmee pour cette guilde.
+     *
+     *  LECTURE PURE : que des getters sans argument, invoques sur la progression VIVANTE. Aucune
+     *  ecriture, et surtout AUCUN `Fetch*` -- ceux-la (`FetchSeasonLeaderboard`,
+     *  `FetchLeagueLeaderboard`) partent au serveur, et ce module n'en appelle aucun. */
+    ctx.rpc.guildWarEtat = (): Promise<unknown> => queueOnMainThread(() => {
+        const prog = progressionPhase();
+        if (estRefus(prog)) return { ok: false, error: (prog as RefusVue).error };
+        const sur = prog as NativePointer;
+        const k = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                    "GuildWarPhaseProgression");
+        if (!k) return { ok: false, error: "classe `GuildWarPhaseProgression` introuvable" };
+
+        /** Un entier rendu par un getter sans argument. `null` = NON MESURE (methode absente ou
+         *  levee), jamais rabattu sur 0 -- « zero tentative » et « pas lisible » sont deux
+         *  reponses differentes. */
+        const entier = (nom: string): number | null => {
+            const r = appeler(k, sur, nom, 0, []);
+            if (estRefus(r)) return null;
+            try { return (r as NativePointer).toInt32(); } catch { return null; }
+        };
+        const texte = (nom: string): string | null => {
+            const r = appeler(k, sur, nom, 0, []);
+            if (estRefus(r)) return null;
+            const p = r as NativePointer;
+            if (p.isNull()) return null;
+            try { return readIl2cppString(p); } catch { return null; }
+        };
+        const objet = (nom: string): unknown => {
+            const r = appeler(k, sur, nom, 0, []);
+            if (estRefus(r)) return { erreur: (r as RefusVue).error };
+            return enJson(r);
+        };
+
+        // L'identifiant de guerre, MEME non demarree -- le discriminant de ce RPC.
+        const guerreId = texte("GetGuildWarIdEvenIfItHasntStartedYet");
+        const membres = objet("GetBothTeamsGuildMembers");
+
+        return {
+            ok: true,
+            // `null` ici = aucune guerre programmee pour cette guilde (ou methode peremee) ;
+            // une chaine = une guerre EXISTE, meme si la phase de combat n'a pas commence.
+            guerreId,
+            guerreProgrammee: guerreId !== null,
+            tentativesRestantes: entier("GetAttemptsLeft"),
+            trophesSiVictoire: entier("GetTrophiesOnWin"),
+            trophesSiDefaite: entier("GetTrophiesOnLoss"),
+            creditsParUniteVaincue: entier("GetGuildWarCurrencyPerUnitDefeat"),
+            nbMembresDesDeuxGuildes: Array.isArray(membres) ? membres.length : null,
+            unitesEpuisees: objet("GetExhaustedUnits"),
+            cibles: objet("GetTargets"),
+            note: "phase de PREPARATION : `guildWarZones` rend 0 et c'est NORMAL -- les zones ne "
+                + "sont attribuees qu'au demarrage de la phase de guerre. `guerreProgrammee` "
+                + "repond a « y a-t-il une guerre » independamment de ca.",
+        };
+    });
 }
