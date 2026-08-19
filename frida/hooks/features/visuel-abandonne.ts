@@ -33,7 +33,13 @@
 // a rendu ZERO ligne, parce qu'un null-deref genere par IL2CPP passe par son helper interne
 // (`FUN_1801f5460`), pas par l'API publique. Le signal qui, lui, ne peut pas mentir est
 // structurel : quand une fonction part en exception, le deroulage de pile SAUTE son `onLeave`.
-// Un `onEnter` sans `onLeave` EST donc un jet, quel que soit le chemin emprunte.
+//
+// ⚠ MAIS L'INVERSE N'EST PAS VRAI, et ce fichier l'a affirme a tort pendant plusieurs
+// reproductions : un `onEnter` sans `onLeave` veut dire << PAS REVENU >>, ce qui couvre le jet
+// ET l'appel encore en vol. Le releve de THREAD (plus bas) est ce qui les separe. Mesure du
+// 2026-08-19 : l'orphelin porte le MEME thread que les appels sains, et ce thread TOURNE --
+// donc pas en vol, donc bien un deroulage. La premisse arrive juste, par un chemin qu'elle ne
+// justifiait pas.
 //
 // LECTURE PURE : `onEnter`/`onLeave` seulement, aucune ecriture, aucun `retval.replace`.
 // Ancre au register : ce sont des chemins FROIDS (un passage par cast d'ability), pas des
@@ -297,6 +303,8 @@ let profondeur = 0;
 // grandeur.
 
 interface FauteNative {
+    /** La pile porte la signature du bruit connu (`Enum.TryParse`). ETIQUETTE, pas exclusion. */
+    bruitConnu: boolean;
     type: string;
     /** L'instruction fautive, en RVA (jamais en VA : une VA ne survit pas au build). */
     ou: string | null;
@@ -314,8 +322,29 @@ interface FauteNative {
     enVol: Record<string, unknown> | null;
 }
 
-/** Le SEUL type retenu. Les autres sont comptes, jamais rendus comme des fautes. */
-const TYPE_RETENU = "access-violation";
+// ⚠ LE FILTRE `access-violation` ETAIT UNE ERREUR, ET ELLE A AVEUGLE LE CAPTEUR.
+//
+// Il avait ete pose apres avoir vu 6 exceptions `system` dont la pile resolvait sur
+// `IdunMeta.Utils.Extensions.Enum$$TryParse` -> `System.Enum$$Parse` -> `RaiseException` : du
+// bruit de fonctionnement. Mais ces 6 echantillons ont TOUS ete pris pendant des casts REUSSIS
+// (`onFinished: true`). Generaliser de la a << toutes les `system` sont du bruit >> etait une
+// induction sur un echantillon biaise -- et elle ecartait precisement l'evenement cherche.
+//
+// CE QUI L'ETABLIT (5e et 6e reproductions, 2026-08-19) : l'appel orphelin tourne sur le thread
+// **30180**, qui est AUSSI `dernierThreadSain` -- le thread des appels qui reviennent. Ce thread
+// est VIVANT et il TOURNE (362 frames en 3 s). Donc l'appel n'est pas << encore en vol >> : la
+// pile est bien DEROULEE. Or sur ce thread on n'observe aucune `access-violation` (0 sur 316) et
+// aucun jet par le helper IL2CPP (`jetsVus: 0`) : le SEUL mecanisme de deroulage observe est
+// l'exception `system`, celle-la meme que le filtre jetait.
+//
+// On retient donc TOUT type pendant un cast, et on discrimine par la PILE -- qui, elle, separe
+// le `TryParse` du reste. Le type ne discrimine pas ; il ne l'a jamais fait.
+const TYPE_RETENU: string | null = null;
+
+/** La signature de pile du bruit connu (`Enum.TryParse`), en RVA. Une faute dont la pile la
+ *  contient est ECARTEE au rapport -- mais elle reste COMPTEE, et sa pile reste lisible : c'est
+ *  la difference avec un filtre qui la jetterait avant de l'avoir regardee. */
+const RVA_BRUIT_TRYPARSE = "rva:0x1f544d";
 
 const fautes: FauteNative[] = [];
 const FAUTES_MAX = 8;
@@ -336,7 +365,10 @@ function poserSeh(): boolean {
         try {
             if (!sehActif) return false;
             parType[d.type] = (parType[d.type] ?? 0) + 1;
-            if (d.type !== TYPE_RETENU) return false;
+            if (TYPE_RETENU !== null && d.type !== TYPE_RETENU) return false;
+            // HORS cast : compte seulement. C'est ce filtre-la qui porte le volume (des
+            // centaines par bataille), et il est LEGITIME : il ne jette pas sur le TYPE mais
+            // sur le CONTEXTE — un cast doit etre en cours pour que la faute nous concerne.
             if (profondeur <= 0) { fautesHorsCast++; return false; }
             fautesVues++;
             if (fautes.length >= FAUTES_MAX) return false;
@@ -355,7 +387,12 @@ function poserSeh(): boolean {
             if (dernier) { try { quoi = decrireVisuel(ptr(dernier)); } catch { quoi = null; } }
             let mod: string | null = null;
             try { mod = Process.findModuleByAddress(d.address)?.name ?? null; } catch { mod = null; }
+            // Le bruit connu est ETIQUETE, pas jete : sa pile reste lisible, donc l'etiquette
+            // se conteste. Un filtre qui l'ecarterait avant lecture reproduirait la faute
+            // exacte que ce module vient de corriger.
+            const bruitConnu = cadres.indexOf(RVA_BRUIT_TRYPARSE) >= 0;
             fautes.push({
+                bruitConnu,
                 type: d.type,
                 ou: rvaDe(d.address),
                 ouBrut: d.address.toString(),
@@ -560,4 +597,5 @@ export function register(ctx: Ctx): void {
         threadsVivants: threadsVivants(),
     });
 }
+
 
