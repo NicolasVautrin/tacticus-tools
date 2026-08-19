@@ -39,7 +39,8 @@
 // Ancre au register : ce sont des chemins FROIDS (un passage par cast d'ability), pas des
 // getters d'UI -- le depot ne proscrit que les `replace` de chemin chaud.
 
-import { findClassAnywhere, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
+import { findClassAnywhere, findMethod, getFieldOffset, il2cppBase } from "../il2cpp/helpers.js";
+import { pinnedAddress } from "../il2cpp/build-pin.js";
 import { champTexte } from "./lecture-champs.js";
 import { Ctx } from "../controller.js";
 
@@ -51,6 +52,8 @@ interface Ancre {
     methode: string;
     /** Index de l'argument qui porte le visuel d'ability, ou `null` si c'est `this` (arg 0). */
     argVisuel: number;
+    /** L'ancre la plus EXTERNE du cast — c'est elle qui porte `profondeur`. */
+    externe?: boolean;
     entrees: number;
     sorties: number;
     /** Les `this`/visuels entres et pas encore ressortis, dans l'ordre. */
@@ -65,7 +68,7 @@ const ANCRES: Ancre[] = [
         ns: "IdunBattle.View.BattleStream.GroupHandlers",
         cls: "Ability_Power_GroupHandler",
         methode: "SetupAndExecuteAbility",
-        argVisuel: 1,
+        argVisuel: 1, externe: true,
         entrees: 0, sorties: 0, enVol: [], refus: null,
     },
     {
@@ -96,6 +99,64 @@ const ANCRES: Ancre[] = [
 
 const listeners: InvocationListener[] = [];
 let ancre = false;
+
+// ------------------------------------------------- LA PILE, AU MOMENT DU JET
+//
+// L'ECART entrees/sorties dit QUEL ETAGE lache. Il ne dit pas OU dans son corps, et le
+// post-mortem ne le rendra pas : mesure du 2026-08-19, tous les deref non gardes de
+// `ParseTargetsFromQueue` ont leur donnee INTACTE apres coup, et le sous-groupe `0x3d` du
+// groupe ABANDONNE porte exactement les memes types (26 x6 + 21) que celui d'un groupe SAIN
+// de la MEME unite. La forme des donnees ne discrimine pas -> il faut la PILE.
+//
+// `exception-tracer` est aveugle ici (0 ligne sur 8 668 evenements) : un null-deref genere par
+// IL2CPP n'appelle pas `il2cpp_raise_exception`, il appelle son helper INTERNE. Cet helper n'a
+// AUCUN symbole -- c'est un placeholder `FUN_*`, sans `MethodInfo`. C'est exactement le cas que
+// `pinnedAddress` existe pour couvrir : le porteur DECLARE son build, le foyer le CONFRONTE au
+// build charge, et rend `null` en le DISANT plutot que d'attacher sur du code arbitraire.
+//
+// ARME A LA DEMANDE, et ce n'est pas de la prudence de facade : ce helper est appele pour TOUT
+// null-deref du jeu, pas seulement les notres. On ne l'ancre que le temps d'une reproduction,
+// et on ne RETIENT une pile que si un cast d'ability est en vol (`profondeur > 0`) -- sinon on
+// capturerait le bruit de tout le reste du jeu.
+
+const PIN_JET_NUL = {
+    build: "t6dpr4k06g",
+    va: 0x1801f5460,
+    symbol: "FUN_1801f5460",
+    what: "helper IL2CPP de jet -- construit l'exception puis `int 3` inatteignable ; appele a "
+        + "chaque deref non garde. AUCUN symbole : placeholder `FUN_*`, sans `MethodInfo`.",
+    how: "chercher dans le decompile d'une methode a null-checks (ex. "
+        + "`IdunBattle.View.AbilityConfigs.AbilityVisualsBase$$ParseTargetsFromQueue`) le "
+        + "`FUN_*` marque « Subroutine does not return » -- il est appele une douzaine de fois.",
+};
+
+interface Pile {
+    /** Les cadres, en RVA (jamais en VA : une VA ne survit pas au build). */
+    cadres: string[];
+    horsModule: number;
+    /** Ce qui etait en vol au moment du jet, pour rattacher la pile a une ability. */
+    enVol: Record<string, unknown> | null;
+}
+
+const piles: Pile[] = [];
+const PILES_MAX = 8;
+let listenerJet: InvocationListener | null = null;
+let refusJet: string | null = null;
+let jetsVus = 0;
+
+/** Profondeur de cast d'ability en cours — portee par l'ancre la plus EXTERNE
+ *  (`SetupAndExecuteAbility`), donc elle couvre `Init` ET `ParseTargetsFromQueue`. */
+let profondeur = 0;
+
+function rvaDe(a: NativePointer): string | null {
+    try {
+        const d = a.sub(il2cppBase);
+        const n = d.toUInt32();
+        // Un cadre hors du module rend un delta absurde : le COMPTER, pas l'inventer.
+        if (d.compare(ptr(0)) < 0 || n > 0x8000000) return null;
+        return "rva:0x" + n.toString(16);
+    } catch { return null; }
+}
 
 /** Le groupe porte par un visuel, NOMME. `null` quand le champ n'est pas encore pose --
  *  ce qui est le cas normal a l'ENTREE d'`Init`, et c'est pour ca qu'on relit au rapport. */
@@ -138,11 +199,13 @@ function ancrer(): void {
             listeners.push(Interceptor.attach(mi.ptr, {
                 onEnter(args) {
                     a.entrees++;
+                    if (a.externe) profondeur++;
                     try { a.enVol.push(args[a.argVisuel].toString()); }
                     catch { a.enVol.push("<argument illisible>"); }
                 },
                 onLeave() {
                     a.sorties++;
+                    if (a.externe && profondeur > 0) profondeur--;
                     // Le deroulage d'exception SAUTE ce bloc : ce qui reste dans `enVol` est
                     // exactement ce qui n'est jamais revenu.
                     a.enVol.pop();
@@ -152,6 +215,45 @@ function ancrer(): void {
             a.refus = (e as Error).message;
         }
     }
+}
+
+/** L'ancrage du helper de jet. Rendu SEPAREMENT du reste : il est armable, et son refus doit
+ *  se lire (build qui a bouge -> `pinnedAddress` rend `null` en le disant). */
+function armerJet(armer: boolean): { ok: boolean; arme: boolean; error?: string } {
+    if (!armer) {
+        if (listenerJet) { listenerJet.detach(); listenerJet = null; }
+        return { ok: true, arme: false };
+    }
+    if (listenerJet) return { ok: true, arme: true };
+    const p = pinnedAddress(PIN_JET_NUL);
+    if (p === null) {
+        refusJet = "adresse epinglee REFUSEE -- cf. `nameResolutionStatus.pinnedAddressRefusals`";
+        return { ok: false, arme: false, error: refusJet };
+    }
+    refusJet = null;
+    listenerJet = Interceptor.attach(p, {
+        onEnter() {
+            // Le helper tire pour TOUT le jeu. On ne retient que ce qui tombe PENDANT un cast.
+            if (profondeur <= 0) return;
+            jetsVus++;
+            if (piles.length >= PILES_MAX) return;
+            let cadres: string[] = [];
+            let horsModule = 0;
+            try {
+                for (const a of Thread.backtrace(this.context, Backtracer.ACCURATE)) {
+                    const r = rvaDe(a);
+                    if (r === null) { horsModule++; continue; }
+                    cadres.push(r);
+                }
+            } catch (e) { cadres = ["<pile illisible : " + (e as Error).message + ">"]; }
+            const ext = ANCRES.find((a) => a.externe);
+            const dernier = ext && ext.enVol.length ? ext.enVol[ext.enVol.length - 1] : null;
+            let quoi: Record<string, unknown> | null = null;
+            if (dernier) { try { quoi = decrireVisuel(ptr(dernier)); } catch { quoi = null; } }
+            piles.push({ cadres, horsModule, enVol: quoi });
+        },
+    });
+    return { ok: true, arme: true };
 }
 
 export function register(ctx: Ctx): void {
@@ -165,9 +267,18 @@ export function register(ctx: Ctx): void {
      *
      *  `ecart == 0` PARTOUT alors que la file est bloquee refute l'hypothese du jet -- et c'est
      *  une reponse, pas un echec du capteur. */
+    /** ARMER la capture de PILE au moment du jet. Ecrit RIEN dans le jeu (un `attach` en
+     *  `onEnter` pur), mais s'arme explicitement : le helper vise est appele pour TOUT
+     *  null-deref du jeu, pas seulement les notres. */
+    ctx.rpc.visuelAbandonnePile = (body?: { armer?: boolean }): unknown => {
+        const r = body?.armer === false ? armerJet(false) : armerJet(true);
+        return { ...r, jetsVus, piles: piles.length, plafond: PILES_MAX, refus: refusJet };
+    };
+
     ctx.rpc.visuelAbandonneEtat = (): unknown => ({
         ok: true,
         ancre,
+        jet: { arme: listenerJet !== null, refus: refusJet, jetsVus, piles },
         etages: ANCRES.map((a) => ({
             symbole: a.symbole,
             refus: a.refus,
