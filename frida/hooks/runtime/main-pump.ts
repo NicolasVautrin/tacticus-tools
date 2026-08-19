@@ -24,6 +24,64 @@ import { install } from "../game/recorder.js";
 import { clearTraceOrigin } from "../game/trace-origin.js";
 import { log, traceEnter } from "./diag.js";
 
+// ------------------------------------------------------------- TRANSPARENCE
+//
+// LES DEUX POMPES *REMPLACENT* `Update` — la frame du jeu n'a donc lieu QUE SI notre
+// JS atteint `origUpdate`. Toute faute au-dessus (lecture d'un champ sur un `self`
+// invalide, SEH d'un invoke IL2CPP qui remonte de `drainPending`) SUPPRIME une frame
+// entière de la vue de bataille. Et elle la supprime EN SILENCE : Frida n'émet qu'un
+// `Error: system error` sur le canal `error` de la session, qui n'est ni journalisé
+// par défaut (`/api/admin/inject` ne passe pas de `logDir`) ni relu par personne — il
+// ne vit que dans l'anneau WebSocket du host.
+//
+// Mesuré le 2026-08-19 sur la session 41 : TROIS frames ainsi supprimées, trouvées
+// seulement en vidant cet anneau à la main. Le relais est donc désormais
+// INCONDITIONNEL — notre code ne peut plus décider que le jeu ne tourne pas.
+//
+// Ce qui reste volontairement NON attrapé : une faute DANS `origUpdate`, qui est
+// celle du jeu. L'avaler la rendrait invisible alors que c'est le seul cas où le
+// message de Frida désigne vraiment un problème du jeu.
+//
+// La faute est NOMMÉE et DÉDOUBLONNÉE : à 60 frames/s, une faute permanente émettrait
+// 60 messages par seconde et noierait le canal qu'on essaie justement de rendre
+// lisible. On n'émet qu'à la PREMIÈRE occurrence, et on garde le compte et les bornes,
+// relus par le RPC `pumpFaults`.
+
+export interface PumpFault {
+    pump: string;
+    message: string;
+    count: number;
+    firstFrame: number;
+    lastFrame: number;
+}
+
+const pumpFaults = new Map<string, PumpFault>();
+
+function noteFault(pump: string, e: unknown): void {
+    try {
+        const message = (e as Error)?.message ?? String(e);
+        const key = pump + " | " + message;
+        let f = pumpFaults.get(key);
+        if (!f) {
+            f = {
+                pump, message, count: 0,
+                firstFrame: state.frameNo, lastFrame: state.frameNo,
+            };
+            pumpFaults.set(key, f);
+            send({ t: "diag", msg: "[" + pump + "] faute AVANT relais — frame du jeu "
+                + "PRESERVEE : " + message });
+        }
+        f.count++;
+        f.lastFrame = state.frameNo;
+    } catch { /* le signalement ne doit JAMAIS empêcher le relais */ }
+}
+
+/** Les fautes retenues par les pompes, pour que « ça a sauté une frame » soit une
+ *  MESURE et pas une trace perdue dans un anneau. Vide = aucune faute depuis l'inject. */
+export function pumpFaultList(): PumpFault[] {
+    return [...pumpFaults.values()];
+}
+
 function drainPending(): void {
     while (state.pending.length > 0) {
         const req = state.pending.shift()!;
@@ -61,8 +119,9 @@ export function installMainPump(): void {
         updateMi.ptr, "void", ["pointer", "pointer"]);
 
     Interceptor.replace(updateMi.ptr, new NativeCallback(function (self, methodInfo) {
-        traceEnter("IdunGameViews.Update", 60);
         const selfPtr = self as NativePointer;
+        try {
+        traceEnter("IdunGameViews.Update", 60);
 
         // Runner switch detection — handle three transitions:
         //   null → r       (battle started)
@@ -104,7 +163,9 @@ export function installMainPump(): void {
 
         state.frameNo++;
         drainPending();
+        } catch (e) { noteFault("main-pump", e); }
 
+        // RELAIS INCONDITIONNEL — cf. TRANSPARENCE en tête de fichier.
         origUpdate(selfPtr, methodInfo as NativePointer);
     }, "void", ["pointer", "pointer"]));
 }
@@ -123,9 +184,13 @@ export function installMenuPump(): void {
         mi.ptr, "void", ["pointer", "pointer"]);
 
     Interceptor.replace(mi.ptr, new NativeCallback(function (self, methodInfo) {
-        traceEnter("UnityFreezeDetector.Update", 60);
-        state.frameNo++;
-        drainPending();
+        try {
+            traceEnter("UnityFreezeDetector.Update", 60);
+            state.frameNo++;
+            drainPending();
+        } catch (e) { noteFault("menu-pump", e); }
+
+        // RELAIS INCONDITIONNEL — cf. TRANSPARENCE en tête de fichier.
         origUpdate(self as NativePointer, methodInfo as NativePointer);
     }, "void", ["pointer", "pointer"]));
     log("[menu-pump] attached (via replace) to UnityFreezeDetector.Update");

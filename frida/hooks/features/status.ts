@@ -15,6 +15,7 @@ import { runnerOff } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
 import { install, ensureInstalled } from "../game/recorder.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { pumpFaultList } from "../runtime/main-pump.js";
 import { armedStatusAll, ALL_TRACE_KINDS } from "../game/armed-runners.js";
 import { Ctx } from "../controller.js";
 
@@ -45,6 +46,22 @@ export function register(ctx: Ctx): void {
     ctx.rpc.traceArmedStatus = (): unknown => ({
         ok: true, kinds: ALL_TRACE_KINDS, armed: armedStatusAll(),
     });
+
+    /** LES FRAMES QUE NOTRE PROPRE CODE A FAILLI SUPPRIMER (cf. TRANSPARENCE dans
+     *  `runtime/main-pump.ts`). Les pompes remplacent `Update` : une faute au-dessus du
+     *  relais coûtait une frame entière de vue de bataille, et n'apparaissait QUE dans
+     *  l'anneau WebSocket du host — trois occurrences ainsi passées inaperçues le
+     *  2026-08-19. `faults: []` veut dire mesuré et vierge, jamais « pas regardé ».
+     *  Read-only. */
+    ctx.rpc.pumpFaults = (): unknown => {
+        const faults = pumpFaultList();
+        return {
+            ok: true,
+            faults,
+            total: faults.reduce((n, f) => n + f.count, 0),
+            frameNo: state.frameNo,
+        };
+    };
 
     ctx.rpc.info = () => ({
         name: "frida",
