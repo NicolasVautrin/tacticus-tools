@@ -1,12 +1,13 @@
 #!/usr/bin/env python
-"""#254-bc -- LE BLOC `Units` DU SEED BC EST PERIME, et son silence a coute un rouge mal attribue.
+"""#254-bc -- LE BLOC `Units` DU SEED BC N'EST PAS RATTRAPE, et son silence a coute un rouge mal
+attribue.
 
 CE QUE CE PROBE MESURE (100 % OFFLINE, aucun runner, aucun RPC) :
 
-  etape 1  PEREMPTION -- quelles entrees de `data/seed-bc.json::Units` le gameconfig VIVANT ne
-           rebatirait plus a l'identique, champ par champ.
-  etape 2  ATTRIBUTION -- pourquoi c'est la CAPTURE qui est en arriere, et non la synthese qui
-           invente : les DEUX tables d'enum versionnees et le gameconfig vivant.
+  etape 1  ECART -- quelles entrees de `data/seed-bc.json::Units` la synthese depuis le gameconfig
+           ne rebatit pas a l'identique, champ par champ.
+  etape 2  ATTRIBUTION -- a QUOI cet ecart est du. Le croisement qui l'etablit, avec ses deux
+           cellules de contre-exemple.
   etape 3  VACUITE -- la moitie ABILITIES de l'ancien test etait structurellement incapable de
            rougir (elle confrontait la synthese au seed DEJA rafraichi par la synthese).
   etape 4  MUTATIONS -- les gardes de `tests/engine/runner/test_catalog_inject_offline.py`
@@ -16,18 +17,23 @@ CONTEXTE. `rl_collect_batch._load_seed_bc` rattrape DEUX des trois catalogues du
 chargement -- `BC.Abilities` (#254) et `BC.Utilities` (#27-4). Le TROISIEME, `BC.Units`, ne l'est
 pas : c'est lui que `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig` parcourt et dont
 `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` tire les passifs MONTES. Une
-entree perimee deploie donc le kit d'un ANCIEN build, sans erreur ni trace -- et c'est ce silence,
-pas la peremption elle-meme, qui a fait lire l'inertie de `MyWillBeDoneOverlord` comme un fait du
-jeu (#354, trois vecteurs de test valides supprimes, restaures par #392).
+entree qui ne correspond pas au gameconfig deploie donc un autre kit, sans erreur ni trace -- et
+c'est ce silence, pas l'ecart lui-meme, qui a fait lire l'inertie de `MyWillBeDoneOverlord` comme
+un fait du jeu (#354, trois vecteurs de test valides supprimes, restaures par #392).
 
-Le rattrapage n'est PAS fait ici : re-dumper le seed change le pool spawnable et les stats de
-reference de tous les tests live -- c'est un arbitrage (#254-bc au backlog). Ce probe MESURE et le
-test GARDE ; l'arbitrage reste ouvert.
+⚠ L'ACCUSE A CHANGE (#10039), ET C'EST LE POINT DE L'ETAPE 2. Tant que `data/seed-bc.json` etait la
+CAPTURE d'une bataille (175 entrees, figee sur `gqfc5mff6c`), l'ecart etait une PEREMPTION
+INTER-BUILD, attribuee par les deux tables d'enum versionnees : `MyWillBeDoneOverlord` absente de
+l'enum de `gqfc5mff6c`, donc le gameconfig de ce build ne POUVAIT pas l'attribuer. Le fichier est
+desormais FORGE par `Idun.Source.IdunBattle.View.BattleConfigBuilder` contre le build COURANT : les
+deux cotes viennent du meme build, `necroOverlord` ne diverge plus, et cette attribution-la n'a
+plus d'objet. Ce qui reste vient de l'ETAT JOUEUR -- la fabrique enumere l'`IUnitProgression` du
+compte, donc une unite non possedee sort a Rank 0 avec ses abilities NON DEBLOQUEES.
 
     python probe_254bc_seed_bc_units_perime.py            # les 4 etapes
     python probe_254bc_seed_bc_units_perime.py --step 2   # une seule
 
-Code de sortie : 0 si tout est conforme (peremption == epingle, mutations toutes rouges), sinon
+Code de sortie : 0 si tout est conforme (ecart == epingle, mutations toutes rouges), sinon
 le nombre d'anomalies. ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
@@ -37,26 +43,12 @@ import copy
 import json
 import sys
 
-import build_pin
 import catalog_inject as CI
 import gameconfig as G
-import symbols_layout
-
-
-def build_capture() -> str:
-    """Build sur lequel `data/seed-bc.json` a ete capture (UN seul commit : `f467e649`).
-
-    Passe par le foyer `build_pin.archived_build` (#431) : il LEVE si l'archive a disparu, au lieu
-    de laisser la comparaison inter-build rendre un vide qui se lirait comme une mesure.
-    """
-    return build_pin.archived_build(
-        "gqfc5mff6c",
-        "le build de la capture data/seed-bc.json -- sa table d'enums ATTRIBUE la derive de "
-        "necroOverlord a la MAJ vers rnca9r7q6c (#254-bc)")
 
 
 def _raw_seed() -> dict:
-    """La capture BRUTE. Passer par `_load_seed_bc` la rafraichirait -- cf. etape 3."""
+    """Le catalogue BRUT. Passer par `_load_seed_bc` le rafraichirait -- cf. etape 3."""
     return json.loads(CI.SEED_BC.read_text(encoding="utf-8"))
 
 
@@ -66,73 +58,88 @@ def step_peremption() -> int:
     seed = _raw_seed()
     n, _diffs = CI.validate(seed)
     stale = CI.stale_unit_entries(seed)
-    print("[1] catalogue Units : %d entrees, %d fidele(s) a la synthese, %d perimee(s)"
+    print("[1] catalogue Units : %d entrees, %d fidele(s) a la synthese, %d avec ecart"
           % (n, n - len(stale), len(stale)))
     for uid in sorted(stale):
         for field, (synth, real) in sorted(stale[uid].items()):
-            print("    %-16s %-18s gameconfig=%r" % (uid, field, synth))
-            print("    %-16s %-18s capture   =%r" % ("", "", real))
+            print("    %-42s %-18s gameconfig=%r" % (uid, field, synth))
+            print("    %-42s %-18s catalogue =%r" % ("", "", real))
     attendu = {u: sorted(c) for u, c in CI.STALE_UNIT_ENTRIES.items()}
     obtenu = {u: sorted(c) for u, c in stale.items()}
     ko = 0 if obtenu == attendu else 1
-    print("[1] epingle STALE_UNIT_ENTRIES : %s (attendu=%r mesure=%r)"
-          % ("CONFORME" if not ko else "DIVERGE", attendu, obtenu))
+    print("[1] epingle STALE_UNIT_ENTRIES : %s (%d epinglees, %d mesurees)"
+          % ("CONFORME" if not ko else "DIVERGE", len(attendu), len(obtenu)))
+    if ko:
+        print("    NEUVES hors epingle : %r" % sorted(set(obtenu) - set(attendu)))
+        print("    epinglees RESORBEES : %r" % sorted(set(attendu) - set(obtenu)))
+        for u in sorted(set(obtenu) & set(attendu)):
+            if obtenu[u] != attendu[u]:
+                print("    CHAMPS %s : epingle=%r mesure=%r" % (u, attendu[u], obtenu[u]))
     return ko
 
 
 # --------------------------------------------------------------------------- etape 2
 
 def step_attribution() -> int:
+    """A QUOI l'ecart est-il du ? Un CROISEMENT, pas une histoire.
+
+    L'attribution INTER-BUILD (qui vivait ici) est close : `data/seed-bc.json` est forge contre le
+    build courant, donc les deux cotes du diff viennent du meme build et `necroOverlord` -- son
+    unique cas -- ne diverge plus. On le VERIFIE plutot que de le supposer : si l'ancienne derive
+    reapparaissait, ce serait un catalogue re-fige sur un vieux build, et il faudrait le relire.
+    """
     ko = 0
-    cur_name = symbols_layout.current_build()
-    cur = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType")
-    cur_tr = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait")
-    print("[2] builds versionnes : courant=%s archives=%r"
-          % (cur_name, symbols_layout.archived_builds()))
-    try:
-        capture = build_capture()
-    except build_pin.BuildPinRefused as e:
-        # On DIT qu'on ne mesure pas -- jamais un zero muet (#273).
-        print("[2] BLOQUANT : %s" % e)
-        return 1
-    if capture == cur_name:
-        print("[2] BLOQUANT : le build de reference EST le build courant (%s) -- il n'y a plus de "
-              "comparaison inter-build, donc plus d'attribution" % capture)
-        return 1
-    old = CI.enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType", capture)
-    old_tr = CI.enum_map("IdunBattle.Entities.Enum.UnitTrait", capture)
-    print("[2] TriggeredAbilityType : %s=%d membres, %s=%d membres"
-          % (capture, len(old), cur_name, len(cur)))
-    for nom in ("MyWillBeDoneOverlord", "MartialApotheosis"):
-        print("      %-22s %s=%s  %s=%s" % (nom, capture, old.get(nom), cur_name,
-                                            cur.get(nom)))
-    print("      %-22s %s=%s  %s=%s" % ("UnitTrait.Resilient", capture,
-                                        old_tr.get("Resilient"), cur_name,
-                                        cur_tr.get("Resilient")))
-    if "MyWillBeDoneOverlord" in old:
+    seed = _raw_seed()
+
+    # (a) L'ancien accuse : il ne doit plus rien expliquer.
+    stale = CI.stale_unit_entries(seed)
+    if "necroOverlord" in stale:
         ko += 1
-        print("[2] BLOQUANT : l'ability existait deja sur %s -- la derive n'est plus attribuable "
-              "a la MAJ" % capture)
-    if old_tr.get("Resilient") != cur_tr.get("Resilient"):
-        ko += 1
-        print("[2] BLOQUANT : Resilient a change d'ordinal -- la derive de trait serait un "
-              "changement d'ENUM, pas de gameconfig")
+        print("[2] BLOQUANT : `necroOverlord` diverge a nouveau (%r) -- l'attribution INTER-BUILD "
+              "redevient la bonne question, relire #254-bc avant d'epingler"
+              % sorted(stale["necroOverlord"]))
     gc = G.unit("necroOverlord") or {}
-    porteurs = []
-    idx = G._index()
-    for bucket in ("lineup", "npc", "summons"):
-        for uid, u in (idx.get(bucket) or {}).items():
-            if "MartialApotheosis" in (u.get("passiveAbilities") or []):
-                porteurs.append("%s/%s" % (bucket, uid))
-    print("[2] gameconfig VIVANT : necroOverlord.passiveAbilities=%r traits=%r"
-          % (gc.get("passiveAbilities"), gc.get("traits")))
-    print("[2] gameconfig VIVANT : porteurs de MartialApotheosis = %r (config d'ability encore "
-          "presente : %s)" % (porteurs, G.ability("MartialApotheosis") is not None))
-    if gc.get("passiveAbilities") != ["MyWillBeDoneOverlord"]:
+    print("[2] ancien accuse : necroOverlord divergent=%s (gameconfig passiveAbilities=%r)"
+          % ("necroOverlord" in stale, gc.get("passiveAbilities")))
+
+    # (b) L'accuse d'aujourd'hui : l'ETAT JOUEUR, etabli par croisement sur les `lineup`.
+    tab = CI.player_state_gap(seed)
+    vides_div = tab.get((True, True), [])
+    pleines_ok = tab.get((False, False), [])
+    contre_a = tab.get((True, False), [])
+    contre_b = tab.get((False, True), [])
+    print("[2] croisement (BC abilities vides) x (divergente) sur les lineup :")
+    print("      vide=True  div=True   %4d      vide=True  div=False  %4d  <- contre-exemple"
+          % (len(vides_div), len(contre_a)))
+    print("      vide=False div=False  %4d      vide=False div=True   %4d  <- contre-exemple"
+          % (len(pleines_ok), len(contre_b)))
+    if contre_a or contre_b:
         ko += 1
-        print("[2] BLOQUANT : le kit vivant de necroOverlord a change -- relire avant d'epingler")
-    print("[2] verdict : la CAPTURE est en arriere (le gameconfig de %s ne POUVAIT pas attribuer "
-          "une ability absente de son propre enum)" % capture)
+        print("[2] BLOQUANT : une cellule de contre-exemple est NON VIDE -- l'ecart n'est pas "
+              "(seulement) l'etat joueur : %r / %r" % (contre_a[:5], contre_b[:5]))
+    if not vides_div or not pleines_ok:
+        ko += 1
+        print("[2] BLOQUANT : croisement DEGENERE (une cellule pleine est vide) -- il ne prouve "
+              "rien")
+
+    # (c) La synthese n'invente pas : le gameconfig porte bien le kit qui manque au catalogue.
+    sans_kit = [u for u in vides_div
+                if not ((G.unit(u.split(":")[0]) or {}).get("activeAbilities")
+                        or (G.unit(u.split(":")[0]) or {}).get("passiveAbilities"))]
+    if sans_kit:
+        ko += 1
+        print("[2] BLOQUANT : %r n'ont AUCUN kit au gameconfig -- ce n'est alors pas de l'etat "
+              "joueur" % sans_kit[:5])
+
+    # (d) Le RANG ne suffirait pas comme critere : on le MESURE, pour que personne ne s'y fie.
+    lineup = set(G._index()["lineup"])
+    rank0 = [u["Id"] for u in seed["Units"]
+             if u["Id"].split(":")[0] in lineup and int(u.get("Rank") or 0) == 0]
+    print("[2] critere REFUTE : %d entrees lineup sont a Rank 0, dont %d seulement divergent "
+          "(ex. non divergente : %r)"
+          % (len(rank0), len([u for u in rank0 if u in stale]),
+             next((u for u in rank0 if u not in stale), None)))
+    print("[2] verdict : l'ecart est l'ETAT JOUEUR (abilities non debloquees), 0 contre-exemple")
     return ko
 
 
@@ -147,17 +154,28 @@ def step_vacuite() -> int:
     derivees = sorted({n for rows in d_raw.values() for n, _s, _r in rows})
     loaded = R._load_seed_bc()
     nc_l, _ni2, d_loaded = CI.validate_abilities(loaded)
-    print("[3] validate_abilities sur la capture BRUTE     : %d confrontees, %d champ(s) divergent"
+    print("[3] validate_abilities sur le catalogue BRUT    : %d confrontees, %d champ(s) divergent"
           " -- abilities=%r" % (nc_raw, len(d_raw), derivees))
     print("[3] validate_abilities sur le seed RECHARGE     : %d confrontees, %d champ(s) divergent"
           % (nc_l, len(d_loaded)))
-    vacuite = bool(derivees) and not d_loaded
-    print("[3] verdict : l'ancienne assertion `assert not adiffs` sur le seed recharge etait %s"
-          % ("VACUEUSE (elle ne pouvait pas rougir)" if vacuite else "non concluante ici"))
+    if not derivees:
+        # ⚠ Depuis #10039 le catalogue est FORGE contre le gameconfig courant : il ne DERIVE plus
+        # du tout. La vacuite ne se demontre donc plus par ce substrat -- et c'est precisement ce
+        # qui a rendu VACUEUX le test qui s'appuyait dessus (`rattrapage INERTE` passait VERT). Le
+        # test FABRIQUE desormais sa derive ; ici on se contente de DIRE que le substrat ne
+        # discrimine plus, jamais de rendre un verdict qu'on ne peut pas etablir.
+        print("[3] verdict : NON ETABLISSABLE par ce substrat -- le catalogue ne derive plus (0 "
+              "config). Toute garde qui s'appuierait sur cette derive est VACUEUSE : la FABRIQUER "
+              "(cf. `test_le_rattrapage_repare_exactement_les_configs_dability_qui_derivent`)")
+    else:
+        print("[3] verdict : l'ancienne assertion `assert not adiffs` sur le seed recharge etait %s"
+              % ("VACUEUSE (elle ne pouvait pas rougir)" if not d_loaded
+                 else "non concluante ici"))
     # Le bloc Units, LUI, traverse le chargement intact : c'est l'asymetrie qui rendait l'autre
     # moitie du meme test rouge.
-    print("[3] bloc Units : perime avant chargement=%r, apres chargement=%r (NON rattrape)"
-          % (sorted(CI.stale_unit_entries(raw)), sorted(CI.stale_unit_entries(loaded))))
+    a, b = sorted(CI.stale_unit_entries(raw)), sorted(CI.stale_unit_entries(loaded))
+    print("[3] bloc Units : %d entrees avec ecart avant chargement, %d apres -- identiques=%s "
+          "(NON rattrape)" % (len(a), len(b), a == b))
     return 0
 
 
@@ -168,30 +186,61 @@ def step_mutations() -> int:
     import tests.engine.runner.test_catalog_inject_offline as T
 
     save = {"pin": CI.STALE_UNIT_ENTRIES, "traits": CI._traits,
-            "refresh": CI.refresh_ability_configs, "build": T.build_de_la_capture,
-            "raw": T._raw_seed}
+            "refresh": CI.refresh_ability_configs, "raw": T._raw_seed,
+            "gap_lineup": CI.MISSING_LINEUP_ENTRIES, "gap_npc": CI.MISSING_NPC_ENTRIES,
+            "rapport": CI.stale_unit_report}
 
     def restore():
         CI.STALE_UNIT_ENTRIES = save["pin"]
         CI._traits = save["traits"]
         CI.refresh_ability_configs = save["refresh"]
-        T.build_de_la_capture = save["build"]
+        CI.MISSING_LINEUP_ENTRIES = save["gap_lineup"]
+        CI.MISSING_NPC_ENTRIES = save["gap_npc"]
+        CI.stale_unit_report = save["rapport"]
         T._raw_seed = save["raw"]
 
-    def raw_corrige():
+    def _une_epinglee_ab() -> str:
+        return sorted(u for u, ch in save["pin"].items()
+                      if set(ch) & {"ActiveAbilities", "PassiveAbilities"})[0]
+
+    def raw_kit_rendu():
+        """Une entree epinglee retrouve son kit -> elle sort de la cellule (vide, divergente)."""
         bc = save["raw"]()
+        uid = _une_epinglee_ab()
+        gc = G.unit(uid) or {}
+        routed = CI.route_configured_abilities(gc)
         for u in bc["Units"]:
-            if u.get("Id") == "necroOverlord":
-                u["PassiveAbilities"] = [1556]
-                u["Traits"] = ["Xenos", "Hero", "LivingMetal", "Mechanical", "Resilient"]
+            if u.get("Id") == uid:
+                u["ActiveAbilities"] = routed["ActiveAbilities"]
+                u["PassiveAbilities"] = routed["PassiveAbilities"]
+        return bc
+
+    def raw_divergente_non_vide():
+        """Une entree CONCORDANTE recoit un kit FAUX mais NON VIDE -> cellule (False, True)."""
+        bc = save["raw"]()
+        lineup = set(G._index()["lineup"])
+        for u in bc["Units"]:
+            if (u["Id"].split(":")[0] in lineup and u["Id"] not in save["pin"]
+                    and (u.get("ActiveAbilities") or u.get("PassiveAbilities"))):
+                u["ActiveAbilities"] = [999999]
+                break
+        return bc
+
+    def raw_sans_ecart():
+        """Aucune entree ne diverge -> `stale_unit_report` se TAIT, et l'asymetrie n'est plus dite."""
+        bc = save["raw"]()
+        bc["Units"] = [u for u in bc["Units"] if u.get("Id") not in save["pin"]]
         return bc
 
     vrai_traits = save["traits"]
     fidelite = T.test_la_synthese_reproduit_le_catalogue_capture_hors_derive_epinglee
     epingle = T.test_le_bloc_units_perime_est_exactement_celui_qui_est_epingle
-    attribution = T.test_la_derive_du_bloc_units_est_attribuee_a_la_migration_de_build
+    attribution = T.test_la_derive_du_bloc_units_est_attribuee_a_l_etat_joueur
     asymetrie = T.test_le_chargement_rafraichit_abilities_et_utilities_mais_PAS_units
     abilities = T.test_le_rattrapage_repare_exactement_les_configs_dability_qui_derivent
+    gap_lineup = T.test_l_ecart_d_ajout_lineup_est_exactement_celui_qui_est_epingle
+    gap_npc = T.test_l_ecart_d_ajout_npc_est_exactement_celui_qui_est_epingle
+    rapport_gap = T.test_le_rapport_d_ecart_se_TAIT_en_regime_nominal_et_PARLE_dans_les_deux_sens
 
     def pin_vide():
         CI.STALE_UNIT_ENTRIES = {}
@@ -202,14 +251,26 @@ def step_mutations() -> int:
     def synthese_amputee():
         CI._traits = lambda gc: vrai_traits(gc)[:-1]
 
-    def mauvais_build():
-        T.build_de_la_capture = symbols_layout.current_build
-
     def rattrapage_inerte():
         CI.refresh_ability_configs = lambda bc, skip=(), withhold=(): ([], [])
 
-    def capture_corrigee():
-        T._raw_seed = raw_corrige
+    def kit_rendu():
+        T._raw_seed = raw_kit_rendu
+
+    def divergente_non_vide():
+        T._raw_seed = raw_divergente_non_vide
+
+    def sans_ecart():
+        T._raw_seed = raw_sans_ecart
+
+    def rapport_muet():
+        CI.stale_unit_report = lambda bc: None
+
+    def epingle_npc_vide():
+        CI.MISSING_NPC_ENTRIES = frozenset()
+
+    def epingle_lineup_orpheline():
+        CI.MISSING_LINEUP_ENTRIES = frozenset({"zzPasUnHeros"})
 
     cas = [
         ("epingle VIDE            -> fidelite", pin_vide, fidelite),
@@ -217,9 +278,15 @@ def step_mutations() -> int:
         ("epingle VIDE            -> asymetrie", pin_vide, asymetrie),
         ("epingle ORPHELINE       -> epingle", pin_orpheline, epingle),
         ("synthese AMPUTEE        -> fidelite", synthese_amputee, fidelite),
-        ("attribution MAUVAIS BUILD -> attribution", mauvais_build, attribution),
+        ("kit RENDU a une epinglee -> attribution", kit_rendu, attribution),
+        ("divergente a kit NON VIDE -> attribution", divergente_non_vide, attribution),
         ("rattrapage INERTE       -> abilities", rattrapage_inerte, abilities),
-        ("capture CORRIGEE        -> asymetrie", capture_corrigee, asymetrie),
+        ("catalogue SANS ECART    -> asymetrie", sans_ecart, asymetrie),
+        ("rapport MUET            -> asymetrie", rapport_muet, asymetrie),
+        ("epingle npc VIDE        -> gap npc", epingle_npc_vide, gap_npc),
+        ("epingle npc VIDE        -> rapport", epingle_npc_vide, rapport_gap),
+        ("epingle lineup ORPHELINE -> gap lineup", epingle_lineup_orpheline, gap_lineup),
+        ("epingle lineup ORPHELINE -> rapport", epingle_lineup_orpheline, rapport_gap),
     ]
     ko = 0
     for nom, mutation, test in cas:
@@ -228,7 +295,10 @@ def step_mutations() -> int:
         try:
             test()
         except AssertionError as e:
-            etat, detail = "ROUGE", str(e).splitlines()[0][:80]
+            # ⚠ `str(e)` peut etre VIDE (`assert x is None` sans message) : `splitlines()[0]`
+            # levait alors IndexError et faisait passer un ROUGE pour un plantage du probe.
+            lignes = str(e).splitlines() or ["<assertion sans message>"]
+            etat, detail = "ROUGE", lignes[0][:80]
         except Exception as e:                     # pragma: no cover - diagnostic
             etat, detail = "ROUGE(exc)", "%s: %s" % (type(e).__name__, str(e)[:70])
         else:

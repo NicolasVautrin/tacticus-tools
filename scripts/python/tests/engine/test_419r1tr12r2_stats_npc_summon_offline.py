@@ -5,11 +5,19 @@ chemin ARME dans `buildNormalizedBC`, lui, exige la session live, et il est gard
 `tests/engine/test_419r1tr12r2_electro_shock_reel_live.py`, dont le montage entier repose sur le
 npc amene au pool par ce chemin (12 gardes, cf. `case-419-r1-tr12-r2-stats-npc-summon.md` §11).
 
+⚠ LE TEMOIN A CHANGE D'ECHELLE (#10039), ET IL A TROUVE DEUX DEFAUTS. `data/seed-bc.json` n'est
+plus la capture d'UNE bataille (175 entrees, 4 npc) mais un catalogue FORGE par
+`Idun.Source.IdunBattle.View.BattleConfigBuilder` : 717 entrees, dont 508 npc. Les 4 npc d'avant
+etaient tous non-MoW et tous pourvus d'un passif -- deux branches du mirror n'etaient donc JAMAIS
+confrontees, et les deux etaient fausses (branche MoW du multiplicateur, hierarchie « Secondary »
+qui n'est pas « passif »). C'est le meme regime degenere qui avait laisse passer le trait `NPC`
+pose a tout kind npc : l'accord ne prouvait rien parce qu'aucun cas discriminant n'y figurait.
+
 Ce qui est garde ici, et pourquoi :
 
-  1. le TEMOIN -- le mirror npc reproduit ce que LE JEU a ecrit dans le seed BC capture, et le
-     temoin est assertionne NON VIDE et NON NUL (un accord sur zero entree, ou sur des entrees a
-     0, serait un vert de regime degenere) ;
+  1. le TEMOIN -- le mirror npc reproduit ce que LE JEU a ecrit dans le catalogue, et le temoin
+     est assertionne NON VIDE et NON DEGENERE (un accord sur zero entree, ou sur des entrees dont
+     toutes les stats sont nulles, serait un vert de regime degenere) ;
   2. les REGLES d'indexation (`GetStatsForLevel` + `ToZeroBasedIndex` + `GetLevelFromUnitId`)
      chacune par un cas qui la fait MORDRE ;
   3. le fait que le catalogue d'un SUMMON porte 0 cote jeu -- pour qu'on ne prenne jamais le
@@ -43,19 +51,76 @@ def seed_bc() -> dict:
 
 # --------------------------------------------------------------------------- 1. le TEMOIN
 def test_temoin_npc_non_vide_et_non_nul(seed_bc):
-    """Un temoin vide ou a zero s'accorderait avec n'importe quoi : on l'assertionne d'abord."""
+    """Un temoin vide ou a zero s'accorderait avec n'importe quoi : on l'assertionne d'abord.
+
+    ⚠ « NON NUL » NE VEUT PAS DIRE « AUCUN ZERO » (#10039). L'ancienne forme exigeait
+    `min(Health) > 0` sur TOUTES les entrees npc -- vrai sur les 4 de la capture, faux sur les 508
+    du catalogue forge, dont 38 portent Health 0. Ces 38 ne sont pas un trou de mesure : ce sont
+    les objets de plateau (`LootObj_*`, `powup*`), les summons de power-up et les MoW npc, et leur
+    ligne `units.npc[id].stats[]` porte elle-meme `Health: 0` -- le mirror et le jeu sont
+    D'ACCORD dessus. Le zero est donc un FAIT du gameconfig, pas un temoin degenere. Ce qui doit
+    etre garde, et qui l'est ici : le temoin porte une masse d'entrees a Health > 0 (sinon il ne
+    discrimine rien), et AUCUNE entree ne vaut 0 sans que le gameconfig le dise.
+    """
     ents = CI.npc_entries_of(seed_bc)
-    assert ents, "aucune entree npc dans le seed BC -- le temoin serait vide"
-    hp = [int(u.get("Health") or 0) for u in ents]
-    assert min(hp) > 0, f"temoin degenere, Health={hp}"
+    assert ents, "aucune entree npc dans le catalogue -- le temoin serait vide"
+    non_nulles = [u for u in ents if int(u.get("Health") or 0) > 0]
+    assert len(non_nulles) > 100, (
+        "seules %d entrees npc portent Health > 0 sur %d : le temoin redevient degenere"
+        % (len(non_nulles), len(ents)))
+    injustifiees = []
+    for u in ents:
+        if int(u.get("Health") or 0) != 0:
+            continue
+        try:
+            attendu = int(CI.npc_stats_row(u["Id"]).get("Health") or 0)
+        except Exception as exc:                                    # pragma: no cover
+            injustifiees.append((u["Id"], "ROW-ERR %s" % exc))
+            continue
+        if attendu != 0:
+            injustifiees.append((u["Id"], attendu))
+    assert injustifiees == [], (
+        "ces entrees sortent a Health 0 alors que leur table `stats[]` donne autre chose -- "
+        "le catalogue les a mal montees, ce n'est pas le mirror : %r" % injustifiees)
 
 
 def test_mirror_npc_reproduit_ce_que_le_jeu_a_ecrit(seed_bc):
     """`catalog_inject.npc_stats` == `BC.Units[]` produit par
-    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` en bataille reelle."""
-    rows, div = CI.npc_witness_diff(seed_bc)
-    assert rows, "temoin vide"
-    assert div == 0, f"divergences: {[(u, b) for u, b in rows if b]}"
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration`.
+
+    ⚠ CE TEMOIN EST PASSE DE 4 A 508 ENTREES, ET IL A TROUVE DEUX DEFAUTS (#10039). Les 4 npc de
+    l'ancienne capture etaient tous non-MoW et tous pourvus d'un passif : deux branches du mirror
+    n'y etaient JAMAIS confrontees, et les deux etaient FAUSSES.
+      * `npc_progression_multiplier_pct` indexait `units.heroProgressionSteps` sans regarder
+        `IsMachineOfWar` -- alors que le natif choisit `unitsConfig+0x88`
+        (`heroProgressionStepsMoW`) pour un MoW. 11 entrees, 180 rendu contre 165 ecrit.
+      * `npc_stats` posait `PassiveAbilityLevel` a partir de `passiveAbilities` seul, alors que
+        `IdunMetaLogic.UserProgress.UnitProgression$$GetHierarchyForAbility` classe SECONDARY tout
+        ce qui n'est pas `BaseUnitConfigDto.PrimaryAbility` (= `activeAbilities[0]`) -- donc AUSSI
+        une deuxieme active. 12 entrees, 1 rendu contre `AbilityLevel` ecrit.
+    Effet mesure : 29 divergences -> 6, toutes sur `LootObj_CoinCrate:23` (epinglee).
+
+    Un accord obtenu sur 4 entrees ne disait rien de ces branches : c'est le meme regime degenere
+    qui a laisse passer le `NPC` pose a tout kind npc.
+    """
+    rows, _div = CI.npc_witness_diff(seed_bc)
+    assert len(rows) > 100, "temoin trop maigre (%d entrees) -- rien n'est vraiment confronte" % (
+        len(rows),)
+    assert CI.npc_witness_unpinned(seed_bc) == {}, (
+        "divergences HORS epingle : %r" % CI.npc_witness_unpinned(seed_bc))
+
+
+def test_l_epingle_du_temoin_npc_est_gardee_dans_les_DEUX_sens(seed_bc):
+    """`NPC_WITNESS_STALE` nomme des entrees que le CATALOGUE porte mal, pas des champs qu'on
+    renonce a mirrorer. Une entree qui redevient conforme doit sortir de l'epingle -- sinon
+    l'epingle se transforme en liste d'exemptions permanentes, et le mirror cesse d'etre garde
+    la-dessus sans que personne le sache."""
+    rows, _div = CI.npc_witness_diff(seed_bc)
+    mesure = {uid: sorted(bad) for uid, bad in rows if bad}
+    attendu = {uid: sorted(ch) for uid, ch in CI.NPC_WITNESS_STALE.items()}
+    assert mesure == attendu, (
+        "epingle = %r ; mesure = %r -- une entree epinglee qui n'a plus d'ecart doit etre RETIREE"
+        % (attendu, mesure))
 
 
 # ------------------------------------------------------------------- 2. les REGLES d'indexation
@@ -100,6 +165,63 @@ def test_multiplicateur_indexe_par_progression_index():
     # Deux index qui donnent des valeurs differentes : sans ca l'assertion ci-dessus serait creuse.
     vals = {CI.npc_progression_multiplier_pct(i) for i in range(len(steps))}
     assert len(vals) > 1, "le multiplicateur est constant, l'indexation n'est pas testee"
+
+
+def test_la_branche_MoW_du_multiplicateur_lit_l_AUTRE_liste():
+    """Le natif branche AVANT d'indexer :
+
+        cVar = IsMachineOfWar(unitsConfig, unitId)
+        liste = cVar == 0 ? unitsConfig+0x80 : unitsConfig+0x88
+        return liste[progressionIndex]+0x24
+
+    soit `units.heroProgressionSteps` / `units.heroProgressionStepsMoW`. Ce mirror ignorait la
+    seconde, et la capture a 4 npc (aucun MoW) ne pouvait pas le montrer.
+    """
+    steps = G._cfg()["units"]["heroProgressionSteps"]
+    mow = G._cfg()["units"]["heroProgressionStepsMoW"]
+    for i in range(min(len(steps), len(mow))):
+        assert CI.npc_progression_multiplier_pct(i, is_mow=True) == \
+            mow[i]["abilityStatMultiplierPct"], i
+    # CONTRE-EPREUVE : sans index divergent, la branche ne serait pas testable.
+    divergents = [i for i in range(min(len(steps), len(mow)))
+                  if steps[i]["abilityStatMultiplierPct"] != mow[i]["abilityStatMultiplierPct"]]
+    assert divergents, "les deux listes coincident partout -- la branche MoW n'est pas testable"
+    i = divergents[0]
+    assert CI.npc_progression_multiplier_pct(i) != CI.npc_progression_multiplier_pct(i, True)
+
+
+def test_le_niveau_SECONDAIRE_n_est_pas_le_niveau_PASSIF(seed_bc):
+    """`PassiveAbilityLevel` (`UnitConfiguration+0xbc`) vient de `GetSecondaryAbility()`, et la
+    hierarchie se lit dans
+    `IdunMetaLogic.UserProgress.UnitProgression$$GetHierarchyForAbility` : `Primary` UNIQUEMENT
+    pour `BaseUnitConfigDto.PrimaryAbility` (= `config+0x78[0]`, la 1re `activeAbilities`), tout le
+    reste du kit etant `Secondary`. Une unite a DEUX actives et ZERO passif a donc bien un niveau
+    secondaire -- ce que le mirror rendait a 1.
+
+    Le cas discriminant est DERIVE du catalogue, pas choisi a la main ; le test refuse un
+    balayage vide, sans quoi il ne prouverait rien.
+    """
+    cas = []
+    for u in CI.npc_entries_of(seed_bc):
+        gc = G.unit(u["Id"].split(":")[0]) or {}
+        if len(gc.get("activeAbilities") or []) >= 2 and not (gc.get("passiveAbilities") or []):
+            cas.append(u["Id"])
+    assert cas, "aucun npc a deux actives sans passif -- la regle n'est pas testable, le dire"
+    for uid in cas:
+        row = CI.npc_stats_row(uid)
+        ab = int(row.get("AbilityLevel") or 1)
+        got = CI.npc_stats(uid)
+        assert got["PassiveAbilityLevel"] == ab, uid
+        assert got["ActiveAbilityLevel"] == ab, uid
+    # CONTRE-BRAS : une seule active et aucun passif -> AUCUNE secondaire, donc le defaut 1.
+    solo = [u["Id"] for u in CI.npc_entries_of(seed_bc)
+            if len((G.unit(u["Id"].split(":")[0]) or {}).get("activeAbilities") or []) == 1
+            and not ((G.unit(u["Id"].split(":")[0]) or {}).get("passiveAbilities") or [])]
+    assert solo, "aucun npc a une seule active -- le contre-bras est vide"
+    discriminant = [uid for uid in solo if int(CI.npc_stats_row(uid).get("AbilityLevel") or 1) > 1]
+    assert discriminant, "tous les solo sont a AbilityLevel 1 : 1 et `ab` coincident, pas de bras"
+    for uid in discriminant:
+        assert CI.npc_stats(uid)["PassiveAbilityLevel"] == 1, uid
 
 
 # --------------------------------------------------------- 3. le catalogue SUMMON porte 0

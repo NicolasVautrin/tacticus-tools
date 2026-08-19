@@ -76,24 +76,69 @@ def _hdr(n: int, title: str) -> None:
 
 # --------------------------------------------------------------------------- etage 1
 def etape1_temoin(seed: dict) -> int:
-    _hdr(1, "TEMOIN NON NUL : le mirror npc contre ce que LE JEU a ecrit")
+    """⚠ CE TEMOIN EST PASSE DE 4 A 508 ENTREES (#10039), ET IL A TROUVE DEUX DEFAUTS.
+
+    `data/seed-bc.json` n'est plus la capture d'UNE bataille mais un catalogue FORGE par
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder`. Les 4 npc d'avant etaient tous non-MoW et
+    tous pourvus d'un passif : deux branches du mirror n'y etaient JAMAIS confrontees, et les deux
+    etaient FAUSSES (branche MoW de `npc_progression_multiplier_pct`, hierarchie « Secondary » de
+    `npc_stats`). 29 divergences -> 6 apres correctif.
+
+    DEUX CRITERES ONT DU CHANGER, ET AUCUN N'A ETE AFFAIBLI :
+      * `min(Health) > 0` sur TOUTES les entrees etait vrai sur 4 npc, faux sur 508 : 38 portent
+        Health 0 parce que leur ligne `units.npc[id].stats[]` porte elle-meme 0 (`LootObj_*`,
+        `powup*`, MoW npc). Le zero est un FAIT du gameconfig, pas un temoin degenere -- ce qu'il
+        faut garder, c'est qu'AUCUN zero ne soit injustifie, et que la masse non nulle reste
+        grosse ;
+      * `div == 0` accusait le mirror pour `LootObj_CoinCrate:23`, une entree que la FORGE produit
+        fautive (cf. `catalog_inject.NPC_WITNESS_STALE`). L'epingle est gardee dans les deux sens.
+    """
+    _hdr(1, "TEMOIN NON DEGENERE : le mirror npc contre ce que LE JEU a ecrit")
     rows, div = CI.npc_witness_diff(seed)
     for uid, bad in rows:
-        print(("  OK   " if not bad else "  DIFF ") + uid
-              + ("" if not bad else "  " + json.dumps(bad, sort_keys=True)))
+        if bad:
+            print("  DIFF " + uid + "  " + json.dumps(bad, sort_keys=True))
     n_champs = len(rows) * len(CI.NPC_WITNESS_FIELDS)
     print(f"  npc confrontes = {len(rows)}  champs = {n_champs}  divergences = {div}")
     if not rows:
-        print("  ECHEC : temoin VIDE -- aucun npc dans ce seed BC, rien n'a ete confronte")
+        print("  ECHEC : temoin VIDE -- aucun npc dans ce catalogue, rien n'a ete confronte")
         return 1
-    # Le temoin doit AUSSI etre non nul en VALEUR : quatre entrees a 0 s'accorderaient
-    # parfaitement avec un mirror qui rend 0, et ne prouveraient rien (regime degenere).
-    hp = [int(u.get("Health") or 0) for u in CI.npc_entries_of(seed)]
-    print(f"  Health des entres temoin = {hp}")
-    if min(hp) <= 0:
-        print("  ECHEC : au moins un temoin porte Health=0 -- regime degenere")
-        return 1
-    return 0 if div == 0 else 1
+    ko = 0
+    # (a) le temoin doit rester non degenere EN MASSE : un mirror qui rendrait 0 partout
+    #     s'accorderait parfaitement avec un temoin integralement nul.
+    ents = CI.npc_entries_of(seed)
+    non_nuls = [u for u in ents if int(u.get("Health") or 0) > 0]
+    print(f"  entrees a Health > 0 : {len(non_nuls)} / {len(ents)}")
+    if len(non_nuls) <= 100:
+        print("  ECHEC : trop peu de temoins non nuls -- regime degenere")
+        ko = 1
+    # (b) ... et chaque zero doit etre DIT par le gameconfig, jamais subi.
+    injustifies = []
+    for u in ents:
+        if int(u.get("Health") or 0) != 0:
+            continue
+        try:
+            attendu = int(CI.npc_stats_row(u["Id"]).get("Health") or 0)
+        except Exception as exc:
+            injustifies.append((u["Id"], f"ROW-ERR {exc}"))
+            continue
+        if attendu != 0:
+            injustifies.append((u["Id"], attendu))
+    if injustifies:
+        print(f"  ECHEC : {len(injustifies)} entree(s) a Health 0 que la table `stats[]` "
+              f"contredit -- le catalogue les a mal montees : {injustifies[:5]}")
+        ko = 1
+    # (c) les divergences restantes doivent etre EXACTEMENT l'epingle, dans les deux sens.
+    mesure = {uid: sorted(bad) for uid, bad in rows if bad}
+    attendu_pin = {uid: sorted(ch) for uid, ch in CI.NPC_WITNESS_STALE.items()}
+    if mesure != attendu_pin:
+        print(f"  ECHEC : divergences != NPC_WITNESS_STALE -- epingle={attendu_pin} "
+              f"mesure={mesure}")
+        ko = 1
+    else:
+        print(f"  divergences EXACTEMENT epinglees ({len(mesure)} entree(s)) : "
+              f"{sorted(mesure)}")
+    return ko
 
 
 # --------------------------------------------------------------------------- etage 2
