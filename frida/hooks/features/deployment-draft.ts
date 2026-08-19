@@ -2934,17 +2934,46 @@ function rejouerLaMoW(m: PoseMoW): void {
         if ("ok" in v) {
             return { ok: false, error: "aucune `IdunGameViews` joignable -- " + v.error };
         }
-        const k = findClassAnywhere(NS_VIEWS, CLS_VIEWS);
-        const mi = k ? findMethodByParamCount(k, "AddPlaceholderMachine", 4) : null;
-        if (!mi) return { ok: false, error: "`AddPlaceholderMachine` INTROUVABLE (4 paramètres)" };
+        // ⚠ ON PASSE PAR L'ÉTAGE FSM, PAS PAR LA VUE — et c'est mesuré.
+        //
+        // `IdunGameViews$$AddPlaceholderMachine` ne pose qu'un PLACEHOLDER DE VUE. Le commit du
+        // déploiement (`UnitDeploymentHud$$HandleOnStartBattleTapped`) ne le trouve alors PAS
+        // là où il le cherche et CRASHE en « system error » — mesuré le 2026-08-19 : START
+        // lève avec la MoW reposée par la vue, et PASSE sans elle, toutes gardes identiques
+        // (`+0x22c`=0, source et callbacks non nuls, 5 unités posées).
+        //
+        // Le clic humain, lui, passe par `StateMachineActions$$UnitDeployment_PlaceMachineOfWarUnitOnBoard`
+        // — le pendant MoW de `UnitDeployment_PlaceUnitOnBoard`, et c'est exactement ce que
+        // notre propre capteur ancre pour REMPLIR `memoireMoW`. On invoque donc la même chose
+        // qu'on observe : le porteur est `IdunGameViews._stateMachineActions`.
+        const kam = findClassAnywhere("IdunBattle.View.FSM", "StateMachineActions");
+        const mi = kam
+            ? findMethodByParamCount(kam, "UnitDeployment_PlaceMachineOfWarUnitOnBoard", 4)
+            : null;
+        if (!mi) {
+            return { ok: false,
+                     error: "`UnitDeployment_PlaceMachineOfWarUnitOnBoard` INTROUVABLE "
+                         + "(4 paramètres)" };
+        }
+        let actions: NativePointer;
         try {
-            // `isManual` et `position` sont des types VALEUR : on transmet l'ADRESSE de la
-            // valeur, jamais la valeur elle-même (cf. le correctif `GetUnitModel`).
+            const off = getFieldOffset(v.vues.readPointer(), "_stateMachineActions");
+            if (off < 0) return { ok: false, error: "`_stateMachineActions` ABSENT de ce build" };
+            actions = v.vues.add(off).readPointer();
+        } catch (e) { return { ok: false, error: "`_stateMachineActions` ILLISIBLE : " + (e as Error).message }; }
+        if (actions.isNull()) {
+            return { ok: false, error: "`_stateMachineActions` NUL -- la phase de déploiement "
+                + "n'est pas montée. Ce n'est PAS « pas de MoW »." };
+        }
+        try {
+            // `isManual`, `playerId` et `position` sont des types VALEUR : on transmet
+            // l'ADRESSE de la valeur, jamais la valeur elle-même.
             const manuel = Memory.alloc(1); manuel.writeU8(1);
             const pid = Memory.alloc(4); pid.writeS32(m.playerId);
             const pos = Memory.alloc(4); pos.writeS32(m.position);
-            invokeMethod(mi.info, v.vues, [createManagedString(m.unitId), manuel, pid, pos]);
-            return { ok: true, unitId: m.unitId, vue: v.vues.toString(), source: v.source };
+            invokeMethod(mi.info, actions, [createManagedString(m.unitId), manuel, pid, pos]);
+            return { ok: true, unitId: m.unitId, actions: actions.toString(),
+                     vue: v.vues.toString(), source: v.source, voie: "étage FSM" };
         } catch (e) { return { ok: false, error: "LEVÉ : " + (e as Error).message }; }
     }).then((r) => {
         const rr = r as { ok?: boolean; error?: string; source?: string };
@@ -3406,6 +3435,73 @@ export function register(ctx: Ctx): void {
         if (r !== true) return r;
         return { ok: true, arme: true,
                  note: "appuyer sur START, puis relire ce RPC sans argument" };
+    };
+
+    /**
+     * APPUYER SUR START — `idun.ui.UnitDeploymentHud$$HandleOnStartBattleTapped(success)`.
+     *
+     * ⚠ POURQUOI CE POINT-LA, ET PAS `UnitDeploymentState$$StartBattle`. Ce dernier prend la
+     * LISTE des unités posées, que le HUD construit lui-même : la fabriquer à la main, c'est
+     * inventer ce que l'écran sait produire. Le handler du bouton, lui, filtre
+     * (`_placedUnits.FindAll(predicate)`), mappe, puis relaie au slot 3 de son
+     * `_callbacksDelegate` — donc UNE invocation reproduit exactement le clic.
+     *
+     * ⚠ C'EST CE PASSAGE QUI CRÉE LA MoW. Mesuré le 2026-08-19 : après un START joué à la main,
+     * les pas produits sont `AddMachineMessage` (2 271 car.) puis `StartBattleMessage`
+     * (11 980 car.) — les DEUX valeurs de la référence, au caractère. Le placeholder de vue ne
+     * suffit pas, `applyAddMachine` crashe : le START est la seule voie juste.
+     *
+     * ⛔ ÉCRITURE. Les trois gardes du décompilé sont LUES ET RENDUES avant l'appel — un refus
+     * silencieux du natif se lirait sinon comme « ça n'a rien fait, réessaie ».
+     */
+    ctx.rpc.deploymentStartInvoquer = (body?: { confirmer?: boolean }):
+        Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return refus("ECRITURE -- exige `confirmer: true`. Ce RPC APPUIE SUR START : il "
+                + "commit le déploiement (MoW comprise) et DÉMARRE la bataille.");
+        }
+        return queueOnMainThread((): Record<string, unknown> => {
+            if (hudInstance === null || hudInstance.isNull()) {
+                return { ok: false, error: "aucun `UnitDeploymentHud` capturé -- le HUD ne "
+                    + "s'attrape qu'à son `Show`, donc à l'AFFICHAGE de la phase de "
+                    + "déploiement. Ce n'est PAS « zéro unité »." };
+            }
+            const k = findClassAnywhere(NS_HUD, CLS_HUD);
+            const mi = k ? findMethodByParamCount(k, "HandleOnStartBattleTapped", 1) : null;
+            if (!mi) {
+                return { ok: false,
+                         error: "`HandleOnStartBattleTapped` INTROUVABLE (1 paramètre)" };
+            }
+            // Les gardes, dans l'ordre du décompilé. Offsets de CHAMP, lus avant d'écrire.
+            const gardes: Record<string, unknown> = {};
+            try {
+                gardes.bloque_0x22c = hudInstance.add(0x22c).readU8();
+                gardes.source_0x1a8 = hudInstance.add(0x1a8).readPointer().toString();
+                gardes.callbacks_0x1b0 = hudInstance.add(0x1b0).readPointer().toString();
+                const l = hudInstance.add(0x1b8).readPointer();
+                gardes.posees_0x1b8 = l.isNull() ? null : tailleListe(l);
+            } catch (e) { gardes.erreur = (e as Error).message; }
+            if (gardes.bloque_0x22c !== 0) {
+                return { ok: false, gardes,
+                         error: "le HUD REFUSE (`+0x22c` non nul) -- START est déjà consommé "
+                             + "ou verrouillé ; l'appeler ne ferait rien." };
+            }
+            if (gardes.callbacks_0x1b0 === "0x0" || gardes.source_0x1a8 === "0x0") {
+                return { ok: false, gardes,
+                         error: "relais ou source NULS -- le natif LÈVE sur ce chemin." };
+            }
+            try {
+                // `success` est un booléen : type VALEUR, donc on transmet son ADRESSE.
+                const vrai = Memory.alloc(1); vrai.writeU8(1);
+                invokeMethod(mi.info, hudInstance, [vrai]);
+            } catch (e) {
+                return { ok: false, gardes, error: "LEVÉ : " + (e as Error).message };
+            }
+            return { ok: true, gardes, hud: hudInstance.toString(),
+                     note: "l'appel est passé -- ça ne dit RIEN du démarrage. Le vérifier par "
+                         + "`replaySteps` (on attend `AddMachineMessage` puis "
+                         + "`StartBattleMessage`) et par `battleStatus.stageName == Running`." };
+        });
     };
 
     ctx.rpc.deploymentBoutonMarquer = (body?: { confirmer?: boolean }):

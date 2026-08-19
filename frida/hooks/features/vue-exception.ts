@@ -160,19 +160,7 @@ function drapeauxDe(vues: NativePointer): Record<string, unknown> {
  * decompile, et ce nom est RENDU -- si le build deplace le champ, on le voit au lieu de lire un
  * voisin en silence. On publie donc la CARTE des champs pointeur, pas une valeur isolee.
  */
-function porteDe(vues: NativePointer, joueur: number | null): Record<string, unknown> {
-    let klass: NativePointer;
-    try { klass = vues.readPointer(); }
-    catch (e) { return { erreur: "classe illisible : " + (e as Error).message }; }
-
-    // LA CARTE COMPLETE, pas une selection d'offsets.
-    //
-    // ⚠ POURQUOI TOUT, ET PAS LES DEUX CHAMPS QU'ON CROIT UTILES. `Update` traverse QUATRE
-    // gardes avant d'appeler `QueueComputerActions`, et deux d'entre elles LEVENT sur un champ
-    // nul (`+0xe8`, `+0x170` = `StateMachineActions`). Publier deux offsets choisis obligeait a
-    // un rebuild+reinject par hypothese ; la carte se lit une fois et repond a toutes.
-    // On rend l'octet ET le pointeur : un drapeau et une reference ne se lisent pas pareil, et
-    // c'est au lecteur de savoir lequel a un sens pour le champ qu'il regarde.
+function carteDesChamps(obj: NativePointer, klass: NativePointer): Array<Record<string, unknown>> {
     const champs: Array<Record<string, unknown>> = [];
     let k: NativePointer = klass;
     while (!k.isNull()) {
@@ -185,14 +173,33 @@ function porteDe(vues: NativePointer, joueur: number | null): Record<string, unk
             if (off <= 0) continue;
             let ptrV: string | null = null;
             let octet: number | null = null;
-            try { ptrV = vues.add(off).readPointer().toString(); } catch { ptrV = null; }
-            try { octet = vues.add(off).readU8(); } catch { octet = null; }
+            let entier: number | null = null;
+            try { ptrV = obj.add(off).readPointer().toString(); } catch { ptrV = null; }
+            try { octet = obj.add(off).readU8(); } catch { octet = null; }
+            try { entier = obj.add(off).readS32(); } catch { entier = null; }
             champs.push({ nom, offset: off, hex: "0x" + off.toString(16),
-                          pointeur: ptrV, octet });
+                          pointeur: ptrV, octet, entier });
         }
         k = class_get_parent(k) as NativePointer;
     }
     champs.sort((a, b) => (a.offset as number) - (b.offset as number));
+    return champs;
+}
+
+function porteDe(vues: NativePointer, joueur: number | null): Record<string, unknown> {
+    let klass: NativePointer;
+    try { klass = vues.readPointer(); }
+    catch (e) { return { erreur: "classe illisible : " + (e as Error).message }; }
+
+    // LA CARTE COMPLETE, pas une selection d'offsets.
+    //
+    // ⚠ POURQUOI TOUT, ET PAS LES DEUX CHAMPS QU'ON CROIT UTILES. `Update` traverse QUATRE
+    // gardes avant d'appeler `QueueComputerActions`, et deux d'entre elles LEVENT sur un champ
+    // nul (`+0xe8`, `+0x170` = `StateMachineActions`). Publier deux offsets choisis obligeait a
+    // un rebuild+reinject par hypothese ; la carte se lit une fois et repond a toutes.
+    // On rend l'octet, l'entier ET le pointeur : un drapeau, un compteur et une reference ne se
+    // lisent pas pareil, et c'est au lecteur de savoir lequel a un sens pour SON champ.
+    const champs = carteDesChamps(vues, klass);
 
     // `IsPlayerAiControlled` : une LECTURE (aucune ecriture), donc invocable sans danger.
     let aiControlled: unknown = "NON MESURE";
@@ -323,6 +330,38 @@ export function register(ctx: Ctx): void {
         return { ...base, nbVues: r.vues.length, ecartees: r.ecartees,
                  vues: r.vues.map((p) => ({ instance: p.toString(), drapeaux: drapeauxDe(p),
                                             porte: porteDe(p, j) })) };
+    };
+
+    /**
+     * LA CARTE DES CHAMPS DE N'IMPORTE QUEL OBJET GERE, par son adresse. LECTURE PURE.
+     *
+     * ⚠ POURQUOI UN LECTEUR GENERIQUE. Chaque question de la forme << pourquoi cet objet ne
+     * fait-il rien ? >> se resout en lisant SES champs -- et jusqu'ici chacune coutait un
+     * rebuild + un reinject, donc la perte de la bataille montee. Une carte generique repond a
+     * toutes sans nouvelle fenetre. Le nom de la classe est RENDU : lire une carte sans savoir
+     * de quelle classe elle vient est ce qui fait attribuer un champ au mauvais objet.
+     *
+     * L'adresse vient TOUJOURS d'une mesure precedente (un pointeur publie par un autre RPC),
+     * jamais d'un calcul : ce RPC ne cherche rien, il lit ce qu'on lui designe.
+     */
+    ctx.rpc.objetChamps = (body?: { adresse?: string }): unknown => {
+        if (typeof body?.adresse !== "string" || !/^0x[0-9a-fA-F]+$/.test(body.adresse)) {
+            return refus("`adresse: \"0x...\"` exige -- ce RPC LIT une adresse deja MESUREE, il "
+                + "n'en devine aucune.");
+        }
+        const p = ptr(body.adresse);
+        let klass: NativePointer;
+        try { klass = p.readPointer(); }
+        catch (e) { return refus("adresse ILLISIBLE : " + (e as Error).message); }
+        if (klass.isNull()) return refus("slot de classe NUL -- ce n'est pas un objet gere.");
+        let nom: string | null = null;
+        try { nom = s(class_get_name(klass) as NativePointer); } catch { nom = null; }
+        if (nom === null) {
+            return refus("classe ILLISIBLE a cette adresse -- on ne lit PAS des champs sur un "
+                + "objet qu'on n'a pas identifie.");
+        }
+        return { ok: true, adresse: p.toString(), classe: nom,
+                 champs: carteDesChamps(p, klass) };
     };
 
     /** RETIRER le verrou `_isLogicPausedFromException` sur les instances vivantes.

@@ -32,6 +32,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -269,6 +270,52 @@ def main(argv):
                 print("(!) runner %d NON dispose : %s" % (rid, e))
 
 
+def attendre_le_tour(jeu, rid, entite_joueur, calmes=12, plafond=45.0):
+    """Attendre que le tour SOIT REVENU au joueur enregistre. Rend le dernier `replaySteps`.
+
+    ⚠ LA STABILITE DU FLUX EST UN MAUVAIS CRITERE, et c'est mesure. Juste apres un coup, le
+    flux ne grandit pas ENCORE -- l'IA n'a pas commence. Une attente << jusqu'a ce que ca cesse
+    de bouger >> rend donc la main AVANT le tour adverse, et le coup suivant part au milieu :
+    mesure du 2026-08-19, un `MoveUnitMessage` emis pendant le tour de l'IA sort en groupe VIDE
+    (`User_MoveUnit Entity=112` sans aucun `ChangePosition`) et la comparaison accuse le moteur
+    d'une divergence qui est une COURSE.
+
+    Le critere est donc l'ETAT : `currentPlayer` doit etre redevenu celui du joueur. La
+    stabilite ne sert plus que de repli quand l'entite n'a pas pu etre lue -- et elle le DIT.
+    """
+    debut = time.time()
+    total_prec, stables, dernier = -1, 0, None
+    while time.time() - debut < plafond:
+        r = jeu.rpc("replaySteps", [{"runnerId": rid, "maxSteps": 4000}], timeout=120000)
+        if not isinstance(r, dict) or not r.get("ok"):
+            return r
+        dernier = r
+        total = sum(int(s.get("outputStreamLength") or 0) for s in (r.get("steps") or []))
+        stables = stables + 1 if total == total_prec else 0
+        total_prec = total
+        # ⚠ NE PAS EXIGER `currentPlayer == entite_joueur` : ce champ lit **0** tant que la vue
+        # traite, y compris PENDANT MON PROPRE TOUR. La condition n'est donc quasiment jamais
+        # vraie et chaque coup consomme tout le plafond -- mesure : ~15 s par coup pour deux
+        # unites jouees.
+        #
+        # ⚠ ET UN CALME COURT NE SUFFIT PAS QUAND MON TOUR VIENT DE FINIR. L'IA demarre en
+        # quelques frames : juste apres, le flux est calme SANS qu'elle ait commence, et le
+        # coup suivant part au milieu de son tour. Il en sort un `User_MoveUnit` VIDE de
+        # 67 caracteres insere dans SON pas -- mesure du 2026-08-20 : 53 555 produits pour
+        # 53 488 attendus, l'ecart valant EXACTEMENT ce groupe parasite, le reste du tour de
+        # l'IA etant identique au caractere. On exige donc un calme BEAUCOUP plus long des que
+        # le pas porte un `EndTurn` : c'est le signal que l'adversaire va jouer.
+        # Une fenetre PLATE, et volontairement large : `replaySteps` ne rend que des LONGUEURS,
+        # pas le texte, donc aucun signal fin (<< un `EndTurn` vient de sortir >>) n'est lisible
+        # ici sans un RPC de plus. Trois secondes de calme couvrent le demarrage de l'IA ; sur
+        # 53 coups ca coute ~3 min, et ca vaut mieux qu'une mesure fausse.
+        if stables >= calmes:
+            return r
+        time.sleep(0.25)
+    print("     (!) attente ECOULEE (%.0f s) -- on mesure sur un etat NON STABILISE" % plafond)
+    return dernier
+
+
 def entites_des_joueurs(replay):
     """La table `Player_Id -> entite`, LUE dans le flux de reference du premier coup.
 
@@ -311,6 +358,7 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
             if not nom:
                 print("[%2d] message SANS `Name` -- on ne devine pas la classe" % i)
                 continue
+            t0_coup = time.time()
             av = jeu.rpc("replaySteps", [{"runnerId": rid, "maxSteps": 4000}], timeout=120000)
             nb_av = len((av or {}).get("steps") or []) if isinstance(av, dict) else 0
 
@@ -384,10 +432,14 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
                     print("     (!) playTurn NON MESURE (entite %s) -- on n'insiste pas" % cp)
                     break
 
-            # (!)`replaySteps` rend la LONGUEUR du flux, jamais son texte -- le contenu ne
-            # s'obtient qu'en bloc, par `replayOutputStream`. La longueur suffit ICI : elle
-            # localise le coup ou ca part, et le texte tranchera en fin de course.
-            ap_ = jeu.rpc("replaySteps", [{"runnerId": rid, "maxSteps": 4000}], timeout=120000)
+            # (!)ON ATTEND QUE LA VUE AIT FINI -- SANS CA ON MESURE AVANT L'IA.
+            #
+            # Le tour de l'IA est pompe par `IdunGameViews$$Update`, donc etale sur PLUSIEURS
+            # FRAMES. Lire le flux juste apres avoir applique un coup rend l'etat d'avant :
+            # mesure du 2026-08-19, le pas rendait 13 876 caracteres, puis 53 201 dix secondes
+            # plus tard -- pour 53 488 attendus. C'est ce qui m'a fait ecrire << l'IA ne joue
+            # pas >> alors qu'elle jouait. On attend donc que la LONGUEUR SE STABILISE.
+            ap_ = attendre_le_tour(jeu, rid, entite_joueur)
             if not isinstance(ap_, dict) or not ap_.get("ok"):
                 print("[%2d] %-26s pas de pas lisibles : %s"
                       % (i, nom, json.dumps(ap_, ensure_ascii=False)[:200]))
@@ -410,8 +462,10 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
             cp_ap = (ap_bs or {}).get("currentPlayer") if isinstance(ap_bs, dict) else None
             tour = ("MOI" if cp_ap == entite_joueur
                     else ("personne" if cp_ap in (None, 0) else "entite %s" % cp_ap))
-            print("[%2d] %-26s %s  produit=%6d  attendu=%6d  ecart=%+d  (pas neufs=%d)  tour=%s"
-                  % (i, nom, marque, produit, attendu, ecart, len(steps) - nb_av, tour))
+            print("[%2d] %-26s %s  produit=%6d  attendu=%6d  ecart=%+d  (pas neufs=%d)  "
+                  "tour=%s  %.1fs"
+                  % (i, nom, marque, produit, attendu, ecart, len(steps) - nb_av, tour,
+                     time.time() - t0_coup))
             traces.append((i, nom, nb_av, len(steps), p.get("OutputStream") or ""))
             if ecart != 0:
                 divergences.append((i, nom, produit, attendu))

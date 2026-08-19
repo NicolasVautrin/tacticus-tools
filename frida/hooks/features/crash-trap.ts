@@ -91,6 +91,9 @@ function describeBacktrace(ctx?: CpuContext): Array<{
     }
 }
 
+/** Les derniers SEH captés, gardés DANS le script (cf. le commentaire au point d'ajout). */
+const derniersCrashes: Array<Record<string, unknown>> = [];
+
 function installSehHandler(): void {
     Process.setExceptionHandler((details) => {
         crashesSeen++;
@@ -116,6 +119,13 @@ function installSehHandler(): void {
             }
             rec.backtrace = describeBacktrace(ctx);
             emit(rec);
+            // ⚠ ET ON LE GARDE ICI. `emit` part en `send()` vers l'hôte, qui ne le PERSISTE
+            // pas hors campagne de traces : mesuré le 2026-08-20, les JSONL d'`ai-traces`
+            // faisaient 0 octet alors que des SEH tombaient à chaque `AddMachineMessage`. Une
+            // pile perdue fait deviner la cause -- on en garde donc les dernières EN MÉMOIRE,
+            // relisibles par `crashDerniers`, sans dépendre de l'hôte.
+            derniersCrashes.push(rec);
+            if (derniersCrashes.length > 24) derniersCrashes.shift();
             // Console-log unique fault sites in RVA form for symbolication.
             try {
                 const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
@@ -375,4 +385,17 @@ export function register(ctx: Ctx): void {
     // — tue le jeu sur boot frais, opt-in via RPC ci-dessous.)
     install();
     ctx.rpc.armClassInitTrace = () => ({ ok: true, armed: installClassInitHook() });
+
+    /**
+     * LES DERNIERS SEH, avec leur pile en RVA — LECTURE PURE.
+     *
+     * Un « system error » remonté par Frida est un SEH natif : il ne porte AUCUN message. Sans
+     * ce RPC, la seule façon d'en connaître la cause était de deviner. Les RVA se résolvent en
+     * SYMBOLE par `python scripts/python/ghidra_symbols.py whereis <VA>` (VA = 0x180000000 + RVA).
+     */
+    ctx.rpc.crashDerniers = (body?: { combien?: number }): unknown => {
+        const n = typeof body?.combien === "number" ? Math.max(1, body.combien) : 6;
+        return { ok: true, total: crashesSeen, rendus: Math.min(n, derniersCrashes.length),
+                 crashes: derniersCrashes.slice(-n) };
+    };
 }

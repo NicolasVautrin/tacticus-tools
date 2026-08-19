@@ -339,10 +339,24 @@ def deployer_depuis_replay(jeu, chemin):
     print("  %-28s rejeux=%s  %s" % ("deploymentMemoire", (e or {}).get("rejeux"),
                                      court((e or {}).get("dernier"), 200)))
 
-    if mow is not None and len(miennes) == len(poses):
-        # Le retour est IGNORE a dessein : il rend une erreur alors que la machine est creee.
-        jeu.rpc("applyAddMachine", [{"unitId": mow["unitId"],
-                                     "playerId": mow["playerId"]}], timeout=180000)
+    # LE START, ET C'EST LUI QUI CREE LA MoW.
+    #
+    # ⚠ `applyAddMachine` EST BANNI DE CE CHEMIN, et c'est mesure. Il cree bien l'entite 120
+    # liee a sa plateforme, mais il CRASHE nativement juste apres (<< system error >>) et laisse
+    # la file d'execution de la VUE en `_currentlyProcessingMessage = 1` POUR TOUJOURS : plus
+    # aucun tour d'IA n'est enfile, donc l'IA ne joue plus jamais. Ni le prefab (present, bundle
+    # disponible) ni le placeholder de vue n'en sont la cause -- les deux testes, ecartes.
+    #
+    # Le START du jeu, lui, produit `AddMachineMessage` (2 271 car.) PUIS `StartBattleMessage`
+    # (11 980 car.) -- les DEUX valeurs de la reference, au caractere. C'est la voie du jeu, et
+    # celle de la cible.
+    if len(miennes) == len(poses):
+        d = jeu.rpc("deploymentStartInvoquer", [{"confirmer": True}], timeout=180000)
+        print("  %-28s %s" % ("deploymentStartInvoquer", court(d, 400)))
+        if not (isinstance(d, dict) and d.get("ok")):
+            print("REFUS : START NON JOUE -- la bataille n'est pas demarree.")
+            return 1
+        time.sleep(4)
 
     o = jeu.rpc("observeBattle", [{}], timeout=120000)
     unites = (o or {}).get("units") or []
@@ -359,10 +373,21 @@ def deployer_depuis_replay(jeu, chemin):
         print("REFUS : %d unite(s) posee(s) pour %d attendue(s)." % (len(miennes), len(poses)))
         return 1
     if mow is not None and not mows:
-        print("REFUS : la MoW n'est PAS sur le plateau (le placeholder de vue ne suffit pas).")
+        print("REFUS : la MoW n'est PAS sur le plateau apres le START.")
         return 1
-    print("Mise en place CONFORME. Confronter : "
-          "`python scripts/python/replay_rejouer.py --vivant --depuis %d`" % (len(poses) + 1))
+    # Le START a joue : les pas doivent porter `AddMachineMessage` puis `StartBattleMessage`.
+    # On le VERIFIE, parce que l'appel qui passe ne dit rien du demarrage.
+    s = jeu.rpc("replaySteps", [{"maxSteps": 4000}], timeout=120000)
+    pas_ = [(p.get("messageCls"), p.get("outputStreamLength"))
+            for p in ((s or {}).get("steps") or [])]
+    print("  %-28s %s" % ("pas produits", ", ".join("%s=%s" % (c, n) for c, n in pas_)))
+    b = jeu.rpc("battleStatus", [{}], timeout=60000)
+    print("  %-28s %s" % ("battleStatus", court(b, 300)))
+    if not (isinstance(b, dict) and b.get("stageName") == "Running"):
+        print("REFUS : la bataille n'est PAS `Running`.")
+        return 1
+    print("Mise en place CONFORME et bataille DEMARREE. Confronter : "
+          "`python scripts/python/replay_rejouer.py --vivant --depuis %d`" % (len(poses) + 2))
     return 0
 
 
