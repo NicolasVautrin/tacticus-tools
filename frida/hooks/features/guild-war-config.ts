@@ -164,7 +164,41 @@ function lireDeps(): Deps | RefusVue {
  *  ecriture de champs : un delegue ne se re-cible pas par ecriture, et c'est le ctor qui
  *  renseigne `invoke_impl` correctement. Le piege n°1 de `delegate.ts` vise `createObject` (qui
  *  invoque le ctor avec `args = null`), pas un ctor correctement arme. */
-function construireGetEnemyUnit(m: NativePointer, index: number, prog: NativePointer)
+/** Resolveur d'ennemi : quelle methode NATIVE le delegue enveloppe.
+ *
+ *  ⚠ LE CHOIX N'EST PAS COSMETIQUE, ET `hero` PERD LA PROGRESSION D'UN NPC.
+ *  Mesure du 2026-08-19 : avec `GetUnit`, `necroNpc1Warrior:19` sort a Health 0 /
+ *  Damage 0 / Level 1 / Rank 0 -- les 491 npc d'un catalogue forge etaient a zero.
+ *  Le decompile dit pourquoi : `UnitProgression$$GetUnit(unitId)` interroge le cache
+ *  des HEROS (`this+0x120`) et, sur echec, FABRIQUE un `CachedUnitModel` ; il ne
+ *  teste jamais le dictionnaire npc. Le suffixe `:<ProgressionIndex>` n'est donc pas
+ *  « ignore » -- il n'est jamais regarde.
+ *
+ *  CE QUE FAIT LE JEU, verbatim. `GuildWarsGameModeSource$$u003CLoadBattleInternalu003Eb__55_0`
+ *  (la lambda que le jeu passe A CE MEME PARAMETRE) appelle son propre
+ *  `GetUnitModel(unitId, isPvpEnemyUnit: true)` ; celui-ci cherche d'abord dans les
+ *  donnees de la bataille, puis RETOMBE sur l'interface `IUnitProgression` slot 0x1a
+ *  avec `(unitId, true)` -- c'est-a-dire `GetUnitOfAnyKind(unitId, stripLevel: true)`.
+ *  Et `GetUnitOfAnyKind`, pour un id present au dictionnaire npc, route vers
+ *  `GetNpcUnit(unitId)` EN LUI PASSANT L'ID COMPLET, suffixe compris.
+ *
+ *  POURQUOI ON NE LIE PAS `GetUnitOfAnyKind` DIRECTEMENT : elle a DEUX parametres,
+ *  et un `Func<String,IUnitModel>` n'en porte qu'un. Le currying demanderait un
+ *  `NativeCallback` -- que `delegate.ts` proscrit explicitement (Frida rentrerait
+ *  dans QuickJS depuis un thread natif : gel). On expose donc le choix, plutot que
+ *  de le deviner : `hero` (defaut, comportement historique) ou `npc`, qui vise
+ *  `GetNpcUnit(String)` -- 1 parametre, exactement la branche ou `GetUnitOfAnyKind`
+ *  aboutit pour un npc. Un lineup MIXTE hero+npc n'est donc pas servi par UN seul
+ *  delegue ; c'est une limite REELLE, dite ici plutot que masquee. */
+export type ResolveurEnnemi = "hero" | "npc";
+
+const METHODE_RESOLVEUR: Record<ResolveurEnnemi, string> = {
+    hero: "GetUnit",
+    npc: "GetNpcUnit",
+};
+
+function construireGetEnemyUnit(m: NativePointer, index: number, prog: NativePointer,
+                                resolveur: ResolveurEnnemi = "hero")
     : NativePointer | RefusVue {
     const kFunc = methodParamClass(m, index);
     if (!kFunc || kFunc.isNull()) {
@@ -172,10 +206,18 @@ function construireGetEnemyUnit(m: NativePointer, index: number, prog: NativePoi
     }
     const kProg = findClassAnywhere("IdunMetaLogic.UserProgress", "UnitProgression");
     if (!kProg) return refus("classe `IdunMetaLogic.UserProgress.UnitProgression` introuvable");
-    const mGet = findMethodByParamCount(kProg, "GetUnit", 1);
+    const nomMethode = METHODE_RESOLVEUR[resolveur];
+    if (!nomMethode) {
+        return refus("`enemyResolver` inconnu : " + String(resolveur)
+            + " -- attendu 'hero' ou 'npc'");
+    }
+    // 1 parametre EXIGE : c'est ce qui rend la methode liable a `Func<String,IUnitModel>`.
+    // Une surcharge a 2+ parametres passerait le controle d'arite du ctor puis lirait un
+    // registre non initialise a l'invocation -- donc on lie par le COMPTE, jamais par le nom seul.
+    const mGet = findMethodByParamCount(kProg, nomMethode, 1);
     if (!mGet) {
-        return refus("`IdunMetaLogic.UserProgress.UnitProgression$$GetUnit(String)` INTROUVABLE "
-            + "sur ce build -- chemin PERIME");
+        return refus("`IdunMetaLogic.UserProgress.UnitProgression$$" + nomMethode
+            + "(String)` INTROUVABLE sur ce build -- chemin PERIME");
     }
     const ctor = findCtorByParamCount(kFunc, 2);
     if (!ctor) {
@@ -1232,6 +1274,7 @@ export function register(ctx: Ctx): void {
         playerUnits?: string[]; preDeployedUnits?: string[]; enemyLineupJson?: string;
         playerAmmo?: number; randomizeAiInput?: boolean;
         environmentAbilitiesJson?: string; enemyMachineJson?: string;
+        enemyResolver?: ResolveurEnnemi;
     }): Promise<unknown> | unknown => {
         if (!body?.boardId) return { ok: false, error: "`boardId` manquant" };
         if (!body?.enemyLineupJson) {
@@ -1306,7 +1349,8 @@ export function register(ctx: Ctx): void {
             const lineup = depuisJson(mi, 3, body.enemyLineupJson as string);
             if (estRefus(lineup)) return { ok: false, error: (lineup as RefusVue).error };
 
-            const getEnemy = construireGetEnemyUnit(mi, 4, d.prog);
+            const resolveur: ResolveurEnnemi = body.enemyResolver ?? "hero";
+            const getEnemy = construireGetEnemyUnit(mi, 4, d.prog, resolveur);
             if (estRefus(getEnemy)) return { ok: false, error: (getEnemy as RefusVue).error };
 
             let envAb: NativePointer = NULL;
@@ -1420,6 +1464,9 @@ export function register(ctx: Ctx): void {
                 // CE QUI A REELLEMENT ALIMENTE LE CATALOGUE -- publie parce que c'est le seul
                 // discriminant entre une BC jouable et la BC tronquee du blocage #10038.
                 catalogue: catalogueSource,
+                // PUBLIE : `hero` sur un lineup npc rend des entrees a Health/Damage 0 sans
+                // la moindre erreur. Un catalogue muet sur son resolveur se lit comme complet.
+                enemyResolver: resolveur,
                 epuiseesEcartees: nbEpuisees,
                 mainPlayerUnits: mainIds.isNull()
                     ? "NUL -- la phase de deploiement choisit, comme en jeu"

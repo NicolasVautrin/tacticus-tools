@@ -16,6 +16,9 @@ import { invokeMethod, createManagedString } from "../il2cpp/invoke.js";
 // Repli d'instance par appel MOTEUR (`UnityEngine.Object.FindObjectsByType`) — pas un scan
 // de tas : cf. `autoBootExtraire`.
 import { premiereInstance } from "./view-command.js";
+// L'`IdunUniverse` ne vit pas sur `IdunNavigation` : elle est posee par repli statique sur
+// `thor.Globals.currentIdunUniverse`. Cf. le bloc dans `autoBootExtraire`.
+import { getCapturedUniverse, tryGlobalsCapture } from "./unit-visual-resolve.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
@@ -607,7 +610,37 @@ export function register(ctx: Ctx): void {
         if (!gcPtr.isNull()) setLastGameConfig(gcPtr);
         if (!upPtr.isNull()) setUnitProgressionPtr(upPtr);
         const dto = getLastGameConfig();
+
+        // TROISIÈME DÉPENDANCE : l'`IdunUniverse`.
+        //
+        // ⚠ ELLE MANQUAIT, ET SON ABSENCE NE SE VOYAIT QU'EN AVAL. `IdunNavigation` ne la
+        // porte pas ; elle vit sur le singleton `thor.Globals` (`currentIdunUniverse`), qui
+        // survit aux changements de scène. Tant qu'on ne la posait pas ici, tout appelant du
+        // builder natif se faisait refuser (« `IdunUniverse` NON CAPTURE ») alors que l'amorce
+        // venait de rendre `ok: true` -- un vert qui ne couvrait pas ce qu'on croyait.
+        // `BattleConfigGameConfigValues..ctor(GameConfigDto, ITileConfigurationSource)` en a
+        // besoin, et l'univers implémente AUSSI `IReleasableUnitsSource` : c'est donc lui qui
+        // porte `BC.Tiles` et le catalogue relâchable, pas une capture de bataille.
+        //
+        // La voie est un REPLI STATIQUE (lecture d'un champ d'instance sur un singleton), pas
+        // un scan de tas : elle tient la promesse « aucune bataille, aucun scan » ci-dessous.
+        // Idempotente -- elle rend « already captured » si le hook passif l'a déjà posée.
+        let universe: string | null = null;
+        let universeVia: string | null = null;
+        try {
+            universeVia = tryGlobalsCapture();
+            const u = getCapturedUniverse();
+            universe = u !== null && !u.isNull() ? u.toString() : null;
+        } catch (e) {
+            // On NOMME l'échec au lieu de le taire : un `null` muet ferait diagnostiquer
+            // « pas d'univers sur ce build » là où c'est la lecture qui a fauté.
+            universeVia = "ÉCHEC : " + (e as Error).message;
+        }
+
         return {
+            // ⚠ `ok` reste indexé sur le `gameConfigDto` SEUL, et c'est délibéré : l'univers
+            // est une dépendance du builder natif, pas de l'amorce. Le rabattre dans `ok`
+            // ferait rougir l'amorce sur un jeu où tout ce qu'elle promet est pourtant posé.
             ok: dto !== null && !dto.isNull(),
             navigation: nav.toString(),
             // ⚠ PUBLIÉE, jamais tue : un résultat obtenu par le repli ne doit pas se lire
@@ -619,6 +652,8 @@ export function register(ctx: Ctx): void {
             // lirait comme « capturé mais sans contenu ».
             gameConfigDto: dto !== null && !dto.isNull() ? dto.toString() : null,
             unitProgression: upPtr.isNull() ? null : upPtr.toString(),
+            idunUniverse: universe,
+            idunUniverseVia: universeVia,
             note: "aucune bataille, aucune navigation, aucun scan de tas",
         };
     });

@@ -181,7 +181,7 @@ function tryStaticCapture(): string | null {
 // Capture via the thor.Globals singleton. Globals is a MonoBehaviour kept
 // alive across scenes; its instance field `currentIdunUniverse` holds the
 // active IdunUniverse.
-function tryGlobalsCapture(): string | null {
+export function tryGlobalsCapture(): string | null {
     if (capturedUniverse !== null) return "already captured";
     const globalsClass = findClassAnywhere("thor", "Globals");
     if (!globalsClass) return "Globals class not found";
