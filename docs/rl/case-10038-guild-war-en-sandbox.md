@@ -268,6 +268,45 @@ dépenser une fenêtre, vérifier ce que la surface générique atteint déjà.
 unités, dont les copies sortent invalides. Le compte tombe exactement. Sans béquille dans la BC, la
 question de savoir s'il redevient nécessaire est **OUVERTE** — c'est le prochain essai.
 
+## 5ter. « AUCUNE UNITÉ NE BOUGE » — un PAS VISUEL qui ne se referme jamais
+
+**Le moteur n'est PAS en cause, et le mesurer a pris trois attributions fausses.** Mesuré le
+2026-08-19 sur la session 41, bataille au tour 3 :
+
+| couche | mesure |
+|---|---|
+| clic -> FSM | `fsmTrace` enregistre TOUT : `NormalState -> FingerDownOnUnitForFirstTime -> UnitNormallySelected -> MovementTargetSelectedState -> NormalState` |
+| FSM -> moteur | `fsmTap` rejoué à la main déplace `eldarAutarch` de (2,0) à **(6,0)** |
+| moteur | `MovementComponent.InitialValue` = mobilité ; `ActorStatisticsComponent.TilesMovedThisTurn` la consomme. `tauMarksman` : 2 et 2 -> **0 tuile, et c'est la RÈGLE** |
+| vue | `GetUnitViewAt(col,row)` place **4 des 5 unités du joueur sur leur case de DÉPLOIEMENT**, les 4 ennemies à jour |
+
+**LE VERROU, nommé** : `MessageExecutionQueue._currentlyProcessingMessage` reste `true`,
+`_lastActivity` = `Ability_Active:Loki_NormalAttack`, `_lastActivityStep` = `start`, et **6**
+messages attendent derrière (`_messages._size`). Le groupe bloqué est
+`<EntityId> 85` (`eldarMauganRa`), `<Source> "Loki_NormalAttack"`, **3 messages,
+`_nextMessageIndex` 0 — aucun exécuté**. Son `Loki_NormalAttackVisuals` a `Status`, `Caster`,
+`_weaponWeaponVisualConfig` et `_onFinished` **tous NULS** : sans `_onFinished`, le pas ne
+signale jamais sa fin, et `CheckLastActivityTimeout` ne force rien (cf. §5bis).
+
+⚠ **CE N'EST PAS UNE CONFIG MANQUANTE — et c'est ce qui écarte l'explication facile.** Le
+**MÊME** Maugan Ra a réussi une attaque normale plus tôt dans la même bataille
+(`Status "Finished"`, `_weaponWeaponVisualConfig` NON nul). Même unité, même ability, deux
+issues : raté d'initialisation ponctuel, pas un trou de données. **Cause racine NON ÉTABLIE.**
+
+⚠ **LE LIEN ENTITÉ -> VUE EST INTACT, donc il n'accuse RIEN.** `HasUnitView` et `GetUnitView`
+rendent la bonne vue pour les **9** entités ; `GetUnitView(91)` rend exactement le pointeur que
+`GetUnitViewAt(2,0)` trouve. Chercher une vue manquante est une impasse — déjà écartée en §5bis
+sur `_unitViews.count`, et re-écartée ici par une autre voie.
+
+⚠ **`aiMovableTiles` À 0 N'EST PAS UNE PANNE** : c'est la mobilité consommée. Le lire comme un
+défaut du moteur a coûté une attribution fausse de plus. La discrimination se fait sur
+`InitialValue` vs `TilesMovedThisTurn`, pas sur le compte de tuiles.
+
+⚠ **ET `AUnitView` N'EST PAS ÉNUMÉRABLE** : sa chaîne est `AUnitView <- ABaseUnitView <-
+System.Object` — `viewInstances` rend `instances: null` (classe NON dérivée d'`UnityEngine.Object`),
+pas `[]`. Passer par `IdunGameViews$$GetUnitViewAt` / `$$GetUnitView`, jamais par l'énumération.
+`Loki_NormalAttackVisuals`, lui, EST un `MonoBehaviour` et s'énumère.
+
 ## 6. Reste ouvert
 
 - **Les salves d'ouverture.** `EnvironmentAbilities` de la zone reste VIDE : la popup les
@@ -277,3 +316,11 @@ question de savoir s'il redevient nécessaire est **OUVERTE** — c'est le proch
   sans contact serveur.
 - **La MoW adverse** est nulle : le record l'attend sous forme MODÈLE (la popup la tire de
   `GetMachineOfWarUnits`), pas sous la forme DTO du slot.
+- **POURQUOI un `Loki_NormalAttackVisuals` sort NON INITIALISÉ** (§5ter). Le mécanisme est
+  mesuré, la cause ne l'est pas. Piste à confronter : ces visuels sont des `MonoBehaviour`
+  **POOLÉS** (3 instances vivantes, 2 `Finished`) — une location qui ne passe pas par son
+  `Setup` rendrait exactement cette signature. `IdunUnitViewPool` est le voisin à lire.
+- **La file bloquée n'a pas de sortie connue.** `MessageExecutionQueue` expose
+  `OnMessageFinishedProcessing(message)` et `ProcessNextMessage()` ; forcer l'un des deux est
+  une ÉCRITURE dans une bataille vivante, **jamais tentée**. À n'essayer que sur une bataille
+  qu'on accepte de perdre, et en observant d'abord.
