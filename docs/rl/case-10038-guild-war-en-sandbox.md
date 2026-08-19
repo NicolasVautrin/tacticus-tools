@@ -1,11 +1,13 @@
 # #10038 — Le guild war en sandbox, sans un octet vers le serveur
 
-**État : DÉPLOIEMENT RÉSOLU, BATAILLE PARTIELLE** (2026-08-19).
+**État : BATAILLE JOUABLE, IA ADVERSE CONDUITE** (2026-08-19).
 
-⚠ **Une première version de cette ligne annonçait « RÉSOLU » tout court. C'était FAUX**, et l'écart
-est instructif : le cycle de déploiement était bien éprouvé (héros + MoW, poses converties, clear,
-retraite), et j'en ai conclu la tranche finie sans avoir joué un seul tour. Ce qui est acquis
-s'arrête au START.
+⚠ **Deux versions antérieures de cette ligne étaient FAUSSES, et par la même faute** : conclure sur
+un cycle éprouvé sans avoir joué la suite. La première annonçait « RÉSOLU » sans avoir joué un tour ;
+la seconde attribuait la panne à un flux visuel gelé, alors que c'était une CONSÉQUENCE. Ce qui est
+acquis maintenant est MESURÉ tour joué : vue et runner sur le même joueur (`0x3` / `3`) et le même
+compte de tours (`3` / `3`), quatre drapeaux de pause à 0, file `IsIdle`, 10 unités sans doublon,
+l'IA adverse joue seule et rend la main.
 
 ## 1. La voie, et pourquoi c'est celle-là
 
@@ -54,7 +56,9 @@ guildWarSourceBc      {confirmer:true}                     -> configJson
 sandboxModeBcOverride {configJson}                         <- la BC BRUTE, non patchée
 deploymentPrefabArmer     {armer:true}
 deploymentPhaseArmer      {armer:true, forcer:true, confirmer:true}
-deploymentPoolArmer       {armer:true, confirmer:true, source:"guildWar"}
+deploymentPoolArmer       {armer:true, confirmer:true, source:"guildWar",
+                           only:["GetUnitModel","GetGameModeSpecificDeploymentHudOptions",
+                                 "GetUnitsForDeploymentHUD"]}     <- `only` OBLIGATOIRE (cf. §5bis)
 deploymentPlafondArmer    {armer:true, max:5, min:1, confirmer:true}
 deploymentHudArmer        {armer:true}
 deploymentMemoire         {armer:true}
@@ -106,12 +110,15 @@ complète, les mêmes compteurs montent tous.
 **Tourne** : les poses deviennent des unités réelles, la résolution de dégâts fonctionne (PV qui
 descendent des deux côtés), la retraite sort proprement, aucun doublon.
 
-**L'IA ADVERSE N'EST PAS CONDUITE — parce que LE FLUX VISUEL DE LA VUE EST GELÉ.**
+**L'IA ADVERSE ÉTAIT MORTE PARCE QU'UNE EXCEPTION VERROUILLAIT LA BATAILLE — ET C'ÉTAIT LA NÔTRE.**
 
-⚠ **La version précédente de ce paragraphe disait « il manque le déclencheur automatique, la
-sandbox est en hotseat ». C'est RÉFUTÉ**, et le remède qu'elle prescrivait (« écrire un relais qui
-appelle l'IA quand le tour bascule ») aurait masqué la panne au lieu de la réparer. Le déclencheur
-EXISTE et tourne à chaque frame.
+⚠ **DEUX explications antérieures de ce paragraphe sont RÉFUTÉES, dans l'ordre.** La première
+disait « il manque le déclencheur automatique, la sandbox est en hotseat » : le déclencheur EXISTE
+et tourne à chaque frame, et le remède qu'elle prescrivait (« écrire un relais qui appelle l'IA au
+changement de tour ») aurait masqué la panne. La seconde désignait le flux visuel gelé : c'était un
+SYMPTÔME observé une fois, pas la cause. Les deux avaient la même faiblesse — désigner un coupable
+sans contre-épreuve. Ce qui a tranché est une **contre-épreuve** : même montage, une délégation en
+moins, plus d'exception.
 
 La chaîne native, décompilée puis confrontée aux objets vivants le 2026-08-19 (`t6dpr4k06g`) :
 
@@ -131,21 +138,61 @@ Le joueur courant de la VUE n'est pas celui du RUNNER :
 et `MatchView` est un **miroir poussé** par `PrepareTurnStepHandler$$ExecuteInternal`, seul appelant
 de `MatchView$$SetCurrentPlayer`.
 
-| étage | mesuré |
-|---|---|
-| runner | `currentPlayer 4`, `turn 4`, 5 unités dans `toActivate`, `hasAction: true` |
-| vue | `MatchView.CurrentPlayerId = 3`, `IsCurrentPlayerHumanControlled = true`, `CurrentDraftingPlayerId = null` |
-| verdict | `IsCurrentPlayerAiControlled() = false`, `IsLogicPaused = true`, `_queuedComputerActions = null` |
-| cause | `MessageExecutionQueue` : `_lastActivity = "Ability_Active:Loki_NormalAttack"`, `_lastActivityStep = "start"`, `IsIdle() = false`, **9 messages en file** — INCHANGÉ sur 3 relevés à 2,5 s |
+| étage | AVANT (cassé) | APRÈS (correctif) |
+|---|---|---|
+| runner | `currentPlayer 4`, `turn 4` | `currentPlayer 3`, `turn 3` |
+| vue | `MatchView.CurrentPlayerId = **3**`, `toursTotal 5` | `CurrentPlayerId = **3**`, `toursTotal 3` |
+| pauses | `_isLogicPausedFromException = **1**` | les **quatre** à 0, `IsLogicPaused false` |
+| file | `IsIdle false`, 9 messages, gelée sur `Ability_Active:Loki_NormalAttack` / `start` | `IsIdle true` |
+| verdict | `IsCurrentPlayerAiControlled false` alors que c'est le tour de l'IA | l'IA joue et rend la main |
 
-⇒ Le pas de tour est **derrière** l'animation coincée. Il n'y a rien à déclencher : il y a une file
-à débloquer. Ça explique aussi « je joue 2 unités puis l'UI refuse mes moves » — la première attaque
-a gelé la file, tout le reste attend.
+**L'EXCEPTION, captée par `vueExceptionArmer`** (ancrage d'observation sur
+`IdunGameViews$$HandleException`) :
 
-⚠ **ET LE JEU N'A AUCUNE RÉCUPÉRATION.** `MessageExecutionQueue$$CheckLastActivityTimeout` (appelé
-par `Update` quand `!_disableTimeouts`) ne fait que **JOURNALISER** au-delà de 10 s, puis
-`ManualStopwatch$$Reset`. Il ne force jamais la complétion. Un pas visuel coincé bloque donc la
-bataille indéfiniment, et la seule trace est une ligne de log toutes les 10 s.
+```
+MethodAccessException
+  'idun.shared.collections.pools.IPoolableObject.BeforeReturnToPoolAttempt'
+  on type 'idun.shared.collections.pools.PooledList<System.String>'
+
+IdunMainView$$Start -> BattleAndEditorFlowController$$LoadBattle
+  -> IdunMainView$$StartBattle+0x1265 -> IdunGameViews$$Enable+0xf1
+```
+
+Elle tombe **AU CHARGEMENT**, avant le premier clic : la bataille naissait déjà verrouillée. D'où
+« l'IA ne joue pas » ET « l'UI refuse mes moves » — un seul défaut, deux symptômes.
+
+**LA CAUSE : NOS DÉLÉGATIONS SUBSTITUAIENT UN OBJET MIS EN POOL.** Deux méthodes du prêteur rendent
+un `PooledList<System.String>` — `GetUnitsForDeploymentHUD` et `GetUnlockedUnitsPooled`. C'est un
+TYPE VALEUR d'un seul champ (`_listWithStatus : PooledListElement<T>`, mesuré par `classFields`).
+En substituant le retour, la liste que la source SANDBOX venait de louer n'était jamais rendue,
+et l'appelant disposait la NÔTRE, louée dans un autre pool. Le `Dispose` heurtait alors
+`BeforeReturnToPoolAttempt` sur un générique pleinement partagé.
+
+**LE CORRECTIF, en deux volets :**
+1. `GetUnitsForDeploymentHUD` — **on ne substitue plus, on REMPLIT** la liste que le jeu a déjà
+   louée (`retval` -> `PooledListElement._object` -> `List<String>`, offset résolu PAR NOM), avec
+   les ids mis en cache en chaînes JS au premier tir. Plus aucun objet mis en pool ne traverse la
+   frontière. Mesuré : `REMPLI 125/125`.
+2. `GetUnlockedUnitsPooled` — **retiré de la délégation** (`only:` sans lui). Son commentaire
+   affirmait « MESURÉ jamais appelé sur ce chemin » : PÉRIMÉ, il tirait (`fires: 1`). Et il est
+   inutile — `allUnlockedUnitModels` vaut **107** sans lui.
+
+⚠ **CONTRE-ÉPREUVE, et c'est elle qui fait foi** : même montage, `deploymentPoolArmer` désarmé ->
+`fires` inchangé, aucun verrou. Puis volet 1 seul -> l'exception PERSISTE, et l'état de la
+délégation nomme le coupable restant (`GetUnlockedUnitsPooled` : « délégué à … »). Sans les deux
+volets, on aurait conclu à tort que le volet 1 suffisait.
+
+⚠ **ET LE VERROU N'A AUCUNE CLEF.** `PauseLogic`/`ContinueLogic` et
+`PauseLogicFromVisuals`/`ContinueLogicFromVisuals` vont par paires ;
+`_isLogicPausedFromException` n'a **pas** de `ContinueLogicFromException`. Une exception attrapée
+tue donc la bataille DÉFINITIVEMENT. Et en silence : `HandleException` ne journalise que si
+`_gameModeSource.HandleBattleException(e)` rend vrai, `_errorListeners` est **vide**,
+`_firebaseAnalytics` est un **Mock**, et `Player.log` fait 0 octet. Aucun popup, aucune trace.
+Le capteur est `vueExceptionArmer` / `vueExceptionEtat` (`frida/hooks/features/vue-exception.ts`).
+
+⚠ **ET LE CHIEN DE GARDE NE RÉPARE RIEN.** `MessageExecutionQueue$$CheckLastActivityTimeout`
+(appelé par `Update` quand `!_disableTimeouts`) ne fait que **JOURNALISER** au-delà de 10 s puis
+`ManualStopwatch$$Reset`. Il ne force jamais la complétion.
 
 **CE QUE ÇA ÉCARTE** — quatre hypothèses, toutes mesurées FAUSSES :
 `PreventAIControl` (slot 0x13 d'`IGameModeSource`) rend `false` pour 11, 12 ET 13 — aucun verrou
@@ -157,17 +204,35 @@ hotseat ; `IsPlayerAiControlled(entité 4)` rend **true** — l'ennemi EST recon
 Écarté aussi : `_unitViews.count = 10` pour 10 unités, `_pendingUnitViews` vide — ce n'est pas une
 vue d'unité manquante.
 
-**PISTE OUVERTE** : `IdunBattle.View.AbilityConfigs.Loki.Loki_NormalAttackVisuals` referme son pas
-sur `OnCasterAnimationEventInternal` — un ÉVÉNEMENT D'ANIMATION du caster. Pas d'événement, pas de
-complétion. À instrumenter au prochain montage (`PickWeapon` / `GetWeapon` /
-`GetFallbackWeaponVisualConfig` / `TriggerFireAnimationEvents`), pour savoir QUEL caster et si
-l'arme retombe sur un fallback nul.
+**RESTE NON EXPLIQUÉ, et il faut le dire** : la file gelée sur
+`Ability_Active:Loki_NormalAttack` / `start` n'a été observée QU'UNE FOIS, et elle n'a pas été
+reproduite après correctif. Qu'elle soit le même défaut attrapé en plein message n'est **PAS
+établi** — c'est plausible (une exception au milieu d'un message laisse
+`_currentlyProcessingMessage` en l'air), rien de plus. Si elle revient :
+`Loki_NormalAttackVisuals` referme son pas sur `OnCasterAnimationEventInternal`, un ÉVÉNEMENT
+D'ANIMATION du caster — instrumenter `PickWeapon` / `GetWeapon` / `GetFallbackWeaponVisualConfig`.
 
 ⚠ **MÉTHODE — tout ce qui précède a été mesuré SANS UN SEUL REINJECT**, par les RPC génériques déjà
 embarqués : `classFields(ns, cls)` pour NOMMER les champs, `classInterfaceSlots` pour nommer le slot
 0x13, et `viewField` / `viewJson` / `viewList` / `viewInvoke` avec `surPointeur` pour marcher les
 objets vivants depuis `IdunMainView.gameViews`. Réflexe à garder : avant d'écrire une sonde et de
 dépenser une fenêtre, vérifier ce que la surface générique atteint déjà.
+
+⚠ **DEUX PIÈGES D'OUTILLAGE, tous deux payés dans cette tranche même.**
+
+- **UN `Update()` NE FAIT PAS UN MonoBehaviour.** `premiereInstance` / `FindObjectsByType` rend
+  `null` sur `IdunGameViews` : c'est `IdunMainView` qui appelle son `Update`, pas Unity. Elle se
+  prend par le champ NOMMÉ `gameViews`. Même piège que `ViewCommandExecutor` et
+  `thor.Menu.MenuSystems`, déjà consigné dans `view-command.ts` — et re-commis ici.
+  ⚠ Et **DEUX `IdunMainView` coexistent** après une retraite suivie d'un remontage :
+  `FindObjectsByType` rend d'abord la MORTE, dont `gameViews` est nul. Un lecteur bâti dessus rend
+  « champ NUL » et se lit « pas de bataille », alors que la bataille tourne. Viser
+  `sandboxProbe.instance`, ou énumérer et écarter celles sans `gameViews`.
+
+- **UN CAPTEUR NE DOIT JAMAIS LAISSER UN ÉCHEC ACCESSOIRE MASQUER CE QU'IL A DÉJÀ MESURÉ.**
+  La première version de `vueExceptionEtat` rendait le refus de résolution d'instance AVANT les
+  captures : une exception RÉELLEMENT captée (`fires: 1`) était invisible, et il a fallu un
+  reinject pour relire — qui l'a effacée. Les captures sortent maintenant **toujours**.
 
 ⚠ **DEUX PIÈGES DE LECTURE, tous deux payés cher dans cette tranche.**
 

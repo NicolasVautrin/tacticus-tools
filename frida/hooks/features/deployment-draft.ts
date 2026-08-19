@@ -59,6 +59,10 @@ import {
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+// `listeDeTextes` est le foyer unique de la lecture d'une `List<System.String>` native (`_items`
+// / `_size` résolus PAR NOM). Il rend `null` quand il n'a PAS SU LIRE — état distinct d'une liste
+// vide, et c'est cette distinction que la branche guild war exploite.
+import { listeDeTextes } from "./lecture-champs.js";
 // ⚠ VOIE FROIDE, ET C'EST DÉLIBÉRÉ. La vue vivante s'obtient par `FindObjectsByType`, À LA
 // DEMANDE. La version précédente la publiait depuis le pump (`IdunGameViews$$Update`), donc une
 // écriture JS PAR FRAME dans le hot path le plus sensible du dépôt : un coût permanent payé par
@@ -109,6 +113,14 @@ let fires = 0;
 let unites: string[] | null = null;
 let dernierRemplissage: { ajoutes: number; erreur: string | null } | null = null;
 
+/** Le roster guild war, en CHAÎNES JS. Lu une seule fois, puis re-posé à chaque tir.
+ *
+ *  ⚠ C'est ce cache qui empêche un objet mis en pool de traverser la frontière : on emprunte
+ *  UNE fois pour lire, jamais pour substituer (cf. la branche `guildWar` de la délégation, et
+ *  l'exception `BeforeReturnToPoolAttempt` qu'elle a coûtée). Remis à `null` à chaque
+ *  (dés)armement du prêteur, pour qu'un remontage relise plutôt que de servir un roster périmé. */
+let idsGuildWar: string[] | null = null;
+
 /** Lit prudemment le nom de classe derrière un pointeur candidat. Ne lève jamais. */
 function classeDerriere(p: NativePointer): { classe: string | null; erreur: string | null } {
     try {
@@ -140,7 +152,7 @@ function classeDerriere(p: NativePointer): { classe: string | null; erreur: stri
  * par le parent), jamais par un offset écrit ici. La voie empruntée est PUBLIÉE : « ça a marché »
  * ne doit pas cacher « par où ».
  */
-function remplir(retour: NativePointer): {
+function remplir(retour: NativePointer, source?: string[] | null): {
     ajoutes: number; erreur: string | null; voie?: string;
 } {
     const { classe, erreur } = classeDerriere(retour);
@@ -182,7 +194,7 @@ function remplir(retour: NativePointer): {
     }
 
     let n = 0;
-    for (const id of unites ?? []) {
+    for (const id of (source ?? unites) ?? []) {
         try {
             invokeMethod(miAdd.info, cible, [createManagedString(id)]);
             n++;
@@ -1146,43 +1158,81 @@ function armerUneDelegation(
                 d.dernier = { ok: true, detail: `ré-emprunt FRAIS -> ${frais}` };
                 return;
             }
-            // GUILD WAR : même traitement que le guild boss, et pour la MÊME raison.
-            // ⚠ `GetUnitsForDeploymentHUD` rend un `PooledList<T>`, TYPE VALEUR :
-            // `il2cpp_runtime_invoke` le BOXE, donc le chemin générique plus bas substituait la
-            // BOÎTE là où l'appelant attend la structure. Symptôme mesuré le 2026-08-19 : la
-            // délégation rapportait `fires=4, emprunts=4, ok:true` et la HUD affichait
-            // `allUnitModels: 0` -- un succès apparent, roster vide à l'écran. La valeur vit à
-            // `+0x10` (cf. `rosterFraisGuildBoss`, même correctif).
+            // GUILD WAR : ON NE SUBSTITUE PLUS LE RETOUR — ON REMPLIT CELUI DU JEU.
+            //
+            // ⚠ POURQUOI, ET CE QUE LA SUBSTITUTION COÛTAIT. `GetUnitsForDeploymentHUD` rend un
+            // `PooledList<System.String>`, TYPE VALEUR d'UN SEUL champ
+            // (`_listWithStatus : PooledListElement<T>`, mesuré par `classFields`). La version
+            // précédente déboxait le retour de `runtime_invoke` (`+0x10`) et le posait dans
+            // `retval` — le roster S'AFFICHAIT (0 -> 125 modèles), donc ça passait pour juste.
+            // Ça ne l'était pas : la liste que la source SANDBOX venait de louer
+            // (`DictionaryPooler.Get`) n'était jamais rendue, et l'appelant disposait la NÔTRE,
+            // louée dans un autre pool par le `ConvertAll` de
+            // `GuildWarsGameModeSource$$GetUnitsForDeploymentHUD`. La comptabilité du pool
+            // (`PooledElement.IsPooled`) partait de travers, et le `Dispose` de l'appelant levait
+            //
+            //     MethodAccessException: 'IPoolableObject.BeforeReturnToPoolAttempt'
+            //                            on type 'PooledList<System.String>'
+            //
+            // ⚠ ET CETTE EXCEPTION TUAIT LA BATAILLE EN SILENCE. Capturée le 2026-08-19 dans
+            // `IdunBattle.View.Game.IdunGameViews$$Enable+0xf1` (pile :
+            // `IdunMainView$$Start` -> `BattleAndEditorFlowController$$LoadBattle` ->
+            // `IdunMainView$$StartBattle`), donc AU CHARGEMENT, avant le premier clic.
+            // `IdunGameViews$$HandleException` pose alors `_isLogicPausedFromException`, qu'AUCUN
+            // `ContinueLogicFromException` ne retire, et `QueueComputerActions` exige ce drapeau à
+            // zéro : l'IA adverse n'était plus JAMAIS lancée. Ni popup, ni log (`_errorListeners`
+            // est vide). Contre-épreuve : même montage sans cette délégation -> aucune exception,
+            // aucun verrou. Sonde : `vueExceptionArmer`. Détail : `docs/rl/case-10038-*.md`.
+            //
+            // CE QU'ON FAIT À LA PLACE : on emprunte UNE SEULE FOIS pour LIRE les ids (chaînes
+            // JS, mises en cache), puis on remplit la liste que le jeu a déjà louée. Plus aucun
+            // objet mis en pool ne traverse la frontière, et le cycle de location reste au jeu.
             if (spec.nom === METHODE && p.nom === "guildWar") {
-                let b: NativePointer;
-                try { b = invokeMethod(mc.info, src, []) as NativePointer; }
-                catch (e) {
-                    d.dernier = { ok: false,
-                        detail: "délégation guild war a levé : " + (e as Error).message };
+                if (idsGuildWar === null) {
+                    let b: NativePointer;
+                    try { b = invokeMethod(mc.info, src, []) as NativePointer; }
+                    catch (e) {
+                        d.dernier = { ok: false,
+                            detail: "lecture du roster guild war a levé : " + (e as Error).message };
+                        return;
+                    }
+                    if (b === null || b.isNull()) {
+                        d.dernier = { ok: false, detail: "la source guild war a rendu NUL" };
+                        return;
+                    }
+                    gcRoot.add(b);
+                    try {
+                        // La boîte porte la structure à `+0x10` ; son unique champ est le wrapper
+                        // de pool, dont `_object` (résolu PAR NOM) est la `List<String>`.
+                        const el = b.add(0x10).readPointer();
+                        if (el.isNull()) throw new Error("`_listWithStatus` NUL");
+                        const off = getFieldOffset(el.readPointer(), "_object");
+                        if (off <= 0) throw new Error("`_object` non résolu sur le wrapper");
+                        const interne = el.add(off).readPointer();
+                        if (interne.isNull()) throw new Error("`_object` NUL");
+                        idsGuildWar = listeDeTextes(interne);
+                    } catch (e) {
+                        d.dernier = { ok: false,
+                            detail: "roster guild war illisible : " + (e as Error).message };
+                        return;
+                    }
+                }
+                if (idsGuildWar === null || idsGuildWar.length === 0) {
+                    // « je n'ai pas su lire » et « c'est vide » se disent, ils ne se rabattent pas
+                    // sur un roster natif silencieusement faux.
+                    d.dernier = { ok: false, detail: "roster guild war "
+                        + (idsGuildWar === null ? "ILLISIBLE" : "VIDE")
+                        + " -- rien écrit, le retour natif est laissé INTACT" };
+                    idsGuildWar = null;   // relire au prochain tir plutôt que figer un échec
                     return;
                 }
-                if (b === null || b.isNull()) {
-                    d.dernier = { ok: false, detail: "la source guild war a rendu NUL" };
-                    return;
-                }
-                gcRoot.add(b);
-                let deboxe: NativePointer;
-                try { deboxe = b.add(0x10).readPointer(); }
-                catch (e) {
-                    d.dernier = { ok: false,
-                        detail: "déboxage illisible : " + (e as Error).message };
-                    return;
-                }
-                if (deboxe.isNull()) {
-                    d.dernier = { ok: false, detail: "`PooledList` déboxée NULLE -- rien "
-                        + "substitué (mieux vaut le roster natif qu'une liste vide)" };
-                    return;
-                }
-                gcRoot.add(deboxe);
-                retval.replace(deboxe);
+                const r = remplir(retval, idsGuildWar);
                 d.emprunts++;
-                d.dernier = { ok: true, detail: `guild war DÉBOXÉ ${b} -> ${deboxe}` };
-                return;
+                d.dernier = { ok: r.erreur === null,
+                    detail: r.erreur === null
+                        ? `guild war REMPLI ${r.ajoutes}/${idsGuildWar.length} (${r.voie})`
+                        : `remplissage guild war : ${r.erreur}` };
+                return;   // ⚠ `retval` INTACT — c'est tout l'objet du correctif.
             }
             if (preEmprunt !== null && spec.nom === METHODE) {
                 retval.replace(preEmprunt);
@@ -4224,6 +4274,9 @@ export function register(ctx: Ctx): void {
         // Le prêteur est fixé AVANT l'armement : `armerUneDelegation` résout la méthode sur SA
         // classe, donc en changer après coup laisserait des ancrages incohérents.
         if (body.source !== undefined) preteurDelegation = body.source;
+        // Le roster guild war est relu au prochain tir : un remontage change de source forgée, et
+        // servir le cache d'une bataille précédente donnerait un roster PÉRIMÉ sans le dire.
+        idsGuildWar = null;
         return queueOnMainThread(() => {
             if (body.armer === false) {
                 for (const d of delegations) {

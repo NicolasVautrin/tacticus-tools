@@ -58,6 +58,7 @@ import * as shop from "./features/shop.js";
 import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
+import * as vueException from "./features/vue-exception.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
@@ -503,6 +504,13 @@ export function wireRpc(ctx: Ctx): void {
      // `SendLoadBattleGameEventInternal` enregistre une tentative SERVEUR au chargement. Il rend un
      // JSON ; il ne monte rien. Aucune tentative consommee, aucun octet reseau.
      guildWarConfig,
+     // `vueException` n'INSTALLE RIEN au register : son ancrage sur
+     // `IdunGameViews$$HandleException` est en observation pure et s'arme explicitement. Il
+     // existe parce que ce natif pose `_isLogicPausedFromException` EN PREMIER et SANS
+     // CONDITION, qu'aucun `ContinueLogicFromException` ne le retire, et que
+     // `QueueComputerActions` exige ce drapeau a zero : une exception attrapee TUE la bataille
+     // en silence -- ni popup ni trace des que `HandleBattleException` de la source rend faux.
+     vueException,
      gcRendezvous, startCampaignMatchCapture,
      // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
      // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
