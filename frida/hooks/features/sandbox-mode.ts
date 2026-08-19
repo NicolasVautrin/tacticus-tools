@@ -544,9 +544,20 @@ function champsDeLaSource(src: NativePointer): Record<string, string | null> {
 // « le seed est l'horloge » et « rien n'est rejouable » sont des conclusions LUES au décompilé.
 // Elles peuvent avoir été justes et ne plus l'être (un build change), ou avoir toujours porté
 // sur une autre source que celle qu'on monte. Le mode OBSERVATION ci-dessous les rend
-// vérifiables en deux montages : si deux batailles consécutives rendent des valeurs proches et
-// croissantes, c'est bien une horloge ; si elles rendent deux fois la même, ou une constante,
-// la conclusion écrite est fausse pour cette source-là.
+// vérifiables en deux montages.
+//
+// ✅ CONFRONTÉ LE 2026-08-19 SUR `t6dpr4k06g`, ET LE RE EST JUSTE — deux voies indépendantes,
+// sur deux montages guild war consécutifs (mode observation, aucune écriture) :
+//     seed 1 = 0xd322c8a0   seed 2 = 0xeb76f760
+//     seed2 - seed1                 = 408 170 176 ticks = 40,8 s  (l'écart RÉEL entre les deux)
+//     (Int32)DateTime.Now.Ticks - seed2 = 753 546 443 ticks = 75,4 s  (le temps depuis, réel)
+// À 10^7 ticks/s les deux collent : le seed EST l'horloge locale tronquée en Int32.
+//
+// CE QUE ÇA TRANCHE, ET QUI N'EST PAS ÉVIDENT : le seed est LOCAL — aucun contact serveur, ni
+// en sandbox ni en bataille réelle. Il est donc IMPRÉVISIBLE (résolution 100 ns) mais
+// IMPOSABLE, et l'ancrage porte sur `IdunRunner$$Initialize`, consommateur commun à TOUTES les
+// batailles. La limite au rejeu n'est donc pas le seed : c'est que le PRNG se consomme dans
+// l'ORDRE DES ÉVÉNEMENTS — même seed + une action différente, et tout diverge à partir de là.
 let seedImpose: number | null = null;
 let seedUnCoup = true;
 let seedObserve = false;
