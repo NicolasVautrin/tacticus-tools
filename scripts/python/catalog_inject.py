@@ -2884,15 +2884,15 @@ def main(argv: list[str]) -> int:
             for field, rows in sorted(infidele.items()):
                 print(f"  MISMATCH {field}: {len(rows)}")
                 for r in rows[:4]:
-                    print(f"    {r[0]}: attendu={r[1]!r} capture={r[2]!r}")
+                    print(f"    {r[0]}: attendu={r[1]!r} catalogue={r[2]!r}")
         else:
             print("[validate] OK - 0 divergence de FIDELITE sur les champs derives")
         rapport = stale_unit_report(seed)
         if rapport:
-            print(f"[validate] PEREMPTION (pas un defaut de synthese) : {rapport}")
+            print(f"[validate] ECART EPINGLE (pas un defaut de synthese) : {rapport}")
             for uid in sorted(stale_unit_entries(seed)):
                 for field, (synth, real) in sorted(stale_unit_entries(seed)[uid].items()):
-                    print(f"    {uid}.{field}: gameconfig={synth!r} capture={real!r}")
+                    print(f"    {uid}.{field}: gameconfig={synth!r} catalogue={real!r}")
         nc, ni, adiffs = validate_abilities(seed)
         derivees = {name for rows in adiffs.values() for name, _s, _r in rows}
         print(f"[validate] catalogue ABILITIES : {nc} entrees confrontees "
