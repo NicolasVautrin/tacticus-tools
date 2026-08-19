@@ -90,10 +90,10 @@ board MoW-capable + denylist necroPlasmancer), `b2e35e3` (GC pin fix).
   stochastique). Denylist : `_load_unspawnable()` + `data/unspawnable_rank17.json`
   (cache probe) + fallback `UNSPAWNABLE_FALLBACK={"necroPlasmancer"}`.
 - **Freeze** : PAS inhérent aux batches (50 battles d'affilée 1 session = OK).
-  Venait du benchmark non-pacé + du probe (storm d'exceptions). **warmup
+  Venait du benchmark non-pacé + du probe (storm d'exceptions). **amorce
   nécessaire seulement au reinject** (cold-start), PAS par chunk — le
   reinject-par-chunk re-entrait une battle campagne à chaque fois (= « déconne »).
-  → batch normal : 1 reinject + 1 warmup, puis `rl_collect_batch -n N` d'affilée.
+  → batch normal : 1 reinject + 1 amorce, puis `rl_collect_batch -n N` d'affilée.
 - Attribution : le caster est **dans les tags de l'event** (`Attacker_Id`,
   `Caster_Id`, `Effect_SourceId`), pas besoin de corréler par fenêtre. Promu en
   colonnes (012). `v_damage_by_caster` (source_id = coalesce attacker/effect/caster).

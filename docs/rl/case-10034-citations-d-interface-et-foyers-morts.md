@@ -77,7 +77,7 @@ reparation a ete faite du mauvais cote, et elle a tenu jusqu'a ce que #1174 re-d
 | `#595-r1` | **SANS OBJET** | son discriminant EST un clic ; **0** des neuf endpoints (`uiClick`, `uiList`, ...) ne subsiste dans `frida/hooks/**` |
 | `#595-r2` | **REQUALIFIEE, reste ouverte** | `invoke.ts` vit, et `sret`/`il2cpp_array_new` y sont toujours ABSENTS (0 occurrence) ; mais son consommateur (`pos` via `uiList`) est mort |
 | `#596` | **RESOLU** | `frida/hooks/features/fsm-input.ts`, arrive par `2d7cc682 feat(#596)` : capture au `UnitSelectionFsm$$.ctor` + RPC `fsmTap`/`fsmInput`/`fsmStateInvoke` |
-| `#596-r2` | **RESOLU** | `e31b36be` (#993) a retire `findButtonBySuffix` ; le warmup passe par `ViewCommandExecutor$$StartCampaignMatch(campaignId, locationIndex, ...)`, la voie 0-based que la fiche designait |
+| `#596-r2` | **RESOLU** | `e31b36be` (#993) a retire `findButtonBySuffix` ; l'amorce passe par `ViewCommandExecutor$$StartCampaignMatch(campaignId, locationIndex, ...)`, la voie 0-based que la fiche designait |
 
 ⚠ **Un foyer mort ne vaut pas une fiche morte, et l'inverse non plus.** `#596` etait VIVANTE et
 RESOLUE avec des foyers morts ; `#595-r1` est morte pour une raison qui n'a rien a voir avec la

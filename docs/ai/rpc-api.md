@@ -56,7 +56,7 @@ Le host expose des routes typées qui wrap les RPC + persistance.
 | RPC | Args | Rôle |
 |-----|------|------|
 | `dumpCampaignCatalog` | `{ allowHeapScan?: boolean }` | Dump catalog complet (Standard/Mirror/Elite/Event types). Sans `allowHeapScan`, throw si pas de capture. Avec `allowHeapScan: true`, fallback heap scan GameConfigDto (~10 s freeze). |
-| `buildCampaignConfig` | `{ campaignType: number, campaignId: string, locationIndex: number }` | BattleConfiguration JSON via path 2 progression-swap + per-faction warmup. ~60 ms round-trip. |
+| `buildCampaignConfig` | `{ campaignType: number, campaignId: string, locationIndex: number }` | BattleConfiguration JSON via path 2 progression-swap + per-faction amorce. ~60 ms round-trip. |
 | `campaignBuilderStatus` | — | Cheap, jamais de scan. Retourne `{ hasGameConfig, hasUnitProgression, hasInstance, instance, gameConfig }`. |
 
 ### Standalone runner (simulation)
@@ -127,7 +127,7 @@ Types observés :
 - `captured_config` — capture passive d'une battle :
   `{ id, mode, ts, bytes, campaignId, locationIndex, json }`
 - `battle_event` — pendant simulation : `{ runnerId, msg, events, matchState }`
-- `builder_ready` — push warmup signal : `{ via: "ctor" | "LoadBattle" }`
+- `builder_ready` — push amorce signal : `{ via: "ctor" | "LoadBattle" }`
 - `hook_ready` — boot agent (`{ name, version }`)
 - `cleanup_done` — handshake stop
 

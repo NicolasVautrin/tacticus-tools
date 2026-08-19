@@ -109,7 +109,7 @@ dans `ev.payload.payload`. Champ `.t` = type d'event :
 - `trace` — `traceEnter()` du script (`{ n, name }`)
 - `captured_config` — capture passive d'une battle (`{ id, mode, ts, bytes, json }`)
 - `battle_event` — pendant simulation (sim, simAndCommit)
-- `builder_ready` — push warmup signal (`{ via: "ctor" | "LoadBattle" }`)
+- `builder_ready` — push amorce signal (`{ via: "ctor" | "LoadBattle" }`)
 - `hook_ready`, `cleanup_done`, …
 
 Lecture rapide :
@@ -146,7 +146,7 @@ Côté host :
 - `syncMetadata("fast")` ne sync **pas** le catalog (catalog uniquement en
   mode "full" = `/api/meta/sync` explicite)
 
-Workflow utilisateur normal : warmup en jeu → push `builder_ready` →
+Workflow utilisateur normal : amorce en jeu → push `builder_ready` →
 catalog auto-rafraîchi via natural capture, **aucun heap scan déclenché**.
 
 ## Exemple : récupérer le state d'une session

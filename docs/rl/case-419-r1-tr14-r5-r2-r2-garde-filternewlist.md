@@ -274,7 +274,7 @@ ce que le régime monté (`catalog_inject.graft_active_ability`) exerce.
 
 ### 7.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
 
-Prérequis : reinject + `warmupGameSingletons({force:true})`. Puis, depuis `scripts/python` :
+Prérequis : reinject + `autoBootExtraire({force:true})`. Puis, depuis `scripts/python` :
 
 ```
 python rl_duel.py build --seed 777 --board MC1_67 \

@@ -335,7 +335,7 @@ runtime** (CLAUDE.md). **Tous les refinements (1 fromHere, oracle view, 3 MoW, 2
 
 - Host `:8765`, build **kqkbjqfb6c**, PG TACTICUS:5433. ghidra-mcp sur :13337.
 - **Réinject hooks-only** via `POST /api/admin/inject` (body `{}`) — PAS de restart host.
-  `warmupGameSingletons({force:true})` est **AUTONOME** (pilote la nav UI seul) — à
+  `autoBootExtraire({force:true})` est **AUTONOME** (pilote la nav UI seul) — à
   appeler après chaque (re)inject, jamais demander un clic à l'utilisateur.
 - **Le pump driver bloque le main thread** → CHUNKER (≤ ~2-4 tours/appel) sinon
   `UnityFreezeDetector` tue le jeu ; combat entier = boucle Python de chunks (Unity

@@ -208,7 +208,7 @@ PORTE OVERKILL de `predict_attack_raw`/`compute_prediction_overkill` :
 ## Validation
 
 Session Frida tombée pendant l'investigation (jeu fermé → `session:null`). Les event-dumps ci-dessus
-ont été capturés AVANT la chute (seed 31337, 20 pas). Re-tester le fix : re-inject + warmup, puis
+ont été capturés AVANT la chute (seed 31337, 20 pas). Re-tester le fix : re-inject + amorce, puis
 `walk_dump_raw` (mon dumper scratchpad) sur seeds 31337 + 777, cible s08 (raw doit passer à
 (1498,1949), kill→True) et s13 (traiter séparément le defender-mod).
 

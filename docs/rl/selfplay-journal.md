@@ -541,7 +541,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 
 ### Key decisions (des 2 sides)
 
-- **A** : a awaité son tour d'abord (correct — le runner live se résout via le hand-off host, pas le state-file disque) ; a diagnostiqué le blocker depuis la ground truth (listRunners=[] + observeBattle err + await full-90s = erreur, PAS `timedOut:true`), pas un proxy ; a **REFUSÉ de s'auto-réparer** (pas de build/warmup/nav/dispose) car minter un nouveau runnerId désyncherait la coordination shared-runner avec B et corromprait le match.
+- **A** : a awaité son tour d'abord (correct — le runner live se résout via le hand-off host, pas le state-file disque) ; a diagnostiqué le blocker depuis la ground truth (listRunners=[] + observeBattle err + await full-90s = erreur, PAS `timedOut:true`), pas un proxy ; a **REFUSÉ de s'auto-réparer** (pas de build/amorce/nav/dispose) car minter un nouveau runnerId désyncherait la coordination shared-runner avec B et corromprait le match.
 - **B** : a poll `/await` + `listRunners` sur ~30s pour écarter une race de SETUP (le runner n'est jamais apparu) ; a **REFUSÉ de rebuild runner 22** (corromprait l'arène shared dont A dépend) ; a complété le recon one-time (SKILL §6/§7 + doctrine-learned H02/H03/H04/H11) pour appliquer la doctrine SI le runner avait existé. Note outillage : absence d'endpoint `selfplay/:id/status` (seulement `/await`) ralentit le diagnostic.
 
 ### Refs action logs
@@ -579,7 +579,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 
 ### Key decisions (des 2 sides)
 
-- **A** : a synchronisé via `/api/selfplay/4/await` D'ABORD (correct — le runner live se résout via le hand-off host, pas le state-file disque) ; a diagnostiqué depuis la ground truth via 3 sondes indépendantes (pas un proxy) ; a **REFUSÉ de s'auto-réparer** (pas de build/warmup/nav/dispose) car c'est le rôle de l'orchestrateur SETUP et minter un nouveau runnerId désyncherait la coordination shared-runner avec B.
+- **A** : a synchronisé via `/api/selfplay/4/await` D'ABORD (correct — le runner live se résout via le hand-off host, pas le state-file disque) ; a diagnostiqué depuis la ground truth via 3 sondes indépendantes (pas un proxy) ; a **REFUSÉ de s'auto-réparer** (pas de build/amorce/nav/dispose) car c'est le rôle de l'orchestrateur SETUP et minter un nouveau runnerId désyncherait la coordination shared-runner avec B.
 - **B** : a poll `/await` 7+× pour écarter une race de SETUP (le runner n'est jamais apparu, l'erreur étant instantanée et non un timeout → eviction, pas une race attendable) ; a **REFUSÉ de rebuild runner 24 OU de hijacker les runners 25-31** (qui appartiennent à d'autres matchs) ; a extrait le signal roster de la BC persistée pour un read recon explicitement low-confidence plutôt que de fabriquer des observations de board jamais eues (cf. memory: measure ground truth not proxy).
 
 ### Refs action logs

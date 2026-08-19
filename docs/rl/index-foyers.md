@@ -185,7 +185,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `frida/hooks/features/movement-trace.ts` | #547-r6 | `aucun` |
 | `frida/hooks/features/retreat-capture.ts` | #390-r6 | `aucun` |
 | `frida/hooks/features/sim-engine.ts` | #595-r3 | `capteur` |
-| `frida/hooks/features/warmup-singletons.ts` | #10021 | `capteur` |
+| `frida/hooks/features/auto-boot.ts` | #10021 | `capteur` |
 | `frida/hooks/game/ai-control.ts` | #10022-r6 | `capteur` |
 | `frida/hooks/game/apply-stack.ts` | #596-r1 | `aucun` |
 | `frida/hooks/game/receive-damage-types.ts` | #487-r2 | `aucun` |

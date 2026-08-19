@@ -351,7 +351,7 @@ sont deux sources indépendantes.
 
 ### ✅ LE RÉGIME OBSERVER EST CONFRONTÉ — et il rend le CONTRASTE
 
-Warmup joué hook armé (bataille de **campagne**, chemin éprouvé, aucune sandbox impliquée) :
+Amorce joué hook armé (bataille de **campagne**, chemin éprouvé, aucune sandbox impliquée) :
 
 ```
 relaisFires: 1     relaisRetours: [1]              <- la CAMPAGNE rend TRUE
@@ -462,10 +462,10 @@ pas servir à conclure**. Deux candidats restent, non départagés :
 sur le HUD vivant. Aucun RPC ne le fait aujourd'hui — c'est le prochain geste, et il est en lecture
 pure.
 
-### ⚠ CE QUE LA POSE A COÛTÉ — un warmup VERT sur un jeu qu'il venait de FIGER
+### ⚠ CE QUE LA POSE A COÛTÉ — une amorce VERT sur un jeu qu'il venait de FIGER
 
 Le reinject de cette tranche a été joué **alors qu'une bataille montée en sandbox était à
-l'écran**. Le warmup, autonome, a fait son cycle (démarrer une bataille de campagne, capturer, se
+l'écran**. L'amorce, autonome, a fait son cycle (démarrer une bataille de campagne, capturer, se
 retirer par `OnBattleSurrender` → `ContinueSurrender`) et a rendu **`ok: true` sur ses 13 crans**,
 dont le dernier affirme « la scène meta est remontée, le jeu affiche un écran ».
 
@@ -475,9 +475,9 @@ dépôt, de la sortie d'une bataille montée en sandbox. Le jeu a dû être rela
 
 Deux enseignements, et le second est le vrai :
 
-1. Le premier cran du warmup (`prog-etat-initial`) a rendu **« aucune bataille active »** alors
+1. Le premier cran de l'amorce (`prog-etat-initial`) a rendu **« aucune bataille active »** alors
    qu'une sandbox tournait. C'est cette lecture aveugle qui l'a autorisé à enchaîner.
-2. **Un `ok: true` de warmup ne prouve pas un jeu vivant.** Le discriminant est ailleurs :
+2. **Un `ok: true` de amorce ne prouve pas un jeu vivant.** Le discriminant est ailleurs :
    `Responding` + **delta CPU** + un RPC **queué** qui revient. Résidu **#10021**.
 
 ⚠ Et le hook n'y est **pour rien** — établi, pas supposé : `deploymentPhaseStatus` (RPC NON queué,
@@ -604,7 +604,7 @@ fires             0
 ```
 
 ⚠ Il reste utile comme **capteur negatif** : c'est lui qui etablit le `fires: 0`. Et son refus
-d'armer sans `CampaignGameModeSource` capturee documente une dependance reelle au warmup.
+d'armer sans `CampaignGameModeSource` capturee documente une dependance reelle a l'amorce.
 
 ⚠ **Pourquoi l'emprunt plutot qu'un port** : `CampaignGameModeSource$$GetUnlockedUnitsPooled` lit
 `this+0x20` ET `this+0x70` ; or `SandboxGameModeSource` fait **0x58 octets**, il n'a PAS de `+0x70`.
@@ -826,7 +826,7 @@ La delegation TIRE et SUBSTITUE : le mecanisme est demontre. Mais `GetUnitModel`
 appele, donc le **convertisseur n'a pas tourne**, donc la liste empruntee etait **VIDE**.
 
 **CAUSE : le preteur est INACTIF.** La `CampaignGameModeSource` capturee a ete **retiree de sa
-bataille par le warmup** (cf. SS9 : le cycle de warmup ouvre une bataille de campagne, capture, puis
+bataille par l'amorce** (cf. SS9 : le cycle d'amorce ouvre une bataille de campagne, capture, puis
 se retire). Elle prete donc l'etat d'une source au repos.
 
 ### CE QUE CA ETABLIT, ET C'EST L'OBJECTION DE L'UTILISATEUR, VERIFIEE
@@ -1149,9 +1149,9 @@ c'est le motif qui gele le jeu.
 
 ### La voie, et elle ne coute rien
 
-**Ne rien invoquer, et laisser le JEU appeler.** L'ancrage reste en place, on lance un warmup
+**Ne rien invoquer, et laisser le JEU appeler.** L'ancrage reste en place, on lance une amorce
 ordinaire (il navigue la campagne), et on lit le compteur. Aucun forcage, aucune invocation :
-aucun risque ajoute au-dela du warmup qu'on joue de toute facon.
+aucun risque ajoute au-dela de l'amorce qu'on joue de toute facon.
 
 Resultat immediat : **`fires: 2`, `dansEmprunt: false`**. L'ancrage est SAIN. Le zero du SS23
 n'accusait donc pas l'execution, mais notre OBSERVATION.
@@ -1204,7 +1204,7 @@ hook (la ou l'ancrage voit, donc ou le masque agit), garder le resultat, et ne l
 Son zero ne distingue pas << jamais appelee >> de << appelee la ou je ne vois pas >>, et ce
 dossier a produit les deux lectures fausses de suite : d'abord une refutation d'appariement de
 slot (fausse, cf. SS23), puis une accusation contre `invokeMethod` (fausse aussi). Le controle
-coute un warmup.
+coute une amorce.
 
 ## 25. LE ROSTER S'AFFICHE -- pre-emprunt + deboxage + masque, confirme A L'ECRAN
 
@@ -1396,7 +1396,7 @@ passe a 5, et le relais recoit alors `recu = 5` -- **le forcage devient inerte**
 1. ⛔ **UN CALLBACK D'INTERCEPTION N'INVOQUE RIEN.** La premiere version derivait le compte DANS
    le `onEnter` de `UpdateState` : deux natifs invoques et un dictionnaire parcouru, sur le
    thread de rendu, a chaque rafraichissement du bouton -> **le jeu s'est fige deux fois**.
-   Contrairement aux gels du cycle inject/warmup, la cause etait ICI. Le compte se calcule hors
+   Contrairement aux gels du cycle inject, la cause etait ICI. Le compte se calcule hors
    hook (file du thread principal) et le callback ne fait plus que LIRE un cache.
 2. ⚠ **`UpdateButtons` n'a que CINQ appelants** (`Show`, `TryMarkUnitAsPlaced`, `PutUnitIntoHand`,
    `RemoveUnit`, `HandleOnRemoveAllHeroesPressed`). Sur des unites PRE-POSITIONNEES, aucun ne se

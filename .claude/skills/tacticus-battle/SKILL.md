@@ -39,24 +39,6 @@ les joue via `act` exactement comme les miennes, ou je laisse l'IA jouer (`aitur
    - `frida/hooks/*` modifié → `cd frida && npm run build:hooks` puis réinject
      `POST /api/admin/inject` (body `{}`) — **pas** de restart host.
    - `frida/host/*` modifié → restart host complet (réinjecte via auto-restore).
-3. **WARMUP — INCONDITIONNEL après CHAQUE (re)inject, AVANT tout RPC/probe,
-   SANS EXCEPTION** (même un build seed-BC sur disque) :
-   ```bash
-   # session running courante : GET /api/sessions -> [{ id, status, ... }]
-   SID=$(curl -s http://127.0.0.1:8765/api/sessions \
-     | npx -y node-jq -r 'map(select(.status=="running")) | .[0].id')
-   curl -s -X POST http://127.0.0.1:8765/api/scripts/$SID/rpc \
-     -H 'content-type: application/json' \
-     -d '{"method":"warmupGameSingletons","args":[{"force":true}],"timeout":120000}'
-   ```
-   (Ou plus simple : `rl_duel.py`/`rl_probe_step.py` résolvent la session seuls
-   via `_resolve_session()` — mais ils ne warmup PAS, à faire avant.)
-   `warmupGameSingletons` est **AUTONOME** : il pilote toute la nav UI lui-même
-   (campagne → node → play → capture ctor → pause → retreat). **Ne JAMAIS
-   demander à l'utilisateur de cliquer une battle in-game.** Sans warmup, un
-   reinject repart avec caches `MethodInfo*` vides + init IL2CPP non amorcée →
-   `applyAction` / les builds de runner crashent (`0x2c`). Mémoire :
-   `feedback_warmup_after_every_reinject`, `feedback_auto_reinject_on_hooks_change`.
 
 ---
 
@@ -512,7 +494,7 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 
 ## 7. Pièges (NE PAS refaire)
 
-- **Warmup manquant après reinject** → `applyAction` / les builds de runner
+- **Amorce manquant après reinject** → `applyAction` / les builds de runner
   échouent (caches `MethodInfo*` + init IL2CPP vides), crash `0x2c`. Voir §1.
 - **`py` au lieu de `python`** → psycopg2, ingest PG skippé silencieusement.
 - **Move rejeté silencieusement** : `ok=true` mais `mutated=false` + cascade vide
@@ -586,7 +568,7 @@ Format `--spec` : `[{"kind":"move","unit":95,"to":[3,2]},`
 - RPC / RE toolkit : (file:///C:/Users/nicolasv/tacticus-tools/docs/rl/ai-step-toolkit.md)
 - Hooks `applyAction`/`decisionView`/`aiPlayByUnit` :
   (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/ai-step.ts)
-- Skill socle (injection/warmup/builder) : (file:///C:/Users/nicolasv/tacticus-tools/.claude/skills/tacticus/SKILL.md)
+- Skill socle (injection/builder) : (file:///C:/Users/nicolasv/tacticus-tools/.claude/skills/tacticus/SKILL.md)
 - Mémoire : `project_oracle_pipeline`, `project_turn_order_dynamic`,
   `project_overwatch_blindspot`, `project_effect_type_attribution`,
-  `project_ability_normal_attack_concrete`, `feedback_warmup_after_every_reinject`.
+  `project_ability_normal_attack_concrete`, `feedback_no_amorce_needed`.

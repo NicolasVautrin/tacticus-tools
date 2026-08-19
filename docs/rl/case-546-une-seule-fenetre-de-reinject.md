@@ -232,7 +232,7 @@ ENTIER gardait la PROSE, pas le capteur. Les étapes 2 à 5 lisent depuis
 
 ## 6. La fenêtre du 2026-08-08 — ce qu'elle a rendu
 
-Session 3 (pid 74348), bundle frais chargé, warmup 8/8.
+Session 3 (pid 74348), bundle frais chargé, amorce 8/8.
 
 ⚠ **Le grep du `dist/hooks.js` sur disque n'était PAS le bon critère cette fois non plus** : le
 fichier a été reconstruit à 01:53:15, soit **après** l'injection de 23:56:30, et sa taille avait

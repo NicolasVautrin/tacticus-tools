@@ -411,34 +411,18 @@ Détail de la méthode : `docs/rl/case-170-get-priority.md`.
 ## Workflow RL — runner isolé
 
 > **Le LANCEMENT DE RUNNER est centralisé dans `.claude/skills/tacticus/references/runner.md`**
-> (inclus ci-dessus, pointé par les agents `validator`/`re-expert`) : warmup obligatoire, voie
-> `rl_duel build`, choix de board (`--board`/`--board-pool` + `board.py`), discipline runner.
+> (inclus ci-dessus, pointé par les agents `validator`/`re-expert`) : voie `rl_duel build`,
+> choix de board (`--board`/`--board-pool` + `board.py`), discipline runner.
 > C'est LA source unique — ne pas dupliquer ces règles ici.
 
 Pour entraîner un agent RL / valider le moteur sans toucher au battle in-game, on monte un
 **runner isolé** depuis une **seed BC sur disque** (`rl_duel build`), déployé et pilotable à
-volonté sans casser le jeu actif. Rappel des deux points les plus violés (détail : `runner.md`) :
+volonté sans casser le jeu actif.
 
-1. **Warmup une fois par session Frida**, AVANT tout RPC/build. Sans lui : caches `MethodInfo*`
-   vides + init IL2CPP non amorcée → crash `0x2c`. Il est **autonome** (pilote la nav lui-même,
-   rend la main sur l'écran CAMPAGNE, sait sortir seul d'un écran de bataille hérité, ~12 s) :
-   **ne JAMAIS demander à un humain de cliquer une battle ni de ramener la campagne.**
-   Session froide → `warmupGameSingletons({ force: true })`.
-   La PROCÉDURE (inject, endpoints host, fenêtres) est orchestrateur-only : skill
-   `tacticus-orchestration`. Un agent ne (ré)injecte pas — cf. invariant 4 plus bas.
-
-   > **RÈGLE INCONDITIONNELLE — warmup après CHAQUE (re)inject, AVANT tout RPC/probe, SANS EXCEPTION**,
-   > y compris les probes « self-contained » montés depuis une seed BC sur disque (ex.
-   > `rl_probe_step.py`, `rl_collect_batch`). Un (re)inject repart avec des caches `MethodInfo*`
-   > Frida-side vides + la couche d'init IL2CPP non ré-amorcée dont dépend `initAndStart`. Un probe
-   > qui « marche » sans warmup ne prouve rien (jeu déjà warm par chance) → au prochain build froid
-   > c'est le crash `0x2c` (metadata non initialisée). Ne jamais raisonner « ce mode-là n'a pas
-   > besoin de warmup ».
-
-2. **Build + pilotage** : `rl_duel build --seed <s> --state-file <propre> [--p-units/--a-units,
-   --board/--board-pool, ...]` puis `view/act/play/aiturn` ou `engine_validate.py --runner <id>`.
-   Discipline runner (state-file propre, `--runner` explicite, coexistence/MAX_RUNNERS, dispose
-   tes runners jamais ceux des autres) : `runner.md` §3.
+**Build + pilotage** : `rl_duel build --seed <s> --state-file <propre> [--p-units/--a-units,
+--board/--board-pool, ...]` puis `view/act/play/aiturn` ou `engine_validate.py --runner <id>`.
+Discipline runner (state-file propre, `--runner` explicite, coexistence/MAX_RUNNERS, dispose
+tes runners jamais ceux des autres) : `runner.md` §3.
 
 ## Sorties console Python — ASCII only (Windows cp1252)
 

@@ -16,7 +16,7 @@ exactement ceux de `units[0]`. Discriminant fort — `eventExtremis6` (hors even
 `Snowprint.ClientSdk.Web.WwwWebHelper$$PostString|PostBytes|PostData`) sur une fenetre de 75+
 builds : **2** requetes, toutes deux le heartbeat `ct-live/ct/userId/...`, **0** vers
 `game-event/game3/`. La reserve de l'en-tete de `campaign-builder.ts` (« LoadBattle(true) may emit
-funnel/analytics events », jamais verifiee) est donc **LEVEE**. C'est l'inverse du warmup d'avant
+funnel/analytics events », jamais verifiee) est donc **LEVEE**. C'est l'inverse de l'amorce d'avant
 #993, qui deposait une defaite enregistree a chaque execution (`case-599`).
 
 ## Les 60 boss perdus — cause STRUCTURELLE, pas un bug de garde
@@ -64,7 +64,7 @@ deserialise une `BattleConfiguration` JSON et monte l'`IdunRunner` dessus. `laun
 **aucune** occurrence de `GameModeSource`. `live-bc.ts` documente que tout ce qui consommait la
 source live pour le runner a ete supprime au passage a `buildNormalizedBC`.
 
-Le warmup capture **trois** choses, et le partage est net : `UnitProgression` (-> `json-build.ts`)
+L'amorce capture **trois** choses, et le partage est net : `UnitProgression` (-> `json-build.ts`)
 et `GameConfig` (-> `items-catalog.ts`) servent au **runner** ; la `CampaignGameModeSource` sert au
 **builder de BC**.
 
@@ -110,4 +110,4 @@ d'une classe en runtime. Une classe **imbriquee** se lit avec `ns` **VIDE** (`cl
 
 `frida/hooks/features/campaign-builder.ts` (mute-swap, RPC `buildCampaignConfig`) ·
 `frida/hooks/features/mode-source-capture.ts` (`classFields`) · `docs/rl/case-599-trafic-serveur-campagne.md`
-(le capteur wire-only et ce que le client envoie) · `docs/rl/case-993-warmup-sans-clic.md`
+(le capteur wire-only et ce que le client envoie) · `docs/rl/case-993-amorce-sans-clic.md`

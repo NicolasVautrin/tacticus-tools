@@ -286,7 +286,7 @@ par lecture) de « contexte de tour » (la piste restante). Elle **n'a pas été
 
 ## 8. FENÊTRE DE REINJECT — ce qu'il faut jouer, capteur par capteur
 
-Après chargement du bundle (`warmupGameSingletons({force:true})` si la session est froide) :
+Après chargement du bundle (`autoBootExtraire({force:true})` si la session est froide) :
 
 ### 8.1 `#419-r1-tr10-r2` — l'empreinte
 

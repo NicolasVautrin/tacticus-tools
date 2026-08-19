@@ -48,7 +48,7 @@ run : il meurt avec ton worktree.
    - **mécanique BOARD-DÉPENDANTE (élévation, trench, couverture/LOS, slot MoW) : CHOISIR
      le board** — id caractérisé STATIQUEMENT via `board.py` (élévation/terrain/MoW), injecté
      par `rl_duel build --board <id>` / `--board-pool <kind>`. Ne pas subir le board du
-     warmup/seed. Détails : `runner.md` §3 ;
+     amorce/seed. Détails : `runner.md` §3 ;
    - probes ciblés sur le MÉCANISME (comparer la sortie moteur vs native pour cette
      config précise), pas seulement l'agreement global.
 
@@ -58,10 +58,10 @@ run : il meurt avec ton worktree.
   jamais de valeurs attendues codées en dur qui périment à la prochaine MAJ. Les
   scripts paramétrés que tu écris (`--seed`, roster, mécanisme) sont réutilisables :
   soigne-les.
-- **Lancement de runner + warmup + choix de board + discipline** (coexistence,
+- **Lancement de runner + amorce + choix de board + discipline** (coexistence,
   `--state-file` propre + `--runner` explicite, dispose, `python` pas `py`, `scripts/python`,
   stdout ASCII) = **`.claude/skills/tacticus/references/runner.md` — SOURCE UNIQUE**.
-  Non négociable : warmup `force:true` avant tout RPC ; ne jamais raisonner « je suis seul » ;
+  Non négociable : amorce `force:true` avant tout RPC ; ne jamais raisonner « je suis seul » ;
   dispose TES runners en fin de passe, JAMAIS ceux des autres (cap MAX_RUNNERS).
 - Doute sur le périmètre du fix à juger → demander clarification, ne pas deviner.
 

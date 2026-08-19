@@ -68,7 +68,7 @@ prochain tick du main pump.
 ### Push WebSocket plutôt que polling
 
 Le frontend pollait `campaignBuilderStatus` toutes les 5 s pour détecter
-le warmup. Côté agent, le RPC déclenchait un heap scan
+l'amorce. Côté agent, le RPC déclenchait un heap scan
 (`findAutoTestFactoryViaHeap`) à chaque appel = freeze cyclique.
 
 **Fix** : agent émit `send({ t: "builder_ready", via: "ctor" })` quand

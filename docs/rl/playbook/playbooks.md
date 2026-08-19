@@ -330,7 +330,7 @@ et `fill_armor = 0` au lieu de la vraie magnitude `RepairAmount` sur les DEUX st
   `_repair_candidates`), et admecManipulus utilise le NonComparable `DefendTheDivineWork` (#77). Or
   **necroReanimator est un MACHINE OF WAR** (signature gameconfig identique à ultraDreadnought = MoW connu :
   `upgrades`+`upgradesStatIncrease`, PAS de champ `Movement` — les units régulières ont `Movement`) **que le
-  compte n'a PAS unlocké** → absent du roster que la BC campagne (warmup) reflète → **UNSPAWNABLE**. Confirmé
+  compte n'a PAS unlocké** → absent du roster que la BC campagne (amorce) reflète → **UNSPAWNABLE**. Confirmé
   EXHAUSTIVEMENT : `--p-units` (blocklist `unspawnable_rank17.json`), `buildPatchedRunner aiUnits` côté AI
   (**silently dropped** : 11/12 spawnent, le slot Reanimator disparaît — normal, c'est un MoW pas une PredefinedUnit),
   format `:17`, variante NPC `necroNpcMoWReanimator` (droppée aussi), **pas dans le pool MoW spawnable** (8 MoW :

@@ -1,10 +1,10 @@
-# #993 — le warmup entre et sort de bataille SANS UN SEUL CLIC
+# #993 — l'amorce entre et sort de bataille SANS UN SEUL CLIC
 
 **Build** `rnca9r7q6c` · **sessions Frida** 81-88 · 2026-08-13
 
 ## Le resultat
 
-`warmupGameSingletons` ne pilote plus AUCUNE UI. Trois appels natifs, 20 steps verts,
+`autoBootExtraire` ne pilote plus AUCUNE UI. Trois appels natifs, 20 steps verts,
 **22,4 s** inject compris — et ce run-la enchainait DEUX aller-retours (sortie d'une bataille
 heritee, puis entree / capture / sortie). `session.warmed: true`, builder 3/3.
 
@@ -18,7 +18,7 @@ Le pilotage d'UI est RETIRE, **sans repli**. Un repli silencieux aurait rendu la
 inverifiable : elle pourrait cesser de porter sans que rien ne le signale. Toute panne est ROUGE
 et porte un motif NOMME (15 motifs, deux a deux distincts).
 
-Parti avec lui : `warmup-retreat-signal.ts` (+ son probe) et `warmup-wedge-remedy.ts` (+ le sien).
+Parti avec lui : `amorce-retreat-signal.ts` (+ son probe) et `amorce-wedge-remedy.ts` (+ le sien).
 Le second ne pouvait plus reparer que « pas sur la campagne », qui n'est plus une panne.
 
 ## LE discriminant : `thor.Loader.__loadingStep`
@@ -50,7 +50,7 @@ ENCORE DEMARRE. Une garde satisfaite par l'etat d'AVANT le geste ne garde rien. 
 (`IdunMainView` vivante, elle nait avec la scene) d'abord, le chargeur ensuite.
 
 ⇒ Lib **`frida/hooks/game/loader.ts`** (RPC `loaderStatus`) : la question conditionne TOUT
-changement de scene, pas seulement le warmup.
+changement de scene, pas seulement l'amorce.
 
 ## Les CINQ signaux mesures et ECARTES
 
@@ -105,7 +105,7 @@ appellent ? » (oui).
 
 ## Pointeurs
 
-`frida/hooks/features/warmup-programmatique.ts` (module PUR : ordre, gardes, bornes) ·
-`frida/hooks/features/warmup-singletons.ts` (cablage) · `frida/hooks/game/loader.ts` ·
-`frida/tools/probe-993-warmup-programmatique.ts` (146 verifications, hors Frida) ·
+`frida/hooks/features/auto-boot.ts` (module PUR : ordre, gardes, bornes) ·
+`frida/hooks/features/auto-boot.ts` (cablage) · `frida/hooks/game/loader.ts` ·
+`frida/tools/probe-993-auto-boot.ts` (146 verifications, hors Frida) ·
 `docs/rl/case-992-source-de-mode-sans-bataille.md`

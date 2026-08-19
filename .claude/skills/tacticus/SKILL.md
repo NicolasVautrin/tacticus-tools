@@ -60,7 +60,7 @@ tacticus-tools/
 3. **INJECT** : ouvre `http://127.0.0.1:8765/view/`, clique INJECT. Le host
    auto-discovery le PID Tacticus (heuristique : `Tacticus_Data/` adjacent
    à l'exe écarte le launcher), attache, charge `dist/hooks.js`.
-4. **Warmup** : ouvre une campagne in-game + clique un battle → l'agent
+4. **Amorce** : ouvre une campagne in-game + clique un battle → l'agent
    capture `lastSource` + push `builder_ready` au front → catalog
    auto-rafraîchi.
 5. **Build node** : clique une node dans le panel Campaign Builder du front.
@@ -117,7 +117,7 @@ Le path 2 mute progression-swap est l'unique path validé sur Tacticus PC :
    - save+swap `_campaignType` (+0x18, S32), `_campaignId` (+0x28, string),
      `_battlesConfigCampaigns` (+0x88, List)
    - swap `_currentMatch` etc. sur source
-   - per-faction warmup via `UnitProgression.GetUnit` sur enemy units
+   - per-faction amorce via `UnitProgression.GetUnit` sur enemy units
    - `LoadBattle(true)` → BattleConfiguration
    - Restore dans `finally`
 
@@ -143,8 +143,8 @@ L'agent émit `send({ t: "builder_ready", via: "ctor" | "LoadBattle" })`
 quand `lastSource` passe de null à assigné. Le front (`ws.js` →
 `registerWsHandler`) écoute et déclenche un `refresh(true)` (idempotent
 via `builderReadyConsumed`). Plus de polling de `builderStatus` pour le
-warmup — le polling défensif reste pour le cas où l'utilisateur HR le
-front après warmup déjà fait (rejoue depuis le ring buffer WS).
+amorce — le polling défensif reste pour le cas où l'utilisateur HR le
+front après amorce déjà fait (rejoue depuis le ring buffer WS).
 
 ## Capture passive
 
@@ -211,13 +211,11 @@ déterministes.
 Pour entraîner un agent RL / valider le moteur **sans toucher au battle in-game**, on monte un
 runner isolé depuis une **seed BC sur disque** via `rl_duel build`, déployé et pilotable.
 
-> **Le lancement de runner est centralisé dans `references/runner.md`** (warmup obligatoire,
-> `rl_duel build` + options, choix de board `--board`/`--board-pool` + `board.py`, discipline
+> **Le lancement de runner est centralisé dans `references/runner.md`**
+> (`rl_duel build` + options, choix de board `--board`/`--board-pool` + `board.py`, discipline
 > runner) — s'y référer, ne pas dupliquer ici.
 
 Rappel minimal :
-- `warmupGameSingletons({ force: true })` d'abord (autonome), après chaque (re)inject, AVANT
-  tout build/RPC — sinon crash `0x2c`.
 - `python rl_duel.py build --seed <s> --board <id> --state-file <propre> [--p-units/--a-units, ...]`
   puis `view/act/play` ou `engine_validate.py --runner <id>`. **`--board` OBLIGATOIRE** (ex. MC1_67 ;
   cf. runner.md). Si `data/boards/` ou `data/seed-bc.json` manquent (purge de `data/`) → `python
@@ -263,8 +261,8 @@ SpawnPointConfiguration : BattleConfigPosition
   inspect / patch / normalisation BC (lancement de runner : cf. `references/runner.md`)
 - (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/observe.ts)
   observeBattle (live runner ou registry par runnerId)
-- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/warmup-singletons.ts)
-  warmupGameSingletons (avec retreat optionnel)
+- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/auto-boot.ts)
+  autoBootExtraire (avec retreat optionnel)
 
 ## Pipeline d'assets
 

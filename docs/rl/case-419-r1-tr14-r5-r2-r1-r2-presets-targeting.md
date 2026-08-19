@@ -259,7 +259,7 @@ permissive exacte, sur le seul chemin que la face DECISION emprunte.
   + `ShouldApplyRangedInMelee` ramenent DEJA la baseline a l'adjacence : les deux modeles refusent
   `d=2` et le discriminant se REFERME. Le spectre est donc `(2, 3, 5)`, jamais `(1, ...)`.
 
-S'y ajoute le prealable de tout `abilityReason` : sans les `WARMUP_ENDTURNS` de `probe_247`, les
+S'y ajoute le prealable de tout `abilityReason` : sans les `AMORCE_ENDTURNS` de `probe_247`, les
 `initialCooldownTurns` font rendre `ValidRequest` partout.
 
 ## 7. Ce qui GARDE

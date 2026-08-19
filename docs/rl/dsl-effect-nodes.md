@@ -463,7 +463,7 @@ gate sur `<ability>.ExecuteBehaviour`) en confrontant l'arbre d'exécution NATIF
 au walk OFFLINE (`trace_offline_getemruntz.py`, 52 nœuds E=11/T=10/S=25/V=6).
 
 **Méthode (reproductible)** :
-1. warmup, `rl_duel build --seed 20260716 --rank 17 --p-units orksRuntherd,orksNob --a-units astraCreed,astraBullgryn --board C1_01`.
+1. amorce, `rl_duel build --seed 20260716 --rank 17 --p-units orksRuntherd,orksNob --a-units astraCreed,astraBullgryn --board C1_01`.
 2. `act move --unit 53 --to 1,3` (rapprocher le caster : GetEmRuntz `now:∅` → `now[1]:u53` après déplacement).
 3. `dslTraceArm("IdunBattleLogic.Entities.Abilities.Active.Loki","GetEmRuntzAbility",1)` → `hooks:434` (4 familles), gate = `GetEmRuntzAbility.ExecuteBehaviour`.
 4. `act ability --caster 53 --ability 1045 --target 53` → cast RÉUSSI (2 grots e71/e74 spawnés, `Loki_NormalAttack`, `SwornProtector` adverse e79, **167 events** de cascade).

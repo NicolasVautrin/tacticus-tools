@@ -37,10 +37,10 @@ fait foi. Rappels de tes invariants les plus violés :
 Méthodologie de validation complète (oracles, métriques, interprétation des miss) :
 `docs/rl/validation.md`.
 
-- **Lancement de runner + warmup + choix de board + discipline** (rebuild avant chaque run,
+- **Lancement de runner + amorce + choix de board + discipline** (rebuild avant chaque run,
   `--state-file` propre + `--runner` explicite, coexistence/MAX_RUNNERS, dispose, `python`
   pas `py`, `scripts/python`, ASCII) = **`.claude/skills/tacticus/references/runner.md` —
-  SOURCE UNIQUE**. Non négociable : warmup `force:true` avant tout RPC/build ; jamais « je suis
+  SOURCE UNIQUE**. Non négociable : amorce `force:true` avant tout RPC/build ; jamais « je suis
   seul » ; dispose TES runners en fin de passe, JAMAIS ceux des autres. Confrontation smoke :
   `rl_duel build` (+ `--board`/`--board-pool` si la mécanique dépend du board) puis
   `engine_validate.py --runner <id> --steps N`.

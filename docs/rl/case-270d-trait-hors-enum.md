@@ -106,7 +106,7 @@ de ce build ne peut tester un membre que son propre enum ne contient pas**. Et l
 pas la cohorte reelle : sur les 175 entrees capturees, `_traits_raw` produit 0 nom hors enum, donc
 `catalog_inject --validate` est inchange.
 
-## 5bis. La mesure LIVE (2026-07-31, session 1 puis 2, apres warmup)
+## 5bis. La mesure LIVE (2026-07-31, session 1 puis 2, apres amorce)
 
 `probe_270d_lysander_deploy.py` — deux builds, meme roster, meme board, meme seed, meme seed BC ;
 seule difference : `ImperialFists` present ou non dans `BC.Units[astarLysander].Traits`.

@@ -283,7 +283,7 @@ PREUVE = u90 PowerTrip `armorIgnored` resout ×180 (validé live 277×180/100=49
 reconcilie proprement. => la divergence #68 combat depend de la valeur RUNTIME du rarity mult (+0x2c) d'orksNob, que
 SEULE une lecture LIVE tranche (l'unique usage live legitime : confirmer une valeur runtime que le decompile ne resout
 pas statiquement). Fix = capturer live soit (a) la magnitude BAKEE resolue de l'effet, soit (b) le +0x2c par unite.
-NE PAS shipper un fit (90). Game off-menu -> mesure requiert warmup.
+NE PAS shipper un fit (90). Game off-menu -> mesure requiert amorce.
 
 **MAJ 7 (MESURE LIVE DEFINITIVE, 2026-07-09, probe _probe75 session 43) — SUPERSEDE MAJ 6b : le « 90 » EST REEL (baké dans l'effet), combat=300 CONFIRME. Mon read UnitConfig 180/100 l'a manque car le 90 est sur la PROGRESSION, pas UnitConfiguration.**
 Drive qui marche (endturn pour avancer les tours, attaque via `kind:ability` id normale ; PAS aiturn). Mesures :

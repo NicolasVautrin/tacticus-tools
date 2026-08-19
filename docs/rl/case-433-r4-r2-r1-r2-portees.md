@@ -637,7 +637,7 @@ CODE, pas du catalogue.
 
 ### 9.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
 
-Prérequis : reinject + `warmupGameSingletons({force:true})`. Montage = celui de §8.4, bras
+Prérequis : reinject + `autoBootExtraire({force:true})`. Montage = celui de §8.4, bras
 `tauMarksman`, **le seul qui casse une ability par un CAST** (et non par un cooldown initial) :
 
 ```

@@ -29,7 +29,7 @@
   d'orphelins — un orphelin mange le cap pour tout le monde). Un acteur ne
   peut PAS savoir s'il est seul sur le live (un autre peut arriver en cours
   de run) → ne jamais raisonner « pas besoin, je suis seul » — même pattern
-  que le warmup inconditionnel. Le parallélisme runner-scoped est AUTORISÉ
+  que l'amorce inconditionnel. Le parallélisme runner-scoped est AUTORISÉ
   (prouvé par le self-play : 5 runners simultanés). Les **traces
   diagnostiques sont séparées par runner** (2026-07-03) : chaque famille
   stocke ses events dans des buffers PAR ORIGINE (`OriginBuffers`,
@@ -54,11 +54,11 @@
   TON `runnerId`** — et fais porter au désarmement le MÊME scope qu'à
   l'armement. Restent EXCLUSIFS : (a) le clear GLOBAL (sans `runnerId`) et
   l'armement GLOBAL, que deux acteurs se disputent toujours ;
-  (b) les opérations de session (reinject, warmup, restart host) — personne
+  (b) les opérations de session (reinject, amorce, restart host) — personne
   d'autre sur le live pendant ; (c) les chemins UI BUILD/LOAD du front
   (`initRunner`/`loadFromSavedBundle`, sémantique replace conservée).
-- **Warmup inconditionnel** après chaque (re)inject, avant tout RPC/probe
-  (`warmupGameSingletons({force:true})`, autonome). Aucune exception, même pour
+- **Amorce inconditionnel** après chaque (re)inject, avant tout RPC/probe
+  (`autoBootExtraire({force:true})`, autonome). Aucune exception, même pour
   les probes « self-contained » sur seed BC disque.
 - **État dynamique refreshé par step comparé** : boucliers ET armure se lisent dans
   un `combatSnapshot` frais (débuffs type PowerTrip_ReduceArmor) — une capture
@@ -109,7 +109,7 @@ après chaque apply. Pour le dégât, la validation est **bit-exact** : l'ordre 
 natif (crit → block → split) est porté, pas approximé.
 
 **Tests live par tranche** : `scripts/python/tests/engine/*_live.py` (non commités,
-choix projet) — conftest `live_session`/`rpc`/`live_runner`, init = warmup-si-besoin.
+choix projet) — conftest `live_session`/`rpc`/`live_runner`, init = amorce-si-besoin.
 Chaque tranche portée a son/ses tests (move, damage paliers 1..3, crit/block
 bit-exact, effets/triggers, ActOfFaith, summons, turn flow, boucliers, Battle
 Fatigue, CrushingClaws…). Après une modif : relancer les tests de la tranche + un

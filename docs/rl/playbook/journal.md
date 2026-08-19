@@ -1054,7 +1054,7 @@ scenario-math** validée contre l'oracle — PAS un interpréteur DSL. Étape su
 
 Fonction lue **en entier** (3037 lignes décompilées) + 3 helpers scalaires décompilés. C'est LE noyau où
 convergent les 3 chemins de prédiction (aiPredict / combatSnapshot / le scorer). ~80 % du décompilé =
-bruit de la convention *generic-struct* (recopies `do/while` du scenario 0xc8 o, cctor warmup, alloca).
+bruit de la convention *generic-struct* (recopies `do/while` du scenario 0xc8 o, cctor amorce, alloca).
 
 **Signature** : `PredictAttackRaw(state param_2, Scenario* param_3) → DamagePredictionResult* param_1`.
 - `param_3` = struct-valeur ~0xc8 o (25 qwords) = **AttackScenario** : [10]=target, [0xb]=damage(Nullable),
@@ -1366,7 +1366,7 @@ seulement à une active. Deux axes distincts, séparés dans le registre :
 (2) `comparable_playbook.generate_multi_hit_attack_predictions` bâtit `mods = caster.attacker_modifiers()` et
 le passe à `get_attack_prediction(..., mods=mods)` ; (3) `predict_validate.py` : `effects_by_id` depuis
 decisionView → `mods` par attaquant → `get_attack_prediction(mods=…)`. Empty mods = no-op exact (8 cas clean
-inchangés). **RESTE (live)** : confirmer u94 → xmod≈1.00 via `predict_validate --seed 777` (re-warmup requis) ;
+inchangés). **RESTE (live)** : confirmer u94 → xmod≈1.00 via `predict_validate --seed 777` (re-amorce requis) ;
 étendre le registre au roster (conditions §17.4 par effet) ; brancher `dynamic` au 1er effet dynamique.
 
 **CONFIRMÉ LIVE (session 27, seed-777, 2026-06-27)** : la couche modifier (Option A) reproduit le buff in-situ.

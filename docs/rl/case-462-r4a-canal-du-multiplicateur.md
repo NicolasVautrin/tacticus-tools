@@ -245,7 +245,7 @@ RPC : `effectBonusTrace{On,Off,Clear,Dump,Layout}`.
 
 ### 8.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
 
-Prérequis : reinject + `warmupGameSingletons({force:true})`. Montage = **celui de §2**, déjà écrit
+Prérequis : reinject + `autoBootExtraire({force:true})`. Montage = **celui de §2**, déjà écrit
 et reproductible : `probe_462_r4a_terrifying_rounding.py --two-faces` (élévation `x1.50` côté
 ATTAQUANT + effet `Terrifying` `x0.70` côté DÉFENSEUR, unités DÉPLACÉES vers un couple adjacent à
 dénivelé, PV forcés à 90 000). C'est le seul régime où les deux faces sont non neutres, donc le

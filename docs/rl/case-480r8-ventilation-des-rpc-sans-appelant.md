@@ -104,7 +104,7 @@ Résultat : **1 module, 4 RPC** — `movement-trace.ts` (`clearMovementTrace`, `
 `movementTraceInstallStatus`, `movementTraceStats`), désactivé **volontairement** et commenté
 (`void movementTrace`, `/* movementTrace, */` : 39 `Interceptor.attach` et un lag de navigation).
 
-⚠ **La 1ʳᵉ version de cette étape rendait 216 RPC « non exposés »**, dont `warmupGameSingletons`,
+⚠ **La 1ʳᵉ version de cette étape rendait 216 RPC « non exposés »**, dont `autoBootExtraire`,
 `playTurn`, `initRunner` — la classe négative `[^)]*register` bute sur la parenthèse de `(f) =>`,
 donc le motif ne matchait jamais. Rattrapé parce que le résultat contredisait un fait connu, **pas**
 parce que le probe s'en est aperçu : il porte depuis un **témoin auto-vérifiant dérivé** — un RPC

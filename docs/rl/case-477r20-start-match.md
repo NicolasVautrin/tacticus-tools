@@ -1,7 +1,7 @@
 # #477-r20 — `System_StartMatch` : l'ENVELOPPE portée, le CONTENU chiffré
 
 **LIVRÉ.** Build `rnca9r7q6c`, ghidra-mcp, session Frida **1** (le host a été ré-injecté en cours
-de tranche ; warmup rejoué avant tout RPC).
+de tranche ; amorce rejoué avant tout RPC).
 **Le déblocage d'`Effect_Refresh` annoncé par #477-r19 § 5 est RÉFUTÉ, chiffré : 0 / 42 et
 0 / 44.** § 4.
 

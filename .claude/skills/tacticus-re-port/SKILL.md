@@ -19,7 +19,7 @@ La fidélité a **DEUX faces distinctes** — les confondre est l'angle mort n°
 
 **Ordre du protocole (chaque phase avant la suivante) : 0 RECON → 1 RE fidèle → 2 PORTAGE (mirror
 la structure native, côté DÉCISION §2A et/ou COMBAT §2B) → 3 DÉCOMPOSITION si le dégât diverge →
-4 VALIDER + TRACER.** L'infra (hash-discipline, résolution runtime, démarrage ghidra-mcp, warmup,
+4 VALIDER + TRACER.** L'infra (hash-discipline, résolution runtime, démarrage ghidra-mcp, amorce,
 « Ne jamais ») reste dans `CLAUDE.md` — s'y référer avant de toucher ghidra ou une session live.
 
 ---
@@ -215,7 +215,7 @@ champ d'une struct par valeur. Dans l'ordre, chaque étape est bon marché :
    setup). Le retour tranche le gate générique : la primitive fire-t-elle AUSSI pour u86 ? sur
    quel stat ? avec quels montants ? → l'identité runtime est lue, pas devinée.
 3. **Sécurité (non négociable)** : JAMAIS de (re)inject/restart host pendant qu'un agent worktree
-   tourne ; warmup `force:true` après CHAQUE reinject avant tout RPC/probe ; hook diagnostic
+   tourne ; amorce `force:true` après CHAQUE reinject avant tout RPC/probe ; hook diagnostic
    **auto-armé** au register ; **résolution runtime par nom** (`findClassAnywhere`/`findMethod`),
    jamais de RVA hardcodée — si un point d'entrée n'est résolvable que par adresse (diagnostic),
    stocker la **VA ghidra complète** et calculer `va - 0x180000000` dans le code, et sanity-checker
@@ -469,7 +469,7 @@ dégât FINAL.**
 | 2B/4 Combat | `AbilityHandler.unported` + `assert ported` | rendre le no-op combat VISIBLE et LOUD |
 | 4 Valider | pytest CIBLÉ (`test_predict_live`/`test_playbook_live`/`test_*_live`) | agreement live, slice touchée seulement |
 | 4 Valider | replay-diff, `engine_validate.py` | validation d'EXÉCUTION vs live |
-| — | `rl_duel build` | monter le runner isolé (voir `references/runner.md` : warmup, board, discipline) |
+| — | `rl_duel build` | monter le runner isolé (voir `references/runner.md` : amorce, board, discipline) |
 
 Catalogue RPC complet : `references/rpc-api.md`. Lancement runner : `references/runner.md`.
 
@@ -500,7 +500,7 @@ Catalogue RPC complet : `references/rpc-api.md`. Lancement runner : `references/
   (décision) · `docs/rl/dsl-cartography-phase1.md` + les TSV `docs/rl/dsl-usage/` (le graphe
   primitive ↔ ability, RE-DÉRIVABLE par `python scripts/python/dsl_xref_map.py report`).
 - **Infra (reste dans `CLAUDE.md`)** : hash-discipline dump↔build, résolution runtime (pas de RVA
-  hardcodée), démarrage ghidra-mcp, warmup obligatoire après chaque (re)inject, « Ne jamais » (heap
+  hardcodée), démarrage ghidra-mcp, amorce après chaque (re)inject, « Ne jamais » (heap
   scans, broad-hooks…), ASCII-only en sortie console, agents worktree.
 - **API/harnais** : `references/rpc-api.md`, `references/runner.md`, `references/hooks.md`.
 - **Mémoires liées** : `feedback_recon_units_first`, `feedback_recon_full_kit_not_captured_effects`,

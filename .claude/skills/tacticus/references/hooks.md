@@ -49,7 +49,7 @@ nom réenregistré par un module câblé plus tard écrase (ex. `battleStatus` e
 - `hooks/features/` — un fichier (ou sous-dossier) par feature, chacun
   `export register(ctx)`. Familles :
   - **runner / launch** : `launch.ts` (initRunner/initAndStart/dispose),
-    `cheat.ts` (cheatRunAi/autoPlayRunner), `warmup-singletons.ts`, `auto-boot.ts`.
+    `cheat.ts` (cheatRunAi/autoPlayRunner), `auto-boot.ts`, `auto-boot.ts`.
   - **décision & action (oracle live)** : `ai-step/` — `rpc-view.ts`
     (decisionView, combatSnapshot, tileMeta, boardGraph, pathDistToEnemies,
     aiMovableTiles, aiAttackRank, abilityTargets, abilityReason, aiPredict,
@@ -124,8 +124,6 @@ curl -X POST http://127.0.0.1:8765/api/admin/inject -d '{}'   # (ré)injecte
 ```
 
 La (ré)injection **réinitialise l'état agent** (liveRunner=null, caches Frida
-des MethodInfo* perdus) → **re-`warmupGameSingletons({ force: true })` requis
-avant tout RPC/probe**. Ce warmup est AUTONOME (il pilote lui-même la nav UI
-campagne→node→play→capture→retreat et recapture `lastSource`) — **jamais de clic
-humain, ne jamais demander à l'utilisateur de cliquer une battle** (cf. CLAUDE.md
-« Workflow RL » + mémoire `feedback_warmup_after_every_reinject`).
+des MethodInfo* perdus, `lastSource` à `null`). Ces caches se remplissent seuls
+au premier `findClassAnywhere` ; `lastSource` se recapture quand le jeu construit
+un `CampaignGameModeSource` (donc à la première nav de campagne).

@@ -125,7 +125,7 @@ chemin d'appel est donc DÉMONTRÉ bon (un vrai appel d'interface avec une vraie
 managée réussit), et la forme de l'id aussi.
 
 ⚠ **La piste « session froide » est MORTE, et pas pour la raison que j'avançais.** J'écrivais
-« à rejouer sur une session warmée » ; c'est sans objet — **le warmup FAIT exactement ce que
+« à rejouer sur une session warmée » ; c'est sans objet — **l'amorce FAIT exactement ce que
 cette mise au point fait déjà** : ouvrir une bataille de campagne, capturer, se retirer. Ce
 cycle a été rejoué une dizaine de fois à la main ici. Il n'y a rien de froid à réchauffer.
 
@@ -660,13 +660,13 @@ et la bataille réellement montée était **`Campaign1_62`** — aucun slot ne s
 Le `LevelN` du chemin est donc une **position dans la fenêtre de carte affichée**, pas un
 identifiant de bataille.
 
-**Et personne ne choisit ce slot.** `warmup-singletons.ts::findButtonBySuffix` fait
+**Et personne ne choisit ce slot.** `auto-boot.ts::findButtonBySuffix` fait
 `enumerateButtons(r, false).find(b => b.path.endsWith(NODE_SUFFIX))` — le premier de l'ordre
 d'énumération Unity, qui n'est ni numérique ni la progression :
 
 ```
 ordre mesure (uiList ET uiListAll, identiques) : 5, 14, 2, 13, 12, 11, 6, 3, 4, 8, 7, 1, 15, 9, 10
-                                                 ^ le warmup prend le slot Level5
+                                                 ^ l'amorce prend le slot Level5
 ```
 
 Les scripts de pilotage, eux, écrivaient `Buttons/Level1/...` en dur. Deux voies, deux slots

@@ -157,7 +157,7 @@ concurrente** :
 - **Concurrence v1** : la sérialisation main-thread fait que 2 battles ne tournent pas en *vrai*
   parallèle (RPC sérialisés) → le parallèle ne gagne que le **raisonnement** des agents. Acté.
 - Fichiers touchés : `frida/hooks/runtime/queue.ts`, un export léger (`main.ts`/controller),
-  `frida/host/sessions.ts` (rpcCall + pending map), + endpoint host. Rebuild + reinject + warmup + test.
+  `frida/host/sessions.ts` (rpcCall + pending map), + endpoint host. Rebuild + reinject + amorce + test.
 
 ## Questions ouvertes (à trancher avant lancement)
 - **Budget/stop** : combien de matchs par session avant un /compact ? un cap de coût (nb matchs) par run ?

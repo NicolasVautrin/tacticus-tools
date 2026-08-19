@@ -9,7 +9,7 @@ sur l'axe du SKIP, transpose a l'axe LIVE/OFFLINE.
 
 **Regime de mesure.** Worktree a `6f9f6071`, **exactement** `origin/master` au moment de la mesure
 (`git rev-parse HEAD == git rev-parse origin/master`, verifie). Tout rejeu ci-dessous est donc un
-rejeu sur `master` NU, sans aucune edition. Session Frida `5`, drain off, warmup passe. Build du
+rejeu sur `master` NU, sans aucune edition. Session Frida `5`, drain off, amorce passe. Build du
 jeu `rnca9r7q6c` == `data/symbols/CURRENT` (verifie : le build du jeu n'a PAS bouge, ce n'est pas
 la cause).
 

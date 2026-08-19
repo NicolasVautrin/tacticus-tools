@@ -1,4 +1,4 @@
-# #991 — Remplacer le pilotage d'UI du warmup par un invoke de `StartCampaignMatch` ?
+# #991 — Remplacer le pilotage d'UI de l'amorce par un invoke de `StartCampaignMatch` ?
 
 **Etat : TRANCHE PARTIELLE.** La RE offline est faite et deux mesures live (lecture seule) sont
 acquises. **L'invoke n'est PAS confronte** : il exige d'observer l'appel reel, donc une fenetre de
@@ -9,7 +9,7 @@ Build `rnca9r7q6c`. `master` de depart `62b57a95`.
 
 ## 1. La question
 
-Le cycle de `frida/hooks/features/warmup-singletons.ts` pilote l'UI sur trois etapes —
+Le cycle de `frida/hooks/features/auto-boot.ts` pilote l'UI sur trois etapes —
 `to-campaign`, `click-node`, `click-play` — dont l'unique effet utile est un appel a
 
 ```
@@ -53,7 +53,7 @@ lecture seule) :
 | **`0x248`** | **`_viewCommandExecutor`** | **`IViewCommandExecutor`** |
 
 `IdunNavigation` est deja resolue par le depot (`features/auto-boot.ts`,
-`features/warmup-singletons.ts`). Le chemin est donc **le meme patron que `_unitProgression` /
+`features/auto-boot.ts`). Le chemin est donc **le meme patron que `_unitProgression` /
 `_gameConfig`** d'`auto-boot.ts` : instance vivante, puis `getFieldOffset(navClass, "<nom>")`.
 **Jamais l'offset en dur** — `auto-boot.ts` documente un `_unitProgression` qui a glisse
 `0x1F0 -> 0x1D8` entre deux builds.
@@ -112,7 +112,7 @@ appelants UI respectifs, qui sont **par mode**.
 
 ## 5. Ce qui manque pour trancher
 
-1. **Armer le capteur** (`startCampaignMatchCaptureArm`) puis jouer un warmup nominal, et lire
+1. **Armer le capteur** (`startCampaignMatchCaptureArm`) puis jouer une amorce nominal, et lire
    `startCampaignMatchCaptures` : `this`, `campaignId`, `locationIndex`, membre nomme de
    `CampaignType`, et les **deux octets bruts** du `Nullable<bool>`. **Exige une fenetre de
    reinject** (le module est neuf).

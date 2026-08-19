@@ -37,22 +37,16 @@ les homonymes de `status.ts`/`observe.ts`.
 
 ## Cycle de vie du runner isolé (RL / sim 0-token)
 
-Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
+Ordre (détails CLAUDE.md « Workflow RL ») :
 
-- **`warmupGameSingletons({ force?, stopAfterCapture? })`** (`warmup-singletons.ts`) — nav UI
-  AUTONOME (capture `lastSource` + init classes battle IL2CPP, sinon crash 0x2c).
-  1× par session après chaque (ré)inject, avant tout autre RPC. Aucun clic humain.
-  **Rend la main sur l'ÉCRAN CAMPAGNE** (`retreat-to-campaign` + `wait-back-to-campaign`), et
-  sait aussi SORTIR SEUL d'un écran de bataille hérité (étape `recover-from-battle`). ~12 s.
-  `stopAfterCapture: true` (explicite) coupe après la capture et laisse le jeu en bataille.
-  ⚠ Ne PAS l'appeler à la main après un `POST /api/admin/inject` : celui-ci l'enchaîne déjà.
-  Session vivante mais froide → `POST /api/admin/warmup`.
-  **Se rattrape SEUL d'un wedge post-retraite (#390)** : si le nœud de campagne ne revient
-  pas, le cycle ferme les popups modaux puis invoque `IdunNavigation.ToCampaign` — 2 tentatives,
-  +40 s au pire, **0 s sur le chemin nominal**. Le rattrapage ne rend pas le wedge muet :
-  `steps` garde `wait-back-to-campaign` à `ok:false`, ajoute les `wedge-remedy-*`, et le
-  résultat porte **`recovered`** = le motif qui a porté. Un `ok:false` dit désormais lequel des
-  cinq motifs a échoué — dont `scene-meta-absente`, le seul qui exige encore de relancer le jeu.
+- **`autoBootExtraire()`** (`auto-boot.ts`) — lit `IdunNavigation._gameConfig` et
+  `_unitProgression`, et s'arrête. Ni navigation, ni bataille, ni scan de tas. Sans elle,
+  `previewBis` refuse (« no lastGameConfig captured ») et CritChance/CritDamage/BlockChance/
+  BlockDamage valent 0 sur toutes les unités (#419-r5) — le runner tourne, mais ses mesures
+  sont fausses. `POST /api/admin/inject` l'enchaîne tout seul ; `POST /api/admin/amorce` la
+  rejoue sur une session déjà vivante. Deux sources d'instance, par ordre d'autorité : le hook
+  passif (`Init` / `ShowScreenAndHideOthers`) puis le repli `FindObjectsByType` — la source
+  retenue est publiée dans la réponse.
 - **`buildNormalizedBC({ baseBcJson, target{Rank,ProgressionIndex,Rarity,Level,StarLevel,AbilityLevel}, boardJson?, spawnPointSetIndex? })`**
   (`normalize-bc.ts`) → `{ ok, configJson, normalized:[unitId], mow:[unitId] }`.
   Résout une BC seed au rank cible ; passage obligé (les UnitId `:pvp` bruts
@@ -77,7 +71,7 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
   avec leur armement — les quatre booléens de résolution ne disent rien du contenu.
 - **`buildPatchedRunner(patch?)`** (`battle-config.ts`) → `{ ok, runnerId, runner,
   seed, bcPtr, patch }`. Runner depuis la BC live capturée avec patch in-place
-  (aiUnits/randomizeAi/templateOverrides). Warmup préalable requis.
+  (aiUnits/randomizeAi/templateOverrides). Amorce préalable requis.
   `spawnPredefinedUnits({ runnerId })` / `addPredefinedMachine({ playerId, unitId,… })`
   = leviers manuels sur cette BC live.
 - **`observeBattle({ runnerId })`** (`observe.ts`) → état projeté (shape ci-dessous).
@@ -158,13 +152,13 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` → Fix64 (Σ familles damage/heal/effect/repair,
   prob + modifs inclus) pour (ability, cible) depuis une position. ⚠ `ncEvaluate` AV @0x46
   sur les playbooks COMPARABLES hors tour natif — utiliser CE RPC pour l'utilité comparable.
-- ~~**`navToCampaign()`**~~ — **RETIRÉ le 2026-08-07. Ne pas le rétablir.** Le cycle de warmup
+- ~~**`navToCampaign()`**~~ — **RETIRÉ le 2026-08-07. Ne pas le rétablir.** Le cycle d'amorce
   applique déjà ce remède lui-même sur wedge détecté (cran 8, même foyer). L'exposer en plus
-  comme levier manuel faisait croire qu'un warmup rouge se rattrape à la main : **il ne se
+  comme levier manuel faisait croire qu'une amorce rouge se rattrape à la main : **il ne se
   rattrape pas.** Mesuré — joué quatre fois de suite, il a ramené la campagne à chaque coup
-  pendant que `warm-gate` refusait toujours la création de runner, le RPC de warmup rendant
-  `ok:false`. Il répare l'**écran**, jamais le **verdict**. Un warmup rouge se diagnostique par
-  `POST /api/admin/warmup`, qui rend le détail étape par étape.
+  pendant que `amorce` refusait toujours la création de runner, le RPC de amorce rendant
+  `ok:false`. Il répare l'**écran**, jamais le **verdict**. Un amorce rouge se diagnostique par
+  `POST /api/admin/amorce`, qui rend le détail étape par étape.
   Cran exécutable qui garde son absence : `frida/tools/probe-390-wedge-remedy.ts` §6.
 - **`exposureView({ runnerId, unitId?, allAbilities?=true })`** — move-guard
   (inverse d'attackPlans) : dégât ennemi entrant au prochain tour + flag `exposed`.
@@ -215,7 +209,7 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   fin de l'animation, donc le retour d'un clic ne prouve rien).
   Ce qu'on lisait par l'écran se demande au jeu : `rosterOwned` pour la possession,
   `expeditionBoard` pour le plateau, les porteurs de `ViewCommandExecutor` pour le reste.
-  ⚠ `ui-windows.ts` SURVIT, sans `register` : le warmup importe `ecouterTransitions`, qui
+  ⚠ `ui-windows.ts` SURVIT, sans `register` : l'amorce importe `ecouterTransitions`, qui
   OBSERVE les transitions de fenêtre et ne clique rien.
 - **Config / visuels** : `getGameConfig`/`getMatchState` (`config-io.ts`) ;
   `getGameVersion`/`dumpEnum(s)`/`resolveVtableSlot` (`introspect.ts`) ;
@@ -245,7 +239,7 @@ partie. Le module DÉPOSE ses ancrages pendant l'appel (sinon gel) et le dit dan
 confirmation, l'état du FSM ne bouge pas), et le `Pause → Retreat` par l'écran (les endpoints d'UI
 sont supprimés, cf. § précédent).
 
-⚠ **Et SURTOUT : sortir AVANT tout reinject si une bataille sandbox est montée.** Le warmup enchaîné
+⚠ **Et SURTOUT : sortir AVANT tout reinject si une bataille sandbox est montée.** L'amorce enchaîné
 par l'inject démarre une bataille de campagne PAR-DESSUS et se retire — le jeu se fige à
 `thor.Loader.__loadingStep = 12`, en rendant `ok: true` sur ses 13 crans. Mesuré le 2026-08-17,
 relance manuelle obligatoire. Détail : `docs/rl/case-10020-lien-vue-source-sens-unique.md` §9,

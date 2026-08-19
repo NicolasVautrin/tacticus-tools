@@ -90,7 +90,7 @@ python predict_sweep.py --seed 777 --p-units tyranNeurothrope,custoBladeChampion
 python predict_sweep.py --runner 12
 ```
 
-Pre-requis : session Frida chaude (warmup apres chaque reinject). Le harnais build+dispose son
+Pre-requis : session Frida chaude (amorce apres chaque reinject). Le harnais build+dispose son
 propre runner (state-file dedie `logs/runners/_predict_sweep.json`, coexistence) -- ne touche pas au runner
 utilisateur. Le drive/commit-move/cycle mutent le runner ISOLE uniquement.
 

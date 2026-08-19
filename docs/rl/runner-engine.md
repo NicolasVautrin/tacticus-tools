@@ -664,7 +664,7 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
   (positions/effets) + `combatSnapshot` (stats). **TODO probable** : un RPC de dump
   ECS complet (toutes entités + composants) pour un diff haute-fidélité.
 - Intégré au moule pytest existant (`tests/engine/`, [[feedback_tests_confront_live]]) :
-  build runner isolé auto-disposé (coexistence par défaut), warmup-if-needed, skip si pas de session.
+  build runner isolé auto-disposé (coexistence par défaut), amorce-if-needed, skip si pas de session.
 
 ---
 

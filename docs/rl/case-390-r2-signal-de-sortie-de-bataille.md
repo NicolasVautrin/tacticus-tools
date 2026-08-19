@@ -1,9 +1,9 @@
-# #390-r2 — la retraite du warmup detecte par SIGNAL, et NOMME ce qu'elle traverse
+# #390-r2 — la retraite de l'amorce detecte par SIGNAL, et NOMME ce qu'elle traverse
 
-`retreatToCampaign` (`frida/hooks/features/warmup-singletons.ts`) sondait l'UI toutes les
+`retreatToCampaign` (`frida/hooks/features/auto-boot.ts`) sondait l'UI toutes les
 250 ms apres le clic de confirmation — « le noeud de campagne est-il la ? », puis « une
 instance `IdunNavigation` est-elle vivante ? » — sur deux budgets de 12 s poses au jugement.
-Un warmup VERT ne disait rien de ce qui s'etait passe entre les deux : campagne remontee
+Un amorce VERT ne disait rien de ce qui s'etait passe entre les deux : campagne remontee
 seule, ou frame intersticielle traversee ? Personne ne pouvait le dire.
 
 Le signal existait deja dans le depot : `frida/hooks/features/ui-windows.ts` ancre les cinq
@@ -12,7 +12,7 @@ points de `idun.ui.ScreenVisibilityManager` et note chaque transition avec son `
 ## La mesure — deux cycles complets, sequences IDENTIQUES
 
 Session 73, build `rnca9r7q6c`, bundle de `b0db23fc`. Journal arme par
-`uiWindowEvents {start, clear}`, puis `warmupGameSingletons({force:true})` (vert 8/8),
+`uiWindowEvents {start, clear}`, puis `autoBootExtraire({force:true})` (vert 8/8),
 puis relecture. **28 transitions, deux fois de suite, a l'identique.**
 
 ```
@@ -70,7 +70,7 @@ wrapper de fond floute EN PLUS du vrai ecran.
 
 `ecouterTransitions()` — un abonnement PUSH, purement ADDITIF. Il ne lit ni n'ecrit `actif`,
 ne touche ni au tampon ni a `recus`. **Pas** un `uiWindowEvents({start})` suivi d'un
-`{stop}` : le drapeau et le tampon sont l'etat de l'OPERATEUR, et un `start`/`stop` du warmup
+`{stop}` : le drapeau et le tampon sont l'etat de l'OPERATEUR, et un `start`/`stop` de l'amorce
 ETEINDRAIT un journal arme a la main (un `clear` effacerait ses transitions). La diffusion aux
 abonnes precede le gate `actif` ; sortie immediate quand personne n'ecoute.
 
@@ -88,7 +88,7 @@ Les crans du module sont intacts : toutes les surcharges d'un nom restent attach
   (a) elle ECRIT et je ne peux pas l'observer (pas de reinject) ;
   (b) le decompile montre une garde (`this+0x530`, puis `+0x268`) dont l'echec tombe sur
   `FUN_1801f51f0` — *Subroutine does not return*, donc une LEVEE. Sur le chemin nominal, ou
-  la mesure donne ZERO frame intersticielle, l'appeler leverait a chaque warmup ;
+  la mesure donne ZERO frame intersticielle, l'appeler leverait a chaque amorce ;
   (c) le geste est deja couvert DEUX fois par la voie UI — `dismissOpenPopups` a l'entree du
   cycle et le volet A de `runWedgeRemedy` a la sortie. Une troisieme voie serait un troisieme
   foyer pour un meme geste.
@@ -103,7 +103,7 @@ est DATA : les deux appelants sont eux-memes invoques par delegue.
 
 `CampaignGameModeSource$$PauseSurrender` **existe bien** (contrairement au doute initial) et
 teste `IdunBattle.View.FSM.VisualBattleQuery$$IsBattleStarted` : deux delegues distincts selon
-que la bataille a demarre. **Notre warmup se retire en phase de DEPLOIEMENT**, donc dans la
+que la bataille a demarre. **Notre amorce se retire en phase de DEPLOIEMENT**, donc dans la
 branche « pas demarree ».
 
 ⚠ **Deux raisons de ne PAS en faire le signal d'attente, et ce sont des mesures :**
@@ -123,11 +123,11 @@ Il reste un capteur precieux pour DATER le debut de la sortie — cf. residu.
 
 ## Ce qui est livre
 
-- `frida/hooks/features/warmup-retreat-signal.ts` — module PUR (aucun import), portant la
-  logique, les motifs NOMMES et le plafond. Meme decoupe que `warmup-wedge-remedy.ts`.
+- `frida/hooks/features/amorce-retreat-signal.ts` — module PUR (aucun import), portant la
+  logique, les motifs NOMMES et le plafond. Meme decoupe que `amorce-wedge-remedy.ts`.
 - `frida/hooks/features/ui-windows.ts` — `ecouterTransitions()`, `TRANSITION` (foyer des
   libelles), `classe` sur les transitions.
-- `frida/hooks/features/warmup-singletons.ts` — cablage ; les deux appelants publient
+- `frida/hooks/features/auto-boot.ts` — cablage ; les deux appelants publient
   desormais `reason` + `info` dans leur step.
 - `frida/tools/probe-390-r2-signal-retraite.ts` — garde offline, **98/98**, trois etages
   (comportement avec doublures qui comptent / cablage sur source verbatim / le membre d'enum
@@ -146,7 +146,7 @@ motifs DISTINCTS : les confondre ferait chercher la mauvaise cause.
 
 Le code livre n'a **jamais tourne** : la mesure ci-dessus a ete prise avec le bundle
 PRECEDENT, via le RPC `uiWindowEvents`. Il faut un reinject, interdit a un agent. Le premier
-warmup joue apres deploiement repondra en une ligne, puisque le step publie sa branche.
+amorce joue apres deploiement repondra en une ligne, puisque le step publie sa branche.
 
 ## Residus
 
@@ -161,4 +161,4 @@ warmup joue apres deploiement repondra en une ligne, puisque le step publie sa b
 - **#390-r8** — `ViewCommandExecutor$$HideInterstitialPopup` : etablir la garde
   (`this+0x530` / `+0x268`) et le slot de vtable `+0x428` avant tout invoke.
 - Bonus non traite : `CompleteLocationHandler$$HandleClearReconciliationData(
-  hasSurrenderedBeforeDeployment)` — dirait si le warmup coute reellement une defaite.
+  hasSurrenderedBeforeDeployment)` — dirait si l'amorce coute reellement une defaite.

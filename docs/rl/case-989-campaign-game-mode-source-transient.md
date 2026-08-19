@@ -2,7 +2,7 @@
 
 **Verdict : (B).** Il n'existe **aucune** instance de
 `IdunBattle.ViewLogic.BattleSource.CampaignGameModeSource` tant qu'aucune bataille de campagne
-n'a été lancée. Il n'y a **rien à résoudre** : la piste « remplacer le pilotage d'UI du warmup
+n'a été lancée. Il n'y a **rien à résoudre** : la piste « remplacer le pilotage d'UI de l'amorce
 par un `Resolve` » est **CLOSE**.
 
 Mesuré le 2026-08-12 sur le build `rnca9r7q6c` (jeu = dump = `data/symbols/CURRENT`).
@@ -64,7 +64,7 @@ que quelqu'un ira réfuter des semaines plus tard, à ses frais.
 
 ## Conséquence
 
-Le cycle du warmup (campagne → nœud → play → capture au ctor → pause → retraite, ~14 s) est la
+Le cycle de l'amorce (campagne → nœud → play → capture au ctor → pause → retraite, ~14 s) est la
 **seule** voie d'obtention du pointeur. Le durcissement de la retraite (**#390**) est donc **la**
 bonne réponse à son coût, pas un palliatif en attendant une résolution directe : il n'y a rien
 d'autre à attendre.

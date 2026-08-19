@@ -264,7 +264,7 @@ python scripts/python/probe_477r15r4_capteurs_offline.py
 #    attendu : rc=0, 21 cles comparees, 9/9 copies attrapees sur temoin, 10 TagKey compares
 python -m pytest tests/engine/test_477r15_stream_emitter_offline.py -q     # 49 passed
 
-# 1. reinject + warmup (orchestrateur)   ... puis :
+# 1. reinject + amorce (orchestrateur)   ... puis :
 
 # 2. LA mesure : le dernier tag cesse d'etre copie
 python scripts/python/probe_477r15a_stream_conformance.py

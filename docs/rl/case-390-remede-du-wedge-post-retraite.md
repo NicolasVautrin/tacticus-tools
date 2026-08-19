@@ -1,8 +1,8 @@
-# #390 — le warmup APPLIQUE le remède qu'il nommait
+# #390 — l'amorce APPLIQUE le remède qu'il nommait
 
 ## 1. La question binaire
 
-> Quand le cran 8 du warmup (`wait-back-to-campaign`) expire, le cycle a-t-il **appliqué
+> Quand le cran 8 de l'amorce (`wait-back-to-campaign`) expire, le cycle a-t-il **appliqué
 > lui-même** le remède qu'il nomme dans son propre message — et un lecteur de `steps`
 > peut-il distinguer **« remède non tenté » / « tenté et sans effet » / « tenté et
 > INAPPLICABLE »** ?
@@ -70,7 +70,7 @@ nœud est revenu puis a **cessé** d'être `active && interactable`, et l'est re
 
 Le régime (3) n'est pas un état du jeu mais un angle mort de **notre détecteur** :
 `enumerateButtons(r, false)` ne retient que les boutons `active && interactable`, et le dépôt
-documente déjà, à l'étape 1 du warmup, que les popups « disable everything behind them ».
+documente déjà, à l'étape 1 de l'amorce, que les popups « disable everything behind them ».
 `idun.UI.IdunNavigation` porte précisément une famille de popups de retour-au-méta
 (`$$ShowDelayedRewards`, `$$ShowLiveEventInterstitialPopupIfNecessary`,
 `$$ShowOfferInterstitialPopupIfNecessary`, `$$ShowCampaignUnlockedIfNecessary`,
@@ -85,7 +85,7 @@ Au prochain wedge, `steps` répond à la question au lieu de la reposer.
 
 ## 5. Ce qui est livré
 
-- `frida/hooks/features/warmup-wedge-remedy.ts` — module **pur** (aucun accès Frida), donc
+- `frida/hooks/features/amorce-wedge-remedy.ts` — module **pur** (aucun accès Frida), donc
   éprouvable hors du jeu. `runWedgeRemedy(deps)`, deux volets ordonnés (popups puis nav),
   cinq motifs **nommés** : `campagne-remontee-apres-fermeture-de-popup`,
   `campagne-remontee-apres-nav-to-campaign`, `scene-meta-absente`, `nav-to-campaign-a-leve`,
@@ -96,7 +96,7 @@ Au prochain wedge, `steps` répond à la question au lieu de la reposer.
   en plus des 45 s d'attente initiale, et **0 s sur le chemin nominal**. Un retry non borné
   transformerait un wedge visible en attente muette — pire que le défaut réparé.
 - **Le wedge reste VISIBLE après rattrapage** : le step `wait-back-to-campaign` reste à
-  `ok: false`, les steps `wedge-remedy-*` tracent chaque volet, et `WarmupResult.recovered`
+  `ok: false`, les steps `wedge-remedy-*` tracent chaque volet, et `AmorceResult.recovered`
   porte le motif. Trois états lisibles là où il n'y en avait qu'un.
 - **Deux foyers uniques**, la leçon de #332 appliquée avant qu'elle ne coûte :
   `navToCampaignOnMainThread(animated)` sert l'étape 2 du cycle, le RPC de secours
@@ -108,7 +108,7 @@ Au prochain wedge, `steps` répond à la question au lieu de la reposer.
 - `frida/tools/probe-390-wedge-remedy.ts` — **60/60**. Étage 1 : exerce le code de production
   avec des doublures qui **comptent** leurs appels (court-circuit du volet B, économie
   d'attente, arrêt immédiat, borne, motifs distincts, ASCII, non-levée). Étage 2 : confronte
-  le **câblage** au source de `warmup-singletons.ts` (appel dans la branche du cran 8, foyers
+  le **câblage** au source de `auto-boot.ts` (appel dans la branche du cran 8, foyers
   uniques, `recovered` publié, prédicat partagé, bornes journalisées).
 - **Contre-épreuve : 6/6 mutants détectés** — décâblage de l'appel, borne relâchée à 5, perte
   de l'arrêt immédiat, fusion de deux motifs en une sentinelle, duplication du foyer d'invoke,
@@ -117,7 +117,7 @@ Au prochain wedge, `steps` répond à la question au lieu de la reposer.
   pour être actif, et le wedge est **intermittent** — l'observer exige en plus qu'il se
   produise. Le bundle **compile** (`frida-compile hooks/main.ts`, rc 0) et le module est bien
   dans la sortie ; c'est tout ce qu'on peut établir sans fenêtre.
-- Gardes voisines rejouées vertes : `warm-gate.probe.ts` 24/24, `probe_480_hooks_audit.py`,
+- Gardes voisines rejouées vertes : `amorce.probe.ts` 24/24, `probe_480_hooks_audit.py`,
   `probe_480r1_entrees_de_build.py`, `probe_365_versioned_imports_gitignored.py`.
 
 ## 7. Résidus

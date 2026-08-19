@@ -116,5 +116,5 @@ l'expérience qu'un lookahead aurait simulée.
 ## Contraintes
 
 - Build **kqkbjqfb6c** (RVA/dumps spécifiques). Anti-freeze : chunker / batcher (≤ budget main-thread).
-- Cycle dev hooks : rebuild + `POST /api/admin/inject` + `warmupGameSingletons({force:true})` (autonome).
+- Cycle dev hooks : rebuild + `POST /api/admin/inject` + `autoBootExtraire({force:true})` (autonome).
 - **Ne jamais commit de sa propre initiative.**

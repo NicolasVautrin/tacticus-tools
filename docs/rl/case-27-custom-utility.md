@@ -3724,9 +3724,9 @@ assertions :
 
 ⚠ **Ces trois valeurs ont ete mesurees DEUX FOIS, sur DEUX sessions Frida distinctes**, et la
 seconde n'est pas une precaution de forme : le jeu a ete relance en cours de tranche et une premiere
-serie de runners est passee dans la fenetre ou le drain etait retombe **avant** que le warmup ne
+serie de runners est passee dans la fenetre ou le drain etait retombe **avant** que l'amorce ne
 soit joue. Un runner monte sur session NON WARMEE rend `started: true` et ne prouve rien. La serie
-retenue ici est integralement celle d'apres warmup ; elle reproduit la premiere **a l'identique**
+retenue ici est integralement celle d'apres amorce ; elle reproduit la premiere **a l'identique**
 (memes tuiles, memes triplets), et le seul artefact de la fenetre a ete un `rc = 2` transitoire de
 `probe_477r15a_stream_conformance.py`, revenu a `rc = 0` sans qu'aucune ligne de code ne bouge.
 
@@ -3737,7 +3737,7 @@ gate ne mord pas dans la fenetre deterministe, donc le port de la formule n'est 
 `return True` dans `loki_custom.py` rend `test_slot4_gate_truth_table_offline` **ROUGE**
 (`assert True is False`) ; restauration verifiee par `git checkout` + re-jeu **VERT**.
 
-**Non-regression re-jouee APRES rebase sur `origin/master` ET apres warmup** (tous verts,
+**Non-regression re-jouee APRES rebase sur `origin/master` ET apres amorce** (tous verts,
 2026-08-05, **70 tests**) : `test_instruments_of_vengeance_decision_live` **16** (14 + 2 gardes
 offline neuves), et les six autres membres de la route non-attaque --
 `test_chronometron_decision_live` 7, `test_martial_exemplar_decision_live` 9,

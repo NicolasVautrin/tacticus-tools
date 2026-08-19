@@ -33,12 +33,12 @@ Chiffres re-dérivables : `python scripts/python/probe_287r9_consommateurs_oracl
 
 Donc le couple est bien **exposable**, et par le **cooldown seul** — pas par les munitions
 (`1169` n'a pas de `munitionsCost`, et le capteur `hasAmmo` livré par #287-r9 est **injecté** :
-il répond). Ce que le re-jeu de `probe_249 --only mow` montre ensuite : ses six `endturn` de warmup
+il répond). Ce que le re-jeu de `probe_249 --only mow` montre ensuite : ses six `endturn` de amorce
 **suffisaient**, et six lignes `natif=0x0` sur des tuiles marchables l'attestent **sur le montage
 même**. Mais rien ne le vérifiait — c'est du déblocage par **comptage**. Le cran est désormais posé
 (`O.debloquer_oracle(..., jouer_adverse=False)` : le montage est GÉOMÉTRIQUE, l'IA adverse le
 détruirait). Re-jeu après cran : `8/8`, `VERDICT PASS` — identique. **Le cran ne corrige pas un
-résultat, il garantit ce qui n'était qu'un effet de bord du warmup.**
+résultat, il garantit ce qui n'était qu'un effet de bord de l'amorce.**
 
 Les deux lignes `natif=0x1 ValidRequest` de ce montage sont des **tuiles non marchables** : c'est le
 littéral de la branche `TargetIsTile`, pas le court-circuit amont. Le discriminant qui les sépare est

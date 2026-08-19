@@ -28,17 +28,17 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
    du jeu via le dossier `<basename>_Data/` adjacent à l'exe. (Le bouton INJECT
    du front `/view/` fait le même appel mais **n'est plus utilisé** : l'injection
    passe par l'API / les scripts.)
-4. **Warmup — RIEN À FAIRE : l'inject de l'étape 3 l'enchaîne tout seul** (depuis le
-   2026-07-31). Session déjà vivante mais froide → `POST /api/admin/warmup`.
-   Le RPC sous-jacent reste `warmupGameSingletons({ force: true })`, mais ne l'appelle
+4. **Amorce — RIEN À FAIRE : l'inject de l'étape 3 l'enchaîne tout seul** (depuis le
+   2026-07-31). Session déjà vivante mais froide → `POST /api/admin/amorce`.
+   Le RPC sous-jacent reste `autoBootExtraire({ force: true })`, mais ne l'appelle
    pas à la main après un inject : tu le jouerais deux fois.
    **Autonome** : pilote toute la nav UI lui-même (campagne → node → play → capture
    ctor), capture `lastSource` + `lastUnitProgression` + `IdunUniverse`, push
    `builder_ready` au front, **puis REVIENT SUR LA CAMPAGNE**. **Aucun clic humain :
    ne JAMAIS demander à l'utilisateur de cliquer une battle ni de ramener la campagne**
    — le cycle sait aussi sortir seul d'un écran de bataille hérité (`recover-from-battle`).
-   Mesuré le 2026-07-31 : inject + warmup = **14,1 s**, warmup seul = **11,9 s**.
-   `{ warmup: false }` sur l'inject, ou `stopAfterCapture: true` sur le RPC, sont des
+   Mesuré le 2026-07-31 : inject + amorce = **14,1 s**, amorce seul = **11,9 s**.
+   `{ amorce: false }` sur l'inject, ou `stopAfterCapture: true` sur le RPC, sont des
    échappatoires explicites — pas des défauts.
 
    > **Pourquoi ce n'est plus « le jeu reste en bataille ».** Le 2026-07-25 la sortie
@@ -64,7 +64,7 @@ de commande, et **plus via le bouton UI** (le front `/view/` n'est plus utilisé
 depuis longtemps ; il appelle le même endpoint). Le host gère device discovery,
 attach, load script, session lifecycle. Un inject frais crée une session neuve
 qui charge le `dist/hooks.js` courant ET est trackée par `/api/admin/status`
-(→ re-warmup ensuite, cf. Workflow RL).
+(→ re-amorce ensuite, cf. Workflow RL).
 
 Pour info : (file:///C:/Users/nicolasv/tacticus-tools/frida/host/admin.ts) +
 (file:///C:/Users/nicolasv/tacticus-tools/frida/host/sessions.ts) (cycle de vie
@@ -92,7 +92,7 @@ lisant le BON champ du status.** `/api/admin/status` renvoie **`.session` (SINGU
 ```bash
 curl -s http://127.0.0.1:8765/api/admin/status | npx -y node-jq -c '.session'
 # -> {"id":N,"pid":...,"status":"running",...}  => session VIVANTE : la RÉUTILISER, NE PAS injecter
-# -> null                                         => pas de session : injecter puis warmup
+# -> null                                         => pas de session : injecter puis amorce
 ```
 
 - **Piège vécu (2026-07-18)** : un filtre jq erroné sur `.sessions` (pluriel) a renvoyé `[]`
@@ -100,9 +100,9 @@ curl -s http://127.0.0.1:8765/api/admin/status | npx -y node-jq -c '.session'
   JAMAIS déduire « pas de session » d'un champ absent/mal nommé** : lire `.session` (singulier)
   et tester `.session.status == "running"`. Si `running`, il n'y a **rien à injecter** (sauf
   changement `frida/hooks/*` explicite).
-- Rappel warmup : après un inject RÉELLEMENT nécessaire (hooks changés / aucune session), warmup
-  obligatoire. En pytest, le fixture `live_session` s'en charge (warmup-if-needed au 1er test) —
-  pas besoin d'un warmup manuel.
+- Rappel amorce : après un inject RÉELLEMENT nécessaire (hooks changés / aucune session), amorce
+  obligatoire. En pytest, le fixture `live_session` s'en charge (amorce-if-needed au 1er test) —
+  pas besoin d'une amorce manuelle.
 
 ## Arrêt
 
@@ -140,7 +140,7 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
    runner légitimement long. Mesuré : un orphelin d'une passe de validation *de
    l'orchestrateur* a bloqué une fenêtre à lui seul.
 5. **Agir** : `npm run build:hooks` si `frida/hooks/*` a changé → restart host → inject
-   (le warmup est enchaîné par l'inject — vérifier `warmupError: null` dans sa réponse).
+   (l'amorce est enchaîné par l'inject — vérifier `amorceError: null` dans sa réponse).
 
    ⚠ **`npm run build:hooks` HANGE sur cette machine** (même cause que `npm run dev` : `frida-compile`
    n'est pas dans le PATH que npm expose ici). Passer par node, depuis `frida/` :
@@ -160,28 +160,28 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
 
    ⚠ **Si l'inject dépasse la minute, N'EN RELANCE PAS UN À L'IDENTIQUE — ISOLE L'ÉTAGE.**
    Mesuré le 2026-07-31 : le premier inject après une session vieille de 2 h a dépassé **300 s** et
-   laissé `.session == null` ; un second, immédiat, avec `{"warmup": false}`, a rendu la main en
-   **5,1 s** — puis `POST /api/admin/warmup` seul en **15,1 s**, 8 étapes vertes. Le harnais n'avait
-   rien de cassé. `{"warmup": false}` sert exactement à ça : il sépare l'ATTACH du WARMUP, donc il
+   laissé `.session == null` ; un second, immédiat, avec `{"amorce": false}`, a rendu la main en
+   **5,1 s** — puis `POST /api/admin/amorce` seul en **15,1 s**, 8 étapes vertes. Le harnais n'avait
+   rien de cassé. `{"amorce": false}` sert exactement à ça : il sépare l'ATTACH du AMORCE, donc il
    dit LEQUEL a consommé le temps. Sans cette séparation on lit « le reinject wedge » et on va
    demander une relance du jeu (geste UTILISATEUR, coûteux) pour un incident qui se résout tout seul.
-   ⚠ **Ne PAS conclure de ce timeout que le warmup est en cause** : rien ne l'établit — un attach qui
+   ⚠ **Ne PAS conclure de ce timeout que l'amorce est en cause** : rien ne l'établit — un attach qui
    hange bloque avant lui. Écrire « étage non isolé » plutôt que désigner un coupable.
 6. **Lever le drain**, puis **reprendre les agents par `SendMessage`** (contexte intact),
-   en leur donnant l'état du harnais (session, warmup, drain levé, hash de build).
+   en leur donnant l'état du harnais (session, amorce, drain levé, hash de build).
 
 ⚠ Le drain vit **en mémoire du host** : un restart le remet à `false` de lui-même — et ce
 n'est pas une commodité, c'est **le trou par lequel la fenêtre fuit**. Mesuré le 2026-08-05 :
-entre le boot du host (l'auto-restore RÉINJECTE mais **ne warme pas**) et le warmup manuel, la
+entre le boot du host (l'auto-restore RÉINJECTE mais **ne warme pas**) et l'amorce manuelle, la
 création de runners était rouverte **sur une session FROIDE**, et 3 `initAndStart` d'un agent y
 sont passés — `started: true`, donc invisibles. Procédure : **ré-armer le drain dès que le host
-répond**, avant tout, et ne le lever **qu'après un warmup vert**.
-⚠ Depuis **#285-r1** ce cran n'est plus à votre discipline : `frida/host/warm-gate.ts` **warme la
+répond**, avant tout, et ne le lever **qu'après une amorce vert**.
+⚠ Depuis **#285-r1** ce cran n'est plus à votre discipline : `frida/host/auto-boot.ts` **warme la
 session à la demande** au premier RPC de création (file unique, un seul coup par session), et ne
-refuse que si le warmup lui-même échoue — avec un marqueur `warmup required` **distinct** de celui
+refuse que si l'amorce lui-même échoue — avec un marqueur `amorce required` **distinct** de celui
 du drain, parce qu'une session froide ne se réchauffe pas en patientant. État publié dans
-`/api/admin/status` (`session.warmed`, `warmGate`). Gardes : `frida/host/warm-gate.probe.ts`
-(hors Frida) et `scripts/python/probe_285r1_warm_gate.py` (câblage, **rc 2 = NON MESURÉ** sur un
+`/api/admin/status` (`session.warmed`, `amorce`). Gardes : `frida/host/amorce.probe.ts`
+(hors Frida) et `scripts/python/probe_480_hooks_audit.py` (câblage, **rc 2 = NON MESURÉ** sur un
 host antérieur).
 ⚠ **Vérifier le hash de build après toute relance du jeu** : installé ==
 `data/symbols/CURRENT` == `python scripts/python/ghidra_symbols.py build`. Une relance peut
@@ -210,9 +210,9 @@ agent est perdu — donc :
 - `lastSource` (CampaignGameModeSource), `lastUnitProgression`, `lastUniverse`
   redeviennent `null`
 - Les RPCs `buildCampaignConfig` / `dumpCampaignCatalog` / etc. répondent
-  "no live CampaignGameModeSource captured" jusqu'à re-warmup
-- **Ré-armer = `POST /api/admin/warmup`** (l'auto-restore du restart host réinjecte
-  mais NE warme PAS — seul `POST /api/admin/inject` enchaîne le warmup). Autonome :
+  "no live CampaignGameModeSource captured" jusqu'à re-amorce
+- **Ré-armer = `POST /api/admin/amorce`** (l'auto-restore du restart host réinjecte
+  mais NE warme PAS — seul `POST /api/admin/inject` enchaîne l'amorce). Autonome :
   pilote la nav UI seul et rend la main sur la campagne. **Ne jamais demander à
   l'utilisateur de cliquer une battle ni de ramener la campagne.**
   (Le hook `CampaignGameModeSource..ctor` recapture aussi si l'utilisateur
@@ -226,8 +226,8 @@ restart host.** Plus léger et propre : rebuild puis réinjecter via
 `POST /api/admin/inject` (body `{}`), qui stoppe proprement la session courante
 (protocole cleanup) et ré-attache en chargeant le `dist/hooks.js` frais (nouveau
 `sessionId` en retour). Le restart complet du host n'est nécessaire que si du
-code `frida/host/*` a changé. Dans les deux cas, **re-warmup ensuite via
-`warmupGameSingletons({ force: true })`** (autonome — cf. Workflow RL) **AVANT
+code `frida/host/*` a changé. Dans les deux cas, **re-amorce ensuite via
+`autoBootExtraire({ force: true })`** (autonome — cf. Workflow RL) **AVANT
 tout RPC/probe, sans exception** (même les probes seed-BC sur disque type
 `rl_probe_step --mode card` : cf. la RÈGLE INCONDITIONNELLE du Workflow RL).
 
@@ -444,7 +444,7 @@ python scripts/python/dump_il2cpp.py --pid <pid>   # -> data/il2cpp_full.json
 python scripts/python/preprocess_il2cpp_dump.py    # -> data/il2cpp_{methods,classes,enums}.tsv
 ```
 
-**PAS de warmup** pour cette étape : le one-shot lit les métadonnées IL2CPP, pas les
+**PAS de amorce** pour cette étape : le one-shot lit les métadonnées IL2CPP, pas les
 singletons de jeu. Le dump (~40 Mo en un `send`) fait tomber la session Frida — c'est
 normal et sans danger depuis la neutralisation du détecteur de gel.
 `preprocess` estampille chaque TSV (`#!il2cpp-provenance`, pivot = **sha256 du
@@ -479,7 +479,7 @@ python scripts/python/regen_hook_name_tables.py       # régénère depuis frida
 
 **Étape 1ter — LA FAMILLE `metadata/`, lue dans les fichiers LIVRÉS AVEC LE JEU.** Quatre tables
 versionnées par build, produites ni par le dump Frida ni par Ghidra, mais directement de
-`global-metadata.dat` + `GameAssembly.dll`. **Jeu INSTALLÉ suffit — pas lancé, pas de warmup.**
+`global-metadata.dat` + `GameAssembly.dll`. **Jeu INSTALLÉ suffit — pas lancé, pas de amorce.**
 
 ```powershell
 python scripts/python/dump_string_literals.py                             # string_literals.tsv (~4 s)

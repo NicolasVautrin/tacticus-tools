@@ -173,7 +173,7 @@ function setupPrompt(m) {
   const aiCsv = m.aiUnits ? m.aiUnits.map((u) => String(u).split(':')[0]).join(',') : null
   const buildCmd = `python scripts/python/rl_duel.py build --seed ${m.seed} --board MC1_67 --state-file logs/runners/_sp_${m.seed}_A.json${aiCsv ? ` --a-units ${aiCsv}` : ''}`
   return `Tu es l'agent SETUP d'UN match self-play Tacticus (seed ${m.seed}). cwd = racine du repo.
-   PRECONDITION: session Frida (id=${sessionId}) DEJA warmee par l'orchestrateur -> NE lance JAMAIS warmupGameSingletons, NE navigue PAS l'UI.
+   PRECONDITION: session Frida (id=${sessionId}) DEJA warmee par l'orchestrateur -> NE lance JAMAIS autoBootExtraire, NE navigue PAS l'UI.
    ⚠ INVARIANT (matchs concurrents) : la coexistence est le DÉFAUT côté hooks — un build ne détruit JAMAIS les runners frères, mais un cap dur (MAX_RUNNERS) fait REFUSER le build si l'atelier est plein. DONC : lance EXCLUSIVEMENT la commande build ci-dessous (son --state-file DÉDIÉ garantit que le retry remplace TON runner, pas un frère), JAMAIS un build ad-hoc avec un autre state-file, et NE lance JAMAIS \`dispose\` (réservé au teardown). Si le build échoue avec "runner cap reached" -> renvoie {ok:false, error:"cap runners atteint"} (l'orchestrateur/cleanup arbitre, ce n'est PAS à toi de disposer). Si tu dois ré-essayer, relance EXACTEMENT la même commande.
    1. BUILD le runner PARTAGE (team1=joueur, team2=adverse) : \`${buildCmd}\`. Lis le runnerId dans la ligne "[build] runnerId=N" et les 2 rosters ("MON roster (team 1)=..." / "roster ADVERSE (team 2)=...").
    2. CREE le state-file du player B (MEME runner, camp 2) : \`python scripts/python/rl_duel.py attach --from logs/runners/_sp_${m.seed}_A.json --team 2 --state-file logs/runners/_sp_${m.seed}_B.json\`.
@@ -187,7 +187,7 @@ function playerPrompt(side, runnerId, m, setup) {
   const sf = `logs/runners/_sp_${m.seed}_${side}.json`
   const url = `http://127.0.0.1:8765/api/selfplay/${sessionId}/await?runnerId=${runnerId}&player=${s.pid}&timeoutMs=90000`
   return `Tu es le PLAYER ${side} (équipe ${s.team}, player id ${s.pid}) d'un match SELF-PLAY Tacticus (seed ${m.seed}, oracle vs oracle). Tu joues UNIQUEMENT l'équipe ${s.team}. L'adversaire (équipe ${s.other}) est joué par un AUTRE agent en parallèle — tu ne le vois jamais, tu n'as que TA perspective via decisionView. cwd = racine du repo.
-   PRECONDITION (NE PAS y toucher) : session Frida id=${sessionId} DEJA warmee, runner runnerId=${runnerId} DEJA construit. NE lance JAMAIS warmupGameSingletons, NE build PAS, NE navigue PAS l'UI, NE dispose PAS le runner. Toutes tes commandes rl_duel utilisent --state-file ${sf}.
+   PRECONDITION (NE PAS y toucher) : session Frida id=${sessionId} DEJA warmee, runner runnerId=${runnerId} DEJA construit. NE lance JAMAIS autoBootExtraire, NE build PAS, NE navigue PAS l'UI, NE dispose PAS le runner. Toutes tes commandes rl_duel utilisent --state-file ${sf}.
    RESSOURCES :
    - Carte/état : \`python scripts/python/rl_duel.py view --state-file ${sf}\` — la section "MES ACTIFS" affiche pour CHAQUE actif sa légalité now/+move (now[..] = castable SANS bouger ; +move[..] = seulement après déplacement ; ∅ = no-op certain), Y COMPRIS les abilities NON-attaque (buff/heal/summon/hex) absentes des PLANS D'ATTAQUE. Les MoW affichent aussi leurs cibles.
    - Jouer ton tour : \`python scripts/python/rl_duel.py play --no-ai --spec '<JSON>' --state-file ${sf}\`
@@ -365,7 +365,7 @@ const cleanup = await agent(
    1. Dispose ces runners orphelins connus (retry leaks) : [${leakedRunners.join(', ') || 'aucun'}].
    2. LISTE l'atelier : \`curl -s -X POST http://127.0.0.1:8765/api/scripts/${sessionId}/rpc -H "Content-Type: application/json" -d '{"method":"listRunners","args":[],"timeout":10000}'\`.
    3. Pour CHAQUE runnerId encore présent (étape 1 + étape 2), dispose-le : \`curl -s -X POST http://127.0.0.1:8765/api/scripts/${sessionId}/rpc -H "Content-Type: application/json" -d '{"method":"disposeRunner","args":[{"runnerId":<N>}],"timeout":15000}'\` (remplace <N>).
-   4. RE-LISTE (listRunners) pour CONFIRMER que l'atelier est vide. NE build RIEN, NE warmup PAS, NE navigue PAS l'UI.
+   4. RE-LISTE (listRunners) pour CONFIRMER que l'atelier est vide. NE build RIEN, NE amorce PAS, NE navigue PAS l'UI.
    Renvoie {disposed:[...ids effectivement libérés...], remaining:[...ids encore présents après cleanup...]}.`,
   { label: 'cleanup', phase: 'Cleanup', model, agentType: 'general-purpose',
     schema: { type: 'object', required: ['disposed', 'remaining'], properties: {

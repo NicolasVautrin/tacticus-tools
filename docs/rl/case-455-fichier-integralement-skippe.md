@@ -16,7 +16,7 @@ voit pas**.
 
 `tests/conftest.py` porte déjà un garde (#77) : `pytest_runtest_makereport` lit la **RAISON** d'un
 skip et la convertit en échec quand elle dit « harnais indisponible » (`build runner KO`,
-`runner cap reached`, `runner creation paused`, `pas de session Frida active`, `warmup KO`).
+`runner cap reached`, `runner creation paused`, `pas de session Frida active`, `amorce KO`).
 
 Ce garde-là est **structurellement aveugle** au gisement de #455, et c'est mesurable sur le cas
 lui-même : la raison levée était `spawn tauSmnStealthSuit KO`. Aucun marqueur de harnais, aucune

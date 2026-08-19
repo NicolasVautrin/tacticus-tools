@@ -144,7 +144,7 @@ Deux relevés, et c'est le second qui donne la lecture juste :
 ```
 victoire (noeud 14, 2 tours)   battleDuration =          43755   -> 43,8 s : la duree reelle
 retraite (au deploiement)      battleDuration = 63921911700761   -> 2026-08-09T22:35:00 UTC
-                                                                    = l'instant du warmup
+                                                                    = l'instant de l'amorce
 ```
 
 Une seule explication couvre les deux : **`battleDuration = fin - debut`, et sur une bataille
@@ -156,9 +156,9 @@ relevé de la retraite. C'était faux, et l'erreur est instructive : un champ me
 régime dégénéré (zéro tour, jamais démarré) se lit de travers, et une seule observation ne
 permettait pas de le savoir. Il a fallu le cas NON dégénéré pour trancher.
 
-## ⚠ NOTRE WARMUP ENVOIE UNE DÉFAITE ENREGISTRÉE, À CHAQUE FOIS
+## ⚠ NOTRE AMORCE ENVOIE UNE DÉFAITE ENREGISTRÉE, À CHAQUE FOIS
 
-La capture ci-dessus **est** celle du warmup. Sa séquence `click-node` → `click-play` →
+La capture ci-dessus **est** celle de l'amorce. Sa séquence `click-node` → `click-play` →
 `wait-deployment-stable` → `retreat-to-campaign` produit :
 
 ```
@@ -170,13 +170,13 @@ FailCampaignLocationRequestDto
 ```
 
 ⇒ **Une retraite au déploiement est comptée comme une DÉFAITE** et poussée au serveur, avec
-son rejeu. Le warmup tourne à chaque (ré)inject : chaque fenêtre de harnais dépose donc une
-défaite de plus sur le nœud 61 du compte. Personne ne l'avait mesuré — le warmup était réputé
+son rejeu. L'amorce tourne à chaque (ré)inject : chaque fenêtre de harnais dépose donc une
+défaite de plus sur le nœud 61 du compte. Personne ne l'avait mesuré — l'amorce était réputé
 neutre parce qu'il « revient sur la campagne ».
 
 ⚠ **Aucun `StartCampaignLocationRequestDto` dans ce relevé-là**, et c'est COHÉRENT : on se
 retire au déploiement, la bataille ne démarre jamais. Confirmé depuis par la victoire, qui en
-émet un — l'absence était bien un fait sur le warmup, pas sur le `Start`.
+émet un — l'absence était bien un fait sur l'amorce, pas sur le `Start`.
 
 ## `#599-r1` — voir qu'un nœud est INJOUABLE : à moitié résolu, et je dis quelle moitié
 
@@ -325,10 +325,10 @@ nœud 14. Le budget du jour est `HasTokensToPlayCampaignBattle` + `CampaignToken
 nœuds échantillonnés ont **tous** leurs jetons.
 
 ⇒ **Une retraite ne consomme PAS de jeton** — connaissance de l'utilisateur (2026-08-10), pas
-une mesure de notre part ; question CLOSE, ne pas aller la re-mesurer. Le coût du warmup est
+une mesure de notre part ; question CLOSE, ne pas aller la re-mesurer. Le coût de l'amorce est
 donc une **ligne de défaite dans les statistiques** du nœud, pas une ressource : cosmétique,
-mais poussée au serveur avec son rejeu à chaque exécution. L'interdiction du warmup
-([[feedback-no-warmup-until-asked]]) tient indépendamment — c'est une décision de
+mais poussée au serveur avec son rejeu à chaque exécution. L'interdiction de l'amorce
+([[feedback-no-amorce-until-asked]]) tient indépendamment — c'est une décision de
 l'utilisateur, pas une conséquence de ce coût.
 
 ## Reproduire

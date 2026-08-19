@@ -63,8 +63,8 @@ devinette non vérifiée.
 ## Prompt sous-agent (gabarit — un match auto-suffisant)
 > « Tu joues 1 match Tacticus en mode <EXPLORE seed aléatoire | VALIDATE seed S | BENCHMARK seed S>.
 > 1) Lis la doctrine : skill tacticus-battle §6/§7 + docs/rl/wiki.md, et docs/rl/hypotheses.md
->    (note 1-2 expériences à tester ce match). 2) Vérifie warmup (discoverSources) ; si reinject →
->    warmupGameSingletons. 3) Build (rl_duel build --seed … --board <id>, board OBLIGATOIRE) + recon COMPLET (gameconfig de tout le
+>    (note 1-2 expériences à tester ce match). 2) Vérifie amorce (discoverSources) ; si reinject →
+>    autoBootExtraire. 3) Build (rl_duel build --seed … --board <id>, board OBLIGATOIRE) + recon COMPLET (gameconfig de tout le
 >    roster, 1 appel ; wiki en complément). 4) Joue en appliquant la doctrine ; **1 appel/round via
 >    `rl_duel.py play --spec '[...]'`** ; **abandonne dès que l'issue est décidée** (règle asymétrique).
 >    5) Revue AUTO-ADVERSARIALE : "suppose la défaite de ma faute → root cause". 6) **Écris l'entrée

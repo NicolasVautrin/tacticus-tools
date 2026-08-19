@@ -3,22 +3,6 @@
 > **Doc canonique du LANCEMENT DE RUNNER.** Orchestrateur (via `!include` CLAUDE.md), agent
 > `validator` et agent `re-expert` pointent TOUS ici — ne pas dupliquer ces règles ailleurs.
 
-## 0. Warmup d'abord — INCONDITIONNEL
-
-Après tout (re)inject / host-restart / session froide, **AVANT tout RPC/build/probe**. Sans ça :
-caches `MethodInfo*` Frida-side vides + init IL2CPP non amorcée → build/RPC crashent (`0x2c`). Un
-probe qui « marche » sans warmup ne prouve rien (le jeu était déjà warm d'une nav précédente).
-
-**Le chemin normal ne demande RIEN** : `POST /api/admin/inject` **enchaîne le warmup tout seul**
-(depuis le 2026-07-31). Pour une session déjà vivante mais froide : `POST /api/admin/warmup`. Le RPC
-sous-jacent reste `warmupGameSingletons({ force: true })`.
-
-Autonome — **aucun clic humain**, ni pour lancer une battle ni pour ramener la campagne : le cycle
-pilote la nav lui-même, **rend la main sur l'écran CAMPAGNE**, et sait SORTIR SEUL d'un écran de
-bataille hérité. ~12 s. Le warmup est un **process standalone** : ne pas raisonner sur ses
-internals, ni bâtir un runner « depuis l'état qu'il a capturé » — un runner se construit depuis une
-**seed BC** (§1), indépendamment du warmup.
-
 ## 1. Construire un runner — `rl_duel build`
 
 **Seule voie.** Construit un runner ISOLÉ depuis la **seed BC sur disque** + un **board dumpé**, le
@@ -273,7 +257,7 @@ main totale sur la géométrie.
 
 **Recette vérifiée (bout-en-bout)** — ex. driver un cast GetEmRuntz d'orksRuntherd à portée d'ennemis :
 
-1. **Warmup** (§0), puis **build** (§1) avec rosters EXPLICITES + board choisi (`--p-units`/`--a-units`
+1. **Build** (§1) avec rosters EXPLICITES + board choisi (`--p-units`/`--a-units`
    depuis le **pool spawnable** — `--list-pool` d'abord ; attention, les **summons** type `orksBoy`/`grot`
    NE sont PAS dans le pool, ce sont des unités invoquées en combat).
 2. **Recon des actifs** : `abilities --unit <U> [--ability <id>]` → pour chaque ability, `now[..]` (castable

@@ -298,7 +298,7 @@ Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). R
   =10)` par voisine, snapshot source. Validation LIVE structurelle PENDING (stochastique).
 
 Validation : chaque slice confronte offline vs live sur un board portant le terrain (cf. 1).
-Prerequis live : warmup apres chaque (re)inject.
+Prerequis live : amorce apres chaque (re)inject.
 
 ## 6. Effets de tuile DYNAMIQUES (poses en COMBAT par unit/MoW) — famille decoy/fire/ice/poison
 

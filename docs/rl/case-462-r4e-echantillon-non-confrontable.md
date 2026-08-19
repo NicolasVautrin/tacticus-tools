@@ -94,7 +94,7 @@ BC** donc récupérables par injection catalogue (`catalog_inject.write_augmente
 
 Le pool spawnable est une donnée **live** (`rl_duel build --list-pool` → RPC
 `buildNormalizedBC`), et `_catalog_units()` tourne à la **collecte** — avant la fixture
-`live_session`, donc avant le warmup. Un RPC IL2CPP avant warmup, c'est le crash `0x2c`. La gate
+`live_session`, donc avant l'amorce. Un RPC IL2CPP avant amorce, c'est le crash `0x2c`. La gate
 est donc dérivée des **entrées versionnées**, en trois conditions dont chacune ferme une classe
 mesurée :
 

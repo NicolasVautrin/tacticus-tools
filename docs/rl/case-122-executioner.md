@@ -54,7 +54,7 @@ l'ability agisse -> round 1 = 1 coup. Scope caster-only (lire le compteur du CAS
 
 Port (3 fichiers) :
 1. `frida/hooks/features/ai-step/rpc-snapshot.ts` : `COMBAT_STAT_IDS += turnsStarted: 12` (capteur ;
-   `seed_unit_stats` crée auto le StatComponent[12] -> `ctx.stat(12)`). REBUILD + REINJECT + warmup.
+   `seed_unit_stats` crée auto le StatComponent[12] -> `ctx.stat(12)`). REBUILD + REINJECT + amorce.
 2. `engine/entities/stats.py` : `StatType.TURNS_STARTED = 12`.
 3. `engine/entities/abilities/active_ability.py` : `ExecutionerAbility.get_special_hits ->
    max(1, caster.stat(TURNS_STARTED))` + registre `_SPECIAL_ABILITY_CLASSES["Executioner"]`.

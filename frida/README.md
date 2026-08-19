@@ -91,7 +91,7 @@ Body `{}` = auto-discovery. Body `{ "pid": 12345 }` = forçage explicite.
 
 1. Tacticus lancé, menu loaded
 2. INJECT depuis le front
-3. **Cliquer un battle in-game** (warmup) → l'agent capture `lastSource` +
+3. **Cliquer un battle in-game** (amorce) → l'agent capture `lastSource` +
    `lastUnitProgression`, push `builder_ready` au front
 4. Le front auto-rafraîchit le catalog (POST `/api/campaigns/catalog/refresh`)
    → côté agent, le `_gameConfig` du source est unwrappé via
@@ -100,7 +100,7 @@ Body `{}` = auto-discovery. Body `{ "pid": 12345 }` = forçage explicite.
 5. L'utilisateur clique une node de build → progression-swap (mute path 2) :
    - Save+swap `_campaignType` (+0x18), `_campaignId` (+0x28),
      `_battlesConfigCampaigns` (+0x88) sur la live `CampaignProgression`
-   - Per-faction warmup via `UnitProgression.GetUnit` sur enemy units
+   - Per-faction amorce via `UnitProgression.GetUnit` sur enemy units
    - `LoadBattle(true)` → BattleConfiguration générée
    - Restore tout dans `finally`
 

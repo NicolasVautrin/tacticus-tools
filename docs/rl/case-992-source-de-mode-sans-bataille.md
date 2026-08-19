@@ -31,7 +31,7 @@ apres coup, executeur toujours joignable, scene de bataille redechargee.
 (le drapeau bascule des qu'on passe sous le plafond).
 
 ⚠ **Un accord peut venir d'un capteur MORT** — d'ou deux temoins :
-- **CONTROLE PAR LE CHEMIN NORMAL** : le warmup pilote a l'UI, joue juste apres, rend
+- **CONTROLE PAR LE CHEMIN NORMAL** : l'amorce pilote a l'UI, joue juste apres, rend
   **848 / regen=False** lui aussi. Les deux chemins sont gratuits.
 - **TEMOIN POSITIF SANS RIEN DEPENSER** : `CanSpend(n)`, predicat pur calcule par la
   comptabilite du jeu, bascule **exactement** entre `848 -> True` et `849 -> False`. Le nombre
@@ -39,7 +39,7 @@ apres coup, executeur toujours joignable, scene de bataille redechargee.
 
 **Cause** : on se retire **avant le deploiement**, ce que le natif nomme lui-meme
 `hasSurrenderedBeforeDeployment`. La bataille n'est jamais facturee.
-⇒ Corrige `feedback_no_warmup_until_asked`, qui chiffrait le warmup a « une DEFAITE ».
+⇒ Corrige `feedback_no_amorce_until_asked`, qui chiffrait l'amorce a « une DEFAITE ».
 
 ## Comment on ATTEINT ces objets — deux voies, et la difference est mesuree
 
@@ -88,7 +88,7 @@ une garde qu'un drapeau desarme n'est pas une garde) ; tout invoke exige `confir
 
 `features/retreat-capture.ts` ancre les 5 methodes de sortie d'`IdunMainView` et les 3 predicats
 des sources de mode, et note **la pile complete** de chaque fire (RVA, resolues hors ligne). Six
-fires du warmup :
+fires de l'amorce :
 
 ```
 IsSurrenderFromPauseMenuEnabled -> True   <- IdunGameHud.ShowPauseMenu+0x24f
@@ -114,7 +114,7 @@ deux appelants l'appel est sur une BRANCHE, l'alternative etant `ProcessFinishBa
    les fires de la chaine ne sont alors **pas mesures**, au lieu de rendre une liste vide qui se
    lirait « rien ne s'est produit ». Meme raison pour laquelle le capteur de `StartCampaignMatch`
    est laisse DESARME quand on invoque `StartCampaignMatch`.
-2. **Une instance epinglee peut etre DETRUITE.** Apres un warmup, `retreatStatus` rendait un
+2. **Une instance epinglee peut etre DETRUITE.** Apres une amorce, `retreatStatus` rendait un
    `mainView` non nul alors que `FindObjectsByType` rendait **0 instance** : `gcRoot` garde le
    POINTEUR, pas l'objet Unity. Confrontation ajoutee via `UnityEngine.Object$$op_Inequality` --
    l'operateur surcharge, le seul qui distingue « nulle » de « detruite » (c'est celui que
@@ -130,9 +130,9 @@ deux appelants l'appel est sur une BRANCHE, l'alternative etant `ProcessFinishBa
   source dans les statiques d'`IdunMainView` (`statics[0] = wrapper`, `wrapper+0x20 = source`)
   **avant** `thor.Loader$$LoadBattle`, et `IdunMainView$$Start` la relit : l'executeur DEPOSE, la
   scene RECUPERE. Ce que devient le slot apres coup n'est pas mesure.
-## Remplacer le warmup : MESURE A FROID, et la limite qu'elle revele
+## Remplacer l'amorce : MESURE A FROID, et la limite qu'elle revele
 
-Session **77**, injectee `{"warmup": false}` (`warmed: false`), **aucune UI jouee** :
+Session **77**, injectee `{"amorce": false}` (`warmed: false`), **aucune UI jouee** :
 
 | `campaignBuilderStatus` | `hasGameConfig` | `hasUnitProgression` | `hasInstance` |
 |---|---|---|---|
@@ -141,7 +141,7 @@ Session **77**, injectee `{"warmup": false}` (`warmed: false`), **aucune UI joue
 
 ⇒ **L'ENTREE programmatique suffit a armer le builder.** Et les deux autres champs etaient
 **deja vrais a froid** : ils viennent du hook de boot (`auto-boot.ts` sur `IdunNavigation$$Init`),
-pas du warmup — l'idee qu'il faille une bataille pour les obtenir etait fausse.
+pas de l'amorce — l'idee qu'il faille une bataille pour les obtenir etait fausse.
 
 ⚠ **MAIS LA SORTIE NE L'EST PAS, et c'est mon propre garde qui l'interdit.** `retreatInvoke`
 exige que la methode ait ete OBSERVEE dans le journal ; sur une session froide, aucune retraite
@@ -155,7 +155,7 @@ il lui faut une retraite UI par session pour s'amorcer. Deux issues, aucune tran
 graver l'observation entre sessions, ou faire porter la preuve par le DECOMPILE plutot que par
 le fire. **Residu ouvert.**
 
-- Le warmup capture aussi `IdunUniverse` ; ce chemin ne le touche pas, et ce n'est **pas mesure**
+- L'amorce capture aussi `IdunUniverse` ; ce chemin ne le touche pas, et ce n'est **pas mesure**
   ici (`campaignBuilderStatus` ne le publie pas).
 - `CompleteLocationHandler$$HandleClearReconciliationData(hasSurrenderedBeforeDeployment)` :
   efface-t-il au lieu d'enregistrer ?

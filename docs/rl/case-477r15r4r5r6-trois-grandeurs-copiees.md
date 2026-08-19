@@ -199,7 +199,7 @@ la fenêtre ne peut donc l'exercer — d'où le test de garde par dépendance en
 python scripts/python/probe_477r15r4_capteurs_offline.py
 #    attendu : rc=0, 20 cles comparees, temoin 6/6 sur la contre-epreuve
 
-# 1. reinject + warmup (orchestrateur)   ... puis :
+# 1. reinject + amorce (orchestrateur)   ... puis :
 
 # 2. LA mesure : les trois grandeurs cessent d'etre copiees
 python scripts/python/probe_477r15a_stream_conformance.py

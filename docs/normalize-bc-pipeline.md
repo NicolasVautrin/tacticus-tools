@@ -152,7 +152,7 @@ Confirmation que `templateOverrides` mute bien les `Templates[]` :
 
 ## Limitation actuelle
 
-`Campaign1_64` (résultat du warmup) est un **Drafting battle** :
+`Campaign1_64` (résultat de l'amorce) est un **Drafting battle** :
 - Les **enemies** spawn auto via `Initialize()` du runner (visibles dans `observeBattle`)
 - Les **player units** ne spawn PAS — ils doivent être ajoutés via **`AddUnitMessage`** sent au runner avant `StartBattle`
 

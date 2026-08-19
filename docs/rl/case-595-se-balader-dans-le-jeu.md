@@ -141,13 +141,13 @@ reinject les active gratuitement. `#552-r2`, `#545-r1` et `#487-r2` ne sont cit�
 fichier de `frida/hooks` : ce ne sont pas des volets à embarquer, ce sont trois tranches de RE
 à écrire. Qualifier avant d'ouvrir évite de remplir une fenêtre avec du vide.
 
-Fenêtre : drain armé, `liveRunners` 0, inject **54,1 s**, `warmupError` nul, session 4.
-⚠ `session.warmed` reste à `false` alors que le warmup a réussi — le drapeau du warm-gate
+Fenêtre : drain armé, `liveRunners` 0, inject **54,1 s**, `amorceError` nul, session 4.
+⚠ `session.warmed` reste à `false` alors que l'amorce a réussi — le drapeau de l'amorce
 n'est pas posé par le chemin d'inject. Sans conséquence ici, mais c'est un capteur qui ment.
 
 ## Ce que ça n'est pas
 
-Ce n'est pas un pilote de campagne. La chaîne du warmup reste codée en dur
+Ce n'est pas un pilote de campagne. La chaîne de l'amorce reste codée en dur
 (`PLAY_BUTTON_KEY`, `"campaign1"`, `NODE_SUFFIX`), et rien ici ne la remplace. Ce module
 donne l'**observation** et le **clic honnête** ; en faire une navigation dirigée demande un
 « où suis-je » plus riche que la liste des prefabs présents.

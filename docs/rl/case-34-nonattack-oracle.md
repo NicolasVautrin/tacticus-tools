@@ -152,7 +152,7 @@ Plus des overrides bespoke (HealPlaybook @181184a70, SpiritLeech @18115d7a0/@181
 ## Ordre / gating
 
 - La partie **A (hook)** exige rebuild `hooks.js` + reinject SOLO -> NE PAS lancer tant qu'un agent tourne
-  (règle ⛔ CLAUDE.md ; même si l'agent est offline-only, l'inject casse la session live). Rewarmup après.
+  (règle ⛔ CLAUDE.md ; même si l'agent est offline-only, l'inject casse la session live). Reamorce après.
 - La partie **B (offline)** peut être portée et testée EN LOCAL une fois les events feedés ; sans le hook A elle
   reste dormante (aucun heal/effect event en entrée), comme les feuilles Tile "portées mais dormantes".
 

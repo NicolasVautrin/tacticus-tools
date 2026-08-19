@@ -351,7 +351,7 @@ qu'il était. Les deux coexistent **par fidélité**, chacun mirroir du natif de
 
 ### 13.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
 
-Prérequis : reinject + `warmupGameSingletons({force:true})`. Puis, depuis `scripts/python` :
+Prérequis : reinject + `autoBootExtraire({force:true})`. Puis, depuis `scripts/python` :
 
 ```
 python rl_duel.py build --seed 777 --board MC1_67 --state-file <ABSOLU unique>
