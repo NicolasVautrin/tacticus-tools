@@ -53,7 +53,7 @@
 
 import {
     class_get_element_class, class_get_fields, class_get_name, class_instance_size,
-    field_get_name, field_get_offset,
+    class_is_valuetype, field_get_name, field_get_offset,
     field_get_type, findClassAnywhere, findMethod, findMethodByParamCount, getFieldOffset,
     il2cppBase, s,
     type_get_class_or_element_class,
@@ -905,11 +905,19 @@ function armerHud(): true | Refus {
                 // `Show` remplit les dictionnaires : on lit APRÈS, pas avant.
                 (this as unknown as { hud: NativePointer; mn: number; mx: number }).hud = args[0];
                 hudInstance = args[0];
+                // ⚠ COMPTER LES ENTRÉES, PAS SEULEMENT LES SORTIES. `Show` VIDE les trois
+                // dictionnaires en tête (`ClearWidgets`) et ne les remplit qu'à la fin : un
+                // `Show` qui lève entre les deux laisse l'écran avec 0 modèle, et le compteur
+                // de SORTIE, lui, ne bouge pas -- on croit alors qu'un seul `Show` a eu lieu et
+                // qu'il s'est bien passé. `entrees > sorties` EST la signature de ce cas.
+                showEnters++;
+                dansShow = true;
                 (this as unknown as { mn: number }).mn = args[2].toInt32();
                 (this as unknown as { mx: number }).mx = args[3].toInt32();
             },
             onLeave() {
                 const self = this as unknown as { hud: NativePointer; mn: number; mx: number };
+                dansShow = false;
                 try {
                     hudEtat = {
                         hud: self.hud.toString(),
@@ -1030,7 +1038,72 @@ function armerHud(): true | Refus {
     // ce qui est AUSSI sa valeur initiale -- la lecture au repos ne prouvait donc rien. On
     // compte les tirs et on relève le drapeau À L'ENTRÉE et À LA SORTIE : c'est la TRANSITION
     // qui est le fait.
+    armerChemins(k);
+    // ⛔ OBSERVATION PURE sur `ClearWidgets`. On relève les trois comptes AVANT et APRÈS, et
+    // l'état des compteurs de `Show` au moment du tir : c'est ce triplet qui NOMME l'appelant
+    // sans avoir à lire une pile (`Show` incrémente `showEnters` à l'entrée, donc un tir de
+    // `ClearWidgets` avec `showEnters` inchangé depuis le tir précédent vient de l'AUTRE
+    // appelant, `IdunMainView$$EndBattleAndGoToMeta`).
+    if (!listenerVidange) {
+        const mClear = findMethodByParamCount(k, "ClearWidgets", 0);
+        if (mClear && !mClear.ptr.isNull()) {
+            const offTous2 = getFieldOffset(k, "_allUnitModels");
+            const offPl2 = getFieldOffset(k, "_currentlyPlacedUnits");
+            const lire = (hud: NativePointer): Record<string, unknown> => {
+                const o: Record<string, unknown> = {};
+                try { o.allUnitModels = compteDict(hud.add(offTous2).readPointer()); }
+                catch { o.allUnitModels = null; }
+                try {
+                    const l = hud.add(offPl2).readPointer();
+                    o.placees = l.isNull() ? null
+                        : l.add(getFieldOffset(l.readPointer(), "_size")).readS32();
+                } catch { o.placees = null; }
+                return o;
+            };
+            listenerVidange = Interceptor.attach(mClear.ptr, {
+                onEnter(args) {
+                    const s = this as unknown as { hud: NativePointer; av: unknown; se: number };
+                    s.hud = args[0];
+                    s.se = showEnters;
+                    s.av = offTous2 >= 0 && offPl2 >= 0 ? lire(args[0]) : null;
+                },
+                onLeave() {
+                    const s = this as unknown as { hud: NativePointer; av: unknown; se: number };
+                    vidangeFires++;
+                    if (vidangeTrace.length < 24) {
+                        vidangeTrace.push({
+                            n: vidangeFires, avant: s.av,
+                            apres: offTous2 >= 0 && offPl2 >= 0 ? lire(s.hud) : null,
+                            showEntersAuTir: s.se, showFiresAuTir: showFires,
+                            // EXACT, et pas une soustraction de compteurs : `Show` lève ce
+                            // drapeau à son entrée et le baisse à sa sortie, sur le MÊME thread.
+                            appelant: dansShow ? "UnitDeploymentHud$$Show"
+                                : "IdunMainView$$EndBattleAndGoToMeta (seul autre appelant)",
+                        });
+                    }
+                },
+            });
+        }
+    }
+    Interceptor.flush();
+    return true;
+}
+
+/**
+ * ANCRER LES CHEMINS DE BASCULE — sorti d'`armerHud` pour être RÉVERSIBLE NOMMÉMENT.
+ *
+ * ⚠ POURQUOI CE DÉCOUPAGE EXISTE. `deploymentHudArmer {armer:false}` ne détachait que
+ * `Show`/`TryMarkUnitAsPlaced`/`AddPlaceholderUnit` : les neuf ancrages ci-dessous SURVIVAIENT à
+ * tout désarmement, sans qu'aucun RPC ne puisse les ôter. Or `deploymentMowBasculer` INVOQUE
+ * `HandleOnSwitchToMachinesOfWarUnitsTapped`, qui est dans la liste — on ancre donc la méthode
+ * qu'on appelle, et le décompilé nomme deux autres ancrés dans sa descendance
+ * (`PrepareForStandardUnitMachineOfWarSelectionSwitch`, `ShowStandardUnitSelection`). Tant que le
+ * robinet manquait, « l'ancrage est-il la cause ? » n'était pas une question MESURABLE.
+ */
+function armerChemins(k: NativePointer, seulement?: readonly string[]): string[] {
+    const faits: string[] = [];
     for (const nom of CHEMINS_BASCULE) {
+        if (seulement !== undefined && !seulement.includes(nom)) continue;
         if (cheminsListeners[nom] !== undefined) continue;
         const mi = findMethod(k, nom);
         if (!mi || mi.ptr.isNull()) { cheminsEtat[nom] = { introuvable: true }; continue; }
@@ -1083,9 +1156,22 @@ function armerHud(): true | Refus {
                 }
             },
         });
+        faits.push(nom);
     }
-    Interceptor.flush();
-    return true;
+    return faits;
+}
+
+/** Détacher les chemins de bascule -- tous, ou seulement ceux nommés. Rend les noms ÔTÉS. */
+function desarmerChemins(seulement?: readonly string[]): string[] {
+    const faits: string[] = [];
+    for (const nom of Object.keys(cheminsListeners)) {
+        if (seulement !== undefined && !seulement.includes(nom)) continue;
+        cheminsListeners[nom].detach();
+        delete cheminsListeners[nom];
+        faits.push(nom);
+    }
+    if (faits.length > 0) Interceptor.flush();
+    return faits;
 }
 
 /** Le drapeau `_isMachinesOfWarSelection` d'une instance de HUD, ou `null` s'il est illisible. */
@@ -1507,6 +1593,17 @@ const listenersVue: InvocationListener[] = [];
 //   SUR QUI -- `runner` est le `this` de l'appel, comparé au runner publié par le pump. Égaux
 //             ⇒ UN SEUL runner (chargé puis démarré). Différents ⇒ il y en a bien deux.
 let showFires = 0;
+let showEnters = 0;
+/** Les tirs de `ClearWidgets` — LE seul vidangeur de `_allUnitModels` et de `_currentlyPlacedUnits`.
+ *  Deux appelants au binaire : `UnitDeploymentHud$$Show` (en tête, avant son remplissage) et
+ *  `IdunMainView$$EndBattleAndGoToMeta`. Compter les tirs et les confronter aux entrées de `Show`
+ *  DÉSIGNE lequel a vidé : un tir sans entrée de `Show` vient de la sortie de bataille. */
+let vidangeFires = 0;
+const vidangeTrace: Array<Record<string, unknown>> = [];
+let listenerVidange: InvocationListener | null = null;
+/** `true` entre l'entrée et la sortie de `Show`. Même thread, donc c'est EXACT — là où une
+ *  soustraction de compteurs ne l'est pas (un `Show` qui lève ne sort jamais). */
+let dansShow = false;
 let listenerRunnerStart: InvocationListener | null = null;
 const startMatchTrace: Array<Record<string, unknown>> = [];
 
@@ -3531,6 +3628,110 @@ export function register(ctx: Ctx): void {
      * ⛔ ÉCRITURE. Les trois gardes du décompilé sont LUES ET RENDUES avant l'appel — un refus
      * silencieux du natif se lirait sinon comme « ça n'a rien fait, réessaie ».
      */
+    /**
+     * LES ENTRÉES DE `_currentlyPlacedUnits`, ET LE PRÉDICAT DE START ÉPROUVÉ SUR CHACUNE.
+     *
+     * ⚠ POURQUOI ENTRÉE PAR ENTRÉE, ET PAS UN VERDICT GLOBAL. `HandleOnStartBattleTapped` fait
+     * `_currentlyPlacedUnits.FindAll(<HandleOnStartBattleTapped>b__150_0)` : UNE entrée qui lève
+     * fait tomber tout le START, et le message natif ne dit PAS laquelle. Tant qu'on ne les
+     * éprouve pas une par une, « ça lève » ne désigne personne — c'est exactement ce qui a fait
+     * accuser tour à tour le prefab, la munition, le placeholder, le contexte de vidange.
+     *
+     * Le prédicat est un LECTEUR : il cherche la clé de l'entrée dans `_allUnitModels` et rend
+     * `!IsMachineOfWar` (slot 0x37) -- donc `FindAll` EXCLUT les machines. Aucune écriture.
+     *
+     * ⚠ La taille d'élément est DÉRIVÉE (`class_instance_size` de la classe d'élément moins
+     * l'en-tête d'objet), jamais recopiée du décompilé : elle est PUBLIÉE pour être confrontée
+     * aux 32 octets que `b__150_0` copie, pas pour être crue.
+     */
+    ctx.rpc.deploymentPlacees = (body?: {
+        tronquer?: number; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const tronquer = typeof body?.tronquer === "number" ? body.tronquer : null;
+        if (tronquer !== null && body?.confirmer !== true) {
+            return refus("ECRITURE -- `tronquer` exige `confirmer: true`. Il RÉÉCRIT le `_size` "
+                + "de `_currentlyPlacedUnits` : les éléments au-delà deviennent invisibles du "
+                + "HUD sans être détruits.");
+        }
+        return queueOnMainThread((): Record<string, unknown> => {
+            if (hudInstance === null || hudInstance.isNull()) {
+                return { ok: false, error: "aucun `UnitDeploymentHud` capturé" };
+            }
+            const k = findClassAnywhere(NS_HUD, CLS_HUD);
+            if (!k) return { ok: false, error: `\`${NS_HUD}.${CLS_HUD}\` INTROUVABLE` };
+            const offPl = getFieldOffset(k, "_currentlyPlacedUnits");
+            if (offPl < 0) return { ok: false, error: "champ `_currentlyPlacedUnits` ABSENT" };
+            const lst = hudInstance.add(offPl).readPointer();
+            if (lst.isNull()) return { ok: false, error: "`_currentlyPlacedUnits` est NULLE" };
+            const kl = lst.readPointer();
+            const offItems = getFieldOffset(kl, "_items");
+            const offSize = getFieldOffset(kl, "_size");
+            if (offItems < 0 || offSize < 0) {
+                return { ok: false, error: `champs de \`List\` absents : _items=${offItems} `
+                    + `_size=${offSize}` };
+            }
+            const taille = lst.add(offSize).readS32();
+            if (tronquer !== null) {
+                if (tronquer < 0 || tronquer > taille) {
+                    return { ok: false, error: `\`tronquer\` HORS BORNES : ${tronquer} pour une `
+                        + `liste de ${taille}` };
+                }
+                lst.add(offSize).writeS32(tronquer);
+                return { ok: true, action: "tronque", avant: taille,
+                         apres: lst.add(offSize).readS32() };
+            }
+            const items = lst.add(offItems).readPointer();
+            if (items.isNull()) return { ok: false, error: "`_items` est NUL", taille };
+            // Taille d'élément DÉRIVÉE de la classe d'élément du tableau, jamais supposée.
+            // ⚠ Les trois helpers sont résolus PARESSEUSEMENT et peuvent valoir `null` sur un
+            // build où l'export manque : on le DIT (`octetsParEntree: null`) au lieu de retomber
+            // sur les 32 du décompilé, qui feraient lire des entrées décalées en silence.
+            const kArr = items.readPointer();
+            const kElem = class_get_element_class ? class_get_element_class(kArr) : null;
+            const estVal = kElem !== null && class_is_valuetype !== null
+                ? (class_is_valuetype(kElem) as number) !== 0 : null;
+            let octets: number | null = null;
+            if (estVal === true && class_instance_size !== null) {
+                octets = (class_instance_size(kElem as NativePointer) as number)
+                    - 2 * Process.pointerSize;
+            } else if (estVal === false) { octets = Process.pointerSize; }
+            if (octets === null || octets <= 0 || octets > 512) {
+                return { ok: false, taille, octetsParEntree: octets, elementValeur: estVal,
+                         error: "taille d'élément NON DÉRIVABLE -- pas de repli sur une "
+                             + "constante, la lecture serait décalée sans le dire" };
+            }
+            const maxLength = items.add(3 * Process.pointerSize).readS32();
+            const base = items.add(4 * Process.pointerSize);
+            // Le prédicat, résolu PAR NOM. C'est un lecteur -- il ne mute rien.
+            const mPred = findMethod(k, "<HandleOnStartBattleTapped>b__150_0");
+            const entrees: Array<Record<string, unknown>> = [];
+            for (let i = 0; i < Math.min(taille, 32); i++) {
+                const p = base.add(i * octets);
+                const e: Record<string, unknown> = { i, adresse: p.toString() };
+                try {
+                    const u8 = new Uint8Array(p.readByteArray(octets) as ArrayBuffer);
+                    e.hex = Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+                    e.nul = Array.from(u8).every((b) => b === 0);
+                } catch (err) { e.hex = "ILLISIBLE : " + (err as Error).message; }
+                if (mPred) {
+                    try {
+                        const r = invokeMethod(mPred.info, hudInstance!, [p]);
+                        // Retour `bool` BOXÉ : la valeur vit à +0x10, pas sur le pointeur.
+                        e.predicat = r !== null && !r.isNull()
+                            ? (r.add(0x10).readU8() !== 0) : null;
+                    } catch (err) { e.predicat = "LEVÉ : " + (err as Error).message; }
+                } else { e.predicat = "`b__150_0` INTROUVABLE"; }
+                entrees.push(e);
+            }
+            return { ok: true, taille, maxLength, octetsParEntree: octets,
+                     elementValeur: estVal, predicatResolu: mPred !== null,
+                     predicatVA: mPred ? ghidraVA(mPred.ptr) : null, entrees,
+                     note: "`predicat: false` = machine of war (EXCLUE du relais, c'est normal) ; "
+                         + "`predicat: LEVÉ` = clé ABSENTE d'`_allUnitModels` -- CELLE-LÀ fait "
+                         + "tomber tout le START." };
+        });
+    };
+
     ctx.rpc.deploymentStartInvoquer = (body?: { confirmer?: boolean }):
         Promise<unknown> | unknown => {
         if (body?.confirmer !== true) {
@@ -4307,11 +4508,16 @@ export function register(ctx: Ctx): void {
             return { ok: true, lecture: true,
                      arme: listenerShow !== null && listenerPose !== null,
                      etat: hudEtat, bascule: etatBasculeHud(), chemins: cheminsEtat,
-                     poses: hudPoses, plateau: hudBoard };
+                     poses: hudPoses, plateau: hudBoard,
+                     shows: { entrees: showEnters, sorties: showFires,
+                              leveEnCours: showEnters > showFires },
+                     clears: { fires: vidangeFires, trace: vidangeTrace } };
         }
         if (body.armer === false) {
             if (listenerShow) { listenerShow.detach(); listenerShow = null; }
-            if (listenerPose) { listenerPose.detach(); listenerPose = null; } if (listenerBoard) { listenerBoard.detach(); listenerBoard = null; }
+            if (listenerPose) { listenerPose.detach(); listenerPose = null; }
+            if (listenerBoard) { listenerBoard.detach(); listenerBoard = null; }
+            if (listenerVidange) { listenerVidange.detach(); listenerVidange = null; }
             Interceptor.flush();
             return { ok: true, arme: false, action: "retire" };
         }
@@ -4321,6 +4527,58 @@ export function register(ctx: Ctx): void {
                  note: "`Show` publie les deux comptes ; `TryMarkUnitAsPlaced` publie le "
                      + "verdict de chaque clic. Un premier dictionnaire plein et un second "
                      + "vide EST la signature de « je sélectionne mais je ne pose pas »." };
+    };
+
+    /**
+     * LE ROBINET DES NEUF ANCRAGES DE BASCULE — ce qui rend « est-ce NOUS ? » MESURABLE.
+     *
+     * ⚠ CE RPC EXISTE PARCE QU'UNE OBSERVATION PURE N'ÉTAIT PAS ÔTABLE. `deploymentHudArmer
+     * {armer:false}` ne détache que `Show`, `TryMarkUnitAsPlaced` et `AddPlaceholderUnit` ; les
+     * neuf `CHEMINS_BASCULE` restaient en place pour la vie de la session. Or nous INVOQUONS
+     * `HandleOnSwitchToMachinesOfWarUnitsTapped`, qui en fait partie — et le décompilé en nomme
+     * deux autres dans sa descendance. La règle « ne jamais ancrer la méthode qu'on invoque »
+     * était donc violée sans qu'aucun geste ne permette de le vérifier.
+     *
+     * Lecture seule sans `armer`. `seulement: [...]` restreint aux noms donnés — c'est la forme
+     * du contrôle : ôter les TROIS de la chaîne d'appel, retenter, et garder les six autres
+     * armés pour que la mesure ne perde pas ses témoins.
+     */
+    ctx.rpc.deploymentCheminsArmer = (body?: {
+        armer?: boolean; seulement?: string[];
+    }): unknown => {
+        const inventaire = (): Record<string, unknown> => {
+            const out: Record<string, unknown> = {};
+            for (const nom of CHEMINS_BASCULE) {
+                out[nom] = { ancre: cheminsListeners[nom] !== undefined,
+                             etat: cheminsEtat[nom] ?? null };
+            }
+            return out;
+        };
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, connus: CHEMINS_BASCULE.slice(),
+                     ancres: Object.keys(cheminsListeners), chemins: inventaire() };
+        }
+        const seulement = Array.isArray(body.seulement) && body.seulement.length > 0
+            ? body.seulement : undefined;
+        if (seulement !== undefined) {
+            const inconnus = seulement.filter((n) => !CHEMINS_BASCULE.includes(
+                n as typeof CHEMINS_BASCULE[number]));
+            if (inconnus.length > 0) {
+                return refus(`noms HORS de \`CHEMINS_BASCULE\` : ${inconnus.join(", ")} -- `
+                    + `les neuf connus sont ${CHEMINS_BASCULE.join(", ")}`);
+            }
+        }
+        if (body.armer === false) {
+            const otes = desarmerChemins(seulement);
+            return { ok: true, action: "detache", otes,
+                     restentAncres: Object.keys(cheminsListeners), chemins: inventaire() };
+        }
+        const k = findClassAnywhere(NS_HUD, CLS_HUD);
+        if (!k) return refus(`\`${NS_HUD}.${CLS_HUD}\` INTROUVABLE sur ce build`);
+        const poses = armerChemins(k, seulement);
+        Interceptor.flush();
+        return { ok: true, action: "attache", poses,
+                 ancres: Object.keys(cheminsListeners), chemins: inventaire() };
     };
 
     /**
