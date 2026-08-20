@@ -525,6 +525,39 @@ def armer_le_seed(jeu, graine, bc_id):
     return n_av
 
 
+def desarmer_capture_de_fin(jeu):
+    """UN REJEU NE SE CAPTURE PAS.
+
+    `sandbox_campagne.py` arme `replayFinAuto` -- ce qui est juste pour une bataille qu'on JOUE,
+    et nuisible pour une qu'on REJOUE.
+
+    (!)LE SEED EST IMPOSE, DONC LE NOM CANONIQUE EST LE MEME. Un rejeu porte le `RngSeed` de sa
+    reference (c'est la condition pour qu'il reproduise). Sa capture reclamerait donc exactement
+    le nom du fichier d'origine, et le rangement repondrait << DEJA LA >> -- ce qui se lit comme
+    un succes alors que rien n'a ete ecrit. Le seed distingue deux batailles JOUEES ; il ne
+    distingue pas un original de sa reproduction.
+
+    Et la question ne se pose meme pas : un rejeu se re-produit a volonte depuis la reference et
+    ce script. Ce qui ne se re-produit pas, c'est la capture d'origine -- elle seule merite
+    `data/`.
+    """
+    r = jeu.rpc("replayFinAuto", [{"armer": False}], timeout=120000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        stop("desarmement de `replayFinAuto` NON MESURE : %s"
+             % json.dumps(r, ensure_ascii=False)[:200])
+    # (!)UN `ok` D'APPEL N'EST PAS UN EFFET -- on RELIT. Et la relecture est sure : la forme
+    # neutre `{}` de ce RPC est une lecture PURE depuis qu'elle a cesse d'armer ce qu'elle
+    # mesurait (le piege s'est referme sur son propre auteur le 2026-08-20).
+    l = jeu.rpc("replayFinAuto", [{}], timeout=120000)
+    etat = l.get("arme") if isinstance(l, dict) else None
+    if etat is None:
+        stop("etat de `replayFinAuto` NON MESURE apres desarmement -- ce n'est PAS << desarme >>.")
+    if etat:
+        stop("`replayFinAuto` est ENCORE arme apres desarmement : la capture de fin ecrirait "
+             "un replay de rejeu par-dessus la reference.")
+    print("   capture de fin DESARMEE et relue (un rejeu ne se capture pas).")
+
+
 def verifier_morsure(jeu, n_av, graine):
     """LE CRAN QUI MANQUAIT. Un seed arme APRES le montage laisse une bataille montee, demarree
     et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE."""
@@ -713,6 +746,7 @@ def main(argv=None):
 
     cran(6, "LE SEED A-T-IL MORDU ? -- le cran qui manquait")
     verifier_morsure(jeu, n_av, graine)
+    desarmer_capture_de_fin(jeu)
 
     cran(7, "la phase, par le BON temoin")
     verifier_phase_avant_start(jeu)
