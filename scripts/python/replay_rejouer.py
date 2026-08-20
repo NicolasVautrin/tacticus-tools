@@ -618,6 +618,26 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
                       json.dumps((rep or {}).get("erreurs"), ensure_ascii=False)[:200]))
                 break
 
+            # LA PART DE *CET* APPLY, rendue par le RPC lui-meme (#10040). Elle est lue DANS le
+            # job, donc avant que la vue ait sa frame : l'IA n'a pas pu y contribuer. On
+            # l'affiche a cote du verdict cumule pour que les deux soient confrontables.
+            #
+            # (!)`pasFige` EST LE COUP PRECEDENT, complet, reponse de l'IA comprise -- c'est
+            # NOTRE envoi qui vient de le figer. Il se compare a `Messages[i-1].OutputStream`.
+            fl = (rep or {}).get("flux") or {}
+            if fl.get("ok"):
+                fige = fl.get("pasFige") or {}
+                att_prec = (len(pas[j - 1].get("OutputStream") or "")
+                            if j >= 1 else None)
+                marque_f = ""
+                if fige.get("longueur") is not None and att_prec is not None:
+                    marque_f = "  OK" if fige["longueur"] == att_prec else "  DIFF"
+                print("     flux[%s] apply=%s car.  pasFige[%s]=%s car. (attendu %s)%s"
+                      % (fl.get("branche"), fl.get("longueur"),
+                         fige.get("i"), fige.get("longueur"), att_prec, marque_f))
+            else:
+                print("     flux NON MESURE : %s" % str(fl.get("error"))[:150])
+
             # ON LAISSE L'IA JOUER, et c'est la MOITIE du test.
             #
             # Le recorder ne garde que le joueur humain : les coups de l'IA ne creent AUCUN
