@@ -4704,8 +4704,21 @@ export function register(ctx: Ctx): void {
         armer?: boolean; vider?: boolean;
     }): unknown => {
         if (body?.vider === true) { startBattleTrace.length = 0; }
-        const etat = () => ({ arme: listenerStartBattle !== null, tirs: startBattleTrace.length,
-                              trace: startBattleTrace });
+        // La résolution des noms de classe se fait ICI, hors de tout callback : un
+        // `Il2CppClass*` est PERMANENT, donc le nommer plus tard est sûr -- là où l'objet
+        // message, lui, peut avoir été ramassé entre-temps.
+        const etat = () => ({
+            arme: listenerStartBattle !== null, tirs: startBattleTrace.length,
+            trace: startBattleTrace.map((e) => {
+                const nom = (k: unknown): string | null => {
+                    if (typeof k !== "string" || k === "0x0") return null;
+                    try { return s(class_get_name(ptr(k)) as NativePointer); }
+                    catch { return null; }
+                };
+                if (e.msgKlass === undefined && e.selfKlass === undefined) return e;
+                return { ...e, msgClasse: nom(e.msgKlass), handler: nom(e.selfKlass) };
+            }),
+        });
         if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
         if (body.armer === false) {
             if (listenerStartBattle) { listenerStartBattle.detach(); listenerStartBattle = null; }
@@ -4903,6 +4916,30 @@ export function register(ctx: Ctx): void {
                             const pile = args[0].add(0x18).readPointer();
                             e.pile = pile.isNull() ? null : pile.add(0x18).readS32();
                         } catch (err) { e.pile = "ILLISIBLE : " + (err as Error).message; }
+                    }
+                    // ⚠ LE TYPE DU MESSAGE, sur les deux `Execute` de handler. C'est LA réponse
+                    // à « quel message est mal routé » : le gestionnaire de GROUPE lève quand
+                    // `message.AsGroup()` rend null, donc quand le message n'est PAS un groupe.
+                    // On garde le POINTEUR DE CLASSE (permanent) et on le nomme À LA LECTURE --
+                    // pas d'appel IL2CPP depuis un callback qui peut se trouver sur un chemin
+                    // de jet.
+                    if (c[2] === "Execute" && c[3] === 3) {
+                        try {
+                            const m = args[1];
+                            e.msg = m.toString();
+                            e.msgKlass = m.isNull() ? null : m.readPointer().toString();
+                            // ⚠ ET LA CLASSE CONCRÈTE DU HANDLER. `ExecuteInternal` est VIRTUEL
+                            // (slot 0x1e8) : ancrer celle de `GenericGroupHandlerBase` ne voit
+                            // PAS un handler qui la surcharge. Sans ce nom, « Execute ouvert
+                            // sans ExecuteInternal ouvert » se lit « il a levé avant » -- alors
+                            // qu'il a simplement appelé une AUTRE implémentation, non ancrée.
+                            e.selfKlass = args[0].isNull()
+                                ? null : args[0].readPointer().toString();
+                            // L'INSTANCE elle-même : la pile reste bloquée sur elle, donc elle
+                            // survit à la levée et ses champs se lisent APRÈS coup
+                            // (`objetChamps`). C'est ce qui permet de nommer LE champ nul.
+                            e.self = args[0].toString();
+                        } catch (err) { e.msg = "ILLISIBLE : " + (err as Error).message; }
                     }
                     if (c[1] === "MessageExecutionQueue") {
                         try {

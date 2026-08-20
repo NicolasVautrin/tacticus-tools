@@ -29,7 +29,7 @@
 import {
     class_get_fields, class_get_name, class_get_parent, field_get_name, field_get_offset,
     findClassAnywhere, findMethod, findMethodByParamCount,
-    getFieldOffset, getStack, getSystemType, s,
+    getFieldOffset, getStack, getSystemType, readIl2cppString, s,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { champTexte, estRefus, refus } from "./lecture-champs.js";
@@ -362,6 +362,15 @@ export function register(ctx: Ctx): void {
         }
         const out: Record<string, unknown> = { ok: true, adresse: p.toString(), classe: nom,
                                                champs: carteDesChamps(p, klass) };
+        // ⚠ UNE CHAINE NE SE LIT PAS DAVANTAGE PAR SES CHAMPS. `System.String` publie
+        // `_stringLength` et `_firstChar` : la carte donne la LONGUEUR et les quatre premiers
+        // caractères, et il faut deviner le reste. Mesuré : un `Source` de groupe rendait
+        // « 21 caractères commençant par D,a,e,m » -- assez pour supposer, pas pour NOMMER.
+        // `readIl2cppString` est le lecteur du dépôt ; il borne la longueur et avale ses propres
+        // accès invalides, donc il rend `null` plutôt qu'une lecture sauvage.
+        if (nom === "String") {
+            try { out.chaine = readIl2cppString(p); } catch { out.chaine = null; }
+        }
         // ⚠ UNE LISTE NE SE LIT PAS PAR SES CHAMPS. `List<T>` ne publie que `_items` et
         // `_size` : la carte d'une liste ne dit RIEN de ce qu'elle contient, et c'est justement
         // dans un ELEMENT que se cache la difference qu'on cherche (5 entrees passent, 6
