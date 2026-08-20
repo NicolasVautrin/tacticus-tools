@@ -72,6 +72,7 @@ import { premiereInstance } from "./view-command.js";
 // pas re-marché ici : `deployment-draft` consomme un roster, il n'a pas à connaître la chaîne
 // qui mène à `GuildBossProgression`.
 import { rosterPooledGuildBoss, sourceGuildBossForgee } from "./guild-boss-config.js";
+import { sourceCampagneForgee } from "./campaign-source-forge.js";
 import { sourceGuildWarForgee } from "./guild-war-config.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
@@ -1041,7 +1042,18 @@ function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteu
     if (preteurDelegation === "guildWar") {
         return { ptr: sourceGuildWarForgee(), cls: "GuildWarsGameModeSource", nom: "guildWar" };
     }
-    return { ptr: getCampaignGameModeSourcePtr(), cls: CLS_CAMP, nom: "campagne" };
+    // ⚠ LA CAPTÉE D'ABORD, LA FORGÉE ENSUITE -- et le repli n'est pas un confort.
+    // La source captée l'est par un ancrage sur le ctor, qui ne tire QU'À LA NAVIGATION : après
+    // un reinject, ou sur un nœud monté en sandbox sans passer par l'écran, elle est NULLE. Le
+    // prêteur rendait alors `null`, la délégation ne se faisait pas, et l'écran de déploiement
+    // affichait un ROSTER VIDE (mesuré le 2026-08-20 sur `elite4` nœud 31) -- BC juste, écran
+    // inutilisable. `campaignSourceForger` construit la même classe sans naviguer : on l'accepte
+    // exactement comme le prêteur guild boss accepte la sienne.
+    const captee = getCampaignGameModeSourcePtr();
+    if (captee !== null && !captee.isNull()) {
+        return { ptr: captee, cls: CLS_CAMP, nom: "campagne" };
+    }
+    return { ptr: sourceCampagneForgee(), cls: CLS_CAMP, nom: "campagne" };
 }
 
 /** Le contexte du prêteur guild boss, retenu pour pouvoir RÉ-EMPRUNTER à l'identique. */

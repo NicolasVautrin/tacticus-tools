@@ -173,8 +173,29 @@ export function installMainPump(): void {
         return;
     }
 
+    // ⛔ `exceptions: "propagate"` N'EST PAS UN DÉTAIL : SANS LUI ON DÉSARME LES `try/catch` DU JEU.
+    //
+    // Par défaut Frida est en `exceptions: "steal"` : il CONFISQUE l'exception C++ par laquelle
+    // IL2CPP transporte une exception managée. Le `catch` du jeu, en amont, ne la voit alors
+    // jamais -- son gestionnaire d'erreur ne tourne pas, la frame ne se termine pas proprement,
+    // et il ne reste chez nous qu'un « system error » sans cause.
+    //
+    // Ici c'est la PIRE place possible : ce relais enveloppe l'`Update` de la vue de bataille,
+    // donc CHAQUE FRAME DE CHAQUE BATAILLE. Mesuré le 2026-08-20 : 12 « system error » pendant un
+    // déploiement de boss de guilde (écran devenu inutilisable), puis 2 sur une bataille de
+    // campagne qui s'est bloquée -- alors que le process répondait, que la pompe tournait et que
+    // `observeBattle` rendait `stage: Running`. Le jeu n'était pas figé : son traitement d'erreur
+    // avait été désarmé.
+    //
+    // C'est la MÊME cause que le blocage initial de cette tranche sur `il2cpp_runtime_invoke`
+    // (cf. `docs/rl/case-10040-frida-confisquait-les-exceptions-managees.md`) -- corrigée là-bas,
+    // et restée ici, à l'endroit qui porte le plus de trafic du harnais.
+    //
+    // ⚠ CONSÉQUENCE ASSUMÉE : une exception propagée traverse notre `catch`, donc `noteFault` ne
+    // la compte plus. On perd un compteur, on rend au jeu son droit de se rattraper. Le compteur
+    // n'a jamais réparé une bataille.
     const origUpdate = new NativeFunction(
-        updateMi.ptr, "void", ["pointer", "pointer"]);
+        updateMi.ptr, "void", ["pointer", "pointer"], { exceptions: "propagate" });
 
     Interceptor.replace(updateMi.ptr, new NativeCallback(function (self, methodInfo) {
         const selfPtr = self as NativePointer;
@@ -252,8 +273,10 @@ export function installMenuPump(): void {
         return;
     }
 
+    // Même raison que pour la pompe principale ci-dessus : sans `propagate`, on confisque les
+    // exceptions managées de l'`Update` qu'on relaie, et on désarme le `try/catch` du jeu.
     const origUpdate = new NativeFunction(
-        mi.ptr, "void", ["pointer", "pointer"]);
+        mi.ptr, "void", ["pointer", "pointer"], { exceptions: "propagate" });
 
     Interceptor.replace(mi.ptr, new NativeCallback(function (self, methodInfo) {
         try {

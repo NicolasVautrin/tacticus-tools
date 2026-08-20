@@ -56,6 +56,7 @@ import * as inbox from "./features/inbox.js";
 import * as shop from "./features/shop.js";
 import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
+import * as campaignSourceForge from "./features/campaign-source-forge.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
 import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
@@ -499,6 +500,12 @@ export function wireRpc(ctx: Ctx): void {
      // `GuildBossGameModeSource`, dont le `SendLoadBattleGameEventInternal` enregistrerait une
      // tentative AU CHARGEMENT. Aucune tentative consommee.
      guildBossConfig,
+     // `campaignSourceForge` est l'HOMOLOGUE de `guildBossSourceForger` pour la campagne : il
+     // CONSTRUIT une `CampaignGameModeSource` depuis les services de l'executeur, sans naviguer
+     // et sans demarrer, puis appelle `LoadBattle(isRestart: TRUE)` -- le bras qui rend la BC par
+     // SORTIE ANTICIPEE, avant l'appel d'interface que le bras `false` atteint (decompile).
+     // Il n'appelle JAMAIS `StartCampaignMatch`, qui est ce qui engage l'energie.
+     campaignSourceForge,
      // `guildWarConfig` est le SEUL mode sans voie sandbox native (ni `SandboxGuildWarBattleConfig`,
      // ni `GetHotseatGuildWarsConfig`, ni branche dans le routeur `GetHotSeatGameModeSpecificConfig`).
      // Il appelle donc la FABRIQUE `BattleConfigBuilder$$GetGuildWarsConfig` -- purement
