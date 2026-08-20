@@ -2038,6 +2038,29 @@ function armerUneDelegation(
                         : `remplissage campagne : ${r.erreur}` };
                 return;   // ⚠ `retval` INTACT.
             }
+            // LE LINEUP DE LA SOURCE EST UNE SAUVEGARDE — donc PÉRIMÉ dès que le joueur a touché
+            // à son déploiement dans cette session.
+            //
+            // ⚠ MESURÉ le 2026-08-20 : au retry, l'écran revenait à la composition du dernier
+            // essai RÉEL, pas à celle qu'on venait de poser. La cause n'est pas la délégation :
+            // c'est que le jeu PERSISTE le lineup au démarrage d'une vraie partie
+            // (`UnitProgressionData$$SetLineup`), et que la sandbox ne le fait jamais. La clé
+            // `<campagne>_<index>` pointe donc toujours sur l'avant-dernier état.
+            //
+            // ⛔ ET ON N'ÉCRIRA PAS CETTE SAUVEGARDE. `SetLineup` touche les données du COMPTE
+            // pour un essai qui n'en est pas un ; c'est exactement le genre d'écriture qui a
+            // coûté un jeton. On règle le conflit dans l'autre sens : dès que notre mémoire
+            // porte plus frais, on ne substitue RIEN et le tableau VIDE de la sandbox passe.
+            // L'écran reste nu une fraction de seconde, puis `rejouerMemoire` y repose la
+            // composition ET les cases, par l'étage FSM.
+            //
+            // ⚠ LA SOURCE RESTE LE FOURNISSEUR AU PREMIER MONTAGE, quand la mémoire est vide --
+            // c'est là qu'elle a la seule vérité disponible.
+            if (spec.nom === "GetBattleLineup" && memoirePoses.length > 0) {
+                d.dernier = { ok: true, detail: "laissé au JEU (tableau vide) -- la mémoire porte "
+                    + `${memoirePoses.length} pose(s), plus fraîches que la sauvegarde du compte` };
+                return;
+            }
             // ⚠ LE CHEMIN GÉNÉRIQUE NE DOIT PLUS VOIR `METHODE`. Les trois prêteurs ont leur
             // branche ; s'il en apparaît un quatrième, il tomberait ici et re-poserait une BOÎTE
             // dans `retval` — le défaut qu'on vient de corriger. On REFUSE plutôt que de le
@@ -3525,6 +3548,26 @@ function planifierSync(reste: number): void {
 // mesure : personne n'a rejoué l'ancien régime sous l'ancienne pompe, et personne ne le fera.
 // Ce qui est mort, c'est la CONCLUSION -- pas la raison pour laquelle on y avait cru.
 //
+// ⛔ ET LA RAISON DÉCISIVE N'EST PAS LÀ : LA VOIE DES PLACEHOLDERS EST LA SEULE QUI PUISSE
+// PRODUIRE UN REPLAY BIT-EXACT AVEC CELUI DU JEU.
+//
+// Le livrable de #10040 est une comparaison AU CARACTÈRE des flux de sortie, pas une bataille
+// qui « ressemble ». Or le message de déploiement n'est pas un détail de mise en scène : il
+// ENTRE dans le flux enregistré. Selon la voie, il n'a pas le même émetteur :
+//
+//   commit       -- c'est NOUS qui fabriquons et appliquons l'`AddUnitMessage`, à la POSE,
+//                   un par un, dans NOTRE ordre ;
+//   placeholders -- c'est le JEU qui les émet, au START, depuis ses `PlaceholderUnitView`.
+//
+// Une partie officielle passe forcément par la seconde. Un replay capturé par la première ne
+// peut donc pas coïncider avec la référence : mêmes unités, mêmes cases, et pourtant un flux
+// qui diffère par l'émetteur, l'ordre et le groupement. On ne compare plus le MOTEUR, on
+// compare notre harnais à lui-même.
+//
+// ⚠ ET C'EST UNE RAISON DE CONCEPTION, PAS UNE MESURE : personne n'a diffé au caractère un
+// replay << commit >> contre un replay << placeholders >> de la même bataille. Ce qui EST
+// mesuré, c'est que les deux voies écrivent des messages différents -- le reste suit.
+//
 // ⚠ ET CET ÉTAGE COÛTAIT. Le HUD tient des `PlaceholderUnitView`, le commit crée des unités
 // RÉELLES, le START convertit les premières PAR-DESSUS les secondes : DEUX comptabilités pour un
 // seul plafond -- 10 unités pour 5, sur un jeton de boss de guilde perdu le 2026-08-20. Le
@@ -3716,11 +3759,28 @@ function rejouerMemoire(surBatailleReelle?: boolean): void {
         // ⚠ `surBatailleReelle` n'est PAS mémorisé : le rejeu AUTOMATIQUE (relais de retour de
         // phase) l'appelle sans argument, donc il est REFUSÉ hors sandbox -- c'est exactement le
         // chemin qui a écrit tout seul sur une vraie bataille de boss de guilde le 2026-08-20.
-        for (const p of memoirePoses) {
-            if (poseParFsm) poserUnHerosParFsm(p, surBatailleReelle);
-            else committerUnePose(p, surBatailleReelle);
-        }
-        if (memoireMoW !== null) rejouerLaMoW(memoireMoW, surBatailleReelle);
+        // ⚠ UN REJEU PASSE PAR UN CLEAR, TOUJOURS -- cf. `viderLePlateauParFsm`. L'écran arrive
+        // pré-rempli par le lineup sauvegardé du jeu, et reposer par-dessus fait refuser chaque
+        // unité : le rejeu ne corrigerait RIEN et les cases resteraient celles du jeu.
+        // Le clear ne vaut QUE pour la voie FSM : `committerUnePose` écrit au runner, où il n'y a
+        // pas de placeholder à ôter.
+        const avant = poseParFsm
+            ? viderLePlateauParFsm(surBatailleReelle)
+            : Promise.resolve({ ok: true, note: "voie runner -- aucun placeholder à vider" });
+        avant.then((r) => {
+            const rr = r as { ok?: boolean; error?: string };
+            if (poseParFsm && rr.ok !== true) {
+                // Poser sans avoir vidé produirait un déploiement MÉLANGÉ, donc faux en silence.
+                memoireDernier = `rejeu ANNULÉ -- clear ÉCHOUÉ : ${rr.error}`;
+                return;
+            }
+            memoireDernier = (memoireDernier ?? "") + " | plateau VIDÉ avant rejeu";
+            for (const p of memoirePoses) {
+                if (poseParFsm) poserUnHerosParFsm(p, surBatailleReelle);
+                else committerUnePose(p, surBatailleReelle);
+            }
+            if (memoireMoW !== null) rejouerLaMoW(memoireMoW, surBatailleReelle);
+        }, (e) => { memoireDernier = "rejeu ANNULÉ -- clear levé : " + String(e); });
     }, (e) => { memoireDernier = "rejeu ÉCHOUÉ : " + String(e); });
 }
 
@@ -3893,6 +3953,79 @@ function poserUnHerosParFsm(p: Pose, surBatailleReelle?: boolean): void {
         if (poseFsmTrace.length < 32) {
             poseFsmTrace.push({ ok: false, unitId: p.unitId, error: String(e) });
         }
+    });
+}
+
+/**
+ * VIDER LE PLATEAU PAR L'ÉTAGE FSM — le préalable OBLIGÉ de tout rejeu de déploiement.
+ *
+ * ⚠ UN REJEU QUI NE VIDE PAS EMPILE. Mesuré le 2026-08-20 : l'écran arrive DÉJÀ pré-rempli --
+ * `GetBattleLineup` rend le lineup que le jeu a sauvegardé, et le HUD pose les cinq unités à
+ * SES cases. Reposer par-dessus fait refuser chaque unité (« déjà un placeholder »), donc le
+ * rejeu ne corrige RIEN et les cases restent celles du jeu, pas celles du replay. Pour un test
+ * de déterminisme, une case fausse suffit à tout invalider.
+ *
+ * ⛔ CE N'EST **PAS** `UnitDeployment_RemoveAllUnitsFromBoard`, ET C'EST MESURÉ.
+ * Son corps énumère le service `this+0x18` par le slot d'interface `0x22` et retire par le slot
+ * `0x1f` -- ce sont les unités RÉELLEMENT DÉPLOYÉES. En phase de déploiement il y en a ZÉRO :
+ * la boucle tourne à vide, l'appel rend `ok`, et le HUD garde ses cinq placeholders. Mesuré le
+ * 2026-08-20 -- les cinq poses suivantes ont été refusées (« déjà un placeholder ») et le roster
+ * continuait d'afficher tout comme placé. Un `ok` de cet appel-là ne prouve RIEN.
+ *
+ * LE RACCOURCI EST LE BOUTON LUI-MÊME : `UnitDeploymentHud$$HandleOnRemoveAllHeroesPressed()`
+ * (0 paramètre), que `armerClear` ANCRE DÉJÀ -- on invoque donc exactement ce qu'on observe,
+ * plutôt que de reconstituer un retrait unité par unité.
+ *
+ * ⚠ SI `deploymentClearArmer` EST ARMÉ, cet appel déclenche AUSSI notre relais, donc un
+ * `retirerDuRunner(null)`. En régime placeholders il est éteint, et c'est ce qui rend l'appel
+ * inoffensif -- pas une propriété du bouton.
+ *
+ * ⚠ ET ON RELIT. Le retrait transite par le flux de bataille : il ne se voit pas dans la frame de
+ * l'appel (même décalage que la pose, mesuré « instantané à 5, réel à 4 une seconde plus tard »).
+ * Rendre `ok` sans avoir vu le compte tomber, c'est exactement le mensonge qu'on vient de payer.
+ *
+ * ⛔ ENFILÉ, comme la pose : invoquer un natif depuis un callback d'interception fige le jeu.
+ */
+function viderLePlateauParFsm(surBatailleReelle?: boolean): Promise<Record<string, unknown>> {
+    return queueOnMainThread((): Record<string, unknown> => {
+        const bloque = refusHorsSandbox("HandleOnRemoveAllHeroesPressed", surBatailleReelle);
+        if (bloque) return { ok: false, error: bloque.error };
+        const e = etatDuDeploiement();
+        if ("ok" in e) {
+            return { ok: false, error: "état du déploiement NON LISIBLE (" + e.error
+                + ") -- ce n'est PAS « plateau déjà vide »" };
+        }
+        if (e.placeholders === 0) return { ok: true, otes: 0, voie: "rien à vider" };
+        const hud = assurerHud();
+        if (hud === null) {
+            return { ok: false, error: "aucun `UnitDeploymentHud` -- ni capté à son `Show`, ni "
+                + "rendu par la scène. Le clear est INJOUABLE, ce n'est pas « déjà vide »." };
+        }
+        const k = findClassAnywhere(NS_HUD, CLS_HUD);
+        const mi = k ? findMethodByParamCount(k, "HandleOnRemoveAllHeroesPressed", 0) : null;
+        if (!mi) {
+            return { ok: false, error: "`UnitDeploymentHud$$HandleOnRemoveAllHeroesPressed` "
+                + "INTROUVABLE (0 paramètre)" };
+        }
+        try {
+            invokeMethod(mi.info, hud, []);
+        } catch (err) { return { ok: false, error: "LEVÉ : " + (err as Error).message }; }
+        return { ok: true, avant: e.placeholders, voie: "bouton CLEAR du HUD" };
+    }).then((r) => {
+        const rr = r as { ok?: boolean };
+        if (rr.ok !== true) return r as Record<string, unknown>;
+        // LA RELECTURE, et c'est elle qui fait foi -- pas l'appel.
+        return queueOnMainThread(() => {
+            const e2 = etatDuDeploiement();
+            if ("ok" in e2) {
+                return { ok: false, error: "après retrait, état NON LISIBLE : " + e2.error };
+            }
+            if (e2.placeholders !== 0) {
+                return { ok: false, error: `${e2.placeholders} placeholder(s) SUBSISTENT après `
+                    + "retrait -- le clear n'a pas mordu" };
+            }
+            return { ...(r as Record<string, unknown>), verifie: true };
+        }) as Promise<Record<string, unknown>>;
     });
 }
 

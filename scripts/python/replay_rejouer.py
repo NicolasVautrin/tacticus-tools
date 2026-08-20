@@ -152,6 +152,79 @@ def sandbox(jeu, bc, seed, pas, joueur, args):
     return 0
 
 
+def appariement_du_replay(d):
+    """unitId -> entite de SQUAD, LU dans le flux des poses du replay.
+
+    (!)ON LE LIT, ON NE LE CALCULE PAS. La version qui deduisait les entites d'une formule
+    (`111 + 2*i`) etait vraie pour UN boss et fausse partout ailleurs. Le flux, lui, nomme
+    l'entite que le jeu a REELLEMENT attribuee : `Group=User_PlaceUnit` puis
+    `Action=AddUnit Entity=<n>`.
+
+    Rend `None` si une seule pose n'est pas lisible -- un appariement PARTIEL vaut moins que
+    pas d'appariement, parce qu'il passerait pour un controle.
+    """
+    out = {}
+    for m in d.get("Messages") or []:
+        corps = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
+        if corps.get("Name") == "StartBattleMessage":
+            break
+        if corps.get("Name") != "AddUnitMessage":
+            continue
+        uid = corps.get("UnitId")
+        if not isinstance(uid, str):
+            return None
+        flux = m.get("OutputStream") or ""
+        i = flux.find("Group=User_PlaceUnit")
+        if i < 0:
+            return None
+        mm = re.search(r"Action=AddUnit Entity=(\d+)", flux[i:])
+        if not mm:
+            return None
+        out[uid] = int(mm.group(1))
+    return out or None
+
+
+def controler_appariement(jeu, d, entite_joueur):
+    """Le cran : l'appariement unite <-> squad du LIVE doit etre celui du REPLAY.
+
+    (!)POURQUOI CE CRAN EXISTE. Le replay adresse ses coups PAR ENTITE. Si l'allocation differe
+    d'un cran, chaque message frappe la MAUVAISE unite -- et `replayMessages` ne valide RIEN :
+    mesure du 2026-08-20, un deplacement de 5 s'est applique a une unite qui en a 4, sans
+    erreur, sans refus. La degradation est PERMISSIVE, donc invisible sans ce controle.
+
+    (!)CAUSE MESUREE de la divergence : le pre-remplissage (lineup sauvegarde) consomme des
+    paires d'entites, le clear les LIBERE, et la liste libre est une PILE -- les poses suivantes
+    les reprennent A L'ENVERS. Poser dans l'ordre du replay produit donc l'allocation INVERSE.
+    << Poser a l'envers >> n'est PAS une regle : ca ne vaut que si le clear vient de liberer
+    exactement autant de paires qu'on repose. Ce qui est fiable, c'est de VERIFIER.
+    """
+    attendu = appariement_du_replay(d)
+    if attendu is None:
+        return (False, "appariement du replay NON LISIBLE (une pose sans `Group=User_PlaceUnit` "
+                       "ou sans `Action=AddUnit Entity=`) -- on ne rejoue pas a l'aveugle")
+    o = jeu.rpc("observeBattle", [{}], timeout=180000)
+    if not isinstance(o, dict) or not isinstance(o.get("units"), list):
+        return (False, "plateau NON LISIBLE (%s) -- ce n'est PAS << appariement bon >>"
+                % json.dumps(o, ensure_ascii=False)[:200])
+    # Le camp du joueur se DERIVE de l'entite lue dans le flux, jamais d'un `teamId` suppose.
+    miennes = [u for u in o["units"] if u.get("playerId") == entite_joueur]
+    vu = {}
+    for u in miennes:
+        sq, vid = u.get("squadId"), u.get("visualId")
+        if not isinstance(sq, int) or not isinstance(vid, str):
+            return (False, "une unite du camp joueur n'a ni `squadId` ni `visualId` lisibles : "
+                    + json.dumps(u, ensure_ascii=False)[:200])
+        vu[vid] = sq
+    if vu == attendu:
+        return (True, "appariement CONFORME (%d unites)" % len(vu))
+    lignes = []
+    for uid in sorted(set(attendu) | set(vu)):
+        a, v = attendu.get(uid), vu.get(uid)
+        lignes.append("      %-18s replay=%-6s live=%-6s %s"
+                      % (uid, a, v, "" if a == v else "<<< ECART"))
+    return (False, "appariement unite <-> squad DIFFERENT du replay :\n" + "\n".join(lignes))
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -182,6 +255,11 @@ def main(argv):
     # Le rejeu ENVOIE des coups : passe le premier ecart, l'etat n'est plus celui que la suite
     # du replay presuppose, donc chaque coup d'apres agit sur autre chose que sa cible. En
     # sandbox ca ne coute qu'une mesure ; sur un boss de guilde ca consomme un ESSAI REEL.
+    # (!)ECHAPPATOIRE EXPLICITE, ET ELLE DIT CE QU'ELLE COUTE. Sans appariement conforme, les
+    # coups frappent d'autres unites : on ne mesure plus le moteur, on mesure du bruit.
+    ap.add_argument("--sans-appariement", action="store_true",
+                    help="rejouer MEME SI l'appariement unite <-> squad differe du replay "
+                         "(le resultat ne mesure alors plus rien du moteur)")
     ap.add_argument("--arret-au-premier-ecart", action="store_true",
                     help="s'arreter DES le premier ecart non nul au lieu de poursuivre "
                          "(obligatoire sur une bataille reelle)")
@@ -244,6 +322,22 @@ def main(argv):
             return 2
         print("bataille VIVANTE : stage=%s  unites=%s  currentPlayer=%s"
               % (b.get("stageName"), b.get("unitsAlive"), b.get("currentPlayer")))
+        # LE CRAN D'APPARIEMENT -- avant le PREMIER coup, jamais apres.
+        if entite_joueur is None:
+            print("REFUS : entite du joueur NON RESOLUE, donc le camp du joueur n'est pas "
+                  "identifiable et l'appariement ne peut pas etre controle.")
+            return 2
+        ok, detail = controler_appariement(jeu, d, entite_joueur)
+        print("appariement : %s" % detail)
+        if not ok and not args.sans_appariement:
+            print()
+            print("ARRET -- les coups du replay sont adresses PAR ENTITE : avec cet appariement, "
+                  "chacun frapperait")
+            print("une AUTRE unite, et `replayMessages` ne le refuserait pas. Rien n'est envoye.")
+            return 2
+        if not ok:
+            print("(!) POURSUITE FORCEE par `--sans-appariement` : ce qui suit ne mesure PLUS le "
+                  "moteur.")
         return boucle(jeu, -1, pas, joueur, args, entite_joueur)
 
     # 1. Le runner : BC VERBATIM, seed IMPOSE, enregistreur ARME -- et SURTOUT PAS DEMARRE.
