@@ -3071,7 +3071,13 @@ function rejouerMemoire(): void {
         memoireRejeux++;
         memoireDernier = `rejeu de ${memoirePoses.length} pose(s)`
             + (memoireMoW ? ` + MoW ${memoireMoW.unitId}` : " (aucune MoW mémorisée)");
-        for (const p of memoirePoses) committerUnePose(p);
+        // ⚠ DEUX VOIES, ET ELLES NE PRODUISENT PAS LA MÊME CHOSE. `committerUnePose` applique un
+        // `AddUnitMessage` au runner : l'unité est RÉELLE mais le HUD ne la voit pas (START à
+        // 0/5). `poserUnHerosParFsm` invoque le même étage que le clic humain : l'unité devient
+        // un PLACEHOLDER que le HUD compte, et que le START natif convertit avec les autres.
+        for (const p of memoirePoses) {
+            if (poseParFsm) poserUnHerosParFsm(p); else committerUnePose(p);
+        }
         if (memoireMoW !== null) rejouerLaMoW(memoireMoW);
     }, (e) => { memoireDernier = "rejeu ÉCHOUÉ : " + String(e); });
 }
@@ -3164,6 +3170,82 @@ function rejouerLaMoW(m: PoseMoW): void {
         memoireDernier = (memoireDernier ?? "")
             + (rr.ok === true ? ` | MoW REPOSÉE (${rr.source})` : ` | MoW: ${rr.error}`);
     }, (e) => { memoireDernier = (memoireDernier ?? "") + ` | MoW levée: ${String(e)}`; });
+}
+
+/** Poser les HÉROS par l'étage FSM, comme la MoW — au lieu de les appliquer au runner. */
+let poseParFsm = false;
+const poseFsmTrace: Array<Record<string, unknown>> = [];
+
+/**
+ * POSER UN HÉROS PAR L'ÉTAGE FSM — le pendant exact de `rejouerLaMoW`, et LE CONTOURNEMENT.
+ *
+ * ⚠ CE QUE `committerUnePose` FAIT, ET POURQUOI ÇA NE SUFFIT PAS. Elle fabrique un
+ * `AddUnitMessage` et l'applique DIRECTEMENT au runner : l'unité apparaît sur le plateau, mais
+ * elle passe À CÔTÉ DU HUD. Mesuré le 2026-08-20 : le bouton START affiche **0/5** alors que cinq
+ * unités sont en jeu, et `IdunGameViews$$GetPlaceholderUnitViews` ne rend qu'UN élément -- la
+ * MoW, seule posée par l'étage FSM. Les héros n'ont jamais été des placeholders.
+ *
+ * ⚠ ET LE 5/1 QU'ON AVAIT MESURÉ ÉTAIT LE NÔTRE. `UnitDeploymentHudButtons$$UpdateState` rendait
+ * `standardUnitsCount = 5`, ce qui a fait conclure « le HUD compte bien notre déploiement ». Mais
+ * `deploymentBoutonArmer` RÉÉCRIT ce compte (son propre commentaire le dit) : on lisait notre
+ * écriture. L'écran, lui, disait 0/5 depuis le début.
+ *
+ * Conséquence en chaîne : `AddUnitsFromPlaceholdersAndRunnerStartMatch` ne convertit qu'un seul
+ * placeholder au lieu de six, et le groupe de flux de la MoW part seul. Le replay de référence,
+ * lui, vient d'une sandbox où TOUT avait été posé au HUD -- six placeholders convertis d'un coup.
+ *
+ * On invoque donc pour les héros la méthode que le clic humain invoque :
+ * `StateMachineActions$$UnitDeployment_PlaceUnitOnBoard(unitId, column, row, isManual, playerId)`.
+ */
+function poserUnHerosParFsm(p: Pose): void {
+    memoriser(p);
+    queueOnMainThread((): Record<string, unknown> => {
+        const v = vueDeLaMoW();
+        if ("ok" in v) {
+            return { ok: false, unitId: p.unitId,
+                     error: "aucune `IdunGameViews` joignable -- " + v.error };
+        }
+        const kam = findClassAnywhere("IdunBattle.View.FSM", "StateMachineActions");
+        const mi = kam ? findMethodByParamCount(kam, "UnitDeployment_PlaceUnitOnBoard", 5) : null;
+        if (!mi) {
+            return { ok: false, unitId: p.unitId,
+                     error: "`UnitDeployment_PlaceUnitOnBoard` INTROUVABLE (5 paramètres)" };
+        }
+        let actions: NativePointer;
+        try {
+            const off = getFieldOffset(v.vues.readPointer(), "_stateMachineActions");
+            if (off < 0) return { ok: false, unitId: p.unitId,
+                                  error: "`_stateMachineActions` ABSENT de ce build" };
+            actions = v.vues.add(off).readPointer();
+        } catch (e) {
+            return { ok: false, unitId: p.unitId,
+                     error: "`_stateMachineActions` ILLISIBLE : " + (e as Error).message };
+        }
+        if (actions.isNull()) {
+            return { ok: false, unitId: p.unitId,
+                     error: "`_stateMachineActions` NUL -- la phase de déploiement n'est pas "
+                         + "montée. Ce n'est PAS « pas de héros »." };
+        }
+        try {
+            // `column`, `row`, `isManual` et `playerId` sont des types VALEUR : on transmet
+            // l'ADRESSE de la valeur, jamais la valeur elle-même. Même règle que pour la MoW.
+            const col = Memory.alloc(4); col.writeS32(p.col);
+            const row = Memory.alloc(4); row.writeS32(p.row);
+            const manuel = Memory.alloc(1); manuel.writeU8(1);
+            const pid = Memory.alloc(4); pid.writeS32(p.playerId);
+            invokeMethod(mi.info, actions,
+                         [createManagedString(p.unitId), col, row, manuel, pid]);
+        } catch (e) {
+            return { ok: false, unitId: p.unitId, error: "LEVÉ : " + (e as Error).message };
+        }
+        return { ok: true, unitId: p.unitId, voie: "FSM" };
+    }).then((r) => {
+        if (poseFsmTrace.length < 32) poseFsmTrace.push(r as Record<string, unknown>);
+    }, (e) => {
+        if (poseFsmTrace.length < 32) {
+            poseFsmTrace.push({ ok: false, unitId: p.unitId, error: String(e) });
+        }
+    });
 }
 
 function committerUnePose(p: Pose): void {
@@ -4072,6 +4154,63 @@ export function register(ctx: Ctx): void {
     /** Fait de chaque pose une unité RÉELLE, immédiatement : `AddUnitMessage` sur le runner
      *  vivant, puis retrait du placeholder devenu doublon. C'est ce qui rend START opérant —
      *  sans lui la bataille démarre vide et se termine aussitôt. */
+    /**
+     * LA VOIE DE POSE DES HÉROS — runner direct (défaut) ou étage FSM.
+     *
+     * `armer: true` fait passer `deploymentMemoire {rejouer}` par
+     * `StateMachineActions$$UnitDeployment_PlaceUnitOnBoard`, la méthode que le CLIC HUMAIN
+     * invoque. Les héros deviennent alors des PLACEHOLDERS comptés par le HUD, au lieu d'unités
+     * réelles invisibles de lui (START à 0/5, un seul placeholder dans la boucle du START).
+     */
+    /**
+     * POSER LA MoW SEULE, À L'INSTANT CHOISI — sans passer par le rejeu de mémoire.
+     *
+     * ⚠ POURQUOI CE RPC EXISTE. `deploymentMemoire {rejouer}` pose les héros PUIS la MoW dans la
+     * MÊME vague : les six appels sont enfilés d'affilée sur le thread principal. Le joueur, lui,
+     * clique la machine plusieurs secondes après ses héros. Mesuré le 2026-08-20 : la pose
+     * humaine DÉMARRE la bataille (`stageName = Running`) avec des arguments IDENTIQUES aux
+     * nôtres (`blackForgefiend`, `playerId 11`, `position 2`, relevés par notre propre capteur
+     * sur le clic). Ce n'est donc pas QUOI on passe -- reste QUAND.
+     *
+     * Et le rejeu de mémoire ne peut pas servir à l'éprouver : il REFUSE quand le plateau est
+     * déjà peuplé (garde anti-doublon), ce qui est justement le cas après les héros.
+     */
+    ctx.rpc.deploymentMoWPoser = (body?: {
+        unitId?: string; playerId?: number; position?: number; confirmer?: boolean;
+    }): unknown => {
+        if (body?.confirmer !== true) {
+            return refus("ECRITURE -- exige `confirmer: true`. Ce RPC invoque l'étage FSM de "
+                + "pose de Machine of War (`UnitDeployment_PlaceMachineOfWarUnitOnBoard`).");
+        }
+        if (typeof body.unitId !== "string" || body.unitId === "") {
+            return refus("`unitId` exigé -- ce RPC ne devine aucune machine.");
+        }
+        if (typeof body.playerId !== "number" || typeof body.position !== "number") {
+            return refus("`playerId` et `position` exigés (entiers) -- ils ne se devinent pas, "
+                + "et un `position` faux pose la machine sur une AUTRE plateforme.");
+        }
+        rejouerLaMoW({ unitId: body.unitId, playerId: body.playerId, position: body.position });
+        return { ok: true, enfile: true, unitId: body.unitId, playerId: body.playerId,
+                 position: body.position,
+                 note: "ENFILÉ sur le thread principal -- vérifier l'EFFET par "
+                     + "`deploymentBoutonArmer` (placees) ou `observeBattle`, jamais ce retour." };
+    };
+
+    ctx.rpc.deploymentPoseFsmArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): unknown => {
+        const etat = () => ({ actif: poseParFsm, faits: poseFsmTrace.slice(-8) });
+        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
+        if (body.armer === false) { poseParFsm = false; return { ok: true, ...etat() }; }
+        if (body.confirmer !== true) {
+            return refus("ECRITURE -- exige `confirmer: true`. Ce mode CHANGE la voie de pose : "
+                + "les héros passent par l'étage FSM du jeu au lieu d'un `AddUnitMessage` "
+                + "appliqué au runner.");
+        }
+        poseParFsm = true;
+        return { ok: true, ...etat() };
+    };
+
     ctx.rpc.deploymentPoseCommitArmer = (body?: {
         armer?: boolean; confirmer?: boolean;
     }): unknown => {
