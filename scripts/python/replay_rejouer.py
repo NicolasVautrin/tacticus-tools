@@ -455,7 +455,8 @@ def main(argv):
                 print("(!) runner %d NON dispose : %s" % (rid, e))
 
 
-def attendre_le_tour(jeu, rid, entite_joueur, calmes=12, plafond=45.0):
+def attendre_le_tour(jeu, rid, entite_joueur, nb_av=0, attendu=None,
+                     calmes=12, plafond=45.0):
     """Attendre que le tour SOIT REVENU au joueur enregistre. Rend le dernier `replaySteps`.
 
     ⚠ LA STABILITE DU FLUX EST UN MAUVAIS CRITERE, et c'est mesure. Juste apres un coup, le
@@ -467,6 +468,23 @@ def attendre_le_tour(jeu, rid, entite_joueur, calmes=12, plafond=45.0):
 
     Le critere est donc l'ETAT : `currentPlayer` doit etre redevenu celui du joueur. La
     stabilite ne sert plus que de repli quand l'entite n'a pas pu etre lue -- et elle le DIT.
+
+    (!)LE VRAI SIGNAL EST DANS LA REFERENCE, ET IL EST EXACT. Le replay dit COMBIEN de caracteres
+    ce coup doit produire (`Messages[i].OutputStream`). On attend donc que le flux produit
+    ATTEIGNE cette longueur, et on rend la main a l'instant meme -- plus aucune duree arbitraire.
+
+    Et cette longueur couvre DEJA le tour de l'adversaire : les coups de l'IA ne creent pas de
+    pas, leur sortie s'ACCUMULE dans le pas du joueur. Atteindre la cible signifie donc que notre
+    coup ET la reponse de l'IA sont termines -- exactement ce que les 3 s de calme approximaient.
+
+    Mesure du 2026-08-20 : 13 coups a 3,2 s, TOUS a la fenetre pleine, alors que l'etat visé
+    etait deja atteint bien avant.
+
+    (!)DEPASSER LA CIBLE EST UNE DIVERGENCE, PAS UNE ATTENTE A PROLONGER : on rend la main aussi,
+    et l'appelant la mesure. C'est ce cas qui a produit le `User_MoveUnit` vide de 2026-08-19.
+
+    (!)`attendu is None` -> on RETOMBE sur le calme, et on le DIT : sans cible, il n'y a pas de
+    signal, et une attente arbitraire vaut mieux qu'une sortie immediate.
     """
     debut = time.time()
     total_prec, stables, dernier = -1, 0, None
@@ -475,7 +493,21 @@ def attendre_le_tour(jeu, rid, entite_joueur, calmes=12, plafond=45.0):
         if not isinstance(r, dict) or not r.get("ok"):
             return r
         dernier = r
-        total = sum(int(s.get("outputStreamLength") or 0) for s in (r.get("steps") or []))
+        pas_r = r.get("steps") or []
+        total = sum(int(s.get("outputStreamLength") or 0) for s in pas_r)
+        if attendu is not None:
+            produit = sum(int(s.get("outputStreamLength") or 0) for s in pas_r[nb_av:])
+            if produit >= attendu:
+                return r        # cible ATTEINTE (ou depassee) -- le signal, pas un minuteur
+        # ⛔ AVEC UNE CIBLE, LE CALME N'EST PLUS UN CRITERE DE SORTIE -- et c'est MESURE.
+        # Le 2026-08-20, le coup 14 (23 159 caracteres, un long tour d'IA) s'est trouve CALME a
+        # 9 241 : l'adversaire marquait une pause au milieu. Sortir la-dessus a rendu un ecart de
+        # -13 918 qui n'accusait que mon attente -- une FAUSSE divergence, pire que lent.
+        # Sans cible on retombe sur le calme, faute de mieux ; avec cible on attend la cible ou
+        # le plafond, et le plafond DIT qu'il est atteint.
+        if attendu is not None:
+            time.sleep(0.25)
+            continue
         stables = stables + 1 if total == total_prec else 0
         total_prec = total
         # ⚠ NE PAS EXIGER `currentPlayer == entite_joueur` : ce champ lit **0** tant que la vue
@@ -624,7 +656,9 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
             # mesure du 2026-08-19, le pas rendait 13 876 caracteres, puis 53 201 dix secondes
             # plus tard -- pour 53 488 attendus. C'est ce qui m'a fait ecrire << l'IA ne joue
             # pas >> alors qu'elle jouait. On attend donc que la LONGUEUR SE STABILISE.
-            ap_ = attendre_le_tour(jeu, rid, entite_joueur)
+            # LE SIGNAL : la longueur que CE coup doit produire, lue dans la reference.
+            ap_ = attendre_le_tour(jeu, rid, entite_joueur, nb_av=nb_av,
+                                   attendu=len(p.get("OutputStream") or "") or None)
             if not isinstance(ap_, dict) or not ap_.get("ok"):
                 print("[%2d] %-26s pas de pas lisibles : %s"
                       % (i, nom, json.dumps(ap_, ensure_ascii=False)[:200]))
