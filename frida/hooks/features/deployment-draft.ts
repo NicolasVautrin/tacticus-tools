@@ -4882,6 +4882,30 @@ export function register(ctx: Ctx): void {
             ["IdunBattle.View.BattleStream.GroupHandlers", "GenericGroupHandlerBase",
              "PullAndExecuteNextMessage", 0],
             ["IdunBattle.View.BattleStream.StepHandlers", "AStepHandlerBase", "Execute", 3],
+            // LE PARSEUR DE TYPE D'ABILITY, ET SON FOND.
+            //
+            // `ParseAbilityType` remet ses trois `Nullable` à zéro, puis tente TROIS
+            // `Enum.TryParse` sur `Group.Source` -- `ActiveAbilityType`, `TriggeredAbilityType`,
+            // `EffectType` -- et rend sans rien poser si les trois échouent.
+            //
+            // ⚠ MAIS `IdunMeta.Utils.Extensions.Enum$$TryParse<T>` NE FAIT PAS DE `TryParse` :
+            // son corps appelle `System.Enum.Parse`, qui LÈVE quand le nom n'est pas un membre.
+            // Le décompilé seul ne peut pas trancher (IL2CPP compile les `catch` en EH C++,
+            // invisibles dans le flux linéaire) -- c'est la MESURE qui tranche.
+            //
+            // ⚠ `Enum$$Parse` prend DEUX paramètres, pas trois : le `0` final du décompilé est
+            // le `MethodInfo*` qu'IL2CPP ajoute à CHAQUE appel. Le compter comme un argument rend
+            // l'ancrage INTROUVABLE, et un étage non ancré se lit ensuite « n'a pas tiré » --
+            // exactement l'inverse du fait. Mesuré : à 3 il ne tire jamais.
+            ["IdunBattle.View.BattleStream.GroupHandlers", "Ability_Power_GroupHandler",
+             "ParseAbilityType", 0],
+            ["IdunBattle.View.BattleStream.GroupHandlers", "Ability_Power_GroupHandler",
+             "OnInitialized", 0],
+            // Témoin de branche : appelé UNIQUEMENT si le `TryParse<TriggeredAbilityType>` a
+            // réussi, et son corps est de l'arithmétique pure (aucun jet possible).
+            ["IdunBattle.View.AbilityConfigs", "StaticAbilityVisualRules",
+             "CorrectAbilityIdForVisualsAndIcon", 1],
+            ["System", "Enum", "Parse", 2],
         ] as const) {
             const kc = findClassAnywhere(c[0], c[1]);
             const mc = kc ? findMethodByParamCount(kc, c[2], c[3]) : null;
@@ -4940,6 +4964,18 @@ export function register(ctx: Ctx): void {
                             // (`objetChamps`). C'est ce qui permet de nommer LE champ nul.
                             e.self = args[0].toString();
                         } catch (err) { e.msg = "ILLISIBLE : " + (err as Error).message; }
+                    }
+                    // ⚠ LE `Group` DU HANDLER, LU À L'ENTRÉE. `ParseAbilityType` n'a qu'UN chemin
+                    // de jet explicite : `Group == null`. Le relever à la SORTIE ne dit rien --
+                    // quand il lève, la sortie n'existe pas, et le champ garde sa valeur par
+                    // défaut, qu'on lirait à tort comme « nul MESURÉ ».
+                    if (c[1] === "Ability_Power_GroupHandler") {
+                        try {
+                            const g = args[0].add(0x30).readPointer();
+                            e.groupNul = g.isNull();
+                            e.source = g.isNull()
+                                ? null : readIl2cppString(g.add(0x38).readPointer());
+                        } catch (err) { e.groupNul = "ILLISIBLE : " + (err as Error).message; }
                     }
                     if (c[1] === "MessageExecutionQueue") {
                         try {
