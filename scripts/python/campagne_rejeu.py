@@ -375,40 +375,105 @@ def resoudre_noeud(jeu, d, bc_id, campagne_forcee, type_force):
     return campagne, type_, noeud
 
 
-def nom_canonique(mode, bc_id, campagne=None, noeud=None):
-    """LE NOM D'UN REPLAY = L'IDENTITE DE SA BATAILLE, pas le hasard de sa capture.
+def nom_canonique(mode, bc_id, campagne=None, noeud=None, seed=None):
+    """LE NOM PORTE L'IDENTIFICATION -- lire le fichier ne doit pas etre necessaire.
 
-    (!)ET POUR LA CAMPAGNE, CE N'EST PAS L'`Id`. Mesure du 2026-08-20 : `Campaign4_31` est
-    produit par QUATRE couples (`campaign4`/Standard, `elite4`/Elite, `mirror4`/Mirror,
-    `eliteMirror4`/EliteMirror) -- le type n'y figure pas. Nommer un fichier `Campaign4_31`
-    reviendrait donc a coller la meme etiquette sur quatre batailles differentes, et a rendre
-    le repertoire de replays inutilisable exactement quand il grossit.
+        campagne    <campagne>_<noeud>-<seed>     elite4_31-1968318669.json
+        boss        <BC.Id>-<seed>                GuildBoss10Boss1AdmecBelisarius-42.json
 
-    Le nom porte donc la campagne RESOLUE : `elite4_31`. Pour un boss de guilde, l'`Id` est
-    deja discriminant (`GuildBoss10Boss1AdmecBelisarius`) et sert tel quel.
+    (!)POUR LA CAMPAGNE, CE N'EST PAS L'`Id`. Mesure du 2026-08-20 : `Campaign4_31` est produit
+    par QUATRE couples (`campaign4`/Standard, `elite4`/Elite, `mirror4`/Mirror,
+    `eliteMirror4`/EliteMirror) -- le type n'entre pas dans la formule de l'`Id`
+    (`BattleConfigBuilder$$GetCampaignLevelConfig` : `String.Format(fmt, campaignId, battleId)`).
+    Un fichier nomme `Campaign4_31` collerait donc la meme etiquette sur quatre batailles
+    differentes, et rendrait le repertoire inutilisable au moment precis ou il grossit.
+
+    (!)ET LE SEED N'EST PAS DECORATIF. Sans lui, deux passages sur le MEME noeud produisent le
+    meme nom : comme on refuse d'ecraser une reference, le second ne serait jamais range -- en
+    disant << DEJA LA >>, ce qui se lit comme un succes. Le seed est intrinseque au replay et
+    distingue les instances sans rien inventer.
     """
+    queue = "" if seed is None else "-%s" % seed
     if mode == "Campaign":
         if not campagne or noeud is None:
             return None      # NON RESOLU -- on ne fabrique pas un nom ambigu
-        return "%s_%d" % (campagne, noeud)
-    return bc_id
+        return "%s_%d%s" % (campagne, noeud, queue)
+    return "%s%s" % (bc_id, queue)
 
 
-def ranger_le_replay(d, mode, nom, source):
-    """Ecrire le replay DECODE sous son nom canonique. REFUSE d'ecraser."""
+COLONNES = ["fichier", "campagne", "type", "noeud", "bcId", "board", "spawn",
+            "seed", "provenance", "build", "role"]
+
+
+def ranger_le_replay(d, mode, nom, source, infos, brut=None):
+    """Ranger le replay sous son nom canonique, avec sa ligne de registre. N'ECRASE JAMAIS.
+
+    (!)CE QU'ON ECRIT MAINTENANT PARCE QU'UNE RELECTURE NE LE RETROUVERA PLUS. La campagne se
+    RE-DERIVE aujourd'hui (`BoardId` -> gameconfig), mais elle depend du gameconfig DU JOUR : si
+    un noeud est rebalance ou un plateau reaffecte, la meme lecture rendra autre chose, ou rien.
+    Les colonnes `campagne`/`type`/`noeud` figent donc la resolution, et `build` dit QUELLE
+    version l'a etablie. C'est l'exact pendant de la colonne `rank` du registre boss, que le
+    README nomme comme la seule qu'on ne peut pas retrouver apres coup.
+
+    (!)ET LE BRUT SE GARDE AUSSI. Un `.replay.txt` est `base64(gzip(JSON))` ; le decode est
+    commode mais c'est une TRANSFORMATION. Le jeu fait tourner son repertoire : le brut n'est
+    recuperable que le jour meme.
+    """
     if nom is None:
         stop("nom canonique NON RESOLU -- on ne range pas sous un nom ambigu.")
     dossier = RACINE / "data" / "replays" / ("campaign" if mode == "Campaign" else "guild-boss")
     dossier.mkdir(parents=True, exist_ok=True)
+
+    ecrits = []
     cible = dossier / (nom + ".json")
     # ⛔ JAMAIS D'ECRASEMENT. Un replay est une REFERENCE : le reecrire, meme par une capture
     # qu'on croit identique, detruit le seul temoin dont on dispose.
     if cible.exists():
-        print("   DEJA RANGE : %s (inchange -- on n'ecrase jamais une reference)"
-              % cible.relative_to(RACINE))
-        return cible
-    cible.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-    print("   range : %s   (depuis %s)" % (cible.relative_to(RACINE), Path(source).name))
+        print("   DEJA LA : %s (inchange)" % cible.relative_to(RACINE))
+    else:
+        cible.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        ecrits.append(cible)
+        print("   ecrit  : %s   (depuis %s)" % (cible.relative_to(RACINE), Path(source).name))
+
+    if brut is not None:
+        b = Path(brut)
+        if not b.is_absolute():
+            b = (RACINE / b).resolve()
+        cible_brute = dossier / (nom + ".replay.txt")
+        if cible_brute.exists():
+            print("   DEJA LA : %s (inchange)" % cible_brute.relative_to(RACINE))
+        elif not b.exists():
+            print("   (!) brut INTROUVABLE : %s -- rien copie" % b)
+        else:
+            cible_brute.write_text(b.read_text(encoding="utf-8"), encoding="utf-8")
+            ecrits.append(cible_brute)
+            print("   ecrit  : %s   (brut, depuis %s)"
+                  % (cible_brute.relative_to(RACINE), b.name))
+
+    # LE REGISTRE. Une ligne par fichier ; on n'en reecrit jamais une existante.
+    reg = dossier / "registre.tsv"
+    lignes = reg.read_text(encoding="utf-8").splitlines() if reg.exists() else []
+    if not lignes:
+        lignes = ["\t".join(COLONNES)]
+    deja = {l.split("\t", 1)[0] for l in lignes[1:] if l.strip()}
+    for f in ([cible] + ([dossier / (nom + ".replay.txt")] if brut is not None else [])):
+        if not f.exists() or f.name in deja:
+            continue
+        role = "reference" if f.suffix == ".json" else "meme replay, base64+gzip brut"
+        lignes.append("\t".join([
+            f.name, str(infos.get("campagne")), NOM_TYPE.get(infos.get("type"), "?"),
+            str(infos.get("noeud")), str(infos.get("bcId")), str(infos.get("board")),
+            str(infos.get("spawn")), str(infos.get("seed")), str(infos.get("provenance")),
+            str(infos.get("build")), role]))
+        deja.add(f.name)
+    reg.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    print("   registre : %s (%d ligne(s))" % (reg.relative_to(RACINE), len(lignes) - 1))
+
+    if ecrits:
+        print("   ⚠ INDEXER MAINTENANT -- un fichier non suivi sous `data/` n'est protege par "
+              "RIEN (git clean l'efface sans trace) :")
+        print("     git add " + " ".join(str(f.relative_to(RACINE)).replace("\\", "/")
+                                         for f in ecrits + [reg]))
     return cible
 
 
@@ -560,8 +625,12 @@ def main(argv=None):
                     help="resoudre en FORGEANT chaque candidat et en comparant la BC entiere "
                          "(exige le jeu, ~10 s). Le defaut lit le gameconfig versionne.")
     ap.add_argument("--ranger", action="store_true",
-                    help="ecrire le replay DECODE sous son nom canonique dans "
-                         "`data/replays/` (n'ecrase JAMAIS un fichier existant)")
+                    help="ecrire le replay sous son nom canonique dans `data/replays/`, avec sa "
+                         "ligne de registre (n'ecrase JAMAIS un fichier existant)")
+    ap.add_argument("--brut", default=None,
+                    help="le meme replay en base64+gzip, range a cote sous `.replay.txt`. Le "
+                         "jeu fait tourner son repertoire : le brut n'est recuperable que le "
+                         "jour meme.")
     ap.add_argument("--confirmer", action="store_true",
                     help="sans lui : lecture seule, rien n'est monte ni demarre")
     args = ap.parse_args(argv)
@@ -605,11 +674,21 @@ def main(argv=None):
     else:
         campagne, type_, noeud = resoudre_hors_ligne(d, bc_id)
     print("   RESOLU : --campagne %s --type %d --noeud %d" % (campagne, type_, noeud))
-    nom = nom_canonique(mode, bc_id, campagne, noeud)
-    print("   nom canonique : %s   (l'`Id` %s designe %s)"
-          % (nom, bc_id, "4 batailles, il ne suffit pas" if mode == "Campaign" else "seul"))
+    nom = nom_canonique(mode, bc_id, campagne, noeud, graine)
+    print("   nom canonique : %s.json" % nom)
+    print("     (l'`Id` %s ne suffit pas : il designe 4 batailles ; le seed distingue les "
+          "passages)" % bc_id)
     if args.ranger:
-        ranger_le_replay(d, mode, nom, chemin)
+        ranger_le_replay(d, mode, nom, chemin,
+                         {"campagne": campagne, "type": type_, "noeud": noeud, "bcId": bc_id,
+                          "board": (d.get("BoardId")
+                                    or ((d.get("BattleConfiguration") or {}).get("Board")
+                                        or {}).get("Id")),
+                          "spawn": (d.get("BattleConfiguration") or {}).get("SpawnPointSetIndex"),
+                          "seed": graine, "provenance": (d.get("MetaData") or {}).get("Mode"),
+                          "build": (RACINE / "data" / "symbols" / "CURRENT").read_text(
+                              encoding="utf-8").strip()},
+                         brut=args.brut)
 
     if not args.confirmer:
         print()
