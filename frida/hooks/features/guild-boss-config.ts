@@ -527,6 +527,18 @@ export function register(ctx: Ctx): void {
      */
     ctx.rpc.guildBossConfig = (body?: {
         encounterIndex?: number; includeLocked?: boolean;
+        /** SERIALISE la `GuildBossConfiguration` entiere (Newtonsoft), en plus des champs
+         *  publies un par un.
+         *
+         *  ⚠ POURQUOI CE N'EST PAS UN LUXE. Les champs nommes ci-dessous couvrent les 11
+         *  arguments du ctor sandbox -- ils ne couvrent PAS `BossModifiers`, qui est
+         *  precisement ce que l'etat des LIEUTENANTS fait bouger. Un boss dont les deux
+         *  minibosses sont morts porte des affaiblissements que `remainingHealth` seul ne
+         *  montre pas. Serialiser evite d'ecrire un lecteur par forme de modificateur, et
+         *  rend ce que le jeu lui-meme ecrirait.
+         *
+         *  ⚠ Cout : la serialisation traverse le graphe. Opt-in, jamais par defaut. */
+        serialiser?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
         const idx = body?.encounterIndex ?? 0;
         const includeLocked = body?.includeLocked === true;
@@ -554,8 +566,23 @@ export function register(ctx: Ctx): void {
 
         const dep = deployables(prog as NativePointer, idx, includeLocked);
 
+        // La configuration ENTIERE, telle que le jeu la serialiserait. `null` = serialisation en
+        // echec -- la configuration existe (les champs ci-dessous le prouvent), donc on NOMME
+        // l'echec au lieu de rendre un objet vide qui se lirait comme « pas de modificateurs ».
+        let json: string | null = null;
+        let jsonRefus: string | null = null;
+        if (body?.serialiser === true) {
+            json = serializeToJson(cfg as NativePointer);
+            if (json === null) {
+                jsonRefus = "serialisation Newtonsoft en echec sur `GuildBossConfiguration` -- "
+                    + "les champs nommes ci-dessous restent valides, mais `BossModifiers` n'a "
+                    + "PAS pu etre lu. NON MESURE, pas « aucun modificateur ».";
+            }
+        }
+
         return {
             ok: true, cable: true, donnees: true,
+            json, jsonRefus,
             encounterIndex: idx, includeLocked,
             progression: (prog as NativePointer).toString(),
             // Les 11 champs qui remplissent le ctor `SandboxGuildBossBattleConfig`.
