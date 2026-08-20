@@ -997,6 +997,23 @@ const DELEGUEES: Array<{ nom: string; params: number; role: string; valeurs?: bo
       role: "apporte les RESTRICTIONS -- sandbox rend des options par défaut, donc AUCUNE règle" },
     { nom: "GetUnitsForDeploymentHUD", params: 0,
       role: "apporte le ROSTER réel -- sandbox rend une liste vide" },
+    // LE DERNIER DÉPLOIEMENT UTILISÉ — le jeu le PERSISTE, la sandbox rend un tableau VIDE.
+    //
+    // `CampaignGameModeSource$$GetBattleLineup(lineupIndex)` fabrique une clé
+    // (`<campagne>_<lineupIndex>`), la passe au slot d'interface `0x5e` de `this+0x28` qui rend le
+    // lineup SAUVEGARDÉ, puis appelle
+    // `LineupHelper$$GetCampaignBattleLineupUsingRequiredUnits(lineupIndex, sauvegardé,
+    // déployables, restrictions)`. `SandboxGameModeSource$$GetBattleLineup`, lui, s'écrit en
+    // entier : `return <tableau vide>`.
+    //
+    // ⚠ C'EST LA COMPOSITION, PAS LES CASES. Le type déclaré est `System.String[]` (des `unitId`) :
+    // aucune position n'y transite. Les cases restent l'affaire de `deploymentMemoire`, qui les
+    // rejoue par l'étage FSM. Les deux sont complémentaires, pas redondants.
+    //
+    // ⚠ `lineupIndex` est un `System.Int32`, donc un TYPE VALEUR : il doit être RÉ-EMPAQUETÉ
+    // (cf. le bloc `valeurs` ci-dessous), sans quoi `0` partirait comme pointeur nul.
+    { nom: "GetBattleLineup", params: 1, valeurs: [true],
+      role: "le DERNIER DÉPLOIEMENT du joueur sur ce noeud -- sandbox rend un tableau VIDE" },
     { nom: "GetUnlockedUnitsPooled", params: 0,
       role: "dictionnaire des débloqués -- MESURÉ jamais appelé sur ce chemin (cf. §13)" },
 ];

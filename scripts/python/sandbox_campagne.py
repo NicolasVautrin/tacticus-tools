@@ -47,7 +47,13 @@ ARMEMENTS = [
     ("deploymentPoolArmer", {"armer": True, "confirmer": True, "source": "campagne",
                              "only": ["GetUnitModel",
                                       "GetGameModeSpecificDeploymentHudOptions",
-                                      "GetUnitsForDeploymentHUD"]}),
+                                      "GetUnitsForDeploymentHUD",
+                                      # LE DERNIER DEPLOIEMENT, fourni par LA SOURCE.
+                                      # `SandboxGameModeSource$$GetBattleLineup` rend un tableau
+                                      # VIDE ; la campagne, elle, relit le lineup SAUVEGARDE par
+                                      # le jeu (cle `<campagne>_<index>`). C'est la composition,
+                                      # pas les cases.
+                                      "GetBattleLineup"]}),
     ("deploymentHudArmer", {"armer": True}),
     ("deploymentPoseDiag", {"armer": True}),
     # RAPPELER LE DEPLOIEMENT AU RETRY -- et par la voie des PLACEHOLDERS.
