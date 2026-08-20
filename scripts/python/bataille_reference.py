@@ -61,6 +61,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante  # noqa: E402
 from sandbox_mode import Jeu  # noqa: E402
 
+# ⛔ CE FICHIER N'EST PAS IMPORTABLE, ET LE REFUS EST EXECUTABLE.
+#
+# Son corps s'execute a l'import : `import bataille_reference` DEROULE les crans, donc ARME le
+# seed. Fait le 2026-08-20 pour recuperer `diff_total` -- le processus est mort avant d'armer
+# (mesure : `arme=False`, aucun intercepteur attache), mais c'est un hasard, pas une protection.
+# Un relais laisse arme ECRIT TOUT SEUL : c'est ce qui a coute un jeton de boss de guilde.
+#
+# Une prose n'arrete pas un comportement. Celui-ci, si.
+if __name__ != "__main__":
+    raise ImportError(
+        "`bataille_reference` n'est PAS importable : son corps s'execute a l'import et "
+        "ARMERAIT le seed. Si tu veux `diff_total`, sors-la dans un module a part."
+    )
+
 HOTE = "http://127.0.0.1:8765"
 _jeu = None
 
