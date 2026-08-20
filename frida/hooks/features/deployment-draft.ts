@@ -3485,21 +3485,48 @@ function planifierSync(reste: number): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-// COMMITTER À LA POSE — le chaînon manquant entre l'écran et la bataille.
+// COMMITTER À LA POSE — ÉTAGE OBSOLÈTE, GARDÉ POUR COMPARAISON. Ne pas l'armer par défaut.
 //
-// La pose native ne crée qu'un `PlaceholderUnitView`. Ce qui le convertit en unité RÉELLE est
-// `IGameModeSource.HandleStartMatch`, que `SandboxGameModeSource` N'IMPLÉMENTE PAS (absent de la
-// table, retombe sur `AGameModeSource`) : la bataille démarre alors sans aucune unité du joueur
-// et se termine AUSSITÔT. C'est la sortie immédiate observée à chaque START.
+// ⛔ SA PRÉMISSE EST RÉFUTÉE, PAR LA MESURE (2026-08-20). Elle disait :
+//
+//     « La pose native ne crée qu'un `PlaceholderUnitView`. Ce qui le convertit en unité RÉELLE
+//       est `IGameModeSource.HandleStartMatch`, que `SandboxGameModeSource` N'IMPLÉMENTE PAS :
+//       la bataille démarre alors sans aucune unité du joueur et se termine AUSSITÔT. »
+//
+// CONTRE-ÉPREUVE, sur `Campaign4_31` monté en sandbox avec les QUATRE relais d'écriture ÉTEINTS
+// (`deploymentMemoire`, `deploymentClearArmer`, `deploymentDeposeArmer`, ce commit-ci) : cinq
+// unités posées À LA MAIN, START pressé À LA MAIN. La bataille A DÉMARRÉ avec les cinq unités,
+// s'est jouée et a été GAGNÉE (`stage -> Finished`, `winner` = l'entité du joueur, 19 pas).
+// Le replay porte `5 AddUnitMessage` sous `Group=User_PlaceUnit`, AVANT le `StartBattleMessage`,
+// et AUCUN `RemoveUnitMessage` : c'est le JEU qui les émet, pas nous. 0 exception, 0 faute de
+// pompe. Et le retry se comporte de même : plateau réinitialisé, roster re-servi, mêmes entités.
+//
+// ⚠ CE QUI N'EST PAS ÉTABLI : la CAUSE de l'observation d'origine. Elle date d'avant `980214ab`,
+// où les deux pompes CONFISQUAIENT les exceptions managées du jeu (`exceptions: "steal"`) --
+// or `AGameModeSource$$HandleStartMatch` LÈVE si `this+0x60` est nul, et une levée confisquée
+// posait `_isLogicPausedFromException` sans popup ni log. C'est une hypothèse cohérente, pas une
+// mesure : personne n'a rejoué l'ancien régime sous l'ancienne pompe, et personne ne le fera.
+// Ce qui est mort, c'est la CONCLUSION -- pas la raison pour laquelle on y avait cru.
+//
+// ⚠ ET CET ÉTAGE COÛTAIT. Le HUD tient des `PlaceholderUnitView`, le commit crée des unités
+// RÉELLES, le START convertit les premières PAR-DESSUS les secondes : DEUX comptabilités pour un
+// seul plafond -- 10 unités pour 5, sur un jeton de boss de guilde perdu le 2026-08-20. Le
+// rappel de déploiement au retry passe désormais par `poserUnHerosParFsm` (drapeau `poseParFsm`,
+// armé par `deploymentPoseFsmArmer`), qui produit un placeholder que le START natif convertit
+// avec les autres -- une seule comptabilité, celle du jeu.
+//
+// Ce qui reste VRAI, et qui est une LECTURE, pas une observation :
+// `CampaignGameModeSource$$HandleStartMatch` appelle `TempBattleData$$GenerateNewBattleId` puis
+// le slot d'interface `0x1a` de `this+0x20` -- c'est le chemin qui CONSOMME un jeton sur le
+// compte réel. On ne le porte pas. Son absence côté sandbox reste PROTECTRICE.
 //
 // ⛔ ET ON NE PORTE PAS L'IMPLÉMENTATION DE RÉFÉRENCE. `CampaignGameModeSource$$HandleStartMatch`
 // appelle `GenerateNewBattleId` puis émet l'événement de chargement : c'est le chemin qui
 // CONSOMME UN JETON sur le compte réel. Son absence côté sandbox est PROTECTRICE.
 //
-// On convertit donc soi-même, À LA POSE plutôt qu'au START : le START est un callback
-// d'interception, et y invoquer des natifs est exactement ce qui a gelé le jeu deux fois.
-// Poser produit ainsi directement une unité réelle, et tout le reste (clear, marquage, START)
-// retombe dans le régime déjà éprouvé des BC pré-remplies.
+// (Motif historique de cet étage : convertir soi-même À LA POSE plutôt qu'au START, le START
+// étant un callback d'interception où invoquer des natifs a gelé le jeu deux fois. La contrainte
+// sur le callback reste vraie -- c'est la nécessité de convertir qui ne l'est plus.)
 // ---------------------------------------------------------------------------------------------
 
 let poseCommitAuto = false;
