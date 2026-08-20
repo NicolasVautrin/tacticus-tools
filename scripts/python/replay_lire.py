@@ -23,13 +23,10 @@ from collections import Counter
 from pathlib import Path
 
 
-def charger(chemin):
-    """Rend (donnees, format). LEVE si illisible -- un replay muet ne se rabat pas sur du vide."""
-    brut = Path(chemin).read_text(encoding="utf-8").strip()
-    if brut.startswith("{"):
-        return json.loads(brut), "JSON brut"
-    octets = gzip.decompress(base64.b64decode(brut))
-    return json.loads(octets.decode("utf-8")), "base64+gzip (%d octets decompresses)" % len(octets)
+# Le decodage vit dans `replay_format.py` : ce fichier-ci construit son `argparse` au niveau
+# module, donc l'importer executerait son analyseur et avalerait les arguments de l'appelant.
+# On re-exporte le nom pour ne rien casser des appelants existants.
+from replay_format import charger                          # noqa: E402,F401
 
 
 def nom_du_pas(pas):
