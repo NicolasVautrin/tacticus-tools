@@ -89,6 +89,45 @@ def noeud_du_id(bc_id):
     return int(queue) if queue.isdigit() else None
 
 
+def _gameconfig():
+    """Le gameconfig VERSIONNE du build courant. LEVE en le nommant s'il manque.
+
+    ⚠ IL SE PERIME SUR SON PROPRE AXE : le jeu telecharge sa config sans que la version du jeu
+    bouge. Pour la STRUCTURE des campagnes le risque est faible, mais si une resolution parait
+    fausse, c'est la premiere chose a re-verifier (cf. `gameconfig.PROVENANCE.txt`).
+    """
+    courant = RACINE / "data" / "symbols" / "CURRENT"
+    if not courant.exists():
+        stop("`data/symbols/CURRENT` absent -- on ne devine pas le build.")
+    build = courant.read_text(encoding="utf-8").strip()
+    f = RACINE / "data" / "symbols" / build / "gameconfig.json"
+    if not f.exists():
+        stop("gameconfig absent pour le build %s (%s)" % (build, f))
+    return json.loads(f.read_text(encoding="utf-8")), build
+
+
+def entrees_de_campagne():
+    """Toutes les `(type, campagne, bataille)` du gameconfig.
+
+    Structure : `clientGameConfig.battles.campaigns.<Type>[] -> {id, battles: [...]}`.
+    """
+    g, build = _gameconfig()
+    try:
+        camp = g["clientGameConfig"]["battles"]["campaigns"]
+    except (KeyError, TypeError):
+        stop("`clientGameConfig.battles.campaigns` absent du gameconfig %s" % build)
+    ordinal = {nom: t for t, nom in NOM_TYPE.items()}
+    out = []
+    for nom_type, liste in camp.items():
+        t = ordinal.get(nom_type)
+        if t is None or not isinstance(liste, list):
+            continue
+        for c in liste:
+            for b in (c.get("battles") or []):
+                out.append((t, c.get("id"), b))
+    return out, build
+
+
 def candidats_du_catalogue(jeu):
     """Les couples `(campagne, type)` du gameconfig. `None` = PAS MESURE (jamais une liste vide,
     qui se lirait << aucune campagne >>).
@@ -168,6 +207,69 @@ def ordonner_candidats(couples, bc_id):
         c, t = cple
         return (0 if chiffres and chiffres[0] in c else 1, c, t)
     return sorted(couples, key=score)
+
+
+def resoudre_hors_ligne(d, bc_id):
+    """(campagne, type, noeud) -- LU dans le gameconfig versionne. Aucun RPC, aucune forge.
+
+    (!)COMMENT UNE BC ACQUIERT SON `Id`, LU DANS LE NATIF.
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetCampaignLevelConfig` le construit ainsi :
+
+        Id = String.Format(<format>, CampaignConfigDto.campaignId,   // Int32, +0x10
+                                     CampaignConfigDto.battleId)     // String, +0x18
+
+    `campaignId` est un NUMERO, et le TYPE de campagne n'entre pas dans la formule. L'`Id` est
+    donc LOSSY PAR CONSTRUCTION : mesure du 2026-08-20, `Campaign4_31` designe QUATRE batailles
+    (`campaign4`/Standard, `mirror4`/Mirror, `elite4`/Elite, `eliteMirror4`/EliteMirror). Aucune
+    astuce ne recupere la campagne depuis l'`Id` seul -- il faut une autre cle.
+
+    (!)ET CETTE CLE EST DANS LE MEME DTO, DONC HORS LIGNE. `BoardId` suffit : sur ces quatre,
+    il vaut `C4_01`, `C4_54`, `MC4_01`, `C4_59`. Une lecture de fichier remplace donc les 28
+    forges et les 4 BC chargees de la premiere version -- qui prenaient 10 s et sollicitaient un
+    jeu vivant pour une question entierement statique.
+    """
+    board = ((d.get("BattleConfiguration") or {}).get("Board") or {}).get("Id")
+    sps = (d.get("BattleConfiguration") or {}).get("SpawnPointSetIndex")
+    entrees, build = entrees_de_campagne()
+    print("   gameconfig %s : %d bataille(s) de campagne" % (build, len(entrees)))
+    if board is None:
+        stop("le replay ne porte pas de `BattleConfiguration.Board.Id` -- rien a apparier.")
+
+    # (!)LA CASSE DES CLES DU GAMECONFIG N'EST PAS CELLE DES CHAMPS C#. Le DTO declare `boardId`
+    # et `spawnPointsSet` ; le JSON porte `BoardId` et `SpawnPointsSet`. Chercher avec les noms
+    # C# rend ZERO candidat -- faute commise, et elle se lit comme << ce noeud n'existe pas >>.
+    def cle(b, *noms):
+        for n in noms:
+            if n in b:
+                return b[n]
+        return None
+
+    par_id = [(t, c, b) for (t, c, b) in entrees
+              if "Campaign%s_%s" % (cle(b, "campaignId"), cle(b, "battleId")) == bc_id]
+    if not par_id:
+        stop("aucune bataille du gameconfig ne porte l'`Id` `%s`. Le replay vient peut-etre "
+             "d'un autre build, ou le gameconfig versionne est perime." % bc_id)
+    print("   %d bataille(s) portent `%s`" % (len(par_id), bc_id))
+
+    exacts = [(t, c, b) for (t, c, b) in par_id if cle(b, "BoardId", "boardId") == board]
+    for t, c, b in par_id:
+        print("      %-12s %-14s Board=%-8s SPS=%-3s %s"
+              % (NOM_TYPE.get(t, "?"), c, cle(b, "BoardId", "boardId"),
+                 cle(b, "SpawnPointsSet", "spawnPointsSet"),
+                 "<<< le replay" if (t, c, b) in exacts else ""))
+    if len(exacts) > 1:
+        exacts = [x for x in exacts
+                  if cle(x[2], "SpawnPointsSet", "spawnPointsSet") == sps] or exacts
+    if not exacts:
+        stop("aucune des %d batailles d'`Id` `%s` n'a le plateau `%s` du replay."
+             % (len(par_id), bc_id, board))
+    if len(exacts) > 1:
+        stop("%d batailles restent indiscernables (meme `Id`, meme plateau, meme "
+             "`SpawnPointsSet`) : %s. Donner `--campagne` et `--type`."
+             % (len(exacts), [(c, t) for t, c, _ in exacts]))
+    t, campagne, b = exacts[0]
+    noeud = int(cle(b, "battleId"))
+    return campagne, t, noeud
 
 
 def resoudre_noeud(jeu, d, bc_id, campagne_forcee, type_force):
@@ -431,6 +533,9 @@ def main(argv=None):
     ap.add_argument("--campagne", default=None,
                     help="court-circuite la resolution (confirmee quand meme)")
     ap.add_argument("--type", type=int, default=None, help="0=Standard 1=Elite 2=Mirror ...")
+    ap.add_argument("--par-forge", dest="par_forge", action="store_true",
+                    help="resoudre en FORGEANT chaque candidat et en comparant la BC entiere "
+                         "(exige le jeu, ~10 s). Le defaut lit le gameconfig versionne.")
     ap.add_argument("--ranger", action="store_true",
                     help="ecrire le replay DECODE sous son nom canonique dans "
                          "`data/replays/` (n'ecrase JAMAIS un fichier existant)")
@@ -463,8 +568,19 @@ def main(argv=None):
     jeu = Jeu(args.hote, sid)
     print("   session %d" % sid)
 
-    cran(2, "resoudre le noeud -- par FORGE ET COMPARAISON")
-    campagne, type_, noeud = resoudre_noeud(jeu, d, bc_id, args.campagne, args.type)
+    # (!)HORS LIGNE PAR DEFAUT. La premiere version forgeait 28 BC et en comparait 4 en entier
+    # -- 10 s, sur un jeu vivant, pour une question entierement STATIQUE. Le gameconfig
+    # versionne repond seul. La forge reste disponible en confirmation explicite.
+    cran(2, "resoudre le noeud -- HORS LIGNE, dans le gameconfig versionne")
+    if args.campagne is not None:
+        campagne = args.campagne
+        type_ = args.type if args.type is not None else 1
+        noeud = noeud_du_id(bc_id)
+        print("   IMPOSE : --campagne %s --type %d --noeud %s" % (campagne, type_, noeud))
+    elif args.par_forge:
+        campagne, type_, noeud = resoudre_noeud(jeu, d, bc_id, None, None)
+    else:
+        campagne, type_, noeud = resoudre_hors_ligne(d, bc_id)
     print("   RESOLU : --campagne %s --type %d --noeud %d" % (campagne, type_, noeud))
     nom = nom_canonique(mode, bc_id, campagne, noeud)
     print("   nom canonique : %s   (l'`Id` %s designe %s)"
