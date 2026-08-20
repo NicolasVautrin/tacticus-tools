@@ -40,6 +40,10 @@ import {
     pushApply, popApply, ensureStreamHooks, StreamEvent,
 } from "../game/apply-stack.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
+// Les deux faces d'un SEUL `Apply`, lues dans SON job (#10040) : ce qu'il a remis a la vue,
+// et le texte qu'il a produit dans le recorder.
+import { dumpFileDeVue, repereArchive } from "./view-queue.js";
+import { deltaRecorder, repereRecorder } from "./replay-output-stream.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { emit } from "./ai-trace/state.js";
@@ -531,9 +535,36 @@ export function register(ctx: Ctx): void {
             prng: null,
             json: m.json,
         }));
+        // CE QUE LA VUE RECOIT DE *CE* COUP -- le repere est pris AVANT l'`Apply`, ce qui
+        // rend le delta ATTRIBUABLE. Sur un runner du REGISTRE il n'y a pas de vue : le
+        // dump rend alors un refus NOMME, jamais une file vide (cf. `view-queue.ts`).
+        //
+        // (!)LU DANS LE MEME JOB, ET C'EST TOUT L'INTERET. Notre travail est draine par
+        // `IdunGameViews$$Update` AVANT le relais vers l'original, et `QueueComputerActions`
+        // est a la FIN de cet original : ici, la vue n'a pas encore eu sa frame, donc
+        // `IdunGameViews.<RunComputerActionsForCurrentPlayerInMultipleFrames>` n'a PAS pu
+        // demarrer. Un RPC separe arriverait apres la frame -- donc trop tard sur un
+        // `EndTurnMessage`, exactement le coup qu'on veut observer.
+        // ⛔ LA FILE DE VUE N'A DE SENS QUE POUR LE RUNNER VIVANT. `state.gameViews` designe
+        // la vue de la bataille A L'ECRAN : sur un runner du REGISTRE, qui n'en a pas, le
+        // delta d'archive serait pris sur une AUTRE bataille -- donc attribue au mauvais
+        // coup, en silence. On refuse en le DISANT plutot que de rendre un delta plausible.
+        const surVivant = rid < 0;
+        const repereAvant = surVivant ? repereArchive() : null;
+        // LE REPERE DU FLUX -- `Replay.Messages.Count` + longueur du tampon. C'est lui qui
+        // rend la part de CET `Apply` isolable sans deviner (cf. `replay-output-stream.ts`).
+        // Celui-la vaut pour les DEUX sortes de runner : le recorder appartient au runner.
+        const repereFlux = repereRecorder(rid);
         const r = replayOnRunner(runner, liste);
-        return { ok: true, runnerId: rid, vivant: rid < 0, stage: r.stage, stats: r.stats,
-                 erreurs: r.stats.errors.slice(0, 10) };
+        return { ok: true, runnerId: rid, vivant: surVivant, stage: r.stage, stats: r.stats,
+                 erreurs: r.stats.errors.slice(0, 10),
+                 repereAvant,
+                 fileDeVue: surVivant ? dumpFileDeVue(repereAvant) : {
+                     ok: false,
+                     error: "runner du REGISTRE : aucune vue ne lui est attachee, et la file "
+                         + "lue serait celle de la bataille a l'ecran -- pas la sienne",
+                 },
+                 flux: deltaRecorder(rid, repereFlux) };
     });
 
     ctx.rpc.startBattle = (args: { runnerId: number }) => {

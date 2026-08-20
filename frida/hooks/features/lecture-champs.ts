@@ -59,6 +59,22 @@ export function champInt(obj: NativePointer, nom: string): number | null {
     } catch { return null; }
 }
 
+/** Un champ `System.Boolean`, par son NOM. `null` = champ absent -- JAMAIS rabattu sur
+ *  `false`, qui se lirait comme une mesure.
+ *
+ *  ⚠ PAS `champInt` : un `Boolean` natif occupe UN octet, et `readS32` embarquerait les
+ *  trois champs voisins. Sur `MessageExecutionQueue` les booleens sont contigus
+ *  (`_disableTimeouts` puis `_isStopped`), donc une lecture 32 bits rendrait « vrai »
+ *  des que le VOISIN l'est. */
+export function champBool(obj: NativePointer, nom: string): boolean | null {
+    if (obj.isNull()) return null;
+    try {
+        const off = getFieldOffset(obj.readPointer(), nom);
+        if (off < 0) return null;
+        return obj.add(off).readU8() !== 0;
+    } catch { return null; }
+}
+
 /** Un champ `System.String`, par son NOM. */
 export function champTexte(obj: NativePointer, nom: string): string | null {
     const p = champPointeur(obj, nom);

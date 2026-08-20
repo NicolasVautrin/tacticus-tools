@@ -73,6 +73,7 @@ import * as messageTrace from "./features/message-trace.js";
 // (`Replay.GetWholeBattleOutputStream`), celle-la meme que `Runner.ReplayValidator`
 // compare caractere par caractere.
 import * as replayOutputStream from "./features/replay-output-stream.js";
+import * as viewQueue from "./features/view-queue.js";
 // replay-launch = l'autre face du replay : l'OUVRIR dans le viewer du jeu au lieu de le lire.
 // N'arme rien non plus. Il existe parce que la chaine passe un OBJET d'un appel natif au
 // suivant (`DeserializeReplay` -> `+0x10` -> `StartUserReplayMatch`), ce qu'`invoquerCommande`
@@ -551,6 +552,8 @@ export function wireRpc(ctx: Ctx): void {
      scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
      replayOutputStream, replayLaunch, deploymentDraft,
+     // viewQueue = LECTURE PURE du canal runner -> vue. N'arme rien, n'invoque rien.
+     viewQueue,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }

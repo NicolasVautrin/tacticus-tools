@@ -740,6 +740,214 @@ export function replayRngEvents(
     return { ok: true, runnerId, count: size, stride, events, err: null };
 }
 
+// --- LE DELTA D'UN SEUL `Apply` (#10040) ------------------------------------------------
+//
+// (!)LE DECOUPAGE EST FAIT PAR LE NATIF, PAS PAR NOUS.
+//
+// `ReplayRecorder._lastMessageOutputStream` -- le nom le dit -- est le tampon du DERNIER
+// message. `IdunBattleLogic.Replay.ReplayRecorder$$Listen` commence par
+// `SaveCurrentOutputStreamBufferToLastMessage(clearBuffer: true)` : il deverse le tampon
+// dans le pas PRECEDENT, puis le VIDE, et seulement ensuite cree le pas courant. Or `Listen`
+// est un PRE-listener d'`IdunBattle.Runner.IdunRunner$$Apply` (liste parcourue AVANT le
+// processeur).
+//
+// Dans le job d'un `Apply`, la sequence est donc : vidange -> nos groupes -> retour. A la
+// sortie, le tampon EST la sortie de ce seul `Apply`. Pas de decoupe a faire, pas d'attente,
+// pas d'heuristique sur le texte.
+//
+// ⚠ SAUF SI LE MESSAGE EST FILTRE. `Listen` sort tot quand le `playerIndex` porte une valeur
+// hors `_playerIndicesToRecord`, ou sur l'un de ses deux tests de type : ni vidange, ni pas
+// cree, et notre sortie s'AJOUTE a l'ancienne. C'est le regime de TOUS les messages de l'IA,
+// et c'est precisement pourquoi sa reponse s'accumule dans NOTRE pas.
+//
+// Le discriminant n'est donc pas une devinette sur le texte -- c'est `Replay.Messages.Count`.
+// S'il a monte pendant l'`Apply`, notre `Listen` a tire, donc la vidange a eu lieu, donc tout
+// le tampon est a nous. Sinon on coupe a la longueur relevee avant.
+//
+// ⚠ ET LE MEME APPEL FIGE LE PAS PRECEDENT. `Messages[n-1].OutputStream` est ecrit a cet
+// instant, COMPLET -- reponse de l'IA comprise. C'est ce qui rend le verdict du coup
+// precedent lisible SANS RIEN ATTENDRE : c'est notre envoi SUIVANT qui le declenche.
+
+const recorderLastStreamOff = recorderClass
+    ? getFieldOffset(recorderClass, "_lastMessageOutputStream") : -1;
+
+// `System.Text.StringBuilder` est CHAINE par chunks : la longueur totale est
+// `m_ChunkOffset + m_ChunkLength`, jamais `m_ChunkLength` seul (qui ne donne que le
+// dernier maillon). Le texte, lui, passe par `ToString()` -- marcher la chaine a la main
+// n'apporterait rien qu'un risque.
+const sbClass = findClassAnywhere("System.Text", "StringBuilder");
+const sbToStringMi = sbClass ? findMethodByParamCount(sbClass, "ToString", 0) : null;
+const sbOff = sbClass ? {
+    chunkLength: getFieldOffset(sbClass, "m_ChunkLength"),
+    chunkOffset: getFieldOffset(sbClass, "m_ChunkOffset"),
+} : null;
+
+/** Le repere pris AVANT l'`Apply`. `null` sur un champ = PAS MESURE, jamais 0. */
+export interface RepereRecorder {
+    ok: boolean;
+    error?: string;
+    /** `Replay.Messages.Count` — le discriminant de vidange. */
+    pas: number | null;
+    /** `_lastMessageOutputStream.Length` — le point de coupe s'il n'y a PAS eu vidange. */
+    longueur: number | null;
+}
+
+function recorderDe(runnerId: number): NativePointer | string {
+    const entry = resoudreRunner(runnerId);
+    if (!entry) {
+        return runnerId >= 0 ? "runner " + runnerId + " introuvable"
+            : "aucun runner VIVANT et aucun `runnerId` donne";
+    }
+    const rec = entry.runner.add(runnerOff.replayRecorder).readPointer();
+    if (rec.isNull()) return "ce runner n'a pas de `ReplayRecorder`";
+    return rec;
+}
+
+function longueurTampon(recorder: NativePointer): number | null {
+    if (recorderLastStreamOff < 0 || !sbOff) return null;
+    if (sbOff.chunkLength < 0 || sbOff.chunkOffset < 0) return null;
+    try {
+        const sb = recorder.add(recorderLastStreamOff).readPointer();
+        if (sb.isNull()) return null;
+        return sb.add(sbOff.chunkOffset).readS32() + sb.add(sbOff.chunkLength).readS32();
+    } catch { return null; }
+}
+
+function comptePas(recorder: NativePointer): number | null {
+    if (!getReplayMi || getReplayMi.ptr.isNull() || replayMessagesOff < 0) return null;
+    try {
+        const replay = invokeMethod(getReplayMi.info, recorder, null);
+        if (replay.isNull()) return null;
+        const msgs = replay.add(replayMessagesOff).readPointer();
+        if (msgs.isNull()) return null;
+        return msgs.add(0x18).readS32();     // List<T>._size
+    } catch { return null; }
+}
+
+/** Les deux reperes, a prendre juste AVANT l'`Apply`, dans le MEME job. */
+export function repereRecorder(runnerId: number): RepereRecorder {
+    const rec = recorderDe(runnerId);
+    if (typeof rec === "string") {
+        return { ok: false, error: rec, pas: null, longueur: null };
+    }
+    return { ok: true, pas: comptePas(rec), longueur: longueurTampon(rec) };
+}
+
+export interface DeltaRecorder {
+    ok: boolean;
+    error?: string;
+    /** Le texte produit par CET `Apply`, et lui seul. `null` = pas mesure. */
+    texte: string | null;
+    longueur: number | null;
+    tronque: boolean;
+    /** Comment la part a ete isolee — jamais a deviner par l'appelant.
+     *  `vidange` : notre `Listen` a tire, tout le tampon est a nous.
+     *  `suffixe` : message NON enregistre, on a coupe a la longueur d'avant. */
+    branche: "vidange" | "suffixe" | null;
+    pasAvant: number | null;
+    pasApres: number | null;
+    /** Le pas que CET `Apply` vient de FIGER — complet, reponse de l'IA comprise. C'est le
+     *  verdict definitif du coup PRECEDENT, disponible sans aucune attente. */
+    pasFige: { i: number; longueur: number; texte: string | null } | null;
+}
+
+function deltaVide(error: string): DeltaRecorder {
+    return {
+        ok: false, error, texte: null, longueur: null, tronque: false,
+        branche: null, pasAvant: null, pasApres: null, pasFige: null,
+    };
+}
+
+/**
+ * Ce que l'`Apply` qui vient de tourner a produit — a appeler juste APRES lui, dans le
+ * MEME job, avec le repere pris avant.
+ */
+export function deltaRecorder(
+    runnerId: number, repere: RepereRecorder, maxChars?: number,
+): DeltaRecorder {
+    const plafond = maxChars ?? DEFAULT_MAX_CHARS;
+    const rec = recorderDe(runnerId);
+    if (typeof rec === "string") return deltaVide(rec);
+    if (recorderLastStreamOff < 0) {
+        return deltaVide("`ReplayRecorder._lastMessageOutputStream` non resolu -- champ "
+            + "absent de ce build, pas de repli sur un offset mesure");
+    }
+    if (!sbToStringMi || sbToStringMi.ptr.isNull()) {
+        return deltaVide("`System.Text.StringBuilder$$ToString` non resolu");
+    }
+
+    const out = deltaVide("");
+    out.ok = true;
+    delete out.error;
+    out.pasAvant = repere.pas;
+    out.pasApres = comptePas(rec);
+
+    // LE PAS FIGE PAR NOTRE PROPRE `Listen`. Il n'existe que si la vidange a eu lieu, donc
+    // sous exactement la meme condition que la branche `vidange`.
+    const aVidange = out.pasAvant !== null && out.pasApres !== null
+        && out.pasApres > out.pasAvant;
+    if (aVidange && stepOff && stepOff.outputStream >= 0 && replayMessagesOff >= 0
+        && getReplayMi && !getReplayMi.ptr.isNull()) {
+        try {
+            const replay = invokeMethod(getReplayMi.info, rec, null);
+            const msgs = replay.isNull() ? NULL : replay.add(replayMessagesOff).readPointer();
+            if (!msgs.isNull()) {
+                const items = msgs.add(0x10).readPointer();
+                const i = (out.pasAvant as number) - 1;
+                if (!items.isNull() && i >= 0) {
+                    const step = items.add(0x20 + i * Process.pointerSize).readPointer();
+                    if (!step.isNull()) {
+                        const sPtr = step.add(stepOff.outputStream).readPointer();
+                        const lu = readLargeManagedString(sPtr, plafond);
+                        out.pasFige = { i, longueur: lu.length, texte: lu.text };
+                    }
+                }
+            }
+        } catch { /* diagnostic : n'echoue pas la lecture du delta */ }
+    }
+
+    let texte: string | null = null;
+    let longueurTotale = 0;
+    try {
+        const sb = rec.add(recorderLastStreamOff).readPointer();
+        if (sb.isNull()) return deltaVide("`_lastMessageOutputStream` NUL");
+        const sPtr = invokeMethod(sbToStringMi.info, sb, null);
+        const lu = readLargeManagedString(sPtr, plafond);
+        texte = lu.text;
+        longueurTotale = lu.length;
+        out.tronque = lu.truncated;
+    } catch (e) {
+        return deltaVide("lecture du tampon : " + (e as Error).message);
+    }
+    if (texte === null) return deltaVide("tampon illisible");
+
+    // ⚠ SANS LES DEUX COMPTES, ON NE TRANCHE PAS. Choisir une branche « par defaut » ferait
+    // rendre un texte plausible dont personne ne saurait s'il melange deux coups.
+    if (out.pasAvant === null || out.pasApres === null) {
+        out.ok = false;
+        out.error = "`Replay.Messages.Count` NON MESURE avant ou apres -- la part de cet "
+            + "`Apply` n'est pas isolable, et on ne devine pas";
+        return out;
+    }
+    if (aVidange) {
+        out.branche = "vidange";
+        out.texte = texte;
+        out.longueur = longueurTotale;
+    } else {
+        out.branche = "suffixe";
+        const coupe = repere.longueur;
+        if (coupe === null) {
+            out.ok = false;
+            out.error = "message NON enregistre (aucun pas cree) et longueur d'avant NON "
+                + "MESUREE -- impossible de couper";
+            return out;
+        }
+        out.texte = texte.slice(Math.min(coupe, texte.length));
+        out.longueur = Math.max(0, longueurTotale - coupe);
+    }
+    return out;
+}
+
 export function register(ctx: Ctx): void {
     // Aucun Interceptor pose : ce module est purement a la demande.
     ctx.rpc.replayOutputStream = (a?: { runnerId?: number; maxChars?: number }) =>
