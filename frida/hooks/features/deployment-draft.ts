@@ -4834,10 +4834,41 @@ export function register(ctx: Ctx): void {
             // Sous lui : les gestionnaires de VUE du pas `AddMachine`.
             ["IdunBattle.View.BattleStream.StepHandlers", "AddMachineGroupHandler",
              "ExecuteStepInternal", 1],
+            // ⚠ LES COMPTES DE PARAMÈTRES SONT LUS AU DÉCOMPILÉ, pas devinés : les trois
+            // premiers essais ont rendu `INTROUVABLE`, et un `INTROUVABLE` silencieux se lirait
+            // « cet étage n'a pas tiré » -- l'inverse du fait. `ExecuteInternal` ne prend RIEN,
+            // `AddMachine` en prend CINQ (unitEntityId, playerEntityId, teamId, onFinished,
+            // out machineView).
             ["IdunBattle.View.BattleStream.StepHandlers", "AddMachineStepHandler",
-             "ExecuteInternal", 1],
-            ["IdunBattle.View.Game", "IdunGameViews", "AddMachine", 4],
-            ["IdunBattle.View.Game", "IdunGameViews", "AddMachinePlatform", 3],
+             "ExecuteInternal", 0],
+            ["IdunBattle.View.Game", "IdunGameViews", "AddMachine", 5],
+            ["IdunBattle.View.Game", "IdunGameViews", "GetUnitConfig", 1],
+            // Le maillon que le décompilé désigne : la plateforme côté VUE, cherchée PAR TEAM.
+            // Une sandbox qui n'a pas monté ce visuel-là rendrait `0` -- ce qui est traité
+            // proprement -- ou ferait tomber la cascade qui suit, qui n'a AUCUNE garde.
+            ["idun", "IdunBoardView", "GetMachinePlatform", 1],
+            ["IdunBattle.View.Game", "IdunGameViews", "GetNewPooledUnitView", 4],
+            // ⚠ `Enqueue` DÉLÈGUE À `ProcessNextMessage`, QUI SE RAPPELLE LUI-MÊME. Le décompilé
+            // montre qu'il lève quand la FABRIQUE ne rend AUCUN gestionnaire pour le type du
+            // message dépilé (`if (handler != 0) { ...; return } THROW`). Or les gestionnaires
+            // MoW ont bien tourné : le message fautif est donc un AUTRE, plus loin dans la file.
+            // Compter entrées/sorties donne la profondeur de récursion et l'itération qui casse.
+            ["IdunBattle.ViewLogic.BattleStream", "MessageExecutionQueue", "ProcessNextMessage", 0],
+            ["IdunBattle.ViewLogic.BattleStream", "MessageExecutionQueue",
+             "OnMessageFinishedProcessing", 0],
+            // LE SQUELETTE DU GESTIONNAIRE DE GROUPE. `Execute` -> `ExecuteInternal` ->
+            // `StartMessageExecutionLoop`, qui parcourt les enfants du groupe et, quand il n'y
+            // en a plus, appelle `Finish` -- lequel rappelle la file. Trois gardes y lèvent :
+            // le GroupMessage nul, l'enfant nul, et le `onFinished` nul dans `Finish`.
+            ["IdunBattle.View.BattleStream.GroupHandlers", "AGroupHandlerBase", "Execute", 3],
+            ["IdunBattle.View.BattleStream.GroupHandlers", "AGroupHandlerBase", "Finish", 0],
+            ["IdunBattle.View.BattleStream.GroupHandlers", "GenericGroupHandlerBase",
+             "ExecuteInternal", 0],
+            ["IdunBattle.View.BattleStream.GroupHandlers", "GenericGroupHandlerBase",
+             "StartMessageExecutionLoop", 0],
+            ["IdunBattle.View.BattleStream.GroupHandlers", "GenericGroupHandlerBase",
+             "PullAndExecuteNextMessage", 0],
+            ["IdunBattle.View.BattleStream.StepHandlers", "AStepHandlerBase", "Execute", 3],
         ] as const) {
             const kc = findClassAnywhere(c[0], c[1]);
             const mc = kc ? findMethodByParamCount(kc, c[2], c[3]) : null;
