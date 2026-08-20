@@ -65,6 +65,17 @@ export const state = {
      * (including on BUILD launch runners) requires this to be non-null. */
     liveRunner: null as NativePointer | null,
 
+    /** L'`IdunGameViews` dont la pompe draine l'`Update`, et LA FRAME où elle l'a vue.
+     *
+     * ⚠ `liveRunner` SE PÉRIME, et ces deux champs sont ce qui permet de le SAVOIR. La pompe ne
+     * remet `liveRunner` à nul qu'en VOYANT la transition `_runner -> null` ; si la vue est
+     * détruite, son `Update` cesse de tirer et le verrou garde à jamais le dernier runner.
+     * Mesuré le 2026-08-20 : +12 s après une retraite confirmée, `liveRunner` pointait encore
+     * sur le runner mort. Un lecteur qui veut la VÉRITÉ relit `_runner` sur `gameViews`, et
+     * compare `gameViewsFrame` à `frameNo` pour savoir si la pompe tourne encore. */
+    gameViews: null as NativePointer | null,
+    gameViewsFrame: 0,
+
     /** Legacy alias for `liveRunner` — kept while we migrate callers. New
      * code should read `state.liveRunner` directly. The recorder no longer
      * uses this for filtering (see watchedRunners). */

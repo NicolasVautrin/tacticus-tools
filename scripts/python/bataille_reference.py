@@ -4,14 +4,30 @@ Utilisable tel quel sur une bataille REELLE (`--reelle`) ou repete en SANDBOX (d
 le MEME chemin, avec les MEMES drapeaux. Repeter sans `--reelle` ne prouverait rien de ce qui
 sera joue.
 
-    python ... vraie_bataille.py             # repetition sandbox, drapeaux de vraie partie
-    python ... vraie_bataille.py --reelle    # sur la partie du joueur
+    python scripts/python/bataille_reference.py --reelle
+        -> ARME le seed, PUIS ATTEND que tu entres en bataille, PUIS deroule tout.
+           On le lance AVANT d'entrer, et il n'y a rien d'autre a faire.
+
+    python scripts/python/bataille_reference.py            # repetition sandbox
+    python scripts/python/bataille_reference.py --deja-la  # bataille deja montee, ne pas armer
+    python scripts/python/bataille_reference.py --replay data/replays/guild-boss/lion/....json
+
+(!)RIEN N'EST PROPRE A UN BOSS. Le deploiement, les entites attendues, l'identite exigee ET les
+longueurs de flux de la mise en place sont TOUS derives du replay passe en argument -- donc un
+autre boss, ou un lieutenant, se joue en changeant `--replay` et rien d'autre.
+
+(!)L'ARMEMENT DU SEED EST FAIT PAR CE SCRIPT, ET C'EST TOUT L'INTERET. << Armer le seed >> pose
+un intercepteur sur `IdunBattle.Runner.IdunRunner$$Initialize` qui reecrit l'argument `rngSeed`
+au moment ou le jeu CREE la bataille -- donc il doit etre en place AVANT qu'on y entre. Tant que
+c'etait un geste manuel prealable, c'etait un geste OUBLIABLE ; et cette tranche a deja perdu un
+jeton de boss de guilde parce qu'un armement manuel avait ete oublie (dans l'autre sens : un
+relais laisse arme). Le script arme, releve le journal LUI-MEME, et attend.
 
 CE QU'IL VERIFIE, ET IL S'ARRETE AU PREMIER ECART
 --------------------------------------------------
   1. une bataille est la ;
-  2. le SEED a ete substitue -- exactement UNE entree NEUVE au journal depuis l'armement
-     (le journal CUMULE sur toute la session : sa longueur brute ne prouve rien) ;
+  2. le SEED a ete substitue -- exactement UNE entree NEUVE au journal depuis SON PROPRE
+     armement (le journal CUMULE sur toute la session : sa longueur brute ne prouve rien) ;
   3. le camp du joueur est VIDE ;
   4. les 5 + la MoW sont posees ;
   5. PRE-VOL : composition, cases ET identites d'entite CONFORMES a la reference ;
@@ -29,37 +45,89 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, __file__.rsplit("\\", 1)[0])
-from rpc import rpc, session  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sandbox_boss import session_vivante  # noqa: E402
+from sandbox_mode import Jeu  # noqa: E402
 
-REFERENCE = [("AddUnitMessage", 32519), ("AddUnitMessage", 2299), ("AddUnitMessage", 2735),
-             ("AddUnitMessage", 2955), ("AddUnitMessage", 2740),
-             ("AddMachineMessage", 2271), ("StartBattleMessage", 11980)]
-REPLAY = r"data\replays\guild-boss\belisarius\belisarius-10040.json"
+HOTE = "http://127.0.0.1:8765"
+_jeu = None
+
+
+def session():
+    """L'id de la session Frida vivante. On n'injecte JAMAIS de soi-meme."""
+    global _jeu
+    sid = session_vivante(HOTE)
+    if sid is None:
+        print("REFUS : aucune session Frida vivante. Injecter (`POST /api/admin/inject`) "
+              "d'abord -- ce script ne (re)injecte jamais.")
+        sys.exit(2)
+    _jeu = Jeu(HOTE, sid)
+    return sid
+
+
+def rpc(_sid, methode, args=None, timeout=60000):
+    """(!)`Jeu.rpc` rend DEJA le `result`. On le rehabille pour que les appels d'ici restent
+    lisibles -- et surtout pour qu'un `result` ABSENT ne se confonde pas avec un `result` nul."""
+    return {"result": _jeu.rpc(methode, args, timeout)}
+
+DEFAUT_REPLAY = r"data\replays\guild-boss\belisarius\belisarius-10040.json"
 
 ap = argparse.ArgumentParser()
+ap.add_argument("--replay", default=DEFAUT_REPLAY,
+                help="le replay a rejouer (defaut : %s)" % DEFAUT_REPLAY)
 ap.add_argument("--reelle", action="store_true",
                 help="agir sur la PARTIE DU JOUEUR (sinon : repetition sandbox)")
-ap.add_argument("--seed-avant", type=int, default=None,
-                help="longueur du journal de seed RELEVEE AVANT l'armement (cran 2)")
+ap.add_argument("--deja-la", action="store_true",
+                help="la bataille est DEJA montee : ne pas armer le seed, ne pas attendre")
+ap.add_argument("--attente", type=int, default=600,
+                help="secondes d'attente de la bataille (defaut 600)")
 args = ap.parse_args()
 
+REPLAY = args.replay
 d = json.loads(Path(REPLAY).read_text(encoding="utf-8"))
 poses, mow = [], None
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# TOUT CE QUI SUIT EST DERIVE DU REPLAY. Rien n'est ecrit en dur, et c'est ce qui rend le script
+# utilisable sur un AUTRE boss ou un lieutenant.
+#
+# (!)`REFERENCE` EN PARTICULIER NE SE TRANSPLANTE PAS. Ce sont les longueurs du FLUX DE SORTIE
+# des pas de mise en place, et elles dependent de la BC : PV du boss, modificateurs, jeu de PNJ.
+# Les recopier d'un replay a l'autre produirait des ECARTS qui n'accusent que la constante.
+# Verifie sur le replay Belisarius : les 7 valeurs autrefois en dur (32519, 2299, 2735, 2955,
+# 2740, 2271, 11980) sont exactement `len(OutputStream)` des 7 premiers messages.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+REFERENCE = []
 for m in d.get("Messages") or []:
     c = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
-    if c.get("Name") == "AddUnitMessage":
+    nom = c.get("Name")
+    REFERENCE.append((nom, len(m.get("OutputStream") or "")))
+    if nom == "AddUnitMessage":
         p = (c.get("UnitFeetPositions") or [{}])[0]
         poses.append({"unitId": c.get("UnitId"), "playerId": c.get("PlayerId"),
                       "col": p.get("Column"), "row": p.get("Row")})
-    elif c.get("Name") == "AddMachineMessage":
+    elif nom == "AddMachineMessage":
         mow = {"unitId": c.get("UnitId"), "playerId": c.get("PlayerId"), "position": 2}
-    elif c.get("Name") == "StartBattleMessage":
-        break
+    elif nom == "StartBattleMessage":
+        break       # la mise en place s'arrete AU `StartBattleMessage`, inclus
+if not poses:
+    print("REFUS : aucun `AddUnitMessage` avant le START dans %s -- rien a deployer." % REPLAY)
+    sys.exit(2)
+if not REFERENCE or REFERENCE[-1][0] != "StartBattleMessage":
+    print("REFUS : le replay ne porte pas de `StartBattleMessage` -- il n'y a pas de mise en "
+          "place a confronter.")
+    sys.exit(2)
 # Les entites attendues : squad PAIR, unite IMPAIRE, allouees dans l'ordre de pose.
 ENTITES = {p["unitId"]: 111 + 2 * i for i, p in enumerate(poses)}
+# L'IDENTITE de la bataille visee, LUE dans la BC du replay -- jamais ecrite en dur ici.
+_bc = d.get("BattleConfiguration")
+if isinstance(_bc, str):
+    _bc = json.loads(_bc)
+_bc = _bc or {}
+ATTENDU_ID = _bc.get("Id")
+if not ATTENDU_ID:
+    print("REFUS : la BC du replay ne porte pas d'`Id` -- aucune identite a exiger.")
+    sys.exit(2)
 
-sid = session()
 REEL = bool(args.reelle)
 FLAGS = {"surBatailleReelle": True} if REEL else {}
 
@@ -71,7 +139,64 @@ def stop(pourquoi):
     sys.exit(2)
 
 
+# (!)CE QU'ON VA FAIRE, AVANT DE TOUCHER A LA SESSION. Ce bloc est entierement derive du replay :
+# l'afficher d'abord permet de VERIFIER LA CIBLE meme quand le harnais est absent.
+print("replay  %s" % REPLAY)
+print("   vise `%s` (%s) -- %d unite(s) + %s, %d pas de mise en place"
+      % (ATTENDU_ID, _bc.get("GameMode"), len(poses),
+         ("MoW " + mow["unitId"]) if mow else "AUCUNE MoW", len(REFERENCE)))
+print("   mise en place : %s"
+      % ", ".join("%s:%d" % (n, o) for n, o in REFERENCE))
+
+sid = session()
 print("session %s -- mode %s" % (sid, "PARTIE REELLE" if REEL else "repetition sandbox"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CRAN 0 -- ARMER LE SEED, PUIS ATTENDRE LA BATAILLE. C'est ce qui rend le reste automatique.
+#
+# (!)L'ORDRE EST LE SUJET : l'intercepteur reecrit `rngSeed` a la CREATION de la bataille. Armer
+# apres coup ne sert a rien, et le jeu aurait deja tire son propre seed -- sans que rien ne le
+# dise. On releve donc le journal AVANT d'armer, pour pouvoir affirmer au cran 2 que c'est BIEN
+# CETTE bataille-ci qui l'a pris, et pas une precedente de la meme session.
+# ─────────────────────────────────────────────────────────────────────────────
+seed_avant = None
+if not args.deja_la:
+    print()
+    print("CRAN 0 -- armer le seed du replay, puis ATTENDRE que la bataille apparaisse")
+    j0 = (rpc(sid, "sandboxModeSeed", [{}], timeout=60000).get("result") or {}).get("journal") or []
+    seed_avant = len(j0)
+    graine = d.get("RngSeed")
+    if graine is None:
+        stop("le replay ne porte pas de `RngSeed` -- on ne rejoue pas sans.")
+    # (!)CONDITIONNEL, ET C'EST LE POINT. Sans `siConfigId`, le seed part sur la PROCHAINE
+    # bataille quelle qu'elle soit -- une arene, une campagne, un autre boss. Le script ne peut
+    # pas deviner l'intention ; il peut EXIGER une identite, et le natif la lui confirme sur la
+    # `BattleConfiguration` elle-meme. Entrer ailleurs devient alors SANS CONSEQUENCE.
+    r = rpc(sid, "sandboxModeSeed", [{"seed": int(graine), "unCoup": True,
+                                      "siConfigId": ATTENDU_ID}], timeout=60000).get("result") or {}
+    if r.get("arme") is not True:
+        stop("le seed n'a PAS ete arme : " + json.dumps(r, ensure_ascii=False)[:240])
+    print("   seed %s arme (un coup), CONDITIONNE a Id=%s -- journal a %d entree(s) avant"
+          % (graine, ATTENDU_ID, seed_avant))
+    print()
+    print("   >>> ENTRE DANS LA BATAILLE et LAISSE l'ecran de deploiement. Ne pose RIEN.")
+    print("   (j'attends jusqu'a %d s)" % args.attente)
+    t0 = time.time()
+    vue = None
+    while time.time() - t0 < args.attente:
+        time.sleep(3.0)
+        p = rpc(sid, "sandboxProbe", [{}], timeout=120000).get("result") or {}
+        if p.get("instance"):
+            vue = p.get("instance")
+            break
+        sys.stdout.write(".")
+        sys.stdout.flush()
+    print()
+    if vue is None:
+        stop("aucune bataille apparue en %d s. Le seed reste arme pour la SUIVANTE : "
+             "le desarmer par `sandboxModeSeed {seed: null}` si tu renonces." % args.attente)
+    print("   bataille detectee apres %.0f s" % (time.time() - t0))
+
 print()
 print("CRAN 1 -- une bataille est-elle la ?")
 p = rpc(sid, "sandboxProbe", [{}], timeout=120000).get("result") or {}
@@ -87,17 +212,45 @@ imposes = [x for x in j if x.get("mode") == "impose"]
 print("   journal : %d entree(s), dont %d imposition(s)" % (len(j), len(imposes)))
 if not imposes:
     stop("aucune imposition de seed -- rejouer sur un autre tirage ne prouve rien.")
-if args.seed_avant is not None:
-    neuves = len(j) - args.seed_avant
+if seed_avant is not None:
+    neuves = len(j) - seed_avant
     print("   entrees NEUVES depuis l'armement : %d" % neuves)
     if neuves != 1:
         stop("on attend EXACTEMENT une entree neuve (%d) -- le journal CUMULE sur la session, "
              "donc sa longueur brute ne dit pas quelle bataille a pris le seed." % neuves)
 else:
-    print("   (!) `--seed-avant` non fourni : on ne peut pas dire QUELLE bataille l'a pris.")
+    print("   (!) `--deja-la` : le seed n'a pas ete arme par ce script, donc on ne peut pas dire "
+          "QUELLE bataille l'a pris.")
 
 print()
-print("CRAN 3 -- le camp du joueur est-il VIDE ?")
+print("CRAN 3 -- est-ce BIEN la bataille visee, et son camp est-il VIDE ?")
+# (!)L'IDENTITE AVANT LE PLATEAU. Un plateau vide sur la MAUVAISE bataille est un feu vert pour
+# y ecrire -- c'est exactement ce qui manquait le 2026-08-20.
+#
+# (!)ET ON LA LIT LA OU ELLE EST : l'`Id` de la `BattleConfiguration` que porte le runner vivant.
+# La version precedente la DEDUISAIT des noms d'unites adverses du plateau, ce qui ne marchait
+# que parce que `BC.Id` et `BossUnit.UnitId` valent la meme chaine dans CE replay. Rien ne le
+# garantit ailleurs, et les PNJ de la meme BC portent un suffixe de rang (`...Techpriest:22`) :
+# une bataille LEGITIME aurait pu etre refusee, sur un jeton deja depense.
+ident = rpc(sid, "batailleIdentite", [{}], timeout=120000).get("result") or {}
+vu = ident.get("id")
+if vu is None:
+    stop("identite NON MESUREE : %s -- on n'ecrit pas sur une bataille qu'on n'a pas identifiee."
+         % ident.get("diagnostic"))
+if vu != ATTENDU_ID:
+    stop("BATAILLE INATTENDUE : le runner vivant porte `%s`, on attendait `%s`. Tu es entre dans "
+         "une AUTRE bataille -- rien n'a ete ecrit, et le seed n'a pas ete impose (il etait "
+         "conditionne a cette identite)." % (vu, ATTENDU_ID))
+print("   bataille confirmee : %s   (lu sur %s)" % (vu, ident.get("champ")))
+mem = ident.get("memorise")
+if isinstance(mem, dict) and mem.get("concorde"):
+    # RECOUPEMENT par une seconde lecture, prise a la CREATION du runner. Un desaccord ne peut
+    # pas venir d'un hasard : les deux voies lisent le meme champ a deux instants differents.
+    if mem.get("id") != vu:
+        stop("les deux lectures d'identite SE CONTREDISENT : `%s` a la creation, `%s` "
+             "maintenant." % (mem.get("id"), vu))
+    print("   recoupe avec la lecture faite a la creation du runner.")
+
 pl = rpc(sid, "deploymentPlateau", [{}], timeout=60000).get("result") or {}
 if pl.get("duJoueur"):
     stop("le camp du joueur porte deja %s unite(s)." % pl.get("duJoueur"))

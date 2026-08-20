@@ -104,16 +104,19 @@
 // qui prennent un `BattleSetConfigDto` : survival et infested.
 
 import {
-    class_get_name, class_is_valuetype, findClassAnywhere, findMethodByParamClasses,
-    findMethodByParamCount, getFieldOffset, methodParamClass, s,
+    class_get_fields, class_get_name, class_get_parent, class_is_valuetype, field_get_name,
+    field_get_offset, field_get_type, findClassAnywhere, findMethodByParamClasses,
+    findMethodByParamCount, getFieldOffset, methodParamClass, readIl2cppString, s,
+    type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
+import { state } from "../game/state.js";
 import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { deserializeFromJson, isDeserializerReady, isSerializerReady, serializeToJson }
     from "../il2cpp/serializer.js";
 import { chargementEnCours } from "../game/loader.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
-import { executeurVivant } from "./view-command.js";
+import { executeurVivant, premiereInstance } from "./view-command.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -566,7 +569,7 @@ let seedListener: InvocationListener | null = null;
  *  imposition est le point : un journal qui ne dirait pas lequel des deux a eu lieu ferait
  *  passer une observation pour une prise de contrôle. */
 const seedJournal: Array<{ remplace: string; par: number | null;
-                           mode: "impose" | "observe" }> = [];
+                           mode: "impose" | "observe"; ignore?: string }> = [];
 
 function methodeInitializeSeed(): { info: NativePointer; ptr: NativePointer } | Refus {
     const k = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
@@ -586,6 +589,218 @@ function methodeInitializeSeed(): { info: NativePointer; ptr: NativePointer } | 
  *  ⚠ Ce n'est PAS un `replace` : on laisse le natif s'exécuter, on ne fait que réécrire
  *  l'argument 2 à l'entrée. Le journal garde ce qui a été remplacé, pour que « la bataille
  *  a bien pris mon seed » soit une MESURE et pas une croyance. */
+/**
+ * L'identité EXIGÉE de la bataille, ou `null` = pas de condition.
+ *
+ * ⚠ POURQUOI CETTE CONDITION EXISTE. Imposer un seed « à la prochaine bataille » ne sait pas
+ * DE QUELLE bataille il s'agit : si le joueur entre dans une arène, une campagne ou un autre
+ * boss, le seed de la référence lui est écrit dessus -- un effet réel sur une partie qui n'a
+ * rien demandé. C'est le même vice que le relais laissé armé qui a coûté un jeton de boss de
+ * guilde le 2026-08-20 : un déclenchement qui ne vérifie pas SUR QUOI il tire.
+ *
+ * `IdunRunner$$Initialize(configuration, rngSeed, ...)` reçoit la `BattleConfiguration` en
+ * premier argument : elle porte son `Id` et son `GameMode`. Deux lectures de CHAMP, aucune
+ * invocation -- donc sans danger dans le callback.
+ */
+let seedSiConfigId: string | null = null;
+
+/** Lit `BattleConfiguration.Id`. `null` = PAS LU -- ce qui fait RENONCER à imposer. */
+function idDeLaConfig(cfg: NativePointer): string | null {
+    try {
+        if (cfg.isNull()) return null;
+        const k = cfg.readPointer();
+        let off = getFieldOffset(k, "<Id>k__BackingField");
+        if (off < 0) off = getFieldOffset(k, "Id");
+        if (off < 0) return null;
+        return readIl2cppString(cfg.add(off).readPointer());
+    } catch { return null; }
+}
+
+// --- QUELLE BATAILLE EST MONTÉE, LÀ, MAINTENANT ------------------------------------------------
+//
+// CE QUE ÇA REMPLACE, ET POURQUOI L'ANCIEN ÉTAIT FRAGILE
+// ------------------------------------------------------
+// `bataille_reference.py` identifiait la bataille en cherchant l'`Id` du replay PARMI LES NOMS
+// D'UNITÉS ADVERSES du plateau. Ça ne marchait que par coïncidence : dans la BC du replay
+// Belisarius, `Id` et `BossUnit.UnitId` valent la MÊME chaîne. Rien ne le garantit ailleurs, et
+// les PNJ de cette même BC portent un suffixe de rang (`...AdmecTechpriest:22`) -- si la vue du
+// boss en porte un aussi, la comparaison échoue sur une bataille LÉGITIME. On refuserait alors
+// un jeton déjà dépensé, pour un défaut d'outil.
+//
+// On lit donc l'`Id` LÀ OÙ IL EST : sur la `BattleConfiguration` que porte le runner vivant.
+//
+// ⛔ AUCUNE INVOCATION. Le champ se trouve par un balayage de MÉTADONNÉES (`class_get_fields` +
+// `field_get_type`), puis se lit à son offset. Rien de managé ne s'exécute -- c'est ce qui rend
+// l'appel sûr y compris depuis un callback.
+//
+// ⚠ TRI-ÉTAT PARTOUT : `null` = PAS LU. Ni « pas de bataille », ni un feu vert. C'est le travers
+// qui a produit l'incident du 2026-08-20 (`duJoueur=0` lu comme « plateau vide »).
+
+/** Ce qu'on a vu passer à `IdunRunner$$Initialize`, ÉPINGLÉ AU RUNNER qui l'a reçu.
+ *
+ *  ⚠ L'ÉPINGLAGE EST LE POINT : sans le pointeur du runner, une mémoire dirait « la dernière
+ *  bataille créée », pas « la bataille montée ». Deux choses différentes dès qu'on est sorti
+ *  d'une bataille pour en monter une autre. */
+let bcMemorisee: { runner: string; id: string | null } | null = null;
+
+/** L'offset du PREMIER champ de type `BattleConfiguration` sur `klass` ou l'un de ses parents.
+ *  `-1` = pas trouvé. Jamais un `0` : un offset nul est un offset VALIDE. */
+function offsetDuChampBc(klass: NativePointer): number {
+    const iter = Memory.alloc(Process.pointerSize);
+    for (let k = klass; !k.isNull(); k = class_get_parent(k) as NativePointer) {
+        iter.writePointer(ptr(0));
+        let f: NativePointer;
+        while (!(f = class_get_fields(k, iter) as NativePointer).isNull()) {
+            try {
+                const t = field_get_type(f) as NativePointer;
+                if (t.isNull()) continue;
+                const kc = type_get_class_or_element_class(t) as NativePointer;
+                if (kc.isNull()) continue;
+                if (s(class_get_name(kc) as NativePointer) !== "BattleConfiguration") continue;
+                return field_get_offset(f) as number;
+            } catch { /* un champ illisible n'est pas une raison d'abandonner les suivants */ }
+        }
+    }
+    return -1;
+}
+
+/** Le nom du champ trouvé — pour que le retour DISE d'où vient la lecture, pas seulement quoi. */
+function nomDuChampBc(klass: NativePointer): string | null {
+    const iter = Memory.alloc(Process.pointerSize);
+    for (let k = klass; !k.isNull(); k = class_get_parent(k) as NativePointer) {
+        iter.writePointer(ptr(0));
+        let f: NativePointer;
+        while (!(f = class_get_fields(k, iter) as NativePointer).isNull()) {
+            try {
+                const t = field_get_type(f) as NativePointer;
+                if (t.isNull()) continue;
+                const kc = type_get_class_or_element_class(t) as NativePointer;
+                if (kc.isNull() || s(class_get_name(kc) as NativePointer) !== "BattleConfiguration") {
+                    continue;
+                }
+                return s(class_get_name(k) as NativePointer) + "."
+                    + s(field_get_name(f) as NativePointer);
+            } catch { /* idem */ }
+        }
+    }
+    return null;
+}
+
+interface IdentiteBataille {
+    ok: true; lecture: true;
+    /** L'`Id` de la BC MONTÉE. `null` = PAS LU -- lire `diagnostic`. */
+    id: string | null;
+    champ: string | null;
+    runner: string | null;
+    /** La lecture faite à la création, et si elle porte sur CE runner-ci. */
+    memorise: { id: string | null; runner: string; concorde: boolean } | null;
+    /** L'état de la pompe. `concorde: false` = son verrou `liveRunner` est PÉRIMÉ ;
+     *  `framesDepuisLaVue > 0` = elle ne draine plus la vue de bataille. */
+    pompe: { runner: string | null; concorde: boolean | null;
+             vue: string | null; frame: number; framesDepuisLaVue: number | null };
+    diagnostic: string;
+}
+
+// ⛔ ON NE SE FIE PAS À `state.liveRunner`, ET C'EST MESURÉ (2026-08-20).
+//
+// La pompe ne remet `liveRunner` à nul qu'en VOYANT la transition `_runner -> null` dans
+// `IdunGameViews$$Update`. Après une retraite, cette vue est détruite : son `Update` ne tire
+// plus, la transition n'est jamais vue, et le verrou GARDE le dernier runner. Mesuré : à +12 s
+// d'une retraite confirmée (`sandboxProbe.instance == null`), `state.liveRunner` pointait encore
+// sur `0x23ff324c500` et la première version de ce lecteur affirmait « `GuildBoss10Boss1...` ».
+// C'est LA faute que ce module existe pour empêcher -- affirmer une bataille qui n'est plus là.
+//
+// (Le RPC répondait quand même parce que la pompe UI, armée par le montage, draine dans
+// `EventSystem$$Update` : le harnais vivait, la vue de bataille non.)
+//
+// On repart donc de la SCÈNE : l'instance vivante d'`IdunGameViews`, puis son `_runner`. La
+// valeur de la pompe reste publiée comme RECOUPEMENT -- un désaccord nomme son verrou périmé.
+function identiteDeLaBatailleVivante(): IdentiteBataille {
+    const cache = state.liveRunner;
+    const etatPompe = (concorde: boolean | null) => ({
+        runner: cache === null ? null : cache.toString(), concorde,
+        vue: state.gameViews === null ? null : state.gameViews.toString(),
+        frame: state.frameNo,
+        framesDepuisLaVue: state.gameViews === null ? null
+            : state.frameNo - state.gameViewsFrame,
+    });
+    const sansRunner = (diagnostic: string): IdentiteBataille => ({
+        ok: true, lecture: true, id: null, champ: null, runner: null,
+        memorise: bcMemorisee === null ? null
+            : { id: bcMemorisee.id, runner: bcMemorisee.runner, concorde: false },
+        pompe: etatPompe(null),
+        diagnostic,
+    });
+
+    const kGv = findClassAnywhere("IdunBattle.View.Game", "IdunGameViews");
+    if (!kGv) return sansRunner("classe `IdunBattle.View.Game.IdunGameViews` INTROUVABLE sur ce "
+        + "build -- NON MESURÉ.");
+    const offRunner = getFieldOffset(kGv, "_runner");
+    if (offRunner < 0) return sansRunner("champ `IdunGameViews._runner` INTROUVABLE -- la "
+        + "structure a changé. NON MESURÉ, pas « pas de bataille ».");
+    // ⛔ LA SCÈNE D'ABORD, ET C'EST LE SEUL CRAN QUI TIENNE.
+    //
+    // Trois voies ont été essayées, deux MESURÉES FAUSSES :
+    //   1. `state.liveRunner` seul -> garde le runner mort (la pompe ne voit pas la transition) ;
+    //   2. relire `_runner` sur l'`IdunGameViews` de la pompe -> l'objet mort reste MAPPÉ et
+    //      rend encore le runner, qui rend encore son `Id`. Mesuré : +582 frames après une
+    //      retraite confirmée, cette voie affirmait toujours `GuildBoss10Boss1AdmecBelisarius`.
+    //      Lire un objet ne prouve PAS qu'il vive ;
+    //   3. `premiereInstance(IdunGameViews)` -> rend NULL même en pleine bataille :
+    //      `IdunGameViews` n'est pas un `UnityEngine.Object`, `FindObjectsByType` ne le voit pas.
+    //
+    // `IdunMainView`, lui, EST un `UnityEngine.Object`, et il s'est montré juste dans les DEUX
+    // régimes (instance en bataille, absent après retraite). C'est donc lui qui atteste que la
+    // scène de bataille est montée ; la pompe ne fournit plus que le POINTEUR de la vue.
+    const kMain = findClassAnywhere("idun", "IdunMainView");
+    if (!kMain) return sansRunner("classe `idun.IdunMainView` INTROUVABLE sur ce build -- "
+        + "NON MESURÉ.");
+    const scene = premiereInstance(kMain);
+    if (estRefus(scene)) {
+        return sansRunner("aucune `IdunMainView` vivante (" + scene.error + ") -- la scène de "
+            + "bataille n'est pas montée. Ce n'est PAS « identité fausse ».");
+    }
+    const vue = state.gameViews;
+    if (vue === null || vue.isNull()) {
+        return sansRunner("la pompe n'a jamais vu d'`IdunGameViews` (aucune frame de bataille "
+            + "drainée depuis l'injection) -- NON MESURÉ, pas « pas de bataille ».");
+    }
+    let r: NativePointer;
+    try { r = vue.add(offRunner).readPointer(); }
+    catch (e) { return sansRunner("`_runner` ILLISIBLE : " + (e as Error).message); }
+    if (r.isNull()) {
+        return sansRunner("`IdunGameViews` vivante mais son `_runner` est NUL -- la scène est là, "
+            + "la bataille non.");
+    }
+
+    const mem = bcMemorisee === null ? null : {
+        id: bcMemorisee.id, runner: bcMemorisee.runner,
+        concorde: bcMemorisee.runner === r.toString(),
+    };
+    const pompe = etatPompe(cache !== null && cache.equals(r));
+    let off = -1, champ: string | null = null;
+    try {
+        const k = r.readPointer();
+        off = offsetDuChampBc(k);
+        champ = off < 0 ? null : nomDuChampBc(k);
+    } catch { /* traité ci-dessous */ }
+    if (off < 0) {
+        return { ok: true, lecture: true, id: null, champ: null, runner: r.toString(),
+                 memorise: mem, pompe,
+                 diagnostic: "aucun champ de type `BattleConfiguration` sur la classe du runner "
+                     + "vivant -- la structure a changé. NON MESURÉ, pas « pas la bonne "
+                     + "bataille »." };
+    }
+    let id: string | null = null;
+    try { id = idDeLaConfig(r.add(off).readPointer()); } catch { id = null; }
+    return {
+        ok: true, lecture: true, id, champ, runner: r.toString(), memorise: mem, pompe,
+        diagnostic: id === null
+            ? "champ trouvé (" + String(champ) + ") mais `Id` ILLISIBLE -- NON MESURÉ."
+            : "lu sur la `BattleConfiguration` du runner porté par l'`IdunGameViews` vivante.",
+    };
+}
+
 function armerSeed(seed: number | null, unCoup: boolean,
                    observer = false): Record<string, unknown> | Refus {
     if (seed === null && !observer) {
@@ -607,6 +822,27 @@ function armerSeed(seed: number | null, unCoup: boolean,
                 // `this`=args[0], `configuration`=args[1], `rngSeed`=args[2].
                 let avant = "?";
                 try { avant = args[2].toString(); } catch { /* best effort */ }
+                // ON MÉMORISE L'IDENTITÉ, ÉPINGLÉE AU RUNNER -- inconditionnellement, et pas
+                // seulement quand une condition est posée : c'est ce qui permet de RECOUPER, plus
+                // tard, la lecture faite sur le runner vivant. Deux lectures de champ, aucune
+                // invocation.
+                try {
+                    bcMemorisee = { runner: args[0].toString(), id: idDeLaConfig(args[1]) };
+                } catch { /* une mémoire manquante fait dire NON MESURÉ, jamais conclure */ }
+                // ⚠ LA CONDITION D'IDENTITÉ D'ABORD, ET ELLE RENONCE SUR NON-MESURE.
+                // `args[1]` = `configuration`. Un `Id` qu'on n'a pas su lire n'est PAS un `Id`
+                // qui concorde : on n'écrit pas sur une bataille qu'on n'a pas identifiée.
+                if (seedImpose !== null && seedSiConfigId !== null) {
+                    const idCfg = idDeLaConfig(args[1]);
+                    if (idCfg !== seedSiConfigId) {
+                        seedJournal.push({ remplace: avant, par: null, mode: "observe",
+                                           ignore: idCfg === null
+                                               ? "Id NON LU -- imposition ABANDONNÉE"
+                                               : `Id=${idCfg} != ${seedSiConfigId}` });
+                        if (seedJournal.length > 32) seedJournal.shift();
+                        return;
+                    }
+                }
                 if (seedImpose === null) {
                     // LECTURE PURE : on journalise la valeur que le jeu allait utiliser, et on
                     // la LAISSE. Sans ce bras, la seule façon de connaître un seed était de le
@@ -770,7 +1006,14 @@ export function register(ctx: Ctx): void {
      *  « impose » qui n'a jamais tire se verrait donc, au lieu de passer pour applique. */
     ctx.rpc.sandboxModeSeed = (body?: {
         seed?: number | null; unCoup?: boolean; observer?: boolean;
+        /** N'imposer QUE si `BattleConfiguration.Id` vaut ceci. Sans lui, le seed part sur la
+         *  prochaine bataille QUELLE QU'ELLE SOIT -- y compris une arène du joueur. */
+        siConfigId?: string | null;
     }): unknown => {
+        if (body?.siConfigId !== undefined) {
+            seedSiConfigId = typeof body.siConfigId === "string" && body.siConfigId !== ""
+                ? body.siConfigId : null;
+        }
         // ⚠ `body == null` et NON `=== undefined` : un RPC appelé sans argument arrive à
         // `null`, pas à `undefined`, et le test strict laissait passer jusqu'au déréférencement
         // (« cannot read property 'seed' of null »). Mesuré à la première lecture.
@@ -788,6 +1031,24 @@ export function register(ctx: Ctx): void {
         }
         return armerSeed(body.seed === null ? null : (body.seed | 0), body.unCoup !== false);
     };
+
+    /**
+     * QUELLE BATAILLE EST MONTÉE — l'`Id` de sa `BattleConfiguration`. LECTURE PURE.
+     *
+     * C'est la réponse à « suis-je bien dans la bataille que je crois ? », et elle se prend là où
+     * l'information EST : sur la BC que porte le runner vivant. La voie précédente déduisait
+     * l'identité des NOMS D'UNITÉS adverses du plateau -- une coïncidence de chaînes qui n'est
+     * garantie par rien (cf. le commentaire d'`offsetDuChampBc`).
+     *
+     * ⚠ `id: null` = NON MESURÉ. Ni « pas la bonne bataille », ni un feu vert. `diagnostic` dit
+     * laquelle des trois causes s'applique (pas de runner / champ introuvable / `Id` illisible).
+     *
+     * `memorise` recoupe avec ce qu'on a vu passer à `IdunRunner$$Initialize` -- présent
+     * seulement si le capteur de seed était armé à la création, et `concorde` dit s'il porte
+     * bien sur CE runner-ci.
+     */
+    ctx.rpc.batailleIdentite = (): Promise<unknown> =>
+        queueOnMainThread(() => identiteDeLaBatailleVivante());
 
     /** OBSERVATION PURE — ne construit rien, n'invoque rien qui écrive. */
     ctx.rpc.sandboxModeProbe = (body?: { mode?: string; classe?: string }): Promise<unknown> =>

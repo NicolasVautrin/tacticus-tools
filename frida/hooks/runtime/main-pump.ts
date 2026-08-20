@@ -186,6 +186,10 @@ export function installMainPump(): void {
         //   r1   → r2      (battle switched)
         //   r    → null    (battle ended / quit to menu)
         const r = selfPtr.add(gvRunnerOff).readPointer();
+        // La vue et la frame où on l'a vue : c'est ce qui permet à un lecteur de savoir si
+        // `liveRunner` est FRAIS ou si la pompe s'est arrêtée (cf. `game/state.ts`).
+        state.gameViews = selfPtr;
+        state.gameViewsFrame = state.frameNo;
         if (r.isNull()) {
             // Battle ended on the device → drop the live entry. Build runners
             // (if any) stay intact: they're our standalones, independent of
