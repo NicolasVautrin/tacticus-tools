@@ -178,6 +178,13 @@ def main(argv):
                     help="monter la BC du replay EN SANDBOX (vue reelle) au lieu d'un runner "
                          "isole -- c'est la voie ou l'IA et les unites AUTOMATIQUES jouent "
                          "toutes seules, et c'est celle d'une vraie partie")
+    # (!)SUR UNE VRAIE BATAILLE, CONTINUER APRES UN ECART EST UNE FAUTE, pas une tolerance.
+    # Le rejeu ENVOIE des coups : passe le premier ecart, l'etat n'est plus celui que la suite
+    # du replay presuppose, donc chaque coup d'apres agit sur autre chose que sa cible. En
+    # sandbox ca ne coute qu'une mesure ; sur un boss de guilde ca consomme un ESSAI REEL.
+    ap.add_argument("--arret-au-premier-ecart", action="store_true",
+                    help="s'arreter DES le premier ecart non nul au lieu de poursuivre "
+                         "(obligatoire sur une bataille reelle)")
     args = ap.parse_args(argv)
 
     d = json.loads(Path(args.replay).read_text(encoding="utf-8"))
@@ -469,6 +476,10 @@ def boucle(jeu, rid, pas, joueur, args, entite_joueur=None):
             traces.append((i, nom, nb_av, len(steps), p.get("OutputStream") or ""))
             if ecart != 0:
                 divergences.append((i, nom, produit, attendu))
+                if args.arret_au_premier_ecart:
+                    print("ARRET DEMANDE : premier ecart au coup %d (%s), %+d caractere(s). "
+                          "Les coups suivants ne sont PAS envoyes." % (i, nom, ecart))
+                    break
 
         # LE VERDICT AU CARACTERE, COUP PAR COUP.
         #
