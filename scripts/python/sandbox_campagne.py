@@ -126,12 +126,45 @@ d = json.loads(bc)
 print("BC : Id=%s GameMode=%s board=%s  (%d octets)"
       % (d.get("Id"), d.get("GameMode"), (d.get("Board") or {}).get("Id"), len(bc)))
 
+
+# 3bis. LES BORNES DE POSE -- LUES SUR LA SOURCE, jamais ecrites en dur.
+#
+# (!)`UnitDeploymentHud$$Show(units, minUnitsPossible, maxUnitsPossible, options)` recoit ses
+# bornes du relais `VisualBattleQuery`, qui interroge la source du mode MONTE -- la SANDBOX.
+# Mesure du 2026-08-20 sur `elite4` noeud 31 : le HUD portait `minUnitsPossible: 0` et
+# `maxUnitsPossible: 0` alors que la campagne rend 3 et 5. Un plafond a zero n'autorise AUCUNE
+# pose. `sandbox_boss.py` arme ces bornes EN DUR (max 5, min 1) ; ici on les LIT sur la source
+# forgee, parce qu'un autre noeud peut en porter d'autres.
+def borne(nom):
+    r = j.rpc("viewInvoke", [{"surPointeur": f["instance"], "methode": nom,
+                              "confirmer": True}], 60000) or {}
+    if not r.get("ok"):
+        return None
+    v = (r.get("retour") or {}).get("valeur")
+    return v if isinstance(v, int) else None
+
+
+bmin = borne("MinUnitsNeededToStartBattle")
+bmax = borne("MaxUnitsPossibleToStartBattle")
+if bmin is None or bmax is None:
+    # Tri-etat : une borne NON MESUREE ne se rabat pas sur un defaut. On n'impose pas un plafond
+    # devine, et un plafond absent laisse le HUD a zero -- les deux se voient a l'ecran, trop tard.
+    print("REFUS : bornes de pose NON MESUREES (min=%s max=%s) sur la source forgee."
+          % (bmin, bmax))
+    sys.exit(1)
+print("bornes de pose (LUES sur la source) : min=%d max=%d" % (bmin, bmax))
+
 # 4. Les capteurs AVANT le montage -- c'est le regime nominal.
 r = j.rpc("sandboxModeBcOverride", [{"configJson": bc}], 180000) or {}
 if not r.get("ok"):
     print("REFUS : l'override de BC a echoue : %s" % json.dumps(r, ensure_ascii=False)[:300])
     sys.exit(1)
 armements = list(ARMEMENTS)
+# Le plafond se pose JUSTE APRES la delegation du pool, comme dans `sandbox_boss.py` : les deux
+# alimentent le meme `Show`, et tout doit etre en place avant le montage.
+armements.insert(1 + [n for n, _ in armements].index("deploymentPoolArmer"),
+                 ("deploymentPlafondArmer",
+                  {"armer": True, "max": bmax, "min": bmin, "confirmer": True}))
 if not args.sans_replay:
     armements.append(("replayFinAuto", {"armer": True}))
 for nom, corps in armements:

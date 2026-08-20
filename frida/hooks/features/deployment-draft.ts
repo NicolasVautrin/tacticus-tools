@@ -549,6 +549,28 @@ let dernierRemplissage: { ajoutes: number; erreur: string | null } | null = null
  *  (dés)armement du prêteur, pour qu'un remontage relise plutôt que de servir un roster périmé. */
 let idsGuildWar: string[] | null = null;
 
+/** Le roster CAMPAGNE, même forme et pour les mêmes raisons — cf. la branche `campagne`. */
+let idsCampagne: string[] | null = null;
+
+/**
+ * D'un `PooledListElement<T>` aux CHAÎNES qu'il porte. LÈVE si la forme n'est pas celle attendue —
+ * un roster illisible doit se DIRE, jamais se rabattre sur une liste vide qui se lirait comme
+ * « ce mode n'a pas d'unités ».
+ *
+ * ⚠ `_object` est résolu PAR SON NOM (`getFieldOffset` remonte la chaîne de parents : le champ est
+ * déclaré par `PooledElement\`1`), jamais par un offset écrit ici.
+ */
+function idsDePooledElement(el: NativePointer): string[] {
+    if (el.isNull()) throw new Error("`_listWithStatus` NUL");
+    const off = getFieldOffset(el.readPointer(), "_object");
+    if (off <= 0) throw new Error("`_object` non résolu sur le wrapper de pool");
+    const interne = el.add(off).readPointer();
+    if (interne.isNull()) throw new Error("`_object` NUL");
+    const ids = listeDeTextes(interne);
+    if (ids === null) throw new Error("`List<String>` illisible");
+    return ids;
+}
+
 /** Lit prudemment le nom de classe derrière un pointeur candidat. Ne lève jamais. */
 function classeDerriere(p: NativePointer): { classe: string | null; erreur: string | null } {
     try {
@@ -1910,13 +1932,7 @@ function armerUneDelegation(
                     try {
                         // La boîte porte la structure à `+0x10` ; son unique champ est le wrapper
                         // de pool, dont `_object` (résolu PAR NOM) est la `List<String>`.
-                        const el = b.add(0x10).readPointer();
-                        if (el.isNull()) throw new Error("`_listWithStatus` NUL");
-                        const off = getFieldOffset(el.readPointer(), "_object");
-                        if (off <= 0) throw new Error("`_object` non résolu sur le wrapper");
-                        const interne = el.add(off).readPointer();
-                        if (interne.isNull()) throw new Error("`_object` NUL");
-                        idsGuildWar = listeDeTextes(interne);
+                        idsGuildWar = idsDePooledElement(b.add(0x10).readPointer());
                     } catch (e) {
                         d.dernier = { ok: false,
                             detail: "roster guild war illisible : " + (e as Error).message };
@@ -1940,10 +1956,79 @@ function armerUneDelegation(
                         : `remplissage guild war : ${r.erreur}` };
                 return;   // ⚠ `retval` INTACT — c'est tout l'objet du correctif.
             }
-            if (preEmprunt !== null && spec.nom === METHODE) {
-                retval.replace(preEmprunt);
+            // CAMPAGNE : MÊME REMÈDE QUE LE GUILD WAR — on REMPLIT la liste du jeu.
+            //
+            // ⚠ DEUX DÉFAUTS TOMBAIENT ICI, ET LE PREMIER SUFFISAIT À VIDER L'ÉCRAN.
+            // Mesuré le 2026-08-20 sur `elite4` nœud 31 : la délégation TIRAIT et EMPRUNTAIT
+            // (`fires=1 emprunts=1`, `dernier.ok` VRAI) et le roster restait VIDE. Sans
+            // pré-emprunt, le chemin GÉNÉRIQUE d'en dessous posait dans `retval` le retour BRUT
+            // de `runtime_invoke` — or `PooledList<System.String>` est un TYPE VALEUR, donc ce
+            // retour est une BOÎTE. Le HUD lisait `_listWithStatus` sur un en-tête d'objet.
+            // C'est le prix du chemin générique : il est juste pour un type RÉFÉRENCE (les
+            // trois autres déléguées) et faux pour celui-ci, sans que rien ne le signale.
+            //
+            // Second défaut, celui du PRÉ-EMPRUNT lui-même : une `PooledList` NE SE SUBSTITUE
+            // QU'UNE FOIS (cf. `rosterFraisGuildBoss`), et un objet mis en pool qui traverse la
+            // frontière fait lever `BeforeReturnToPoolAttempt` au `Dispose` de l'appelant — ce
+            // qui TUE la bataille EN SILENCE (cf. la branche `guildWar`). Le remplissage règle
+            // les deux d'un coup : rien ne traverse, et la liste remplie est celle du jeu.
+            if (spec.nom === METHODE && p.nom === "campagne") {
+                if (idsCampagne === null) {
+                    // LE PRÉ-EMPRUNT RESTE PRIORITAIRE, MAIS ON LE **LIT** AU LIEU DE LE POSER :
+                    // c'est la seule valeur empruntée HORS hook, donc la seule sur laquelle le
+                    // masque `sansFiltre` a pu agir (cf. §24 — un `Interceptor` est aveugle aux
+                    // appels imbriqués). Le lever de filtre de nœud survit donc au correctif.
+                    if (preEmprunt !== null) {
+                        try { idsCampagne = idsDePooledElement(preEmprunt); }
+                        catch (e) {
+                            d.dernier = { ok: false, detail: "pré-emprunt campagne ILLISIBLE : "
+                                + (e as Error).message + " -- rien écrit" };
+                            return;
+                        }
+                    } else {
+                        let b: NativePointer;
+                        try { b = invokeMethod(mc.info, src, []) as NativePointer; }
+                        catch (e) {
+                            d.dernier = { ok: false, detail: "lecture du roster campagne a levé : "
+                                + (e as Error).message };
+                            return;
+                        }
+                        if (b === null || b.isNull()) {
+                            d.dernier = { ok: false, detail: "la source campagne a rendu NUL" };
+                            return;
+                        }
+                        gcRoot.add(b);
+                        try { idsCampagne = idsDePooledElement(b.add(0x10).readPointer()); }
+                        catch (e) {
+                            d.dernier = { ok: false, detail: "roster campagne illisible : "
+                                + (e as Error).message };
+                            return;
+                        }
+                    }
+                }
+                if (idsCampagne === null || idsCampagne.length === 0) {
+                    d.dernier = { ok: false, detail: "roster campagne "
+                        + (idsCampagne === null ? "ILLISIBLE" : "VIDE")
+                        + " -- rien écrit, le retour natif est laissé INTACT" };
+                    idsCampagne = null;   // relire au prochain tir plutôt que figer un échec
+                    return;
+                }
+                const r = remplir(retval, idsCampagne);
                 d.emprunts++;
-                d.dernier = { ok: true, detail: `PRÉ-EMPRUNT substitué -> ${preEmprunt}` };
+                d.dernier = { ok: r.erreur === null,
+                    detail: r.erreur === null
+                        ? `campagne REMPLI ${r.ajoutes}/${idsCampagne.length} (${r.voie})`
+                        : `remplissage campagne : ${r.erreur}` };
+                return;   // ⚠ `retval` INTACT.
+            }
+            // ⚠ LE CHEMIN GÉNÉRIQUE NE DOIT PLUS VOIR `METHODE`. Les trois prêteurs ont leur
+            // branche ; s'il en apparaît un quatrième, il tomberait ici et re-poserait une BOÎTE
+            // dans `retval` — le défaut qu'on vient de corriger. On REFUSE plutôt que de le
+            // rejouer en silence.
+            if (spec.nom === METHODE) {
+                d.dernier = { ok: false, detail: `prêteur \`${p.nom}\` sans branche pour `
+                    + `\`${METHODE}\` : le retour est un TYPE VALEUR, le chemin générique `
+                    + "poserait une BOÎTE. RIEN SUBSTITUÉ." };
                 return;
             }
             try {
@@ -6567,9 +6652,10 @@ export function register(ctx: Ctx): void {
         // Le prêteur est fixé AVANT l'armement : `armerUneDelegation` résout la méthode sur SA
         // classe, donc en changer après coup laisserait des ancrages incohérents.
         if (body.source !== undefined) preteurDelegation = body.source;
-        // Le roster guild war est relu au prochain tir : un remontage change de source forgée, et
-        // servir le cache d'une bataille précédente donnerait un roster PÉRIMÉ sans le dire.
+        // Les rosters empruntés sont relus au prochain tir : un remontage change de source forgée,
+        // et servir le cache d'une bataille précédente donnerait un roster PÉRIMÉ sans le dire.
         idsGuildWar = null;
+        idsCampagne = null;
         return queueOnMainThread(() => {
             if (body.armer === false) {
                 for (const d of delegations) {
