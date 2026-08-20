@@ -653,9 +653,27 @@ def poser_le_deploiement(jeu, d):
                     [{"rejouer": True, "confirmer": True}], timeout=180000)
         if not isinstance(r, dict) or not r.get("ok"):
             stop("le rejeu de memoire a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-        time.sleep(2.0)
-        ok, motif = controler_avant_start(jeu, d)
-        print("   pose en %-28s -> %s" % (etiquette, motif.split("\n")[0]))
+        # (!)LE REJEU DE POSE EST << ENFILE >>, PAS FAIT -- et l'attendre n'a pas de signal.
+        # `deploymentMemoire {rejouer}` rend la main aussitot : `rejouerMemoire` est une chaine
+        # `queueOnMainThread(...).then(...)` qui rend `void`, donc le RPC ne peut pas l'attendre.
+        # Mesure du 2026-08-21 : confronter immediatement fait tomber le cran 8 sur les DEUX
+        # ordres -- le plateau n'est pas encore pose, et le refus accuse l'ordre au lieu du delai.
+        #
+        # A defaut de signal, on attend LE FAIT et non une duree : on re-confronte jusqu'a ce que
+        # l'ordre de conversion soit conforme, et on rend la main a l'instant meme. Un `sleep`
+        # fixe de 2 s coutait ce delai a chaque fois, y compris quand la pose etait finie en 200 ms.
+        #
+        # ⚠ CE N'EST PAS LE BON REGIME, ET C'EST DIT : la vraie reparation est de faire REMONTER
+        # la chaine de promesses de `rejouerMemoire` jusqu'au RPC, pour que l'appel HTTP attende
+        # son propre travail -- comme `attendreRunner` le fait pour le montage.
+        debut, ok, motif = time.time(), False, ""
+        while time.time() - debut < 15.0:
+            ok, motif = controler_avant_start(jeu, d)
+            if ok:
+                break
+            time.sleep(0.2)
+        print("   pose en %-28s -> %s   [%.1f s]"
+              % (etiquette, motif.split("\n")[0], time.time() - debut))
         if ok:
             return etiquette
     stop("aucun des deux ordres de pose ne rend l'ordre de conversion du replay. NE PAS "
@@ -667,13 +685,24 @@ def demarrer(jeu, attendus):
     r = jeu.rpc("deploymentStartInvoquer", [{"confirmer": True}], timeout=180000)
     if not isinstance(r, dict) or not r.get("ok"):
         stop("le START a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-    time.sleep(3.0)
-    # (!)L'APPEL PASSE NE DIT RIEN DU DEMARRAGE -- son propre retour le dit. On verifie par
-    # l'etat ET par le compte de pas de mise en place.
-    b = jeu.rpc("battleStatus", [{}], timeout=120000)
+    # (!)L'APPEL PASSE NE DIT RIEN DU DEMARRAGE -- son propre retour le dit, et c'est MESURE :
+    # le 2026-08-21, `battleStatus` lu a l'instant du retour rend `stageName: Setup` avec 4
+    # unites. `HandleOnStartBattleTapped` ENCLENCHE la conversion des placeholders ; elle se
+    # deroule sur les frames suivantes.
+    #
+    # On attend donc LE FAIT (`Running`), pas une duree -- et on rend la main a l'instant meme.
+    # Il n'y a pas de signal push ici : le runner ne CHANGE pas au START, il existe deja depuis
+    # le montage, donc `attendreRunner` ne mordrait jamais.
+    debut, b = time.time(), None
+    while time.time() - debut < 20.0:
+        b = jeu.rpc("battleStatus", [{}], timeout=120000)
+        if isinstance(b, dict) and b.get("stageName") == "Running":
+            break
+        time.sleep(0.2)
     if not isinstance(b, dict) or b.get("stageName") != "Running":
-        stop("apres START, la bataille n'est pas `Running` : %s"
-             % json.dumps(b, ensure_ascii=False)[:240])
+        stop("apres START, la bataille n'est toujours pas `Running` apres %.0f s : %s"
+             % (time.time() - debut, json.dumps(b, ensure_ascii=False)[:240]))
+    print("   `Running` apres %.1f s." % (time.time() - debut))
     s = jeu.rpc("replaySteps", [{"maxSteps": 200}], timeout=180000)
     pas = (s or {}).get("steps") if isinstance(s, dict) else None
     if pas is None:
