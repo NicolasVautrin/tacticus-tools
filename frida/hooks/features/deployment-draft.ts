@@ -1679,6 +1679,9 @@ const jetTrace: Array<Record<string, unknown>> = [];
  *  en deux (`deploymentStartTracer`). Une entrée SANS sortie est la signature d'une levée dans
  *  ce corps ou dessous ; aucune entrée dit que la levée est en amont. */
 let listenerStartBattle: InvocationListener | null = null;
+/** L'ancrage sur UnitDeploymentHudButtons\$\$UpdateState -- le compteur que le BOUTON affiche. */
+let listenerBoutons: InvocationListener | null = null;
+const compteurBoutonTrace: Array<Record<string, unknown>> = [];
 /** Les ancrages des quatre etages sous StartBattle (cf. deploymentStartTracer). */
 const listenersEtages: InvocationListener[] = [];
 const startBattleTrace: Array<Record<string, unknown>> = [];
@@ -4611,6 +4614,74 @@ export function register(ctx: Ctx): void {
     };
 
     /**
+     * LE COMPTEUR DU BOUTON — celui de l'ÉCRAN, pas celui qu'on avait choisi de lire.
+     *
+     * ⚠ POURQUOI CE RPC EXISTE. On lisait `_currentlyPlacedUnits._size` et on y voyait 6, pendant
+     * que le bouton START affichait **0/5** à l'écran. Les deux comptabilités sont distinctes, et
+     * c'est l'ÉCRAN qui dit la vérité sur ce que le HUD croit avoir. Le décompilé le confirme :
+     *
+     *     UpdateButtons(this):
+     *         standard = ListExtensions.Count(_currentlyPlacedUnits, <prédicat A>)
+     *         machines = ListExtensions.Count(_currentlyPlacedUnits, <prédicat B>)
+     *         UnitDeploymentHudButtons.UpdateState(boutons, gameMode,
+     *                                              standard, machines,
+     *                                              _minUnitsPossible, _maxUnitsPossible)
+     *
+     * Donc la liste est la MÊME (6 entrées) mais elle est comptée À TRAVERS UN PRÉDICAT, et
+     * `UpdateState` affiche `MaxUnitAmountNotReached(standard, max)` -- le « X/5 ». Un `0`
+     * signifie que le prédicat rejette les six.
+     *
+     * On n'a pas besoin de nommer les deux lambdas (elles ne portent pas de symbole `b__` sur ce
+     * build) : `UpdateState` REÇOIT les quatre entiers en arguments. On les lit là, à la source.
+     */
+    ctx.rpc.deploymentCompteurBouton = (body?: {
+        armer?: boolean; vider?: boolean;
+    }): unknown => {
+        if (body?.vider === true) compteurBoutonTrace.length = 0;
+        const etat = () => ({ arme: listenerBoutons !== null,
+                              tirs: compteurBoutonTrace.length, trace: compteurBoutonTrace });
+        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
+        if (body.armer === false) {
+            if (listenerBoutons) { listenerBoutons.detach(); listenerBoutons = null; }
+            Interceptor.flush();
+            return { ok: true, action: "detache", ...etat() };
+        }
+        if (listenerBoutons) return { ok: true, action: "deja arme", ...etat() };
+        const kB = findClassAnywhere("idun.ui", "UnitDeploymentHudButtons");
+        if (!kB) return refus("`idun.ui.UnitDeploymentHudButtons` INTROUVABLE");
+        const mB = findMethodByParamCount(kB, "UpdateState", 5);
+        if (!mB) return refus("`UnitDeploymentHudButtons$$UpdateState` INTROUVABLE (5 paramètres)");
+        const tB = lireTete(mB.ptr);
+        if (tB.erreur === null && teteTriviale(tB)) {
+            return refus("REFUS : `UpdateState` résout sur un corps TRIVIAL -- adresse PARTAGÉE.");
+        }
+        listenerBoutons = Interceptor.attach(mB.ptr, {
+            onEnter(args) {
+                if (compteurBoutonTrace.length >= 24) return;
+                // args[0] = this, args[1] = gameMode, puis les QUATRE entiers.
+                compteurBoutonTrace.push({
+                    standardUnitsCount: args[2].toInt32(),
+                    machineOfWarUnitsCount: args[3].toInt32(),
+                    minUnitsPossible: args[4].toInt32(),
+                    maxUnitsPossible: args[5].toInt32(),
+                    // Le compte BRUT de la liste, au même instant : c'est l'écart entre les deux
+                    // qui est le fait (`brut` 6 contre `standardUnitsCount` 0 = le prédicat
+                    // rejette tout).
+                    listeBrute: (() => {
+                        try {
+                            if (hudInstance === null || hudInstance.isNull()) return null;
+                            const l = hudInstance.add(0x1b8).readPointer();
+                            return l.isNull() ? null : l.add(0x18).readS32();
+                        } catch { return null; }
+                    })(),
+                });
+            },
+        });
+        Interceptor.flush();
+        return { ok: true, action: "attache", ghidraVA: ghidraVA(mB.ptr), tete: tB, ...etat() };
+    };
+
+    /**
      * COUPER L'ESPACE DE RECHERCHE EN DEUX : `StartBattle` est-il ATTEINT, et REVIENT-IL ?
      *
      * ⚠ C'EST UNE MESURE, PAS UNE HYPOTHÈSE. `HandleOnStartBattleTapped` fait trois choses après
@@ -4669,6 +4740,62 @@ export function register(ctx: Ctx): void {
             ["IdunBattle.View.FSM", "VisualBattleQuery", "HasGameModeReasonNotToStartMatch", 2],
             ["IdunBattle.View.FSM", "UnitSelectionFsm", "StartMatch", 1],
             ["IdunBattle.View.FSM", "StateMachineActions", "HandleReasonNotToStartMatch", 1],
+            // ⚠ L'ÉTAGE SOUS `StartMatch`, pour encadrer `ChangeState<T>` SANS l'ancrer.
+            // `ChangeState` est un corps gshared : `findMethod` sur la définition générique
+            // rendrait le THUNK, donc un ancrage qui se déclare posé et ne tire jamais (#259-b).
+            // `QueueHideEverything` (slot 0x3e d'`IStateMachineActions`, NOMMÉ par
+            // `classInterfaceSlots`) est appelé dans les DERNIÈRES lignes de `ChangeState` :
+            // s'il tire, la levée est après lui ; s'il ne tire pas, elle est avant -- dans la
+            // fabrique d'état ou dans la sortie de l'état courant.
+            ["IdunBattle.View.FSM", "StateMachineActions", "QueueHideEverything", 0],
+            // LE DERNIER CRAN. Après `ChangeState`, `UnitSelectionFsm$$StartMatch` teste
+            // `etat+0x10` et, s'il est non nul, relaie au slot 0x50 d'`IStateMachineActions` --
+            // NOMMÉ `StateMachineActions$$StartMatch`, le vrai démarrage. S'il tire, la levée
+            // est DEDANS ; s'il ne tire pas, c'est que `etat+0x10` est nul et que la levée est
+            // la sortie « ne revient pas » de `UnitSelectionFsm$$StartMatch` lui-même.
+            ["IdunBattle.View.FSM", "StateMachineActions", "StartMatch", 0],
+            // ET LE BOUT DE LA CHAÎNE. `StateMachineActions$$StartMatch` relaie au slot 0
+            // d'`IStartMatchHandler` sur `_startMatchHandler`, qui est l'`IdunMainView` --
+            // lequel relaie au slot 0x11 d'`IGameModeSource` sur son `_activeGameSource`, NOMMÉ
+            // `HandleStartMatch` et porté, en sandbox, par `SandboxGameModeSource`.
+            //
+            // ⚠ `HandleStartMatch` N'EXISTE PAS dans `functions.tsv` pour cette classe, et ça ne
+            // prouve RIEN : IL2CPP déduplique les corps triviaux, un corps partagé n'a qu'UN
+            // propriétaire dans la table. Le contrôle `teteTriviale` ci-dessous tranche pour de
+            // vrai -- et s'il refuse, LE REFUS EST LE RÉSULTAT : la sandbox n'implémente pas ce
+            // point, exactement comme `AmountOfUnlockedUnits` résout sur un `return 0` partagé.
+            ["idun", "IdunMainView", "StartMatch", 0],
+            ["IdunBattle.ViewLogic.BattleSource", "SandboxGameModeSource", "HandleStartMatch", 1],
+            // `HandleStartMatch` ne fait qu'INVOQUER le `ContinueStartMatchDelegate` fabriqué
+            // par `IdunMainView$$StartMatch` -- son corps est d'ailleurs DÉDUPLIQUÉ (Ghidra le
+            // nomme `TestSceneBattleModeSource$$HandleStartMatch`). Le travail réel est ici, et
+            // les six champs qu'il exige non nuls sont TOUS mesurés non nuls : la levée est donc
+            // dans un de ses APPELS, pas dans une de ses gardes.
+            ["idun", "IdunMainView", "ContinueStartMatch", 0],
+            // Le premier suspect, et son nom dit pourquoi : notre MoW EST un placeholder.
+            ["idun", "IdunMainView", "AddUnitsFromPlaceholdersAndRunnerStartMatch", 0],
+            // Le second : `CLAUDE.md` documente que `SandboxGameModeSource$$AmountOfUnlockedUnits`
+            // résout sur un `return 0` DÉDUPLIQUÉ, d'où un plafond nul en sandbox -- et ce calcul
+            // lit aussi `GetSpawnPointCoordinatedForHumanPlayer(...).Count`.
+            ["IdunBattle.View.FSM", "VisualBattleQuery", "MaxUnitsPossibleToStartBattle", 0],
+            // LE CORPS DE `AddUnitsFromPlaceholdersAndRunnerStartMatch`, coupé en deux.
+            //
+            //   placeholders = IdunGameViews.GetPlaceholderUnitViews(...)
+            //   foreach (ph) { message = (ph+0x70 == 0) ? AddUnit : AddMachine ;
+            //                  IdunRunner.Apply(runner, message) }
+            //   IdunRunner.StartMatch(runner)
+            //
+            // `GetPlaceholderUnitViews` dit COMBIEN d'entrées entrent dans la boucle ;
+            // `IdunRunner$$StartMatch` dit si la boucle est allée AU BOUT. Une entrée dans la
+            // première et pas dans la seconde localise la levée DANS la boucle, donc sur un
+            // placeholder précis -- et c'est exactement là que notre MoW vit.
+            ["IdunBattle.View.Game", "IdunGameViews", "GetPlaceholderUnitViews", 0],
+            ["IdunBattle.Runner", "IdunRunner", "StartMatch", 0],
+            // LES DEUX SEULS APPELS DU CORPS DE BOUCLE. Tous ses gardes sont mesurés passants
+            // (le placeholder porte `UnitId` non nul, `PlayerId` 11, `IsMachineOfWar` 1 ; le
+            // `_logger` est non nul), donc la levée est dans l'un des deux.
+            ["Idun.Source.Util.Logging", "IdunLogger", "AddBreadcrumb", 3],
+            ["IdunBattle.Runner", "IdunRunner", "Apply", 1],
         ] as const) {
             const kc = findClassAnywhere(c[0], c[1]);
             const mc = kc ? findMethodByParamCount(kc, c[2], c[3]) : null;
@@ -4689,7 +4816,7 @@ export function register(ctx: Ctx): void {
                 onEnter() {
                     const s2 = this as unknown as { n: number };
                     s2.n = startBattleTrace.length;
-                    if (startBattleTrace.length < 24) {
+                    if (startBattleTrace.length < 120) {
                         startBattleTrace.push({ evt: "entree", etage: `${c[1]}$$${c[2]}`,
                                                 ghidraVA: ghidraVA(mc.ptr) });
                     }
@@ -4697,7 +4824,15 @@ export function register(ctx: Ctx): void {
                 onLeave(rv) {
                     const s2 = this as unknown as { n: number };
                     const e2 = startBattleTrace[s2.n];
-                    if (e2) { e2.sortie = true; e2.retour = rv.toInt32() & 0xff; }
+                    if (!e2) return;
+                    e2.sortie = true;
+                    e2.retour = rv.toInt32() & 0xff;
+                    // ⚠ ET LE POINTEUR ENTIER, pas seulement son octet de poids faible. Un
+                    // `bool` se lit sur l'octet, mais un getter qui rend une LISTE se perdrait
+                    // entièrement -- or c'est précisément ce qu'il faut inspecter ici : la liste
+                    // de placeholders sur laquelle la boucle lève. On la garde pour la lire
+                    // PLUS TARD, hors de tout callback (`objetChamps` déréférence les `List`).
+                    e2.retourPtr = rv.toString();
                 },
             }));
         }
@@ -4718,7 +4853,7 @@ export function register(ctx: Ctx): void {
                     e.unitsTaille = lst.isNull() ? null : lst.add(0x18).readS32();
                 } catch (err) { e.erreur = (err as Error).message; }
                 self.n = startBattleTrace.length;
-                if (startBattleTrace.length < 16) startBattleTrace.push(e);
+                if (startBattleTrace.length < 120) startBattleTrace.push(e);
             },
             onLeave(retval) {
                 const self = this as unknown as { n: number };
