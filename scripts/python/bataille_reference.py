@@ -25,14 +25,26 @@ relais laisse arme). Le script arme, releve le journal LUI-MEME, et attend.
 
 CE QU'IL VERIFIE, ET IL S'ARRETE AU PREMIER ECART
 --------------------------------------------------
-  1. une bataille est la ;
-  2. le SEED a ete substitue -- exactement UNE entree NEUVE au journal depuis SON PROPRE
+  0. LA BC DU BOSS COURANT EST-ELLE CELLE DU REPLAY ? -- on FORGE la BC depuis la progression
+     vivante et on la DIFFE contre celle du replay. Tout doit concorder SAUF les PV restants
+     du boss ;
+  1. le seed du replay est arme, CONDITIONNE a l'identite -- puis on attend la bataille ;
+  2. une bataille est la ;
+  3. le SEED a ete substitue -- exactement UNE entree NEUVE au journal depuis SON PROPRE
      armement (le journal CUMULE sur toute la session : sa longueur brute ne prouve rien) ;
-  3. le camp du joueur est VIDE ;
-  4. les 5 + la MoW sont posees ;
-  5. PRE-VOL : composition, cases ET identites d'entite CONFORMES a la reference ;
-  6. START ;
-  7. les 7 pas de mise en place, confrontes AU CARACTERE.
+  4. c'est BIEN la bataille visee (`Id` lu sur la BC montee), et le camp du joueur est VIDE ;
+  5. les unites + la MoW sont posees ;
+  6. PRE-VOL : composition, cases ET identites d'entite CONFORMES a la reference, puis START ;
+  7. les pas de mise en place, confrontes AU CARACTERE.
+
+(!)LE CRAN 0 EST LE SEUL QUI COUTE ZERO ET DIT TOUT. Etabli au decompile : la bataille se
+construit ENTIEREMENT par `BattleConfigBuilder$$GetGuildBossBattleConfig`, qui cuit dans la BC
+les stats (`GetLevelConfigWithRealUnits` -> `BC.Units`), les adds (`Enemies` +
+`EnvironmentAbilities$$AddExtraEnemyUnits`) ET les modificateurs du boss, appliques aux
+abilities par `ModifierBuilder$$TryApplyModifierToAbility` -> `BC.Abilities`. Il n'existe pas de
+canal qui contourne la BC. Un diff TOTAL de BC couvre donc aussi les mecanismes qu'on ne
+connait pas -- notamment ce que l'etat des LIEUTENANTS influence, qui ne se lit PAS sur le
+replay mais dont l'effet, lui, y est.
 
 (!)ON NE REMPLACE JAMAIS LA BC. On force le seed, et on VERIFIE que le deploiement est celui du
 replay -- c'est tout. Substituer la configuration d'un essai enregistre cote serveur est exclu.
@@ -72,6 +84,37 @@ def rpc(_sid, methode, args=None, timeout=60000):
 
 DEFAUT_REPLAY = r"data\replays\guild-boss\belisarius\belisarius-10040.json"
 
+# LE SEUL ECART TOLERE entre la BC du boss courant et celle du replay. Les PV restants du boss
+# bougent a chaque tentative de la guilde ; tout le RESTE doit concorder.
+TOLERE_BC = {".BossUnit.RemainingHealth"}
+_ABSENT = "<ABSENT>"
+
+
+def diff_total(a, b, chemin="", sorties=None):
+    """Les chemins ou `a` et `b` different. RECURSIF ET TOTAL -- aucune cle n'est choisie.
+
+    (!)C'EST LE POINT. Un controle qui compare des champs CHOISIS ne peut pas voir le canal
+    qu'on n'a pas prevu ; celui-ci voit tout ce que la BC porte, donc il couvre aussi les
+    mecanismes qu'on ne connait pas. Il est BORNE a 200 ecarts : au-dela, la BC n'est de toute
+    facon pas la bonne, et on ne va pas noyer le refus.
+    """
+    if sorties is None:
+        sorties = []
+    if len(sorties) >= 200:
+        return sorties
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in sorted(set(a) | set(b)):
+            diff_total(a.get(k, _ABSENT), b.get(k, _ABSENT), "%s.%s" % (chemin, k), sorties)
+    elif isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            sorties.append(("%s[]" % chemin, "%d elements" % len(a), "%d elements" % len(b)))
+        else:
+            for i, (x, y) in enumerate(zip(a, b)):
+                diff_total(x, y, "%s[%d]" % (chemin, i), sorties)
+    elif a != b:
+        sorties.append((chemin or "<racine>", a, b))
+    return sorties
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--replay", default=DEFAUT_REPLAY,
                 help="le replay a rejouer (defaut : %s)" % DEFAUT_REPLAY)
@@ -81,6 +124,9 @@ ap.add_argument("--deja-la", action="store_true",
                 help="la bataille est DEJA montee : ne pas armer le seed, ne pas attendre")
 ap.add_argument("--attente", type=int, default=600,
                 help="secondes d'attente de la bataille (defaut 600)")
+ap.add_argument("--sans-prevol-bc", action="store_true",
+                help="ECARTER le cran 0 (comparaison de la BC forgee au replay). Echappatoire "
+                     "explicite : on entre alors sans savoir si le replay correspond au boss.")
 args = ap.parse_args()
 
 REPLAY = args.replay
@@ -159,10 +205,80 @@ print("session %s -- mode %s" % (sid, "PARTIE REELLE" if REEL else "repetition s
 # dise. On releve donc le journal AVANT d'armer, pour pouvoir affirmer au cran 2 que c'est BIEN
 # CETTE bataille-ci qui l'a pris, et pas une precedente de la meme session.
 # ─────────────────────────────────────────────────────────────────────────────
+print()
+print("CRAN 0 -- la BC du boss COURANT est-elle CELLE DU REPLAY ? (tout sauf les PV)")
+if args.sans_prevol_bc:
+    print("   (!) ECARTE PAR `--sans-prevol-bc` : on entre en bataille SANS savoir si le replay")
+    print("       correspond a l'etat du boss. Echappatoire explicite, pas un defaut.")
+else:
+    # 1. QUEL ENCOUNTER ? Le boss principal est l'index 0, les LIEUTENANTS suivent -- chacun
+    #    avec sa carte et ses PV. On ne suppose pas 0 : on cherche celui dont le `bossUnitId`
+    #    est celui du replay. Le vivant porte un suffixe de rang (`:22`) que la BC n'a pas.
+    enc, apercu = None, []
+    for i in range(8):
+        r = rpc(sid, "guildBossConfig", [{"encounterIndex": i}], timeout=180000).get("result") or {}
+        if not r.get("donnees"):
+            break
+        b = r.get("boss") or {}
+        uid = (b.get("bossUnitId") or "").split(":")[0]
+        apercu.append("%d=%s (%s/%s)" % (i, uid, b.get("remainingHealth"), b.get("health")))
+        if uid == ATTENDU_ID:
+            enc = i
+    if not apercu:
+        stop("aucun encounter de boss de guilde lisible -- la progression n'est pas cablee "
+             "(hors saison ?). NON MESURE : on n'entre pas en bataille la-dessus.")
+    print("   encounters : %s" % " | ".join(apercu))
+    if enc is None:
+        stop("AUCUN encounter ne porte `%s`. Le replay vise un boss qui n'est pas celui de la "
+             "saison courante." % ATTENDU_ID)
+    print("   le replay vise l'encounter %d" % enc)
+
+    # 2. FORGER la BC. Aucune tentative : `LoadBattleInternal` construit et rend la BC ;
+    #    l'enregistrement de la tentative est une methode SEPAREE, jamais appelee.
+    f = rpc(sid, "guildBossSourceForger",
+            [{"confirmer": True, "encounterIndex": enc}], timeout=240000).get("result") or {}
+    if not f.get("ok"):
+        stop("la source du boss n'a pas ete forgee : %s" % json.dumps(f, ensure_ascii=False)[:240])
+    g = rpc(sid, "guildBossSourceBc", [{"confirmer": True}], timeout=300000).get("result") or {}
+    if not g.get("json"):
+        stop("la BC du boss n'a pas pu etre produite : %s"
+             % str(g.get("error") or g.get("jsonRefus"))[:240])
+    forgee = json.loads(g["json"])
+    print("   BC forgee : %d octets" % len(g["json"]))
+
+    # 3. DIFF TOTAL. On ne choisit AUCUN champ -- c'est ce qui rend le controle sur pour des
+    #    canaux qu'on n'a pas prevus. Etabli au decompile
+    #    (`BattleConfigBuilder$$GetGuildBossBattleConfig`) : les stats sortent de
+    #    `GetLevelConfigWithRealUnits` vers `BC.Units` ; les adds de `Enemies` +
+    #    `EnvironmentAbilities$$AddExtraEnemyUnits` ; et les `BossModifiers` sont CUITS dans
+    #    `BC.Abilities` par `ModifierBuilder$$TryApplyModifierToAbility`. Tout passe par la BC,
+    #    donc un diff total les couvre tous les trois.
+    ecarts = diff_total(forgee, _bc)
+    tolere = [e for e in ecarts if e[0] in TOLERE_BC]
+    bloquants = [e for e in ecarts if e[0] not in TOLERE_BC]
+    for chemin, vivant, replay in tolere:
+        d = (vivant - replay) if isinstance(vivant, int) and isinstance(replay, int) else None
+        print("   TOLERE  %s : vivant=%s  replay=%s%s"
+              % (chemin, vivant, replay, "" if d is None else "  (ecart %+d)" % d))
+    if bloquants:
+        print("   %d ecart(s) BLOQUANT(S) :" % len(bloquants))
+        for chemin, vivant, replay in bloquants[:20]:
+            print("      %-46s vivant=%-24s replay=%s"
+                  % (chemin, json.dumps(vivant, ensure_ascii=False)[:22],
+                     json.dumps(replay, ensure_ascii=False)[:22]))
+        if len(bloquants) > 20:
+            print("      ... et %d autre(s)" % (len(bloquants) - 20))
+        stop("la BC du boss courant DIFFERE du replay ailleurs que sur les PV -- rejouer "
+             "produirait des divergences qui n'accusent que l'etat du boss.")
+    if not tolere:
+        print("   BC IDENTIQUE AU CARACTERE, PV compris.")
+    else:
+        print("   tout le reste est IDENTIQUE : stats, adds, abilities, carte, poids d'IA.")
+
 seed_avant = None
 if not args.deja_la:
     print()
-    print("CRAN 0 -- armer le seed du replay, puis ATTENDRE que la bataille apparaisse")
+    print("CRAN 1 -- armer le seed du replay, puis ATTENDRE que la bataille apparaisse")
     j0 = (rpc(sid, "sandboxModeSeed", [{}], timeout=60000).get("result") or {}).get("journal") or []
     seed_avant = len(j0)
     graine = d.get("RngSeed")
@@ -198,14 +314,14 @@ if not args.deja_la:
     print("   bataille detectee apres %.0f s" % (time.time() - t0))
 
 print()
-print("CRAN 1 -- une bataille est-elle la ?")
+print("CRAN 2 -- une bataille est-elle la ?")
 p = rpc(sid, "sandboxProbe", [{}], timeout=120000).get("result") or {}
 if not p.get("instance"):
     stop("aucune `IdunMainView` vivante.")
 print("   IdunMainView %s" % p.get("instance"))
 
 print()
-print("CRAN 2 -- le seed a-t-il ete SUBSTITUE pour CETTE bataille ?")
+print("CRAN 3 -- le seed a-t-il ete SUBSTITUE pour CETTE bataille ?")
 s = rpc(sid, "sandboxModeSeed", [{}], timeout=60000).get("result") or {}
 j = s.get("journal") or []
 imposes = [x for x in j if x.get("mode") == "impose"]
@@ -223,7 +339,7 @@ else:
           "QUELLE bataille l'a pris.")
 
 print()
-print("CRAN 3 -- est-ce BIEN la bataille visee, et son camp est-il VIDE ?")
+print("CRAN 4 -- est-ce BIEN la bataille visee, et son camp est-il VIDE ?")
 # (!)L'IDENTITE AVANT LE PLATEAU. Un plateau vide sur la MAUVAISE bataille est un feu vert pour
 # y ecrire -- c'est exactement ce qui manquait le 2026-08-20.
 #
@@ -257,7 +373,7 @@ if pl.get("duJoueur"):
 print("   duJoueur=0  total=%s" % pl.get("total"))
 
 print()
-print("CRAN 4 -- poser les 5 + la MoW, par l'etage FSM (la methode du clic humain)")
+print("CRAN 5 -- poser les 5 + la MoW, par l'etage FSM (la methode du clic humain)")
 for nom, a in (("vueExceptionArmer", {"armer": True}),
                ("replayFinAuto", {"armer": True}),
                ("deploymentPoseFsmArmer", {"armer": True, "confirmer": True})):
@@ -280,7 +396,7 @@ if rates:
 print("   poses FSM : %d/%d" % (len(f.get("faits") or []) - len(rates), len(poses)))
 
 print()
-print("CRAN 5 -- PRE-VOL : le deploiement est-il CELUI DU REPLAY ?")
+print("CRAN 6 -- PRE-VOL : le deploiement est-il CELUI DU REPLAY ?")
 r = rpc(sid, "deploymentStartInvoquer", [dict(FLAGS, confirmer=True)], timeout=240000).get("result")
 print("   START : %s" % json.dumps(r, ensure_ascii=False)[:220])
 if not (isinstance(r, dict) and r.get("ok")):
@@ -312,7 +428,7 @@ if ecarts:
 print("   composition, MoW et identites d'entite CONFORMES.")
 
 print()
-print("CRAN 6 -- les 7 pas de mise en place, AU CARACTERE")
+print("CRAN 7 -- les 7 pas de mise en place, AU CARACTERE")
 st = rpc(sid, "replaySteps", [{"maxSteps": 4000}], timeout=180000).get("result") or {}
 if st.get("recorderArmed") is False:
     stop("`recorderArmed=false` -- le flux serait VIDE SANS ERREUR (#477-r1).")
