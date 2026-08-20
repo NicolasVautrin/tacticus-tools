@@ -221,7 +221,15 @@ print("session %s -- mode %s" % (sid, "PARTIE REELLE" if REEL else "repetition s
 # ─────────────────────────────────────────────────────────────────────────────
 print()
 print("CRAN 0 -- la BC du boss COURANT est-elle CELLE DU REPLAY ? (tout sauf les PV)")
-if args.sans_prevol_bc:
+# (!)CE CRAN EST PROPRE AU BOSS DE GUILDE, et il DIT quand il ne s'applique pas -- au lieu de
+# rendre un vert qui laisserait croire a une verification. La progression de guild boss est la
+# seule source qui sache reforger une BC sans depenser ; une campagne ou une arene n'ont pas
+# d'equivalent ici, donc la comparaison n'a pas lieu, et ca doit se LIRE.
+if _bc.get("GameMode") != "GuildBoss":
+    print("   NON APPLICABLE : le replay est en mode `%s`, pas `GuildBoss`. Il n'existe pas de "
+          "voie" % _bc.get("GameMode"))
+    print("   pour reforger sa BC sans la jouer. AUCUNE verification de BC n'a donc eu lieu.")
+elif args.sans_prevol_bc:
     print("   (!) ECARTE PAR `--sans-prevol-bc` : on entre en bataille SANS savoir si le replay")
     print("       correspond a l'etat du boss. Echappatoire explicite, pas un defaut.")
 else:
@@ -271,9 +279,11 @@ else:
     tolere = [e for e in ecarts if e[0] in TOLERE_BC]
     bloquants = [e for e in ecarts if e[0] not in TOLERE_BC]
     for chemin, vivant, replay in tolere:
-        d = (vivant - replay) if isinstance(vivant, int) and isinstance(replay, int) else None
+        # (!)PAS `d` : c'est le nom du replay charge, au niveau module. L'avoir pris ici a fait
+        # planter le script au cran suivant (`'int' object has no attribute 'get'`).
+        ecart = (vivant - replay) if isinstance(vivant, int) and isinstance(replay, int) else None
         print("   TOLERE  %s : vivant=%s  replay=%s%s"
-              % (chemin, vivant, replay, "" if d is None else "  (ecart %+d)" % d))
+              % (chemin, vivant, replay, "" if ecart is None else "  (ecart %+d)" % ecart))
     if bloquants:
         print("   %d ecart(s) BLOQUANT(S) :" % len(bloquants))
         for chemin, vivant, replay in bloquants[:20]:
@@ -308,6 +318,31 @@ if not args.deja_la:
         stop("le seed n'a PAS ete arme : " + json.dumps(r, ensure_ascii=False)[:240])
     print("   seed %s arme (un coup), CONDITIONNE a Id=%s -- journal a %d entree(s) avant"
           % (graine, ATTENDU_ID, seed_avant))
+
+    # ─────────────────────────────────────────────────────────────────────────────────────────
+    # (!)LES CAPTEURS S'ARMENT ICI, AVANT QUE LA BATAILLE EXISTE. C'EST LA CAUSE RACINE.
+    #
+    # `vuesDePose` est captee par des ancrages sur `IdunGameViews.Initialize/AddUnit/Enable`, et
+    # `hudInstance` par un ancrage sur `UnitDeploymentHud.Show`. TOUS ne tirent qu'a la CREATION
+    # de la bataille / a l'AFFICHAGE de l'ecran. En sandbox on monte soi-meme, hooks deja en
+    # place : ils tirent toujours, et le defaut est reste invisible des mois.
+    #
+    # Le 2026-08-20, sur une bataille REELLE entree a la main APRES coup, aucun n'a tire : plateau
+    # illisible, plafond inconnu, toute pose refusee, START refuse -- sur un jeton depense. Armer
+    # ici, avant d'inviter a entrer, remet la bataille reelle dans le MEME regime que la sandbox.
+    #
+    # Un armement qui echoue ARRETE : entrer en bataille avec un capteur manquant, c'est depenser
+    # pour decouvrir qu'on est aveugle.
+    # ─────────────────────────────────────────────────────────────────────────────────────────
+    for nom, a in (("deploymentPrefabArmer", {"armer": True}),
+                   ("deploymentHudArmer", {"armer": True}),
+                   ("deploymentPoseDiag", {"armer": True}),
+                   ("vueExceptionArmer", {"armer": True})):
+        r = rpc(sid, nom, [a], timeout=180000).get("result")
+        if not (isinstance(r, dict) and r.get("ok")):
+            stop("capteur `%s` NON ARME : %s -- on n'entre pas en bataille aveugle."
+                 % (nom, json.dumps(r, ensure_ascii=False)[:220]))
+    print("   capteurs de deploiement armes AVANT l'entree (vue, HUD, pose, exceptions)")
     print()
     print("   >>> ENTRE DANS LA BATAILLE et LAISSE l'ecran de deploiement. Ne pose RIEN.")
     print("   (j'attends jusqu'a %d s)" % args.attente)
@@ -382,6 +417,13 @@ if isinstance(mem, dict) and mem.get("concorde"):
     print("   recoupe avec la lecture faite a la creation du runner.")
 
 pl = rpc(sid, "deploymentPlateau", [{}], timeout=60000).get("result") or {}
+# (!)TRI-ETAT, ET IL MANQUAIT ICI. `pl.get("duJoueur")` vaut `None` sur un REFUS, donc la
+# condition etait fausse et le cran PASSAIT : un plateau ILLISIBLE se lisait << camp vide >>.
+# Mesure du 2026-08-20 : ce cran a rendu << duJoueur=0 total=None >> sur un plateau qu'on ne
+# savait pas lire, et la suite a pose dans le noir. C'est exactement le travers que ce script
+# reproche au reste du harnais.
+if not pl.get("ok"):
+    stop("plateau NON LISIBLE (%s) -- ce n'est PAS << camp vide >>." % str(pl.get("error"))[:200])
 if pl.get("duJoueur"):
     stop("le camp du joueur porte deja %s unite(s)." % pl.get("duJoueur"))
 print("   duJoueur=0  total=%s" % pl.get("total"))
@@ -396,18 +438,43 @@ for nom, a in (("vueExceptionArmer", {"armer": True}),
         stop("`%s` non arme : %s" % (nom, json.dumps(r, ensure_ascii=False)[:200]))
 rpc(sid, "deploymentMemoire", [{"poser": {"poses": poses, "mow": mow}}], timeout=120000)
 rpc(sid, "deploymentMemoire", [dict(FLAGS, rejouer=True, confirmer=True)], timeout=180000)
+ATTENDU = len(poses) + (1 if mow else 0)
+n, raison = None, None
 for i in range(24):
     time.sleep(1.5)
     b = (rpc(sid, "deploymentBoutonArmer", [{}], timeout=60000).get("result") or {}).get("bouton")
+    if isinstance(b, dict) and b.get("mesure") is False:
+        raison = b.get("raison")
     n = (b or {}).get("placees")
-    if isinstance(n, int) and n >= len(poses) + 1:
+    if isinstance(n, int) and n >= ATTENDU:
         break
-print("   HUD placees : %s" % n)
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# (!)CE BLOC A DEJA MENTI, ET C'EST LA PIRE FORME DE MENSONGE : UN ZERO.
+#
+# Mesure du 2026-08-20, sur une bataille reelle et un jeton depense : il a imprime
+# << HUD placees : None >> puis << poses FSM : 0/5 >>, et il a ENCHAINE -- alors que SIX
+# placeholders venaient d'etre poses par `deploymentMemoire rejouer`. Le compte du HUD n'etait
+# pas de ZERO, il etait NON MESURE ; et la voie FSM ne rendait rien parce qu'elle n'avait rien
+# fait, pas parce qu'il n'y avait rien a faire. On a donc cru le plateau vierge alors qu'il etait
+# PLEIN, et le plafond a ete atteint sans que personne ne le voie.
+#
+# Desormais : un compte NON MESURE arrete, et un compte QUI NE CORRESPOND PAS arrete aussi.
+# Le seul chemin qui continue est celui ou le HUD confirme EXACTEMENT ce qu'on voulait poser.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+if not isinstance(n, int):
+    stop("compte du HUD NON MESURE (%s) -- ce n'est PAS zero. On ne peut donc rien affirmer sur "
+         "ce qui vient d'etre pose, et poser davantage empilerait." % raison)
+print("   HUD placees : %d (attendu %d)" % (n, ATTENDU))
+if n != ATTENDU:
+    stop("le HUD porte %d unite(s) pour %d attendue(s) -- soit la pose a echoue, soit le plateau "
+         "n'etait pas vierge. Dans les deux cas on n'enchaine pas." % (n, ATTENDU))
 f = rpc(sid, "deploymentPoseFsmArmer", [{}], timeout=60000).get("result") or {}
-rates = [x for x in (f.get("faits") or []) if not x.get("ok")]
+faits = f.get("faits") or []
+rates = [x for x in faits if not x.get("ok")]
 if rates:
     stop("pose(s) REFUSEE(S) : " + json.dumps(rates, ensure_ascii=False)[:400])
-print("   poses FSM : %d/%d" % (len(f.get("faits") or []) - len(rates), len(poses)))
+print("   poses FSM : %d/%d  (le HUD, lui, en confirme %d)" % (len(faits), len(poses), n))
 
 print()
 print("CRAN 6 -- PRE-VOL : le deploiement est-il CELUI DU REPLAY ?")

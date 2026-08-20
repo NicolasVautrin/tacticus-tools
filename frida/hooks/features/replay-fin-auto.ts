@@ -172,7 +172,18 @@ export function register(ctx: Ctx): void {
      *  (remet `dejaCapture` a faux) -- sinon la deuxieme bataille d'une session ne serait
      *  jamais capturee, et le silence se lirait comme « rien a capturer ». */
     ctx.rpc.replayFinAuto = (body?: { armer?: boolean }): unknown => {
-        const veut = body?.armer !== false;
+        // ⚠ SANS ARGUMENT, C'EST UNE LECTURE -- ça ne l'était PAS, et le piège s'est refermé sur
+        // moi le 2026-08-20 : `armer !== false` faisait de `{}` un ARMEMENT, si bien que la sonde
+        // qui vérifiait le désarmement RÉARMAIT ce qu'elle mesurait. Elle rapportait `arme: true`
+        // et accusait le désarmement d'avoir échoué. Un RPC dont la forme neutre ÉCRIT est un
+        // piège pour tout appelant, à commencer par le mien.
+        if (body == null || body.armer === undefined) {
+            return { ok: true, lecture: true, arme, dejaCapture,
+                     capturesGardees: captures.length,
+                     note: "lecture seule -- `armer: true` pour armer, `armer: false` pour "
+                         + "éteindre. `replayFinEtat` reste la lecture DÉTAILLÉE." };
+        }
+        const veut = body.armer !== false;
         arme = veut;
         if (veut) { dejaCapture = false; dernierStage = null; }
         return {

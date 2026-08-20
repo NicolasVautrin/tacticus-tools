@@ -249,7 +249,8 @@ function nomsDesPlaceholders(lst: NativePointer, taille: number): Array<string |
  */
 function unitesReellesParJoueurSansInvoke(): Map<number, string[]> | null {
     try {
-        const vues = vuesDePose;
+        // Même repli que `unitesDuPlateau` : la vue de la pompe quand nos capteurs n'ont pas tiré.
+        const vues = vueDeDeploiement();
         if (vues === null || vues.isNull()) return null;
         const k = vues.readPointer();
         const offVues = getFieldOffset(k, "_unitViews");
@@ -297,9 +298,10 @@ function etatDuDeploiement(): EtatDeploiement | Refus {
             + "comptabilité illisible rendue comme un zéro est ce qui autorise l'empilement");
     }
     const miennes = u.filter((x) => x.duJoueur);
-    if (hudInstance === null || hudInstance.isNull()) {
-        return refus("aucun `UnitDeploymentHud` capturé -- le plafond de déploiement est donc "
-            + "INCONNU. Ce n'est PAS « pas de plafond ».");
+    const hud = assurerHud();
+    if (hud === null) {
+        return refus("aucun `UnitDeploymentHud` -- ni capté à son `Show`, ni rendu par la scène. "
+            + "Le plafond de déploiement est donc INCONNU. Ce n'est PAS « pas de plafond ».");
     }
     const k = findClassAnywhere(NS_HUD, CLS_HUD);
     if (!k) return refus(`\`${NS_HUD}.${CLS_HUD}\` INTROUVABLE sur ce build`);
@@ -313,7 +315,7 @@ function etatDuDeploiement(): EtatDeploiement | Refus {
     let placeholders: number;
     let nomsPh: Array<string | null> | null;
     try {
-        const lst = hudInstance.add(offPl).readPointer();
+        const lst = hud.add(offPl).readPointer();
         if (lst.isNull()) return refus("`_currentlyPlacedUnits` est NULLE -- comptabilité du HUD "
             + "non mesurable");
         const offSize = getFieldOffset(lst.readPointer(), "_size");
@@ -334,8 +336,8 @@ function etatDuDeploiement(): EtatDeploiement | Refus {
         cases: miennes.map((x) => `${x.col},${x.row}`),
         placeholders,
         nomsPlaceholders: nomsPh ?? [],
-        max: hudInstance.add(offMax).readS32(),
-        machines: offMow >= 0 && hudInstance.add(offMow).readU8() !== 0,
+        max: hud.add(offMax).readS32(),
+        machines: offMow >= 0 && hud.add(offMow).readU8() !== 0,
     };
 }
 
@@ -440,7 +442,13 @@ let listenerBlocageStart: InvocationListener | null = null;
 /** Ce que le blocage a vu, publié -- un refus muet se lirait comme un bug du jeu. */
 const blocageStartTrace: Array<Record<string, unknown>> = [];
 
-/** Le verdict d'empilement SANS INVOCATION, pour le `onLeave`. `null` = rien à redire. */
+/** Le verdict d'empilement SANS INVOCATION, pour le `onLeave`. `null` = rien à redire.
+ *
+ * ⛔ PAS D'`assurerHud()` ICI, ET C'EST DÉLIBÉRÉ. Ce corps tourne dans un callback
+ * d'`Interceptor` ; `assurerHud` invoque `FindObjectsByType`, et invoquer sous interception GÈLE
+ * le jeu (payé deux fois dans ce dépôt). Sans HUD on rend `null`, donc on NE BLOQUE PAS -- un
+ * garde qui barre la route à tort est pire que le mal qu'il prévient.
+ */
 function empilementSansInvoke(): Record<string, unknown> | null {
     if (hudInstance === null || hudInstance.isNull()) return null;
     const k = findClassAnywhere(NS_HUD, CLS_HUD);
@@ -1180,6 +1188,33 @@ let listenerBoard: InvocationListener | null = null;
 let hudEtat: Record<string, unknown> | null = null;
 /** L'instance du HUD, gardée pour pouvoir la relire APRÈS `Show` (l'état bouge à chaque pose). */
 let hudInstance: NativePointer | null = null;
+/** Comment `hudInstance` a été obtenue — pour qu'un lecteur sache s'il lit la vraie ou un repli. */
+let hudSource: "Show" | "scene" | null = null;
+
+/** S'ASSURER qu'on a le HUD, même si `Show` n'a pas tiré.
+ *
+ * ⚠ MÊME CAUSE QUE `vueDeDeploiement`, MÊME SOIRÉE PERDUE. `hudInstance` n'est écrite QUE dans
+ * le `onEnter` de `UnitDeploymentHud$$Show` -- ni `TryMarkUnitAsPlaced` ni aucune pose ne
+ * l'écrivent. Sur une bataille dont l'écran de déploiement était DÉJÀ affiché quand on s'arme,
+ * `Show` est passé, et le HUD reste introuvable pour toute la durée de la bataille. Mesuré le
+ * 2026-08-20 : plafond INCONNU -> toute pose refusée -> START refusé, sur un jeton dépensé.
+ *
+ * Contrairement à `IdunGameViews`, `UnitDeploymentHud` est un `MonoBehaviour` : la scène peut
+ * donc le rendre. On le note (`hudSource`) plutôt que de laisser croire qu'il vient de `Show`.
+ *
+ * ⚠ TRI-ÉTAT PRÉSERVÉ : si la scène ne le rend pas, on reste à `null` -- ce qui fait REFUSER en
+ * amont. Un repli qui échoue ne doit jamais devenir un zéro.
+ */
+function assurerHud(): NativePointer | null {
+    if (hudInstance !== null && !hudInstance.isNull()) return hudInstance;
+    const k = findClassAnywhere(NS_HUD, CLS_HUD);
+    if (!k) return null;
+    const r = premiereInstance(k);
+    if (!(r instanceof NativePointer) || r.isNull()) return null;
+    hudInstance = r;
+    hudSource = "scene";
+    return hudInstance;
+}
 
 /** Les chemins natifs de la bascule héros <-> MoW, ancrés en OBSERVATION PURE.
  *  `EmptyMachineOfWarPlatformTapped` / `EmptySpawnPointTapped` = les clics sur le PLATEAU ;
@@ -1297,21 +1332,24 @@ function etatBasculeHud(): Record<string, unknown> | null {
  * et savoir QUI l'implémente est le préalable.
  */
 function etatDuBouton(): Record<string, unknown> {
-    if (hudInstance === null || hudInstance.isNull()) {
-        return { mesure: false, raison: "aucune instance de HUD captée (`Show` n'a pas tiré)" };
+    const hud = assurerHud();
+    if (hud === null) {
+        return { mesure: false, raison: "aucune instance de HUD -- ni captée à son `Show`, ni "
+            + "rendue par la scène" };
     }
-    const out: Record<string, unknown> = { mesure: true, hud: hudInstance.toString() };
+    const out: Record<string, unknown> = { mesure: true, hud: hud.toString(),
+                                           source: hudSource };
     try {
-        const k = hudInstance.readPointer();
+        const k = hud.readPointer();
         const offCb = getFieldOffset(k, "_callbacksDelegate");
         const offPl = getFieldOffset(k, "_currentlyPlacedUnits");
         if (offCb >= 0) {
-            const cb = hudInstance.add(offCb).readPointer();
+            const cb = hud.add(offCb).readPointer();
             out.callbacks = cb.toString();
             out.classeCallbacks = cb.isNull() ? null : classeDerriere(cb).classe;
         } else { out.callbacks = "champ `_callbacksDelegate` ABSENT"; }
         if (offPl >= 0) {
-            const lst = hudInstance.add(offPl).readPointer();
+            const lst = hud.add(offPl).readPointer();
             if (lst.isNull()) { out.placees = "liste NULLE"; }
             else {
                 const kl = lst.readPointer();
@@ -1378,6 +1416,7 @@ function armerHud(): true | Refus {
                 // `Show` remplit les dictionnaires : on lit APRÈS, pas avant.
                 (this as unknown as { hud: NativePointer; mn: number; mx: number }).hud = args[0];
                 hudInstance = args[0];
+                hudSource = "Show";     // l'autorité : celui que le jeu vient d'afficher
                 // ⚠ COMPTER LES ENTRÉES, PAS SEULEMENT LES SORTIES. `Show` VIDE les trois
                 // dictionnaires en tête (`ClearWidgets`) et ne les remplit qu'à la fin : un
                 // `Show` qui lève entre les deux laisse l'écran avec 0 modèle, et le compteur
@@ -2938,9 +2977,33 @@ interface UniteDuPlateau {
  * donc toutes les trois plutôt que d'en élire une (c'est ainsi qu'on a vu que le `playerId 11`
  * de l'écran était JUSTE, après l'avoir soupçonné à tort).
  */
+/** L'`IdunGameViews` du déploiement — captée par nos hooks, SINON celle que la pompe draine.
+ *
+ * ⚠ LE REPLI N'EST PAS UN CONFORT, C'EST LA CAUSE D'UNE SOIRÉE PERDUE (2026-08-20). Nos capteurs
+ * (`Initialize`/`AddUnit`/`Continue`/`Enable`) ne tirent qu'à la CRÉATION de la bataille. En
+ * sandbox on monte soi-même, hooks déjà en place, donc ils tirent toujours -- et le défaut est
+ * resté invisible. Sur une bataille RÉELLE créée avant l'armement, ils ne tirent JAMAIS :
+ * `vuesDePose` reste nul pour toute la durée de cette bataille, et TOUT ce qui suit devient
+ * aveugle (plateau illisible, poses refusées, START refusé).
+ *
+ * Or la pompe, elle, tient cette vue depuis toujours : elle lit `IdunGameViews._runner` à chaque
+ * frame, donc son `this` EST l'objet qu'on cherche -- même classe, même instance.
+ *
+ * ⛔ `premiereInstance` NE MARCHE PAS ICI : `IdunGameViews` n'est pas un `UnityEngine.Object`,
+ * `FindObjectsByType` rend NULL même en pleine bataille. Mesuré. Le repli (3) de `dicoVivant`
+ * repose sur cette voie et ne peut donc pas sauver ce cas-là.
+ */
+function vueDeDeploiement(): NativePointer | null {
+    if (vuesDePose !== null && !vuesDePose.isNull()) return vuesDePose;
+    const p = state.gameViews;
+    return p !== null && !p.isNull() ? p : null;
+}
+
 function unitesDuPlateau(): UniteDuPlateau[] | string {
-    const vues = vuesDePose;
-    if (vues === null || vues.isNull()) return "aucune `IdunGameViews` observée";
+    const vues = vueDeDeploiement();
+    if (vues === null || vues.isNull()) {
+        return "aucune `IdunGameViews` -- ni captée par nos hooks, ni vue par la pompe";
+    }
     return (() => {
         try {
             const k = vues.readPointer();
@@ -3904,14 +3967,30 @@ export function register(ctx: Ctx): void {
     // celui qui conduisait la séance, pas dans le code : un relais de sandbox laissé armé a écrit
     // sur une vraie bataille de boss de guilde. Ce blocage-ci ne se demande pas.
     armerBlocageStart();
-    /** LE VERDICT DU BLOCAGE DE START -- lecture pure. */
-    ctx.rpc.deploymentBlocageStart = (): unknown => ({
-        ok: true, lecture: true, arme: listenerBlocageStart !== null,
-        trace: blocageStartTrace.slice(-8),
-        note: "réécrit le retour d'`IsMinUnitAmountToBringToStartBattleReached` à `false` quand "
-            + "le déploiement empile -- le jeu refuse alors PAR SON PROPRE CHEMIN. Aucun "
-            + "`Interceptor.replace`, aucune invocation dans le callback.",
-    });
+    /** LE VERDICT DU BLOCAGE DE START. Sans argument : lecture pure.
+     *
+     * ⚠ `{ armer: false }` EXISTE PARCE QU'IL A MANQUÉ. Ce hook s'arme au `register`, et le
+     * 2026-08-20 il était le SEUL qu'on ne pouvait pas éteindre sur une bataille RÉELLE en
+     * cours -- il avait pourtant déjà bloqué un START légitime une fois. Le seul recours était
+     * un reinject, c'est-à-dire risquer la tentative pour désarmer une protection. Tout garde
+     * armé d'office doit pouvoir être éteint SANS reinject. */
+    ctx.rpc.deploymentBlocageStart = (body?: { armer?: boolean }): unknown => {
+        if (body?.armer === false && listenerBlocageStart !== null) {
+            try { listenerBlocageStart.detach(); } catch { /* best effort */ }
+            listenerBlocageStart = null;
+        } else if (body?.armer === true && listenerBlocageStart === null) {
+            armerBlocageStart();
+        }
+        return {
+            ok: true, lecture: body?.armer === undefined,
+            arme: listenerBlocageStart !== null,
+            trace: blocageStartTrace.slice(-8),
+            note: "réécrit le retour d'`IsMinUnitAmountToBringToStartBattleReached` à `false` "
+                + "quand le déploiement empile -- le jeu refuse alors PAR SON PROPRE CHEMIN. "
+                + "Aucun `Interceptor.replace`, aucune invocation dans le callback. "
+                + "`{armer:false}` l'éteint SANS reinject.",
+        };
+    };
     /** OBSERVER / DÉSARMER. `{ armer: true }` pose le hook en régime transparent. */
     ctx.rpc.deploymentDraftArmer = (body?: { armer?: boolean }): Promise<unknown> | unknown => {
         if (!body || body.armer === undefined) {
