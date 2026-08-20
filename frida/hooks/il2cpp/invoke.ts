@@ -60,9 +60,43 @@ function exp(name: string): NativePointer {
 export const il2cpp_object_new = new NativeFunction(
     exp("il2cpp_object_new"), "pointer", ["pointer"]);
 
+/**
+ * ⚠ `exceptions: "propagate"` N'EST PAS UN RÉGLAGE DE CONFORT — SANS LUI, TOUT `try/catch`
+ * MANAGÉ SITUÉ SOUS UN `invokeMethod` EST DÉSARMÉ, EN SILENCE.
+ *
+ * Le défaut de Frida est `exceptions: "steal"` : il pose son propre gestionnaire autour de
+ * l'appel et CONFISQUE l'exception native. Or IL2CPP lève une exception managée comme une
+ * exception C++ (`RaiseException`), et le dérouleur doit remonter jusqu'au `catch` managé.
+ * Volée par Frida, elle n'y arrive jamais : le `catch` ne joue pas, `il2cpp_runtime_invoke`
+ * n'écrit RIEN dans son paramètre de sortie `exc`, et il ne reste qu'un `Error("system
+ * error")` sans classe ni message. C'est aussi pourquoi `decodeManagedException` ne rendait
+ * jamais rien et pourquoi les ai-traces d'exception restaient vides.
+ *
+ * MESURE QUI L'ÉTABLIT (2026-08-20, build t6dpr4k06g, tranche #10040) -- même montage, même
+ * plateau, même traceur ARMÉ dans les deux cas ; seul l'appelant change :
+ *
+ *   notre `invokeMethod(HandleOnStartBattleTapped)`
+ *       `Ability_Power_GroupHandler$$ParseAbilityType` ENTRE et ne SORT PAS -> « system error »
+ *   le CLIC HUMAIN sur le même bouton
+ *       la même méthode, sur la MÊME source `DaemonicOrdnance_Crit`, ENTRE et SORT ;
+ *       14 autres passages sortent aussi (`VoltagheistField`, `BeastSlayer`, ...) ;
+ *       la bataille démarre et les 7 pas valent la référence AU CARACTÈRE (11980 compris).
+ *
+ * Le chemin en cause est ordinaire : `IdunMeta.Utils.Extensions.Enum$$TryParse` appelle
+ * `System.Enum$$Parse`, qui LÈVE dès que le nom n'est pas dans l'enum visé -- et le jeu
+ * traverse ça pour CHAQUE passif, puisque `ParseAbilityType` essaie « Ability_Active: »
+ * avant « Ability_Passive: ». Le `catch` qui l'avale est un funclet, invisible au décompilé.
+ *
+ * ⚠ CE QUE ÇA COÛTE, ET POURQUOI C'EST QUAND MÊME LE BON CHOIX. Avec `propagate`, un VRAI
+ * défaut natif (accès invalide) sous un invoke n'est plus converti en erreur JS : il tombe.
+ * En échange, le contrat normal d'IL2CPP est rétabli -- `il2cpp_runtime_invoke` rattrape
+ * lui-même l'exception managée et la rend par `exc`, que le code ci-dessous décode déjà.
+ * Confisquer était pire : ça cassait le rattrapage du JEU, pas seulement le nôtre.
+ */
 export const il2cpp_runtime_invoke = new NativeFunction(
     exp("il2cpp_runtime_invoke"), "pointer",
-    ["pointer", "pointer", "pointer", "pointer"]);
+    ["pointer", "pointer", "pointer", "pointer"],
+    { exceptions: "propagate" });
 
 const il2cpp_string_new = new NativeFunction(
     exp("il2cpp_string_new"), "pointer", ["pointer"]);
