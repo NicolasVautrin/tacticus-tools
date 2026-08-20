@@ -184,6 +184,69 @@ def appariement_du_replay(d):
     return out or None
 
 
+def poses_du_replay(d):
+    """(unitId, col, row) des poses du replay, DANS L'ORDRE. `None` si une seule est illisible."""
+    out = []
+    for m in d.get("Messages") or []:
+        corps = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
+        if corps.get("Name") == "StartBattleMessage":
+            break
+        if corps.get("Name") != "AddUnitMessage":
+            continue
+        uid = corps.get("UnitId")
+        cases = corps.get("UnitFeetPositions") or []
+        if not isinstance(uid, str) or not cases:
+            return None
+        p = cases[0]
+        if not isinstance(p.get("Column"), int) or not isinstance(p.get("Row"), int):
+            return None
+        out.append((uid, p["Column"], p["Row"]))
+    return out or None
+
+
+def controler_avant_start(jeu, d):
+    """LE MEME CRAN, MAIS AVANT LE START -- donc avant tout cout d'entree.
+
+    (!)CE QU'ON COMPARE, ET POURQUOI C'EST SUFFISANT. Le corps de
+    `idun.IdunMainView$$AddUnitsFromPlaceholdersAndRunnerStartMatch` enumere EN AVANT la liste
+    rendue par `IdunGameViews$$GetPlaceholderUnitViews()` et emet un `AddUnitMessage` par vue,
+    unitId ET cases pris SUR LA VUE. L'ordre de cette liste EST donc l'ordre d'allocation des
+    squads, et il est lisible des le deploiement (`deploymentEtat.ordreConversion`).
+
+    Mesure du 2026-08-20, deux regimes opposes, une seule regle : `squadId` croissant suit
+    `ordreConversion`, cases comprises -- le second regime a ete PREDIT avant le START puis
+    verifie apres.
+
+    (!)ET C'EST LE SEUL OBSERVABLE QUI EXISTE AVANT. `observeBattle` ne voit RIEN du camp joueur
+    tant que la bataille n'a pas demarre : les unites sont des `PlaceholderUnitView`, sans
+    entite. Le controle d'apres-START (`controler_appariement`) reste utile comme contre-epreuve,
+    mais il arrive apres la depense.
+    """
+    attendu = poses_du_replay(d)
+    if attendu is None:
+        return (False, "poses du replay NON LISIBLES (UnitId ou UnitFeetPositions absents)")
+    e = jeu.rpc("deploymentEtat", [{}], timeout=180000)
+    if not isinstance(e, dict) or not e.get("ok"):
+        return (False, "`deploymentEtat` NON LISIBLE (%s) -- ce n'est PAS << appariement bon >>"
+                % json.dumps(e, ensure_ascii=False)[:220])
+    vues = e.get("ordreConversion")
+    if not isinstance(vues, list) or any(not isinstance(v, dict) or "unitId" not in v
+                                         for v in vues):
+        return (False, "`ordreConversion` illisible ou partiel (%s) -- on ne conclut RIEN"
+                % json.dumps(vues, ensure_ascii=False)[:220])
+    vu = [(v.get("unitId"), v.get("col"), v.get("row")) for v in vues]
+    if vu == attendu:
+        return (True, "ordre de conversion CONFORME (%d vues, cases comprises)" % len(vu))
+    lignes = []
+    for i in range(max(len(attendu), len(vu))):
+        a = attendu[i] if i < len(attendu) else None
+        v = vu[i] if i < len(vu) else None
+        lignes.append("      #%d  replay=%-28s live=%-28s %s"
+                      % (i, a, v, "" if a == v else "<<< ECART"))
+    return (False, "ordre de conversion DIFFERENT du replay -- les squads seront attribues "
+                   "autrement :\n" + "\n".join(lignes))
+
+
 def controler_appariement(jeu, d, entite_joueur):
     """Le cran : l'appariement unite <-> squad du LIVE doit etre celui du REPLAY.
 
@@ -257,6 +320,11 @@ def main(argv):
     # sandbox ca ne coute qu'une mesure ; sur un boss de guilde ca consomme un ESSAI REEL.
     # (!)ECHAPPATOIRE EXPLICITE, ET ELLE DIT CE QU'ELLE COUTE. Sans appariement conforme, les
     # coups frappent d'autres unites : on ne mesure plus le moteur, on mesure du bruit.
+    # LE CRAN AVANT LE START -- a jouer une fois le deploiement pose, AVANT d'appuyer.
+    ap.add_argument("--avant-start", action="store_true",
+                    help="ne fait QUE controler l'ordre de conversion contre le replay, puis "
+                         "sort (0 = conforme, 2 = refus). Aucune bataille n'est demarree, aucun "
+                         "coup n'est envoye.")
     ap.add_argument("--sans-appariement", action="store_true",
                     help="rejouer MEME SI l'appariement unite <-> squad differe du replay "
                          "(le resultat ne mesure alors plus rien du moteur)")
@@ -305,6 +373,22 @@ def main(argv):
         print("REFUS : aucune session Frida vivante.")
         return 2
     jeu = Jeu(args.hote, sid)
+
+    if args.avant_start:
+        # ⛔ AUCUN EFFET DE BORD : on lit, on compare, on sort. C'est le seul cran qui puisse
+        # refuser AVANT que le START ne coute quoi que ce soit.
+        ok, detail = controler_avant_start(jeu, d)
+        print("ordre de conversion : %s" % detail)
+        if ok:
+            print()
+            print("CONFORME -- le START attribuera les squads comme dans le replay. "
+                  "Appuyer, puis rejouer depuis le premier coup de combat.")
+            return 0
+        print()
+        print("REFUS -- ne PAS demarrer. Vider le deploiement et le reposer : l'ordre de la "
+              "liste des VUES")
+        print("commande l'attribution des squads, et le replay adresse ses coups PAR ENTITE.")
+        return 2
 
     if args.sandbox:
         return sandbox(jeu, bc, seed, pas, joueur, args)
