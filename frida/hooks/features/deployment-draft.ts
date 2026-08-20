@@ -53,7 +53,7 @@
 
 import {
     class_get_element_class, class_get_fields, class_get_name, class_instance_size,
-    class_is_valuetype, field_get_name, field_get_offset,
+    class_is_valuetype, field_get_name, field_get_offset, findMethodByParamClasses,
     field_get_type, findClassAnywhere, findMethod, findMethodByParamCount, getFieldOffset,
     il2cppBase, il2cppSize, s,
     type_get_class_or_element_class,
@@ -4796,6 +4796,48 @@ export function register(ctx: Ctx): void {
             // `_logger` est non nul), donc la levée est dans l'un des deux.
             ["Idun.Source.Util.Logging", "IdunLogger", "AddBreadcrumb", 3],
             ["IdunBattle.Runner", "IdunRunner", "Apply", 1],
+            // LE MOTEUR, SOUS `Apply`. Le message est visité (`Accept`) puis relayé à
+            // `OperationProcessor$$AddMachine`, qui exécute `AddMachineOperation`.
+            //
+            // ⚠ `GetPlatform` a DEUX régimes qu'il ne faut pas confondre : rendre `0` est traité
+            // PROPREMENT par `Execute` (il journalise et rend `0`, aucun jet) ; mais `GetPlatform`
+            // LUI-MÊME lève si l'état ne rend aucune entité de type 7 -- les plateformes de
+            // Machine of War. Une entrée sans sortie SUR LUI dit donc « pas de plateforme du
+            // tout », ce qui n'est pas la même panne que « pas de plateforme à cette position ».
+            ["IdunBattle.Messages", "AddMachineMessage", "Accept", 1],
+            ["IdunBattle.Operations", "AddMachineOperation", "Execute", 3],
+            ["IdunBattle.Operations", "AddMachineOperation", "GetPlatform", 1],
+            ["IdunBattle.Operations", "AddMachineOperation", "InitializeAbilitiesStatus", 2],
+            // L'ARBRE DE GROUPES DU FLUX -- le vrai fond.
+            //
+            // `StreamDispatcher$$FinishGroup` ne leve pas lui-meme : il fait `ForEach` sur ses
+            // DEUX abonnes (`StreamCache` et `MessageGenerator`, LUS sur l'instance vivante).
+            // Et `MessageGenerator$$FinishGroup` DEPILE : il leve si la pile ne rend rien.
+            // Mesure post-mortem : `_messageStack._size == 0`.
+            //
+            // ⚠ `StartGroup` EMPILE INCONDITIONNELLEMENT (au decompile). Une pile vide au
+            // `FinishGroup` n'est donc pas « un push rate » -- c'est un DESEQUILIBRE : plus de
+            // `FinishGroup` que de `StartGroup`. Compter les deux le montre ; les lire au repos
+            // ne le montrerait pas.
+            ["IdunBattle.ViewLogic.BattleStream", "MessageGenerator", "StartGroup", 4],
+            ["IdunBattle.ViewLogic.BattleStream", "MessageGenerator", "FinishGroup", 0],
+            // LE BOUT. Quand la pile se vide (groupe RACINE), `FinishGroup` PUBLIE le groupe
+            // entier : slot 0 d'`IMessageProcessor` sur `_messageProcessor`, NOMMÉ
+            // `MessageExecutionQueue$$Enqueue`. C'est la file dont on sait qu'elle reste à
+            // `_currentlyProcessingMessage = 1` POUR TOUJOURS après l'incident -- on lit donc ce
+            // drapeau À L'ENTRÉE, seule façon de distinguer la CAUSE de la CONSÉQUENCE.
+            ["IdunBattle.ViewLogic.BattleStream", "MessageExecutionQueue", "Enqueue", 1],
+            // ⚠ `Enqueue` TRAITE EN LIGNE : mesuré `enTraitement=false`, `enFile=0` à son entrée,
+            // et pourtant il ne revient pas. La file n'était donc pas engorgée -- c'est le
+            // TRAITEMENT du groupe qui lève, et le `_currentlyProcessingMessage = 1` qu'on
+            // observe ensuite (le blocage qui tue l'IA) en est la CONSÉQUENCE, pas la cause.
+            // Sous lui : les gestionnaires de VUE du pas `AddMachine`.
+            ["IdunBattle.View.BattleStream.StepHandlers", "AddMachineGroupHandler",
+             "ExecuteStepInternal", 1],
+            ["IdunBattle.View.BattleStream.StepHandlers", "AddMachineStepHandler",
+             "ExecuteInternal", 1],
+            ["IdunBattle.View.Game", "IdunGameViews", "AddMachine", 4],
+            ["IdunBattle.View.Game", "IdunGameViews", "AddMachinePlatform", 3],
         ] as const) {
             const kc = findClassAnywhere(c[0], c[1]);
             const mc = kc ? findMethodByParamCount(kc, c[2], c[3]) : null;
@@ -4813,13 +4855,38 @@ export function register(ctx: Ctx): void {
                 continue;
             }
             listenersEtages.push(Interceptor.attach(mc.ptr, {
-                onEnter() {
+                onEnter(args) {
                     const s2 = this as unknown as { n: number };
                     s2.n = startBattleTrace.length;
-                    if (startBattleTrace.length < 120) {
-                        startBattleTrace.push({ evt: "entree", etage: `${c[1]}$$${c[2]}`,
-                                                ghidraVA: ghidraVA(mc.ptr) });
+                    if (startBattleTrace.length >= 600) return;
+                    const e: Record<string, unknown> = {
+                        evt: "entree", etage: `${c[1]}$$${c[2]}`, ghidraVA: ghidraVA(mc.ptr) };
+                    // ⚠ LA PILE DE GROUPES, LUE À L'ENTRÉE — c'est ce qui sépare les deux causes
+                    // possibles de la levée de `FinishGroup`, indiscernables au repos :
+                    //   pile = 0 à l'entrée  -> `Stack.Pop` sur une pile VIDE, donc DÉSÉQUILIBRE ;
+                    //   pile >= 1            -> le Pop réussit et c'est le groupe dépilé qui est
+                    //                           incomplet (`+0x48`, sa liste d'enfants, nulle).
+                    // La lecture post-mortem rend `_size == 0` dans LES DEUX cas.
+                    if (c[1] === "MessageGenerator") {
+                        try {
+                            const pile = args[0].add(0x18).readPointer();
+                            e.pile = pile.isNull() ? null : pile.add(0x18).readS32();
+                        } catch (err) { e.pile = "ILLISIBLE : " + (err as Error).message; }
                     }
+                    if (c[1] === "MessageExecutionQueue") {
+                        try {
+                            const kq = args[0].readPointer();
+                            const off = getFieldOffset(kq, "_currentlyProcessingMessage");
+                            e.enTraitement = off < 0 ? null : args[0].add(off).readU8() !== 0;
+                            const offM = getFieldOffset(kq, "_messages");
+                            if (offM >= 0) {
+                                const q = args[0].add(offM).readPointer();
+                                e.enFile = q.isNull()
+                                    ? null : q.add(getFieldOffset(q.readPointer(), "_size")).readS32();
+                            }
+                        } catch (err) { e.enTraitement = "ILLISIBLE : " + (err as Error).message; }
+                    }
+                    startBattleTrace.push(e);
                 },
                 onLeave(rv) {
                     const s2 = this as unknown as { n: number };
@@ -4835,6 +4902,41 @@ export function register(ctx: Ctx): void {
                     e2.retourPtr = rv.toString();
                 },
             }));
+        }
+        // ⚠ LE VISITEUR, VISÉ PAR LE TYPE DE SON PARAMÈTRE — pas par un compte.
+        // `IdunBattle.Messages.InputMessageProcessor` porte des DIZAINES de surcharges de `Visit`
+        // à un paramètre : `findMethodByParamCount` en rendrait une au hasard, et l'ancrage
+        // serait muet ou pire, faux. `findMethodByParamClasses` est le foyer du dépôt pour ça.
+        //
+        // C'est le point qui compte : `AddMachineOperation$$Execute` SORT (la machine est créée),
+        // et c'est `AddMachineMessage$$Accept` qui ne revient pas. La levée est donc dans ce
+        // `Visit`, APRÈS l'opération.
+        {
+            const kProc = findClassAnywhere("IdunBattle.Messages", "InputMessageProcessor");
+            const mV = kProc
+                ? findMethodByParamClasses(kProc, "Visit", ["AddMachineMessage"]) : null;
+            if (!mV || mV.ptr.isNull()) {
+                startBattleTrace.push({ evt: "etage INTROUVABLE",
+                                        etage: "InputMessageProcessor$$Visit(AddMachineMessage)" });
+            } else {
+                const tv = lireTete(mV.ptr);
+                listenersEtages.push(Interceptor.attach(mV.ptr, {
+                    onEnter() {
+                        const s3 = this as unknown as { n: number };
+                        s3.n = startBattleTrace.length;
+                        if (startBattleTrace.length < 600) {
+                            startBattleTrace.push({
+                                evt: "entree", ghidraVA: ghidraVA(mV.ptr), tete: tv,
+                                etage: "InputMessageProcessor$$Visit(AddMachineMessage)" });
+                        }
+                    },
+                    onLeave(rv) {
+                        const s3 = this as unknown as { n: number };
+                        const e3 = startBattleTrace[s3.n];
+                        if (e3) { e3.sortie = true; e3.retour = rv.toInt32() & 0xff; }
+                    },
+                }));
+            }
         }
         listenerStartBattle = Interceptor.attach(mS.ptr, {
             onEnter(args) {
@@ -4853,7 +4955,7 @@ export function register(ctx: Ctx): void {
                     e.unitsTaille = lst.isNull() ? null : lst.add(0x18).readS32();
                 } catch (err) { e.erreur = (err as Error).message; }
                 self.n = startBattleTrace.length;
-                if (startBattleTrace.length < 120) startBattleTrace.push(e);
+                if (startBattleTrace.length < 600) startBattleTrace.push(e);
             },
             onLeave(retval) {
                 const self = this as unknown as { n: number };
