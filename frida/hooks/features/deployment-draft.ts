@@ -62,7 +62,7 @@ import { createManagedString, decodeManagedException, il2cpp_object_new, invokeM
 // `listeDeTextes` est le foyer unique de la lecture d'une `List<System.String>` native (`_items`
 // / `_size` résolus PAR NOM). Il rend `null` quand il n'a PAS SU LIRE — état distinct d'une liste
 // vide, et c'est cette distinction que la branche guild war exploite.
-import { listeDeTextes } from "./lecture-champs.js";
+import { elementsDeListe, estRefus as estRefusLecture, listeDeTextes } from "./lecture-champs.js";
 // ⚠ VOIE FROIDE, ET C'EST DÉLIBÉRÉ. La vue vivante s'obtient par `FindObjectsByType`, À LA
 // DEMANDE. La version précédente la publiait depuis le pump (`IdunGameViews$$Update`), donc une
 // écriture JS PAR FRAME dans le hot path le plus sensible du dépôt : un coût permanent payé par
@@ -3033,6 +3033,65 @@ const boutonObs: Array<{
     source: string; plateau: Record<string, number | string>;
 }> = [];
 
+/**
+ * L'ORDRE QUE LE START PARCOURT — lu à la source, pas déduit.
+ *
+ * ⚠ CE N'EST PAS `UnitDeploymentHud._currentlyPlacedUnits`, ET LES CONFONDRE M'A FAIT ÉCRIRE
+ * DEUX RÈGLES CONTRADICTOIRES. Le corps de `idun.IdunMainView$$AddUnitsFromPlaceholdersAndRunner
+ * StartMatch` s'écrit :
+ *
+ *     vues = IdunGameViews$$GetPlaceholderUnitViews(this->_gameViews)
+ *     pour chaque vue, EN AVANT (GetEnumerator + MoveNext) :
+ *         si !vue.IsMachineOfWar : Apply(AddUnitMessage{ UnitId, PlayerId, [tuile] })
+ *         sinon                  : Apply(AddMachineMessage{ UnitId, PlayerId })
+ *     runner.StartMatch()
+ *
+ * L'allocation des entités suit donc CETTE liste, dans CET ordre, sans inversion. Le HUD tient
+ * une comptabilité PARALLÈLE qui ne commande rien -- mesuré : les deux collections sortent dans
+ * un ordre différent selon le régime (pré-remplissage vs clear+repose), ce qui rendait toute
+ * règle bâtie sur le HUD vraie une fois sur deux.
+ *
+ * ⚠ LES CHAMPS SONT RÉSOLUS PAR LEUR NOM, jamais par les offsets lus au décompilé -- ceux-ci
+ * n'ont servi qu'à CONFIRMER l'appariement (`<UnitId>`=0x18, `<PlayerId>`=0x58,
+ * `<CoordinatePosition>`=0x5c, `<IsMachineOfWar>`=0x70 sur ce build).
+ */
+function ordreDeConversion(): unknown {
+    const v = vueDeLaMoW();
+    if ("ok" in v) return { erreur: "aucune `IdunGameViews` joignable -- " + v.error };
+    const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
+    const mi = kv ? findMethodByParamCount(kv, "GetPlaceholderUnitViews", 0) : null;
+    if (!mi) return { erreur: "`IdunGameViews$$GetPlaceholderUnitViews` INTROUVABLE (0 paramètre)" };
+    let lst: NativePointer;
+    try { lst = invokeMethod(mi.info, v.vues, []) as NativePointer; }
+    catch (e) { return { erreur: "LEVÉ : " + (e as Error).message }; }
+    if (lst === null || lst.isNull()) return { erreur: "la liste des vues est NULLE" };
+    const els = elementsDeListe(lst);
+    if (estRefusLecture(els)) return { erreur: "liste ILLISIBLE : " + JSON.stringify(els) };
+    const out: Array<Record<string, unknown>> = [];
+    for (const el of els) {
+        if (el.isNull()) { out.push({ erreur: "vue NULLE" }); continue; }
+        try {
+            const k = el.readPointer();
+            const oId = getFieldOffset(k, "<UnitId>k__BackingField");
+            const oPl = getFieldOffset(k, "<PlayerId>k__BackingField");
+            const oCo = getFieldOffset(k, "<CoordinatePosition>k__BackingField");
+            const oMo = getFieldOffset(k, "<IsMachineOfWar>k__BackingField");
+            if (oId < 0 || oPl < 0 || oCo < 0) {
+                out.push({ erreur: `champs ABSENTS (UnitId=${oId} PlayerId=${oPl} `
+                    + `CoordinatePosition=${oCo}) -- chemin PÉRIMÉ` });
+                continue;
+            }
+            out.push({
+                unitId: readIl2cppString(el.add(oId).readPointer()),
+                playerId: el.add(oPl).readS32(),
+                col: el.add(oCo).readS32(), row: el.add(oCo).add(4).readS32(),
+                mow: oMo >= 0 ? el.add(oMo).readU8() !== 0 : null,
+            });
+        } catch (e) { out.push({ erreur: "vue ILLISIBLE : " + (e as Error).message }); }
+    }
+    return out;
+}
+
 /** Taille d'un `List\`1`, champ `_size` résolu PAR SON NOM. */
 function tailleListe(lst: NativePointer): number | string {
     try {
@@ -5550,16 +5609,17 @@ export function register(ctx: Ctx): void {
      * on n'en tire aucune loi ici : c'est l'appelant qui confronte, et le cran d'après-START
      * (`controler_appariement`) reste le juge.
      */
-    ctx.rpc.deploymentEtat = (): unknown => {
+    ctx.rpc.deploymentEtat = (): Promise<unknown> | unknown => queueOnMainThread(() => {
         const e = etatDuDeploiement();
-        if ("ok" in e) return e;
-        return { ok: true, lecture: true,
-                 placeholders: e.placeholders, ordrePlaceholders: e.nomsPlaceholders,
-                 reelles: e.reelles, nomsReels: e.nomsReels, cases: e.cases,
-                 max: e.max, machines: e.machines,
-                 note: "`ordrePlaceholders` est l'ordre de `_currentlyPlacedUnits`, celui que le "
-                     + "START parcourt. Les entités n'existent QU'APRÈS le START." };
-    };
+        const base = "ok" in e ? { hudRefus: e.error }
+            : { placeholders: e.placeholders, ordreHud: e.nomsPlaceholders,
+                reelles: e.reelles, nomsReels: e.nomsReels, cases: e.cases,
+                max: e.max, machines: e.machines };
+        return { ok: true, lecture: true, ...base, ordreConversion: ordreDeConversion(),
+                 note: "`ordreConversion` est la liste que le START PARCOURT ; `ordreHud` est une "
+                     + "AUTRE collection, qui ne commande rien. Les entités n'existent qu'APRÈS "
+                     + "le START, dans l'ordre d'`ordreConversion`." };
+    });
 
     /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
