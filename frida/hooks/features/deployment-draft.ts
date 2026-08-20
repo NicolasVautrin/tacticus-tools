@@ -5532,6 +5532,35 @@ export function register(ctx: Ctx): void {
         });
     };
 
+    /**
+     * L'ÉTAT DU DÉPLOIEMENT, ORDRE COMPRIS — lecture pure, et le seul observable AVANT le START.
+     *
+     * ⚠ POURQUOI IL EXISTE. Le replay adresse ses coups PAR ENTITÉ, et l'entité n'est attribuée
+     * qu'au START : mesuré le 2026-08-20, en phase de déploiement `observeBattle` ne voit que les
+     * unités ADVERSES -- les nôtres sont des `PlaceholderUnitView`, sans entité. Tout contrôle
+     * d'appariement arrivait donc APRÈS le START, c'est-à-dire après le coût d'entrée.
+     *
+     * Ce que le HUD tient, lui, est lisible tout de suite : `_currentlyPlacedUnits`, DANS SON
+     * ORDRE. C'est cet ordre que le START parcourt pour convertir. L'exposer, c'est se donner
+     * l'unique chance de refuser AVANT de dépenser.
+     *
+     * ⚠ CE QUE ÇA NE PROUVE PAS ENCORE. Que l'allocation se DÉDUISE de cet ordre reste une
+     * corrélation à deux mesures (poses en ordre du replay -> allocation inverse ; poses en ordre
+     * inverse -> allocation du replay), sans mécanisme lu au décompilé. On PUBLIE donc l'ordre,
+     * on n'en tire aucune loi ici : c'est l'appelant qui confronte, et le cran d'après-START
+     * (`controler_appariement`) reste le juge.
+     */
+    ctx.rpc.deploymentEtat = (): unknown => {
+        const e = etatDuDeploiement();
+        if ("ok" in e) return e;
+        return { ok: true, lecture: true,
+                 placeholders: e.placeholders, ordrePlaceholders: e.nomsPlaceholders,
+                 reelles: e.reelles, nomsReels: e.nomsReels, cases: e.cases,
+                 max: e.max, machines: e.machines,
+                 note: "`ordrePlaceholders` est l'ordre de `_currentlyPlacedUnits`, celui que le "
+                     + "START parcourt. Les entités n'existent QU'APRÈS le START." };
+    };
+
     /** ÉTAT du mirror de `GetUnlockedUnitsPooled`. Lecture pure. */
     ctx.rpc.deploymentPoolStatus = (): unknown => ({ ok: true, lecture: true, ...etatPool() });
 
