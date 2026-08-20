@@ -74,6 +74,7 @@ import * as messageTrace from "./features/message-trace.js";
 // compare caractere par caractere.
 import * as replayOutputStream from "./features/replay-output-stream.js";
 import * as viewQueue from "./features/view-queue.js";
+import * as runnerSignal from "./features/runner-signal.js";
 // replay-launch = l'autre face du replay : l'OUVRIR dans le viewer du jeu au lieu de le lire.
 // N'arme rien non plus. Il existe parce que la chaine passe un OBJET d'un appel natif au
 // suivant (`DeserializeReplay` -> `+0x10` -> `StartUserReplayMatch`), ce qu'`invoquerCommande`
@@ -554,6 +555,8 @@ export function wireRpc(ctx: Ctx): void {
      replayOutputStream, replayLaunch, deploymentDraft,
      // viewQueue = LECTURE PURE du canal runner -> vue. N'arme rien, n'invoque rien.
      viewQueue,
+     // runnerSignal = ecoute PUSH de la transition vers un runner vivant. N'ancre RIEN.
+     runnerSignal,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }

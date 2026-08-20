@@ -25,6 +25,7 @@ import { clearTraceOrigin } from "../game/trace-origin.js";
 import { log, traceEnter } from "./diag.js";
 import { surveillerFinDeBataille, capturerAvantDetachement }
     from "../features/replay-fin-auto.js";
+import { signalerRunnerVivant } from "../features/runner-signal.js";
 
 // ------------------------------------------------------------- TRANSPARENCE
 //
@@ -240,6 +241,9 @@ export function installMainPump(): void {
             // orphelins définitifs (cf. game/state.ts).
             clearLogUnpinned();
             state.installNeeded = true;
+            // LE SIGNAL : une bataille NEUVE existe. Ce qui l'attend est reveille ici, dans la
+            // frame meme -- personne n'a plus a sonder `sandboxProbe` (cf. `runner-signal.ts`).
+            signalerRunnerVivant();
             setTimeout(() => {
                 if (state.installNeeded) {
                     state.installNeeded = false;

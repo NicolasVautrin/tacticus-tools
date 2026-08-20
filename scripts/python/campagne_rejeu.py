@@ -44,6 +44,13 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# (!)SANS CA, LE JOURNAL SORT DANS LE DESORDRE. Les crans 5 et 10 lancent des SOUS-PROCESSUS
+# qui ecrivent directement sur le terminal, tandis que nos propres `print` restent tamponnes
+# jusqu'a la fin. Mesure du 2026-08-21 : le rejeu du cran 10 s'affichait AVANT le cran 0. Un
+# journal dont l'ordre ment sur la chronologie est pire qu'un journal muet -- on y lit des
+# causalites inverses.
+sys.stdout.reconfigure(line_buffering=True)
+
 from replay_format import charger as charger_replay        # noqa: E402
 from replay_rejouer import (                               # noqa: E402
     Jeu, session_vivante, poses_du_replay, controler_avant_start,
@@ -558,6 +565,38 @@ def desarmer_capture_de_fin(jeu):
     print("   capture de fin DESARMEE et relue (un rejeu ne se capture pas).")
 
 
+def generation_du_runner(jeu):
+    """La generation AVANT le montage. `None` = pas mesure (hooks trop anciens)."""
+    r = jeu.rpc("runnerGeneration", [], timeout=60000)
+    return r.get("generation") if isinstance(r, dict) and r.get("ok") else None
+
+
+def attendre_le_runner(jeu, depuis, plafond_ms=60000):
+    """(!)LE MONTAGE REND LA MAIN AVANT QUE LA BATAILLE EXISTE, et son propre message le dit :
+    << l'APPEL est passe -- ca ne dit RIEN du montage >>. Juger le seed a cet instant accuse
+    `IdunRunner$$Initialize` de n'avoir rien journalise alors qu'il n'a simplement pas encore
+    tourne. Mesure du 2026-08-20 : cran 6 rouge a 5,2 s.
+
+    (!)ET ON ATTEND PAR SIGNAL, PAS PAR SONDAGE. Le premier correctif interrogeait `sandboxProbe`
+    toutes les secondes -- un minuteur deguise. La pompe VOIT la transition
+    `IdunGameViews._runner : null -> r` (c'est elle qui installe les hooks du runner vivant) ;
+    `attendreRunner` rend la main a cet instant. La `generation` lue AVANT le montage ferme la
+    course : si la transition a deja eu lieu -- le cas le plus frequent -- on ne dort pas.
+    """
+    if depuis is None:
+        stop("`runnerGeneration` NON MESURE : les hooks charges sont anterieurs a "
+             "`runner-signal.ts`. Reinjecter, ou il n'y a pas de signal a attendre.")
+    r = jeu.rpc("attendreRunner", [{"depuis": depuis, "plafondMs": plafond_ms}],
+                timeout=plafond_ms + 30000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        stop("`attendreRunner` NON MESURE : %s" % json.dumps(r, ensure_ascii=False)[:200])
+    if not r.get("atteint"):
+        stop("aucune bataille apparue en %.0f s (generation %s -> %s). Le seed reste ARME pour "
+             "la SUIVANTE : le desarmer par `sandboxModeSeed {seed: null}` si tu renonces."
+             % (plafond_ms / 1000.0, depuis, r.get("generation")))
+    print("   bataille apparue (generation %s -> %s), par signal." % (depuis, r.get("generation")))
+
+
 def verifier_morsure(jeu, n_av, graine):
     """LE CRAN QUI MANQUAIT. Un seed arme APRES le montage laisse une bataille montee, demarree
     et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE."""
@@ -735,14 +774,19 @@ def main(argv=None):
     n_av = armer_le_seed(jeu, graine, bc_id)
 
     cran(5, "monter le noeud en sandbox")
+    # LA GENERATION *AVANT* LE MONTAGE -- c'est elle qui ferme la course entre le geste et
+    # l'attente. La lire apres reviendrait a manquer exactement la transition qu'on attend.
+    gen = generation_du_runner(jeu)
     cmd = [sys.executable, str(RACINE / "scripts" / "python" / "sandbox_campagne.py"),
            "--campagne", campagne, "--type", str(type_), "--noeud", str(noeud), "--confirmer"]
-    p = subprocess.run(cmd, cwd=str(RACINE), capture_output=True, text=True)
-    for ligne in (p.stdout or "").splitlines()[-6:]:
+    p = subprocess.run(cmd, cwd=str(RACINE), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    for ligne in (p.stdout or "").splitlines()[-4:]:
         print("   | " + ligne)
     if p.returncode != 0:
         stop("`sandbox_campagne.py` a rendu %d :\n%s"
              % (p.returncode, (p.stdout or "") + (p.stderr or ""))[:600])
+    attendre_le_runner(jeu, gen)
 
     cran(6, "LE SEED A-T-IL MORDU ? -- le cran qui manquait")
     verifier_morsure(jeu, n_av, graine)
