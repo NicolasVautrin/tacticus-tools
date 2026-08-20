@@ -164,6 +164,358 @@ function refusHorsSandbox(quoi: string, echappatoire?: boolean): Refus | null {
         + "perdu ainsi). Échappatoire explicite : `surBatailleReelle: true`.");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LE PLAFOND : ON NE PEUT PLUS EMPILER, EN SANDBOX COMME EN PARTIE RÉELLE
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// ⚠ LA CAUSE STRUCTURELLE DE L'EMPILEMENT, ET ELLE EST DÉJÀ DOCUMENTÉE PLUS BAS DANS CE FICHIER :
+// il y a DEUX comptabilités du déploiement -- les `PlaceholderUnitView` que le HUD tient, et les
+// unités RÉELLES du runner -- et **aucune ne nourrit l'autre**. Chaque voie de pose ne consultait
+// que la sienne, donc rien n'empêchait d'ajouter par l'une ce que l'autre tenait déjà.
+//
+// Mesuré le 2026-08-20 : le HUD tenait les 5 placeholders de l'équipe du JOUEUR ; notre rejeu a
+// appliqué 5 `AddUnitMessage` de plus au runner ; le START a ensuite converti les placeholders
+// PAR-DESSUS. Résultat : **10 unités pour un plafond de 5**, et un essai de boss de guilde perdu.
+//
+// LE CRAN, et il ne dépend d'aucune vigilance : avant toute pose, on ADDITIONNE les deux
+// comptabilités et on les confronte au plafond que le HUD a lui-même reçu
+// (`UnitDeploymentHud$$Show(units, minUnitsPossible, maxUnitsPossible, options)`).
+//
+// ⚠ TRI-ÉTAT, ENCORE : un plafond ou une comptabilité qu'on n'a PAS SU LIRE fait REFUSER. Un
+// compteur illisible rendu comme un zéro est exactement ce qui autorise l'empilement -- c'est le
+// même travers que le `duJoueur=0` lu pour « plateau vide » pendant l'incident.
+
+interface EtatDeploiement {
+    reelles: number; nomsReels: Array<string | null>; cases: string[];
+    placeholders: number; nomsPlaceholders: Array<string | null>;
+    max: number; machines: boolean;
+}
+
+/**
+ * Les `unitId` que le HUD tient en placeholders.
+ *
+ * ⚠ SANS EUX, LE CONTRÔLE DE DOUBLON EST AVEUGLE À LA MOITIÉ DU PLATEAU -- et c'est mesuré :
+ * la re-pose d'une unité déjà présente n'a été refusée que parce que le PLAFOND était atteint.
+ * Un plafond qui rattrape un doublon par accident n'est pas un contrôle de doublon.
+ *
+ * La taille d'élément est DÉRIVÉE (`class_instance_size` de la classe d'élément moins l'en-tête),
+ * jamais recopiée — même exigence que `deploymentPlacees`. Non dérivable ⇒ `null`, qui fait
+ * REFUSER en amont, jamais une liste vide qui se lirait « aucun doublon ».
+ */
+function nomsDesPlaceholders(lst: NativePointer, taille: number): Array<string | null> | null {
+    try {
+        const kl = lst.readPointer();
+        const offItems = getFieldOffset(kl, "_items");
+        if (offItems < 0) return null;
+        const items = lst.add(offItems).readPointer();
+        if (items.isNull()) return null;
+        const kElem = class_get_element_class ? class_get_element_class(items.readPointer()) : null;
+        if (kElem === null || class_is_valuetype === null || class_instance_size === null) {
+            return null;
+        }
+        const octets = (class_is_valuetype(kElem) as number) !== 0
+            ? (class_instance_size(kElem) as number) - 2 * Process.pointerSize
+            : Process.pointerSize;
+        if (!(octets > 0 && octets <= 512)) return null;
+        const base = items.add(4 * Process.pointerSize);
+        const out: Array<string | null> = [];
+        for (let i = 0; i < Math.min(taille, 32); i++) {
+            // Les 8 premiers octets de l'entrée sont le `System.String` de l'`unitId` -- relevé
+            // sur les entrées vivantes, pas supposé.
+            const sp = base.add(i * octets).readPointer();
+            out.push(sp.isNull() ? null : readIl2cppString(sp));
+        }
+        return out;
+    } catch { return null; }
+}
+
+/**
+ * Les `unitId` des unités RÉELLES, groupés par joueur — SANS AUCUNE INVOCATION.
+ *
+ * ⛔ POURQUOI UNE SECONDE LECTURE PLUTÔT QUE `unitesDuPlateau()`. Celle-ci invoque deux natifs
+ * (`FirstPlayerEntityIdOfHumanOnThisDevice` pour savoir qui est le joueur, `get_LogicalPosition`
+ * pour la tuile). Invoquer depuis un callback d'interception GÈLE le jeu -- règle payée deux fois
+ * dans ce dépôt. Or le blocage du START doit rendre son verdict DANS un `onLeave`.
+ *
+ * On se passe donc des deux : on ne demande pas QUI est le joueur humain (on groupe par
+ * `<PlayerEntityId>` et on prendra le camp le plus chargé -- un empilement chez l'adversaire
+ * serait tout aussi anormal), et on ne lit aucune tuile (le plafond n'en a pas besoin).
+ *
+ * `getFieldOffset` reste permis : il passe par les API de MÉTADONNÉES d'IL2CPP, pas par
+ * `il2cpp_runtime_invoke` — il n'exécute aucun code managé, donc ne peut ni allouer ni prendre
+ * le verrou du GC.
+ *
+ * Rend `null` quand la lecture n'aboutit pas : un `null` fait REFUSER en amont, jamais un zéro.
+ */
+function unitesReellesParJoueurSansInvoke(): Map<number, string[]> | null {
+    try {
+        const vues = vuesDePose;
+        if (vues === null || vues.isNull()) return null;
+        const k = vues.readPointer();
+        const offVues = getFieldOffset(k, "_unitViews");
+        if (offVues < 0) return null;
+        const dico = vues.add(offVues).readPointer();
+        if (dico.isNull()) return null;
+        const kd = dico.readPointer();
+        const offEntries = getFieldOffset(kd, "_entries");
+        const offCount = getFieldOffset(kd, "_count");
+        if (offEntries < 0 || offCount < 0) return null;
+        const entries = dico.add(offEntries).readPointer();
+        const n = dico.add(offCount).readS32();
+        if (entries.isNull() || n < 0 || n > 4096) return null;
+        if (class_get_element_class === null || class_instance_size === null) return null;
+        const kElem = class_get_element_class(entries.readPointer()) as NativePointer;
+        const taille = (class_instance_size(kElem) as number) - Process.pointerSize * 2;
+        if (!(taille > 0 && taille <= 128)) return null;
+        const out = new Map<number, string[]>();
+        let offJoueur = -1;
+        let offUnitId = -1;
+        for (let i = 0; i < n; i++) {
+            const uv = entries.add(0x20 + i * taille + taille - Process.pointerSize).readPointer();
+            if (uv.isNull()) continue;
+            if (offJoueur < 0) {
+                offJoueur = getFieldOffset(uv.readPointer(), "<PlayerEntityId>k__BackingField");
+                offUnitId = getFieldOffset(uv.readPointer(), "<UnitId>k__BackingField");
+                if (offJoueur < 0 || offUnitId < 0) return null;
+            }
+            const j = uv.add(offJoueur).readS32();
+            let nom: string | null = null;
+            try { nom = readIl2cppString(uv.add(offUnitId).readPointer()); } catch { nom = null; }
+            const l = out.get(j) ?? [];
+            if (typeof nom === "string" && nom !== "" && l.indexOf(nom) < 0) l.push(nom);
+            out.set(j, l);
+        }
+        return out;
+    } catch { return null; }
+}
+
+/** Les DEUX comptabilités + le plafond, ou un `Refus` dès qu'une lecture manque. */
+function etatDuDeploiement(): EtatDeploiement | Refus {
+    const u = unitesDuPlateau();
+    if (!Array.isArray(u)) {
+        return refus("plateau NON LISIBLE (" + u + ") -- on ne pose pas à l'aveugle : une "
+            + "comptabilité illisible rendue comme un zéro est ce qui autorise l'empilement");
+    }
+    const miennes = u.filter((x) => x.duJoueur);
+    if (hudInstance === null || hudInstance.isNull()) {
+        return refus("aucun `UnitDeploymentHud` capturé -- le plafond de déploiement est donc "
+            + "INCONNU. Ce n'est PAS « pas de plafond ».");
+    }
+    const k = findClassAnywhere(NS_HUD, CLS_HUD);
+    if (!k) return refus(`\`${NS_HUD}.${CLS_HUD}\` INTROUVABLE sur ce build`);
+    const offMax = getFieldOffset(k, "_maxUnitsPossible");
+    const offMow = getFieldOffset(k, "_hasMachinesOfWar");
+    const offPl = getFieldOffset(k, "_currentlyPlacedUnits");
+    if (offMax < 0 || offPl < 0) {
+        return refus(`champs ABSENTS de ce build : _maxUnitsPossible=${offMax} `
+            + `_currentlyPlacedUnits=${offPl} -- chemin PÉRIMÉ, pas de repli sur un offset en dur`);
+    }
+    let placeholders: number;
+    let nomsPh: Array<string | null> | null;
+    try {
+        const lst = hudInstance.add(offPl).readPointer();
+        if (lst.isNull()) return refus("`_currentlyPlacedUnits` est NULLE -- comptabilité du HUD "
+            + "non mesurable");
+        const offSize = getFieldOffset(lst.readPointer(), "_size");
+        if (offSize < 0) return refus("`List._size` ABSENT -- comptabilité du HUD non mesurable");
+        placeholders = lst.add(offSize).readS32();
+        nomsPh = nomsDesPlaceholders(lst, placeholders);
+    } catch (e) {
+        return refus("`_currentlyPlacedUnits` ILLISIBLE : " + (e as Error).message);
+    }
+    if (nomsPh === null && placeholders > 0) {
+        return refus(`les ${placeholders} placeholder(s) du HUD ne sont pas NOMMABLES -- le `
+            + "contrôle de doublon serait aveugle à eux. Une liste illisible n'est pas une liste "
+            + "vide.");
+    }
+    return {
+        reelles: miennes.length,
+        nomsReels: miennes.map((x) => x.unitId),
+        cases: miennes.map((x) => `${x.col},${x.row}`),
+        placeholders,
+        nomsPlaceholders: nomsPh ?? [],
+        max: hudInstance.add(offMax).readS32(),
+        machines: offMow >= 0 && hudInstance.add(offMow).readU8() !== 0,
+    };
+}
+
+/**
+ * Le nombre d'unités DISTINCTES déployées, les deux comptabilités confondues.
+ *
+ * ⚠ NE PAS ADDITIONNER LES DEUX COMPTES -- c'est faux, et mesuré. En voie runner-directe une
+ * même unité figure DANS LES DEUX (`committerUnePose` crée l'unité réelle, et l'entrée du HUD
+ * survit) : relevé le 2026-08-20, 5 unités réelles pour 6 entrées de `_currentlyPlacedUnits`,
+ * soit une somme de 11 pour un plafond de 6. Le plafond aurait refusé des poses LÉGITIMES.
+ * L'invariant porte sur les unités DISTINCTES, donc sur l'UNION par `unitId`.
+ */
+function unitesDistinctes(e: EtatDeploiement): string[] {
+    const vus: string[] = [];
+    for (const n of e.nomsReels.concat(e.nomsPlaceholders)) {
+        if (typeof n === "string" && n !== "" && vus.indexOf(n) < 0) vus.push(n);
+    }
+    return vus;
+}
+
+/**
+ * Rend un `Refus` quand la pose EMPILERAIT, ou `null` quand elle est légitime.
+ *
+ * `p === null` ⇒ on ne vérifie que le plafond (c'est le cas du START, qui ne pose rien lui-même
+ * mais convertit tout ce qui traîne).
+ *
+ * ⚠ IL N'Y A PAS D'ÉCHAPPATOIRE ICI, ET C'EST DÉLIBÉRÉ. `surBatailleReelle` autorise à ÉCRIRE
+ * sur une partie du joueur ; il n'autorise pas à y écrire N'IMPORTE QUOI. Les deux questions
+ * sont distinctes -- où l'on a le droit d'écrire, et quoi -- et les avoir confondues aurait
+ * désarmé l'anti-empilement au moment précis où il sert le plus. Aucun empilement n'est
+ * legitime : on vide d'abord (`deploymentRetirer`), on ne force pas.
+ */
+function refusSiEmpilement(p: Pose | null, quoi: string): Refus | null {
+    const e = etatDuDeploiement();
+    if ("ok" in e) return refus(`REFUS (${quoi}) : ${e.error}`);
+    const total = unitesDistinctes(e).length;
+    // Le plafond porte sur les unités STANDARD ; une machine de guerre s'y ajoute quand le mode
+    // en autorise une. On ne cherche pas à démêler laquelle est laquelle dans les deux listes :
+    // la borne haute suffit à interdire l'empilement, et elle ne peut pas refuser à tort une
+    // composition légitime.
+    const borne = e.max + (e.machines ? 1 : 0);
+    if (p !== null) {
+        // ⚠ LES DEUX COMPTABILITÉS, pas seulement les unités réelles. Mesuré le 2026-08-20 : avec
+        // le seul contrôle sur les réelles, une re-pose n'était refusée que parce que le PLAFOND
+        // était atteint -- donc par accident, et donc pas du tout dès qu'il reste une place.
+        if (e.nomsReels.indexOf(p.unitId) >= 0) {
+            return refus(`REFUS (${quoi}) : \`${p.unitId}\` est DÉJÀ une unité réelle du plateau `
+                + "-- la poser une seconde fois la dédoublerait.");
+        }
+        if (e.nomsPlaceholders.indexOf(p.unitId) >= 0) {
+            return refus(`REFUS (${quoi}) : \`${p.unitId}\` est DÉJÀ un placeholder du HUD -- la `
+                + "poser créerait le doublon HUD/runner qui a produit les 10 unités du "
+                + "2026-08-20.");
+        }
+        if (e.cases.indexOf(`${p.col},${p.row}`) >= 0) {
+            return refus(`REFUS (${quoi}) : la case (${p.col},${p.row}) est DÉJÀ occupée par une `
+                + "unité réelle. Une pose sur case occupée échoue EN SILENCE côté natif.");
+        }
+        if (total >= borne) {
+            return refus(`REFUS (${quoi}) : le déploiement est PLEIN -- ${total} unité(s) `
+                + `DISTINCTE(S) (${e.reelles} réelle(s), ${e.placeholders} placeholder(s), `
+                + `union par unitId), plafond ${borne} (max ${e.max}`
+                + `${e.machines ? " + 1 machine" : ""}). Poser de plus EMPILERAIT : c'est ainsi `
+                + "qu'un essai de boss de guilde s'est retrouvé à 10 unités pour 5. Vider "
+                + "d'abord (`deploymentRetirer`) -- il n'y a pas d'échappatoire à ce refus-ci.");
+        }
+        return null;
+    }
+    if (total > borne) {
+        return refus(`REFUS (${quoi}) : le plateau porte DÉJÀ ${total} unité(s) DISTINCTE(S) `
+            + `(${e.reelles} réelle(s), ${e.placeholders} placeholder(s), union par unitId) pour `
+            + `un plafond de ${borne}. Démarrer convertirait les placeholders PAR-DESSUS les `
+            + "unités réelles -- exactement le doublement mesuré le 2026-08-20.");
+    }
+    return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LE BLOCAGE DU START — par le CHEMIN DU JEU, y compris quand c'est l'HUMAIN qui clique
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// ⚠ POURQUOI RÉÉCRIRE UN RETOUR PLUTÔT QUE COURT-CIRCUITER. `Interceptor.replace` est proscrit
+// ici (un stop de session avec un `replace` actif crashe le jeu), et un `attach` ne sait pas
+// sauter un appel. Mais `UnitDeploymentState$$StartBattle` CONSULTE un prédicat avant de partir :
+//
+//     IdunBattle.View.FSM.VisualBattleQuery$$IsMinUnitAmountToBringToStartBattleReached
+//         -> MinUnitsNeededToStartBattle(this) <= amountUnits      (un `bool` PUR)
+//
+// Rendre `false` fait donc refuser le jeu PAR SON PROPRE CHEMIN, avec son propre retour d'écran.
+// C'est l'idiome que l'en-tête de ce fichier prescrit : « `attach` + écriture dans le retour,
+// JAMAIS `replace` ».
+//
+// ⛔ LE CALLBACK N'INVOQUE RIEN. Le verdict passe par `unitesReellesParJoueurSansInvoke()` et par
+// des lectures de champs du HUD -- aucun `il2cpp_runtime_invoke`, donc aucun code managé exécuté
+// sous interception.
+//
+// ⚠ ARMÉ AU `register`, PAS SUR DEMANDE. Une protection qu'il faut penser à armer est exactement
+// ce qui a manqué le 2026-08-20. Elle ne mord que sur un empilement AVÉRÉ ; en régime normal elle
+// laisse le retour du jeu intact, à l'octet.
+
+let listenerBlocageStart: InvocationListener | null = null;
+/** Ce que le blocage a vu, publié -- un refus muet se lirait comme un bug du jeu. */
+const blocageStartTrace: Array<Record<string, unknown>> = [];
+
+/** Le verdict d'empilement SANS INVOCATION, pour le `onLeave`. `null` = rien à redire. */
+function empilementSansInvoke(): Record<string, unknown> | null {
+    if (hudInstance === null || hudInstance.isNull()) return null;
+    const k = findClassAnywhere(NS_HUD, CLS_HUD);
+    if (!k) return null;
+    const offMax = getFieldOffset(k, "_maxUnitsPossible");
+    const offMow = getFieldOffset(k, "_hasMachinesOfWar");
+    const offPl = getFieldOffset(k, "_currentlyPlacedUnits");
+    if (offMax < 0 || offPl < 0) return null;
+    const lst = hudInstance.add(offPl).readPointer();
+    if (lst.isNull()) return null;
+    const offSize = getFieldOffset(lst.readPointer(), "_size");
+    if (offSize < 0) return null;
+    const nPh = lst.add(offSize).readS32();
+    const nomsPh = nomsDesPlaceholders(lst, nPh) ?? [];
+    const parJoueur = unitesReellesParJoueurSansInvoke();
+    if (parJoueur === null) return null;
+    // ⚠ LE CAMP DU JOUEUR, ET LUI SEUL -- ET ON ÉCHOUE OUVERT S'IL EST INCONNU.
+    //
+    // Première version, MESURÉE FAUSSE le 2026-08-20 : elle prenait « le camp le plus chargé »
+    // et unionnait NOS placeholders avec les unités de CHAQUE camp. Elle a donc compté le camp
+    // ENNEMI (`playerEntityId 4`) : 3 noms distincts côté PNJ + nos 6 placeholders = 9 pour une
+    // borne de 6, et elle a BLOQUÉ UN START PARFAITEMENT LÉGITIME. Deux fautes : mélanger les
+    // camps, et compter des NOMS là où quatre Techpriests identiques n'en font qu'un.
+    //
+    // `dernierIdJoueurHumain` est renseigné hors hook par `unitesDuPlateau()`. S'il est inconnu,
+    // on NE BLOQUE PAS : un garde qui barre la route à tort est pire que le mal qu'il prévient.
+    const j = dernierIdJoueurHumain;
+    if (j === null) return null;
+    const noms = parJoueur.get(j);
+    if (noms === undefined) return null;
+    const union = noms.slice();
+    for (const n of nomsPh) {
+        if (typeof n === "string" && n !== "" && union.indexOf(n) < 0) union.push(n);
+    }
+    const borne = hudInstance.add(offMax).readS32()
+        + (offMow >= 0 && hudInstance.add(offMow).readU8() !== 0 ? 1 : 0);
+    if (union.length <= borne) return null;
+    return { distinctes: union.length, borne, joueur: j, placeholders: nPh,
+             reelles: noms.length };
+}
+
+function armerBlocageStart(): void {
+    if (listenerBlocageStart) return;
+    const k = findClassAnywhere(NS_VBQ, CLS_VBQ);
+    // ⚠ UN PARAMÈTRE, PAS DEUX. Le décompilé montre `(this, amountUnits)`, mais `this` n'est pas
+    // un paramètre DÉCLARÉ -- et le `MethodInfo*` qu'IL2CPP ajoute à chaque appel n'en est pas un
+    // non plus. Compter de travers rend `INTROUVABLE`, ce qui se lit comme « pas atteint » : cette
+    // tranche s'y est fait prendre QUATRE fois (`AddMachineStepHandler$$ExecuteInternal`,
+    // `IdunGameViews$$AddMachine`, `System.Enum$$Parse`, et ce garde-ci).
+    const mi = k ? findMethodByParamCount(k, "IsMinUnitAmountToBringToStartBattleReached", 1)
+                 : null;
+    // ⚠ On DIT que la protection n'a pas pu être posée. Un `armerBlocageStart` silencieux
+    // laisserait croire que le START est gardé alors qu'il ne l'est pas.
+    if (!mi) {
+        blocageStartTrace.push({ evt: "NON ARMÉ",
+            raison: `\`${NS_VBQ}.${CLS_VBQ}$$IsMinUnitAmountToBringToStartBattleReached\` `
+                + "INTROUVABLE (2 paramètres) -- le START n'est PAS gardé" });
+        return;
+    }
+    listenerBlocageStart = Interceptor.attach(mi.ptr, {
+        onLeave(retval) {
+            try {
+                if ((retval.toInt32() & 0xff) === 0) return;   // le jeu refuse déjà : on n'y touche pas
+                const v = empilementSansInvoke();
+                if (v === null) return;
+                retval.replace(ptr(0));
+                if (blocageStartTrace.length < 16) {
+                    blocageStartTrace.push({ evt: "START BLOQUÉ", ...v });
+                }
+            } catch { /* ne JAMAIS lever dans un callback */ }
+        },
+    });
+    Interceptor.flush();
+}
+
 /** Ce que `onLeave` a VU au dernier passage — la seule base sur laquelle REMPLIR est autorisé. */
 interface Observation {
     brut: string;            // le retour, en hexa
@@ -2819,15 +3171,29 @@ function retirerDuRunner(cibles: number[] | null,
     // manque à la BC. On relit donc, et on publie les deux comptes.
     const apres = unitesDuPlateau();
     return {
-        ok: true, faits,
+        // ⚠ `ok` DIT ICI << les appels sont partis >>, PAS << les unités sont parties >>, et cette
+        // nuance a coûté cher : le 2026-08-20, ce RPC a rendu `ok: true` sur ses 5 cibles alors
+        // que les 5 entités étaient TOUJOURS VIVANTES ; le START a ensuite empilé par-dessus,
+        // 10 unités pour 5. La note le disait déjà -- une note ne suffit pas quand le champ
+        // qu'on lit d'abord affirme le contraire. Le VERDICT est produit par `deploymentRetirer`,
+        // qui attend l'effet et REND `ok: false` si une cible survit.
+        ok: true, faits, verifie: false,
+        cibles: ids,
         retirees: faits.filter((f) => f.ok).length, visees: ids.length,
         surPlateauAvant: avant.filter((u) => u.duJoueur).length,
         surPlateauApres: Array.isArray(apres)
             ? apres.filter((u) => u.duJoueur).length : apres,
-        note: "le retrait de la VUE passe par le flux de bataille "
-            + "(`IdunBattle.View.BattleStream.StepHandlers.RemoveUnitStepHandler`), qui peut "
-            + "traîner d'une frame ou deux : `surPlateauApres` est un instantané, pas un verdict",
+        note: "`ok` = les `Apply` sont partis. Le retrait de la VUE passe par le flux de bataille "
+            + "(`IdunBattle.View.BattleStream.StepHandlers.RemoveUnitStepHandler`) et traîne "
+            + "d'une frame ou deux : `surPlateauApres` est un INSTANTANÉ, pas un verdict.",
     };
+}
+
+/** Rejoue `f` après `n` images de pump. ⛔ On repasse par la FILE, on ne dort jamais. */
+function apresImages<T>(n: number, f: () => T): Promise<T> {
+    if (n <= 0) return queueOnMainThread(f) as Promise<T>;
+    return (queueOnMainThread(() => null) as Promise<null>)
+        .then(() => apresImages(n - 1, f));
 }
 
 /** Déclare au HUD les unités DÉJÀ présentes sur le plateau, puis provoque le rafraîchissement
@@ -3275,7 +3641,8 @@ const poseFsmTrace: Array<Record<string, unknown>> = [];
 function poserUnHerosParFsm(p: Pose, surBatailleReelle?: boolean): void {
     memoriser(p);
     queueOnMainThread((): Record<string, unknown> => {
-        const bloque = refusHorsSandbox("UnitDeployment_PlaceUnitOnBoard", surBatailleReelle);
+        const bloque = refusHorsSandbox("UnitDeployment_PlaceUnitOnBoard", surBatailleReelle)
+            ?? refusSiEmpilement(p, "UnitDeployment_PlaceUnitOnBoard");
         if (bloque) return { ok: false, unitId: p.unitId, error: bloque.error };
         const v = vueDeLaMoW();
         if ("ok" in v) {
@@ -3328,7 +3695,8 @@ function poserUnHerosParFsm(p: Pose, surBatailleReelle?: boolean): void {
 function committerUnePose(p: Pose, surBatailleReelle?: boolean): void {
     memoriser(p);
     queueOnMainThread((): Record<string, unknown> => {
-        const bloque = refusHorsSandbox("AddUnitMessage", surBatailleReelle);
+        const bloque = refusHorsSandbox("AddUnitMessage", surBatailleReelle)
+            ?? refusSiEmpilement(p, "AddUnitMessage");
         if (bloque) return { ok: false, unitId: p.unitId, error: bloque.error };
         const avant = compteJoueur();
         const runner = state.liveRunner;
@@ -3532,6 +3900,18 @@ function etatPhase(): Record<string, unknown> {
 }
 
 export function register(ctx: Ctx): void {
+    // ⚠ ARMÉ D'OFFICE, et c'est le point. Le 2026-08-20, la protection existait dans la tête de
+    // celui qui conduisait la séance, pas dans le code : un relais de sandbox laissé armé a écrit
+    // sur une vraie bataille de boss de guilde. Ce blocage-ci ne se demande pas.
+    armerBlocageStart();
+    /** LE VERDICT DU BLOCAGE DE START -- lecture pure. */
+    ctx.rpc.deploymentBlocageStart = (): unknown => ({
+        ok: true, lecture: true, arme: listenerBlocageStart !== null,
+        trace: blocageStartTrace.slice(-8),
+        note: "réécrit le retour d'`IsMinUnitAmountToBringToStartBattleReached` à `false` quand "
+            + "le déploiement empile -- le jeu refuse alors PAR SON PROPRE CHEMIN. Aucun "
+            + "`Interceptor.replace`, aucune invocation dans le callback.",
+    });
     /** OBSERVER / DÉSARMER. `{ armer: true }` pose le hook en régime transparent. */
     ctx.rpc.deploymentDraftArmer = (body?: { armer?: boolean }): Promise<unknown> | unknown => {
         if (!body || body.armer === undefined) {
@@ -3732,7 +4112,16 @@ export function register(ctx: Ctx): void {
         }
         if (liste.length === 0) return refus("aucune pose enregistrée : rien à appliquer");
         return queueOnMainThread(() => {
-            const bloque = refusHorsSandbox("AddUnitMessage (commit)", body.surBatailleReelle);
+            // ⚠ CHAQUE POSE, PAS LE TOTAL. Le contrôle global (`p === null`) n'interdit que de
+            // DÉPASSER (`>`) : il laisse donc passer la pose qui ATTEINT le plafond, puis celle
+            // d'après. Mesuré le 2026-08-20 -- union 6, borne 6, la 6e unité est passée.
+            let bloque = refusHorsSandbox("AddUnitMessage (commit)", body.surBatailleReelle);
+            for (const p of liste) {
+                if (bloque) break;
+                bloque = refusSiEmpilement({ unitId: p.unitId, playerId: p.playerId,
+                                             col: p.col, row: p.row },
+                                           "AddUnitMessage (commit)");
+            }
             if (bloque) return bloque;
             const runner = state.liveRunner;
             if (runner === null || runner.isNull()) {
@@ -3989,7 +4378,8 @@ export function register(ctx: Ctx): void {
         }
         return queueOnMainThread((): Record<string, unknown> => {
             const bloque = refusHorsSandbox("HandleOnStartBattleTapped",
-                                            body.surBatailleReelle);
+                                            body.surBatailleReelle)
+                ?? refusSiEmpilement(null, "HandleOnStartBattleTapped");
             if (bloque) return { ok: false, error: bloque.error };
             if (hudInstance === null || hudInstance.isNull()) {
                 return { ok: false, error: "aucun `UnitDeploymentHud` capturé -- le HUD ne "
@@ -4071,8 +4461,37 @@ export function register(ctx: Ctx): void {
                              + "en cours" };
             });
         }
-        return queueOnMainThread(
-            () => retirerDuRunner(body.entityIds ?? null, body.surBatailleReelle));
+        // ⚠ ON ATTEND L'EFFET, ET LE VERDICT EN DÉPEND. `Apply` qui passe n'est pas « l'unité est
+        // partie » -- mesuré le 2026-08-20, 5 `Apply` verts pour 5 entités TOUJOURS VIVANTES.
+        // ~90 images de pump, soit environ une seconde à 60 images/s (même délai que
+        // `verifierPuisNettoyer`).
+        return (queueOnMainThread(
+            () => retirerDuRunner(body.entityIds ?? null, body.surBatailleReelle)) as
+                Promise<Record<string, unknown>>)
+            .then((r) => {
+                if (r.ok !== true) return r;
+                const cibles = (r.cibles as number[]) ?? [];
+                return apresImages(90, (): Record<string, unknown> => {
+                    const u = unitesDuPlateau();
+                    if (!Array.isArray(u)) {
+                        return { ...r, verifie: false, ok: false,
+                                 verdict: "plateau NON RELISIBLE (" + u + ") -- le retrait n'est "
+                                     + "ni confirmé ni infirmé. On ne le compte pas comme fait." };
+                    }
+                    const restants = u.filter((x) => cibles.indexOf(x.entityId) >= 0);
+                    if (restants.length > 0) {
+                        return { ...r, verifie: true, ok: false,
+                                 survivantes: restants.map((x) => ({ entityId: x.entityId,
+                                                                     unitId: x.unitId })),
+                                 verdict: `RETRAIT INCOMPLET : ${restants.length} cible(s) sur `
+                                     + `${cibles.length} sont TOUJOURS sur le plateau après 90 `
+                                     + "images. Ne rien poser par-dessus : c'est exactement ce "
+                                     + "qui a produit 10 unités pour 5 le 2026-08-20." };
+                    }
+                    return { ...r, verifie: true, ok: true,
+                             verdict: `les ${cibles.length} cible(s) ont bien QUITTÉ le plateau` };
+                });
+            });
     };
 
     /**
