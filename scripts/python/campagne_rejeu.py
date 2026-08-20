@@ -223,13 +223,36 @@ def resoudre_hors_ligne(d, bc_id):
     (`campaign4`/Standard, `mirror4`/Mirror, `elite4`/Elite, `eliteMirror4`/EliteMirror). Aucune
     astuce ne recupere la campagne depuis l'`Id` seul -- il faut une autre cle.
 
+    (!)ET LE TYPE N'EST NULLE PART AILLEURS DANS LE REPLAY -- CHERCHE, PAS SUPPOSE. Trois
+    controles independants, le 2026-08-20 :
+      1. `campaignId` vaut **4 pour les quatre types** (mesure sur le gameconfig) : l'entier de
+         l'`Id` est un numero de campagne, il n'encode pas la difficulte ;
+      2. aucun champ SCALAIRE de la `BattleConfiguration` ni de la racine du replay ne porte de
+         type de campagne (15 + 10 champs passes en revue) ;
+      3. `MetaData.Data`, le seul emplacement libre, vaut `''` sur les CINQ replays disponibles
+         -- y compris les TROIS captures reelles de boss de guilde, pas seulement les sandbox.
+    Le type est donc perdu a l'ecriture, et il faut le rechercher ailleurs que dans le replay.
+
     (!)ET CETTE CLE EST DANS LE MEME DTO, DONC HORS LIGNE. `BoardId` suffit : sur ces quatre,
     il vaut `C4_01`, `C4_54`, `MC4_01`, `C4_59`. Une lecture de fichier remplace donc les 28
     forges et les 4 BC chargees de la premiere version -- qui prenaient 10 s et sollicitaient un
     jeu vivant pour une question entierement statique.
     """
-    board = ((d.get("BattleConfiguration") or {}).get("Board") or {}).get("Id")
-    sps = (d.get("BattleConfiguration") or {}).get("SpawnPointSetIndex")
+    # (!)UN REPLAY EXISTE SOUS DEUX FORMES, ET LE PLATEAU CHANGE DE PLACE ENTRE LES DEUX.
+    #
+    # `ReplaySerializer$$SerializeReplay(replay, alleger)` fait, quand `alleger` est vrai :
+    #     Replay.BoardId             = Replay.BC.Board.Id   (+0x68 -> +0x10, remonte a +0x30)
+    #     Replay.BC.Board  (+0x68)   = null                 (le plateau ENTIER est jete)
+    #     Replay.BC.Tiles  (+0x88)   = null                 (et le catalogue de tuiles)
+    # puis `Json.SerializeObject` -> `ZipUtil.GzipCompress` -> `Convert.ToBase64String`.
+    #
+    # C'est la forme qui part au SERVEUR : il connait le plateau par son identifiant et en
+    # re-derive la geometrie. Nos captures locales, elles, sont NON allegees -- `BoardId` y est
+    # nul et le `Board` complet. Lire un seul des deux emplacements fait donc REFUSER la moitie
+    # des replays, selon leur provenance.
+    bc_ = d.get("BattleConfiguration") or {}
+    board = d.get("BoardId") or (bc_.get("Board") or {}).get("Id")
+    sps = bc_.get("SpawnPointSetIndex")
     entrees, build = entrees_de_campagne()
     print("   gameconfig %s : %d bataille(s) de campagne" % (build, len(entrees)))
     if board is None:
