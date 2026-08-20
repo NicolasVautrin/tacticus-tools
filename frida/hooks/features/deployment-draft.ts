@@ -4905,7 +4905,21 @@ export function register(ctx: Ctx): void {
             // réussi, et son corps est de l'arithmétique pure (aucun jet possible).
             ["IdunBattle.View.AbilityConfigs", "StaticAbilityVisualRules",
              "CorrectAbilityIdForVisualsAndIcon", 1],
-            ["System", "Enum", "Parse", 2],
+            // ⛔ `["System", "Enum", "Parse", 2]` A ÉTÉ RETIRÉ, ET IL NE DOIT PAS REVENIR.
+            //
+            // Mesuré le 2026-08-20 : l'ancrer fait TOMBER LE JEU à l'injection. `System.Enum.Parse`
+            // est appelé en permanence par tout le binaire (chargement de config, sérialisation,
+            // vues) -- y poser un trampoline est exactement le « broad-hook sur méthode hot » que
+            // le `CLAUDE.md` proscrit, et le cap de 600 entrées ne protège pas : le coût est le
+            // trampoline, pas le callback.
+            //
+            // Ce qu'il aurait prouvé est de toute façon DÉJÀ ÉTABLI par quatre mesures
+            // convergentes (cf. le commentaire ci-dessus) : `ParseAbilityType` entre avec son
+            // groupe et sa source et ne revient pas, son seul jet explicite est exclu, le témoin
+            // de la 2ᵉ branche ne tire jamais, et un échec des trois `TryParse` rendrait
+            // normalement. Pour l'observer directement il faudrait ancrer le corps gshared
+            // `IdunMeta.Utils.Extensions.Enum$$TryParse<T>` -- lui aussi partagé, donc au même
+            // prix. Le gain ne vaut pas une chute du jeu.
         ] as const) {
             const kc = findClassAnywhere(c[0], c[1]);
             const mc = kc ? findMethodByParamCount(kc, c[2], c[3]) : null;
