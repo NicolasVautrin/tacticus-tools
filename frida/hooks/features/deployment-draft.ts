@@ -55,10 +55,10 @@ import {
     class_get_element_class, class_get_fields, class_get_name, class_instance_size,
     class_is_valuetype, field_get_name, field_get_offset,
     field_get_type, findClassAnywhere, findMethod, findMethodByParamCount, getFieldOffset,
-    il2cppBase, s,
+    il2cppBase, il2cppSize, s,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
-import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+import { createManagedString, decodeManagedException, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 // `listeDeTextes` est le foyer unique de la lecture d'une `List<System.String>` native (`_items`
 // / `_size` résolus PAR NOM). Il rend `null` quand il n'a PAS SU LIRE — état distinct d'une liste
 // vide, et c'est cette distinction que la branche guild war exploite.
@@ -85,6 +85,7 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 // arguments de `TryMarkUnitAsPlaced` — le verdict était bon, le NOM manquait, et un capteur
 // qui rend `null` sur ce qu'il est censé identifier ne sert qu'à moitié.
 import { readIl2cppString } from "../il2cpp/helpers.js";
+import { pinnedAddress } from "../il2cpp/build-pin.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { pompeUiArmer, pompeUiEtat } from "../runtime/main-pump.js";
 import {
@@ -354,6 +355,61 @@ let ancrage: {
 
 function ghidraVA(p: NativePointer): string {
     return ptr("0x180000000").add(p.sub(il2cppBase)).toString();
+}
+
+/**
+ * UNE PILE ENTRANTE, RENDUE EN ADRESSES GHIDRA — pour NOMMER l'appelant au lieu de le deviner.
+ *
+ * ⚠ POURQUOI PAS `DebugSymbol.fromAddress`. Mesuré le 2026-08-20 : sur ce binaire il rend
+ * l'export le plus proche, donc `mono_type_size` pour absolument tout le code de jeu — un
+ * backtrace de 16 frames où 15 portent le même nom faux. Ces frames ne sont pas anonymes, elles
+ * sont MAL nommées, ce qui est pire : on lit un nom et on le croit. La conversion vers l'espace
+ * Ghidra, elle, est exacte, et `data/symbols/<build>/ghidra/functions.tsv` fait le reste hors
+ * ligne (`ghidra_symbols.py whereis`).
+ *
+ * Les frames HORS de l'image du jeu sont rendues telles quelles, avec leur module : elles sont
+ * généralement du runtime ou de l'agent Frida lui-même, et les faire passer par `ghidraVA`
+ * fabriquerait une adresse qui ne désigne rien.
+ */
+function pileGhidra(ctx: CpuContext, max = 20): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    let frames: NativePointer[] = [];
+    try { frames = Thread.backtrace(ctx, Backtracer.ACCURATE); }
+    catch { try { frames = Thread.backtrace(ctx, Backtracer.FUZZY); } catch { return out; } }
+    for (const a of frames.slice(0, max)) {
+        const delta = a.sub(il2cppBase);
+        const dans = delta.compare(ptr(0)) >= 0 && delta.compare(ptr(il2cppSize)) < 0;
+        if (dans) { out.push({ ghidraVA: ghidraVA(a) }); continue; }
+        let mod: string | null = null;
+        try { mod = Process.findModuleByAddress(a)?.name ?? null; } catch { /* best effort */ }
+        out.push({ brut: a.toString(), module: mod, horsImage: true });
+    }
+    return out;
+}
+
+/**
+ * LA MÊME PILE, EN RÉGIME FROID — aucune API Frida qui touche au processus.
+ *
+ * ⛔ CE VARIANT EXISTE PARCE QUE L'AUTRE A TUÉ LE JEU. Mesuré le 2026-08-20, minidump à l'appui
+ * (`Tacticus.exe.26196.dmp`, 02:09:20) : un `Interceptor.attach` sur `FUN_180201a80` — le fond
+ * commun de TOUS les jets IL2CPP — dont le `onEnter` appelait `decodeManagedException` (qui
+ * ré-entre dans `il2cpp_class_get_name`) et `Process.findModuleByAddress`. On ré-entre donc dans
+ * le runtime PENDANT qu'il déroule une exception. Le jeu est mort au premier tir.
+ *
+ * Sur un chemin de jet, on ne fait QUE des lectures mémoire et de l'arithmétique. Résoudre les
+ * noms est le travail du LECTEUR du RPC, dans un contexte sain — et c'est possible parce qu'un
+ * `Il2CppClass*` est permanent, là où l'objet exception, lui, peut avoir été ramassé.
+ */
+function pileGhidraFroide(ctx: CpuContext, max = 16): string[] {
+    const out: string[] = [];
+    let frames: NativePointer[] = [];
+    try { frames = Thread.backtrace(ctx, Backtracer.FUZZY); } catch { return out; }
+    for (const a of frames.slice(0, max)) {
+        const delta = a.sub(il2cppBase);
+        const dans = delta.compare(ptr(0)) >= 0 && delta.compare(ptr(il2cppSize)) < 0;
+        out.push(dans ? ghidraVA(a) : "hors-image:" + a.toString());
+    }
+    return out;
 }
 
 function armerPhase(): true | Refus {
@@ -924,6 +980,12 @@ function armerHud(): true | Refus {
                         minUnitsPossible: self.mn, maxUnitsPossible: self.mx,
                         allUnitModels: compteDict(self.hud.add(offTous).readPointer()),
                         allUnlockedUnitModels: compteDict(self.hud.add(offDebl).readPointer()),
+                        // ⚠ LE POINTEUR, PAS SEULEMENT LE COMPTE. Un dictionnaire qui retombe à
+                        // zéro peut avoir été VIDÉ (`Clear`) ou REMPLACÉ (le champ réaffecté à
+                        // un objet neuf). Les deux se lisent « 0 » et appellent des enquêtes
+                        // opposées ; seule l'identité de l'objet les sépare.
+                        allUnitModelsPtr: self.hud.add(offTous).readPointer().toString(),
+                        allUnlockedUnitModelsPtr: self.hud.add(offDebl).readPointer().toString(),
                         disabledInput: offInput < 0
                             ? null : self.hud.add(offInput).readU8() !== 0,
                     };
@@ -1601,6 +1663,25 @@ let showEnters = 0;
 let vidangeFires = 0;
 const vidangeTrace: Array<Record<string, unknown>> = [];
 let listenerVidange: InvocationListener | null = null;
+/** L'ancrage sur `Dictionary.Clear`, armé À LA DEMANDE et filtré par pointeur (cf.
+ *  `deploymentVidangeArmer`). Les cibles sont relevées à l'armement : ce sont les dictionnaires
+ *  VIVANTS du HUD, pas des offsets — si l'un est remplacé par un autre objet, il sort du filtre,
+ *  et c'est un RÉSULTAT (le vidage serait alors une RÉAFFECTATION de champ, pas un `Clear`). */
+let listenerDictClear: InvocationListener | null = null;
+const ciblesVidange: Array<{ nom: string; ptr: NativePointer }> = [];
+const dictClearTrace: Array<Record<string, unknown>> = [];
+/** L'ancrage sur le lanceur de jet IL2CPP (`deploymentJetArmer`). Global, donc armé/désarmé
+ *  autour d'UNE mesure. */
+let listenerJet: InvocationListener | null = null;
+let jetFires = 0;
+const jetTrace: Array<Record<string, unknown>> = [];
+/** L'ancrage sur `UnitDeploymentState$$StartBattle` — le point qui coupe l'espace de recherche
+ *  en deux (`deploymentStartTracer`). Une entrée SANS sortie est la signature d'une levée dans
+ *  ce corps ou dessous ; aucune entrée dit que la levée est en amont. */
+let listenerStartBattle: InvocationListener | null = null;
+/** Les ancrages des quatre etages sous StartBattle (cf. deploymentStartTracer). */
+const listenersEtages: InvocationListener[] = [];
+const startBattleTrace: Array<Record<string, unknown>> = [];
 /** `true` entre l'entrée et la sortie de `Show`. Même thread, donc c'est EXACT — là où une
  *  soustraction de compteurs ne l'est pas (un `Show` qui lève ne sort jamais). */
 let dansShow = false;
@@ -4527,6 +4608,328 @@ export function register(ctx: Ctx): void {
                  note: "`Show` publie les deux comptes ; `TryMarkUnitAsPlaced` publie le "
                      + "verdict de chaque clic. Un premier dictionnaire plein et un second "
                      + "vide EST la signature de « je sélectionne mais je ne pose pas »." };
+    };
+
+    /**
+     * COUPER L'ESPACE DE RECHERCHE EN DEUX : `StartBattle` est-il ATTEINT, et REVIENT-IL ?
+     *
+     * ⚠ C'EST UNE MESURE, PAS UNE HYPOTHÈSE. `HandleOnStartBattleTapped` fait trois choses après
+     * ses gardes : `FindAll` (le prédicat -- MESURÉ bon, 6/6), `ListExtensions.Map`, puis le
+     * relais au slot 3 du `_callbacksDelegate`, qui est
+     * `IdunBattle.View.FSM.UnitDeployment.UnitDeploymentState$$StartBattle`. Ancrer CE point
+     * tranche entre les deux moitiés sans rien supposer :
+     *
+     *   entrée 0            -> la levée est AVANT, donc dans `Map` ou dans le dispatch d'interface ;
+     *   entrée 1, sortie 0  -> la levée est DANS `StartBattle` ou dessous ;
+     *   entrée 1, sortie 1  -> `StartBattle` a rendu, la levée est APRÈS.
+     *
+     * On relève aussi ses trois champs et la TAILLE de la liste reçue : le décompilé montre que
+     * `units == null`, `_visualBattleQuery == null` et `_actions == null` sont ses trois sorties
+     * « ne revient pas », et que la taille est passée telle quelle au slot 0x31.
+     *
+     * Résolu PAR NOM, corps contrôlé (`tete`) : pas d'adresse épinglée ici, il y a un `MethodInfo`.
+     */
+    ctx.rpc.deploymentStartTracer = (body?: {
+        armer?: boolean; vider?: boolean;
+    }): unknown => {
+        if (body?.vider === true) { startBattleTrace.length = 0; }
+        const etat = () => ({ arme: listenerStartBattle !== null, tirs: startBattleTrace.length,
+                              trace: startBattleTrace });
+        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
+        if (body.armer === false) {
+            if (listenerStartBattle) { listenerStartBattle.detach(); listenerStartBattle = null; }
+            for (const l of listenersEtages) l.detach();
+            listenersEtages.length = 0;
+            Interceptor.flush();
+            return { ok: true, action: "detache", ...etat() };
+        }
+        if (listenerStartBattle) return { ok: true, action: "deja arme", ...etat() };
+        const kS = findClassAnywhere("IdunBattle.View.FSM.UnitDeployment", "UnitDeploymentState");
+        if (!kS) return refus("`UnitDeploymentState` INTROUVABLE sur ce build");
+        const mS = findMethodByParamCount(kS, "StartBattle", 1);
+        if (!mS) return refus("`UnitDeploymentState$$StartBattle` INTROUVABLE (1 paramètre)");
+        const t = lireTete(mS.ptr);
+        if (t.erreur === null && teteTriviale(t)) {
+            return refus("REFUS : `StartBattle` résout sur un corps TRIVIAL "
+                + `(ret à l'octet ${t.retA}) -- adresse PARTAGÉE.`);
+        }
+        // LES QUATRE ÉTAGES SOUS `StartBattle`, NOMMÉS PAR LEURS SLOTS D'INTERFACE (lus par
+        // `classInterfaceSlots`, jamais devinés) :
+        //
+        //   StartBattle(units)
+        //     +- VisualBattleQuery$$IsMinUnitAmountToBringToStartBattleReached(count)   slot 0x31
+        //     +- VisualBattleQuery$$HasGameModeReasonNotToStartMatch(units, out raison) slot 0x59
+        //          +- [aucune raison] UnitSelectionFsm$$StartMatch(true)                slot 0x1d
+        //          +- [une raison]    StateMachineActions$$HandleReasonNotToStartMatch  slot 0x69
+        //
+        // Le même critère qu'au-dessus s'applique à chacun : ENTRÉE SANS SORTIE = c'est lui.
+        for (const c of [
+            ["IdunBattle.View.FSM", "VisualBattleQuery",
+             "IsMinUnitAmountToBringToStartBattleReached", 1],
+            ["IdunBattle.View.FSM", "VisualBattleQuery", "HasGameModeReasonNotToStartMatch", 2],
+            ["IdunBattle.View.FSM", "UnitSelectionFsm", "StartMatch", 1],
+            ["IdunBattle.View.FSM", "StateMachineActions", "HandleReasonNotToStartMatch", 1],
+        ] as const) {
+            const kc = findClassAnywhere(c[0], c[1]);
+            const mc = kc ? findMethodByParamCount(kc, c[2], c[3]) : null;
+            if (!mc || mc.ptr.isNull()) {
+                startBattleTrace.push({ evt: "etage INTROUVABLE", etage: `${c[1]}$$${c[2]}`,
+                                        params: c[3] });
+                continue;
+            }
+            const tc = lireTete(mc.ptr);
+            if (tc.erreur === null && teteTriviale(tc)) {
+                // Un corps TRIVIAL est PARTAGÉ : s'y attacher ferait tirer le compteur pour
+                // toute autre méthode dédupliquée sur le même corps. On le DIT et on saute.
+                startBattleTrace.push({ evt: "etage TRIVIAL (corps partagé, non ancré)",
+                                        etage: `${c[1]}$$${c[2]}`, tete: tc });
+                continue;
+            }
+            listenersEtages.push(Interceptor.attach(mc.ptr, {
+                onEnter() {
+                    const s2 = this as unknown as { n: number };
+                    s2.n = startBattleTrace.length;
+                    if (startBattleTrace.length < 24) {
+                        startBattleTrace.push({ evt: "entree", etage: `${c[1]}$$${c[2]}`,
+                                                ghidraVA: ghidraVA(mc.ptr) });
+                    }
+                },
+                onLeave(rv) {
+                    const s2 = this as unknown as { n: number };
+                    const e2 = startBattleTrace[s2.n];
+                    if (e2) { e2.sortie = true; e2.retour = rv.toInt32() & 0xff; }
+                },
+            }));
+        }
+        listenerStartBattle = Interceptor.attach(mS.ptr, {
+            onEnter(args) {
+                const self = this as unknown as { n: number };
+                const e: Record<string, unknown> = { evt: "entree",
+                                                    etage: "UnitDeploymentState$$StartBattle" };
+                try {
+                    const st = args[0];
+                    const lst = args[1];
+                    for (const [nom, off] of [["_stateChanger", 0x10], ["_actions", 0x18],
+                                              ["_visualBattleQuery", 0x28]] as const) {
+                        const p = st.add(off).readPointer();
+                        e[nom] = p.isNull() ? null : p.toString();
+                    }
+                    e.unitsNul = lst.isNull();
+                    e.unitsTaille = lst.isNull() ? null : lst.add(0x18).readS32();
+                } catch (err) { e.erreur = (err as Error).message; }
+                self.n = startBattleTrace.length;
+                if (startBattleTrace.length < 16) startBattleTrace.push(e);
+            },
+            onLeave(retval) {
+                const self = this as unknown as { n: number };
+                const e = startBattleTrace[self.n];
+                if (e) { e.sortie = true; e.retour = retval.toInt32() & 0xff; }
+            },
+        });
+        Interceptor.flush();
+        return { ok: true, action: "attache", ghidraVA: ghidraVA(mS.ptr), tete: t, ...etat() };
+    };
+
+    /**
+     * S'ANCRER SUR LE LANCEUR DE JET LUI-MÊME — le SITE, pas le symptôme.
+     *
+     * ⚠ POURQUOI CELUI-LÀ. Toutes les sorties « WARNING: Subroutine does not return » du
+     * décompilé de cette famille (`HandleOnStartBattleTapped`, `UnitDeploymentState$$StartBattle`,
+     * `Show`, `b__150_0`…) appellent `FUN_1801f5460`, qui appelle son helper puis `int 3` et ne
+     * revient jamais : c'est le lanceur de `NullReferenceException` généré par IL2CPP. Son
+     * ENTRÉE est donc l'instant exact du jet, et la frame 0 de sa pile est l'adresse de retour
+     * DANS la fonction fautive.
+     *
+     * Ce que ça remplace : le « system error » de Frida (aucun message), le backtrace SEH (16
+     * frames toutes nommées `mono_type_size`), et le backtrace d'`invoke_native_error` (qui est
+     * la pile de NOTRE agent, pas celle du jeu). Trois étages qui arrivent trop tard ou qui
+     * nomment faux.
+     *
+     * ⚠ ADRESSE ÉPINGLÉE, ET C'EST LE SEUL RÉGIME OÙ C'EST LÉGITIME : `FUN_1801f5460` est un
+     * placeholder, il n'a AUCUN `MethodInfo`, donc rien à résoudre au runtime. Elle passe par
+     * `pinnedAddress`, qui confronte le build DÉCLARÉ au build CHARGÉ et rend `null` en le
+     * disant — jamais un attachement en aveugle.
+     *
+     * ⛔ IL TIRE POUR TOUT LE JEU. À armer le temps d'une mesure, à désarmer juste après.
+     */
+    ctx.rpc.deploymentJetArmer = (body?: {
+        armer?: boolean; confirmer?: boolean; vider?: boolean;
+    }): unknown => {
+        if (body?.vider === true) { jetTrace.length = 0; jetFires = 0; }
+        // LA RÉSOLUTION DES NOMS SE FAIT ICI, hors du chemin de jet : un `Il2CppClass*` est
+        // permanent, donc le nommer plus tard est sûr -- et c'est la seule façon de le faire
+        // sans ré-entrer dans le runtime pendant qu'il déroule une exception.
+        const etat = () => ({
+            arme: listenerJet !== null, tirs: jetFires,
+            trace: jetTrace.map((e) => {
+                const k = e.klass;
+                let nom: string | null = null;
+                if (typeof k === "string" && k !== "0x0") {
+                    try { nom = s(class_get_name(ptr(k)) as NativePointer); }
+                    catch { nom = null; }
+                }
+                return { ...e, classeException: nom };
+            }),
+        });
+        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
+        if (body.armer === false) {
+            if (listenerJet) { listenerJet.detach(); listenerJet = null; }
+            Interceptor.flush();
+            return { ok: true, action: "detache", ...etat() };
+        }
+        if (body.confirmer !== true) {
+            return refus("ANCRAGE GLOBAL -- exige `confirmer: true`. `FUN_1801f5460` est le "
+                + "lanceur de NullReferenceException de TOUT le binaire : il tire pour chaque "
+                + "jet du jeu, pas seulement les nôtres. À désarmer dès la mesure prise.");
+        }
+        if (listenerJet) return { ok: true, action: "deja arme", ...etat() };
+        // ⛔⛔ NE PAS RÉARMER. DEUX MORTS DU JEU, MESURÉES, POUR CETTE SEULE CIBLE.
+        //
+        // 2026-08-20, minidumps `Tacticus.exe.26196.dmp` (02:09:20) et le suivant : ancrer
+        // `FUN_180201a80` tue le processus au premier tir. La première fois, l'explication
+        // paraissait suffisante — le `onEnter` appelait `decodeManagedException`, donc on
+        // RÉ-ENTRAIT dans IL2CPP pendant qu'il déroulait une exception. On a donc refait la sonde
+        // en régime FROID : lectures mémoire seules, `Thread.backtrace` FUZZY, résolution des
+        // noms déportée dans le lecteur du RPC. Le jeu est mort EXACTEMENT PAREIL.
+        //
+        // Ce que la seconde mort établit et que la première ne disait pas : ce n'est pas le
+        // CONTENU du callback, c'est le TRAMPOLINE. `Interceptor.attach` réécrit le prologue en
+        // `e9 <rel32>` ; sur une fonction que le runtime traverse en plein déroulement de pile,
+        // ça détruit l'invariant d'unwind (le déroulement cherche des tables associées au code
+        // ORIGINAL). Aucune version « plus prudente » du callback ne peut rattraper ça.
+        //
+        // ⇒ L'observation du site de jet ne se fait PAS par ancrage du raiser. Les voies qui
+        // restent, et qui n'ont PAS tué le jeu : `deploymentStartTracer` (ancrage de méthodes de
+        // JEU nommées, entrée sans sortie = c'est celle-là), et le gestionnaire SEH déjà installé
+        // par `crash-trap`, qui observe SANS réécrire de prologue.
+        if (true as boolean) {
+            return refus("REFUS DÉFINITIF -- cet ancrage a tué le jeu DEUX fois (minidumps du "
+                + "2026-08-20). La cause n'est pas le callback mais le trampoline posé sur le "
+                + "chemin de déroulement d'exception. Utiliser `deploymentStartTracer` "
+                + "(méthodes de jeu nommées, entrée sans sortie) ou le gestionnaire SEH de "
+                + "`crash-trap`, qui n'écrivent aucun prologue.");
+        }
+        const p = pinnedAddress({
+            va: 0x180201a80, build: "t6dpr4k06g", symbol: "FUN_180201a80", kind: "code",
+            what: "LE FOND COMMUN de tous les jets IL2CPP de ce binaire, et il reçoit "
+                + "L'OBJET EXCEPTION en premier argument -- donc un seul ancrage rend à la "
+                + "fois la classe/le message de l'exception ET le site du jet par sa pile",
+            how: "partir d'une sortie « Subroutine does not return » d'une méthode connue, "
+                + "descendre la chaîne de helpers (`FUN_1801f5460` -> `FUN_180201bc0` -> "
+                + "`FUN_180201ba0`, `FUN_1801f5450` -> `FUN_180201b80`, `FUN_1801f5420`) : "
+                + "les trois convergent sur la fonction qui prend l'exception en param_1",
+        });
+        if (p === null) {
+            return { ok: false, error: "adresse ÉPINGLÉE REFUSÉE (build différent ou non "
+                + "mesurable) -- aucun attachement. Cf. `pinnedAddressRefusals`." };
+        }
+        const t = lireTete(p);
+        listenerJet = Interceptor.attach(p, {
+            onEnter(args) {
+                jetFires++;
+                if (jetTrace.length >= 24) return;
+                // ⛔ LECTURES MÉMOIRE SEULEMENT — aucune ré-entrée dans IL2CPP. La version qui
+                // décodait l'exception ici a TUÉ LE JEU au premier tir (cf. `pileGhidraFroide`).
+                // On garde le pointeur de CLASSE, qui est permanent, et le lecteur du RPC le
+                // nommera dans un contexte sain.
+                let klass: string | null = null;
+                try { klass = args[0].readPointer().toString(); } catch { /* laissé null */ }
+                jetTrace.push({ n: jetFires, exception: args[0].toString(), klass,
+                                pile: pileGhidraFroide(this.context, 16) });
+            },
+        });
+        Interceptor.flush();
+        return { ok: true, action: "attache", ghidraVA: ghidraVA(p), tete: t, ...etat() };
+    };
+
+    /**
+     * SE BRANCHER SUR LE VIDANGEUR, ET LIRE LA PILE ENTRANTE.
+     *
+     * ⚠ C'EST LA RÉPONSE À « L'ERREUR ARRIVE TROP TARD ». Le « system error » du START est un
+     * SYMPTÔME : quand il tombe, la cause a déjà eu lieu, et son backtrace SEH ne nomme que des
+     * `mono_type_size`. Ce qu'on sait en revanche, c'est QUOI a bougé : les trois dictionnaires
+     * du HUD passent de 102 à 0. On s'ancre donc sur le geste lui-même — `Dictionary.Clear` — et
+     * on relève la pile AU MOMENT du vidage. L'appelant est alors LU, pas déduit.
+     *
+     * ⚠ RÉSOLU SUR L'INSTANCE INFLATÉE, jamais sur la définition générique : `findMethod` sur
+     * une définition rend le THUNK d'invocation, pas le corps gshared — un ancrage qui se
+     * déclare posé et ne tire jamais (#259-b). On part donc de la classe du dictionnaire VIVANT.
+     *
+     * ⚠ ET IL EST FILTRÉ PAR POINTEUR, PREMIÈRE INSTRUCTION. Ce corps est partagé par toutes les
+     * instanciations de même forme : sans filtre, c'est un broad-hook sur du hot path, exactement
+     * ce que le `CLAUDE.md` proscrit. On compare `args[0]` aux trois dictionnaires du HUD et on
+     * sort. Il s'arme et se désarme À LA DEMANDE — pas au montage.
+     */
+    ctx.rpc.deploymentVidangeArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const etat = () => ({
+            arme: listenerDictClear !== null, cibles: ciblesVidange.map((c) => c.nom),
+            tirs: dictClearTrace.length, trace: dictClearTrace,
+        });
+        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
+        if (body.armer === false) {
+            if (listenerDictClear) { listenerDictClear.detach(); listenerDictClear = null; }
+            ciblesVidange.length = 0;
+            Interceptor.flush();
+            return { ok: true, action: "detache", ...etat() };
+        }
+        if (body.confirmer !== true) {
+            return refus("ANCRAGE SUR UN CORPS PARTAGÉ -- exige `confirmer: true`. "
+                + "`Dictionary.Clear` est un corps gshared appelé par tout le jeu ; le filtre "
+                + "par pointeur est la première instruction, mais le trampoline, lui, est payé "
+                + "par TOUS les appelants. À désarmer dès la mesure prise.");
+        }
+        return queueOnMainThread((): Record<string, unknown> => {
+            if (hudInstance === null || hudInstance.isNull()) {
+                return { ok: false, error: "aucun `UnitDeploymentHud` capturé" };
+            }
+            const k = findClassAnywhere(NS_HUD, CLS_HUD);
+            if (!k) return { ok: false, error: `\`${NS_HUD}.${CLS_HUD}\` INTROUVABLE` };
+            if (listenerDictClear) return { ok: true, action: "deja arme", ...etat() };
+            ciblesVidange.length = 0;
+            for (const nom of ["_unitModels", "_allUnitModels", "_allUnlockedUnitModels"]) {
+                const off = getFieldOffset(k, nom);
+                if (off < 0) continue;
+                try {
+                    const d = hudInstance.add(off).readPointer();
+                    if (!d.isNull()) ciblesVidange.push({ nom, ptr: d });
+                } catch { /* champ illisible : on le DIT par son absence de la liste */ }
+            }
+            if (ciblesVidange.length === 0) {
+                return { ok: false, error: "aucun des trois dictionnaires n'est lisible -- rien "
+                    + "à filtrer, et un ancrage SANS filtre est refusé" };
+            }
+            const kDict = ciblesVidange[0].ptr.readPointer();
+            const mClear = findMethod(kDict, "Clear");
+            if (!mClear || mClear.ptr.isNull()) {
+                return { ok: false, error: "`Clear` INTROUVABLE sur la classe du dictionnaire "
+                    + "VIVANT (instance inflatée)" };
+            }
+            const t = lireTete(mClear.ptr);
+            listenerDictClear = Interceptor.attach(mClear.ptr, {
+                onEnter(args) {
+                    // FILTRE D'ABORD. Tout le reste est derrière cette comparaison.
+                    const self = args[0];
+                    let nom: string | null = null;
+                    for (const c of ciblesVidange) {
+                        if (c.ptr.equals(self)) { nom = c.nom; break; }
+                    }
+                    if (nom === null) return;
+                    if (dictClearTrace.length >= 16) return;
+                    let avant: string | number | null = null;
+                    try { avant = compteDict(self); } catch { /* laisse null */ }
+                    dictClearTrace.push({
+                        champ: nom, dictionnaire: self.toString(), comptaAvant: avant,
+                        dansShow, showEnters, showFires,
+                        pile: pileGhidra(this.context, 24),
+                    });
+                },
+            });
+            Interceptor.flush();
+            return { ok: true, action: "attache", clearVA: ghidraVA(mClear.ptr), tete: t,
+                     classeDict: s(class_get_name(kDict) as NativePointer), ...etat() };
+        });
     };
 
     /**
