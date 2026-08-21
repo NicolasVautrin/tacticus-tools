@@ -298,6 +298,143 @@ function listeDeModeles(m: NativePointer, index: number, prog: NativePointer, id
     return lst;
 }
 
+/** `Buffs` du record : `List<ResourceBonus>` DERIVE du jeu, jamais invente.
+ *
+ *  MIROIR 1:1 de ce que fait le site de construction du jeu,
+ *  `idun.shared.commands.ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked` :
+ *
+ *      Buffs = ListExtensions.Map(progression.GetActiveBuffs(warZoneId), b => new ResourceBonus(...))
+ *
+ *  et le lambda (`<>c$$<OnStartBattleButtonClicked>b__20_1`) tient en une ligne -- il RECOPIE deux
+ *  champs, sans rien calculer :
+ *
+ *      (b) => new ResourceBonus(b.triggeredAbilityType, b.buffAmount)
+ *
+ *  ⚠ C'EST UNE RECOPIE DE TYPES DIFFERENTS, ET C'EST VOULU. `WarZoneBuffData` porte un
+ *  `TriggeredAbilityType`, `ResourceBonus` declare un `ResourceType` : le natif transvase l'un
+ *  dans l'autre tel quel. On ne « corrige » pas ce transvasement -- ce qui part au serveur doit
+ *  etre ce que le jeu y met.
+ *
+ *  ⚠ ET LE NUL N'EST JAMAIS LE CAS NORMAL. `GuildWarPhaseProgression$$GetActiveBuffs` alloue une
+ *  liste VIDE quand la zone n'a pas de config ; une zone sans buff rend donc `[]`, pas `null`.
+ *  Ce champ a ete pose a `NULL` pendant une journee sur la foi d'un commentaire (<< HUD seul >>)
+ *  que personne n'avait mesure -- et `GuildWarsGameModeSource$$SendLoadBattleGameEventInternal`
+ *  l'ENUMERE : tout engagement reel levait une `NullReferenceException`. Cf. `#10041-r6`. */
+function buffsDeZone(m: NativePointer, index: number, prog: NativePointer, warZoneId: string)
+    : NativePointer | RefusVue {
+    const kListe = methodParamClass(m, index);
+    if (!kListe || kListe.isNull()) return refus("classe du parametre " + index + " illisible");
+    const kProg = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                    "GuildWarPhaseProgression");
+    const mBuffs = kProg ? findMethodByParamCount(kProg, "GetActiveBuffs", 1) : null;
+    if (!mBuffs) {
+        return refus("`GuildWarPhaseProgression$$GetActiveBuffs(String)` INTROUVABLE -- on ne "
+            + "fabrique pas les buffs de zone a la main, ils viennent du jeu");
+    }
+    let src: NativePointer;
+    try {
+        src = invokeMethod(mBuffs.info, prog, [createManagedString(warZoneId)]);
+    } catch (e) {
+        return refus("`GetActiveBuffs` a LEVE : " + (e as Error).message);
+    }
+    if (!src || src.isNull()) {
+        return refus("`GetActiveBuffs` a rendu NUL -- inattendu : le natif alloue une liste vide "
+            + "quand il n'y a pas de config de zone. Ne pas rabattre sur une liste vide.");
+    }
+    // On passe par `get_Count`/`get_Item` de la liste SOURCE plutot que par sa disposition
+    // interne : aucune hypothese sur `_items`/`_size`, et un renommage donne un refus nomme.
+    const kSrc = src.readPointer();
+    const mCount = findMethodByParamCount(kSrc, "get_Count", 0);
+    const mItem = findMethodByParamCount(kSrc, "get_Item", 1);
+    if (!mCount || !mItem) return refus("`get_Count`/`get_Item` introuvables sur la liste rendue "
+        + "par `GetActiveBuffs`");
+
+    const ctorListe = findCtorByParamCount(kListe, 0);
+    if (!ctorListe) return refus("ctor sans parametre introuvable sur la liste du parametre "
+        + index);
+    const lst = il2cpp_object_new(kListe);
+    if (lst.isNull()) return refus("allocation de la liste du parametre " + index + " a rendu NUL");
+    gcRoot.add(lst);
+    invokeMethod(ctorListe.info, lst, []);
+    const add = findMethodByParamCount(kListe, "Add", 1);
+    if (!add) return refus("`Add` introuvable sur la liste du parametre " + index);
+    const kBonus = methodParamClass(add.info, 0);
+    if (!kBonus || kBonus.isNull()) return refus("classe de l'element de `Buffs` illisible");
+    const ctorBonus = findCtorByParamCount(kBonus, 2);
+    if (!ctorBonus) return refus("`ResourceBonus..ctor(2)` INTROUVABLE -- la signature a CHANGE");
+
+    // ⚠ `runtime_invoke` BOXE les types valeur : le retour de `get_Count` est un `Int32` BOXE,
+    // et le lire comme un pointeur rend n'importe quoi. La valeur est a +0x10 (apres l'en-tete
+    // d'objet). Mesure du 2026-08-21 : sans ce decalage, `Add` levait
+    // `ArgumentOutOfRangeException` -- une faute qui n'accuse jamais sa cause.
+    const boite = invokeMethod(mCount.info, src, []) as NativePointer;
+    if (!boite || boite.isNull()) return refus("`get_Count` a rendu NUL sur la liste des buffs");
+    const n = boite.add(0x10).readS32();
+    if (n < 0 || n > 4096) {
+        return refus("`get_Count` rend " + n + " buffs de zone -- hors de tout regime plausible, "
+            + "on ne construit rien sur une lecture qui n'a pas de sens");
+    }
+    const i32 = (v: number) => { const p = Memory.alloc(4); p.writeS32(v); return p; };
+    const vus: Array<{ type: number; montant: number }> = [];
+    for (let i = 0; i < n; i++) {
+        const e = invokeMethod(mItem.info, src, [i32(i)]);
+        if (!e || e.isNull()) {
+            return refus("`GetActiveBuffs` a rendu un element NUL a l'indice " + i);
+        }
+        const kElem = e.readPointer();
+        const offType = getFieldOffset(kElem, "<triggeredAbilityType>k__BackingField");
+        const offMontant = getFieldOffset(kElem, "<buffAmount>k__BackingField");
+        if (offType < 0 || offMontant < 0) {
+            return refus("`WarZoneBuffData` ne porte plus `<triggeredAbilityType>k__BackingField` "
+                + "et/ou `<buffAmount>k__BackingField` -- ce sont EXACTEMENT les deux champs que "
+                + "recopie le lambda du jeu ; on ne devine pas un remplacant");
+        }
+        const type = e.add(offType).readS32();
+        const montant = e.add(offMontant).readS32();
+        const rb = il2cpp_object_new(kBonus);
+        if (rb.isNull()) return refus("allocation d'un `ResourceBonus` a rendu NUL");
+        invokeMethod(ctorBonus.info, rb, [i32(type), i32(montant)]);
+        invokeMethod(add.info, lst, [rb]);
+        vus.push({ type, montant });
+    }
+    derniersBuffs = vus;
+    return lst;
+}
+
+/** Le dernier `Buffs` derive, pour que la reponse du forgeur le MONTRE au lieu de le promettre. */
+let derniersBuffs: Array<{ type: number; montant: number }> = [];
+
+/** `EnemyPlayer` du record : le membre de guilde qui OCCUPE la zone-partie visee.
+ *
+ *  Meme site de reference, meme principe -- le jeu appelle
+ *  `GuildWarPhaseProgression$$GetOccupyingGuildMember(warZoneId, zonePartIndex)`, qui remonte a
+ *  `GetWarZone` -> `WarZoneDtoExtensions$$GetWarZonePart` -> `GetGuildMember`. On n'invente pas
+ *  l'adversaire : c'est la consigne, et c'est aussi ce qui part au serveur. */
+function occupantDeLaZone(prog: NativePointer, warZoneId: string, zonePartIndex: number)
+    : NativePointer | RefusVue {
+    const kProg = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                    "GuildWarPhaseProgression");
+    const mOcc = kProg ? findMethodByParamCount(kProg, "GetOccupyingGuildMember", 2) : null;
+    if (!mOcc) {
+        return refus("`GuildWarPhaseProgression$$GetOccupyingGuildMember(String, Int32)` "
+            + "INTROUVABLE -- on ne fabrique pas l'adversaire");
+    }
+    const p = Memory.alloc(4);
+    p.writeS32(zonePartIndex);
+    let m: NativePointer;
+    try {
+        m = invokeMethod(mOcc.info, prog, [createManagedString(warZoneId), p]);
+    } catch (e) {
+        return refus("`GetOccupyingGuildMember` a LEVE : " + (e as Error).message);
+    }
+    if (!m || m.isNull()) {
+        return refus("AUCUN membre n'occupe la zone " + warZoneId + " partie " + zonePartIndex
+            + " -- on engage une DEFENSE, donc un occupant est attendu. Un `EnemyPlayer` nul "
+            + "changerait EN SILENCE ce qui part au serveur : on s'arrete plutot que de le poser.");
+    }
+    return m;
+}
+
 /** La `GuildWarPhaseProgression` VIVANTE, par le champ nomme de l'executeur.
  *
  *  ⚠ NE PAS conclure de `_liveEventState == null` que la progression est VIDE. Mesure du
@@ -1444,6 +1581,11 @@ export function register(ctx: Ctx): void {
                 + "on ne devine pas une arite de remplacement");
         }
         const i32 = (v: number) => { const p = Memory.alloc(4); p.writeS32(v); return p; };
+        // (!)DERIVES AVANT L'ALLOCATION -- un refus ici ne doit pas laisser un record a demi bati.
+        const buffs = buffsDeZone(ctorRec.info, 10, prog as NativePointer, body.warZoneId);
+        if (estRefus(buffs)) return buffs;
+        const adversaire = occupantDeLaZone(prog as NativePointer, body.warZoneId, part);
+        if (estRefus(adversaire)) return adversaire;
         const rec = il2cpp_object_new(kRec);
         if (rec.isNull()) return refus("allocation du `GuildWarBattleData` a rendu NUL");
         gcRoot.add(rec);
@@ -1481,14 +1623,10 @@ export function register(ctx: Ctx): void {
                 // 10 apres, deux fois).
                 //
                 // (!)ILS SE DERIVENT, ILS NE S'INVENTENT PAS. Le site de construction du jeu est
-                // `ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked`, qui les
-                // tire tous deux de la progression de guerre de guilde -- `Buffs` par un
-                // `ListExtensions$$Map` sur le retour de l'interface (slot 0x1f, warZoneId), et
-                // `EnemyPlayer` par un autre appel d'interface (slot 0x15, warZoneId +
-                // zonePartIndex). Une liste VIDE est le cas normal d'une zone sans buff ; `null`
-                // ne l'est jamais.
-                NULL,                                     // Buffs        -- A DERIVER (#10041-r6)
-                NULL,                                     // EnemyPlayer  -- A DERIVER (#10041-r6)
+                // `ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked` : voir
+                // `buffsDeZone` et `occupantDeLaZone`, qui en sont le miroir 1:1.
+                buffs as NativePointer,                   // Buffs        <- GetActiveBuffs, mappe
+                adversaire as NativePointer,              // EnemyPlayer  <- GetOccupyingGuildMember
             ]);
         } catch (e) { return refus("`GuildWarBattleData..ctor` a LEVE : " + (e as Error).message); }
 
@@ -1534,6 +1672,19 @@ export function register(ctx: Ctx): void {
             classe: (() => { try { return cstr(class_get_name(src.readPointer()) as NativePointer); }
                              catch { return null; } })(),
             hud: hudRes, mowUtilisable,
+            // ⚠ MONTRES, PAS PROMIS. Ces deux champs sont partis au serveur a chaque engagement ;
+            // les avoir laisses nuls sur la foi d'un commentaire a coute une journee (#10041-r6).
+            // On les publie donc, pour qu'un nul ou un adversaire inattendu se VOIE au cran de
+            // forge -- avant l'appel irreversible, pas apres.
+            buffsDeZone: derniersBuffs,
+            // `GuildMemberDto` porte des champs NUS (`displayName`, `userId`), pas des backing
+            // fields de propriete -- mesure, pas convention.
+            adversaire: (() => {
+                const p = adversaire as NativePointer;
+                const nom = champPointeur(p, "displayName");
+                if (estRefus(nom)) return p.toString();
+                try { return readIl2cppString(nom as NativePointer); } catch { return p.toString(); }
+            })(),
             // Ce que le ctor a lui-meme rempli : le lineup mappe et le roster ADRESSE.
             opponentLineup: src.add(0xe0).readPointer().toString(),
             availableMainPlayerUnits: src.add(0xf0).readPointer().toString(),
