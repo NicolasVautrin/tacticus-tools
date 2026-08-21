@@ -934,6 +934,10 @@ interface Delegation {
     listener: InvocationListener | null;
     miCampagne: { ptr: NativePointer; info: NativePointer } | null;
     ancrage: { sandbox: string; campagne: string; tete: Tete } | null;
+    /** LE PRÊTEUR SUR LEQUEL LA MÉTHODE A ÉTÉ RÉSOLUE — pas celui qui est demandé aujourd'hui.
+     *  `null` = jamais armée. Cf. `armerUneDelegation` : sans ce témoin, un ré-armement avec un
+     *  AUTRE prêteur laissait la méthode de l'ancien en place, en silence. */
+    preteurArme: Preteur | null;
     fires: number; emprunts: number;
     /** Dernier incident RÉEL — jamais avalé, jamais résumé en booléen. */
     dernier: { ok: boolean; detail: string } | null;
@@ -941,7 +945,7 @@ interface Delegation {
 
 const delegations: Delegation[] = DELEGUEES.map((d) => ({
     nom: d.nom, role: d.role, listener: null, miCampagne: null, ancrage: null,
-    fires: 0, emprunts: 0, dernier: null,
+    preteurArme: null, fires: 0, emprunts: 0, dernier: null,
 }));
 
 /**
@@ -1738,7 +1742,31 @@ function armerBorne(b: Borne): true | Refus {
 function armerUneDelegation(
     d: Delegation, spec: { nom: string; params: number; valeurs?: boolean[] },
 ): true | Refus {
-    if (d.listener) return true;
+    // ⚠ DÉJÀ ARMÉE ≠ ARMÉE SUR LE BON PRÊTEUR, ET LES CONFONDRE PRODUIT UNE CONFUSION DE TYPE.
+    //
+    // Ce test était `if (d.listener) return true;` — un ré-armement demandant un AUTRE prêteur
+    // ressortait donc VERT sans rien re-résoudre, et `d.miCampagne` restait la méthode de
+    // l'ancien. Mesure du 2026-08-21, montage guild war après trois montages de campagne :
+    // `preteurDelegation` valait bien `guildWar` et l'OBJET prêté était la source GW, mais la
+    // MÉTHODE invoquée était `CampaignGameModeSource$$GetUnitsForDeploymentHUD` (`+0x511fe0`)
+    // au lieu de `GuildWarsGameModeSource$$GetUnitsForDeploymentHUD` (`+0x520300`). On exécutait
+    // donc du natif de campagne sur une disposition mémoire de guerre de guilde : le champ de
+    // progression lu à l'offset de la campagne tombait sur l'`_onlineFeatureDecider` de l'objet
+    // GW, d'où `MethodAccessException: ICampaignProgression.GetDeployableUnits on type
+    // OnlineFeatureDecider` — et un écran de déploiement au roster VIDE.
+    //
+    // C'est exactement ce que `guildWarSourceBc` refuse par ailleurs (« invoquer dessus
+    // exécuterait du natif sur une disposition mémoire étrangère ») : ici on le faisait.
+    if (d.listener) {
+        const voulu = sourcePreteuse().nom;
+        if (d.preteurArme === voulu) return true;
+        // Le prêteur a changé : on DÉPOSE et on re-résout. Un `detach` ici est sûr — on n'est
+        // pas dans l'appel qu'on ancre, on arme.
+        d.listener.detach();
+        d.listener = null;
+        d.miCampagne = null;
+        d.ancrage = null;
+    }
 
     const ks = findClassAnywhere(NS_SRC, CLS_SANDBOX);
     if (!ks) return refus(`${NS_SRC}.${CLS_SANDBOX} INTROUVABLE`);
@@ -1767,6 +1795,7 @@ function armerUneDelegation(
             + "prêteur ne porte pas cette méthode, donc il n'y a rien à quoi déléguer");
     }
     d.miCampagne = mc;
+    d.preteurArme = preteur.nom;
 
     const nParams = spec.params;
     d.listener = Interceptor.attach(ms.ptr, {
@@ -4146,11 +4175,24 @@ function armerStart(): true | Refus {
 
 function etatPool(): Record<string, unknown> {
     const src = getCampaignGameModeSourcePtr();
+    const p = sourcePreteuse();
     return {
+        // ⚠ LE PRÊTEUR DEMANDÉ, ET LE PRÊTEUR RÉELLEMENT ARMÉ -- publier le premier seul serait
+        // pire que rien. Mesure du 2026-08-21 : `preteurDelegation` disait `guildWar` alors que
+        // les quatre délégations restaient armées sur la CAMPAGNE (cf. `armerUneDelegation`), et
+        // ce statut n'exposait NI l'un NI l'autre. Il ne publiait que `sourceCampagne`, qu'on lit
+        // alors naturellement comme « le prêteur » -- ça m'a fait diagnostiquer à côté deux fois.
+        preteur: p.nom,
+        preteurPtr: p.ptr && !p.ptr.isNull() ? p.ptr.toString() : null,
         // TRI-ÉTAT : `null` = pas de source capturée, ce qui n'est PAS « rien à déléguer ».
+        // (!)CE N'EST PAS LE PRÊTEUR -- c'est la source de campagne captée par l'amorce, qui ne
+        // sert que si `preteur === "campagne"`.
         sourceCampagne: src && !src.isNull() ? src.toString() : null,
         delegations: delegations.map((d) => ({
             nom: d.nom, role: d.role, arme: d.listener !== null,
+            // `null` = jamais armée. Un écart avec `preteur` ci-dessus signale une résolution
+            // PÉRIMÉE -- c'est le symptôme qui n'avait aucun capteur.
+            preteurArme: d.preteurArme,
             fires: d.fires, emprunts: d.emprunts, dernier: d.dernier, ancrage: d.ancrage,
         })),
     };
@@ -6614,6 +6656,9 @@ export function register(ctx: Ctx): void {
             if (body.armer === false) {
                 for (const d of delegations) {
                     if (d.listener) { d.listener.detach(); d.listener = null; }
+                    // Le témoin de prêteur suit le listener : le garder après un désarmement
+                    // ferait croire à un ré-armement inutile au prochain tour.
+                    d.preteurArme = null; d.miCampagne = null; d.ancrage = null;
                 }
                 Interceptor.flush();
                 return { ok: true, action: "retire", ...etatPool() };

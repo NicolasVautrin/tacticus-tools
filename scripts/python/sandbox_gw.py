@@ -48,11 +48,16 @@ SANDBOX_ONLY = {
     "deploymentPhaseArmer": {"armer": True, "forcer": True, "confirmer": True},
     # (!)SANS CE RELAIS, L'ECRAN DE DEPLOIEMENT EST VIDE. La sandbox ne fournit pas de roster --
     # il faut DELEGUER ces methodes a la source du MODE, ici la guerre de guilde forgee.
+    # ⛔ PAS DE `GetBattleLineup` ICI. C'est le DERNIER DEPLOIEMENT DU JOUEUR SUR LE NOEUD --
+    # une notion de CAMPAGNE, qui n'existe pas pour une bataille de guerre de guilde. La
+    # deleguer faisait appeler `ICampaignProgression.get_CampaignId` sur une source GW, d'ou un
+    # `MethodAccessException` a chaque affichage du HUD. L'echec etait sans consequence (aucun
+    # lineup n'est attendu), mais il POLLUAIT le diagnostic du roster en affichant une erreur
+    # rouge a cote de la vraie.
     "deploymentPoolArmer": {"armer": True, "confirmer": True, "source": "guildWar",
                             "only": ["GetUnitModel",
                                      "GetGameModeSpecificDeploymentHudOptions",
-                                     "GetUnitsForDeploymentHUD",
-                                     "GetBattleLineup"]},
+                                     "GetUnitsForDeploymentHUD"]},
     "sandboxModeGameViews": {"armer": True, "confirmer": True},
 }
 
@@ -135,10 +140,29 @@ if not args.confirmer:
     sys.exit(0)
 
 # 3. Une bataille deja montee ? Le montage l'ECRASERAIT.
+#
+# (!)L'INSTANCE N'EST PAS LE PREDICAT (#10041). Apres une sortie, `sandboxProbe.instance` reste
+# NON NULLE -- l'objet Unity survit a la bataille -- alors que `get_IsBattleActive()` rend FAUX.
+# Le refus tombait sur un RESIDU qu'AUCUNE sortie ne pouvait lever, `retreatInvoke` exigeant
+# lui-meme une bataille active : on restait coince, sans rien a quitter.
+#
+# ⛔ ET LE MOTIF QUI JUSTIFIAIT DE GARDER LE PREDICAT STRICT ICI EST CELUI DU BOSS, PAS LE NOTRE.
+# `sandbox_boss.py` refuse sur l'instance parce qu'une TENTATIVE y est enregistree AU CHARGEMENT.
+# En guerre de guilde, non : le montage sandbox n'en consomme aucune (mesure du 2026-08-21, et
+# c'est ce que dit deja la sortie en lecture seule). Aligner sur la campagne est donc exact ;
+# c'est la case-doc de #10041 qui avait sur-generalise, corrigee avec ce commit.
+#
+# `null` = NON MESURE : on refuse aussi, on ne rabat jamais sur << pas de bataille >>.
 p = j.rpc("sandboxProbe", [{}], 120000) or {}
+r = j.rpc("retreatStatus", [], 120000) or {}
+active = r.get("batailleActive")
+if active is not False:
+    stop("bataille %s (get_IsBattleActive=%r, sandboxProbe.instance=%s). Sortir d'abord "
+         "(`retreatInvoke OnBattleSurrender`)."
+         % ("ACTIVE" if active else "NON MESUREE", active, p.get("instance")))
 if p.get("instance") not in (None, "0x0"):
-    stop("une bataille tourne DEJA (instance=%s). Sortir d'abord "
-         "(`retreatInvoke OnBattleSurrender`)." % p.get("instance"))
+    print("(!) instance IdunMainView RESIDUELLE (%s) sans bataille active -- l'objet Unity "
+          "survit a la scene. Rien a ecraser, on monte." % p.get("instance"))
 
 # 4. Forger, puis tirer la BC.
 cible = {"warZoneId": zone.get("zoneId"), "zonePartIndex": part.get("zonePartIndex"),

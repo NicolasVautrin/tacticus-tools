@@ -100,11 +100,21 @@ mesure**.
 * La bataille **avancee** (plusieurs tours) reste non eprouvee sur ce chemin.
 * `IsBattleActive` pendant la **phase de deploiement** : non mesure. C'est ce qui empeche
   d'aligner boss/GW sur le predicat de la campagne.
-* Le gel de `retreatInvoke OnBattleSurrender` sur une source de **guerre de guilde**
-  (2026-08-21, ~60 s puis blocage) n'est **toujours pas explique**. Le churn d'`Interceptor`
-  etait l'un des deux suspects ; il a disparu, mais rien ne dit qu'il etait le coupable. L'autre
-  suspect tient : le **geste incomplet** — l'UI fait `OnBattleSurrender` -> `PauseSurrender`
-  (qui rend `true`, donc DIFFERE) -> bouton de confirmation -> `ContinueSurrender`, et on
-  s'arretait au premier. ⚠ Sur une source de **campagne**, `OnBattleSurrender` **seul** sort
-  (mesure ci-dessus, 6/6) : la branche prise depend donc de la source, ce qui rend le cas GW
-  d'autant plus a mesurer separement.
+* ~~Le gel sur une source de **guerre de guilde**~~ — **NE SE REPRODUIT PLUS**, mesure du meme
+  jour, sur le code refondu : `retreatInvoke OnBattleSurrender` sur une source GW rend la main
+  en **0,45 s**, `get_IsBattleActive()` passe a FAUX, process `Responding`. Rejoue une seconde
+  fois plus tard : meme resultat.
+  ⚠ **ET LE SECOND SUSPECT EST REFUTE, PAS SEULEMENT LE PREMIER.** Ancrages ARMES pendant
+  l'invoke (ce que #10041 rend possible), le journal montre la chaine REELLE d'une source GW :
+
+      1. IdunMainView$$OnBattleSurrender
+      2. IdunMainView$$ProcessFinishSurrender
+
+  **Ni `PauseSurrender`, ni `ContinueSurrender`.** Le natif ne DIFFERE pas par cette voie : le
+  « geste incomplet » n'en etait pas un. La temporisation decrite par `case-992`
+  (`PauseSurrender` rend `true` -> bouton de confirmation -> `ContinueSurrender`) appartient au
+  **menu pause de l'UI**, pas a l'invoke direct.
+  ⚠ Ce qui reste inconnu : **ce qui a gele les ~60 s du 2026-08-21 matin**. Les deux suspects
+  nommes sont morts, le geste est mesure sain, et aucun troisieme n'est designe. Ne pas ecrire
+  que le churn en etait la cause — il a disparu en meme temps que le symptome, ce qui ne prouve
+  rien.
