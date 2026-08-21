@@ -1246,6 +1246,18 @@ export function register(ctx: Ctx): void {
                         if (bcOverride === null) return;   // transparent quand non armé
                         overrideFires++;
                         retval.replace(bcOverride);
+                        // ⛔ LE JETON DE REJEU SE REPOSE ICI, ET C'EST LE RETRY QUI L'EXIGE.
+                        // Ce point tire à CHAQUE chargement de la bataille sandbox -- montage
+                        // initial ET retry -- alors que le RPC de montage, lui, ne passe qu'une
+                        // fois. Un jeton posé au seul RPC était consommé par le premier écran de
+                        // déploiement, et le retry rouvrait la phase SANS composition : la
+                        // mémoire perdait exactement ce pour quoi elle existe.
+                        //
+                        // Et le refus reste entier là où il compte : une bataille RÉELLE a sa
+                        // propre `GameModeSource` et ne passe JAMAIS par ici, donc elle ne pose
+                        // aucun jeton. On n'écrit rien d'autre qu'un booléen -- pas d'invocation
+                        // depuis un callback d'interception.
+                        deploymentDraft.memoireRejeuAutoriser();
                     },
                 });
                 Interceptor.flush();

@@ -3762,6 +3762,21 @@ export function memoireBatailleMontee(bcId: string | null): Record<string, unkno
              rejeuArme: true };
 }
 
+/** REPOSER le jeton -- appelé depuis l'ancrage de `SandboxGameModeSource$$LoadBattle`.
+ *
+ *  (!)C'EST LE RETRY QUI EXIGE ÇA, ET LE PREMIER CORRECTIF LE CASSAIT. Un jeton posé une seule
+ *  fois au montage est consommé par l'écran de déploiement initial ; au RETRY, le jeu rouvre la
+ *  phase de déploiement de la MÊME bataille sans repasser par le RPC de montage, donc plus aucun
+ *  jeton -- et la composition était perdue, ce qui est précisément ce que la mémoire existe pour
+ *  éviter. Rapporté par l'écran le 2026-08-22.
+ *
+ *  `SandboxGameModeSource$$LoadBattle` est le bon point parce qu'il tire à CHAQUE chargement de
+ *  la bataille sandbox, retry compris, et qu'une bataille RÉELLE n'y passe jamais : elle a sa
+ *  propre `GameModeSource`. Le jeton reste donc refusé là où il doit l'être. */
+export function memoireRejeuAutoriser(): void {
+    memoireRejeuArme = true;
+}
+
 /**
  * OUBLIER TOUS LES POINTEURS CAPTÉS SUR LA BATAILLE PRÉCÉDENTE.
  *
