@@ -65,8 +65,8 @@ from replay_rejouer import poses_du_replay                   # noqa: E402
 # deploiement AVEUGLE. Recopier ces crans serait la faute que `deploiement_commun` documente en
 # tete de fichier ; on les REEMPLOIE.
 from rejeu_commun import (                                   # noqa: E402
-    armer_le_fil, armer_le_seed, attendre_le_runner, bc_vivante, chargeur_au_repos,
-    controler_le_capteur_de_vue, desarmer_capture_de_fin, ecarts_bc,
+    armer_le_fil, armer_le_seed, attendre_le_runner, chargeur_au_repos,
+    controler_le_capteur_de_vue, desarmer_capture_de_fin,
     etat_du_verrou_de_match, generation_du_runner, liberer_le_verrou_de_match,
     rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
 )
@@ -456,16 +456,27 @@ def main(argv=None):
         print("cran 8b -- LE SEED A-T-IL MORDU ?")
         verifier_morsure(j, n_av, graine)
 
-        print()
-        print("cran 8c -- la BC REELLEMENT MONTEE est-elle celle du replay ?")
-        # (!)LA FORGE DU CRAN 5 EST UNE PREDICTION, CECI EST LE FAIT. Les deux sont exiges parce
-        # qu'ils peuvent diverger : le lineup n'entre pas dans la forge.
-        ecarts = ecarts_bc(bc_replay, bc_vivante(j), voie="BC montee")
-        if ecarts:
-            stop("la BC MONTEE differe du replay sur %d point(s) -- on ne rejoue pas dessus :\n"
-                 "         %s" % (len(ecarts),
-                                  "\n         ".join(str(e)[:160] for e in ecarts[:12])))
-        print("   0 ecart : la bataille porte le substrat du replay.")
+        # ⛔ IL Y AVAIT ICI UN CRAN 8c -- << la BC REELLEMENT MONTEE est-elle celle du replay ? >>.
+        # RETIRE le 2026-08-21, et pas pour un detail : il est DOMINE, et son seul effet possible
+        # etait de faire perdre un jeton.
+        #
+        #   * Il vient APRES l'appel irreversible. Il ne peut donc RIEN empecher : quand il parle,
+        #     la tentative de guilde est prise et la bataille est montee. Un cran qui ne protege
+        #     rien mais qui ARRETE est pire que pas de cran -- mesure du jour : il a avorte la
+        #     chaine sur une bataille payee, qui a fini seule.
+        #   * Sa comparaison est DEJA FAITE, gratuitement, au cran 5 (BC forgee par la source vs
+        #     BC du replay). C'est la meme diffe, un cran plus tot, AVANT le jeton.
+        #   * Et elle est DOMINEE par le cran 11 : si la BC montee divergeait, les 38 coups ne
+        #     seraient pas bit-exacts. Le rejeu est un temoin plus fort qu'une diffe de substrat.
+        #   * Le seul ecart qu'il pretendait couvrir en propre -- << le lineup n'entre pas dans la
+        #     forge >> -- est vu par le cran 6 (lineup vs contraintes reelles) AVANT le jeton, et
+        #     par l'appariement du cran 10 apres.
+        #
+        # ⚠ ET IL NE POUVAIT PAS PASSER, quoi qu'il arrive : `dumpBattleConfig` ne lisait que
+        # PvP / MoW Event / Campagne, jamais la guerre de guilde -- il rendait << no live BC >> sur
+        # une bataille bel et bien vivante. Cette cecite-la est corrigee separement, dans
+        # `battle-config.ts`, parce qu'un lecteur partage ne doit pas mentir ; mais elle n'est PAS
+        # la raison de garder le cran. Le cran part meme une fois le lecteur repare.
 
         print()
         print("cran 8d -- la phase, par le BON temoin (`battleStatus.stageName`)")

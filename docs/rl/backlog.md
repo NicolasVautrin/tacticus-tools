@@ -5366,6 +5366,27 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
 
+- **#10041-r7 — `getLiveBattleConfig` est AVEUGLE a tout mode hors PvP / MoW Event / Campagne.** `[opus]`
+  Point d'entree : `frida/hooks/features/battle-config.ts` (`getLiveBattleConfig`, les trois
+  constantes `*_OFF_CURRENT_BATTLE`).
+  Il essaie TROIS sources, chacune par un offset EN DUR de son `_currentBattle` (`+0x80`, `+0xF0`,
+  `+0xD8`). Tout mode absent de cette liste rend `null` STRUCTURELLEMENT, quel que soit l'etat du
+  jeu. Mesure du 2026-08-21 : sur une bataille de GUERRE DE GUILDE montee, vivante et jouable
+  (38 coups rejoues dessus), `dumpBattleConfig` rendait << no live BC >>. Un lecteur partage qui
+  ment ainsi fait accuser la bataille au lieu du lecteur.
+  ⚠ Ce n'est PAS une raison de garder le cran 8c, qui a ete retire pour d'autres motifs (il vient
+  apres le jeton, et sa mesure est deja faite au cran 5). Le lecteur se repare pour lui-meme.
+  A faire : ne plus enumerer des modes. La source du match courant se CAPTE a l'entree -- toute
+  voie de montage traverse `idun.shared.commands.ViewCommandExecutor$$StartMatch(source, check)`,
+  ce qu'etablissent `StartCampaignMatch` comme `StartGuildWarsMatch`, qui ne font tous deux que
+  construire leur source puis l'appeler. Un `Interceptor.attach` (point FROID, un appel par
+  montage) qui retient l'argument, puis `_currentBattle` resolu PAR NOM (`getFieldOffset`) sur la
+  classe REELLE : les trois constantes deviennent inutiles et un mode neuf est couvert sans
+  rien ajouter. Ebauche ecrite puis REVERTEE le 2026-08-21 -- elle n'etait plus appelee par rien
+  une fois le cran retire, et du code mort livre a chaud sur le jeu du joueur ne se justifie pas.
+  FOYER: frida/hooks/features/battle-config.ts
+  BLOCAGE: capteur
+
 - **#10041-r6 — l'engagement reel leve parce que `Buffs` et `EnemyPlayer` du record sont NULS.** `[opus]`
   Point d'entree : `frida/hooks/features/guild-war-config.ts` (`guildWarSourceForger`, le ctor du
   record), et le decompile de
