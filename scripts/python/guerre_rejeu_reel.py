@@ -39,6 +39,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -64,7 +65,7 @@ from replay_rejouer import poses_du_replay                   # noqa: E402
 # deploiement AVEUGLE. Recopier ces crans serait la faute que `deploiement_commun` documente en
 # tete de fichier ; on les REEMPLOIE.
 from rejeu_commun import (                                   # noqa: E402
-    armer_le_fil, armer_le_seed, attendre_le_runner, bc_vivante,
+    armer_le_fil, armer_le_seed, attendre_le_runner, bc_vivante, chargeur_au_repos,
     controler_le_capteur_de_vue, desarmer_capture_de_fin, ecarts_bc,
     generation_du_runner, rendre_compte_du_fil, verifier_morsure,
     verifier_phase_avant_start,
@@ -362,6 +363,13 @@ def main(argv=None):
         # deploiement aveugle. C'est l'ordre que `campagne_rejeu_reel` tient a ses crans 7 a 9,
         # et que cette chaine-ci n'avait pas du tout.
         print()
+        print("cran 7a -- le CHARGEUR est-il au repos ?")
+        # ⚠ `thor.Loader$$LoadScene` REFUSE EN SILENCE quand un chargement est deja en cours : il
+        # journalise et retourne. Engager pendant que le meta charge ferait donc refuser
+        # `LoadBattle` -- et ici l'appel est IRREVERSIBLE, donc on l'aurait depense pour rien.
+        chargeur_au_repos(j)
+
+        print()
         print("cran 7b -- desarmer la capture de fin -- LE REPLAY DE REFERENCE EST INTOUCHABLE")
         desarmer_capture_de_fin(j)
 
@@ -391,8 +399,36 @@ def main(argv=None):
         if not r.get("ok"):
             stop("REFUS a l'engagement : %s" % json.dumps(r, ensure_ascii=False)[:500], code=1)
         print("   appel PASSE. %s" % r.get("note"))
-        # (!)L'APPEL PASSE NE DIT RIEN DU MONTAGE -- on attend LE SIGNAL, pas une duree.
-        attendre_le_runner(j, gen, plafond_ms=120000)
+
+        # ⛔ LE DISCRIMINANT EST LE CHARGEUR, ET IL REPOND EN UNE SECONDE.
+        #
+        # `StartMatch` REFUSE EN SILENCE quand un match est deja enregistre : le decompile le dit
+        # sans ambiguite -- `if (checkIfAlreadyRunning && *(P+8) != 0) { ... LogError(...);
+        # return; }`. Il RETOURNE, sans lever, sans charger. Attendre le runner dans ce cas, c'est
+        # attendre une bataille qui ne viendra jamais.
+        #
+        # Mesure du 2026-08-21 : appel PASSE, puis 120 s d'attente pour rien -- `loaderStatus`
+        # rendait `etape: 0, chargementEnCours: false` et `vueExceptionArmer.fires: 0`. Le
+        # chargement n'avait pas ECHOUE, il n'avait jamais COMMENCE, et le timeout ne le disait
+        # pas. On lit donc le chargeur tout de suite : s'il n'a pas bouge, la cause est NOMMEE.
+        time.sleep(1.5)
+        l = j.rpc("loaderStatus", [], timeout=120000) or {}
+        if l.get("etape") == 0 and l.get("chargementEnCours") is False:
+            stop("`StartMatch` est PASSE mais AUCUN chargement n'a demarre (`__loadingStep` "
+                 "toujours a 0). Le chargement n'a donc pas ECHOUE : il n'a jamais COMMENCE.\n"
+                 "         DEUX refus silencieux peuvent le produire, et CE CRAN NE LES DISTINGUE "
+                 "PAS -- ne pas en designer un :\n"
+                 "           * `StartMatch` lui-meme : avec `checkIfAlreadyRunning`, il "
+                 "journalise une erreur et RETOURNE si un match est deja enregistre ;\n"
+                 "           * `thor.Loader$$LoadBattle` : il journalise et retourne aussi, dans "
+                 "ses propres cas de refus.\n"
+                 "         Les departager se fait au JOURNAL DU JEU (`Player.log`), ou les deux "
+                 "ecrivent. Rien n'est parti au serveur -- le verifier au fil.", code=1)
+
+        # (!)L'APPEL PASSE NE DIT RIEN DU MONTAGE -- on attend LE SIGNAL, pas une duree. ET 30 s
+        # SUFFISENT : une bataille monte en quelques secondes ou ne monte pas. Attendre plus long
+        # laisse seulement le slot dans un etat incertain plus longtemps.
+        attendre_le_runner(j, gen, plafond_ms=30000)
 
         print()
         print("cran 8b -- LE SEED A-T-IL MORDU ?")

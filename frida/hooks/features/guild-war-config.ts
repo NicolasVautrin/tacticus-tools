@@ -1590,21 +1590,54 @@ export function register(ctx: Ctx): void {
         if (estRefus(exec)) return exec;
         const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
         if (!kExec) return refus("classe `ViewCommandExecutor` introuvable");
-        const m = findMethodByParamCount(kExec, "StartGuildWarsMatch", 1);
-        if (!m) {
-            return refus("`ViewCommandExecutor$$StartGuildWarsMatch(1)` INTROUVABLE -- signature "
-                + "CHANGEE sur ce build. On n'invente pas un point d'entree pour engager.");
+
+        // ⛔ ON N'APPELLE PAS `StartGuildWarsMatch` : IL LEVE, ET LE DECOMPILE DIT POURQUOI.
+        //
+        // `idun.shared.commands.ViewCommandExecutor$$StartGuildWarsMatch` ne fait QUE deux
+        // choses -- construire une `GuildWarsGameModeSource`, puis appeler `StartMatch`. Mais il
+        // lit ses 17 arguments de ctor SUR L'EXECUTEUR, derriere deux gardes :
+        //
+        //     if (*(this + 0x3a0) != 0) { ... if (*(this + 0x530) != 0) { ctor(); StartMatch(); }}
+        //     FUN_1801f5460();   // WARNING: Subroutine does not return  -> le throw
+        //
+        // Mesure du 2026-08-21 : l'appel leve `NullReferenceException`, donc l'un des deux champs
+        // est NUL sur l'executeur vivant. Le second est `_menuSystems` -- le natif y lit
+        // `+0x188`, `+0x3c8`, `+0xf8`, exactement les offsets que `guildWarSourceForger` resout
+        // par NOM de champ pour ses trois HUD.
+        //
+        // (!)ET C'EST SANS CONSEQUENCE POUR NOUS, parce qu'on a DEJA fait le travail que ces
+        // champs servaient a faire : la source est forgee par `guildWarSourceForger`, avec les
+        // MEMES 17 arguments dans le MEME ordre, resolus autrement. Il ne reste donc que le
+        // second geste du natif -- et `StartMatch` ne dereference NI `+0x3a0` NI `+0x530` : il
+        // pose la source dans un porteur, l'ecrit dans le statique, et appelle
+        // `thor.Loader$$LoadBattle`. C'est la methode du jeu, pas un contournement.
+        //
+        // ⚠ `checkIfAlreadyRunning` RESTE A `true`. `StartMatch` ECRASE le match courant : ecraser
+        // un match DEJA enregistre cote serveur PERD la tentative sans qu'aucun compteur local ne
+        // bouge. Le desarmer a deja coute deux jetons de boss de guilde.
+        if (sourceForgeeGw === null || sourceForgeeGw.isNull()) {
+            return { ok: false, cible: c, error: "aucune `GuildWarsGameModeSource` forgee -- "
+                + "rejouer `guildWarSourceForger {confirmer:true}`. On n'engage que ce qu'on a "
+                + "construit." };
         }
+        const m = findMethodByParamCount(kExec, "StartMatch", 2);
+        if (!m) {
+            return refus("`ViewCommandExecutor$$StartMatch(2)` INTROUVABLE -- signature CHANGEE "
+                + "sur ce build. On n'invente pas un point d'entree pour engager.");
+        }
+        const chk = Memory.alloc(1);
+        chk.writeU8(1);                       // checkIfAlreadyRunning = true, jamais desarme ici
         try {
-            invokeMethod(m.info, exec as NativePointer, [recordForgeGw]);
+            invokeMethod(m.info, exec as NativePointer, [sourceForgeeGw, chk]);
         } catch (e) {
             return { ok: false, cible: c, engage: "INCERTAIN",
-                     error: "`StartGuildWarsMatch` a LEVE : " + (e as Error).message
+                     error: "`StartMatch` a LEVE : " + (e as Error).message
                          + " -- (!)L'EXCEPTION NE PROUVE PAS QUE RIEN N'EST PARTI : le battleId "
                          + "peut avoir ete pousse avant. Relire `attemptsLeft` avant de retenter." };
         }
         return {
-            ok: true, cible: c, methode: "ViewCommandExecutor$$StartGuildWarsMatch",
+            ok: true, cible: c, methode: "ViewCommandExecutor$$StartMatch",
+            source: sourceForgeeGw.toString(),
             note: "l'appel est PASSE -- ca ne dit rien du montage, et ca ne dit pas non plus que "
                 + "la tentative a ete comptee. Verifier les DEUX : `sandboxProbe` / "
                 + "`retreatStatus.batailleActive` pour la scene, et `guildWarBoardRead."

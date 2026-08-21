@@ -137,9 +137,9 @@ from campagne_rejeu import (                               # noqa: E402
 # besoin -- elle n'en avait AUCUNE -- et devait les importer depuis un module << campagne >>.
 # Elles ont ete DEPLACEES par extraction du texte exact, jamais recopiees.
 from rejeu_commun import (                                 # noqa: E402,F401
-    armer_le_fil, armer_le_seed, bc_vivante, confronter, controler_le_capteur_de_vue,
-    desarmer_capture_de_fin, ecarts_bc, EVENEMENTS_DE_JEU, generation_du_runner,
-    rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
+    armer_le_fil, armer_le_seed, bc_vivante, chargeur_au_repos, confronter,
+    controler_le_capteur_de_vue, desarmer_capture_de_fin, ecarts_bc, EVENEMENTS_DE_JEU,
+    generation_du_runner, rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
 )
 # (!)LA CHAINE CONSTATE L'ETAT DES RELAIS, ELLE NE LE CHANGE PAS (cran 7). On importe donc la
 # LECTURE, jamais le desarmement -- cf. le cran lui-meme pour le pourquoi.
@@ -238,22 +238,6 @@ def confirmer_ecran_de_fin(jeu):
              "runner ne confirment un ecran de fin." % stage)
     print("   REPLI sur le runner : stage=%s vainqueur=%s -- ce n'est PAS une confirmation par "
           "l'ecran." % (stage, b.get("winner")))
-
-
-def chargeur_au_repos(jeu):
-    """(!)LE DISCRIMINANT DE #993, ET IL VAUT DANS LES DEUX SENS. `thor.Loader$$LoadScene`
-    REFUSE EN SILENCE quand un chargement est deja en cours : il journalise et retourne. Lancer
-    pendant que le meta charge fait donc refuser `LoadBattle` -- et la CAPTURE reussit quand
-    meme, parce que `StartCampaignMatch` cree la source AVANT d'appeler le chargeur. On se croit
-    en bataille et on echoue 20 s plus loin sur un symptome qui ne nomme pas sa cause."""
-    r = jeu.rpc("loaderStatus", [], timeout=120000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("`loaderStatus` NON MESURE : %s" % json.dumps(r, ensure_ascii=False)[:200])
-    if r.get("etape") != 0 or r.get("chargementEnCours") is not False:
-        stop("le chargeur N'EST PAS AU REPOS (etape=%s, enCours=%s). Entrer maintenant ferait "
-             "refuser `LoadBattle` EN SILENCE. Reessayer dans quelques secondes."
-             % (r.get("etape"), r.get("chargementEnCours")))
-    print("   chargeur au repos (etape 0).")
 
 
 # L'ECRAN DE FIN. Ancre sur `idun.battle.view.BattleEndScreen$$ShowVictory` / `$$ShowDefeat`, et

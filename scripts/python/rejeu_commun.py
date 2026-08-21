@@ -283,3 +283,19 @@ def bc_vivante(jeu):
         return json.loads(brut)
     except Exception as e:                                          # noqa: BLE001
         stop("la BC vivante ne se relit pas (%s)" % e)
+
+
+def chargeur_au_repos(jeu):
+    """(!)LE DISCRIMINANT DE #993, ET IL VAUT DANS LES DEUX SENS. `thor.Loader$$LoadScene`
+    REFUSE EN SILENCE quand un chargement est deja en cours : il journalise et retourne. Lancer
+    pendant que le meta charge fait donc refuser `LoadBattle` -- et la CAPTURE reussit quand
+    meme, parce que `StartCampaignMatch` cree la source AVANT d'appeler le chargeur. On se croit
+    en bataille et on echoue 20 s plus loin sur un symptome qui ne nomme pas sa cause."""
+    r = jeu.rpc("loaderStatus", [], timeout=120000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        stop("`loaderStatus` NON MESURE : %s" % json.dumps(r, ensure_ascii=False)[:200])
+    if r.get("etape") != 0 or r.get("chargementEnCours") is not False:
+        stop("le chargeur N'EST PAS AU REPOS (etape=%s, enCours=%s). Entrer maintenant ferait "
+             "refuser `LoadBattle` EN SILENCE. Reessayer dans quelques secondes."
+             % (r.get("etape"), r.get("chargementEnCours")))
+    print("   chargeur au repos (etape 0).")
