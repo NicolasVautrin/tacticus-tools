@@ -1021,13 +1021,52 @@ export function register(ctx: Ctx): void {
         const nbEnnemis = enemies.add(0x18).readS32();
         const puissanceLineup = outPower.readS32();
 
-        // ⚠ LA MoW ADVERSE RESTE NULLE POUR L'INSTANT, ET C'EST DIT. Le record l'attend sous la
-        // meme forme MODELE (la popup la tire de `GetMachineOfWarUnits`), pas sous la forme DTO du
-        // slot. Le ctor de la source TOLERE le nul (il ne construit alors pas `this+0xe8`), donc
-        // `overrideOpponentPlayerMachine` sera nul : la bataille se monte SANS MoW adverse.
-        // Passer le DTO brut ferait lever, exactement comme la liste brute ci-dessus.
-        const mowPtr: NativePointer = NULL;
-        const mowUtilisable = false;
+        // LA MoW ADVERSE -- LE FRERE JUMEAU DE L'APPEL CI-DESSUS (2026-08-21).
+        //
+        // (!)ELLE RESTAIT NULLE FAUTE DE SAVOIR OU LA PRENDRE, et le symptome se voyait a l'ecran :
+        // BC juste, defense complete, `PredefinedMachines: [{Id: 12, MachineOfWar: {UnitId: null}}]`
+        // -- l'emplacement existe, la machine non, alors que `guildWarZones` annonce `mow: true`.
+        //
+        // Le decompile de la popup tranche : elle appelle DEUX extensions, sur le MEME slot et avec
+        // le MEME `unitProgression`, et n'en garde que le premier element du tuple --
+        //   `ShowGuildWarsBattlePreviewPopupCommand$$GetUnits`
+        //       -> `WarZoneSlotDtoExtensions$$GetLineUpModels(slot, unitProgression, out puissance)`
+        //   `ShowGuildWarsBattlePreviewPopupCommand$$GetMachineOfWarUnits`
+        //       -> `WarZoneSlotDtoExtensions$$GetMachineOfWarLineUpModel(slot, unitProgression,
+        //                                                                out rarete)`
+        // puis `GuildWarBattleData$$.ctor(..., Enemies, MachineOfWarEnemy, ...)`. La machine n'est
+        // donc PAS dans la liste des ennemis : c'est un appel SEPARE, qu'on ne faisait pas.
+        //
+        // (!)MEME SLOT QUE LES ENNEMIS, ET POUR LA MEME RAISON. On reste sur `pSlot` (celui de
+        // `GetWarZone`), pas sur `GetWarZoneSlot` dont les PV restants valent 0 -- cf. la mesure
+        // citee plus haut.
+        //
+        // (!)LE NUL RESTE TOLERE, LE MI-CUIT NON. Le ctor de la source saute son bloc si le
+        // pointeur est nul, mais il LEVE si le pointeur est non nul et que son `+0x10` l'est
+        // (`if (*(battleData+0x30 + 0x10) == 0) goto <throw>`). Un slot sans MoW doit donc partir
+        // en NUL FRANC, jamais en modele vide -- d'ou `mowUtilisable`, qui juge le `+0x10`.
+        const mMow = findMethodByParamCount(kExt, "GetMachineOfWarLineUpModel", 3);
+        if (!mMow) {
+            return refus("`WarZoneSlotDtoExtensions$$GetMachineOfWarLineUpModel(3)` INTROUVABLE "
+                + "-- signature CHANGEE sur ce build");
+        }
+        const outRarete = Memory.alloc(4);
+        outRarete.writeS32(0);
+        let mowPtr: NativePointer = NULL;
+        try {
+            mowPtr = invokeMethod(mMow.info, NULL,
+                                  [pSlot as NativePointer, pUnitProg as NativePointer, outRarete]);
+        } catch (e) {
+            return refus("`GetMachineOfWarLineUpModel` a LEVE : " + (e as Error).message);
+        }
+        let mowUtilisable = false;
+        if (!mowPtr.isNull()) {
+            gcRoot.add(mowPtr);
+            // Le champ que le ctor de la source DEREFERENCE. On le lit AVANT de passer le
+            // pointeur, pour ne jamais lui donner de quoi lever.
+            try { mowUtilisable = !mowPtr.add(0x10).readPointer().isNull(); } catch { /* faux */ }
+        }
+        const mowRarete = outRarete.readS32();
 
         // --- l'identifiant de guerre ----------------------------------------------------------
         const gwId = appeler(kProg, prog as NativePointer,
@@ -1094,7 +1133,7 @@ export function register(ctx: Ctx): void {
             return { ok: true, lecture: true,
                      zone: zone.toString(), zonePart: nomPart, slotIndex: slotIdx,
                      enemies: enemies.toString(), nbEnnemis, puissanceLineup,
-                     machineOfWarEnemy: mowPtr.toString(), mowUtilisable,
+                     machineOfWarEnemy: mowPtr.toString(), mowUtilisable, mowRarete,
                      guildWarId: (gwId as NativePointer).toString(),
                      champsNuls: nuls, hud: hudRes, hudManquants,
                      note: "`confirmer: true` exige : ce RPC ALLOUE un `GuildWarBattleData` puis "
@@ -1146,7 +1185,7 @@ export function register(ctx: Ctx): void {
                 i32(slotIdx),                             // SlotIndex
                 gwId as NativePointer,                    // GuildWarId
                 enemies,                                  // Enemies -- modeles, voie de la popup
-                mowUtilisable ? mowPtr : NULL,            // MachineOfWarEnemy -- nul, cf. ci-dessus
+                mowUtilisable ? mowPtr : NULL,            // MachineOfWarEnemy -- modele, voie de la popup
                 createManagedString(body.boardId),        // BoardId
                 i32(body.spawnPointsSet ?? 0),            // SpawnPointsSet
                 i32(body.rarityCap ?? 0),                 // RarityCap    -- HUD seul

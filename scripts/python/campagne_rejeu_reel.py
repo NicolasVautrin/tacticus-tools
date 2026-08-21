@@ -575,13 +575,26 @@ def main(argv=None):
     # vie. Un refus se VOIT et laisse la main ; une mutation a chaud, non. Le desarmement reste
     # un geste explicite : `python scripts/python/desarmer_relais.py`.
     #
-    # (!)ET IL N'Y A PAS DEUX REGIMES : lire est sans danger a l'entree fraiche comme au retry,
-    # donc ce cran est le MEME dans les deux voies. Une garde qui change de forme selon la voie
-    # est une garde qui finit par manquer sur l'une des deux.
-    restants, muets = relais_lire(jeu, lire=True, montrer_observateurs=False)
-    if not relais_rendre_compte(restants, muets, lire=True):
-        stop("relais d'ecriture NON PROPRES avant une bataille REELLE -- on n'entre pas. "
-             "Les desarmer : `python scripts/python/desarmer_relais.py`")
+    # (!)IL N'A DE SENS QU'A L'ENTREE FRAICHE, ET J'AI APPRIS LAQUELLE EN LE CASSANT. Premiere
+    # version : le meme controle dans les deux voies, au motif que LIRE est sans danger. Lire
+    # l'est ; le VERDICT, non. Au retry, les relais en place sont PAR CONSTRUCTION ceux que le
+    # cran 9 de la passe precedente a armes -- `deploymentPhaseArmer`, `deploymentMemoire` et
+    # `deploymentPrefabArmer` sont dans `ARMEMENTS_CAPTEURS`, et `sandboxModeSeed` porte le seed
+    # qu'on vient d'imposer. Mesure du 2026-08-21 sur `eliteMirror3` noeud 1 : passe 1 verte,
+    # passe 2 ARRETEE sur 6 relais accuses, tous legitimes, la boucle bloquee sur l'ecran de
+    # victoire avec 5 jetons en main.
+    #
+    # C'est le vice EXACT qu'on venait de retirer avec `deploymentBlocageStart` : un controle
+    # redondant qui re-implemente un jugement et refuse ce qui est parfaitement legitime. Une
+    # contamination de sandbox ne peut arriver QU'AVANT la premiere entree ; apres, c'est nous.
+    if not args.par_retry:
+        restants, muets = relais_lire(jeu, lire=True, montrer_observateurs=False)
+        if not relais_rendre_compte(restants, muets, lire=True):
+            stop("relais d'ecriture NON PROPRES avant une bataille REELLE -- on n'entre pas. "
+                 "Les desarmer : `python scripts/python/desarmer_relais.py`")
+    else:
+        print("   entree par RETRY -- les relais en place sont ceux de la passe precedente, "
+              "pas une contamination. Rien a constater ici.")
 
     cran(8, "ARMER LE FIL -- ce qui part au serveur se MESURE")
     armer_le_fil(jeu)
