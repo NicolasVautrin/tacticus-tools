@@ -108,9 +108,7 @@ session perdue. `viewJson` sur la meme boxe, lui, rend `{"Count":6}` sans risque
 """
 import argparse
 import json
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -121,13 +119,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.stdout.reconfigure(line_buffering=True)
 
 from replay_format import charger as charger_replay        # noqa: E402
-from replay_rejouer import (                               # noqa: E402
-    Jeu, session_vivante, poses_du_replay, controler_avant_start,
+from replay_rejouer import Jeu, session_vivante, poses_du_replay      # noqa: E402
+# (!)ON NE REECRIT PAS LA CHAINE SANDBOX, ON LA REEMPLOIE. Tout ce qui suit l'arrivee de la
+# bataille -- pose des unites (les deux ordres, la re-confrontation), START attendu sur le FAIT,
+# rejeu delegue -- est IDENTIQUE aux deux voies : `jouer_la_suite`. Et tout ce qui precede
+# l'entree -- resolution du noeud, seed, morsure, phase -- vient de la chaine sandbox.
+# La premiere version de ce fichier en avait recopie la moitie, et la copie avait DEJA perdu
+# l'armement des relais (`deploymentPoseFsmArmer` en tete) : deux verites, dont une fausse.
+from deploiement_commun import (                           # noqa: E402
+    stop, cran, armer_les_relais, jouer_la_suite,
 )
 from campagne_rejeu import (                               # noqa: E402
-    stop, cran, resoudre_hors_ligne, forger_bc, armer_le_seed, desarmer_capture_de_fin,
-    generation_du_runner, verifier_morsure, verifier_phase_avant_start, demarrer,
-    NOM_TYPE,
+    resoudre_hors_ligne, forger_bc, armer_le_seed, desarmer_capture_de_fin,
+    generation_du_runner, verifier_morsure, verifier_phase_avant_start, NOM_TYPE,
 )
 
 
@@ -284,24 +288,12 @@ def rendre_compte_du_fil(jeu):
         print("      (%d corps omis du journal -- budget)" % d.get("corpsOmis"))
 
 
-def armer_les_capteurs_de_vue(jeu):
-    """(!)LE CAPTEUR DE VUE S'ARME AVANT L'ENTREE, POUR LA MEME RAISON QUE LE SEED : il n'ancre
-    que `IdunGameViews$$Enable`, qui ne tire qu'a l'APPARITION de la scene de bataille. Arme
-    apres, il ne tire JAMAIS pour cette bataille-la.
-
-    Sans lui, `ordreDeConversion()` retombe sur `dicoVivant()` -- un `FindObjectsByType` qui a
-    rendu NUL, mesure du 2026-08-21. `deploymentEtat` publiait alors `placeholders: 5` et
-    `ordreHud` JUSTE (les cinq unites du replay) tout en rendant `ordreConversion: {erreur}` : la
-    confrontation devenait impossible, et le refus accusait la POSE alors que seule la LECTURE
-    manquait.
-
-    ⚠ `{armer: true}` SEUL -- pas de `forcer`, pas de `confirmer`. Le montage sandbox y ajoute
-    `forcer: true` parce qu'il doit FABRIQUER une phase de deploiement ; une bataille reelle a la
-    sienne. Forcer ici ecrirait sur une partie du joueur pour rien.
-    """
-    r = jeu.rpc("deploymentPhaseArmer", [{"armer": True}], timeout=120000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("`deploymentPhaseArmer` a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
+def controler_le_capteur_de_vue(jeu):
+    """(!)ARMER NE SUFFIT PAS, ON RELIT. `armer_les_relais` verifie que l'APPEL a passe ; ce cran
+    verifie que l'ANCRAGE tient. Sans `IdunGameViews$$Enable` ancre, `ordreDeConversion()`
+    retombe sur un `FindObjectsByType` qui a rendu NUL -- mesure du 2026-08-21 : `deploymentEtat`
+    publiait `placeholders: 5` et un `ordreHud` JUSTE tout en rendant `ordreConversion: {erreur}`,
+    et le refus accusait la POSE alors que seule la LECTURE manquait."""
     e = jeu.rpc("deploymentPhaseStatus", [{}], timeout=120000)
     arme = e.get("enableArme") if isinstance(e, dict) else None
     if arme is None:
@@ -309,7 +301,10 @@ def armer_les_capteurs_de_vue(jeu):
     if not arme:
         stop("`IdunGameViews$$Enable` n'est PAS ancre apres armement : sans lui la phase de "
              "deploiement sera ILLISIBLE, et on ne demarre pas a l'aveugle.")
-    print("   capteur de vue ARME (`IdunGameViews$$Enable`) -- la phase sera lisible.")
+    if e.get("forcer"):
+        stop("`forcer` est ACTIF : ce drapeau FABRIQUE une phase de deploiement, ce qui n'a de "
+             "sens qu'en sandbox. Sur une bataille reelle il ecrirait sur la partie du joueur.")
+    print("   capteur de vue ancre (`IdunGameViews$$Enable`), `forcer` eteint.")
 
 
 def entrer_dans_la_bataille(jeu, campagne, type_, noeud, depuis, plafond_ms):
@@ -387,61 +382,6 @@ def bc_vivante(jeu):
         stop("la BC vivante ne se relit pas (%s)" % e)
 
 
-def confronter_le_deploiement(jeu, d):
-    """(!)ON CONFRONTE D'ABORD, ON NE POSE QUE SI CA DIVERGE -- et c'est la consigne, pas une
-    optimisation : << tu remplace pas la BC, tu t'assure juste que le deploiement est celui
-    prevu dans le replay >>. Sur la voie sandbox on posait d'office, parce qu'on venait de monter
-    un plateau vierge. Ici, tu as peut-etre deja pose toi-meme."""
-    voulu = poses_du_replay(d)
-    if voulu is None:
-        stop("poses du replay NON LISIBLES -- on ne confronte rien a l'aveugle.")
-    ok, motif = controler_avant_start(jeu, d)
-    if ok:
-        print("   DEJA CONFORME au replay -- rien a poser. %s" % motif.split("\n")[0])
-        return "tel quel"
-    print("   diverge : %s" % motif.split("\n")[0])
-    print("   -> on pose les %d unites du replay (et on RE-CONFRONTE)." % len(voulu))
-    for etiquette, suite in (("INVERSE de l'ordre du replay", list(reversed(voulu))),
-                             ("ordre du replay", list(voulu))):
-        poses = [{"unitId": u, "playerId": 11, "col": c, "row": r} for (u, c, r) in suite]
-        jeu.rpc("deploymentMemoire", [{"poser": {"poses": poses, "mow": None}}], timeout=120000)
-        r = jeu.rpc("deploymentMemoire", [{"rejouer": True, "confirmer": True}], timeout=180000)
-        if not isinstance(r, dict) or not r.get("ok"):
-            stop("le rejeu de memoire a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-        # Le rejeu de pose est ENFILE, pas fait : `rejouerMemoire` est une chaine
-        # `queueOnMainThread(...).then(...)` qui rend `void`, donc le RPC ne peut pas l'attendre.
-        # A defaut de signal, on attend LE FAIT et non une duree.
-        debut, ok, motif = time.time(), False, ""
-        while time.time() - debut < 15.0:
-            ok, motif = controler_avant_start(jeu, d)
-            if ok:
-                break
-            time.sleep(0.2)
-        print("   pose en %-28s -> %s   [%.1f s]"
-              % (etiquette, motif.split("\n")[0], time.time() - debut))
-        if ok:
-            return etiquette
-    stop("aucun des deux ordres de pose ne rend l'ordre de conversion du replay. NE PAS "
-         "demarrer : les squads seraient attribues autrement et chaque coup frapperait une "
-         "autre unite.")
-
-
-def controler_le_lineup(jeu, d):
-    """⛔ << PAS QUESTION DE LUI ENVOYER UN TRUC OU ON EST 10 >>. Le lineup part au serveur a TON
-    entree, pas au notre -- mais il se relit, et un ecart de CARDINAL se voit avant le START."""
-    voulu = [u for (u, _c, _r) in (poses_du_replay(d) or [])]
-    r = jeu.rpc("deploymentPlacees", [{}], timeout=120000)
-    placees = (r or {}).get("placees") if isinstance(r, dict) else None
-    if placees is None:
-        print("   lineup NON MESURE (`deploymentPlacees` muet) -- ce n'est PAS << conforme >>.")
-        return
-    noms = sorted(p.get("unitId") for p in placees if isinstance(p, dict))
-    if noms != sorted(voulu):
-        stop("le lineup pose (%d : %s) n'est pas celui du replay (%d : %s)."
-             % (len(noms), ", ".join(noms), len(voulu), ", ".join(sorted(voulu))))
-    print("   lineup conforme : %d unites, %s" % (len(noms), ", ".join(noms)))
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--replay", required=True,
@@ -453,8 +393,17 @@ def main(argv=None):
     ap.add_argument("--attente", type=int, default=120,
                     help="secondes accordees au chargement de la bataille (defaut 120)")
     ap.add_argument("--armer", action="store_true",
-                    help="⛔ ENGAGE UN JETON ET DE L'ENERGIE. Sans lui : LECTURE SEULE -- les "
-                         "crans 0 a 6 sont joues, rien n'est arme, aucune bataille n'est lancee.")
+                    help="⛔ VA JUSQU'AU JETON (au START, cran 15). Sans lui : LECTURE SEULE -- "
+                         "les crans 0 a 6 sont joues, rien n'est arme, rien n'est lance.")
+    # ⛔ SEPARE DE `--armer`, ET C'EST VOULU. `refusHorsSandbox` traite `surBatailleReelle`
+    # comme un consentement COUP PAR COUP, jamais un mode -- parce qu'un relais laisse arme a
+    # ECRIT tout seul sur un essai reel le 2026-08-20, et qu'un jeton de boss y est passe.
+    # Le noyer dans `--armer` en ferait exactement le mode persistant que le garde proscrit.
+    ap.add_argument("--poser-sur-reelle", dest="poser_sur_reelle", action="store_true",
+                    help="⛔ AUTORISE LA POSE sur une bataille REELLE (`surBatailleReelle: true`). "
+                         "Sans lui, si le deploiement du jeu diverge du replay, la chaine "
+                         "S'ARRETE au lieu de le corriger. La pose passe par l'etage FSM -- le "
+                         "meme que le clic humain -- puisque `deploymentPoseFsmArmer` est arme.")
     args = ap.parse_args(argv)
 
     cran(0, "charger le replay -- le format est SNIFFE, jamais deduit de l'extension")
@@ -534,8 +483,13 @@ def main(argv=None):
     cran(8, "ARMER LE FIL -- ce qui part au serveur se MESURE")
     armer_le_fil(jeu)
 
-    cran(9, "ARMER LE SEED ET LE CAPTEUR DE VUE, *AVANT* l'entree")
-    armer_les_capteurs_de_vue(jeu)
+    cran(9, "ARMER LES RELAIS ET LE SEED, *AVANT* l'entree")
+    # (!)LA MEME LISTE QUE LA CHAINE SANDBOX, moins ses trois entrees sandbox-only. Elle vit
+    # dans `deploiement_commun.ARMEMENTS_CAPTEURS` : la recopier ici est exactement la faute que
+    # ce fichier a commise a sa premiere version, ou `deploymentPoseFsmArmer` manquait -- donc la
+    # pose serait passee par la voie COMMIT, celle du 10-pour-5.
+    armer_les_relais(jeu)
+    controler_le_capteur_de_vue(jeu)
     n_av = armer_le_seed(jeu, graine, bc_id)
     gen = generation_du_runner(jeu)
 
@@ -551,29 +505,21 @@ def main(argv=None):
     cran(13, "la phase, par le BON temoin")
     verifier_phase_avant_start(jeu)
 
-    cran(14, "le deploiement -- CONFRONTER, ne poser que s'il diverge")
-    sens = confronter_le_deploiement(jeu, d)
-    controler_le_lineup(jeu, d)
-    print("   CONFORME (%s), cases comprises." % sens)
-
-    cran(15, "START")
-    demarrer(jeu, n_pose + 1)
-
-    cran(16, "rejouer les coups -- delegue a `replay_rejouer.py`")
-    cmd = [sys.executable, str(RACINE / "scripts" / "python" / "replay_rejouer.py"),
-           "--replay", str(chemin), "--vivant", "--depuis", str(n_pose + 1),
-           "--arret-au-premier-ecart", "--hote", args.hote, "--session", str(sid)]
-    p = subprocess.run(cmd, cwd=str(RACINE), text=True)
+    # LES TROIS CRANS SUIVANTS SONT CEUX DE LA CHAINE SANDBOX, JOUES A L'IDENTIQUE -- pose,
+    # START, rejeu. Seul `sur_reelle` change : il porte l'echappatoire `surBatailleReelle` que
+    # `refusHorsSandbox` exige des que la source de mode active n'est pas la sandbox.
+    rc = jouer_la_suite(jeu, d, chemin, args.hote, sid, premier_cran=14,
+                        sur_reelle=args.poser_sur_reelle)
 
     cran(17, "CE QUI EST PARTI AU SERVEUR -- mesure au fil, pas promis")
     rendre_compte_du_fil(jeu)
 
     print()
-    print("bilan : `replay_rejouer.py` a rendu %d" % p.returncode)
-    if p.returncode == 0:
+    print("bilan : `replay_rejouer.py` a rendu %d" % rc)
+    if rc == 0:
         print("La bataille est LAISSEE EN L'ETAT, au coup %d. Ce qui suit t'appartient : "
               "continuer a la main, ou te retirer." % n_coups)
-    return p.returncode
+    return rc
 
 
 if __name__ == "__main__":

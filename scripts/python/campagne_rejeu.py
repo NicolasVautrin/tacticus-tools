@@ -52,24 +52,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.stdout.reconfigure(line_buffering=True)
 
 from replay_format import charger as charger_replay        # noqa: E402
-from replay_rejouer import (                               # noqa: E402
-    Jeu, session_vivante, poses_du_replay, controler_avant_start,
-)
+from replay_rejouer import Jeu, session_vivante, poses_du_replay      # noqa: E402
+# (!)LE FOYER COMMUN AUX DEUX CHAINES. La pose (les deux ordres, la re-confrontation), le START
+# attendu sur le FAIT et la delegation du rejeu vivent dans `deploiement_commun` -- la chaine
+# REELLE les emploie a l'identique. En garder une copie ici ferait deux verites a maintenir, et
+# c'est deja arrive : la copie neuve de `campagne_rejeu_reel.py` n'avait plus l'armement des
+# relais que ce script arme depuis le 2026-08-20.
+from deploiement_commun import stop, cran, jouer_la_suite  # noqa: E402
 
 # Les types de campagne, tels que `campaignSourceForger` les prend.
 TYPES = [0, 1, 2, 3, 4]
 NOM_TYPE = {0: "Standard", 1: "Elite", 2: "Mirror", 3: "EliteMirror", 4: "Event"}
-
-
-def stop(msg, code=2):
-    print()
-    print("ARRET -- " + msg)
-    sys.exit(code)
-
-
-def cran(n, titre):
-    print()
-    print("CRAN %-2s -- %s" % (n, titre))
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -634,85 +627,6 @@ def verifier_phase_avant_start(jeu):
     print("   phase = %s (pas `Running`) -- le deploiement est encore ouvert." % stage)
 
 
-def poser_le_deploiement(jeu, d):
-    """Poser, puis CONFRONTER. Les deux ordres sont essayes, et on DIT lequel a porte.
-
-    (!)<< POSER A L'ENVERS >> N'EST PAS UNE REGLE, et n'est pas ecrit comme telle. Ca ne vaut
-    que si le clear vient de liberer autant de paires qu'on repose. Ce qui est fiable, c'est de
-    VERIFIER -- donc on essaie, on relit `ordreConversion`, et on recommence dans l'autre sens
-    si besoin.
-    """
-    voulu = poses_du_replay(d)
-    if voulu is None:
-        stop("poses du replay NON LISIBLES -- on ne pose rien a l'aveugle.")
-    for etiquette, suite in (("INVERSE de l'ordre du replay", list(reversed(voulu))),
-                             ("ordre du replay", list(voulu))):
-        poses = [{"unitId": u, "playerId": 11, "col": c, "row": r} for (u, c, r) in suite]
-        jeu.rpc("deploymentMemoire", [{"poser": {"poses": poses, "mow": None}}], timeout=120000)
-        r = jeu.rpc("deploymentMemoire",
-                    [{"rejouer": True, "confirmer": True}], timeout=180000)
-        if not isinstance(r, dict) or not r.get("ok"):
-            stop("le rejeu de memoire a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-        # (!)LE REJEU DE POSE EST << ENFILE >>, PAS FAIT -- et l'attendre n'a pas de signal.
-        # `deploymentMemoire {rejouer}` rend la main aussitot : `rejouerMemoire` est une chaine
-        # `queueOnMainThread(...).then(...)` qui rend `void`, donc le RPC ne peut pas l'attendre.
-        # Mesure du 2026-08-21 : confronter immediatement fait tomber le cran 8 sur les DEUX
-        # ordres -- le plateau n'est pas encore pose, et le refus accuse l'ordre au lieu du delai.
-        #
-        # A defaut de signal, on attend LE FAIT et non une duree : on re-confronte jusqu'a ce que
-        # l'ordre de conversion soit conforme, et on rend la main a l'instant meme. Un `sleep`
-        # fixe de 2 s coutait ce delai a chaque fois, y compris quand la pose etait finie en 200 ms.
-        #
-        # ⚠ CE N'EST PAS LE BON REGIME, ET C'EST DIT : la vraie reparation est de faire REMONTER
-        # la chaine de promesses de `rejouerMemoire` jusqu'au RPC, pour que l'appel HTTP attende
-        # son propre travail -- comme `attendreRunner` le fait pour le montage.
-        debut, ok, motif = time.time(), False, ""
-        while time.time() - debut < 15.0:
-            ok, motif = controler_avant_start(jeu, d)
-            if ok:
-                break
-            time.sleep(0.2)
-        print("   pose en %-28s -> %s   [%.1f s]"
-              % (etiquette, motif.split("\n")[0], time.time() - debut))
-        if ok:
-            return etiquette
-    stop("aucun des deux ordres de pose ne rend l'ordre de conversion du replay. NE PAS "
-         "demarrer : les squads seraient attribues autrement et chaque coup frapperait une "
-         "autre unite.")
-
-
-def demarrer(jeu, attendus):
-    r = jeu.rpc("deploymentStartInvoquer", [{"confirmer": True}], timeout=180000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("le START a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-    # (!)L'APPEL PASSE NE DIT RIEN DU DEMARRAGE -- son propre retour le dit, et c'est MESURE :
-    # le 2026-08-21, `battleStatus` lu a l'instant du retour rend `stageName: Setup` avec 4
-    # unites. `HandleOnStartBattleTapped` ENCLENCHE la conversion des placeholders ; elle se
-    # deroule sur les frames suivantes.
-    #
-    # On attend donc LE FAIT (`Running`), pas une duree -- et on rend la main a l'instant meme.
-    # Il n'y a pas de signal push ici : le runner ne CHANGE pas au START, il existe deja depuis
-    # le montage, donc `attendreRunner` ne mordrait jamais.
-    debut, b = time.time(), None
-    while time.time() - debut < 20.0:
-        b = jeu.rpc("battleStatus", [{}], timeout=120000)
-        if isinstance(b, dict) and b.get("stageName") == "Running":
-            break
-        time.sleep(0.2)
-    if not isinstance(b, dict) or b.get("stageName") != "Running":
-        stop("apres START, la bataille n'est toujours pas `Running` apres %.0f s : %s"
-             % (time.time() - debut, json.dumps(b, ensure_ascii=False)[:240]))
-    print("   `Running` apres %.1f s." % (time.time() - debut))
-    s = jeu.rpc("replaySteps", [{"maxSteps": 200}], timeout=180000)
-    pas = (s or {}).get("steps") if isinstance(s, dict) else None
-    if pas is None:
-        stop("`replaySteps` NON MESURE apres START.")
-    if len(pas) != attendus:
-        stop("%d pas de mise en place enregistres, %d attendus par le replay -- la BC ou le "
-             "deploiement differe." % (len(pas), attendus))
-    print("   `Running`, %d pas de mise en place (conforme au replay)." % len(pas))
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--replay", required=True,
@@ -824,21 +738,12 @@ def main(argv=None):
     cran(7, "la phase, par le BON temoin")
     verifier_phase_avant_start(jeu)
 
-    cran(8, "poser le deploiement, et le CONFRONTER avant tout cout d'entree")
-    sens = poser_le_deploiement(jeu, d)
-    print("   CONFORME (pose %s), cases comprises." % sens)
-
-    cran(9, "START")
-    demarrer(jeu, n_pose + 1)     # les poses + le `StartBattleMessage`
-
-    cran(10, "rejouer les coups -- delegue a `replay_rejouer.py`")
-    cmd = [sys.executable, str(RACINE / "scripts" / "python" / "replay_rejouer.py"),
-           "--replay", str(chemin), "--vivant", "--depuis", str(n_pose + 1),
-           "--arret-au-premier-ecart", "--hote", args.hote, "--session", str(sid)]
-    p = subprocess.run(cmd, cwd=str(RACINE), text=True)
+    # LES TROIS DERNIERS CRANS SONT COMMUNS AUX DEUX CHAINES -- pose, START, rejeu. Ils vivent
+    # dans `deploiement_commun` et la chaine REELLE les joue a l'identique, `sur_reelle` en plus.
+    rc = jouer_la_suite(jeu, d, chemin, args.hote, sid, premier_cran=8, sur_reelle=False)
     print()
-    print("bilan : `replay_rejouer.py` a rendu %d" % p.returncode)
-    return p.returncode
+    print("bilan : `replay_rejouer.py` a rendu %d" % rc)
+    return rc
 
 
 if __name__ == "__main__":
