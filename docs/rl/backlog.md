@@ -5366,6 +5366,30 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
 
+- **#10041-r6 — l'ENGAGEMENT REEL leve une `NullReferenceException` DANS `thor.Loader$$LoadScene`.** `[opus]`
+  Point d'entree : `frida/hooks/features/guild-war-config.ts` (`guildWarEngagerReel`), et le
+  decompile de `thor.Loader$$LoadBattle` / `thor.Loader$$LoadScene`.
+  Mesure du 2026-08-21, session 137, bundle portant `StartMatch` : les crans 1 a 7e passent tous
+  (BC 0 ecart, lineup conforme, relais propres, chargeur au repos, verrou libre), puis
+  `ViewCommandExecutor$$StartMatch(sourceForgeeGw, checkIfAlreadyRunning=1)` LEVE une
+  `NullReferenceException`. AUCUNE tentative consommee : `attemptsLeft` = 10 avant ET apres.
+  (!)L'ETAGE EST LOCALISE, ET PAR UNE MESURE, PAS PAR LECTURE. Apres le throw,
+  `IdunMainView.IsActive` valait VRAI. Or le seul ecrivain de ce statique sur ce chemin est
+  `IdunMainView$$SetBattleLoading()`, appele par `LoadBattle` a son AVANT-DERNIERE instruction.
+  Donc `StartMatch` a fini, `LoadBattle` a passe son bloc de progression de campagne, et le throw
+  est dans `thor.Loader$$LoadScene(1, 1, 0)` -- qui porte SEPT `goto` vers le lanceur d'exception.
+  ⚠ ET `LoadScene` NE LIT PAS LA SOURCE : il ne lit que les statiques de `thor.Loader`. L'accuser
+  d'etre << notre source qui est malformee >> serait donc une hypothese, pas une lecture.
+  ⚠ Le rejeu SANDBOX de la meme zone passe le meme `StartMatch` sans lever -- mais il monte une
+  `SandboxGameModeSource` avec la BC en override, PAS la `GuildWarsGameModeSource`. Les deux ne
+  different donc PAS que par la source : ils different aussi par tout ce que le montage sandbox
+  arme avant. Ne pas conclure de l'un sur l'autre sans isoler.
+  A faire : nommer le `goto` fautif. Piste la moins chere : `Player.log` est a ZERO octet sur
+  cette installation -- `LoadScene` journalise pourtant par `SPLogger$$LogDebug` AVANT ses
+  branches risquees, donc retablir ce journal partagerait la fonction en deux.
+  FOYER: frida/hooks/features/guild-war-config.ts
+  BLOCAGE: aucun
+
 - **#10041-r5 — la BATAILLE A 0 UNITE : le verrou est LEVE, le montage vide reste INEXPLIQUE.** `[opus]`
   Point d'entree : `docs/rl/case-10041-r5-un-startmatch-sans-bataille-empoisonne-tous-les-chargements.md`.
   LE VOLET << rendre le creneau >> EST FAIT (2026-08-21) : la garde de `StartMatch` teste le
