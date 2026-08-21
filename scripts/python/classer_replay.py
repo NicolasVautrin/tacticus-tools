@@ -30,7 +30,7 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from raids_plan import table_des_campagnes          # noqa: E402
-from victoire_eclair import verdict                 # noqa: E402
+from victoire_eclair import noeud_normalise, verdict  # noqa: E402
 
 CAPTURES = RACINE / "data" / "replays" / "_captures"
 CAMPAGNE = RACINE / "data" / "replays" / "campaign"
@@ -101,7 +101,10 @@ def classer(src, table):
             continue
         for c in camps:
             for b in (c.get("battles") or []):
-                if (b.get("campaignId") == num and str(b.get("battleId")) == str(noeud)
+                # `noeud_normalise` : la campagne 3 numerote avec un zero de tete
+                # (`Campaign3_05`), la campagne 1 non. Comparer des chaines ratait l'appariement.
+                if (b.get("campaignId") == num
+                        and noeud_normalise(b.get("battleId")) == noeud_normalise(noeud)
                         and b.get("BoardId") == board):
                     cands.append(typ)
     cands = sorted(set(cands))
@@ -130,7 +133,8 @@ def _note(d, dest, bcid, voie):
     # (!)LE VERDICT D'ECLAIR SE REND AU CLASSEMENT, pas plus tard. Une bataille rejouable est
     # une bataille dont on veut savoir TOUT DE SUITE si elle valait le double de pieces --
     # sinon on empile des replays sans savoir lesquels sont a refaire.
-    v = verdict(d)
+    # L'identifiant vient du nom canonique qu'on VIENT d'etablir -- `BC.Id` ne dit pas le type.
+    v = verdict(d, dest.stem.split("_")[0] if "_" in dest.stem else None)
     if v.get("eclair") is True:
         etat = "ECLAIR (%s/%s rounds)" % (v.get("rounds"), v.get("seuil"))
     elif v.get("eclair") is False:

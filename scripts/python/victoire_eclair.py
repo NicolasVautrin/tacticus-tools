@@ -37,6 +37,21 @@ TYPE_DU_PREFIXE = {"Campaign": "Standard", "Elite": "Elite",
 _SEUILS = None
 
 
+def noeud_normalise(v):
+    """`"05"`, `"5"` et `5` designent LE MEME noeud -- on compare des ENTIERS.
+
+    (!)MESURE DU 2026-08-22 : la campagne 3 numerote ses batailles avec un zero de tete
+    (`Campaign3_05`, `Campaign3_01`), la campagne 1 non (`Campaign1_19`). Une comparaison de
+    CHAINES rendait donc << seuil d'eclair ABSENT du gameconfig pour elite3 noeud 5 >> sur une
+    bataille qui l'a. Le meme vice frappait l'appariement par plateau du classeur.
+
+    Ce qui n'est pas numerique reste compare tel quel, en minuscules."""
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return str(v).strip().lower()
+
+
 def seuils():
     """(type, campagne#, battleId) -> nombre de rounds pour la victoire eclair."""
     global _SEUILS
@@ -50,10 +65,10 @@ def seuils():
             continue
         for c in camps:
             for b in (c.get("battles") or []):
-                cid, bid = b.get("campaignId"), str(b.get("battleId"))
+                cid = b.get("campaignId")
                 if cid is None:
                     continue
-                t[(typ, int(cid), bid)] = b.get("lightningVictory")
+                t[(typ, int(cid), noeud_normalise(b.get("battleId")))] = b.get("lightningVictory")
     _SEUILS = t
     return t
 
@@ -73,7 +88,7 @@ def seuil_de(identifiant, noeud):
     m = re.search(r"(\d+)$", str(identifiant))
     if not m:
         return None
-    return seuils().get((typ, int(m.group(1)), str(noeud)))
+    return seuils().get((typ, int(m.group(1)), noeud_normalise(noeud)))
 
 
 def entite_du_joueur(replay):
@@ -93,8 +108,17 @@ def entite_du_joueur(replay):
     return None, "aucun `AddPlayer` n'associe une entite au `Player_Id` %d" % pid
 
 
-def verdict(replay):
-    """Rend un dict. Toute valeur NON MESURABLE sort a `None` -- jamais rabattue sur un defaut."""
+def verdict(replay, identifiant=None):
+    """Rend un dict. Toute valeur NON MESURABLE sort a `None` -- jamais rabattue sur un defaut.
+
+    ⛔ `identifiant` (`elite2`, `eliteMirror3`...) EST EXIGE POUR LIRE LE SEUIL, et son absence
+    n'est PAS rattrapable par `BC.Id`. Les quatre types portent le meme prefixe : `Campaign3_01`
+    designe la Standard comme l'EliteMirror. Deduire << Standard >> du prefixe faisait lire le
+    seuil d'UNE AUTRE BATAILLE -- mesure du 2026-08-22 sur `eliteMirror3_1`, ou le verdict
+    << manquee, 3 rounds pour 2 >> comparait a la Standard (2) au lieu de l'EliteMirror (4).
+    C'etait donc un ECLAIR, annonce manque.
+
+    Sans identifiant, le seuil sort a `None` et `eclair` reste `None` -- on ne devine pas."""
     bc = replay.get("BattleConfiguration") or {}
     bcid = str(bc.get("Id"))
     r = {"bcId": bcid, "rounds": None, "seuil": None, "vainqueur": None,
@@ -121,14 +145,19 @@ def verdict(replay):
     if ent is not None:
         r["gagne"] = (vainqueur == ent)
 
-    m = re.match(r"^([A-Za-z]+?)(\d+)_(\d+)$", bcid)
+    m = re.match(r"^Campaign(\d+)_(\w+)$", bcid)
     if not m:
-        r["refus"] = (r["refus"] or "") + " ; `BC.Id` %r hors forme <Type><n>_<noeud>" % bcid
+        r["refus"] = (r["refus"] or "") + " ; `BC.Id` %r hors forme `Campaign<n>_<noeud>`" % bcid
         return r
-    typ = TYPE_DU_PREFIXE.get(m.group(1))
-    r["seuil"] = seuils().get((typ, int(m.group(2)), m.group(3)))
+    if identifiant is None:
+        r["refus"] = ((r["refus"] or "") + " ; identifiant de campagne NON FOURNI -- `BC.Id` ne "
+                      "dit pas le type, le seuil reste NON MESURE")
+        return r
+    r["identifiant"] = identifiant
+    r["seuil"] = seuil_de(identifiant, m.group(2))
     if r["seuil"] is None:
-        r["refus"] = (r["refus"] or "") + " ; pas de `lightningVictory` au gameconfig pour %s" % bcid
+        r["refus"] = ((r["refus"] or "")
+                      + " ; pas de `lightningVictory` pour %s noeud %s" % (identifiant, m.group(2)))
         return r
     if r["gagne"] and r["rounds"] is not None:
         r["eclair"] = r["rounds"] <= r["seuil"]
@@ -161,7 +190,10 @@ def main():
     n_ok = 0
     for p in src:
         d = json.loads(p.read_text(encoding="utf-8"))
-        v = verdict(d)
+        # L'identifiant est dans le NOM CANONIQUE (`elite2_14-716107981.json`) -- c'est la seule
+        # source qui porte le TYPE, `BC.Id` ne le portant pas.
+        ident = p.stem.split("_")[0] if "_" in p.stem else None
+        v = verdict(d, ident)
         print(ligne(p.name, v))
         if v.get("eclair"):
             n_ok += 1
