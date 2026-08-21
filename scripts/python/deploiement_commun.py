@@ -41,7 +41,8 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from replay_rejouer import poses_du_replay, controler_avant_start      # noqa: E402
+from replay_rejouer import (poses_du_replay, controler_avant_start,   # noqa: E402
+                            mise_en_place_du_replay)
 
 
 def stop(msg, code=2):
@@ -224,6 +225,13 @@ def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
               % (etiquette, motif.split("\n")[0], time.time() - debut))
         if ok:
             return etiquette
+        # ⚠ LE DETAIL EST IMPRIME, PLUS AVALE. `motif.split("\n")[0]` ne rendait que la premiere
+        # ligne, et le tableau ligne a ligne -- celui qui montre << replay 5 entrees, live 6 >>
+        # d'un coup d'oeil -- restait dans la chaine sans jamais atteindre l'ecran. Mesure du
+        # 2026-08-21 : c'est ce qui a fait accuser l'ORDRE DE POSE pendant que la vraie cause
+        # etait une comparaison AVEUGLE A LA MoW, lisible sur la premiere ligne du tableau.
+        for ligne in motif.split("\n")[1:]:
+            print(ligne)
 
     stop("aucun des deux ordres de pose ne rend l'ordre de conversion du replay. NE PAS "
          "demarrer : les squads seraient attribues autrement et chaque coup frapperait une "
@@ -237,18 +245,29 @@ def controler_le_lineup(jeu, d):
     START PARCOURT ; la seconde rend des entrees MEMOIRE brutes, sans nom, dont la taille est
     celle du tampon et pas celle du deploiement. Compter la mauvaise ferait lire << 5 >> sur un
     tampon de 5 quel qu'en soit le contenu.
+
+    ⚠ ET LA MACHINE OF WAR EN FAIT PARTIE. Comparer aux seules `poses_du_replay` faisait lire 5
+    noms attendus contre 6 vus sur une bataille qui en porte une -- donc un ARRET sur un lineup
+    JUSTE. Elle compte : c'est une unite de plus a l'ecran, et l'interdit qui commande ce cran
+    (<< pas question de lui envoyer un truc ou on est 10 >>) porte sur ce qui entre en bataille,
+    machine comprise.
     """
-    voulu = sorted(u for (u, _c, _r) in (poses_du_replay(d) or []))
+    attendu, _n, refus = mise_en_place_du_replay(d)
+    if attendu is None:
+        stop(refus)
+    voulu = sorted("%s%s" % (x["unitId"], " (MoW)" if x["genre"] == "mow" else "")
+                   for x in attendu)
     e = jeu.rpc("deploymentEtat", [{}], timeout=180000)
     vues = e.get("ordreConversion") if isinstance(e, dict) else None
     if not isinstance(vues, list):
         print("   lineup NON MESURE (`ordreConversion` illisible) -- ce n'est PAS << conforme >>.")
         return
-    noms = sorted(v.get("unitId") for v in vues if isinstance(v, dict))
+    noms = sorted("%s%s" % (v.get("unitId"), " (MoW)" if v.get("mow") else "")
+                  for v in vues if isinstance(v, dict))
     if noms != voulu:
         stop("le lineup pose (%d : %s) n'est pas celui du replay (%d : %s)."
              % (len(noms), ", ".join(map(str, noms)), len(voulu), ", ".join(voulu)))
-    print("   lineup conforme : %d unites, %s" % (len(noms), ", ".join(noms)))
+    print("   lineup conforme : %d entree(s), %s" % (len(noms), ", ".join(noms)))
 
 
 def demarrer(jeu, attendus, sur_reelle=False, plafond_s=20.0):
@@ -297,8 +316,17 @@ def jouer_la_suite(jeu, d, chemin, hote, sid, premier_cran=8, sur_reelle=False):
 
     `premier_cran` decale seulement la NUMEROTATION affichee : les deux chaines n'ont pas le
     meme nombre de crans avant celui-ci, et un journal dont les numeros sautent se lit mal.
+
+    ⚠ LE NOMBRE DE PAS DE MISE EN PLACE SE DERIVE DU REPLAY, il ne se calcule plus. Il valait
+    `len(poses_du_replay) + 1` -- les unites, plus le `StartBattleMessage`. Sur une bataille qui
+    porte une Machine of War il en manque UN : le START produit AUSSI un `AddMachineMessage`, et
+    le replay de maradak porte bien 7 messages de mise en place pour 5 unites (mesure du
+    2026-08-21). Le calcul aurait fait echouer le cran du START sur un demarrage JUSTE, et
+    demarre le rejeu des coups un cran trop tot -- donc chaque coup sur la mauvaise unite.
     """
-    n_pose = len(poses_du_replay(d) or [])
+    attendu, n_mise_en_place, refus = mise_en_place_du_replay(d)
+    if attendu is None:
+        stop(refus)
 
     cran(premier_cran, "le deploiement -- CONFRONTER, ne poser que s'il diverge")
     sens = poser_le_deploiement(jeu, d, sur_reelle=sur_reelle)
@@ -306,7 +334,7 @@ def jouer_la_suite(jeu, d, chemin, hote, sid, premier_cran=8, sur_reelle=False):
     print("   CONFORME (%s), cases comprises." % sens)
 
     cran(premier_cran + 1, "START")
-    demarrer(jeu, n_pose + 1)          # les poses + le `StartBattleMessage`
+    demarrer(jeu, n_mise_en_place)
 
     cran(premier_cran + 2, "rejouer les coups -- delegue a `replay_rejouer.py`")
-    return rejouer_les_coups(chemin, n_pose + 1, hote, sid)
+    return rejouer_les_coups(chemin, n_mise_en_place, hote, sid)

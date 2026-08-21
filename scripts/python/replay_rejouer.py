@@ -204,6 +204,108 @@ def poses_du_replay(d):
     return out or None
 
 
+# `int.MinValue` -- la case que la vue rend pour une Machine of War, qui vit sur une PLATEFORME
+# et non sur une case du plateau. Le replay, lui, n'ecrit AUCUNE position : mesure du 2026-08-21,
+# le corps entier d'un `AddMachineMessage` vaut `{Name, UnitId, PlayerId}`.
+SANS_CASE = -2147483648
+
+
+def mise_en_place_du_replay(d):
+    """LA MISE EN PLACE ENTIERE -- unites ET Machine of War, DANS L'ORDRE DU FLUX.
+
+    Rend `(entrees, n_messages, refus)` :
+      * `entrees` -- les poses ordonnees, `{"genre": "unite"|"mow", "unitId", "col", "row"}` ;
+      * `n_messages` -- le nombre de messages de mise en place, `StartBattleMessage` INCLUS.
+        C'est l'indice `--depuis` du rejeu, et le nombre de pas que le START doit produire ;
+      * `refus` -- `None` quand la mise en place est ENTIEREMENT MODELISEE, sinon la phrase qui
+        nomme ce qu'on n'y sait pas rejouer. `entrees` vaut alors `None`.
+
+    ⚠ LE REFUS EXISTE PARCE QUE LA MISE EN PLACE N'EST PAS TOUJOURS UNE SUITE DE POSES. Temoin
+    mesure le 2026-08-21, `data/replays/campaign/elite4_31-2020830000.json` : le joueur y a
+    REPOSITIONNE deux unites pendant son deploiement, donc le flux porte deux
+    `RemoveUnitMessage` et SEPT `AddUnitMessage` pour CINQ emplacements -- `poses_du_replay` y
+    rend 7 poses avec doublons, et rejouer cette liste telle quelle poserait 7 unites sur un
+    plateau qui en accepte 5. Ce n'est pas un defaut introduit ici, c'est un defaut qu'on cesse
+    d'HERITER EN SILENCE : sans ce refus la chaine echouerait plus loin, sur un motif qui
+    accuserait la pose au lieu du repositionnement -- exactement le mode de panne que
+    `mise_en_place_du_replay` vient de corriger pour la MoW.
+
+    (!)ELLE EXISTE PARCE QUE `poses_du_replay` NE VOIT QUE LES UNITES, et que tout ce qui
+    COMPARAIT ou COMPTAIT la mise en place s'appuyait dessus. Sur une bataille qui porte une MoW
+    la consequence n'etait pas un faux negatif discret : `controler_avant_start` confrontait 5
+    entrees attendues a 6 vues, donc il rendait << ordre de conversion DIFFERENT du replay >>
+    QUEL QUE SOIT L'ORDRE POSE -- et son refus accusait l'ORDRE alors que la pose etait JUSTE.
+    Mesure du 2026-08-21 sur maradak : `ordreConversion` rend les 5 unites du replay dans leur
+    ordre exact, puis `astraOrdnanceBattery` en 6e avec `mow: true`.
+
+    `poses_du_replay` reste ce qu'elle est : la liste des unites A POSER. La machine ne passe pas
+    par la meme voie -- elle va sur une plateforme, via l'entree `mow` de `deploymentMemoire` --
+    et n'a donc rien a y faire.
+
+    ⚠ ON COMPTE TOUT MESSAGE jusqu'au `StartBattleMessage`, pas seulement les poses : `n_messages`
+    est un INDICE dans le flux, donc il doit compter ce qui s'y trouve, y compris ce que nous ne
+    savons pas nommer. `n_messages == len(entrees) + 1` n'est donc PAS un invariant.
+    """
+    entrees, n, hors_modele = [], 0, []
+    for m in d.get("Messages") or []:
+        corps = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
+        nom = corps.get("Name")
+        n += 1
+        if nom == "StartBattleMessage":
+            if hors_modele:
+                return (None, None,
+                        "REPLAY INEXPLOITABLE -- sa phase de deploiement porte %d message(s) "
+                        "autres que des poses : %s. Un `RemoveUnitMessage` en phase de "
+                        "deploiement veut dire que le joueur a REPOSITIONNE une unite, et le "
+                        "flux garde alors les DEUX poses : plus d'`AddUnitMessage` que "
+                        "d'emplacements. On ne le rejoue pas -- on en prend un autre."
+                        % (len(hors_modele), ", ".join(
+                            "#%d %s" % (i, x) for i, x in hors_modele)))
+            if not entrees:
+                return (None, None, "aucune pose avant le `StartBattleMessage` -- il n'y a pas "
+                                    "de mise en place a rejouer")
+            return (entrees, n, None)
+        if nom == "AddMachineMessage":
+            uid = corps.get("UnitId")
+            if not isinstance(uid, str):
+                return (None, None, "un `AddMachineMessage` sans `UnitId` lisible (#%d)" % n)
+            entrees.append({"genre": "mow", "unitId": uid, "col": None, "row": None})
+        elif nom == "AddUnitMessage":
+            uid = corps.get("UnitId")
+            cases = corps.get("UnitFeetPositions") or []
+            if not isinstance(uid, str) or not cases:
+                return (None, None, "un `AddUnitMessage` sans `UnitId` ni `UnitFeetPositions` "
+                                    "lisibles (#%d)" % n)
+            p = cases[0]
+            if not isinstance(p.get("Column"), int) or not isinstance(p.get("Row"), int):
+                return (None, None, "un `AddUnitMessage` dont la case est illisible (#%d)" % n)
+            entrees.append({"genre": "unite", "unitId": uid,
+                            "col": p["Column"], "row": p["Row"]})
+        else:
+            # ⚠ ON NE FILTRE PAS PAR LISTE BLANCHE DE CE QU'ON REJETTE : tout ce qui n'est pas
+            # modelise est retenu, y compris ce qu'on ne sait pas nommer aujourd'hui. Une liste
+            # de messages << interdits >> ne pourrait pas montrer celui qu'elle a oublie.
+            hors_modele.append((n, nom or "<sans nom>"))
+    return (None, None, "le replay ne porte aucun `StartBattleMessage` -- il n'y a pas de mise "
+                        "en place delimitee")
+
+
+def _cle_de_pose(e):
+    """CE QU'ON COMPARE, ET CE QU'ON NE COMPARE PAS.
+
+    Pour une unite : le genre, le nom ET la case. Pour une Machine of War : le genre et le nom
+    SEULS -- elle est sur une plateforme, donc le replay n'ecrit aucune position et la vue rend
+    `SANS_CASE`. Confronter ces deux-la ferait diverger une pose JUSTE.
+
+    ⚠ CE N'EST PAS UN CHAMP QU'ON IGNORE : `controler_avant_start` verifie a part que la case vue
+    est bien `SANS_CASE`, et le DIT si elle porte autre chose -- une MoW sur une vraie case serait
+    un fait neuf, pas un detail a taire.
+    """
+    if e.get("genre") == "mow":
+        return ("mow", e.get("unitId"))
+    return ("unite", e.get("unitId"), e.get("col"), e.get("row"))
+
+
 def controler_avant_start(jeu, d):
     """LE MEME CRAN, MAIS AVANT LE START -- donc avant tout cout d'entree.
 
@@ -222,9 +324,9 @@ def controler_avant_start(jeu, d):
     entite. Le controle d'apres-START (`controler_appariement`) reste utile comme contre-epreuve,
     mais il arrive apres la depense.
     """
-    attendu = poses_du_replay(d)
+    attendu, _n, refus = mise_en_place_du_replay(d)
     if attendu is None:
-        return (False, "poses du replay NON LISIBLES (UnitId ou UnitFeetPositions absents)")
+        return (False, refus)
     e = jeu.rpc("deploymentEtat", [{}], timeout=180000)
     if not isinstance(e, dict) or not e.get("ok"):
         return (False, "`deploymentEtat` NON LISIBLE (%s) -- ce n'est PAS << appariement bon >>"
@@ -234,15 +336,38 @@ def controler_avant_start(jeu, d):
                                          for v in vues):
         return (False, "`ordreConversion` illisible ou partiel (%s) -- on ne conclut RIEN"
                 % json.dumps(vues, ensure_ascii=False)[:220])
-    vu = [(v.get("unitId"), v.get("col"), v.get("row")) for v in vues]
-    if vu == attendu:
-        return (True, "ordre de conversion CONFORME (%d vues, cases comprises)" % len(vu))
-    lignes = []
+    vu = [{"genre": "mow" if v.get("mow") else "unite", "unitId": v.get("unitId"),
+           "col": v.get("col"), "row": v.get("row")} for v in vues]
+
+    # ⚠ LE FAIT NEUF SE DIT, il ne se tait pas. `_cle_de_pose` ne confronte pas la case d'une
+    # MoW ; ce controle-ci verifie qu'il n'y avait effectivement RIEN a confronter.
+    egarees = [v for v in vu
+               if v["genre"] == "mow" and (v["col"], v["row"]) != (SANS_CASE, SANS_CASE)]
+    if egarees:
+        return (False, "une Machine of War porte une VRAIE case dans `ordreConversion` (%s) -- "
+                       "on attendait `SANS_CASE`. Fait NEUF : ne pas demarrer avant de l'avoir "
+                       "compris." % json.dumps(egarees, ensure_ascii=False)[:220])
+
+    if [_cle_de_pose(x) for x in vu] == [_cle_de_pose(x) for x in attendu]:
+        n_mow = sum(1 for x in attendu if x["genre"] == "mow")
+        return (True, "ordre de conversion CONFORME (%d vues, cases comprises%s)"
+                % (len(vu), (", dont %d MoW -- nom et rang, la case n'existe pas" % n_mow)
+                   if n_mow else ""))
+
+    def _rendu(x):
+        if x is None:
+            return "-"
+        if x["genre"] == "mow":
+            return "MoW %s (sans case)" % x["unitId"]
+        return "%s @%s,%s" % (x["unitId"], x["col"], x["row"])
+
+    lignes = ["      (replay %d entree(s), live %d)" % (len(attendu), len(vu))]
     for i in range(max(len(attendu), len(vu))):
         a = attendu[i] if i < len(attendu) else None
         v = vu[i] if i < len(vu) else None
-        lignes.append("      #%d  replay=%-28s live=%-28s %s"
-                      % (i, a, v, "" if a == v else "<<< ECART"))
+        pareils = a is not None and v is not None and _cle_de_pose(a) == _cle_de_pose(v)
+        lignes.append("      #%d  replay=%-30s live=%-30s %s"
+                      % (i, _rendu(a), _rendu(v), "" if pareils else "<<< ECART"))
     return (False, "ordre de conversion DIFFERENT du replay -- les squads seront attribues "
                    "autrement :\n" + "\n".join(lignes))
 

@@ -135,9 +135,9 @@ def main(argv=None):
                          "pose la machine AILLEURS. Sans cet argument, on refuse plutot que de "
                          "deviner.")
     ap.add_argument("--forcer-la-suite", action="store_true",
-                    help="⛔ lever le verrou des crans 9-10. `jouer_la_suite` a fait CRASHER le "
-                         "jeu sur une source de guerre de guilde (2026-08-21) et la cause n'est "
-                         "pas etablie. Ne pas franchir << pour voir >>.")
+                    help="SANS OBJET depuis le 2026-08-21 : le verrou des crans 9-10 est leve, "
+                         "ses deux causes etant etablies et corrigees. Conserve pour ne pas "
+                         "casser les invocations qui le portent.")
     ap.add_argument("--hote", default=HOTE)
     args = ap.parse_args(argv)
 
@@ -354,31 +354,26 @@ def main(argv=None):
     # `campagne_rejeu_reel.py` porte l'avertissement mot pour mot -- << la premiere version de ce
     # fichier en avait recopie la moitie, et la copie avait DEJA perdu l'armement des relais >>.
     # Je l'ai lu et j'ai recopie quand meme. Un doublon qui re-implemente un comptage se trompe.
-    # ⛔ VERROU : LA CHAINE COMMUNE FAIT CRASHER LE JEU SUR UNE SOURCE DE GUERRE DE GUILDE.
+    # (!)LE VERROU EST LEVE -- LES DEUX CAUSES SONT ETABLIES, ET AUCUNE N'ETAIT LA MOW << EN SOI >>.
     #
-    # Mesure du 2026-08-21, dump `Tacticus.exe.22660.dmp` (15:58:52). `jouer_la_suite` -- le code
-    # EPROUVE cote campagne -- constate d'abord que l'ordre de conversion diverge du replay, puis
-    # pose les 5 unites << en INVERSE de l'ordre du replay >>, et la session meurt pendant cette
-    # pose. Ce qui vaut pour un noeud de campagne ne vaut donc PAS ici, et la cause n'est pas
-    # etablie.
+    # Il a existe pour de bonnes raisons : `jouer_la_suite` avait fait CRASHER le jeu ici (dump
+    # `Tacticus.exe.22660.dmp`, 2026-08-21 15:58), troisieme crash de la journee, et j'avais
+    # ecrit << cause NON ETABLIE >>. Elle l'est desormais, et elle tenait en DEUX defauts de la
+    # chaine COMMUNE, tous deux nes de ce qu'elle avait ete ecrite pour la campagne :
     #
-    # ⚠ ON NE FRANCHIT PAS CE VERROU EN RELANCANT << pour voir >> : c'est le TROISIEME crash de
-    # la journee sur ce chantier, et chacun coute un redemarrage du jeu a l'utilisateur. Les
-    # crans 1 a 8 sont verts et se jouent librement -- c'est deja la partie qui dit si un replay
-    # est rejouable (BC a 0 ecart, lineup au cap, tentatives). Le reste attend une mesure.
+    #   1. LE CRASH -- `poser_le_deploiement` passait `mow: None` EN DUR. Sur une bataille qui
+    #      porte une Machine of War il n'ignorait pas la machine : il ECRASAIT l'entree MoW de la
+    #      memoire a chaque pose. Corrige par `mow_du_replay`.
+    #   2. LE REFUS -- `controler_avant_start` confrontait les 5 `poses_du_replay` aux 6 entrees
+    #      d'`ordreConversion` (la MoW y figure, `mow: true`), donc il rendait << ordre de
+    #      conversion DIFFERENT du replay >> QUEL QUE SOIT L'ORDRE POSE. Corrige par
+    #      `mise_en_place_du_replay`. Mesure du 2026-08-21 : la pose en ORDRE DU REPLAY est
+    #      CONFORME du premier coup, aucune inversion necessaire.
     #
-    # Pour le lever : `--forcer-la-suite`, et jouer d'abord `deploymentPoseDiag` / `deploymentEtat`
-    # sur la bataille montee pour voir ce que la pose fait AVANT de la laisser aller au bout.
-    if not args.forcer_la_suite:
-        print()
-        print("CRANS 9 et 10 -- VERROUILLES.")
-        print("   `jouer_la_suite` a fait CRASHER le jeu sur une source de guerre de guilde")
-        print("   (dump Tacticus.exe.22660.dmp, 2026-08-21 15:58) -- pendant la pose des unites,")
-        print("   apres avoir constate que l'ordre de conversion divergeait du replay.")
-        print("   Cause NON ETABLIE. Residu #10041-r4.")
-        print("   La bataille est MONTEE et jouable a la main ; `--forcer-la-suite` pour passer")
-        print("   outre, en sachant ce que ca a coute trois fois aujourd'hui.")
-        return 3
+    # ⚠ CE QUI RESTE VRAI DU VERROU, ET QU'ON NE PERD PAS : les crans 1 a 8 disent deja si un
+    # replay est rejouable (BC a 0 ecart, lineup au cap, tentatives) et ne coutent RIEN. La
+    # repetition `--sandbox` reste la voie a jouer AVANT `--armer`, qui prend une tentative de
+    # guilde AU CHARGEMENT.
     return jouer_la_suite(j, d, chemin, args.hote, sid,
                           premier_cran=9, sur_reelle=bool(args.armer))
 
