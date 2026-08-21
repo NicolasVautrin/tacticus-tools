@@ -193,6 +193,20 @@ else:
     print("(!) le forgeur ne publie PAS d'environnement -- bundle ANTERIEUR au cablage des buffs")
 
 b = j.rpc("guildWarSourceBc", [{"confirmer": True}], 300000) or {}
+# ⚠ ON CONFRONTE LA BC, PAS LE RAPPORT DU FORGEUR. << 3 abilities armees >> dit ce que le forgeur
+# a POUSSE dans l'accumulateur ; seule la BC dit ce que le jeu en a FAIT. Les deux ont diverge :
+# l'accumulateur etait cree correctement et la BC sortait avec une liste VIDE.
+if b.get("configJson"):
+    try:
+        _bc = json.loads(b["configJson"])
+        _ea = (_bc.get("EnvironmentAbilities") or {})
+        print("BC.EnvironmentAbilities : actives=%s  enhancements=%s"
+              % (len(_ea.get("EnvironmentAbilities") or []),
+                 len(_ea.get("EnhancementsEnvironmentAbilities") or [])))
+        for _a in (_ea.get("EnvironmentAbilities") or []):
+            print("   %s" % json.dumps(_a, ensure_ascii=False)[:160])
+    except Exception as _e:                                   # noqa: BLE001
+        print("(!) BC illisible pour le controle d'environnement : %s" % _e)
 if not b.get("configJson"):
     stop("la BC n'a pas ete produite : %s"
          % json.dumps(b, ensure_ascii=False)[:400], code=1)

@@ -101,6 +101,10 @@ import { Ctx } from "../controller.js";
  *  -- meme vice que le roster imperial sur un montage PvP. */
 let sourceForgeeGw: NativePointer | null = null;
 
+/** Le `BattlefieldZoneTierConfigDto` retenu entre deux etapes de `guildWarEnvEtape` -- il faut
+ *  qu'il SURVIVE a l'aller-retour RPC pour que l'etape 4 ne refasse pas l'appel de l'etape 3. */
+let dtoZoneRetenu: NativePointer | null = null;
+
 /** La `GuildWarsGameModeSource` forgee, pour les modules qui doivent lui DELEGUER un appel. */
 export function sourceGuildWarForgee(): NativePointer | null {
     return sourceForgeeGw;
@@ -1319,14 +1323,25 @@ export function register(ctx: Ctx): void {
         // Tant qu'elle ne l'est pas, un montage guild war ne doit pas l'emprunter : il monte
         // sans environnement (donc sans les salves d'artillerie), ce qui est un ECART CONNU
         // et ANNONCE -- pas un crash. Residu ouvert.
+        // ⚠ LE CAP DE RARETE N'ENTRE PAS DANS CE CHEMIN, ET C'EST UNE MESURE QUI L'A RETIRE.
+        //
+        // La popup indexe la config de chaque buff par le cap (`buffAbilityConfig[rarityCap]`), ce
+        // qui m'a fait croire que cap et environnement etaient indissociables -- et m'a fait
+        // appeler `GetWarZoneConfig`/`GetZoneConfig`/`GetRarityCap`, dont l'un a CRASHE le jeu
+        // deux fois (dumps `Tacticus.exe.30620.dmp` et `.40696.dmp`, 2026-08-21).
+        //
+        // Or `GetActiveBuffs` rend la config POUR LES SIX RARETES, et sur cette zone elles sont
+        // IDENTIQUES -- mesure : `Common`..`Mythic` portent le meme `nrOfProjectiles`
+        // (`["3","6","9",...]`) et le meme `hpPct`. Le cap ne discrimine donc RIEN ici, et
+        // l'indexer n'apportait que le risque. On ne lit plus que `GetActiveBuffs`, appel deja
+        // eprouve sans crash (et deja utilise par `guildWarProbe`).
+        //
+        // ⚠ CE QUI RESTE VRAI : le cap SERT AILLEURS -- c'est l'argument 9 du record, qui borne
+        // la rarete deployable a l'ecran. Il vaut toujours `?? 0` faute d'avoir pu appeler
+        // `GetRarityCap` sans tuer le jeu. Residu #10041-r3.
         const detailEnv: Array<Record<string, unknown>> = [];
-        let rarityCap = body.rarityCap ?? 0;
-        let ordZone = -1;
-        if (body.avecEnvironnement === true) {
-            const rar = capDeRarete(kProg, prog as NativePointer, body.boardId, slotIdx);
-            if (estRefus(rar)) return rar;
-            rarityCap = (rar as { cap: number; ordinal: number }).cap;
-            ordZone = (rar as { cap: number; ordinal: number }).ordinal;
+        const rarityCap = body.rarityCap ?? 0;
+        if (body.avecEnvironnement !== false) {
             const rBuffs = armerBuffsDeZone(kProg, prog as NativePointer, body.warZoneId,
                                             rarityCap, env, detailEnv);
             if (estRefus(rBuffs)) return rBuffs;
@@ -1477,7 +1492,7 @@ export function register(ctx: Ctx): void {
             ok: true, action: "FORGEE", record: rec.toString(), instance: src.toString(),
             // L'ENVIRONNEMENT, buff par buff -- `arme: true` = une ability posee avec son niveau.
             // Un `ecarte` non nul n'est PAS un detail : c'est un ecart mesure avec le natif.
-            rarityCap, ordinalTypeDeZone: ordZone,
+            rarityCap,
             environnement: detailEnv,
             environnementArmees: detailEnv.filter((d) => d.arme === true).length,
             classe: (() => { try { return cstr(class_get_name(src.readPointer()) as NativePointer); }
@@ -1501,6 +1516,86 @@ export function register(ctx: Ctx): void {
      * ⚠ On INVOQUE `LoadBattleInternal`, donc on ne l'ANCRE nulle part : ancrer ce qu'on invoque
      * gele le jeu.
      */
+    /** UN SEUL APPEL NATIF PAR ALLER-RETOUR RPC -- la sonde qui SURVIT a un crash.
+     *
+     *  ⚠ POURQUOI CE GRAIN-LA, ET PAS CELUI DE `guildWarEnvProbe`. Un crash tue la session
+     *  Frida : on ne recupere RIEN, ni valeur de retour, ni champ `etage`, ni log. Grouper
+     *  quatre appels natifs dans UN rpc, c'est donc n'apprendre que << c'etait dans les
+     *  quatre >>. Mesure du 2026-08-21 : deux crashs du jeu, et apres le second je ne pouvais
+     *  toujours pas nommer l'appel fautif.
+     *  Ici chaque invocation ne fait QU'UN appel et rend la main : la reponse precedente est
+     *  DEJA partie sur le fil quand la suivante part, donc la transcription elle-meme dit
+     *  jusqu'ou on est alle. C'est le seul regime ou un crash INFORME au lieu d'effacer.
+     *
+     *  body: { etape: 1..4, ord?, warZoneId?, slotIndex? }
+     *    1 = `GetActiveBuffs(warZoneId)`     -- deja appele sans crash par `guildWarProbe`
+     *    2 = `GetWarZoneConfig(ord)`         -- UN ordinal, pas un balayage
+     *    3 = `GetZoneConfig(ord)`            -- UN ordinal ; retient le dto pour l'etape 4
+     *    4 = `GetRarityCap(<dto retenu>, slotIndex)`
+     */
+    ctx.rpc.guildWarEnvEtape = (body?: {
+        etape?: number; ord?: number; warZoneId?: string; slotIndex?: number;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        const prog = progressionPhase();
+        if (estRefus(prog)) return { ok: false, error: (prog as RefusVue).error };
+        const sur = prog as NativePointer;
+        const kProg = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                        "GuildWarPhaseProgression");
+        if (!kProg) return { ok: false, error: "classe `GuildWarPhaseProgression` introuvable" };
+        const etape = body?.etape ?? 0;
+
+        if (etape === 1) {
+            if (!body?.warZoneId) return { ok: false, error: "`warZoneId` requis" };
+            const m = findMethodByParamCount(kProg, "GetActiveBuffs", 1);
+            if (!m) return { ok: false, error: "`GetActiveBuffs(1)` INTROUVABLE" };
+            let l: NativePointer;
+            try { l = invokeMethod(m.info, sur, [createManagedString(body.warZoneId)]); }
+            catch (e) { return { ok: false, etape, error: (e as Error).message }; }
+            if (l.isNull()) return { ok: true, etape, buffs: null, n: null };
+            gcRoot.add(l);
+            return { ok: true, etape, n: l.add(0x18).readS32(), buffs: enJson(l) };
+        }
+
+        if (etape === 2 || etape === 3) {
+            const nom = etape === 2 ? "GetWarZoneConfig" : "GetZoneConfig";
+            const ord = body?.ord ?? 0;
+            const kWzt = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                           "WarZoneType");
+            if (!kWzt) return { ok: false, error: "classe `WarZoneType` introuvable" };
+            const m = findMethodByParamCount(kProg, nom, 1);
+            if (!m) return { ok: false, error: `\`${nom}(1)\` INTROUVABLE` };
+            const c = appelParTypeDeZone(m, sur, kWzt, ord);
+            if (c === null) return { ok: false, etape, ord, error: `\`${nom}(${ord})\` a LEVE` };
+            if (c.isNull()) return { ok: true, etape, ord, config: null };
+            gcRoot.add(c);
+            if (etape === 3) { dtoZoneRetenu = c; return { ok: true, etape, ord, dto: c.toString() }; }
+            let bid: string | null = null;
+            try {
+                const p = c.add(0x10).readPointer();
+                bid = p.isNull() ? null : readIl2cppString(p);
+            } catch { /* publie tel quel */ }
+            return { ok: true, etape, ord, boardId: bid, spawnPointsSet: c.add(0x18).readS32() };
+        }
+
+        if (etape === 4) {
+            if (dtoZoneRetenu === null) {
+                return { ok: false, error: "aucun dto retenu -- jouer l'etape 3 d'abord" };
+            }
+            const kExt2 = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                            "BattlefieldZoneTierConfigDtoExtensions");
+            if (!kExt2) return { ok: false, error: "classe `...DtoExtensions` introuvable" };
+            const m = findMethodByParamCount(kExt2, "GetRarityCap", 2);
+            if (!m) return { ok: false, error: "`GetRarityCap(2)` INTROUVABLE" };
+            const pSlot = Memory.alloc(4); pSlot.writeS32(body?.slotIndex ?? 0);
+            try {
+                const r = invokeMethod(m.info, null, [dtoZoneRetenu, pSlot]);
+                // Retour BOXE : la valeur est a `+0x10`.
+                return { ok: true, etape, rarityCap: r.isNull() ? null : r.add(0x10).readS32() };
+            } catch (e) { return { ok: false, etape, error: (e as Error).message }; }
+        }
+        return { ok: false, error: "`etape` attendue dans 1..4" };
+    });
+
     /** LES DEUX ETAGES DE L'ENVIRONNEMENT, EN LECTURE SEULE -- le cap de rarete et les buffs
      *  actifs, SANS rien allouer ni armer.
      *
