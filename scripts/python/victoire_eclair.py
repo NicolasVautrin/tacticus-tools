@@ -58,6 +58,24 @@ def seuils():
     return t
 
 
+def seuil_de(identifiant, noeud):
+    """Le nombre de rounds pour l'eclair, depuis l'IDENTIFIANT de campagne (`elite4`) et le noeud.
+
+    Rend `None` si le gameconfig ne le porte pas -- NON MESURE, jamais un defaut devine."""
+    from raids_plan import table_des_campagnes
+    typ = None
+    for ident, t, _ in table_des_campagnes().values():
+        if ident == identifiant:
+            typ = t
+            break
+    if typ is None:
+        return None
+    m = re.search(r"(\d+)$", str(identifiant))
+    if not m:
+        return None
+    return seuils().get((typ, int(m.group(1)), str(noeud)))
+
+
 def entite_du_joueur(replay):
     """L'entite qui porte le camp du JOUEUR -- resolue, jamais ecrite en dur."""
     bc = replay.get("BattleConfiguration") or {}

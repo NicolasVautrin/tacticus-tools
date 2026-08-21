@@ -199,6 +199,21 @@ if bmin is None or bmax is None:
     sys.exit(1)
 print("bornes de pose (LUES sur la source) : min=%d max=%d" % (bmin, bmax))
 
+# LE SEUIL DE VICTOIRE ECLAIR -- affiche au montage, parce que c'est LA chose qu'on veut savoir
+# AVANT de jouer, pas apres. Il est PROPRE A CHAQUE BATAILLE (campaign1 noeud 19 : 4 ; noeud 28 :
+# 3), donc le retenir de tete ne marche pas. `None` = NON MESURE, jamais un defaut.
+try:
+    from victoire_eclair import seuil_de              # noqa: E402
+    _seuil, _panne = seuil_de(args.campagne, args.noeud), None
+except Exception as _e:                               # noqa: BLE001
+    _seuil, _panne = None, _e
+if _seuil is not None:
+    print("VICTOIRE ECLAIR : gagner en %d round(s) au plus (pieces x2)" % _seuil)
+elif _panne is not None:
+    print("(!) seuil d'eclair NON MESURE : %s" % _panne)
+else:
+    print("(!) seuil d'eclair ABSENT du gameconfig pour %s noeud %d" % (args.campagne, args.noeud))
+
 # 3ter. OUBLIER LA MEMOIRE DE POSE -- AVANT d'armer, et c'est un cran, pas une precaution.
 #
 # (!)MESURE DU 2026-08-22, RAPPORTEE PAR L'ECRAN : montage de `campaign1` noeud 22 juste apres
