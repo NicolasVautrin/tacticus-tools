@@ -50,6 +50,10 @@ from sandbox_boss import session_vivante                     # noqa: E402
 from sandbox_mode import Jeu                                 # noqa: E402
 from desarmer_relais import passer as relais_lire            # noqa: E402
 from desarmer_relais import rendre_compte as relais_rendre_compte  # noqa: E402
+# ⛔ LA CHAINE COMMUNE -- pose, controle du lineup, START, rejeu. IDENTIQUE aux deux voies, et
+# deja eprouvee par `campagne_rejeu_reel.py`. On la REEMPLOIE, on ne la recopie pas.
+from deploiement_commun import jouer_la_suite                # noqa: E402
+from replay_rejouer import poses_du_replay                   # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
 _ABSENT = "<ABSENT>"
@@ -77,23 +81,39 @@ def diff_total(a, b, chemin="", sorties=None):
     return sorties
 
 
-def poses_du_replay(d):
-    """Les `AddUnitMessage`/`AddMachineMessage` de NOTRE joueur, dans l'ordre du replay.
+def lecture_des_poses(d):
+    """Les poses du replay, dans la forme que CE script confronte (rarete, epuisement, MoW).
 
-    ⚠ `PlayerId` est LU, pas suppose : le replay porte les deux camps, et deployer la lineup du
-    DEFENSEUR serait une bataille sans rapport."""
+    ⚠ L'EXTRACTION elle-meme vient de `replay_rejouer.poses_du_replay` -- on ne la reecrit pas.
+    Ici on ne fait que la re-presenter, et on LIT `PlayerId` plutot que de le supposer : le
+    replay porte les DEUX camps, et deployer la lineup du DEFENSEUR serait une autre bataille."""
+    # ⚠ LA FORME EST LUE, PAS SUPPOSEE : `poses_du_replay` rend des TUPLES `(unitId, col, row)`,
+    # pas des dicts -- une premiere version ecrite pour des dicts rendait une liste VIDE, en
+    # silence. Et elle N'INCLUT PAS la Machine of War (`AddMachineMessage` n'a ni colonne ni
+    # ligne) : celle-la, on la releve nous-memes sur les messages.
     nous = []
+    for p in (poses_du_replay(d) or []):
+        if isinstance(p, (list, tuple)) and len(p) >= 3:
+            nous.append({"unitId": p[0], "player": None,
+                         "positions": [{"Column": p[1], "Row": p[2]}], "mow": False})
+        elif isinstance(p, dict):
+            pos = p.get("positions") or p.get("UnitFeetPositions")
+            nous.append({"unitId": p.get("unitId") or p.get("UnitId"),
+                         "player": p.get("player", p.get("playerId", p.get("PlayerId"))),
+                         "positions": pos, "mow": False})
     for m in d.get("Messages") or []:
-        j = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
-        nom = j.get("Name")
-        if nom == "StartBattleMessage":
+        jm = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
+        if jm.get("Name") == "StartBattleMessage":
             break
-        if nom == "AddUnitMessage":
-            nous.append({"unitId": j.get("UnitId"), "player": j.get("PlayerId"),
-                         "positions": j.get("UnitFeetPositions"), "mow": False})
-        elif nom == "AddMachineMessage":
-            nous.append({"unitId": j.get("UnitId"), "player": j.get("PlayerId"),
+        if jm.get("Name") == "AddMachineMessage":
+            nous.append({"unitId": jm.get("UnitId"), "player": jm.get("PlayerId"),
                          "positions": None, "mow": True})
+        elif jm.get("Name") == "AddUnitMessage":
+            # Le `PlayerId` n'est pas dans les tuples : on le recolle par l'`unitId`.
+            for x in nous:
+                if x["unitId"] == jm.get("UnitId") and x["player"] is None:
+                    x["player"] = jm.get("PlayerId")
+                    break
     return nous
 
 
@@ -114,6 +134,10 @@ def main(argv=None):
                          "(`AddMachineMessage` ne porte que l'`UnitId`), et une position fausse "
                          "pose la machine AILLEURS. Sans cet argument, on refuse plutot que de "
                          "deviner.")
+    ap.add_argument("--forcer-la-suite", action="store_true",
+                    help="⛔ lever le verrou des crans 9-10. `jouer_la_suite` a fait CRASHER le "
+                         "jeu sur une source de guerre de guilde (2026-08-21) et la cause n'est "
+                         "pas etablie. Ne pas franchir << pour voir >>.")
     ap.add_argument("--hote", default=HOTE)
     args = ap.parse_args(argv)
 
@@ -133,7 +157,7 @@ def main(argv=None):
     if mode != "GuildWars":
         stop("le replay est en `GameMode=%s`, pas `GuildWars`. Ce script ne sait pas le rejouer, "
              "et le forcer monterait une bataille sans rapport." % mode)
-    poses = poses_du_replay(d)
+    poses = lecture_des_poses(d)
     n_coups = len(d.get("Messages") or []) - (len(poses) + 1)
     print("cran 1 -- replay : %s" % chemin.name)
     print("   GameMode=%s  seed=%s  poses=%d  coups=%d  provenance=%s"
@@ -313,65 +337,50 @@ def main(argv=None):
             stop("REFUS a l'engagement : %s" % json.dumps(r, ensure_ascii=False)[:500], code=1)
         print("   appel PASSE. %s" % r.get("note"))
 
-    # ---------------------------------------------------------------- cran 9 : le deploiement
-    import time
-    for _ in range(40):
-        if (j.rpc("retreatStatus", [], 60000) or {}).get("batailleActive") is True:
-            break
-        time.sleep(1)
-    else:
-        stop("aucune bataille active apres le montage -- on ne deploie pas dans le vide.", code=1)
-
-    corps = {"poses": [{"unitId": p["unitId"], "playerId": p["player"],
-                        "col": p["positions"][0]["Column"], "row": p["positions"][0]["Row"]}
-                       for p in poses if not p["mow"]]}
-    if mow is not None:
-        corps["mow"] = {"unitId": mow["unitId"], "playerId": mow["player"],
-                        "position": mow_pos}
-    r = j.rpc("deploymentMemoire", [{"poser": corps, "confirmer": True}], 240000) or {}
-    if not r.get("ok"):
-        stop("l'inscription de la lineup a ete REFUSEE : %s"
-             % json.dumps(r, ensure_ascii=False)[:300], code=1)
-    print("cran 9 -- lineup INSCRITE : %d pose(s)%s"
-          % (len(corps["poses"]), " + MoW" if mow else ""))
-
-    # ⚠ INSCRIRE N'EST PAS POSER. `poser` remplit la MEMOIRE ; c'est `rejouer` qui l'applique au
-    # HUD. Mesure du 2026-08-21 : sans ce second appel, le garde du START rendait
-    # `posees_0x1b8: 0` -- la bataille demarrait avec AUCUNE de nos unites, et le rejeu des coups
-    # devenait absurde. L'appel qui rend `ok` n'est pas celui qui pose.
-    rj = j.rpc("deploymentMemoire", [{"rejouer": True, "confirmer": True}], 240000) or {}
-    print("   rejeu de la memoire : %s" % json.dumps(rj, ensure_ascii=False)[:220])
-
-    # ⛔ ON COMPTE AVANT DE DEMARRER. Le HUD tient le compte reel des unites posees ; le START
-    # convertit ce qu'IL voit, pas ce qu'on croit avoir envoye. Un ecart ici et la bataille
-    # rejouee n'est pas celle du replay.
-    attendu = len(corps["poses"])
-    h = j.rpc("deploymentHudArmer", [], 120000) or {}
-    posees = ((h.get("etat") or {}).get("posees")
-              if isinstance(h.get("etat"), dict) else None)
-    d9lect = j.rpc("deploymentStartArmer", [], 120000) or {}
-    print("   HUD : %s" % json.dumps(h.get("etat"), ensure_ascii=False)[:200])
-    print("   attendu : %d pose(s)" % attendu)
-
-    d9 = j.rpc("deploymentStartInvoquer", [{"confirmer": True}], 240000) or {}
-    gardes = d9.get("gardes") or {}
-    reellement = gardes.get("posees_0x1b8")
-    print("   START : ok=%s  posees(HUD)=%s" % (d9.get("ok"), reellement))
-    if not d9.get("ok"):
-        stop("le START a ete REFUSE : %s" % (d9.get("error") or "sans motif"), code=1)
-    if reellement is not None and reellement != attendu:
-        stop("la bataille a demarre avec %s unite(s) posee(s) au lieu de %d -- ce n'est PAS la "
-             "lineup du replay. On n'en rejoue pas les coups." % (reellement, attendu), code=1)
-    _ = (posees, d9lect)
-
-    # ---------------------------------------------------------------- cran 10 : les coups
-    print()
-    print("cran 10 -- rejeu des %d coups, arret au PREMIER ecart" % n_coups)
-    p = subprocess.run([sys.executable, str(RACINE / "scripts" / "python" / "replay_rejouer.py"),
-                        "--replay", str(chemin), "--vivant", "--arret-au-premier-ecart",
-                        "--session", str(sid)],
-                       cwd=str(RACINE), text=True)
-    return p.returncode
+    # ------------------------------------------------------- crans 9 et 10 : LA CHAINE COMMUNE
+    #
+    # ⛔ ON NE REECRIT PAS CE QUI SUIT L'ARRIVEE DE LA BATAILLE -- `jouer_la_suite` le fait, et
+    # c'est le MEME code que la voie campagne : pose des unites (les deux ordres, la
+    # re-confrontation), controle du lineup, START attendu sur le FAIT, rejeu delegue.
+    #
+    # ⚠ CETTE LIGNE REMPLACE TROIS REIMPLEMENTATIONS, ET LES TROIS ETAIENT FAUSSES. La premiere
+    # version d'ici posait par `deploymentMemoire {poser}` sans savoir que `rejouer` est
+    # ASYNCHRONE (<< rejeu ENFILE >>), puis comptait les unites sur `gardes.posees_0x1b8` du
+    # START -- qui rendait **0** pendant que la bataille portait bel et bien nos **5** unites
+    # (`battleStatus.unitsAlive == 5`). J'ai accuse le deploiement sur ce seul proxy, alors que
+    # le depot documente deja qu'il ment en regime PLACEHOLDERS (<< bouton a 0/5 avec cinq
+    # unites en jeu >>, la mesure qui avait fait RETIRER `deploymentBlocageStart`).
+    #
+    # `campagne_rejeu_reel.py` porte l'avertissement mot pour mot -- << la premiere version de ce
+    # fichier en avait recopie la moitie, et la copie avait DEJA perdu l'armement des relais >>.
+    # Je l'ai lu et j'ai recopie quand meme. Un doublon qui re-implemente un comptage se trompe.
+    # ⛔ VERROU : LA CHAINE COMMUNE FAIT CRASHER LE JEU SUR UNE SOURCE DE GUERRE DE GUILDE.
+    #
+    # Mesure du 2026-08-21, dump `Tacticus.exe.22660.dmp` (15:58:52). `jouer_la_suite` -- le code
+    # EPROUVE cote campagne -- constate d'abord que l'ordre de conversion diverge du replay, puis
+    # pose les 5 unites << en INVERSE de l'ordre du replay >>, et la session meurt pendant cette
+    # pose. Ce qui vaut pour un noeud de campagne ne vaut donc PAS ici, et la cause n'est pas
+    # etablie.
+    #
+    # ⚠ ON NE FRANCHIT PAS CE VERROU EN RELANCANT << pour voir >> : c'est le TROISIEME crash de
+    # la journee sur ce chantier, et chacun coute un redemarrage du jeu a l'utilisateur. Les
+    # crans 1 a 8 sont verts et se jouent librement -- c'est deja la partie qui dit si un replay
+    # est rejouable (BC a 0 ecart, lineup au cap, tentatives). Le reste attend une mesure.
+    #
+    # Pour le lever : `--forcer-la-suite`, et jouer d'abord `deploymentPoseDiag` / `deploymentEtat`
+    # sur la bataille montee pour voir ce que la pose fait AVANT de la laisser aller au bout.
+    if not args.forcer_la_suite:
+        print()
+        print("CRANS 9 et 10 -- VERROUILLES.")
+        print("   `jouer_la_suite` a fait CRASHER le jeu sur une source de guerre de guilde")
+        print("   (dump Tacticus.exe.22660.dmp, 2026-08-21 15:58) -- pendant la pose des unites,")
+        print("   apres avoir constate que l'ordre de conversion divergeait du replay.")
+        print("   Cause NON ETABLIE. Residu #10041-r4.")
+        print("   La bataille est MONTEE et jouable a la main ; `--forcer-la-suite` pour passer")
+        print("   outre, en sachant ce que ca a coute trois fois aujourd'hui.")
+        return 3
+    return jouer_la_suite(j, d, chemin, args.hote, sid,
+                          premier_cran=9, sur_reelle=bool(args.armer))
 
 
 if __name__ == "__main__":
