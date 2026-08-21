@@ -222,6 +222,10 @@ export const TRANSITION = {
     inscrit: "inscrit",
     /** `ScreenVisibilityManager$$Unregister` */
     retire: "retire",
+    /** `idun.battle.view.BattleEndScreen$$ShowVictory` */
+    finVictoire: "bataille-fin-victoire",
+    /** `idun.battle.view.BattleEndScreen$$ShowDefeat` */
+    finDefaite: "bataille-fin-defaite",
 } as const;
 
 export interface TransitionVue {
@@ -388,6 +392,151 @@ export function ecouterTransitions(): EcouteTransitions {
     };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// L'ATTENTE D'UN ÉCRAN — le signal vient de l'UI, pas du runner
+//
+// (!)LE RUNNER EST LE MAUVAIS ÉMETTEUR POUR UNE FIN DE BATAILLE, et le confondre coûte une
+// boucle de sondage. `runner-signal.ts` pousse sur `IdunGameViews._runner : null -> r` ; c'est
+// juste pour le MONTAGE. Mais quand une bataille se TERMINE, le runner ne disparaît pas —
+// mesuré le 2026-08-21 : après la victoire, `battleStatus` rend encore `runner: "live"` avec
+// `stage: Finished`, et `_runner` ne passe à `null` qu'au retour au méta, bien plus tard. Ce qui
+// apparaît à cet instant précis, c'est un ÉCRAN : `GuiId.BattleEnd` (14).
+//
+// `ScreenVisibilityManager` le publie déjà, et `ecouterTransitions` le pousse déjà. Il ne
+// manquait que de l'exposer : sans ça, un appelant qui veut enchaîner deux batailles n'a
+// d'autre choix que d'interroger `sandboxProbe` chaque seconde — le minuteur déguisé que ce
+// dépôt a banni pour le montage et réintroduit ici, à l'autre bout de la même boucle.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** L'écoute PARTAGÉE des RPC ci-dessous. Créée à la PREMIÈRE demande, jamais au `register` :
+ *  l'abonnement installe les `Interceptor`, et ce module ne doit rien armer de lui-même. */
+let ecoutePartagee: EcouteTransitions | null = null;
+
+function ecouteVivante(): EcouteTransitions {
+    if (ecoutePartagee === null) ecoutePartagee = ecouterTransitions();
+    return ecoutePartagee;
+}
+
+export function register(ctx: Ctx): void {
+    /** L'index COURANT dans le flux de transitions, à lire AVANT le geste qu'on attend.
+     *
+     *  ⚠ `ancrages: null` = AUCUN signal possible (`ScreenVisibilityManager` introuvable). Un
+     *  appelant qui lirait `generation: 0` sans regarder ce champ attendrait le plafond entier
+     *  en croyant que rien ne s'est produit. */
+    ctx.rpc.ecranGeneration = (): unknown => {
+        const e = ecouteVivante();
+        return { ok: true, generation: e.vues().length, ancrages: e.ancrages };
+    };
+
+    /** CE QUE L'ÉCOUTE A VU — lecture pure du tampon partagé.
+     *
+     *  ⚠ INDISPENSABLE POUR DIAGNOSTIQUER UN SIGNAL MUET. `attendreEcran` qui ne mord pas ne dit
+     *  pas POURQUOI : mauvais `GuiId`, mauvais événement, ou rien du tout. Sans ce listing, on
+     *  accuse le signal alors que c'est le prédicat qui vise à côté. */
+    ctx.rpc.ecranTransitions = (body?: { depuis?: number }): unknown => {
+        const e = ecouteVivante();
+        const d = typeof body?.depuis === "number" ? body.depuis : 0;
+        return { ok: true, ancrages: e.ancrages, generation: e.vues().length,
+                 transitions: e.vues().slice(d) };
+    };
+
+    /**
+     * Rendre la main quand un ÉCRAN apparaît (ou disparaît) — par signal.
+     *
+     * body: { gui?: number, guiNom?: string, evenement?: string,
+     *         depuis?: number, plafondMs?: number }
+     *
+     * `gui` / `guiNom` : l'écran visé (`14` / `"BattleEnd"` pour la fin de bataille de campagne).
+     * `evenement` : un libellé de `TRANSITION` (`"montre-fin"` par défaut — l'écran est en place,
+     *               pas seulement en train d'arriver).
+     * `depuis` : l'index lu AVANT le geste. Le balayage préalable d'`attendre` ferme la course :
+     *            un écran qui apparaît vite serait sinon manqué, et c'est celui-là qui compte.
+     *
+     * ⚠ `atteint: false` = LE PLAFOND. Ce n'est PAS « l'écran n'existe pas ».
+     */
+    ctx.rpc.attendreEcran = (body?: {
+        gui?: number; guiNom?: string; evenement?: string; evenements?: string[];
+        depuis?: number; plafondMs?: number;
+    }): Promise<unknown> => {
+        const e = ecouteVivante();
+        if (e.ancrages === null) {
+            return Promise.resolve({ ok: false, atteint: false, ancrages: null,
+                error: "`idun.ui.ScreenVisibilityManager` INTROUVABLE -- aucun signal d'écran "
+                    + "n'est possible sur ce build. Ce n'est PAS « l'écran n'est pas apparu »." });
+        }
+        // ⚠ PLUSIEURS LIBELLÉS, PARCE QU'UNE FIN DE BATAILLE EN A DEUX. `ShowVictory` et
+        //   `ShowDefeat` sont deux méthodes distinctes : attendre la seule victoire ferait
+        //   expirer le plafond sur une défaite, et le silence se lirait « la bataille tourne
+        //   toujours ». L'appelant passe donc l'ENSEMBLE de ce qui l'intéresse.
+        const quoi = body?.evenements ?? [body?.evenement ?? TRANSITION.montreFin];
+        const depuis = typeof body?.depuis === "number" ? body.depuis : e.vues().length;
+        const plafond = typeof body?.plafondMs === "number" ? body.plafondMs : 120000;
+        const pred = (t: TransitionVue): boolean =>
+            quoi.includes(t.quoi)
+            && (body?.gui === undefined || t.gui.v === body.gui)
+            && (body?.guiNom === undefined || t.gui.nom === body.guiNom);
+        return e.attendre(pred, plafond, depuis).then((t) => ({
+            ok: true, atteint: t !== null, transition: t,
+            generation: e.vues().length, depuis, evenement: quoi,
+            note: t !== null ? "transition VUE"
+                : "PLAFOND atteint -- rien de conforme dans ce delai (l'ecoute, elle, a vu "
+                  + (e.vues().length - depuis) + " transition(s))",
+        }));
+    };
+}
+
+/**
+ * L'ÉCRAN DE FIN DE BATAILLE — ancré SUR SA PROPRE CLASSE, parce que
+ * `ScreenVisibilityManager` NE LE VOIT PAS.
+ *
+ * (!)MESURÉ, PAS SUPPOSÉ (2026-08-21). On a d'abord attendu `GuiId.BattleEnd` (14) en
+ * `montre-fin`, ce que l'énumération rendait plausible. À la fin d'une victoire de campagne,
+ * l'écoute a rendu **TROIS** transitions et pas une seule `montre-*` :
+ *
+ *     retire    gui=<illisible>  GameCamera
+ *     retire    gui=3 Campaign   IdunCampaignScreen
+ *     inscrit   gui=<illisible>  GameCamera
+ *
+ * L'écran de fin ne passe donc pas par le `Show`/`Hide` de ce manager, et un signal bâti dessus
+ * serait resté MUET — en se lisant comme « la bataille n'est pas finie ».
+ *
+ * Le point qui tire, lui, est NOMMÉ et porté par UNE classe non générique :
+ * `idun.battle.view.BattleEndScreen$$ShowVictory` / `$$ShowDefeat`. Ce sont les méthodes que le
+ * jeu appelle POUR AFFICHER cet écran — donc l'événement exact, sans intermédiaire.
+ *
+ * ⚠ ELLES PRENNENT BEAUCOUP D'ARGUMENTS, et on n'en lit AUCUN : la valeur du signal est sa
+ * survenue. Lire `args[1]` comme le fait `ancrer` donnerait un `GuiId` sur un objet qui n'en
+ * porte pas -- exactement le `gui=348736512` illisible ci-dessus.
+ */
+function ancrerFinDeBataille(): number {
+    const k = findClassAnywhere("idun.battle.view", "BattleEndScreen");
+    if (!k) return 0;
+    let poses = 0;
+    for (const [nom, quoi] of [["ShowVictory", TRANSITION.finVictoire],
+                               ["ShowDefeat", TRANSITION.finDefaite]] as const) {
+        const mi = findMethod(k, nom);
+        if (!mi || mi.ptr.isNull()) continue;
+        try {
+            Interceptor.attach(mi.ptr, {
+                onEnter() {
+                    const vue: TransitionVue = {
+                        quoi, gui: { v: null, nom: "BattleEndScreen" },
+                        classe: "BattleEndScreen",
+                    };
+                    for (const cb of abonnes) {
+                        try { cb(vue); } catch { /* un abonne qui jette n'emporte pas les autres */ }
+                    }
+                    if (!actif) return;
+                    recus++;
+                    journal.push({ n: recus, ...vue });
+                },
+            });
+            poses++;
+        } catch { /* une ancre qui echoue ne doit pas emporter les autres */ }
+    }
+    return poses;
+}
+
 function installerAncrages(): number | null {
     const klass = findClassAnywhere("idun.ui", "ScreenVisibilityManager");
     if (!klass) return null;
@@ -397,6 +546,7 @@ function installerAncrages(): number | null {
     total += ancrer(klass, "HandleOnScreenStartedHiding", TRANSITION.cacheDebut);
     total += ancrer(klass, "Register", TRANSITION.inscrit);
     total += ancrer(klass, "Unregister", TRANSITION.retire);
+    total += ancrerFinDeBataille();
     Interceptor.flush();
     return total;
 }

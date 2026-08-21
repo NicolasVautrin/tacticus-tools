@@ -224,6 +224,52 @@ def refuser_si_en_bataille(jeu):
     print("   hors bataille -- le seed peut encore etre impose.")
 
 
+def confirmer_ecran_de_fin(jeu):
+    """LE BOUTON << PLAY AGAIN >> VIT SUR UN ECRAN -- donc c'est l'UI qu'on interroge.
+
+    (!)`battleStatus.stageName == "Finished"` NE DIT PAS QUE L'ECRAN EST LA. Il decrit le
+    RUNNER : la logique de bataille a atteint un stage terminal. L'ecran de fin, lui, est monte
+    par la VUE, quelques frames plus tard -- et c'est LUI qui porte le bouton qu'on invoque.
+    Trancher sur le runner, c'est prendre un temoin pour un autre ; le meme travers a fait
+    prendre une bataille en cours pour un deploiement en attente (cf. `ordreConversion`).
+
+    On demande donc a `ScreenVisibilityManager`, via `attendreEcran`, si `GuiId.BattleEnd` (14)
+    est passe en `montre-fin` DEPUIS LE DEBUT de l'ecoute (`depuis: 0`) -- le tampon local repond
+    sans attendre quand la transition a deja eu lieu.
+
+    ⚠ ET UNE ECOUTE NEUVE N'A PAS DE PASSE. Si le signal vient d'etre cree (premier appel de la
+    session), son tampon est vide et la transition d'avant est perdue : on le DIT et on se rabat
+    sur le stage du runner, en le NOMMANT comme le repli qu'il est. Un repli tu se lirait comme
+    une confirmation par l'ecran.
+    """
+    g = jeu.rpc("ecranGeneration", [], timeout=120000)
+    ancrages = g.get("ancrages") if isinstance(g, dict) else None
+    vues = g.get("generation") if isinstance(g, dict) else None
+    if ancrages:
+        r = jeu.rpc("attendreEcran",
+                    [{"guiNom": ECRAN_FIN, "evenements": FINS, "depuis": 0,
+                      "plafondMs": 2000}], timeout=60000)
+        if isinstance(r, dict) and r.get("ok") and r.get("atteint"):
+            print("   ecran `%s` CONFIRME par l'UI (%s transition(s) dans le tampon)."
+                  % (ECRAN_FIN, vues))
+            return
+        if vues:
+            stop("l'ecoute d'ecran a vu %s transition(s) mais AUCUNE `%s` en `montre-fin` : "
+                 "l'ecran de fin n'est pas la, et << play again >> n'aurait pas de cible."
+                 % (vues, ECRAN_FIN))
+        print("   ecoute d'ecran NEUVE (tampon vide) -- la transition d'avant est perdue.")
+    else:
+        print("   signal d'ecran INDISPONIBLE (aucun ancrage `ScreenVisibilityManager`).")
+
+    b = jeu.rpc("battleStatus", [{}], timeout=120000)
+    stage = b.get("stageName") if isinstance(b, dict) else None
+    if stage != "Finished":
+        stop("REPLI sur le runner : `stageName` vaut %r (attendu `Finished`). Ni l'UI ni le "
+             "runner ne confirment un ecran de fin." % stage)
+    print("   REPLI sur le runner : stage=%s vainqueur=%s -- ce n'est PAS une confirmation par "
+          "l'ecran." % (stage, b.get("winner")))
+
+
 def chargeur_au_repos(jeu):
     """(!)LE DISCRIMINANT DE #993, ET IL VAUT DANS LES DEUX SENS. `thor.Loader$$LoadScene`
     REFUSE EN SILENCE quand un chargement est deja en cours : il journalise et retourne. Lancer
@@ -262,6 +308,13 @@ def armer_le_fil(jeu):
 # telemetrie d'interaction, `api-live/player/player2/...` = etat joueur) ne portent AUCUN
 # evenement de bataille -- les CONFONDRE ferait lire << ca a communique >> sur du bruit de fond.
 EVENEMENTS_DE_JEU = "game-event"
+
+# L'ECRAN DE FIN. Ancre sur `idun.battle.view.BattleEndScreen$$ShowVictory` / `$$ShowDefeat`, et
+# NON sur `GuiId.BattleEnd` : mesure du 2026-08-21, `ScreenVisibilityManager` ne voit pas cet
+# ecran -- une fin de victoire n'emet aucune transition `montre-*`. Detail dans
+# `campagne_rejeu_boucle.py`.
+ECRAN_FIN = "BattleEndScreen"
+FINS = ["bataille-fin-victoire", "bataille-fin-defaite"]
 
 
 def rendre_compte_du_fil(jeu):
@@ -307,7 +360,7 @@ def controler_le_capteur_de_vue(jeu):
     print("   capteur de vue ancre (`IdunGameViews$$Enable`), `forcer` eteint.")
 
 
-def entrer_dans_la_bataille(jeu, campagne, type_, noeud, depuis, plafond_ms):
+def entrer_dans_la_bataille(jeu, campagne, type_, noeud, depuis, plafond_ms, par_retry=False):
     """ENTRER, PAR LA VOIE NATIVE -- `ViewCommandExecutor$$StartCampaignMatch`.
 
     Elle construit une `CampaignGameModeSource` puis appelle `ViewCommandExecutor$$StartMatch`.
@@ -335,15 +388,28 @@ def entrer_dans_la_bataille(jeu, campagne, type_, noeud, depuis, plafond_ms):
     if depuis is None:
         stop("`runnerGeneration` NON MESURE : les hooks charges sont anterieurs a "
              "`runner-signal.ts`. Reinjecter, ou il n'y a pas de signal a attendre.")
-    print("   StartCampaignMatch(%r, %d, %s, {brut:\"0101\", octets:2})"
-          % (campagne, noeud - 1, NOM_TYPE.get(type_, type_)))
-    r = jeu.rpc("viewInvoke",
-                [{"cible": "executor", "methode": "StartCampaignMatch",
-                  "args": [campagne, noeud - 1, type_, {"brut": "0101", "octets": 2}],
-                  "confirmer": True}], timeout=180000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("l'entree a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:400])
-    print("   invoque sur %s -- la bataille se monte ; RIEN n'est encore engage." % r.get("sur"))
+    if par_retry:
+        # (!)LA VOIE COURTE, DEPUIS L'ECRAN DE FIN. `idun.IdunMainView$$OnBattleRetryAfterVictory`
+        # est le bouton << play again >> : il repart du MEME noeud sans repasser par le meta,
+        # donc sans re-naviguer ni re-forger la source. Lu au decompile -- one-liner vers
+        # `OnBattleRetryInternal(startBattleSource: 2, saveReplay: 1)`.
+        print("   OnBattleRetryAfterVictory()  -- << play again >>, depuis l'ecran de fin")
+        r = jeu.rpc("retreatInvoke",
+                    [{"methode": "OnBattleRetryAfterVictory", "confirmer": True}], timeout=180000)
+        if not isinstance(r, dict) or not r.get("ok"):
+            stop("le << play again >> a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:400])
+        print("   invoque -- la bataille se remonte.")
+    else:
+        print("   StartCampaignMatch(%r, %d, %s, {brut:\"0101\", octets:2})"
+              % (campagne, noeud - 1, NOM_TYPE.get(type_, type_)))
+        r = jeu.rpc("viewInvoke",
+                    [{"cible": "executor", "methode": "StartCampaignMatch",
+                      "args": [campagne, noeud - 1, type_, {"brut": "0101", "octets": 2}],
+                      "confirmer": True}], timeout=180000)
+        if not isinstance(r, dict) or not r.get("ok"):
+            stop("l'entree a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:400])
+        print("   invoque sur %s -- la bataille se monte ; RIEN n'est encore engage."
+              % r.get("sur"))
     # (!)L'APPEL PASSE NE DIT RIEN DU CHARGEMENT. `StartCampaignMatch` cree la source AVANT
     # d'appeler le chargeur : son retour ne prouve donc meme pas que la scene se charge. Le fait,
     # c'est la transition `IdunGameViews._runner : null -> r`, que la pompe POUSSE.
@@ -395,6 +461,11 @@ def main(argv=None):
     ap.add_argument("--armer", action="store_true",
                     help="⛔ VA JUSQU'AU JETON (au START, cran 15). Sans lui : LECTURE SEULE -- "
                          "les crans 0 a 6 sont joues, rien n'est arme, rien n'est lance.")
+    ap.add_argument("--par-retry", dest="par_retry", action="store_true",
+                    help="entrer par << play again >> depuis l'ecran de fin "
+                         "(`IdunMainView$$OnBattleRetryAfterVictory`) au lieu de "
+                         "`StartCampaignMatch`. Exige une bataille TERMINEE. C'est la voie d'une "
+                         "BOUCLE : elle repart du meme noeud sans repasser par le meta.")
     # ⛔ SEPARE DE `--armer`, ET C'EST VOULU. `refusHorsSandbox` traite `surBatailleReelle`
     # comme un consentement COUP PAR COUP, jamais un mode -- parce qu'un relais laisse arme a
     # ECRIT tout seul sur un essai reel le 2026-08-20, et qu'un jeton de boss y est passe.
@@ -459,7 +530,12 @@ def main(argv=None):
     etat_du_noeud(jeu, campagne, type_, noeud)
 
     cran(5, "HORS BATAILLE ? -- on REFUSE, on ne retraite jamais une bataille reelle")
-    refuser_si_en_bataille(jeu)
+    if args.par_retry:
+        # ⚠ LA VOIE RETRY EXIGE L'INVERSE : on repart de l'ECRAN DE FIN, donc l'ecran doit etre
+        #   la. Le cran change de sens, il ne disparait pas.
+        confirmer_ecran_de_fin(jeu)
+    else:
+        refuser_si_en_bataille(jeu)
 
     cran(6, "le CHARGEUR est-il au repos ? -- il refuse EN SILENCE pendant un chargement")
     chargeur_au_repos(jeu)
@@ -494,7 +570,8 @@ def main(argv=None):
     gen = generation_du_runner(jeu)
 
     cran(10, "ENTRER dans la bataille -- par la voie native, sans rien engager")
-    entrer_dans_la_bataille(jeu, campagne, type_, noeud, gen, args.attente * 1000)
+    entrer_dans_la_bataille(jeu, campagne, type_, noeud, gen, args.attente * 1000,
+                            par_retry=args.par_retry)
 
     cran(11, "LE SEED A-T-IL MORDU ?")
     verifier_morsure(jeu, n_av, graine)

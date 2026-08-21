@@ -26,6 +26,14 @@ import { Ctx } from "../controller.js";
 let generation = 0;
 const reveils = new Set<() => void>();
 
+// (!)IL N'Y A PAS DE SIGNAL DE FIN ICI, ET C'EST MESURE. On a failli en ajouter un sur la
+// transition inverse (`runner -> null`) pour qu'une boucle de rejeu sache quand enchainer.
+// C'est le MAUVAIS emetteur : quand une bataille se TERMINE, le runner ne disparait pas --
+// le 2026-08-21, apres la victoire, `battleStatus` rendait encore `runner: "live"` avec
+// `stage: Finished`, et `_runner` n'est passe a `null` qu'au retour au meta. Ce qui apparait
+// a l'instant de la fin, c'est un ECRAN. Le signal vit donc dans `ui-windows.ts`
+// (`attendreEcran`, `GuiId.BattleEnd`), qui ecoute `ScreenVisibilityManager`.
+
 /** Appele PAR LA POMPE, sur la transition vers un runner vivant. */
 export function signalerRunnerVivant(): void {
     generation += 1;
@@ -77,4 +85,5 @@ export function register(ctx: Ctx): void {
             if (!fini) minuteur = setTimeout(() => terminer(false), plafond);
         });
     };
+
 }

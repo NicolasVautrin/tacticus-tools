@@ -75,6 +75,7 @@ import * as messageTrace from "./features/message-trace.js";
 import * as replayOutputStream from "./features/replay-output-stream.js";
 import * as viewQueue from "./features/view-queue.js";
 import * as runnerSignal from "./features/runner-signal.js";
+import * as uiWindows from "./features/ui-windows.js";
 // replay-launch = l'autre face du replay : l'OUVRIR dans le viewer du jeu au lieu de le lire.
 // N'arme rien non plus. Il existe parce que la chaine passe un OBJET d'un appel natif au
 // suivant (`DeserializeReplay` -> `+0x10` -> `StartUserReplayMatch`), ce qu'`invoquerCommande`
@@ -557,6 +558,11 @@ export function wireRpc(ctx: Ctx): void {
      viewQueue,
      // runnerSignal = ecoute PUSH de la transition vers un runner vivant. N'ancre RIEN.
      runnerSignal,
+     // uiWindows = le signal d'ECRAN (`attendreEcran`, `GuiId.BattleEnd`). C'est l'UI qui sait
+     // qu'une bataille est FINIE -- le runner, lui, reste `live` en `stage: Finished` jusqu'au
+     // retour au meta. N'arme RIEN au register : les `Interceptor` sur
+     // `ScreenVisibilityManager` ne sont poses qu'a la premiere attente.
+     uiWindows,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }

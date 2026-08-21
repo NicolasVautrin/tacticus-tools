@@ -367,7 +367,33 @@ function reposerTout(): void {
 /** Les entrees qu'on s'autorise a INVOQUER, et rien d'autre. Liste blanche explicite :
  *  `ProcessFinishBattle` prend un `playerEndReason` et `HandleBattleSurrender` en prend NEUF --
  *  les invoquer demanderait de FABRIQUER des valeurs, donc de deviner. */
-const INVOCABLES = ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurrender"] as const;
+const INVOCABLES = ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurrender",
+                    // FERMER L'ECRAN DE FIN -- ajoute le 2026-08-21, sur LECTURE du decompile et
+                    // non sur son nom. `idun.IdunMainView$$OnBattleEndClose` est un one-liner :
+                    //     return EndBattleAndGoToMeta(this);
+                    // et `EndBattleAndGoToMeta` masque l'ecran (`idun.ui.Screen$$Hide`), vide les
+                    // widgets de deploiement (`UnitDeploymentHud$$ClearWidgets`), sort des
+                    // contextes sonores, puis `thor.Loader$$LoadBackToMeta`. C'est exactement le
+                    // chemin du bouton de fermeture, sans argument a fabriquer.
+                    //
+                    // (!)IL NE << RECLAME >> RIEN, et c'est ce qu'il faut savoir : les recompenses
+                    // sont deja acquises cote serveur quand `COMPLETE_LOCATION` part (mesure du
+                    // 2026-08-21 : 155+155 gold dans le corps de l'evenement). Ce natif rend la
+                    // main a l'ecran meta -- sans lui, la bataille suivante ne peut pas entrer,
+                    // la scene de bataille restant montee sur l'ecran de victoire.
+                    "OnBattleEndClose",
+                    // REJOUER LE MEME NOEUD depuis l'ecran de fin -- le bouton << play again >>.
+                    // Lu, pas suppose : `idun.IdunMainView$$OnBattleRetryAfterVictory` est un
+                    // one-liner
+                    //     return OnBattleRetryInternal(this, startBattleSource: 2, saveReplay: 1);
+                    // et `OnBattleRetryInternal` journalise une miette, sauve le replay enregistre
+                    // (`SaveAndGetRecordedReplay` -- le repertoire du JEU, pas `data/replays/`),
+                    // puis delegue au slot 0x102 de la source de mode. Zero argument a fabriquer.
+                    //
+                    // (!)C'EST LA VOIE COURTE D'UNE BOUCLE DE REJEU : elle repart du noeud sans
+                    // repasser par le meta, donc sans re-naviguer ni re-forger. Le jeton, lui, est
+                    // consomme comme pour une entree normale.
+                    "OnBattleRetryAfterVictory"] as const;
 
 /** PROVOQUER la retraite sans toucher a l'ecran -- LE FOYER, dont `retreatInvoke` n'est que
  *  l'exposition.
