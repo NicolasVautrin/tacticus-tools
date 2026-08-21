@@ -404,8 +404,26 @@ def cmd_bc(jeu, args, monter):
             return 2
         print("seed arme : %s (un coup) sur %s" % (args.seed, d.get("methode")))
     if monter:
-        d = jeu.rpc("sandboxModeStart", [{"mode": args.mode, "args": a, "confirmer": True}],
-                    timeout=120000)
+        corps = {"mode": args.mode, "args": a, "confirmer": True}
+        # ⛔ LA GARDE NE SE DESARME QUE POUR UNE SANDBOX, ET L'APPELANT DOIT LE DEMANDER.
+        #
+        # `checkIfAlreadyRunning` protege d'un ECRASEMENT de match. Cote boss de guilde ou GW
+        # REELLE, une tentative est enregistree AU CHARGEMENT : ecraser la PERD sans qu'aucun
+        # compteur local ne bouge, et ca a deja coute deux jetons. La regle reste donc `true`.
+        #
+        # (!)MAIS ELLE BLOQUE LA REPETITION, et c'est mesure. Mesure du 2026-08-21 : une bataille
+        # qui se TERMINE (victoire au bout des coups) laisse le creneau << match courant >>
+        # occupe -- rien ne le libere, ni la fin de la scene, ni `OnBattleEndClose` (il n'y a plus
+        # d'`IdunMainView` a qui parler). Tout chargement suivant est alors refuse EN SILENCE :
+        # le notre ET CELUI DU JOUEUR, qui ne peut plus lancer une bataille de campagne jusqu'a
+        # relance du jeu. Detail : `docs/rl/case-10041-r5-*`.
+        #
+        # ⇒ Un montage SANDBOX n'enregistre RIEN cote serveur (surface de
+        # `SandboxGameModeSource` relevee methode par methode : aucun `Send*GameEvent`). Y ecraser
+        # le creneau ne peut donc rien perdre. C'est le seul cas ou desarmer est licite.
+        if args.ecraser_le_match_courant:
+            corps["checkIfAlreadyRunning"] = False
+        d = jeu.rpc("sandboxModeStart", [corps], timeout=120000)
     else:
         d = jeu.rpc("sandboxModeBuildBc", [{"mode": args.mode, "args": a}], timeout=120000)
     if not isinstance(d, dict) or not d.get("ok"):
@@ -473,6 +491,14 @@ def main(argv):
     ap.add_argument("--seed", type=int, default=None,
                     help="impose le seed de la bataille montee (sinon : DateTime.Now.Ticks)")
     ap.add_argument("--confirmer", action="store_true")
+    ap.add_argument("--ecraser-le-match-courant", dest="ecraser_le_match_courant",
+                    action="store_true",
+                    help="⛔ SANDBOX SEULEMENT. Desarme `checkIfAlreadyRunning`, donc ECRASE le "
+                         "match courant. Une bataille TERMINEE laisse le creneau occupe et bloque "
+                         "TOUS les chargements suivants -- y compris ceux du joueur -- jusqu'a "
+                         "relance du jeu ; c'est la seule facon de rejouer sans relancer. NE "
+                         "JAMAIS l'utiliser quand un match est enregistre cote serveur (boss de "
+                         "guilde, guerre de guilde REELLE) : la tentative serait PERDUE.")
     args = ap.parse_args(argv)
 
     jeu = Jeu(args.hote, args.session)

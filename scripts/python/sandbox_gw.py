@@ -28,6 +28,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent.parent
@@ -299,12 +300,41 @@ for nom, corps in armements:
 # 7. Le montage. Le mode importe peu : l'override substitue la BC, ce qui compte est la SOURCE.
 print()
 cmd = [sys.executable, str(RACINE / "scripts" / "python" / "sandbox_mode.py"),
-       "start", "--mode", "waves", "--session", str(sid), "--onslaught-tier", "5", "--confirmer"]
+       "start", "--mode", "waves", "--session", str(sid), "--onslaught-tier", "5", "--confirmer",
+       # ⛔ SANDBOX, DONC LICITE -- et NECESSAIRE pour rejouer sans relancer le jeu.
+       #
+       # Une bataille qui se TERMINE laisse le creneau << match courant >> occupe, et rien ne le
+       # libere : ni la fin de la scene, ni `OnBattleEndClose` (plus d'`IdunMainView`). Tout
+       # chargement suivant est refuse EN SILENCE -- le notre, ET CELUI DU JOUEUR. Mesure du
+       # 2026-08-21, verbatim : << la battle se charge et disparait direct >>. Sans ce drapeau, il
+       # faut relancer le jeu entre chaque repetition.
+       #
+       # ⚠ CE N'EST LICITE QU'ICI : cette voie monte une `SandboxGameModeSource`, qui n'enregistre
+       # RIEN cote serveur. La voie REELLE (`guerre_rejeu_reel.py --armer`) n'y touche JAMAIS --
+       # une tentative de guilde y est enregistree AU CHARGEMENT, donc l'ecraser la PERDRAIT.
+       "--ecraser-le-match-courant"]
 if args.seed is not None:
     cmd += ["--seed", str(args.seed)]
     print("seed pose au montage : %s" % args.seed)
 else:
     print("AUCUN seed pose -- les tirages divergeront du replay (cf. `--seed`).")
+# (!)ON ATTEND QUE LE CHARGEUR SE CALME -- il ne s'agit PAS de forcer sa garde.
+#
+# `sandboxModeStart` REFUSE quand une scene charge, et il a raison : `thor.Loader` refuserait EN
+# SILENCE. Mais ce refus est TRANSITOIRE -- le demontage de la repetition precedente est encore en
+# vol. Mesure du 2026-08-21 : troisieme rejeu consecutif refuse sur << chargement EN COURS >>,
+# puis chargeur AU REPOS mesure a 0,0 s juste apres. Sans cette attente, enchainer deux
+# repetitions echoue une fois sur deux, pour une raison qui n'a rien a voir avec le rejeu.
+_t0 = time.time()
+while time.time() - _t0 < 60.0:
+    _l = j.rpc("loaderStatus", [], 120000) or {}
+    if _l.get("etape") == 0 and _l.get("chargementEnCours") is False:
+        break
+    time.sleep(1.0)
+else:
+    stop("le chargeur est ENCORE en chargement apres 60 s -- on ne monte pas par-dessus.", code=1)
+if time.time() - _t0 > 0.5:
+    print("chargeur au repos apres %.1f s d'attente" % (time.time() - _t0))
 sys.stdout.flush()
 rc = subprocess.run(cmd, cwd=str(RACINE)).returncode
 if rc != 0:
