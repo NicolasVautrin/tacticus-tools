@@ -66,37 +66,15 @@ ARMEMENTS = [
     #
     # (!)MESURE DU 2026-08-20 : au retry, le jeu REINITIALISE le deploiement (plateau vierge,
     # memes entites d'ennemis). Sans rappel, il faut tout reposer a la main.
-    ("deploymentPoseFsmArmer", {"armer": True, "confirmer": True}),
+    #
+    # (!)IL N'Y A PLUS DE VOIE A ARMER. `deploymentPoseFsmArmer` a disparu avec la voie
+    # commit (2026-08-21) : la pose passe TOUJOURS par l'etage FSM, donc par un placeholder
+    # que le START natif convertit. Tant qu'il fallait l'armer, l'oublier faisait retomber
+    # `rejouerMemoire` sur `AddUnitMessage` -- et sautait le clear, puisque celui-ci etait
+    # conditionne au meme drapeau.
     ("deploymentMemoire", {"armer": True}),
     ("sandboxModeGameViews", {"armer": True, "confirmer": True}),
     ("vueExceptionArmer", {"armer": True}),
-]
-
-# L'ETAGE DE COMMIT -- celui qui applique `AddUnitMessage` / `RemoveUnitMessage` au runner.
-#
-# (!)IL EST DESORMAIS OPTIONNEL, ET PAR DEFAUT ETEINT. Il existe pour contourner un START qui
-# << demarrait sans aucune unite du joueur et se terminait aussitot >>. Cette observation date
-# d'AVANT `980214ab`, c'est-a-dire d'une periode ou les deux pompes CONFISQUAIENT les exceptions
-# managees : une levee dans `AGameModeSource$$HandleStartMatch` (il LEVE si `this+0x60` est nul)
-# ne parvenait plus au `catch` du jeu, `IdunGameViews$$HandleException` posait
-# `_isLogicPausedFromException`, et la bataille mourait SANS popup ni log. La cause peut donc
-# avoir ete NOTRE harnais, pas la sandbox.
-#
-# (!)ET IL COUTE : le HUD tient des `PlaceholderUnitView`, le commit cree des unites REELLES, le
-# START convertit les premieres PAR-DESSUS les secondes. DEUX comptabilites pour un seul plafond
-# -- 10 unites pour 5 lors de l'essai de boss du 2026-08-20. Le pas de replay le porte aussi :
-# un replay capture ainsi contient des `AddUnitMessage`/`RemoveUnitMessage` de deploiement qu'une
-# vraie partie n'ecrirait pas.
-#
-# `--avec-commit` le rallume, explicitement, pour pouvoir COMPARER les deux regimes.
-COMMIT = [
-    # (!)ON REBASCULE LA VOIE DE REJEU, sinon les deux cohabiteraient : `deploymentPoseCommitArmer`
-    # committerait a la pose ET `rejouerMemoire` reposerait des placeholders par-dessus. C'est la
-    # DOUBLE COMPTABILITE qui a produit 10 unites pour un plafond de 5.
-    ("deploymentPoseFsmArmer", {"armer": False}),
-    ("deploymentClearArmer", {"armer": True, "confirmer": True}),
-    ("deploymentDeposeArmer", {"armer": True, "confirmer": True}),
-    ("deploymentPoseCommitArmer", {"armer": True, "confirmer": True}),
 ]
 
 ap = argparse.ArgumentParser()
@@ -110,10 +88,6 @@ ap.add_argument("--ia-ennemie", dest="ia", action="store_true", default=True,
 ap.add_argument("--confirmer", action="store_true",
                 help="sans lui : lecture seule, rien n'est construit ni monte")
 ap.add_argument("--sans-replay", action="store_true", help="ne pas armer la capture de fin")
-ap.add_argument("--avec-commit", action="store_true",
-                help="rallumer l'etage de commit (AddUnitMessage/RemoveUnitMessage au runner). "
-                     "Par defaut ETEINT : on ne pose que des placeholders et on laisse le jeu "
-                     "les convertir a son START.")
 args = ap.parse_args()
 
 idx = args.noeud - 1
@@ -205,12 +179,8 @@ if not r.get("ok"):
     print("REFUS : l'override de BC a echoue : %s" % json.dumps(r, ensure_ascii=False)[:300])
     sys.exit(1)
 armements = list(ARMEMENTS)
-if args.avec_commit:
-    armements += COMMIT
-    print("REGIME : AVEC COMMIT -- le harnais ecrira des `AddUnitMessage` au runner.")
-else:
-    print("REGIME : PLACEHOLDERS SEULS -- rien n'est ecrit au runner ; c'est le START du jeu")
-    print("         qui doit convertir. `--avec-commit` pour l'ancien regime.")
+print("REGIME : PLACEHOLDERS -- le seul. Rien n'est ecrit au runner ; c'est le START du jeu")
+print("         qui convertit. La voie commit est SUPPRIMEE depuis le 2026-08-21.")
 # Le plafond se pose JUSTE APRES la delegation du pool, comme dans `sandbox_boss.py` : les deux
 # alimentent le meme `Show`, et tout doit etre en place avant le montage.
 armements.insert(1 + [n for n, _ in armements].index("deploymentPoolArmer"),

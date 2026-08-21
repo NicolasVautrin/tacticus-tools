@@ -124,46 +124,22 @@ function refus(error: string): Refus { return { ok: false, error }; }
 // ⚠ TRI-ÉTAT : « pas su lire » REFUSE aussi. Une source non mesurée n'est pas une source sûre,
 // et c'est exactement le travers qui a produit l'incident (on a lu `duJoueur=0` pour « plateau
 // vide » alors que la mesure ne portait pas sur ce qu'on croyait).
-const CLS_SOURCE_SANDBOX = "SandboxGameModeSource";
-
-/** Le nom de classe de la source de mode ACTIVE, ou `null` si on n'a PAS SU le lire. */
-function nomSourceActive(): string | null {
-    try {
-        const kVue = findClassAnywhere("idun", "IdunMainView");
-        if (!kVue) return null;
-        const vue = premiereInstance(kVue);
-        // `premiereInstance` rend `NativePointer | Refus` -- un refus n'est PAS une absence de
-        // bataille, c'est une non-mesure, et l'appelant la traite comme telle.
-        if (vue === null || "ok" in (vue as object) || (vue as NativePointer).isNull()) return null;
-        const off = getFieldOffset(kVue, "_activeGameSource");
-        if (off < 0) return null;
-        const src = (vue as NativePointer).add(off).readPointer();
-        if (src.isNull()) return null;
-        return s(class_get_name(src.readPointer()) as NativePointer);
-    } catch { return null; }
-}
-
-/**
- * Rend un `Refus` quand l'écriture doit être INTERDITE, ou `null` quand elle est permise.
- *
- * `echappatoire` est le `surBatailleReelle: true` des RPC : un consentement EXPLICITE, coup par
- * coup, jamais un mode persistant. Il n'existe pas de variable globale qui le retienne -- c'est
- * délibéré, puisque c'est précisément un état persistant oublié qui a causé l'incident.
- */
-function refusHorsSandbox(quoi: string, echappatoire?: boolean): Refus | null {
-    if (echappatoire === true) return null;
-    const nom = nomSourceActive();
-    if (nom === CLS_SOURCE_SANDBOX) return null;
-    if (nom === null) {
-        return refus(`REFUS (${quoi}) : source de mode NON MESURÉE -- impossible d'établir que `
-            + "cette bataille est un montage à nous. On n'écrit pas sur une bataille qu'on n'a "
-            + "pas su identifier. Échappatoire explicite : `surBatailleReelle: true`.");
-    }
-    return refus(`REFUS (${quoi}) : la source de mode active est \`${nom}\`, pas `
-        + `\`${CLS_SOURCE_SANDBOX}\` -- c'est une PARTIE DU JOUEUR, pas un montage à nous. `
-        + "Écrire ici abîme un essai réel (mesuré le 2026-08-20 : un jeton de boss de guilde "
-        + "perdu ainsi). Échappatoire explicite : `surBatailleReelle: true`.");
-}
+// (!)LE GARDE `refusHorsSandbox` EST SUPPRIME (2026-08-21), avec sa constante et son
+// helper `nomSourceActive`. Il refusait TOUTE ecriture de deploiement des que la source de
+// mode active n'etait pas `SandboxGameModeSource`, et s'ouvrait par un `surBatailleReelle`
+// passe coup par coup.
+//
+// IL A ETE ECRIT POUR UN INCIDENT DE LA VOIE COMMIT, ET CELLE-CI N'EXISTE PLUS. Ce qui avait
+// coute un jeton de boss de guilde le 2026-08-20, c'est un `AddUnitMessage` applique au
+// runner d'une vraie bataille, en parallele des placeholders du HUD. La pose passe desormais
+// TOUJOURS par l'etage FSM -- exactement le chemin d'un clic humain, qui produit un
+// `PlaceholderUnitView` que le START natif convertit. Reposer ses propres unites dans sa
+// propre phase de deploiement n'est pas une ecriture dont il faut se garder.
+//
+// CE QUI GARDE ENCORE, ET QUI SUFFIT : `refusSiEmpilement`, qui additionne les DEUX
+// comptabilites du deploiement et les confronte au plafond que le HUD a lui-meme recu. Il
+// porte sur le FAIT (combien d'unites) et non sur l'IDENTITE de la source, donc il ne peut
+// pas se tromper de bataille.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LE PLAFOND : ON NE PEUT PLUS EMPILER, EN SANDBOX COMME EN PARTIE RÉELLE
@@ -346,7 +322,7 @@ function etatDuDeploiement(): EtatDeploiement | Refus {
  * Le nombre d'unités DISTINCTES déployées, les deux comptabilités confondues.
  *
  * ⚠ NE PAS ADDITIONNER LES DEUX COMPTES -- c'est faux, et mesuré. En voie runner-directe une
- * même unité figure DANS LES DEUX (`committerUnePose` crée l'unité réelle, et l'entrée du HUD
+ * même unité figurait DANS LES DEUX (la voie commit créait l'unité réelle, et l'entrée du HUD
  * survit) : relevé le 2026-08-20, 5 unités réelles pour 6 entrées de `_currentlyPlacedUnits`,
  * soit une somme de 11 pour un plafond de 6. Le plafond aurait refusé des poses LÉGITIMES.
  * L'invariant porte sur les unités DISTINCTES, donc sur l'UNION par `unitId`.
@@ -365,11 +341,12 @@ function unitesDistinctes(e: EtatDeploiement): string[] {
  * `p === null` ⇒ on ne vérifie que le plafond (c'est le cas du START, qui ne pose rien lui-même
  * mais convertit tout ce qui traîne).
  *
- * ⚠ IL N'Y A PAS D'ÉCHAPPATOIRE ICI, ET C'EST DÉLIBÉRÉ. `surBatailleReelle` autorise à ÉCRIRE
- * sur une partie du joueur ; il n'autorise pas à y écrire N'IMPORTE QUOI. Les deux questions
- * sont distinctes -- où l'on a le droit d'écrire, et quoi -- et les avoir confondues aurait
- * désarmé l'anti-empilement au moment précis où il sert le plus. Aucun empilement n'est
- * legitime : on vide d'abord (`deploymentRetirer`), on ne force pas.
+ * ⚠ IL N'Y A PAS D'ÉCHAPPATOIRE ICI, ET C'EST DÉLIBÉRÉ. C'est même le SEUL garde qui reste
+ * depuis le retrait de `refusHorsSandbox` (2026-08-21), et il tient parce qu'il porte sur le
+ * FAIT -- combien d'unités le déploiement totalise -- et non sur l'IDENTITÉ de la source. Il ne
+ * peut donc pas se tromper de bataille, ni refuser un geste légitime parce qu'il n'a pas su
+ * reconnaître le mode. Aucun empilement n'est légitime : on vide d'abord
+ * (`deploymentRetirer` / le clear du rejeu), on ne force pas.
  */
 function refusSiEmpilement(p: Pose | null, quoi: string): Refus | null {
     const e = etatDuDeploiement();
@@ -1594,10 +1571,11 @@ function armerHud(): true | Refus {
                 // ⚠ Le retour n'est PAS un critère : mesuré, `AddPlaceholderUnit` rend `0`
                 // AUSSI en succès (sa dernière instruction est une émission d'événement). On
                 // enfile donc sur la pose, et c'est la RELECTURE DU PLATEAU qui tranche.
-                if (poseCommitAuto && self.uid !== null && self.uid !== "") {
-                    committerUnePose({ unitId: self.uid, playerId: self.p,
-                                       col: self.c, row: self.r });
-                }
+                //
+                // (!)LE COMMIT AUTOMATIQUE QUI VIVAIT ICI EST SUPPRIMÉ. Il appliquait un
+                // `AddUnitMessage` au runner À CHAQUE POSE, en plus du placeholder que le HUD
+                // venait de créer : deux comptabilités pour un seul plafond, et le START
+                // convertissait les placeholders PAR-DESSUS les unités réelles.
             },
         });
     }
@@ -3335,7 +3313,7 @@ function idsDesUnitesDuJoueur(): string[] | string {
 }
 
 // ---------------------------------------------------------------------------------------------
-// LE RETRAIT — le symétrique exact de `deploymentCommit`.
+// LE RETRAIT — le symétrique exact de la pose.
 //
 // Le déploiement natif ne sait ôter que des `PlaceholderUnitView` : quand les unités viennent de
 // `bc.Units`, le runner les a créées AU MONTAGE, elles sont RÉELLES, et le clear du HUD n'a
@@ -3380,10 +3358,7 @@ function buildRemoveUnitMessage(entityId: number): NativePointer {
 
 /** Applique un `RemoveUnitMessage` par cible. `cibles === null` ⇒ toutes les unités du joueur.
  *  ⚠ À APPELER DEPUIS LA FILE DU THREAD PRINCIPAL, jamais d'un callback d'interception. */
-function retirerDuRunner(cibles: number[] | null,
-                         surBatailleReelle?: boolean): Record<string, unknown> | Refus {
-    const bloque = refusHorsSandbox("RemoveUnitMessage", surBatailleReelle);
-    if (bloque) return bloque;
+function retirerDuRunner(cibles: number[] | null): Record<string, unknown> | Refus {
     const avant = unitesDuPlateau();
     if (!Array.isArray(avant)) return refus("plateau non lisible : " + avant);
     const ids = cibles ?? avant.filter((u) => u.duJoueur).map((u) => u.entityId);
@@ -3630,8 +3605,8 @@ function planifierSync(reste: number): void {
 // ⚠ ET CET ÉTAGE COÛTAIT. Le HUD tient des `PlaceholderUnitView`, le commit crée des unités
 // RÉELLES, le START convertit les premières PAR-DESSUS les secondes : DEUX comptabilités pour un
 // seul plafond -- 10 unités pour 5, sur un jeton de boss de guilde perdu le 2026-08-20. Le
-// rappel de déploiement au retry passe désormais par `poserUnHerosParFsm` (drapeau `poseParFsm`,
-// armé par `deploymentPoseFsmArmer`), qui produit un placeholder que le START natif convertit
+// rappel de déploiement au retry passe désormais par `poserUnHerosParFsm` -- la SEULE voie
+// depuis le 2026-08-21 --, qui produit un placeholder que le START natif convertit
 // avec les autres -- une seule comptabilité, celle du jeu.
 //
 // Ce qui reste VRAI, et qui est une LECTURE, pas une observation :
@@ -3648,13 +3623,19 @@ function planifierSync(reste: number): void {
 // sur le callback reste vraie -- c'est la nécessité de convertir qui ne l'est plus.)
 // ---------------------------------------------------------------------------------------------
 
-let poseCommitAuto = false;
-const poseCommitTrace: Array<Record<string, unknown>> = [];
-
-function tracerCommit(r: unknown): void {
-    if (poseCommitTrace.length < 32) poseCommitTrace.push(r as Record<string, unknown>);
-}
-
+// (!)LA VOIE COMMIT EST SUPPRIMÉE (2026-08-21), pas éteinte par défaut. Elle appliquait un
+// `AddUnitMessage` au runner à la pose, en parallèle du `PlaceholderUnitView` du HUD, et le START
+// natif convertissait les placeholders PAR-DESSUS : deux comptabilités pour un seul plafond,
+// **10 unités pour 5** et un jeton de boss de guilde perdu le 2026-08-20.
+//
+// Ce qui l'a condamnée n'est pas ce coût, c'est que son EXISTENCE rendait le clear CONDITIONNEL
+// (cf. `rejouerMemoire`) : sur la campagne réelle du 2026-08-21 le drapeau n'était pas armé, le
+// clear a été sauté, et quatre rejeux ont laissé le plateau strictement inchangé sans une seule
+// erreur. Une voie qu'on n'emprunte plus mais qui reste dans le code continue de brancher les
+// autres.
+//
+// Parties avec elle : `committerUnePose`, `poseCommitAuto`, le commit automatique posé dans
+// `onLeave` d'`AddPlaceholderUnit`, et les RPC `deploymentCommit` / `deploymentPoseCommitArmer`.
 /** Le compte d'unités RÉELLES du joueur, ou `null` si le plateau n'est pas lisible.
  *  ⚠ `null` = PAS MESURÉ, jamais à lire comme un zéro. */
 function compteJoueur(): number | null {
@@ -3696,8 +3677,8 @@ function verifierPuisNettoyer(p: Pose, avant: number | null, reste: number): voi
             verifierPuisNettoyer(p, avant, reste - 1);
             return;
         }
-        tracerCommit(r);
-    }, (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
+        tracerPose(r);
+    }, (e) => tracerPose({ ok: false, unitId: p.unitId, error: String(e) }));
 }
 
 /** Premier temps : appliquer l'`AddUnitMessage` — le MÊME message que le harnais RL emploie. */
@@ -3799,7 +3780,7 @@ function instantanerAuStart(): void {
  *
  * ⛔ Appelé depuis la FILE du thread principal, jamais depuis un callback d'interception.
  */
-function rejouerMemoire(surBatailleReelle?: boolean): void {
+function rejouerMemoire(): void {
     if (memoirePoses.length === 0 && memoireMoW === null) return;
     queueOnMainThread(() => compteJoueur()).then((n) => {
         const nb = n as number | null;
@@ -3811,34 +3792,30 @@ function rejouerMemoire(surBatailleReelle?: boolean): void {
         memoireRejeux++;
         memoireDernier = `rejeu de ${memoirePoses.length} pose(s)`
             + (memoireMoW ? ` + MoW ${memoireMoW.unitId}` : " (aucune MoW mémorisée)");
-        // ⚠ DEUX VOIES, ET ELLES NE PRODUISENT PAS LA MÊME CHOSE. `committerUnePose` applique un
-        // `AddUnitMessage` au runner : l'unité est RÉELLE mais le HUD ne la voit pas (START à
-        // 0/5). `poserUnHerosParFsm` invoque le même étage que le clic humain : l'unité devient
-        // un PLACEHOLDER que le HUD compte, et que le START natif convertit avec les autres.
-        // ⚠ `surBatailleReelle` n'est PAS mémorisé : le rejeu AUTOMATIQUE (relais de retour de
-        // phase) l'appelle sans argument, donc il est REFUSÉ hors sandbox -- c'est exactement le
-        // chemin qui a écrit tout seul sur une vraie bataille de boss de guilde le 2026-08-20.
         // ⚠ UN REJEU PASSE PAR UN CLEAR, TOUJOURS -- cf. `viderLePlateauParFsm`. L'écran arrive
         // pré-rempli par le lineup sauvegardé du jeu, et reposer par-dessus fait refuser chaque
         // unité : le rejeu ne corrigerait RIEN et les cases resteraient celles du jeu.
-        // Le clear ne vaut QUE pour la voie FSM : `committerUnePose` écrit au runner, où il n'y a
-        // pas de placeholder à ôter.
-        const avant = poseParFsm
-            ? viderLePlateauParFsm(surBatailleReelle)
-            : Promise.resolve({ ok: true, note: "voie runner -- aucun placeholder à vider" });
-        avant.then((r) => {
+        //
+        // (!)CE « TOUJOURS » N'EN ÉTAIT PAS UN, ET ÇA S'EST VU SUR UNE BATAILLE RÉELLE. Le clear
+        // était conditionné à `poseParFsm`, un drapeau que l'appelant devait penser à armer. Sur
+        // la campagne réelle du 2026-08-21 il ne l'était pas : le clear a été sauté, les cinq
+        // reposes sont tombées sur un plateau déjà plein, et `deploymentEtat` a continué de
+        // publier l'arrangement du JEU -- 4 rejeux, 0 changement, aucun message d'erreur. Le
+        // journal disait même « plateau VIDÉ avant rejeu », parce que cette ligne s'écrit sans
+        // condition. Depuis la suppression de la voie commit, il n'y a plus de drapeau : la pose
+        // est TOUJOURS un placeholder, donc le clear est TOUJOURS joué.
+        viderLePlateauParFsm().then((r) => {
             const rr = r as { ok?: boolean; error?: string };
-            if (poseParFsm && rr.ok !== true) {
+            if (rr.ok !== true) {
                 // Poser sans avoir vidé produirait un déploiement MÉLANGÉ, donc faux en silence.
                 memoireDernier = `rejeu ANNULÉ -- clear ÉCHOUÉ : ${rr.error}`;
                 return;
             }
             memoireDernier = (memoireDernier ?? "") + " | plateau VIDÉ avant rejeu";
             for (const p of memoirePoses) {
-                if (poseParFsm) poserUnHerosParFsm(p, surBatailleReelle);
-                else committerUnePose(p, surBatailleReelle);
+                poserUnHerosParFsm(p);
             }
-            if (memoireMoW !== null) rejouerLaMoW(memoireMoW, surBatailleReelle);
+            if (memoireMoW !== null) rejouerLaMoW(memoireMoW);
         }, (e) => { memoireDernier = "rejeu ANNULÉ -- clear levé : " + String(e); });
     }, (e) => { memoireDernier = "rejeu ÉCHOUÉ : " + String(e); });
 }
@@ -3877,11 +3854,8 @@ function vueDeLaMoW(): { vues: NativePointer; source: string } | Refus {
  * ⚠ On ne rend pas la MoW RÉELLE ici : on la remet à sa plateforme, comme le ferait le clic.
  * Le passage au réel est le travail du START, comme pour les unités pré-positionnées.
  */
-function rejouerLaMoW(m: PoseMoW, surBatailleReelle?: boolean): void {
+function rejouerLaMoW(m: PoseMoW): void {
     queueOnMainThread((): Record<string, unknown> => {
-        const bloque = refusHorsSandbox("UnitDeployment_PlaceMachineOfWarUnitOnBoard",
-                                        surBatailleReelle);
-        if (bloque) return { ok: false, error: bloque.error };
         const v = vueDeLaMoW();
         if ("ok" in v) {
             return { ok: false, error: "aucune `IdunGameViews` joignable -- " + v.error };
@@ -3936,18 +3910,22 @@ function rejouerLaMoW(m: PoseMoW, surBatailleReelle?: boolean): void {
     }, (e) => { memoireDernier = (memoireDernier ?? "") + ` | MoW levée: ${String(e)}`; });
 }
 
-/** Poser les HÉROS par l'étage FSM, comme la MoW — au lieu de les appliquer au runner. */
-let poseParFsm = false;
+/** Poser les HÉROS par l'étage FSM, comme la MoW. C'est désormais LA voie, il n'y en a plus
+ *  d'autre -- le drapeau qui les départageait est parti avec la voie commit. */
 const poseFsmTrace: Array<Record<string, unknown>> = [];
 
+function tracerPose(r: unknown): void {
+    if (poseFsmTrace.length < 32) poseFsmTrace.push(r as Record<string, unknown>);
+}
+
 /**
- * POSER UN HÉROS PAR L'ÉTAGE FSM — le pendant exact de `rejouerLaMoW`, et LE CONTOURNEMENT.
+ * POSER UN HÉROS PAR L'ÉTAGE FSM — le pendant exact de `rejouerLaMoW`.
  *
- * ⚠ CE QUE `committerUnePose` FAIT, ET POURQUOI ÇA NE SUFFIT PAS. Elle fabrique un
- * `AddUnitMessage` et l'applique DIRECTEMENT au runner : l'unité apparaît sur le plateau, mais
- * elle passe À CÔTÉ DU HUD. Mesuré le 2026-08-20 : le bouton START affiche **0/5** alors que cinq
- * unités sont en jeu, et `IdunGameViews$$GetPlaceholderUnitViews` ne rend qu'UN élément -- la
- * MoW, seule posée par l'étage FSM. Les héros n'ont jamais été des placeholders.
+ * ⚠ CE QUE FAISAIT LA VOIE SUPPRIMÉE, ET POURQUOI ÇA NE SUFFISAIT PAS. Elle fabriquait un
+ * `AddUnitMessage` et l'appliquait DIRECTEMENT au runner : l'unité apparaissait sur le plateau,
+ * mais elle passait À CÔTÉ DU HUD. Mesuré le 2026-08-20 : le bouton START affiche **0/5** alors
+ * que cinq unités sont en jeu, et `IdunGameViews$$GetPlaceholderUnitViews` ne rend qu'UN élément
+ * -- la MoW, seule posée par l'étage FSM. Les héros n'ont jamais été des placeholders.
  *
  * ⚠ ET LE 5/1 QU'ON AVAIT MESURÉ ÉTAIT LE NÔTRE. `UnitDeploymentHudButtons$$UpdateState` rendait
  * `standardUnitsCount = 5`, ce qui a fait conclure « le HUD compte bien notre déploiement ». Mais
@@ -3961,11 +3939,10 @@ const poseFsmTrace: Array<Record<string, unknown>> = [];
  * On invoque donc pour les héros la méthode que le clic humain invoque :
  * `StateMachineActions$$UnitDeployment_PlaceUnitOnBoard(unitId, column, row, isManual, playerId)`.
  */
-function poserUnHerosParFsm(p: Pose, surBatailleReelle?: boolean): void {
+function poserUnHerosParFsm(p: Pose): void {
     memoriser(p);
     queueOnMainThread((): Record<string, unknown> => {
-        const bloque = refusHorsSandbox("UnitDeployment_PlaceUnitOnBoard", surBatailleReelle)
-            ?? refusSiEmpilement(p, "UnitDeployment_PlaceUnitOnBoard");
+        const bloque = refusSiEmpilement(p, "UnitDeployment_PlaceUnitOnBoard");
         if (bloque) return { ok: false, unitId: p.unitId, error: bloque.error };
         const v = vueDeLaMoW();
         if ("ok" in v) {
@@ -4045,10 +4022,8 @@ function poserUnHerosParFsm(p: Pose, surBatailleReelle?: boolean): void {
  *
  * ⛔ ENFILÉ, comme la pose : invoquer un natif depuis un callback d'interception fige le jeu.
  */
-function viderLePlateauParFsm(surBatailleReelle?: boolean): Promise<Record<string, unknown>> {
+function viderLePlateauParFsm(): Promise<Record<string, unknown>> {
     return queueOnMainThread((): Record<string, unknown> => {
-        const bloque = refusHorsSandbox("HandleOnRemoveAllHeroesPressed", surBatailleReelle);
-        if (bloque) return { ok: false, error: bloque.error };
         const e = etatDuDeploiement();
         if ("ok" in e) {
             return { ok: false, error: "état du déploiement NON LISIBLE (" + e.error
@@ -4088,43 +4063,6 @@ function viderLePlateauParFsm(surBatailleReelle?: boolean): Promise<Record<strin
     });
 }
 
-function committerUnePose(p: Pose, surBatailleReelle?: boolean): void {
-    memoriser(p);
-    queueOnMainThread((): Record<string, unknown> => {
-        const bloque = refusHorsSandbox("AddUnitMessage", surBatailleReelle)
-            ?? refusSiEmpilement(p, "AddUnitMessage");
-        if (bloque) return { ok: false, unitId: p.unitId, error: bloque.error };
-        const avant = compteJoueur();
-        const runner = state.liveRunner;
-        if (runner === null || runner.isNull()) {
-            return { ok: false, unitId: p.unitId,
-                     error: "aucun runner vivant publié par le pump -- `state.liveRunner` est "
-                         + "NUL, ce qui n'est PAS « zéro unité »" };
-        }
-        const kr = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
-        const mApply = kr ? findMethodByParamCount(kr, "Apply", 1) : null;
-        if (!mApply) {
-            return { ok: false, unitId: p.unitId, error: "`IdunRunner$$Apply` INTROUVABLE" };
-        }
-        let msg: NativePointer | null = null;
-        try {
-            // `buildAddUnitMessage` écrit déjà `SpawnSource = Deployment (5)` au champ +0x28.
-            msg = buildAddUnitMessage(p.unitId, p.playerId, p.col, p.row);
-            invokeMethod(mApply.info, runner, [msg]);
-        } catch (e) {
-            return { ok: false, unitId: p.unitId, error: "LEVÉ : " + (e as Error).message };
-        } finally {
-            if (msg !== null) { try { gcRoot.remove(msg); } catch { /* best effort */ } }
-        }
-        return { applique: true, avant: avant as unknown as number };
-    }).then((r) => {
-        const rr = r as { applique?: boolean; avant?: number | null };
-        if (rr.applique !== true) { tracerCommit(r); return; }
-        // ~90 passes de pump, soit environ une seconde à 60 images/s.
-        verifierPuisNettoyer(p, rr.avant ?? null, 90);
-    }, (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
-}
-
 /** Images de pump laissées passer entre un retrait et la pose qui prend sa place. */
 const DELAI_REMPLACEMENT = 6;
 
@@ -4140,10 +4078,10 @@ const DELAI_REMPLACEMENT = 6;
  * (mesuré le 2026-08-17 : `ultraApothecary` sur la case de `ultraTigurius`).
  */
 function poserApresDelai(p: Pose, reste: number): void {
-    if (reste <= 0) { committerUnePose(p); return; }
+    if (reste <= 0) { poserUnHerosParFsm(p); return; }
     queueOnMainThread(() => ({ attendre: true })).then(
         () => poserApresDelai(p, reste - 1),
-        (e) => tracerCommit({ ok: false, unitId: p.unitId, error: String(e) }));
+        (e) => tracerPose({ ok: false, unitId: p.unitId, error: String(e) }));
 }
 
 function armerBouton(): true | Refus {
@@ -4438,7 +4376,6 @@ export function register(ctx: Ctx): void {
      */
     ctx.rpc.deploymentMemoire = (body?: {
         armer?: boolean; oublier?: boolean; rejouer?: boolean; confirmer?: boolean;
-        surBatailleReelle?: boolean;
         poser?: { poses?: Array<{ unitId: string; playerId: number; col: number; row: number }>;
                   mow?: { unitId: string; playerId: number; position: number } | null };
     }): unknown => {
@@ -4482,7 +4419,7 @@ export function register(ctx: Ctx): void {
                 return refus("`confirmer: true` exigé : le rejeu APPLIQUE des `AddUnitMessage` "
                     + "au runner vivant");
             }
-            rejouerMemoire(body.surBatailleReelle);
+            rejouerMemoire();
             return { ok: true, action: "rejeu ENFILÉ", ...etat() };
         }
         if (body?.armer === undefined) {
@@ -4503,69 +4440,10 @@ export function register(ctx: Ctx): void {
                      : (start === "non demandé" ? start : "REFUSÉ : " + start.error) };
     };
 
-    ctx.rpc.deploymentCommit = (body?: {
-        confirmer?: boolean; spawnSource?: number; surBatailleReelle?: boolean; poses?: Array<{
-            unitId: string; playerId: number; col: number; row: number;
-        }>;
-    }): Promise<unknown> | unknown => {
-        // Ce qui SERA applique : les poses reussies, dedupliquees par unite (la derniere gagne).
-        const retenues = new Map<string, { unitId: string; playerId: number;
-                                          col: number; row: number }>();
-        for (const p of (body?.poses ?? hudBoard.map((h) => ({
-            unitId: h.unitId ?? "", playerId: h.playerId, col: h.col, row: h.row,
-        })))) {
-            if (p.unitId !== "") retenues.set(p.unitId, p);
-        }
-        const liste = Array.from(retenues.values());
-        if (body?.confirmer !== true) {
-            return { ok: true, lecture: true, aAppliquer: liste,
-                     note: "`confirmer: true` exigé : ce RPC APPLIQUE des `AddUnitMessage` au "
-                         + "runner VIVANT -- il modifie la bataille en cours" };
-        }
-        if (liste.length === 0) return refus("aucune pose enregistrée : rien à appliquer");
-        return queueOnMainThread(() => {
-            // ⚠ CHAQUE POSE, PAS LE TOTAL. Le contrôle global (`p === null`) n'interdit que de
-            // DÉPASSER (`>`) : il laisse donc passer la pose qui ATTEINT le plafond, puis celle
-            // d'après. Mesuré le 2026-08-20 -- union 6, borne 6, la 6e unité est passée.
-            let bloque = refusHorsSandbox("AddUnitMessage (commit)", body.surBatailleReelle);
-            for (const p of liste) {
-                if (bloque) break;
-                bloque = refusSiEmpilement({ unitId: p.unitId, playerId: p.playerId,
-                                             col: p.col, row: p.row },
-                                           "AddUnitMessage (commit)");
-            }
-            if (bloque) return bloque;
-            const runner = state.liveRunner;
-            if (runner === null || runner.isNull()) {
-                return refus("aucun runner vivant publié par le pump -- `state.liveRunner` est "
-                    + "NUL, ce qui n'est PAS « zéro unité »");
-            }
-            const kr = findClassAnywhere("IdunBattle.Runner", "IdunRunner");
-            const mApply = kr ? findMethodByParamCount(kr, "Apply", 1) : null;
-            if (!mApply) return refus("`IdunBattle.Runner.IdunRunner$$Apply` INTROUVABLE");
-            const src = body.spawnSource ?? 5;   // Deployment
-            const faits: Array<{ unitId: string; ok: boolean; detail: string }> = [];
-            for (const p of liste) {
-                let msg: NativePointer | null = null;
-                try {
-                    msg = buildAddUnitMessage(p.unitId, p.playerId, p.col, p.row);
-                    msg.add(0x28).writeS32(src);          // SpawnSource, comme `applyAddUnitSrc`
-                    invokeMethod(mApply.info, runner, [msg]);
-                    faits.push({ unitId: p.unitId, ok: true,
-                                 detail: `appliqué en (${p.col},${p.row}) joueur ${p.playerId}` });
-                } catch (e) {
-                    faits.push({ unitId: p.unitId, ok: false,
-                                 detail: "LEVÉ : " + (e as Error).message });
-                } finally {
-                    // ⚠ `buildAddUnitMessage` rend le message PINNÉ : le dépinner est à la charge
-                    // de l'appelant, sinon la racine GC s'accumule à chaque pose.
-                    if (msg !== null) { try { gcRoot.remove(msg); } catch { /* best effort */ } }
-                }
-            }
-            return { ok: true, faits, appliquees: faits.filter((f) => f.ok).length,
-                     total: liste.length, spawnSource: src };
-        });
-    };
+    // (!)`deploymentCommit` EST SUPPRIME (2026-08-21). Il appliquait en un coup les
+    // `AddUnitMessage` de tout un plateau au runner VIVANT -- la voie commit, sous sa forme
+    // explicite. Elle est partie entiere : la pose passe TOUJOURS par l'etage FSM, donc par
+    // un `PlaceholderUnitView` que le START natif convertit avec les autres.
 
     /** Capteur PUR sur `UnitDeploymentState$$StartBattle` — le relais du bouton START. */
     ctx.rpc.deploymentStartArmer = (body?: { armer?: boolean }): unknown => {
@@ -4782,16 +4660,14 @@ export function register(ctx: Ctx): void {
     };
 
     ctx.rpc.deploymentStartInvoquer = (body?: {
-        confirmer?: boolean; surBatailleReelle?: boolean;
+        confirmer?: boolean;
     }): Promise<unknown> | unknown => {
         if (body?.confirmer !== true) {
             return refus("ECRITURE -- exige `confirmer: true`. Ce RPC APPUIE SUR START : il "
                 + "commit le déploiement (MoW comprise) et DÉMARRE la bataille.");
         }
         return queueOnMainThread((): Record<string, unknown> => {
-            const bloque = refusHorsSandbox("HandleOnStartBattleTapped",
-                                            body.surBatailleReelle)
-                ?? refusSiEmpilement(null, "HandleOnStartBattleTapped");
+            const bloque = refusSiEmpilement(null, "HandleOnStartBattleTapped");
             if (bloque) return { ok: false, error: bloque.error };
             if (hudInstance === null || hudInstance.isNull()) {
                 return { ok: false, error: "aucun `UnitDeploymentHud` capturé -- le HUD ne "
@@ -4858,7 +4734,7 @@ export function register(ctx: Ctx): void {
      *  VIVANT — le seul chemin qui atteigne une unité RÉELLE, celle que le clear natif ne sait
      *  pas voir parce qu'il ne connaît que les `PlaceholderUnitView`. */
     ctx.rpc.deploymentRetirer = (body?: {
-        confirmer?: boolean; entityIds?: number[]; surBatailleReelle?: boolean;
+        confirmer?: boolean; entityIds?: number[];
     }): Promise<unknown> | unknown => {
         if (body?.confirmer !== true) {
             return queueOnMainThread(() => {
@@ -4878,7 +4754,7 @@ export function register(ctx: Ctx): void {
         // ~90 images de pump, soit environ une seconde à 60 images/s (même délai que
         // `verifierPuisNettoyer`).
         return (queueOnMainThread(
-            () => retirerDuRunner(body.entityIds ?? null, body.surBatailleReelle)) as
+            () => retirerDuRunner(body.entityIds ?? null)) as
                 Promise<Record<string, unknown>>)
             .then((r) => {
                 if (r.ok !== true) return r;
@@ -5095,7 +4971,6 @@ export function register(ctx: Ctx): void {
      */
     ctx.rpc.deploymentMoWPoser = (body?: {
         unitId?: string; playerId?: number; position?: number; confirmer?: boolean;
-        surBatailleReelle?: boolean;
     }): unknown => {
         if (body?.confirmer !== true) {
             return refus("ECRITURE -- exige `confirmer: true`. Ce RPC invoque l'étage FSM de "
@@ -5109,46 +4984,20 @@ export function register(ctx: Ctx): void {
                 + "et un `position` faux pose la machine sur une AUTRE plateforme.");
         }
         rejouerLaMoW({ unitId: body.unitId, playerId: body.playerId, position: body.position },
-                     body.surBatailleReelle);
+                     );
         return { ok: true, enfile: true, unitId: body.unitId, playerId: body.playerId,
                  position: body.position,
                  note: "ENFILÉ sur le thread principal -- vérifier l'EFFET par "
                      + "`deploymentBoutonArmer` (placees) ou `observeBattle`, jamais ce retour." };
     };
 
-    ctx.rpc.deploymentPoseFsmArmer = (body?: {
-        armer?: boolean; confirmer?: boolean;
-    }): unknown => {
-        const etat = () => ({ actif: poseParFsm, faits: poseFsmTrace.slice(-8) });
-        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
-        if (body.armer === false) { poseParFsm = false; return { ok: true, ...etat() }; }
-        if (body.confirmer !== true) {
-            return refus("ECRITURE -- exige `confirmer: true`. Ce mode CHANGE la voie de pose : "
-                + "les héros passent par l'étage FSM du jeu au lieu d'un `AddUnitMessage` "
-                + "appliqué au runner.");
-        }
-        poseParFsm = true;
-        return { ok: true, ...etat() };
-    };
-
-    ctx.rpc.deploymentPoseCommitArmer = (body?: {
-        armer?: boolean; confirmer?: boolean;
-    }): unknown => {
-        const etat = () => ({ actif: poseCommitAuto, faits: poseCommitTrace.slice(-8) });
-        if (body == null || body.armer === undefined) {
-            return { ok: true, lecture: true, ...etat(),
-                     note: "`armer: true` + `confirmer: true` : chaque pose APPLIQUERA un "
-                         + "`AddUnitMessage` au runner VIVANT -- elle modifie la bataille en "
-                         + "cours" };
-        }
-        if (body.armer === false) { poseCommitAuto = false; return { ok: true, ...etat() }; }
-        if (body.confirmer !== true) return refus("`confirmer: true` exigé");
-        // Le relais vit dans `UnitDeployment_PlaceUnitOnBoard`, ancré par `armerHud`.
-        const r = armerHud();
-        if (r !== true) return r;
-        poseCommitAuto = true;
-        return { ok: true, ...etat() };
-    };
+    /** LA TRACE DES POSES — lecture pure. Il n'y a plus de voie à choisir, donc plus rien à
+     *  armer : `deploymentPoseFsmArmer` et `deploymentPoseCommitArmer` sont SUPPRIMÉS avec la
+     *  voie commit. Ce RPC ne garde que ce qu'ils publiaient d'utile, les derniers résultats. */
+    ctx.rpc.deploymentPoseTrace = (): unknown =>
+        ({ ok: true, lecture: true, faits: poseFsmTrace.slice(-8),
+           note: "les poses passent TOUJOURS par l'étage FSM (placeholder) -- la voie "
+               + "`AddUnitMessage` au runner est supprimée depuis le 2026-08-21." });
 
     /** Rend START vivant SANS geste manuel sur une BC pré-remplie : à chaque `Show`, les unités
      *  déjà présentes sont déclarées au HUD et le bouton est rafraîchi. */

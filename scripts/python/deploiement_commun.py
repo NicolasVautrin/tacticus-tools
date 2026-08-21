@@ -20,13 +20,17 @@ Les deux chaines ne different que par DEUX choses, et ce module les prend en par
 2026-08-20, un relais laisse arme a ECRIT sur un essai reel et un jeton de boss de guilde a ete
 perdu. On le passe donc coup par coup, a l'appel, jamais dans une variable retenue.
 
-(!)LA VOIE DE POSE EST LE SUJET, PAS UN DETAIL. `rejouerMemoire` choisit sa voie sur le drapeau
-`poseParFsm` : ARME, elle pose par l'etage FSM -- le meme que le clic humain, donc un
-PLACEHOLDER que `HandleStartMatch` convertit ; DESARMEE, elle applique un `AddUnitMessage` au
-runner. La seconde voie fait cohabiter DEUX comptabilites du deploiement -- les placeholders du
-HUD et les unites reelles du runner -- et le START convertit les premieres PAR-DESSUS les
-secondes : **10 unites pour un plafond de 5**, mesure le 2026-08-20. `ARMEMENTS_CAPTEURS` arme
-donc la voie FSM, et l'ordre y est une condition : la VOIE avant la MEMOIRE.
+(!)IL N'Y A PLUS DE VOIE A CHOISIR, ET C'EST CE QUI A REPARE LA CHAINE REELLE. `rejouerMemoire`
+posait selon un drapeau `poseParFsm` : arme, par l'etage FSM -- le meme que le clic humain, donc
+un PLACEHOLDER que `HandleStartMatch` convertit ; desarme, par un `AddUnitMessage` applique au
+runner. La voie commit est SUPPRIMEE (2026-08-21), donc le drapeau aussi.
+
+Ce qui l'a condamnee n'est pas son cout connu (deux comptabilites pour un seul plafond, **10
+unites pour 5**, un jeton de boss perdu le 2026-08-20) mais son EFFET DE BORD : le clear du
+plateau etait conditionne au MEME drapeau. Sur la campagne reelle du 2026-08-21 il n'etait pas
+arme -- l'ecran arrive pre-rempli par le lineup sauvegarde du jeu, les cinq reposes sont tombees
+sur un plateau plein, et QUATRE rejeux ont laisse l'arrangement du jeu strictement inchange,
+sans une seule erreur. Le journal disait meme << plateau VIDE avant rejeu >>.
 """
 import json
 import subprocess
@@ -69,8 +73,6 @@ ARMEMENTS_CAPTEURS = [
     ("deploymentPhaseArmer", {"armer": True}),
     ("deploymentHudArmer", {"armer": True}),
     ("deploymentPoseDiag", {"armer": True}),
-    # LA VOIE AVANT LA MEMOIRE -- cf. l'en-tete : c'est ce qui evite le 10-pour-5.
-    ("deploymentPoseFsmArmer", {"armer": True, "confirmer": True}),
     ("deploymentMemoire", {"armer": True}),
     ("vueExceptionArmer", {"armer": True}),
 ]
@@ -185,7 +187,7 @@ def controler_le_lineup(jeu, d):
     print("   lineup conforme : %d unites, %s" % (len(noms), ", ".join(noms)))
 
 
-def demarrer(jeu, attendus, plafond_s=20.0):
+def demarrer(jeu, attendus, sur_reelle=False, plafond_s=20.0):
     """(!)L'APPEL PASSE NE DIT RIEN DU DEMARRAGE, et son propre retour le dit : mesure du
     2026-08-21, `battleStatus` lu a l'instant du retour rend `stageName: Setup` avec 4 unites.
     `HandleOnStartBattleTapped` ENCLENCHE la conversion des placeholders ; elle se deroule sur
