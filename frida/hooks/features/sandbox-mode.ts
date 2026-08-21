@@ -117,6 +117,10 @@ import { chargementEnCours } from "../game/loader.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant, premiereInstance } from "./view-command.js";
+// (!)FORME B (`import * as` puis appel attributaire), et c'est la doctrine du dépôt : une
+// liaison de module n'est jamais gelée, donc elle reste substituable par un test. `deployment-
+// draft` n'importe pas ce module -- pas de cycle.
+import * as deploymentDraft from "./deployment-draft.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -1216,6 +1220,22 @@ export function register(ctx: Ctx): void {
             epingler(bc);
             bcOverride = bc;
 
+            // ⛔ LE MONTAGE DÉCLARE SA BATAILLE À LA MÉMOIRE DE POSE -- c'est ICI, et nulle part
+            // ailleurs, qu'on sait qu'une bataille est LA NÔTRE. Deux dégâts mesurés le
+            // 2026-08-22 quand ce lien n'existait pas : la composition d'une sandbox rejouée sur
+            // la SUIVANTE (géométrie différente), et -- bien pire -- sur un combat officiel
+            // contre le boss, où notre hook écrivait dans la partie du joueur.
+            //
+            // (!)L'ID SE LIT DANS LE JSON, PAS SUR L'OBJET NATIF. On vient de le désérialiser :
+            // le relire par un champ natif demanderait un offset, donc une adresse à tenir à
+            // jour. `JSON.parse` sur ~550 Ko coûte quelques millisecondes, une fois par montage.
+            let idBc: string | null = null;
+            try {
+                const d = JSON.parse(body.configJson as string) as { Id?: unknown };
+                if (typeof d.Id === "string") idBc = d.Id;
+            } catch { /* `idBc` reste nul -- la mémoire sera vidée, ce qui est le côté sûr */ }
+            const mem = deploymentDraft.memoireBatailleMontee(idBc);
+
             if (!overrideListener) {
                 const kSrc = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
                 const mi = kSrc ? findMethodByParamCount(kSrc, "LoadBattle", 1) : null;
@@ -1234,6 +1254,9 @@ export function register(ctx: Ctx): void {
                      taille: (body.configJson as string).length,
                      ancrage: "IdunBattle.ViewLogic.BattleSource.SandboxGameModeSource$$LoadBattle",
                      fires: overrideFires,
+                     // Ce que le montage a fait à la mémoire de pose -- publié, parce qu'un
+                     // vidage silencieux se lirait comme « rien ne s'est passé ».
+                     memoireDePose: mem,
                      avertissement: "ARMÉ. `sandboxModeBuildBc` est REFUSÉ tant que ça dure "
                          + "(ancrer ce qu'on invoque gèle le jeu). Retirer avec "
                          + "`{ configJson: null }` avant de refabriquer une BC." };

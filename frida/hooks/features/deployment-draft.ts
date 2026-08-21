@@ -1422,7 +1422,20 @@ function armerHud(): true | Refus {
                 if (syncAuto) planifierSync(6);
                 // ⛔ ON N'INVOQUE RIEN ICI NON PLUS : `rejouerMemoire` ENFILE. C'est le retour
                 // de la phase de déploiement (retry) qui doit rendre l'équipe déjà composée.
-                if (memoireAuto) rejouerMemoire();
+                //
+                // ⛔ ET LE JETON EST EXIGÉ, PAS SEULEMENT `memoireAuto`. Ce `Show` tire sur TOUT
+                // écran de déploiement -- y compris celui d'une bataille RÉELLE que le joueur
+                // vient d'ouvrir lui-même. Mesuré le 2026-08-22 sur un combat officiel contre le
+                // boss : la composition d'une sandbox précédente s'y est reposée toute seule.
+                // `memoireRejeuArme` n'est posé que par `sandboxModeBcOverride`, donc une
+                // bataille qu'on n'a pas montée ne peut plus rien déclencher.
+                if (memoireAuto && memoireRejeuArme) {
+                    memoireRejeuArme = false;      // USAGE UNIQUE -- consommé avant même de tirer
+                    rejouerMemoire();
+                } else if (memoireAuto) {
+                    memoireDernier = "rejeu REFUSÉ : aucun jeton -- cette bataille n'a pas été "
+                        + `montée par la sandbox (mémoire de ${memoireBataille ?? "aucune"})`;
+                }
             },
         });
     }
@@ -3698,8 +3711,56 @@ let memoireMoW: PoseMoW | null = null;      // une seule MoW par bataille
  *  propre chaîne, qui la posait en dernier ; la capture automatique de fin de bataille en
  *  produit désormais d'autres. Le gisement est né de cette ouverture, pas d'un défaut du jeu. */
 let memoireMoWIndex: number | null = null;
+
+/* ⛔ LA MÉMOIRE APPARTIENT À UNE BATAILLE, ET SON REJEU EST UN JETON À USAGE UNIQUE.
+ *
+ * Ces deux variables existent parce que `memoireAuto` seul est un booléen GLOBAL : une fois armé,
+ * le `Show` du HUD de déploiement appelle `rejouerMemoire()` à CHAQUE écran, sans savoir de quelle
+ * bataille la mémoire vient ni qui a monté celle qui s'ouvre. Deux dégâts mesurés le 2026-08-22,
+ * rapportés par l'écran :
+ *
+ *   1. SANDBOX SUIVANTE — montage de `campaign1` nœud 22 juste après avoir joué le nœud 19 :
+ *      l'écran s'ouvre avec les cinq poses du nœud 19 rejouées sur `C1_05`, qui n'a pas la même
+ *      géométrie. Et le rejeu VIDE LE PLATEAU d'abord, donc il écrase aussi le dernier
+ *      déploiement que le jeu propose lui-même par `GetBattleLineup` -- la seule lineup
+ *      pré-posée légitime.
+ *   2. BATAILLE RÉELLE — le même artefact sur un combat officiel contre le boss. Là c'est notre
+ *      hook qui écrit dans la partie du joueur, et c'est la faute grave : un relais laissé armé
+ *      qui pose tout seul est exactement ce qui fait perdre un jeton.
+ *
+ * `memoireBataille` retient le `BC.Id` de la bataille à qui la mémoire appartient ;
+ * `memoireRejeuArme` est un JETON posé par le montage sandbox et CONSOMMÉ au premier rejeu. Une
+ * bataille qu'on n'a pas montée ne pose aucun jeton, donc elle ne peut pas déclencher de rejeu --
+ * quel que soit l'état de `memoireAuto`.
+ *
+ * (!)LE JETON EST LE CRAN QUI TIENT, PAS L'IDENTIFIANT. Comparer le `BC.Id` ne suffirait pas :
+ * après un montage sandbox, `memoireBataille` reste renseigné, et une bataille RÉELLE lancée
+ * ensuite retomberait dans le même piège. C'est l'usage unique qui ferme le cas 2. */
+let memoireBataille: string | null = null;
+let memoireRejeuArme = false;
+
 let vuesJeu: NativePointer | null = null;   // l'`IdunGameViews` vivante, captée au passage
 let listenerMoW: InvocationListener | null = null;
+
+/** Le montage sandbox DÉCLARE la bataille qu'il monte. Vide la mémoire si c'en est une autre,
+ *  et pose le jeton de rejeu. Appelé par `sandboxModeBcOverride` -- le seul point du code qui
+ *  sache qu'une bataille est LA NÔTRE. */
+export function memoireBatailleMontee(bcId: string | null): Record<string, unknown> {
+    const change = bcId !== memoireBataille;
+    const avant = memoirePoses.length;
+    if (change) {
+        memoirePoses.length = 0;
+        memoireMoW = null;
+        memoireMoWIndex = null;
+        memoireDernier = `mémoire VIDÉE : montage de ${bcId ?? "?"}, `
+            + `la mémoire appartenait à ${memoireBataille ?? "aucune bataille"} `
+            + `(${avant} pose(s) jetée(s))`;
+    }
+    memoireBataille = bcId;
+    memoireRejeuArme = true;
+    return { bataille: bcId, changeDeBataille: change, posesJetees: change ? avant : 0,
+             rejeuArme: true };
+}
 
 /**
  * OUBLIER TOUS LES POINTEURS CAPTÉS SUR LA BATAILLE PRÉCÉDENTE.
@@ -4412,9 +4473,13 @@ export function register(ctx: Ctx): void {
             // `arme: true` comme « la mémoire se remplira » alors qu'elle restera vide.
             capteurStartArme: listenerStart !== null,
             rejeux: memoireRejeux, dernier: memoireDernier,
+            // À QUI la mémoire appartient, et si un rejeu est ENCORE autorisé. Sans ces deux-là,
+            // « armé » se lit comme « va rejouer » alors que le jeton peut être consommé.
+            bataille: memoireBataille, rejeuArme: memoireRejeuArme,
         });
         if (body?.oublier === true) {
             memoirePoses.length = 0; memoireMoW = null; memoireMoWIndex = null;
+            memoireBataille = null; memoireRejeuArme = false;
             // ⚠ LES POINTEURS DE LA BATAILLE PRÉCÉDENTE PARTENT AVEC LA MÉMOIRE, et c'est ici que
             // ça doit se faire : ce verbe est ce que l'appelant joue AVANT chaque montage
             // (`sandbox_gw.py` : « memoire de pose VIDEE avant montage »). Cf.
