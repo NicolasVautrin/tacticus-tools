@@ -92,6 +92,9 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant, Refus as RefusVue } from "./view-command.js";
 import { champPointeur, estRefus, refus } from "./lecture-champs.js";
 import { getCapturedUniverse } from "./unit-visual-resolve.js";
+// La comptabilite du JEU pour << une bataille tourne-t-elle ? >>. Le corps vit dans
+// `retreat-capture.ts` -- deux lectures de `get_IsBattleActive` divergeraient en silence.
+import { enBataille } from "./retreat-capture.js";
 import { Ctx } from "../controller.js";
 
 /** La source FORGEE, retenue entre appels -- et ENRACINEE, sinon le GC la ramasse.
@@ -104,6 +107,14 @@ let sourceForgeeGw: NativePointer | null = null;
 /** Le `BattlefieldZoneTierConfigDto` retenu entre deux etapes de `guildWarEnvEtape` -- il faut
  *  qu'il SURVIVE a l'aller-retour RPC pour que l'etape 4 ne refasse pas l'appel de l'etape 3. */
 let dtoZoneRetenu: NativePointer | null = null;
+
+/** Le `GuildWarBattleData` forge, RETENU -- c'est LUI que `StartGuildWarsMatch` prend, pas la
+ *  source. Garde a part de `sourceForgeeGw` parce que les deux ne servent pas au meme geste :
+ *  la source sert a PREDIRE (forger la BC, preter au deploiement, tout cela gratuit), le record
+ *  sert a ENGAGER. Et l'engagement coute une tentative de guilde, au CHARGEMENT. */
+let recordForgeGw: NativePointer | null = null;
+/** De quoi le record parle -- pour que le RPC d'engagement puisse le DIRE avant d'engager. */
+let recordCible: { warZoneId: string; zonePartIndex: number; slotIndex: number } | null = null;
 
 /** La `GuildWarsGameModeSource` forgee, pour les modules qui doivent lui DELEGUER un appel. */
 export function sourceGuildWarForgee(): NativePointer | null {
@@ -1488,6 +1499,8 @@ export function register(ctx: Ctx): void {
             return refus("`GuildWarsGameModeSource..ctor` a LEVE : " + (e as Error).message);
         }
         sourceForgeeGw = src;
+        recordForgeGw = rec;
+        recordCible = { warZoneId: body.warZoneId, zonePartIndex: part, slotIndex: slotIdx };
         return {
             ok: true, action: "FORGEE", record: rec.toString(), instance: src.toString(),
             // L'ENVIRONNEMENT, buff par buff -- `arme: true` = une ability posee avec son niveau.
@@ -1516,6 +1529,89 @@ export function register(ctx: Ctx): void {
      * ⚠ On INVOQUE `LoadBattleInternal`, donc on ne l'ANCRE nulle part : ancrer ce qu'on invoque
      * gele le jeu.
      */
+    /** ⛔ ENGAGER LA VRAIE BATAILLE DE GUERRE DE GUILDE -- LE SEUL GESTE IRREVERSIBLE DU MODULE.
+     *
+     *  `idun.shared.commands.ViewCommandExecutor$$StartGuildWarsMatch(battleData)` alloue une
+     *  `GuildWarsGameModeSource` et appelle `StartMatch`. Le squelette `AGameModeSource` appelle
+     *  alors `GuildWarsGameModeSource$$SendLoadBattleGameEventInternal` PAR SLOT DE VTABLE, qui
+     *  genere un battleId (`TempBattleData$$GenerateNewBattleId`) et le POUSSE au serveur.
+     *
+     *  ⚠ LA TENTATIVE EST DONC PRISE AU CHARGEMENT, PAS AU START. C'est l'inverse de la campagne,
+     *  ou seul le START engage l'energie -- et ca supprime la fenetre << monter, verifier, puis
+     *  decider >>. Tout ce qui peut etre verifie doit l'etre AVANT cet appel, sur la source
+     *  FORGEE, qui elle ne coute rien. Une fois ici, c'est parti.
+     *
+     *  ⚠ ET CA TOUCHE LA GUILDE, pas seulement le compte : les tentatives d'un slot sont
+     *  partagees. Un appel par inadvertance en prend une a tout le monde.
+     *
+     *  body: { confirmer: true, warZoneId, zonePartIndex, slotIndex }
+     *  Les trois derniers ne sont pas decoratifs : ils sont CONFRONTES au record retenu. Engager
+     *  sur une cible qu'on croit connaitre est exactement la faute qu'on ne peut pas rattraper. */
+    ctx.rpc.guildWarEngagerReel = (body?: {
+        confirmer?: boolean; warZoneId?: string; zonePartIndex?: number; slotIndex?: number;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        if (recordForgeGw === null || recordForgeGw.isNull() || recordCible === null) {
+            return { ok: false, error: "aucun `GuildWarBattleData` forge -- appeler "
+                + "`guildWarSourceForger {confirmer:true}` d'abord. On n'engage QUE ce qu'on a "
+                + "deja construit et diffe." };
+        }
+        // La cible ANNONCEE doit etre la cible FORGEE. Trois champs, trois comparaisons.
+        const c = recordCible;
+        const ecarts: string[] = [];
+        if (body?.warZoneId !== c.warZoneId) {
+            ecarts.push(`warZoneId annonce=${body?.warZoneId} forge=${c.warZoneId}`);
+        }
+        if ((body?.zonePartIndex ?? -1) !== c.zonePartIndex) {
+            ecarts.push(`zonePartIndex annonce=${body?.zonePartIndex} forge=${c.zonePartIndex}`);
+        }
+        if ((body?.slotIndex ?? -1) !== c.slotIndex) {
+            ecarts.push(`slotIndex annonce=${body?.slotIndex} forge=${c.slotIndex}`);
+        }
+        if (ecarts.length > 0) {
+            return { ok: false, cible: c, error: "REFUS : la cible ANNONCEE n'est pas la cible "
+                + "FORGEE -- " + ecarts.join(" ; ") + ". On n'engage pas une tentative de guilde "
+                + "sur un malentendu." };
+        }
+        if (body?.confirmer !== true) {
+            return { ok: false, lecture: true, cible: c, record: recordForgeGw.toString(),
+                     error: "REFUS : `confirmer: true` exige. Cet appel PREND UNE TENTATIVE DE "
+                         + "GUILDE, au chargement, et l'envoie au serveur. Il n'est pas annulable." };
+        }
+        // Une bataille deja montee ? `StartMatch` l'ECRASERAIT -- et ici l'ecraser coute une
+        // tentative pour rien. Le predicat est la comptabilite du jeu (cf. #10041).
+        const enCours = enBataille();
+        if (enCours !== false) {
+            return { ok: false, cible: c, error: enCours === true
+                ? "REFUS : une bataille est ACTIVE. Sortir d'abord."
+                : "REFUS : etat de bataille NON MESURE (`get_IsBattleActive` introuvable) -- on "
+                  + "n'engage pas une tentative a l'aveugle." };
+        }
+        const exec = executeurVivant();
+        if (estRefus(exec)) return exec;
+        const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
+        if (!kExec) return refus("classe `ViewCommandExecutor` introuvable");
+        const m = findMethodByParamCount(kExec, "StartGuildWarsMatch", 1);
+        if (!m) {
+            return refus("`ViewCommandExecutor$$StartGuildWarsMatch(1)` INTROUVABLE -- signature "
+                + "CHANGEE sur ce build. On n'invente pas un point d'entree pour engager.");
+        }
+        try {
+            invokeMethod(m.info, exec as NativePointer, [recordForgeGw]);
+        } catch (e) {
+            return { ok: false, cible: c, engage: "INCERTAIN",
+                     error: "`StartGuildWarsMatch` a LEVE : " + (e as Error).message
+                         + " -- (!)L'EXCEPTION NE PROUVE PAS QUE RIEN N'EST PARTI : le battleId "
+                         + "peut avoir ete pousse avant. Relire `attemptsLeft` avant de retenter." };
+        }
+        return {
+            ok: true, cible: c, methode: "ViewCommandExecutor$$StartGuildWarsMatch",
+            note: "l'appel est PASSE -- ca ne dit rien du montage, et ca ne dit pas non plus que "
+                + "la tentative a ete comptee. Verifier les DEUX : `sandboxProbe` / "
+                + "`retreatStatus.batailleActive` pour la scene, et `guildWarBoardRead."
+                + "attemptsLeft` pour la tentative.",
+        };
+    });
+
     /** UN SEUL APPEL NATIF PAR ALLER-RETOUR RPC -- la sonde qui SURVIT a un crash.
      *
      *  ⚠ POURQUOI CE GRAIN-LA, ET PAS CELUI DE `guildWarEnvProbe`. Un crash tue la session
