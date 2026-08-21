@@ -204,8 +204,33 @@ def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
         print("   MoW du replay : %s -> plateforme %s (DERIVEE des spawns)"
               % (mow["unitId"], mow.get("position")))
 
-    for etiquette, suite in (("INVERSE de l'ordre du replay", list(reversed(voulu))),
-                             ("ordre du replay", list(voulu))):
+    # (!)L'ORDRE DU REPLAY D'ABORD -- PARCE QUE POUR UNE MoW, C'EST LE SEUL ESSAI QUI PUISSE
+    # GAGNER.
+    #
+    # Les deux regimes, MESURES sur maradak le 2026-08-21. Soit `U` les unites dans l'ordre donne
+    # et `M` la Machine of War -- qui est TOUJOURS posee APRES elles, quel que soit leur ordre :
+    #   * plateau VIERGE (montage frais, aucun clear) -- conversion = `U + [M]`.
+    #   * plateau PLEIN (un clear precede la repose) -- la liste libre des paires d'entites se
+    #     comporte en PILE, donc conversion = `reverse(U + [M])` = `[M] + reverse(U)`.
+    #
+    # ⛔ SUR UN PLATEAU PLEIN, LA MoW EST DONC TOUJOURS EN TETE, et aucune permutation des unites
+    # ne l'en deloge -- elle n'est pas dans la partie permutee. Les six replays du depot
+    # l'enregistrent EN DERNIER : ils ne sont reproductibles QUE sur un plateau VIERGE, pose dans
+    # l'ordre du replay. Verifie deux fois, les deux essais rendant `[M] + ...`.
+    #
+    # ⚠ J'AI CRU L'INVERSE, ET LE CODE A PORTE MON ERREUR : << essayer `R` puis son inverse
+    # converge dans les deux regimes >>. Faux -- ca ne vaut que pour les UNITES. Le second essai
+    # rend `[M] + U`, donc les unites justes et la machine a la mauvaise place, ce qui decale
+    # TOUS les squads d'un cran (mesure : replay 95/97/99/101/103, live 96/98/100/102/104).
+    #
+    # ⚠ ET AUCUNE DETECTION DE REGIME ICI, C'EST DELIBERE. Une version lisait
+    # `deploymentEtat.placeholders` pour choisir : sur un plateau REELLEMENT vierge ce RPC ne
+    # resout aucune vue (<< aucune `IdunGameViews` joignable >>) et rend `None` -- lu comme
+    # << pas vierge >>, il faisait prendre le mauvais essai, donc perdre l'unique occasion.
+    #
+    # Le second essai reste : il rattrape le cas SANS MoW, ou la permutation des unites suffit.
+    for etiquette, suite in (("ordre du replay", list(voulu)),
+                             ("INVERSE de l'ordre du replay", list(reversed(voulu)))):
         poses = [{"unitId": u, "playerId": 11, "col": c, "row": r} for (u, c, r) in suite]
         jeu.rpc("deploymentMemoire", [{"poser": {"poses": poses, "mow": mow}}], timeout=120000)
         corps = {"rejouer": True, "confirmer": True}
@@ -233,9 +258,20 @@ def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
         for ligne in motif.split("\n")[1:]:
             print(ligne)
 
+    # ⚠ QUAND LES DEUX ESSAIS TOMBENT AVEC LA MoW EN TETE DES DEUX COTES LIVE, LA CAUSE N'EST PAS
+    # L'ORDRE : c'est que le plateau n'etait pas vierge. On le NOMME, parce que le motif
+    # << aucun des deux ordres >> a deja fait accuser l'ordre deux fois pour d'autres causes.
+    mep, _n, _r = mise_en_place_du_replay(d)
+    detail = ""
+    if mep and mep[-1]["genre"] == "mow":
+        detail = (" LE REPLAY PORTE UNE MoW, ENREGISTREE EN DERNIER : il n'est reproductible que "
+                  "sur un plateau VIERGE. Sur un plateau deja peuple, le clear fait de la liste "
+                  "libre une PILE et la machine -- posee apres les unites -- se retrouve en TETE "
+                  "quel que soit leur ordre. REMONTER la bataille, puis reposer SANS avoir rien "
+                  "pose avant.")
     stop("aucun des deux ordres de pose ne rend l'ordre de conversion du replay. NE PAS "
          "demarrer : les squads seraient attribues autrement et chaque coup frapperait une "
-         "autre unite.")
+         "autre unite." + detail)
 
 
 def controler_le_lineup(jeu, d):

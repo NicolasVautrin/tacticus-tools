@@ -3686,6 +3686,39 @@ let memoireMoW: PoseMoW | null = null;      // une seule MoW par bataille
 let vuesJeu: NativePointer | null = null;   // l'`IdunGameViews` vivante, captée au passage
 let listenerMoW: InvocationListener | null = null;
 
+/**
+ * OUBLIER TOUS LES POINTEURS CAPTÉS SUR LA BATAILLE PRÉCÉDENTE.
+ *
+ * ⛔ CE MODULE MET EN CACHE CINQ POINTEURS D'OBJETS VIVANTS, ET RIEN NE LES INVALIDAIT. Ils sont
+ * captés au vol dans les appels du jeu — c'est justement ce qui fait leur valeur (cf. l'en-tête
+ * de `dicoVivant` : « aller CHERCHER la vue rend *une* vue, pas *celle que le déploiement
+ * utilise* »). Mais l'objet meurt avec sa bataille, et le pointeur, lui, restait.
+ *
+ * ⚠ MESURÉ, ET LE MOTIF EST NET : le PREMIER montage d'une session passe, le SECOND tue le jeu
+ * pendant la pose. Trois crashs le 2026-08-21 (`.50856` 16:42, `.29408` 16:5x, plus celui de
+ * 16:27). Signature au journal : sur un plateau qu'on vient de monter, `deploymentEtat` rend un
+ * `ordreConversion` NON VIDE — il décrit la bataille morte, lue à travers un pointeur périmé.
+ *
+ * ⚠ ET NE PAS LES TRAITER UN PAR UN. J'ai d'abord nullifié le seul `vuesJeu`, en inversant au
+ * passage la préférence de `vueDeLaMoW` vers `dicoVivant()` — dont la tête est `vuesDePose`,
+ * périmée de la MÊME façon. Le crash est revenu à l'identique : le défaut avait été DÉPLACÉ, pas
+ * réparé. Une liste de suspects ne peut pas montrer celui qu'elle a oublié ; on remet donc à nul
+ * TOUT pointeur d'objet du module, et on l'appelle depuis le seul verbe que l'appelant joue avant
+ * chaque montage.
+ *
+ * Aucune perte : chacun est re-rempli par son propre ancrage dès que la nouvelle bataille appelle
+ * la méthode correspondante. Ce qui disparaît, c'est uniquement ce qui ne devait plus servir.
+ */
+function oublierLesPointeursDeLaBatailleMorte(): string[] {
+    const vides: string[] = [];
+    if (preEmprunt !== null) { preEmprunt = null; preEmpruntInfo = null; vides.push("preEmprunt"); }
+    if (hudInstance !== null) { hudInstance = null; vides.push("hudInstance"); }
+    if (dicoDeGet !== null) { dicoDeGet = null; vides.push("dicoDeGet"); }
+    if (vuesDePose !== null) { vuesDePose = null; vides.push("vuesDePose"); }
+    if (vuesJeu !== null) { vuesJeu = null; vides.push("vuesJeu"); }
+    return vides;
+}
+
 /** Retient une pose, dédupliquée par unité (la dernière position gagne). */
 function memoriser(p: Pose): void {
     const i = memoirePoses.findIndex((x) => x.unitId === p.unitId);
@@ -3800,14 +3833,29 @@ function rejouerMemoire(): void {
  * ⇒ On passe par l'échelle `dicoVivant()` que le reste du fichier emploie déjà, et on PUBLIE la
  * source : une MoW reposée par le repli `FindObjectsByType` ne doit pas se lire comme une MoW
  * reposée sur la vue observée.
+ *
+ * ⇒ `dicoVivant()` D'ABORD, `vuesJeu` en dernier recours. Sa tête est `vuesDePose`, captée sur
+ * l'`AddPlaceholderUnit` de la pose EN COURS — strictement plus fraîche que `Enable`, dont on a
+ * mesuré (2026-08-21, `sonde_vue_perimee`) qu'il tire PENDANT LE DÉMONTAGE :
+ *     AVANT montage    vuesJeu=None
+ *     APRÈS montage    vuesJeu=None          <- `Enable` n'a pas encore tiré
+ *     APRÈS retraite   vuesJeu=0x270feb0c900 <- il est rempli PAR LA SORTIE
+ *
+ * ⚠ CET ORDRE NE SUFFIT PAS, ET C'EST MESURÉ : l'inverser SEUL n'a rien réparé — le jeu est mort
+ * au montage suivant exactement comme avant, parce que `vuesDePose` est périmée de la MÊME façon.
+ * La réparation est `oublierLesPointeursDeLaBatailleMorte()`, qui les remet TOUS à nul avant
+ * chaque montage. Ce qu'on gagne ici est plus modeste et reste vrai : à fraîcheur égale, la vue
+ * de la pose en cours est la bonne, et la source publiée dit toujours laquelle a servi.
  */
 function vueDeLaMoW(): { vues: NativePointer; source: string } | Refus {
-    if (vuesJeu !== null && !vuesJeu.isNull()) {
-        return { vues: vuesJeu, source: "vue OBSERVÉE dans `IdunGameViews$$Enable`" };
-    }
     const d = dicoVivant();
-    if ("ok" in d) return d;
-    return { vues: d.vues, source: d.source };
+    if (!("ok" in d)) return { vues: d.vues, source: d.source };
+    if (vuesJeu !== null && !vuesJeu.isNull()) {
+        return { vues: vuesJeu,
+                 source: "DERNIER RECOURS `IdunGameViews$$Enable` -- l'échelle vivante a refusé ("
+                     + d.error + "). Ce pointeur peut dater d'une bataille PRÉCÉDENTE." };
+    }
+    return d;
 }
 
 /**
@@ -4341,8 +4389,16 @@ export function register(ctx: Ctx): void {
             rejeux: memoireRejeux, dernier: memoireDernier,
         });
         if (body?.oublier === true) {
-            memoirePoses.length = 0; memoireMoW = null; memoireDernier = "mémoire vidée";
-            return { ok: true, action: "oubliee", ...etat() };
+            memoirePoses.length = 0; memoireMoW = null;
+            // ⚠ LES POINTEURS DE LA BATAILLE PRÉCÉDENTE PARTENT AVEC LA MÉMOIRE, et c'est ici que
+            // ça doit se faire : ce verbe est ce que l'appelant joue AVANT chaque montage
+            // (`sandbox_gw.py` : « memoire de pose VIDEE avant montage »). Cf.
+            // `oublierLesPointeursDeLaBatailleMorte` pour ce que ça a coûté.
+            const vides = oublierLesPointeursDeLaBatailleMorte();
+            memoireDernier = vides.length === 0
+                ? "mémoire vidée (aucun pointeur en cache)"
+                : `mémoire vidée | pointeurs oubliés : ${vides.join(", ")}`;
+            return { ok: true, action: "oubliee", pointeursOublies: vides, ...etat() };
         }
         // POSER une mémoire venue du DEHORS.
         //
