@@ -76,8 +76,19 @@ import { sourceCampagneForgee } from "./campaign-source-forge.js";
 import { sourceGuildWarForgee } from "./guild-war-config.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
-// Le MÊME message que le harnais RL applique pour chaque pose de joueur.
-import { buildAddUnitMessage } from "./launch.js";
+// (!)PLUS AUCUN `buildAddUnitMessage` ICI (2026-08-21). Ce module ne fabrique plus d'ajout
+// d'unité : la pose passe TOUJOURS par l'étage FSM (placeholder), et la substitution
+// `Remove` + `Add` est supprimée. L'import est donc parti avec ses deux derniers appelants.
+//
+// ⚠ CE N'EST PAS `AddUnitMessage` QUI ÉTAIT LE PROBLÈME, et il ne faut pas lire ce retrait
+// comme une interdiction. Ajouter une unité à un runner VIVANT est une mécanique du jeu :
+// les vagues d'onslaught et les renforts de survival le font. Ce qui doublait la mise, c'était
+// de l'appliquer PENDANT LA PHASE DE DÉPLOIEMENT, en parallèle des `PlaceholderUnitView` que
+// le HUD compte, contre un plafond qui est le sien. Hors déploiement il n'y a aucune seconde
+// comptabilité à doubler.
+//
+// La capacité vit toujours dans `launch.ts` (`buildAddUnitMessage`, 3 sites) et dans
+// `battle-config.ts` — c'est là qu'elle a sa place, pas sur le chemin du déploiement.
 // Une valeur pré-empruntée doit SURVIVRE jusqu'à sa substitution : sans racine, le GC IL2CPP
 // peut la ramasser entre l'emprunt et le `retval.replace`.
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -394,113 +405,36 @@ function refusSiEmpilement(p: Pose | null, quoi: string): Refus | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LE BLOCAGE DU START — par le CHEMIN DU JEU, y compris quand c'est l'HUMAIN qui clique
+// LE BLOCAGE DU START A ETE SUPPRIME (2026-08-21) -- LE HUD FAIT DEJA CE CONTROLE
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// ⚠ POURQUOI RÉÉCRIRE UN RETOUR PLUTÔT QUE COURT-CIRCUITER. `Interceptor.replace` est proscrit
-// ici (un stop de session avec un `replace` actif crashe le jeu), et un `attach` ne sait pas
-// sauter un appel. Mais `UnitDeploymentState$$StartBattle` CONSULTE un prédicat avant de partir :
+// `deploymentBlocageStart` s'attachait a
+// `IdunBattle.View.FSM.VisualBattleQuery$$IsMinUnitAmountToBringToStartBattleReached` et
+// reecrivait son retour a `false` sur empilement avere. Il n'AJOUTAIT donc pas un controle :
+// il FALSIFIAIT celui du jeu.
 //
-//     IdunBattle.View.FSM.VisualBattleQuery$$IsMinUnitAmountToBringToStartBattleReached
-//         -> MinUnitsNeededToStartBattle(this) <= amountUnits      (un `bool` PUR)
+// (!)IL GARDAIT UNE CAUSE QUI N'EXISTE PLUS. Le 10-pour-5 du 2026-08-20 n'etait pas une
+// defaillance du HUD : c'est la voie COMMIT qui appliquait des `AddUnitMessage` DROIT AU
+// RUNNER, invisibles de lui. Le HUD comptait ses 5 placeholders et affichait `5/5` en toute
+// bonne foi (mesure de l'epoque : bouton a `0/5` avec cinq unites en jeu, et
+// `GetPlaceholderUnitViews` ne rendant qu'UN element). Depuis la suppression de cette voie,
+// toute pose passe par l'etage FSM, donc par le HUD, donc dans le compte qu'il tient : son
+// controle est redevenu exhaustif.
 //
-// Rendre `false` fait donc refuser le jeu PAR SON PROPRE CHEMIN, avec son propre retour d'écran.
-// C'est l'idiome que l'en-tête de ce fichier prescrit : « `attach` + écriture dans le retour,
-// JAMAIS `replace` ».
+// (!)ET LE PLAFOND HAUT EST DEJA GARDE PAR LE HUD, A LA POSE -- mesure du 2026-08-20 qui a
+// motive `deploymentPlafondArmer` : en sandbox le HUD recevait `maxUnitsPossible: 0`, et un
+// plafond a zero N'AUTORISE AUCUNE POSE. S'il ne gardait pas le max au moment de poser, un
+// zero n'aurait rien empeche.
 //
-// ⛔ LE CALLBACK N'INVOQUE RIEN. Le verdict passe par `unitesReellesParJoueurSansInvoke()` et par
-// des lectures de champs du HUD -- aucun `il2cpp_runtime_invoke`, donc aucun code managé exécuté
-// sous interception.
+// (!)UN DOUBLON QUI RE-IMPLEMENTE LE COMPTAGE SE TROMPE -- et celui-ci s'etait DEJA trompe :
+// sa premiere version unionnait nos placeholders avec le camp ENNEMI (3 noms PNJ + 6
+// placeholders = 9 pour une borne de 6) et a BLOQUE UN START LEGITIME. Un garde redondant qui
+// produit un faux positif ne coute pas zero : il coute le refus de ce que le jeu accepte.
 //
-// ⚠ ARMÉ AU `register`, PAS SUR DEMANDE. Une protection qu'il faut penser à armer est exactement
-// ce qui a manqué le 2026-08-20. Elle ne mord que sur un empilement AVÉRÉ ; en régime normal elle
-// laisse le retour du jeu intact, à l'octet.
-
-let listenerBlocageStart: InvocationListener | null = null;
-/** Ce que le blocage a vu, publié -- un refus muet se lirait comme un bug du jeu. */
-const blocageStartTrace: Array<Record<string, unknown>> = [];
-
-/** Le verdict d'empilement SANS INVOCATION, pour le `onLeave`. `null` = rien à redire.
- *
- * ⛔ PAS D'`assurerHud()` ICI, ET C'EST DÉLIBÉRÉ. Ce corps tourne dans un callback
- * d'`Interceptor` ; `assurerHud` invoque `FindObjectsByType`, et invoquer sous interception GÈLE
- * le jeu (payé deux fois dans ce dépôt). Sans HUD on rend `null`, donc on NE BLOQUE PAS -- un
- * garde qui barre la route à tort est pire que le mal qu'il prévient.
- */
-function empilementSansInvoke(): Record<string, unknown> | null {
-    if (hudInstance === null || hudInstance.isNull()) return null;
-    const k = findClassAnywhere(NS_HUD, CLS_HUD);
-    if (!k) return null;
-    const offMax = getFieldOffset(k, "_maxUnitsPossible");
-    const offMow = getFieldOffset(k, "_hasMachinesOfWar");
-    const offPl = getFieldOffset(k, "_currentlyPlacedUnits");
-    if (offMax < 0 || offPl < 0) return null;
-    const lst = hudInstance.add(offPl).readPointer();
-    if (lst.isNull()) return null;
-    const offSize = getFieldOffset(lst.readPointer(), "_size");
-    if (offSize < 0) return null;
-    const nPh = lst.add(offSize).readS32();
-    const nomsPh = nomsDesPlaceholders(lst, nPh) ?? [];
-    const parJoueur = unitesReellesParJoueurSansInvoke();
-    if (parJoueur === null) return null;
-    // ⚠ LE CAMP DU JOUEUR, ET LUI SEUL -- ET ON ÉCHOUE OUVERT S'IL EST INCONNU.
-    //
-    // Première version, MESURÉE FAUSSE le 2026-08-20 : elle prenait « le camp le plus chargé »
-    // et unionnait NOS placeholders avec les unités de CHAQUE camp. Elle a donc compté le camp
-    // ENNEMI (`playerEntityId 4`) : 3 noms distincts côté PNJ + nos 6 placeholders = 9 pour une
-    // borne de 6, et elle a BLOQUÉ UN START PARFAITEMENT LÉGITIME. Deux fautes : mélanger les
-    // camps, et compter des NOMS là où quatre Techpriests identiques n'en font qu'un.
-    //
-    // `dernierIdJoueurHumain` est renseigné hors hook par `unitesDuPlateau()`. S'il est inconnu,
-    // on NE BLOQUE PAS : un garde qui barre la route à tort est pire que le mal qu'il prévient.
-    const j = dernierIdJoueurHumain;
-    if (j === null) return null;
-    const noms = parJoueur.get(j);
-    if (noms === undefined) return null;
-    const union = noms.slice();
-    for (const n of nomsPh) {
-        if (typeof n === "string" && n !== "" && union.indexOf(n) < 0) union.push(n);
-    }
-    const borne = hudInstance.add(offMax).readS32()
-        + (offMow >= 0 && hudInstance.add(offMow).readU8() !== 0 ? 1 : 0);
-    if (union.length <= borne) return null;
-    return { distinctes: union.length, borne, joueur: j, placeholders: nPh,
-             reelles: noms.length };
-}
-
-function armerBlocageStart(): void {
-    if (listenerBlocageStart) return;
-    const k = findClassAnywhere(NS_VBQ, CLS_VBQ);
-    // ⚠ UN PARAMÈTRE, PAS DEUX. Le décompilé montre `(this, amountUnits)`, mais `this` n'est pas
-    // un paramètre DÉCLARÉ -- et le `MethodInfo*` qu'IL2CPP ajoute à chaque appel n'en est pas un
-    // non plus. Compter de travers rend `INTROUVABLE`, ce qui se lit comme « pas atteint » : cette
-    // tranche s'y est fait prendre QUATRE fois (`AddMachineStepHandler$$ExecuteInternal`,
-    // `IdunGameViews$$AddMachine`, `System.Enum$$Parse`, et ce garde-ci).
-    const mi = k ? findMethodByParamCount(k, "IsMinUnitAmountToBringToStartBattleReached", 1)
-                 : null;
-    // ⚠ On DIT que la protection n'a pas pu être posée. Un `armerBlocageStart` silencieux
-    // laisserait croire que le START est gardé alors qu'il ne l'est pas.
-    if (!mi) {
-        blocageStartTrace.push({ evt: "NON ARMÉ",
-            raison: `\`${NS_VBQ}.${CLS_VBQ}$$IsMinUnitAmountToBringToStartBattleReached\` `
-                + "INTROUVABLE (2 paramètres) -- le START n'est PAS gardé" });
-        return;
-    }
-    listenerBlocageStart = Interceptor.attach(mi.ptr, {
-        onLeave(retval) {
-            try {
-                if ((retval.toInt32() & 0xff) === 0) return;   // le jeu refuse déjà : on n'y touche pas
-                const v = empilementSansInvoke();
-                if (v === null) return;
-                retval.replace(ptr(0));
-                if (blocageStartTrace.length < 16) {
-                    blocageStartTrace.push({ evt: "START BLOQUÉ", ...v });
-                }
-            } catch { /* ne JAMAIS lever dans un callback */ }
-        },
-    });
-    Interceptor.flush();
-}
+// CE QUI RESTE, ET QUI SUFFIT : `refusSiEmpilement`, en amont, a la POSE. Reste un seul chemin
+// qui contourne le HUD -- le RPC de substitution d'unite (`RemoveUnitMessage` puis
+// `AddUnitMessage` sur le runner vivant), explicite et garde par `confirmer: true`. S'il faut
+// le border, ca se fait A SON SITE, pas par un garde global sur le START.
 
 /** Ce que `onLeave` a VU au dernier passage — la seule base sur laquelle REMPLIR est autorisé. */
 interface Observation {
@@ -4234,34 +4168,6 @@ function etatPhase(): Record<string, unknown> {
 }
 
 export function register(ctx: Ctx): void {
-    // ⚠ ARMÉ D'OFFICE, et c'est le point. Le 2026-08-20, la protection existait dans la tête de
-    // celui qui conduisait la séance, pas dans le code : un relais de sandbox laissé armé a écrit
-    // sur une vraie bataille de boss de guilde. Ce blocage-ci ne se demande pas.
-    armerBlocageStart();
-    /** LE VERDICT DU BLOCAGE DE START. Sans argument : lecture pure.
-     *
-     * ⚠ `{ armer: false }` EXISTE PARCE QU'IL A MANQUÉ. Ce hook s'arme au `register`, et le
-     * 2026-08-20 il était le SEUL qu'on ne pouvait pas éteindre sur une bataille RÉELLE en
-     * cours -- il avait pourtant déjà bloqué un START légitime une fois. Le seul recours était
-     * un reinject, c'est-à-dire risquer la tentative pour désarmer une protection. Tout garde
-     * armé d'office doit pouvoir être éteint SANS reinject. */
-    ctx.rpc.deploymentBlocageStart = (body?: { armer?: boolean }): unknown => {
-        if (body?.armer === false && listenerBlocageStart !== null) {
-            try { listenerBlocageStart.detach(); } catch { /* best effort */ }
-            listenerBlocageStart = null;
-        } else if (body?.armer === true && listenerBlocageStart === null) {
-            armerBlocageStart();
-        }
-        return {
-            ok: true, lecture: body?.armer === undefined,
-            arme: listenerBlocageStart !== null,
-            trace: blocageStartTrace.slice(-8),
-            note: "réécrit le retour d'`IsMinUnitAmountToBringToStartBattleReached` à `false` "
-                + "quand le déploiement empile -- le jeu refuse alors PAR SON PROPRE CHEMIN. "
-                + "Aucun `Interceptor.replace`, aucune invocation dans le callback. "
-                + "`{armer:false}` l'éteint SANS reinject.",
-        };
-    };
     /** OBSERVER / DÉSARMER. `{ armer: true }` pose le hook en régime transparent. */
     ctx.rpc.deploymentDraftArmer = (body?: { armer?: boolean }): Promise<unknown> | unknown => {
         if (!body || body.armer === undefined) {
@@ -4416,8 +4322,14 @@ export function register(ctx: Ctx): void {
         }
         if (body?.rejouer === true) {
             if (body.confirmer !== true) {
-                return refus("`confirmer: true` exigé : le rejeu APPLIQUE des `AddUnitMessage` "
-                    + "au runner vivant");
+                // (!)CE MESSAGE ANNONÇAIT DES `AddUnitMessage` -- FAUX depuis la suppression de
+                // la voie commit. `rejouerMemoire` VIDE le plateau puis repose par l'étage FSM,
+                // donc en placeholders. Un avertissement périmé invente un risque disparu et
+                // décrédibilise ceux qui restent : ce rejeu MUTE bien l'écran, et c'est pour ÇA
+                // qu'il exige `confirmer`.
+                return refus("`confirmer: true` exigé : le rejeu VIDE le plateau puis repose "
+                    + "les unités mémorisées par l'étage FSM -- il modifie l'écran de "
+                    + "déploiement en cours");
             }
             rejouerMemoire();
             return { ok: true, action: "rejeu ENFILÉ", ...etat() };
@@ -4782,94 +4694,21 @@ export function register(ctx: Ctx): void {
             });
     };
 
-    /**
-     * REMPLACER UNE UNITÉ SANS PASSER PAR LE CLEAR.
-     *
-     * Le CLEAR est un geste TOTAL : il vide le camp et fait tout re-saisir. Échanger une seule
-     * unité n'a jamais eu besoin de ça — deux verbes suffisent, et ils existaient déjà :
-     *
-     *   1. `RemoveUnitMessage` sur la SEULE unité visée -- les autres ne bougent pas ;
-     *   2. quelques images de pump (cf. `poserApresDelai`) ;
-     *   3. `AddUnitMessage` de la remplaçante, sur la case LIBÉRÉE par défaut.
-     *
-     * ⚠ RIEN N'EST SYNCHRONISÉ AVEC LA MÉMOIRE ICI, ET C'EST VOULU. La composition retenue pour
-     * le retry est prise EN UNE FOIS au START (`instantanerAuStart`), sur le plateau réel : on
-     * peut donc échanger autant d'unités qu'on veut, dans n'importe quel ordre, sans jamais
-     * risquer qu'un double de comptabilité dérive de ce que l'écran montre.
-     *
-     * ⚠ La remplaçante doit être dans la BC de la bataille montée, comme toute pose : `Apply`
-     * passe SANS ERREUR et rien n'apparaît si sa configuration y manque (mesuré sur
-     * `spaceBlackmane`). Le verdict se lit à `deploymentPoseDiag`, pas au retour de ce RPC.
-     */
-    ctx.rpc.deploymentRemplacer = (body?: {
-        confirmer?: boolean;
-        /** L'unité à ôter, par son entité. Prioritaire sur `sortante`. */
-        entityId?: number;
-        /** L'unité à ôter, par son `unitId` -- plus commode à écrire. */
-        sortante?: string;
-        /** La remplaçante. `playerId`, `col` et `row` sont HÉRITÉS de la sortante si omis. */
-        entrante?: { unitId: string; playerId?: number; col?: number; row?: number };
-        /** Images de pump entre le retrait et la pose. Défaut `DELAI_REMPLACEMENT`. */
-        delaiFrames?: number;
-    }): Promise<unknown> | unknown => {
-        const delai = body?.delaiFrames ?? DELAI_REMPLACEMENT;
-        return queueOnMainThread(() => {
-            const u = unitesDuPlateau();
-            if (!Array.isArray(u)) return refus("plateau non lisible : " + u);
-            const miennes = u.filter((x) => x.duJoueur);
-            const cible = body?.entityId !== undefined
-                ? miennes.find((x) => x.entityId === body.entityId)
-                : (body?.sortante !== undefined
-                    ? miennes.find((x) => x.unitId === body.sortante)
-                    : undefined);
-            if (!cible) {
-                // ⚠ Un refus NOMME ce qu'il a vu : « introuvable » sans l'inventaire se lit
-                // comme « le plateau est vide » alors que c'est souvent une faute de frappe.
-                return refus("unité sortante INTROUVABLE. Demandé : "
-                    + (body?.entityId !== undefined
-                        ? `entityId ${body.entityId}`
-                        : `unitId \`${body?.sortante ?? "<rien>"}\``)
-                    + ". Sur le plateau, côté joueur : "
-                    + (miennes.length === 0
-                        ? "AUCUNE unité"
-                        : miennes.map((x) => `${x.unitId}#${x.entityId}(${x.col},${x.row})`)
-                            .join(", ")));
-            }
-            const entrante = body?.entrante;
-            if (!entrante || typeof entrante.unitId !== "string" || entrante.unitId === "") {
-                return refus("`entrante: { unitId }` exigé -- ce RPC REMPLACE. Pour ôter seul, "
-                    + "c'est `deploymentRetirer`.");
-            }
-            const pose: Pose = {
-                unitId: entrante.unitId,
-                playerId: entrante.playerId ?? cible.playerId ?? 11,
-                col: entrante.col ?? cible.col ?? -1,
-                row: entrante.row ?? cible.row ?? -1,
-            };
-            if (pose.col < 0 || pose.row < 0) {
-                return refus(`la case de \`${cible.unitId}\` n'est pas lisible `
-                    + `(col=${cible.col}, row=${cible.row}) et aucune n'a été donnée : `
-                    + "préciser `entrante.col` / `entrante.row` plutôt que deviner");
-            }
-            const apercu = {
-                sortante: { unitId: cible.unitId, entityId: cible.entityId,
-                            col: cible.col, row: cible.row },
-                entrante: pose, delaiFrames: delai,
-            };
-            if (body?.confirmer !== true) {
-                return { ok: true, lecture: true, ...apercu,
-                         note: "`confirmer: true` exigé : ce RPC APPLIQUE un `RemoveUnitMessage` "
-                             + "puis un `AddUnitMessage` au runner VIVANT" };
-            }
-            const r = retirerDuRunner([cible.entityId]);
-            if ((r as { ok?: boolean }).ok === false) return r;
-            poserApresDelai(pose, delai);
-            return { ok: true, ...apercu, retrait: r,
-                     note: "la pose est ENFILÉE, pas encore appliquée -- elle part après le "
-                         + "délai. Le verdict se lit à `deploymentPoseDiag` / "
-                         + "`deploymentPlateau`, jamais ici." };
-        });
-    };
+    // (!)`deploymentRemplacer` EST SUPPRIME (2026-08-21) -- LE SEUL CHEMIN QUI CONTOURNAIT
+    // ENCORE LE HUD. Il echangeait une unite sans passer par le clear, en deux verbes appliques
+    // au runner VIVANT : `RemoveUnitMessage` sur la cible, puis `AddUnitMessage` de la
+    // remplacante sur la case liberee.
+    //
+    // C'est la MEME forme que la voie commit supprimee la veille : une ecriture qui entre dans
+    // le plateau SANS que le HUD la voie, donc une seconde comptabilite. Le HUD garde son
+    // plafond a la POSE et ne compte que ses `PlaceholderUnitView` ; ce qui arrive par
+    // `AddUnitMessage` lui reste invisible. Tant que ce chemin existait, le controle natif
+    // n'etait pas exhaustif -- et c'est justement parce qu'il redevient exhaustif que
+    // `deploymentBlocageStart` a pu partir (cf. le pave plus haut). Les deux devaient tomber
+    // ensemble : garder l'un sans l'autre aurait laisse le trou ouvert ET le garde retire.
+    //
+    // Pour echanger une unite : la deposer par l'ecran (etage FSM) et reposer -- le chemin du
+    // clic humain, celui que le HUD compte.
 
     /** Relais sur le bouton CLEAR de l'écran. Armé, un appui ôte AUSSI les unités réelles. */
     ctx.rpc.deploymentClearArmer = (body?: {

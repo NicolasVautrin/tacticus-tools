@@ -133,6 +133,11 @@ from campagne_rejeu import (                               # noqa: E402
     resoudre_hors_ligne, forger_bc, armer_le_seed, desarmer_capture_de_fin,
     generation_du_runner, verifier_morsure, verifier_phase_avant_start, NOM_TYPE,
 )
+# (!)LA CHAINE CONSTATE L'ETAT DES RELAIS, ELLE NE LE CHANGE PAS (cran 7). On importe donc la
+# LECTURE, jamais le desarmement -- cf. le cran lui-meme pour le pourquoi.
+from desarmer_relais import (                              # noqa: E402
+    passer as relais_lire, rendre_compte as relais_rendre_compte,
+)
 
 
 # --------------------------------------------------------------------------------------------
@@ -555,6 +560,28 @@ def main(argv=None):
 
     cran(7, "desarmer la capture de fin -- la reference doit rester intouchable")
     desarmer_capture_de_fin(jeu)
+
+    cran("7b", "les relais d'ecriture sont-ils PROPRES ? -- on CONSTATE, on ne touche a rien")
+    # (!)CE CONTROLE EXISTE PARCE QUE LE DESARMEMENT ETAIT UN GESTE A LA MAIN, DONC OUBLIABLE --
+    # et je l'ai oublie le 2026-08-21, entre la capture d'un replay et la boucle qui le rejoue.
+    # Une sandbox laisse armes des relais qui SUBSTITUENT : `deploymentPoolArmer` repond a la
+    # place de la vraie source (le lineup servi serait celui du noeud SANDBOX),
+    # `deploymentPlafondArmer` impose ses bornes, `sandboxModeBcOverride` porte encore la BC
+    # forgee. C'est la forme exacte de l'incident du 2026-08-20, qui a coute un jeton de boss.
+    #
+    # (!)ON LIT, ON NE DESARME PAS, ET C'EST DELIBERE. Detacher/rattacher des hooks juste avant
+    # d'entrer serait muter un etat vivant dans le dos de l'appelant -- et au RETRY on ne quitte
+    # meme pas la scene de bataille, ou les relais de la passe precedente sont en plein cycle de
+    # vie. Un refus se VOIT et laisse la main ; une mutation a chaud, non. Le desarmement reste
+    # un geste explicite : `python scripts/python/desarmer_relais.py`.
+    #
+    # (!)ET IL N'Y A PAS DEUX REGIMES : lire est sans danger a l'entree fraiche comme au retry,
+    # donc ce cran est le MEME dans les deux voies. Une garde qui change de forme selon la voie
+    # est une garde qui finit par manquer sur l'une des deux.
+    restants, muets = relais_lire(jeu, lire=True, montrer_observateurs=False)
+    if not relais_rendre_compte(restants, muets, lire=True):
+        stop("relais d'ecriture NON PROPRES avant une bataille REELLE -- on n'entre pas. "
+             "Les desarmer : `python scripts/python/desarmer_relais.py`")
 
     cran(8, "ARMER LE FIL -- ce qui part au serveur se MESURE")
     armer_le_fil(jeu)

@@ -15,6 +15,17 @@ Chaque relais est donc RELU apres coup, et le script sort en rc 1 si l'un se dec
 pose, exceptions de vue, capture de replay). Les desarmer rendrait la bataille reelle AVEUGLE --
 l'autre moitie de l'incident du 2026-08-20, ou aucun capteur n'avait tire faute d'etre en place.
 Ils sont listes explicitement plus bas, jamais laisses par omission.
+
+(!)DEUX REGIMES, PARCE QU'ON PEUT ENTRER PAR UN RETRY. Sur une entree FRAICHE (`StartCampaignMatch`,
+hors bataille) on DESARME. Sur un RETRY (`OnBattleRetryAfterVictory`) on ne quitte pas la scene de
+bataille : les relais de la passe precedente y sont en plein cycle de vie, et les detacher /
+rattacher a chaud serait muter un etat vivant pour rien. Dans ce regime on se contente de LIRE, et
+on REFUSE si un relais d'ecriture traine. Un refus se voit ; une mutation a chaud, non.
+
+(!)`{armer: False}` NE VIDE PAS LA MEMOIRE DE POSE -- verifie dans `deployment-draft.ts` : seul
+`{oublier: True}` remet `memoirePoses` a zero. Desarmer entre deux passes ne perd donc pas la
+composition que le retry doit reposer. C'est ce qui rend le regime FRAICHE sans danger ; ce n'est
+pas une raison de l'appliquer au regime RETRY.
 """
 import argparse
 import json
@@ -34,11 +45,15 @@ ECRIVENT = [
     ("deploymentPlafondArmer", {"armer": False}),
     ("deploymentClearArmer", {"armer": False}),
     ("deploymentDeposeArmer", {"armer": False}),
-    ("deploymentPoseCommitArmer", {"armer": False}),
-    ("deploymentPoseFsmArmer", {"armer": False}),
+    # (!)`deploymentPoseCommitArmer` et `deploymentPoseFsmArmer` ONT ETE RETIRES DE CETTE LISTE
+    # le 2026-08-21 : les deux RPC n'existent plus (la voie commit a ete supprimee, la pose passe
+    # toujours par l'etage FSM). Le host rendait donc `unable to find method`, que ce script
+    # classait -- correctement -- en NON MESURE, et il sortait en rc 1 A CHAQUE PASSAGE. Un garde
+    # qui rougit toujours est un garde qu'on cesse de lire : c'est exactement ce qui laisse
+    # repasser le relais qu'il devait attraper. Retirer l'entree morte n'affaiblit rien -- il n'y
+    # a plus de relais derriere elle.
     ("deploymentMemoire", {"armer": False}),
     ("deploymentPrefabArmer", {"armer": False}),
-    ("deploymentBlocageStart", {"armer": False}),
     ("deploymentDraftArmer", {"armer": False}),
     ("deploymentStartArmer", {"armer": False}),
     ("deploymentSyncArmer", {"armer": False}),
@@ -61,18 +76,6 @@ OBSERVENT = [
     ("vueExceptionArmer", "capte les exceptions de vue, celles qui tuent une bataille en silence"),
     ("replayFinAuto", "capture le replay en fin de bataille"),
 ]
-
-ap = argparse.ArgumentParser()
-ap.add_argument("--lire", action="store_true", help="ne rien desarmer : dire qui est arme")
-args = ap.parse_args()
-
-sid = session_vivante(HOTE)
-if sid is None:
-    print("REFUS : aucune session Frida vivante -- rien a desarmer, et rien de mesure.")
-    sys.exit(2)
-j = Jeu(HOTE, sid)
-print("session %d" % sid)
-
 
 def arme_selon(r):
     """Tri-etat : True / False / None = PAS MESURE. Un `arme` illisible n'est PAS un `False`."""
@@ -101,38 +104,72 @@ def arme_selon(r):
     return None
 
 
-restants, muets = [], []
-for nom, corps in ECRIVENT:
-    if not args.lire:
-        j.rpc(nom, [corps], 180000)
-    relu = j.rpc(nom, [{}], 120000)
-    etat = arme_selon(relu)
-    marque = {True: "ARME", False: "desarme", None: "NON MESURE"}[etat]
-    print("  %-28s %s" % (nom, marque))
-    if etat is True:
-        restants.append((nom, relu))
-    elif etat is None:
-        muets.append((nom, relu))
+def passer(jeu, lire=False, montrer_observateurs=True):
+    """Desarme (ou LIT seulement) les relais d'ecriture, puis RELIT chacun.
 
-print()
-print("LAISSES ARMES (observation pure) :")
-for nom, pourquoi in OBSERVENT:
-    r = j.rpc(nom, [{}], 120000)
-    print("  %-28s %-11s %s" % (nom, {True: "arme", False: "eteint",
-                                      None: "?"}.get(arme_selon(r), "?"), pourquoi))
+    Rend `(restants, muets)` : les relais encore ARMES, et ceux dont l'etat n'est PAS MESURE.
+    Les deux sont des echecs pour l'appelant -- un etat non mesure ne se rabat JAMAIS sur
+    << desarme >>, entrer en bataille reelle sur un relais dont on ignore l'etat etant
+    exactement le regime de l'incident du 2026-08-20.
 
-print()
-if restants:
-    print("REFUS : %d relais ENCORE ARME(S) apres desarmement :" % len(restants))
-    for nom, r in restants:
-        print("  %-28s %s" % (nom, json.dumps(r, ensure_ascii=False)[:220]))
-    sys.exit(1)
-if muets:
-    # Un etat non mesure ne se rabat pas sur << desarme >>. On le DIT, et on sort en echec :
-    # entrer en bataille reelle sur un relais dont on ignore l'etat, c'est le regime de l'incident.
-    print("REFUS : %d relais dont l'etat n'est PAS MESURE (ce n'est pas un `desarme`) :"
-          % len(muets))
-    for nom, r in muets:
-        print("  %-28s %s" % (nom, json.dumps(r, ensure_ascii=False)[:220]))
-    sys.exit(1)
-print("TOUS LES RELAIS D'ECRITURE SONT DESARMES ET RELUS.")
+    `lire=True` = regime RETRY : on ne mute rien, on constate. Cf. l'en-tete du module.
+    """
+    restants, muets = [], []
+    for nom, corps in ECRIVENT:
+        if not lire:
+            jeu.rpc(nom, [corps], 180000)
+        relu = jeu.rpc(nom, [{}], 120000)
+        etat = arme_selon(relu)
+        print("  %-28s %s" % (nom, {True: "ARME", False: "desarme",
+                                    None: "NON MESURE"}[etat]))
+        if etat is True:
+            restants.append((nom, relu))
+        elif etat is None:
+            muets.append((nom, relu))
+
+    if montrer_observateurs:
+        print()
+        print("LAISSES ARMES (observation pure) :")
+        for nom, pourquoi in OBSERVENT:
+            r = jeu.rpc(nom, [{}], 120000)
+            print("  %-28s %-11s %s" % (nom, {True: "arme", False: "eteint",
+                                              None: "?"}.get(arme_selon(r), "?"), pourquoi))
+    return restants, muets
+
+
+def rendre_compte(restants, muets, lire=False):
+    """Imprime le verdict. Rend True si tout est propre, False sinon."""
+    print()
+    quoi = "LUS" if lire else "DESARMES ET RELUS"
+    if restants:
+        print("REFUS : %d relais ENCORE ARME(S)%s :"
+              % (len(restants), "" if lire else " apres desarmement"))
+        for nom, r in restants:
+            print("  %-28s %s" % (nom, json.dumps(r, ensure_ascii=False)[:220]))
+        return False
+    if muets:
+        print("REFUS : %d relais dont l'etat n'est PAS MESURE (ce n'est pas un `desarme`) :"
+              % len(muets))
+        for nom, r in muets:
+            print("  %-28s %s" % (nom, json.dumps(r, ensure_ascii=False)[:220]))
+        return False
+    print("TOUS LES RELAIS D'ECRITURE SONT %s." % quoi)
+    return True
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--lire", action="store_true", help="ne rien desarmer : dire qui est arme")
+    args = ap.parse_args(argv)
+
+    sid = session_vivante(HOTE)
+    if sid is None:
+        print("REFUS : aucune session Frida vivante -- rien a desarmer, et rien de mesure.")
+        return 2
+    print("session %d" % sid)
+    restants, muets = passer(Jeu(HOTE, sid), lire=args.lire)
+    return 0 if rendre_compte(restants, muets, lire=args.lire) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

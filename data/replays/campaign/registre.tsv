@@ -1,3 +1,5 @@
 fichier	campagne	type	noeud	bcId	board	spawn	seed	provenance	build	role
-elite4_31-1968318669.json	elite4	Elite	31	Campaign4_31	MC4_01	5	1968318669	Sandbox	t6dpr4k06g	reference
-elite4_31-1968318669.replay.txt	elite4	Elite	31	Campaign4_31	MC4_01	5	1968318669	Sandbox	t6dpr4k06g	meme replay, base64+gzip brut
+elite4_31-1968318669.json	elite4	Elite	31	Campaign4_31	MC4_01	5	1968318669	Sandbox	t6dpr4k06g	reference -- rejouee bit-exact 3 fois sur la campagne REELLE
+elite4_31-2020830000.json	elite4	Elite	31	Campaign4_31	MC4_01	5	2020830000	Sandbox	t6dpr4k06g	autre passage du MEME noeud (21 pas) -- jamais rejouee
+elite2_7-249577688.json	elite2	Elite	7	Campaign2_07	C2_14	3	249577688	Sandbox	t6dpr4k06g	reference
+eliteMirror3_1-1650803863.json	eliteMirror3	EliteMirror	1	Campaign3_01	MC3_30	1	1650803863	Sandbox	t6dpr4k06g	reference

@@ -10,8 +10,8 @@ la récupération, jamais « plus tard ».
 
 ## À LA RÉCUPÉRATION — trois gestes, dans le même commit
 
-1. **Sauver le BRUT** (`.replay.txt`, base64+gzip), pas seulement le décodé. Le jeu fait
-   tourner son répertoire : le brut n'est récupérable que le jour même.
+1. **DÉCODER, et ne garder QUE le `.json`.** Le jeu fait tourner son répertoire : ce qu'il faut
+   sauver le jour même, c'est le **contenu**, et le JSON le porte en entier.
 2. **`git add`** immédiatement — cf. ci-dessus.
 3. **Renseigner `rank`.** ⚠ **C'est la SEULE colonne qu'on ne peut pas retrouver après coup.**
    `boss`, `map`, `spawn` se re-dérivent du fichier à volonté ; le tier de raid, lui, n'est
@@ -65,7 +65,7 @@ data/replays/
   guild-boss/
     <boss>/
       registre.tsv             <- le registre DE CE BOSS (une ligne par replay)
-      <sha256-court>.replay.txt   <- le fichier VERBATIM (jamais réencodé)
+      <sha256-court>.json         <- le replay DÉCODÉ, la seule forme conservée
     <autre-boss>/
       registre.tsv
       ...
@@ -92,16 +92,30 @@ que raconte le message d'origine — et la **déduplication est gratuite** : mes
 qu'on croyait distinctes (`…-2151` et `…-2214`) avaient le même sha256, donc un seul fichier
 est gardé au lieu de deux.
 
-⚠ **`forme` dit ce qu'on a VRAIMENT.** L'idéal est `brut` — l'octet exact du `.replay.txt`,
-jamais réencodé. Mais le jeu **FAIT TOURNER** son répertoire de replays : au 2026-08-16 les
-`.replay.txt` d'origine de nos trois guild boss n'y étaient DÉJÀ plus (il ne restait que les
-10 batailles du jour). Les trois entrées sont donc en `forme: decode` — le JSON décodé, seule
-copie survivante. Un `decode` ne peut plus être re-vérifié contre son brut : c'est une perte
-réelle, et la colonne la déclare au lieu de la masquer. **Sauver le brut LE JOUR MÊME.**
+## ⚠ UNE SEULE FORME EST CONSERVÉE — le `.json`. Renversé le 2026-08-21
 
-**Ne jamais réencoder un replay récupéré.** On garde l'octet exact : c'est ce qui permet de
-vérifier plus tard qu'il n'a pas été altéré, et un round-trip base64/gzip ne redonne pas
-forcément le même flux.
+Ce répertoire a gardé un temps le `base64(gzip(JSON))` **à côté** du décodé, sous `.replay.txt`,
+au motif qu'il était « l'octet exact, ce qui permet de vérifier plus tard qu'il n'a pas été
+altéré ». Les deux jambes de cet argument sont tombées, mesurées :
+
+* **le brut n'est pas nécessaire au rejeu.**
+  `thor.Scripts.Idun.Source.IdunBattle.ReplaySerialization.ReplaySerializer$$DeserializeReplay`
+  teste `System.String$$StartsWith("{")` **avant tout** et prend une chaîne JSON **telle
+  quelle** ; la branche `System.Convert$$FromBase64String` + `Snowprint.source.Core.Zip.ZipUtil$$GzipDecompress`
+  n'est que l'autre cas. Le jeu relit donc directement le fichier rangé ici ;
+* **le brut ne prouve rien sur l'intégrité** — il ne se régénère même pas à l'octet
+  (l'en-tête gzip porte un mtime : re-encoder le clair rend 83 228 caractères contre 87 920).
+  Sa seule valeur aurait été le témoignage, or il faut pour ça que la paire soit VRAIE.
+
+Et elle ne l'était pas : `elite4_31-1968318669.{json,replay.txt}` portait **deux captures
+différentes** — `RngSeed 1968318669` / 19 messages contre `2020830000` / 21 — rangées sous la
+mention « même replay, base64+gzip brut », que personne n'avait jamais comparée. Le brut
+orphelin a été récupéré sous son propre nom (`elite4_31-2020830000.json`). **Deux artefacts
+qu'on croit appariés et que rien ne confronte finissent par diverger en silence** ; un seul
+fichier supprime l'appariement, donc la dérive.
+
+**Réencoder reste inutile** : rien ne lit le brut. Si un jour il en fallait un,
+`base64(gzip(json))` le refabrique — sémantiquement identique, à l'octet près près.
 
 ## `registre.tsv` — court, et deux familles de colonnes à ne pas confondre
 

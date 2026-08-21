@@ -405,7 +405,7 @@ COLONNES = ["fichier", "campagne", "type", "noeud", "bcId", "board", "spawn",
             "seed", "provenance", "build", "role"]
 
 
-def ranger_le_replay(d, mode, nom, source, infos, brut=None):
+def ranger_le_replay(d, mode, nom, source, infos):
     """Ranger le replay sous son nom canonique, avec sa ligne de registre. N'ECRASE JAMAIS.
 
     (!)CE QU'ON ECRIT MAINTENANT PARCE QU'UNE RELECTURE NE LE RETROUVERA PLUS. La campagne se
@@ -415,9 +415,14 @@ def ranger_le_replay(d, mode, nom, source, infos, brut=None):
     version l'a etablie. C'est l'exact pendant de la colonne `rank` du registre boss, que le
     README nomme comme la seule qu'on ne peut pas retrouver apres coup.
 
-    (!)ET LE BRUT SE GARDE AUSSI. Un `.replay.txt` est `base64(gzip(JSON))` ; le decode est
-    commode mais c'est une TRANSFORMATION. Le jeu fait tourner son repertoire : le brut n'est
-    recuperable que le jour meme.
+    (!)UN SEUL FICHIER : LE JSON. On a garde un temps le `base64(gzip(JSON))` a cote, sous
+    `.replay.txt`. Retire le 2026-08-21, pour deux raisons MESUREES. La premiere est qu'il ne
+    sert a rien : `ReplaySerializer$$DeserializeReplay` teste `System.String$$StartsWith("{")`
+    AVANT tout et prend le JSON TEL QUEL -- le jeu relit donc le fichier range, sans
+    ré-encodage. La seconde est que deux artefacts qu'on croit apparies et que personne ne
+    compare DIVERGENT : `elite4_31-1968318669.{json,replay.txt}` portaient des seeds differents
+    (1968318669 / 19 messages contre 2020830000 / 21), ranges comme « meme replay ». Le brut
+    orphelin a ete recupere sous son propre nom ; il n'y a plus d'appariement a maintenir.
     """
     if nom is None:
         stop("nom canonique NON RESOLU -- on ne range pas sous un nom ambigu.")
@@ -435,31 +440,16 @@ def ranger_le_replay(d, mode, nom, source, infos, brut=None):
         ecrits.append(cible)
         print("   ecrit  : %s   (depuis %s)" % (cible.relative_to(RACINE), Path(source).name))
 
-    if brut is not None:
-        b = Path(brut)
-        if not b.is_absolute():
-            b = (RACINE / b).resolve()
-        cible_brute = dossier / (nom + ".replay.txt")
-        if cible_brute.exists():
-            print("   DEJA LA : %s (inchange)" % cible_brute.relative_to(RACINE))
-        elif not b.exists():
-            print("   (!) brut INTROUVABLE : %s -- rien copie" % b)
-        else:
-            cible_brute.write_text(b.read_text(encoding="utf-8"), encoding="utf-8")
-            ecrits.append(cible_brute)
-            print("   ecrit  : %s   (brut, depuis %s)"
-                  % (cible_brute.relative_to(RACINE), b.name))
-
     # LE REGISTRE. Une ligne par fichier ; on n'en reecrit jamais une existante.
     reg = dossier / "registre.tsv"
     lignes = reg.read_text(encoding="utf-8").splitlines() if reg.exists() else []
     if not lignes:
         lignes = ["\t".join(COLONNES)]
     deja = {l.split("\t", 1)[0] for l in lignes[1:] if l.strip()}
-    for f in ([cible] + ([dossier / (nom + ".replay.txt")] if brut is not None else [])):
+    for f in [cible]:
         if not f.exists() or f.name in deja:
             continue
-        role = "reference" if f.suffix == ".json" else "meme replay, base64+gzip brut"
+        role = "reference"
         lignes.append("\t".join([
             f.name, str(infos.get("campagne")), NOM_TYPE.get(infos.get("type"), "?"),
             str(infos.get("noeud")), str(infos.get("bcId")), str(infos.get("board")),
@@ -642,10 +632,6 @@ def main(argv=None):
     ap.add_argument("--ranger", action="store_true",
                     help="ecrire le replay sous son nom canonique dans `data/replays/`, avec sa "
                          "ligne de registre (n'ecrase JAMAIS un fichier existant)")
-    ap.add_argument("--brut", default=None,
-                    help="le meme replay en base64+gzip, range a cote sous `.replay.txt`. Le "
-                         "jeu fait tourner son repertoire : le brut n'est recuperable que le "
-                         "jour meme.")
     ap.add_argument("--confirmer", action="store_true",
                     help="sans lui : lecture seule, rien n'est monte ni demarre")
     args = ap.parse_args(argv)
@@ -702,8 +688,7 @@ def main(argv=None):
                           "spawn": (d.get("BattleConfiguration") or {}).get("SpawnPointSetIndex"),
                           "seed": graine, "provenance": (d.get("MetaData") or {}).get("Mode"),
                           "build": (RACINE / "data" / "symbols" / "CURRENT").read_text(
-                              encoding="utf-8").strip()},
-                         brut=args.brut)
+                              encoding="utf-8").strip()})
 
     if not args.confirmer:
         print()
