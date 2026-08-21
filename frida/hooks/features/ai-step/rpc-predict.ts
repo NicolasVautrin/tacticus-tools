@@ -983,8 +983,10 @@ export function registerViewPredict(ctx: Ctx): void {
         }
         natArgs.push(mi);
         try {
+            // `propagate` : appel MANAGE, cf. `il2cpp/invoke.ts`.
             const fn = new NativeFunction(code, "pointer",
-                natArgs.map(() => "pointer") as unknown as NativeFunctionArgumentType[]);
+                natArgs.map(() => "pointer") as unknown as NativeFunctionArgumentType[],
+                { exceptions: "propagate" });
             const ret = fn.apply(null, natArgs as never) as NativePointer;
             return { ok: true, itf: itfName, slot: body.slot, method: miName,
                 retRaw: ret.toString(16), retLow: ret.and(0xff).toUInt32() };

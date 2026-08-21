@@ -427,8 +427,10 @@ export function replayOfficiel(
     // trois DAT du corps decompile). Un `bool` passe alors PAR VALEUR, pas par adresse.
     let strPtr: NativePointer;
     try {
+        // `propagate` : appel MANAGE, cf. `il2cpp/invoke.ts`.
         const fn = new NativeFunction(mi.ptr, "pointer",
-                                      ["pointer", "uint8", "pointer"]);
+                                      ["pointer", "uint8", "pointer"],
+                                      { exceptions: "propagate" });
         strPtr = fn(replay, optimize ? 1 : 0, mi.info) as NativePointer;
     } catch (e) {
         // ⚠ ON GARDE `recorderArmed` ET `stepCount` DANS L'ECHEC. La version precedente les

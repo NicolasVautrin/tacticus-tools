@@ -431,8 +431,10 @@ const drValueOff = drNullableClass
 // MethodInfo* = 0 — mirror exact du call-site natif `get_KillerId(&local_2b8, 0)`
 // dans UnitKillerSelector.Select @180eff680). PAS runtime_invoke : il UNBOXE
 // (+0x10) l'instance des value-types → un ptr brut serait décalé.
+// `propagate` : appel MANAGE, cf. `il2cpp/invoke.ts`.
 const getKillerIdFn = getKillerIdMi
-    ? new NativeFunction(getKillerIdMi.ptr, "int32", ["pointer", "pointer"])
+    ? new NativeFunction(getKillerIdMi.ptr, "int32", ["pointer", "pointer"],
+                         { exceptions: "propagate" })
     : null;
 
 export interface UnitDeathMeta {

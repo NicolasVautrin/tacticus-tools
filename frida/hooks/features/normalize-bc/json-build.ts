@@ -168,10 +168,14 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
 
     const filter = args.unitsFilter ? new Set(args.unitsFilter) : null;
     const listItemsKlass = state.emptyListItemsKlass!;
+    // `exceptions: "propagate"` -- appel MANAGE, et celui-ci tourne dans la FABRIQUE DE BC,
+    // donc a chaque montage. Sans lui, une levee de ce natif serait confisquee et le
+    // `try/catch` du jeu ne jouerait pas. Le pourquoi complet est au foyer,
+    // `il2cpp/invoke.ts`.
     const fn = new NativeFunction(state.statsForMi.ptr, "void", [
         "pointer", "pointer", "pointer", "uchar", "int", "int",
         "pointer", "pointer",
-    ]);
+    ], { exceptions: "propagate" });
 
     // Diagnostic counters: IsMOW=true detection rate, irrespective of
     // formula success. If `mowAttempted` stays 0 we know IsMOW itself

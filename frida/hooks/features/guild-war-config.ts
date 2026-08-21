@@ -684,8 +684,10 @@ export function register(ctx: Ctx): void {
                     const kWzt = findClassAnywhere(
                         "Idun.Source.IdunMeta.Logic.UserProgress.GuildWars", "WarZoneType");
                     res.classeWarZoneType = kWzt !== null;
+                    // `propagate` : appel MANAGE, cf. `il2cpp/invoke.ts`.
                     const fn = new NativeFunction(mCfg.ptr, "pointer",
-                                                  ["pointer", "pointer", "pointer"]);
+                                                  ["pointer", "pointer", "pointer"],
+                                                  { exceptions: "propagate" });
                     for (let ord = 0; ord < 16; ord++) {
                         if (!kWzt) break;
                         const boite = il2cpp_object_new(kWzt);

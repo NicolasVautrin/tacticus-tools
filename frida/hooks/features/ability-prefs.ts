@@ -88,8 +88,12 @@ export function register(ctx: Ctx): void {
         }
         const abilities = (a && a.abilities) || [];
         if (!abilities.length) return { ok: false, error: "pass { abilities: [ids] }" };
+        // `exceptions: "propagate"` -- on appelle du MANAGE : sans lui, Frida confisque
+        // l'exception C++ par laquelle IL2CPP la transporte, et les `try/catch` DU JEU en
+        // amont ne jouent pas. Le pourquoi complet est au foyer, `il2cpp/invoke.ts`.
         const loadFn = new NativeFunction(
-            loadPlaybook.ptr, "pointer", ["pointer", "int32", "int32", "pointer"]);
+            loadPlaybook.ptr, "pointer", ["pointer", "int32", "int32", "pointer"],
+            { exceptions: "propagate" });
         // Le getter de tier = `get_Priority` (confirmé live gqfc5mff6c). Les autres = fallback.
         const PREF_NAMES = [
             "get_Priority", "get_Preference", "get_PlaybookPreference", "get_ActionPriority",
@@ -117,7 +121,9 @@ export function register(ctx: Ctx): void {
                     out[ab] = rec; continue;
                 }
                 rec.prefMethod = g.name;
-                const gpFn = new NativeFunction(g.ref.ptr, "int32", ["pointer", "pointer"]);
+                // `propagate` : appel MANAGE, cf. `il2cpp/invoke.ts`.
+                const gpFn = new NativeFunction(g.ref.ptr, "int32", ["pointer", "pointer"],
+                                                { exceptions: "propagate" });
                 rec.preference = gpFn(pb, g.ref.info) as number;
             } catch (e) {
                 rec.error = String(e);
