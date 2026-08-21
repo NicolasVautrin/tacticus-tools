@@ -172,6 +172,26 @@ if not f.get("ok"):
     stop("REFUS au forgeage : %s" % json.dumps(f, ensure_ascii=False)[:400], code=1)
 print("source forgee : %s" % f.get("instance"))
 
+# L'ENVIRONNEMENT DE ZONE -- ce que le forgeur a REELLEMENT arme, buff par buff.
+# ⚠ On l'imprime parce qu'il etait AUPARAVANT VIDE EN SILENCE : le catalogue d'abilities est
+# dans la BC quoi qu'il arrive (166 definitions), donc rien a l'ecran ne distinguait
+# << environnement arme >> de << aucun buff >>. Les trois salves d'artillerie du debut de partie
+# n'avaient tout simplement pas lieu.
+if "environnement" in f:
+    print("cap de rarete : %s   (ordinal de type de zone %s, DERIVE par le board)"
+          % (f.get("rarityCap"), f.get("ordinalTypeDeZone")))
+    det = f.get("environnement") or []
+    print("environnement : %d ability(s) ARMEE(S) sur %d buff(s) actif(s)"
+          % (f.get("environnementArmees") or 0, len(det)))
+    for d in det:
+        if d.get("arme"):
+            print("   ARMEE   triggeredAbilityType=%s niveau=%s" % (d.get("abilityType"), d.get("niveau")))
+        else:
+            print("   ecartee triggeredAbilityType=%s niveau=%s -- %s"
+                  % (d.get("abilityType"), d.get("niveau"), d.get("ecarte") or d.get("raison")))
+else:
+    print("(!) le forgeur ne publie PAS d'environnement -- bundle ANTERIEUR au cablage des buffs")
+
 b = j.rpc("guildWarSourceBc", [{"confirmer": True}], 300000) or {}
 if not b.get("configJson"):
     stop("la BC n'a pas ete produite : %s"

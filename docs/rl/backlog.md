@@ -5381,6 +5381,35 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/sandbox_boss.py, scripts/python/sandbox_gw.py
   BLOCAGE: aucun
 
+- **#10041-r3 — l'ENVIRONNEMENT ne joue pas sur un montage sandbox de guerre de guilde, et le cabler a CRASHE le jeu DEUX FOIS.** `[fable]`
+  Point d'entree : `frida/hooks/features/guild-war-config.ts` (`capDeRarete`, `armerBuffsDeZone`,
+  `guildWarEnvProbe`) + le decompile d'`idun.shared.commands.ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked`.
+  MESURE DU DEFAUT (2026-08-21, replay d'un montage DogAlpha) : le CATALOGUE est present
+  (`BC.Abilities.EnvironmentAbilities` = 166 definitions) mais la LISTE ACTIVE vaut **0**, et le
+  buff de la zone (`EnvArtillerySupport_Regional`) a **0 occurrence** dans tout le replay. Effet
+  observable rapporte par l'utilisateur : les **trois salves d'artillerie** du debut de partie
+  n'ont pas lieu.
+  CAUSE : le forgeur cree l'accumulateur `EnvironmentAbilities` VIDE et le passe tel quel ; c'est
+  la popup -- qu'on court-circuite -- qui le REMPLIT. Sa boucle : `GetActiveBuffs(warZoneId)`,
+  puis pour chaque `WarZoneBuffData` -> `buffAbilityConfig[<cap de rarete>]`,
+  `TriggeredAbilityConfigId(triggeredAbilityType)`, niveau = `buffAmount`. Le niveau indexe les
+  tableaux du gameconfig : `EnvArtillerySupport.nrOfProjectiles = ["1".."5"]`, donc **niveau 3 =
+  trois salves**. Le cap vient de `BattlefieldZoneTierConfigDtoExtensions$$GetRarityCap(GetZoneConfig(type), slotIndex)`
+  et sert AUSSI de cle d'indexation -- cap et environnement ne se traitent pas separement.
+  ⛔ DEUX CRASHS DU JEU, dumps `Tacticus.exe.30620.dmp` (14:19) et `Tacticus.exe.40696.dmp` (14:26).
+  Le second n'a joue QUE la partie LECTURE (`guildWarEnvProbe` : balayage d'ordinaux `GetWarZoneConfig`,
+  `GetZoneConfig`, `GetRarityCap`, `GetActiveBuffs`) -- la faute est donc dans un de ces quatre
+  appels, PAS dans l'armement. Cause exacte NON ETABLIE.
+  ⚠ Deux fautes deja corrigees mais qui n'expliquent pas le second crash : balayage d'ordinaux
+  elargi a 32 (la borne MESUREE est 16), et cle de dictionnaire NON BOXEE sur `buffAbilityConfig`
+  (ce que le pave de `guildWarProbe` interdit en capitales).
+  ⚠ Le cablage est OPT-IN et ETEINT (`avecEnvironnement: true`) : un montage GW normal ne
+  l'emprunte pas et reste sain (verifie -- roster 125/107, 3 delegations vertes).
+  ⚠ `GetActiveBuffs` est deja appele SANS crash par `guildWarProbe` -- commencer par la, et
+  eprouver les trois autres UN PAR UN, jamais le bloc.
+  FOYER: frida/hooks/features/guild-war-config.ts
+  BLOCAGE: capteur
+
 - **#10041-r2 — le gel de `retreatInvoke OnBattleSurrender` sur une source de GUERRE DE GUILDE reste INEXPLIQUE.** `[fable]`
   Point d'entree : `docs/rl/case-10041-le-deadlock-de-trampoline-refute-sur-la-retraite.md` Sec.
   « Residus » + `frida/hooks/features/retreat-capture.ts`.

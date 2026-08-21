@@ -399,6 +399,208 @@ function champ(obj: NativePointer, nom: string): NativePointer | RefusVue {
     return p as NativePointer;
 }
 
+/** Appelle une methode `(warZoneType) -> Dto` de la progression, l'enum BOXEE.
+ *
+ *  ⚠ NI `il2cpp_runtime_invoke`, NI L'ORDINAL BRUT -- les deux ont ete mesures fautifs
+ *  (cf. le pave de `guildWarProbe`) : le natif attend l'enum PAR VALEUR en registre, et la cle
+ *  du dictionnaire gshared qu'il interroge est un OBJET. On appelle donc l'ENTRY POINT, avec la
+ *  convention IL2CPP reelle `(this, args..., const MethodInfo*)`, sur une valeur BOXEE. */
+function appelParTypeDeZone(
+    m: { ptr: NativePointer; info: NativePointer }, sur: NativePointer,
+    kWzt: NativePointer, ord: number,
+): NativePointer | null {
+    const boite = il2cpp_object_new(kWzt);
+    if (boite.isNull()) return null;
+    gcRoot.add(boite);
+    boite.add(0x10).writeS32(ord);
+    // `propagate` : appel MANAGE, cf. `il2cpp/invoke.ts`.
+    const fn = new NativeFunction(m.ptr, "pointer", ["pointer", "pointer", "pointer"],
+                                  { exceptions: "propagate" });
+    try { return fn(sur, boite, m.info) as NativePointer; } catch { return null; }
+}
+
+/** LE CAP DE RARETE DU SLOT, et l'ordinal de type de zone qui l'a donne.
+ *
+ *  Trois sauts, tous natifs -- `battlefieldLevel` -> `zoneTiers[warZoneType]` -> `zoneTierId` ->
+ *  `rarityCaps[slot]` -- et on n'en refait AUCUN a la main : `GetZoneConfig(warZoneType)` rend le
+ *  `BattlefieldZoneTierConfigDto`, `BattlefieldZoneTierConfigDtoExtensions$$GetRarityCap(cfg,
+ *  slotIndex)` en tire celui du slot. C'est le meme couple que la popup appelle.
+ *
+ *  ⚠ L'ORDINAL DE `WarZoneType` NE SE DEVINE PAS -- il est ABSENT de la table des enums
+ *  (Newtonsoft le serialise par NOM), et le `Nullable` porte par la zone a rendu `1`, valeur qui
+ *  fait LEVER les deux configs. On le DERIVE donc par CONFRONTATION : pour chaque ordinal,
+ *  `GetWarZoneConfig(ord).boardId` est compare au board qu'on vise deja. Celui qui concorde EST
+ *  le type de la zone. Zero concordance = refus NOMME, jamais un ordinal par defaut. */
+function capDeRarete(
+    kProg: NativePointer, prog: NativePointer, boardVoulu: string, slotIdx: number,
+): { cap: number; ordinal: number } | RefusVue {
+    const kWzt = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                   "WarZoneType");
+    if (!kWzt) return refus("classe `WarZoneType` introuvable -- chemin PERIME");
+    const mCfgZone = findMethodByParamCount(kProg, "GetWarZoneConfig", 1);
+    if (!mCfgZone) return refus("`GetWarZoneConfig(1)` INTROUVABLE -- chemin PERIME");
+
+    let ordinal = -1;
+    const vus: string[] = [];
+    // ⚠ BORNE 16, ET C'EST LA BORNE MESUREE -- pas un arrondi. `guildWarProbe` balaye `ord < 16`
+    // depuis sa mise au point, et le gameconfig declare **15** types de zone. Je l'avais elargie
+    // a 32 « pour etre sur » : le jeu a CRASHE (dump `Tacticus.exe.30620.dmp`, 2026-08-21
+    // 14:19). Elargir un balayage d'ordinaux au-dela du domaine mesure, c'est appeler un natif
+    // avec une valeur qu'aucune mesure n'autorise.
+    for (let ord = 0; ord < 16; ord++) {
+        const c = appelParTypeDeZone(mCfgZone, prog, kWzt, ord);
+        if (c === null || c.isNull()) continue;
+        let bid: string | null = null;
+        try {
+            const p = c.add(0x10).readPointer();
+            bid = p.isNull() ? null : readIl2cppString(p);
+        } catch { /* publie plus bas */ }
+        if (bid !== null) vus.push(`${ord}:${bid}`);
+        if (bid === boardVoulu) { ordinal = ord; break; }
+    }
+    if (ordinal < 0) {
+        return refus(`aucun ordinal de \`WarZoneType\` ne rend le board \`${boardVoulu}\` `
+            + `-- balaye 0..31, vus : ${vus.join(", ") || "aucun"}. On ne DEVINE pas un ordinal.`);
+    }
+
+    const mZoneCfg = findMethodByParamCount(kProg, "GetZoneConfig", 1);
+    if (!mZoneCfg) return refus("`GetZoneConfig(1)` INTROUVABLE -- chemin PERIME");
+    const dto = appelParTypeDeZone(mZoneCfg, prog, kWzt, ordinal);
+    if (dto === null || dto.isNull()) {
+        return refus(`\`GetZoneConfig(${ordinal})\` a rendu NUL pour \`${boardVoulu}\``);
+    }
+    gcRoot.add(dto);
+
+    const kExtCap = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                      "BattlefieldZoneTierConfigDtoExtensions");
+    if (!kExtCap) return refus("classe `BattlefieldZoneTierConfigDtoExtensions` introuvable");
+    const mCap = findMethodByParamCount(kExtCap, "GetRarityCap", 2);
+    if (!mCap) return refus("`GetRarityCap(2)` INTROUVABLE -- signature CHANGEE sur ce build");
+    const pSlot = Memory.alloc(4); pSlot.writeS32(slotIdx);
+    let cap: number;
+    try {
+        // ⚠ RETOUR BOXE : `il2cpp_runtime_invoke` rend un OBJET dont la valeur est a `+0x10`.
+        // Lire le pointeur comme un entier rendrait une adresse tronquee (mesure #10038).
+        const r = invokeMethod(mCap.info, null, [dto, pSlot]);
+        if (r.isNull()) return refus("`GetRarityCap` a rendu NUL");
+        cap = r.add(0x10).readS32();
+    } catch (e) { return refus("`GetRarityCap` a LEVE : " + (e as Error).message); }
+    return { cap, ordinal };
+}
+
+/** ARMER l'environnement depuis les BUFFS ACTIFS de la zone -- mirror de la boucle de
+ *  `ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked`.
+ *
+ *  Pour chaque `WarZoneBuffData` :
+ *    - `buffAbilityConfig[<cap de rarete>]` donne l'`AbilityConfiguration` du buff. LA CLE EST LE
+ *      CAP : c'est pour ca que le cap et l'environnement ne peuvent pas etre traites separement ;
+ *    - `triggeredAbilityType` donne le `TriggeredAbilityConfigId` ;
+ *    - `buffAmount` donne le NIVEAU -- c'est lui qui choisit dans les tableaux de variables du
+ *      gameconfig. Pour `EnvArtillerySupport`, `nrOfProjectiles: ["1","2","3","4","5"]` : niveau 3
+ *      = TROIS salves. Un niveau nul n'arme rien, comme dans le natif.
+ *
+ *  ⚠ LE CLAMP EXPLICITE DE LA POPUP N'EST PAS REPRIS, ET C'EST DELIBERE. Elle borne le niveau au
+ *  plus court tableau de variables de la config ; or `AbilityConfiguration$$TryGetVariableArrayForLevel`
+ *  -- foyer UNIQUE des quatre accesseurs -- clampe DEJA en aval (`idx >= len` -> `len - 1`). Le
+ *  reimplementer ici serait un second comptage a maintenir, du genre qui finit par diverger.
+ *
+ *  ⚠ Les deux structs sont ecrites PAR CHAMP NOMME plutot que par leurs ctors : `Level` n'a qu'un
+ *  `val:Int32` et `TriggeredAbilityConfigId` qu'un `AbilityType` + un `VariantId` nul. Les offsets
+ *  sont RESOLUS par `getFieldOffset`, jamais ecrits en dur. */
+function armerBuffsDeZone(
+    kProg: NativePointer, prog: NativePointer, warZoneId: string,
+    rarityCap: number, env: NativePointer, detail: Array<Record<string, unknown>>,
+): true | RefusVue {
+    const mBuffs = findMethodByParamCount(kProg, "GetActiveBuffs", 1);
+    if (!mBuffs) return refus("`GetActiveBuffs(1)` INTROUVABLE -- chemin PERIME");
+    let buffs: NativePointer;
+    try { buffs = invokeMethod(mBuffs.info, prog, [createManagedString(warZoneId)]); }
+    catch (e) { return refus("`GetActiveBuffs` a LEVE : " + (e as Error).message); }
+    if (buffs.isNull()) return refus("`GetActiveBuffs` a rendu NUL -- pas de liste a parcourir");
+    gcRoot.add(buffs);
+
+    const kEac = findClassAnywhere(NS_CFG, "EnvironmentAbilityConfiguration");
+    const kTid = findClassAnywhere("IdunShared", "TriggeredAbilityConfigId");
+    if (!kEac) return refus("classe `EnvironmentAbilityConfiguration` introuvable");
+    if (!kTid) return refus("classe `TriggeredAbilityConfigId` introuvable");
+    const offCfgId = getFieldOffset(kEac, "ConfigId");
+    const offLevel = getFieldOffset(kEac, "Level");
+    const offType = getFieldOffset(kTid, "AbilityType");
+    const offVariant = getFieldOffset(kTid, "VariantId");
+    if (offCfgId < 0 || offLevel < 0 || offType < 0 || offVariant < 0) {
+        return refus("champ(s) absent(s) sur ce build : "
+            + `ConfigId=${offCfgId} Level=${offLevel} AbilityType=${offType} `
+            + `VariantId=${offVariant} -- chemin PERIME, pas de repli sur un offset`);
+    }
+    // Le receptacle que le ctor d'`EnvironmentAbilities` a cree pour nous.
+    const listeAb = champ(env, "Abilities");
+    if (estRefus(listeAb)) return listeAb as RefusVue;
+
+    const n = buffs.add(0x18).readS32();
+    for (let i = 0; i < n; i++) {
+        const b = elementDeListe(buffs, i);
+        if (estRefus(b)) return b as RefusVue;
+        const buff = b as NativePointer;
+        if (buff.isNull()) continue;
+
+        // LECTURE PURE des deux scalaires du buff, par offset RESOLU sur sa classe reelle.
+        const kBuff = buff.readPointer();
+        const offType2 = getFieldOffset(kBuff, "<triggeredAbilityType>k__BackingField");
+        const offAmount = getFieldOffset(kBuff, "<buffAmount>k__BackingField");
+        if (offType2 < 0 || offAmount < 0) {
+            return refus("`WarZoneBuffData` : `triggeredAbilityType`/`buffAmount` non resolus "
+                + `(${offType2}/${offAmount}) -- chemin PERIME`);
+        }
+        const abilityType = buff.add(offType2).readS32();
+        const niveau = buff.add(offAmount).readS32();
+
+        // ⛔ `AbilitiesConfigurations` N'EST PAS PEUPLE ICI, ET C'EST UN CHOIX MOTIVE.
+        //
+        // La popup y range la config du buff, tiree de `buffAbilityConfig[<cap de rarete>]` --
+        // un `Dictionary` dont la cle est un TYPE VALEUR. L'appeler exige de trancher entre
+        // « pointeur vers la valeur » et « valeur BOXEE », et se tromper ne leve pas : le natif
+        // DEREFERENCE l'ordinal. C'est ce qui a fait CRASHER le jeu le 2026-08-21 (dump
+        // `Tacticus.exe.30620.dmp`, 14:19) -- j'avais passe une cle NON boxee, exactement ce que
+        // le pave de `guildWarProbe` interdit en capitales.
+        //
+        // On s'en passe parce que la BC porte DEJA le catalogue : mesure sur le replay d'un
+        // montage DogAlpha, `BC.Abilities.EnvironmentAbilities` = **166 definitions**, dont
+        // `EnvArtillerySupport` avec ses variables (`nrOfProjectiles`, `hpPct`). La config du
+        // buff y est donc deja resolvable par son id ; ce que l'accumulateur doit apporter, c'est
+        // l'ABILITY et son NIVEAU.
+        //
+        // ⚠ CE N'EST PAS ETABLI, C'EST UNE HYPOTHESE A EPROUVER -- et son oracle est net : trois
+        // salves d'artillerie au debut de la partie (`nrOfProjectiles[3]`). Si elles ne tirent
+        // pas, c'est que le dictionnaire est necessaire, et il faudra alors trancher la
+        // convention de cle par une mesure, pas par un essai sur la partie de l'utilisateur.
+
+        if (niveau === 0) {
+            detail.push({ abilityType, niveau, arme: false,
+                          raison: "niveau 0 -- le natif n'arme pas non plus" });
+            continue;
+        }
+        // `Abilities += EnvironmentAbilityConfiguration { ConfigId, Level }`
+        //
+        // Les deux structs sont ECRITES INLINE plutot que construites par leurs ctors : `Level`
+        // n'a qu'un `val:Int32` et `TriggeredAbilityConfigId` qu'un `AbilityType` + un
+        // `VariantId` (nul ici). Les offsets INTERNES se retranchent de `0x10`, l'en-tete que
+        // porte la version BOXEE de la struct mais pas sa version INLINE.
+        const eac = il2cpp_object_new(kEac);
+        if (eac.isNull()) return refus("allocation d'`EnvironmentAbilityConfiguration` a rendu NUL");
+        gcRoot.add(eac);
+        eac.add(offCfgId + (offType - 0x10)).writeS32(abilityType);
+        eac.add(offCfgId + (offVariant - 0x10)).writePointer(NULL);
+        eac.add(offLevel).writeS32(niveau);
+        const la = listeAb as NativePointer;
+        const mAddL = findMethodByParamCount(la.readPointer(), "Add", 1);
+        if (!mAddL) return refus("`List.Add(1)` INTROUVABLE sur `Abilities`");
+        try { invokeMethod(mAddL.info, la, [eac]); }
+        catch (e) { return refus("`Abilities.Add` a LEVE : " + (e as Error).message); }
+        detail.push({ abilityType, niveau, rarityCap, arme: true });
+    }
+    return true;
+}
+
 /** BORNE HAUTE d'exploration des indices de zone.
  *
  *  ⚠ CE N'EST PAS LE NOMBRE DE ZONES, et la version precedente confondait les deux : elle
@@ -954,6 +1156,7 @@ export function register(ctx: Ctx): void {
     ctx.rpc.guildWarSourceForger = (body?: {
         warZoneId?: string; zonePartIndex?: number; slotIndex?: number;
         boardId?: string; spawnPointsSet?: number; rarityCap?: number; confirmer?: boolean;
+        avecEnvironnement?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
         if (!body?.warZoneId) return refus("`warZoneId` manquant");
         if (!body?.boardId) return refus("`boardId` manquant -- le derive de `guildWarZoneConfigs`");
@@ -1091,6 +1294,44 @@ export function register(ctx: Ctx): void {
         if (env.isNull()) return refus("`EnvironmentAbilities` deserialise en NUL");
         gcRoot.add(env);
 
+        // --- ET ON LE REMPLIT : LES BUFFS DE ZONE ---------------------------------------------
+        //
+        // ⚠ CREER L'ACCUMULATEUR NE SUFFIT PAS, et le laisser vide se voyait a l'ecran :
+        // AUCUNE ability d'environnement ne jouait sur un montage sandbox de guerre de guilde.
+        // Mesure du 2026-08-21 sur le replay d'un montage DogAlpha : le CATALOGUE etait bien la
+        // (`BC.Abilities.EnvironmentAbilities` = 166 definitions) mais la LISTE ACTIVE valait
+        // `0` -- et le buff de la zone (`EnvArtillerySupport_Regional`) avait **0 occurrence**
+        // dans tout le fichier. Effet concret : les trois salves d'artillerie du debut de partie
+        // n'avaient pas lieu.
+        //
+        // Ce qui les arme, c'est cette boucle-ci, mirror de
+        // `ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked` -- la popup qu'on
+        // court-circuite. Elle porte a la fois l'environnement ET le cap de rarete, parce que le
+        // cap est la CLE d'indexation de la config de chaque buff.
+        // ⛔ OPT-IN, ET ETEINT PAR DEFAUT -- `avecEnvironnement: true` pour l'allumer.
+        //
+        // ⚠ CE CHEMIN A FAIT CRASHER LE JEU DEUX FOIS le 2026-08-21 (dumps
+        // `Tacticus.exe.30620.dmp` 14:19 et le suivant). La seconde fois, SEULE la partie
+        // LECTURE avait tourne (`guildWarEnvProbe`) : la faute est donc dans `capDeRarete` ou
+        // `GetActiveBuffs`, PAS dans l'armement -- c'est ce que l'isolement des etages a permis
+        // de dire. La cause exacte n'est pas etablie.
+        //
+        // Tant qu'elle ne l'est pas, un montage guild war ne doit pas l'emprunter : il monte
+        // sans environnement (donc sans les salves d'artillerie), ce qui est un ECART CONNU
+        // et ANNONCE -- pas un crash. Residu ouvert.
+        const detailEnv: Array<Record<string, unknown>> = [];
+        let rarityCap = body.rarityCap ?? 0;
+        let ordZone = -1;
+        if (body.avecEnvironnement === true) {
+            const rar = capDeRarete(kProg, prog as NativePointer, body.boardId, slotIdx);
+            if (estRefus(rar)) return rar;
+            rarityCap = (rar as { cap: number; ordinal: number }).cap;
+            ordZone = (rar as { cap: number; ordinal: number }).ordinal;
+            const rBuffs = armerBuffsDeZone(kProg, prog as NativePointer, body.warZoneId,
+                                            rarityCap, env, detailEnv);
+            if (estRefus(rBuffs)) return rBuffs;
+        }
+
         // --- les 17 dependances de la source, resolues PAR NOM --------------------------------
         const NOMS_EXEC = ["_unitProgression", "_itemProgression", "_modifierProgression",
                            "_gameConfigData", "_logger", "_featureUnlocker", "_onlineFeatureDecider",
@@ -1190,7 +1431,12 @@ export function register(ctx: Ctx): void {
                 mowUtilisable ? mowPtr : NULL,            // MachineOfWarEnemy -- modele, voie de la popup
                 createManagedString(body.boardId),        // BoardId
                 i32(body.spawnPointsSet ?? 0),            // SpawnPointsSet
-                i32(body.rarityCap ?? 0),                 // RarityCap    -- HUD seul
+                // ⚠ LE CAP EST DERIVE DU NATIF, PLUS UN `?? 0`. Il valait 0 -- donc << Common
+                // seulement >> -- sur tous nos montages, alors que `GetRarityCap` rend celui du
+                // slot. Et il ne sert pas qu'ici : c'est la CLE d'indexation de la config de
+                // chaque buff de zone (cf. `armerBuffsDeZone`). `body.rarityCap` reste une
+                // echappatoire EXPLICITE, jamais le defaut.
+                i32(rarityCap),                           // RarityCap
                 env,                                      // EnvironmentAbilities
                 NULL,                                     // Buffs        -- HUD seul
                 NULL,                                     // EnemyPlayer  -- replay seul
@@ -1229,6 +1475,11 @@ export function register(ctx: Ctx): void {
         sourceForgeeGw = src;
         return {
             ok: true, action: "FORGEE", record: rec.toString(), instance: src.toString(),
+            // L'ENVIRONNEMENT, buff par buff -- `arme: true` = une ability posee avec son niveau.
+            // Un `ecarte` non nul n'est PAS un detail : c'est un ecart mesure avec le natif.
+            rarityCap, ordinalTypeDeZone: ordZone,
+            environnement: detailEnv,
+            environnementArmees: detailEnv.filter((d) => d.arme === true).length,
             classe: (() => { try { return cstr(class_get_name(src.readPointer()) as NativePointer); }
                              catch { return null; } })(),
             hud: hudRes, mowUtilisable,
@@ -1250,6 +1501,50 @@ export function register(ctx: Ctx): void {
      * ⚠ On INVOQUE `LoadBattleInternal`, donc on ne l'ANCRE nulle part : ancrer ce qu'on invoque
      * gele le jeu.
      */
+    /** LES DEUX ETAGES DE L'ENVIRONNEMENT, EN LECTURE SEULE -- le cap de rarete et les buffs
+     *  actifs, SANS rien allouer ni armer.
+     *
+     *  ⚠ CETTE SONDE EXISTE PARCE QUE LE CHEMIN COMPLET A FAIT CRASHER LE JEU (2026-08-21,
+     *  `Tacticus.exe.30620.dmp`). Isoler les etages est ce qui permet de dire LEQUEL est fautif
+     *  au lieu de retenter le tout et d'esperer. Elle ne fait que LIRE : `GetWarZoneConfig`,
+     *  `GetZoneConfig`, `GetRarityCap`, `GetActiveBuffs` -- aucune ecriture, aucun octet reseau.
+     *
+     *  body: { warZoneId, boardId, slotIndex } */
+    ctx.rpc.guildWarEnvProbe = (body?: {
+        warZoneId?: string; boardId?: string; slotIndex?: number;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        if (!body?.warZoneId || !body?.boardId) {
+            return { ok: false, error: "`warZoneId` et `boardId` requis" };
+        }
+        const prog = progressionPhase();
+        if (estRefus(prog)) return { ok: false, error: (prog as RefusVue).error };
+        const kProg = findClassAnywhere("Idun.Source.IdunMeta.Logic.UserProgress.GuildWars",
+                                        "GuildWarPhaseProgression");
+        if (!kProg) return { ok: false, error: "classe `GuildWarPhaseProgression` introuvable" };
+
+        const rar = capDeRarete(kProg, prog as NativePointer, body.boardId, body.slotIndex ?? 0);
+        if (estRefus(rar)) return { ok: false, etage: "capDeRarete", error: (rar as RefusVue).error };
+        const { cap, ordinal } = rar as { cap: number; ordinal: number };
+
+        const mBuffs = findMethodByParamCount(kProg, "GetActiveBuffs", 1);
+        if (!mBuffs) return { ok: false, etage: "GetActiveBuffs", error: "INTROUVABLE" };
+        let buffs: NativePointer;
+        try {
+            buffs = invokeMethod(mBuffs.info, prog as NativePointer,
+                                 [createManagedString(body.warZoneId)]);
+        } catch (e) {
+            return { ok: false, etage: "GetActiveBuffs", error: (e as Error).message };
+        }
+        return {
+            ok: true, lecture: true, rarityCap: cap, ordinalTypeDeZone: ordinal,
+            nbBuffs: buffs.isNull() ? null : buffs.add(0x18).readS32(),
+            // Le brut SERIALISE : c'est la voie sure pour voir `buffAmount` (le NIVEAU, donc le
+            // nombre de salves) et `buffAbilityConfig` sans toucher au dictionnaire natif.
+            buffs: enJson(buffs),
+            note: "LECTURE SEULE -- rien n'a ete alloue ni arme.",
+        };
+    });
+
     ctx.rpc.guildWarSourceBc = (body?: {
         confirmer?: boolean; isRestart?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
