@@ -75,6 +75,23 @@ ap.add_argument("--session", type=int, default=None)
 ap.add_argument("--confirmer", action="store_true",
                 help="sans lui : lecture seule, rien n'est construit ni monte")
 ap.add_argument("--sans-replay", action="store_true", help="ne pas armer la capture de fin")
+# (!)LE SEED, POUR REJOUER UN REPLAY -- SANS LUI LA COMPARAISON NE PROUVE RIEN.
+#
+# ⚠ CE MANQUE A ETE PAYE. La chaine boss (`sandbox_boss.py`) le passe depuis toujours, avec la
+# raison ecrite noir sur blanc : << sans lui les tirages divergent (mesure du 2026-08-19 -- degat
+# 3600 contre 3507, crit 1 contre 0), et on lit une divergence de MOTEUR la ou il n'y a qu'un
+# tirage different >>. La chaine de guerre de guilde, elle, montait SANS. Mesure du 2026-08-21 :
+# rejeu conforme AU CARACTERE jusqu'au coup 13, puis un `MV71SniperDroneSquadAttack` laissant la
+# cible a 1888 PV contre 2020 au replay -- flux de MEME longueur, donc meme structure, seule la
+# valeur change. La signature exacte d'un tirage desaligne.
+#
+# ⚠ ET LE CRAN QUI CROYAIT COUVRIR CA NE LE COUVRAIT PAS : `RngSeed` est un champ RACINE du
+# replay, pas de la `BattleConfiguration` (34 cles, aucune ne contient << seed >>, et la valeur
+# n'apparait nulle part dedans). Un << BC a 0 ecart >> ne dit donc RIEN du tirage.
+ap.add_argument("--seed", type=int, default=None,
+                help="le `RngSeed` du replay qu'on veut rejouer. Sans lui, les tirages "
+                     "divergent et une difference de DEGAT se lit a tort comme un ecart de "
+                     "moteur.")
 args = ap.parse_args()
 
 sid = args.session if args.session is not None else session_vivante(args.hote)
@@ -283,6 +300,11 @@ for nom, corps in armements:
 print()
 cmd = [sys.executable, str(RACINE / "scripts" / "python" / "sandbox_mode.py"),
        "start", "--mode", "waves", "--session", str(sid), "--onslaught-tier", "5", "--confirmer"]
+if args.seed is not None:
+    cmd += ["--seed", str(args.seed)]
+    print("seed pose au montage : %s" % args.seed)
+else:
+    print("AUCUN seed pose -- les tirages divergeront du replay (cf. `--seed`).")
 sys.stdout.flush()
 rc = subprocess.run(cmd, cwd=str(RACINE)).returncode
 if rc != 0:

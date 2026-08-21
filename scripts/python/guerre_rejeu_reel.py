@@ -318,13 +318,26 @@ def main(argv=None):
     if args.sandbox:
         print()
         print("cran 8 -- MONTAGE SANDBOX (repetition, aucune tentative consommee)")
+        # ⚠ LE SEED DU REPLAY EST PASSE AU MONTAGE, et c'est ce qui fait de la repetition une
+        # PREUVE. Sans lui les tirages divergent : mesure du 2026-08-21, rejeu conforme AU
+        # CARACTERE jusqu'au coup 13 puis un degat de 1888 contre 2020, a flux de MEME longueur
+        # -- structure identique, valeur seule differente. On refuse plutot que de monter une
+        # repetition dont on saurait d'avance qu'elle ne prouve rien.
+        if d.get("RngSeed") is None:
+            stop("le replay ne porte pas de `RngSeed` -- la repetition ne prouverait RIEN sur "
+                 "les tirages. On ne monte pas.")
         p = subprocess.run([sys.executable, str(RACINE / "scripts" / "python" / "sandbox_gw.py"),
                             "--joueur", args.joueur, "--slot", str(args.slot), "--confirmer",
-                            "--sans-replay"],
+                            "--sans-replay", "--seed", str(d["RngSeed"])],
                            capture_output=True, text=True, timeout=900)
         sortie = (p.stdout or "") + (p.stderr or "")
         if "MONTE." not in sortie:
             stop("le montage sandbox a echoue : %s" % sortie[-400:])
+        # On REPUBLIE la ligne du seed : la sortie du montage est capturee, donc sans ca la
+        # garantie qui fait la valeur de la repetition resterait invisible.
+        for ligne in sortie.splitlines():
+            if ligne.startswith("seed pose au montage") or ligne.startswith("AUCUN seed"):
+                print("   %s" % ligne)
         print("   MONTE.")
     else:
         print()
