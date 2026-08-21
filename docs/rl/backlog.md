@@ -5366,6 +5366,24 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
 
+- **#10041-r5 — un `StartMatch` sans bataille EMPOISONNE la session : rendre le creneau, ou refuser.** `[opus]`
+  Point d'entree : `docs/rl/case-10041-r5-un-startmatch-sans-bataille-empoisonne-tous-les-chargements.md`.
+  `StartMatch` ecrit la source dans le creneau << match courant >> puis appelle `LoadBattle`. Si la
+  bataille n'aboutit pas, le creneau RESTE OCCUPE : tout chargement suivant monte CETTE source --
+  y compris celui du JOUEUR, qui obtient une bataille a 0 unite se terminant a l'instant. Mesure du
+  2026-08-21, verbatim utilisateur : << la battle se charge et disparait direct >>, << y'avait
+  0 units >>. Seule une relance du jeu libere le creneau ; aucun desarmement n'y suffit.
+  ⚠ Le symptome ne designe jamais sa cause et il SE DEPLACE (`runnerGeneration` monte alors que le
+  runner meurt ; `__loadingStep` a 0 alors qu'il a charge). Coût mesure : ~2 h et ~10 relances,
+  passees a bisecter un bundle innocent.
+  A faire : apres un `StartMatch`, si la bataille n'est pas la en quelques secondes, RENDRE le
+  creneau (ou refuser d'armer tant qu'il est occupe) plutot que de laisser la session perdue.
+  Et cesser de lire `runnerGeneration` comme un temoin de montage -- il compte les runners CREES.
+  Montage : la bisection qui l'a nomme est dans la case-doc ; son discriminant est le JOUEUR
+  (<< peux-tu lancer une bataille de campagne a la main ? >>), auquel aucun capteur ne repond.
+  FOYER: frida/hooks/features/sandbox-mode.ts, frida/hooks/features/guild-war-config.ts
+  BLOCAGE: aucun
+
 - **#10041-r1 — `get_IsBattleActive` pendant la PHASE DE DEPLOIEMENT : NON MESURE, et c'est ce qui bloque l'alignement de boss/GW.** `[opus]`
   Point d'entree : `docs/rl/case-10041-le-deadlock-de-trampoline-refute-sur-la-retraite.md` Sec.
   « Deux defauts d'instrument ».
