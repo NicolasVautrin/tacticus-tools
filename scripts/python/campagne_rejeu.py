@@ -59,6 +59,14 @@ from replay_rejouer import Jeu, session_vivante, poses_du_replay      # noqa: E4
 # c'est deja arrive : la copie neuve de `campagne_rejeu_reel.py` n'avait plus l'armement des
 # relais que ce script arme depuis le 2026-08-20.
 from deploiement_commun import stop, cran, jouer_la_suite  # noqa: E402
+# (!)LES GARDES D'AVANT-ENTREE ONT DEMENAGE, ILS N'ONT PAS DISPARU. Ils vivaient ici, et la
+# chaine de GUERRE DE GUILDE devait donc ecrire `from campagne_rejeu import ...` pour les
+# atteindre -- le mot << campagne >> dans un fichier de GW, qui est ce qui a fait voir qu'ils
+# n'etaient pas propres a la campagne. Un seul exemplaire, dans `rejeu_commun`.
+from rejeu_commun import (                                 # noqa: E402,F401
+    armer_le_seed, attendre_le_runner, desarmer_capture_de_fin, generation_du_runner,
+    verifier_morsure, verifier_phase_avant_start,
+)
 
 # Les types de campagne, tels que `campaignSourceForger` les prend.
 TYPES = [0, 1, 2, 3, 4]
@@ -495,126 +503,6 @@ def sortir_de_bataille(jeu, confirmer):
             print("   SORTIE confirmee, loader au repos.")
             return
     stop("sortie NON CONFIRMEE apres 30 s (ou loader encore en chargement).")
-
-
-def armer_le_seed(jeu, graine, bc_id):
-    """(!)AVANT LE MONTAGE, ET CONDITIONNE. Sans `siConfigId`, le seed partirait sur la
-    PROCHAINE bataille quelle qu'elle soit. Avec, entrer ailleurs est SANS CONSEQUENCE."""
-    if graine is None:
-        stop("le replay ne porte pas de `RngSeed` -- on ne rejoue pas sans.")
-    av = jeu.rpc("sandboxModeSeed", [{}], timeout=120000)
-    n_av = len((av or {}).get("journal") or []) if isinstance(av, dict) else None
-    if n_av is None:
-        stop("journal du seed NON MESURE -- on ne saurait pas dire s'il a mordu.")
-    r = jeu.rpc("sandboxModeSeed",
-                [{"seed": int(graine), "unCoup": True, "siConfigId": bc_id}], timeout=120000)
-    if not isinstance(r, dict) or r.get("arme") is not True:
-        stop("le seed n'a PAS ete arme : %s" % json.dumps(r, ensure_ascii=False)[:240])
-    print("   seed %s arme (un coup), CONDITIONNE a Id=%s -- journal a %d entree(s) avant"
-          % (graine, bc_id, n_av))
-    return n_av
-
-
-def desarmer_capture_de_fin(jeu):
-    """UN REJEU NE SE CAPTURE PAS.
-
-    `sandbox_campagne.py` arme `replayFinAuto` -- ce qui est juste pour une bataille qu'on JOUE,
-    et nuisible pour une qu'on REJOUE.
-
-    (!)LE SEED EST IMPOSE, DONC LE NOM CANONIQUE EST LE MEME. Un rejeu porte le `RngSeed` de sa
-    reference (c'est la condition pour qu'il reproduise). Sa capture reclamerait donc exactement
-    le nom du fichier d'origine, et le rangement repondrait << DEJA LA >> -- ce qui se lit comme
-    un succes alors que rien n'a ete ecrit. Le seed distingue deux batailles JOUEES ; il ne
-    distingue pas un original de sa reproduction.
-
-    Et la question ne se pose meme pas : un rejeu se re-produit a volonte depuis la reference et
-    ce script. Ce qui ne se re-produit pas, c'est la capture d'origine -- elle seule merite
-    `data/`.
-    """
-    r = jeu.rpc("replayFinAuto", [{"armer": False}], timeout=120000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("desarmement de `replayFinAuto` NON MESURE : %s"
-             % json.dumps(r, ensure_ascii=False)[:200])
-    # (!)UN `ok` D'APPEL N'EST PAS UN EFFET -- on RELIT. Et la relecture est sure : la forme
-    # neutre `{}` de ce RPC est une lecture PURE depuis qu'elle a cesse d'armer ce qu'elle
-    # mesurait (le piege s'est referme sur son propre auteur le 2026-08-20).
-    l = jeu.rpc("replayFinAuto", [{}], timeout=120000)
-    etat = l.get("arme") if isinstance(l, dict) else None
-    if etat is None:
-        stop("etat de `replayFinAuto` NON MESURE apres desarmement -- ce n'est PAS << desarme >>.")
-    if etat:
-        stop("`replayFinAuto` est ENCORE arme apres desarmement : la capture de fin ecrirait "
-             "un replay de rejeu par-dessus la reference.")
-    print("   capture de fin DESARMEE et relue (un rejeu ne se capture pas).")
-
-
-def generation_du_runner(jeu):
-    """La generation AVANT le montage. `None` = pas mesure (hooks trop anciens)."""
-    r = jeu.rpc("runnerGeneration", [], timeout=60000)
-    return r.get("generation") if isinstance(r, dict) and r.get("ok") else None
-
-
-def attendre_le_runner(jeu, depuis, plafond_ms=60000):
-    """(!)LE MONTAGE REND LA MAIN AVANT QUE LA BATAILLE EXISTE, et son propre message le dit :
-    << l'APPEL est passe -- ca ne dit RIEN du montage >>. Juger le seed a cet instant accuse
-    `IdunRunner$$Initialize` de n'avoir rien journalise alors qu'il n'a simplement pas encore
-    tourne. Mesure du 2026-08-20 : cran 6 rouge a 5,2 s.
-
-    (!)ET ON ATTEND PAR SIGNAL, PAS PAR SONDAGE. Le premier correctif interrogeait `sandboxProbe`
-    toutes les secondes -- un minuteur deguise. La pompe VOIT la transition
-    `IdunGameViews._runner : null -> r` (c'est elle qui installe les hooks du runner vivant) ;
-    `attendreRunner` rend la main a cet instant. La `generation` lue AVANT le montage ferme la
-    course : si la transition a deja eu lieu -- le cas le plus frequent -- on ne dort pas.
-    """
-    if depuis is None:
-        stop("`runnerGeneration` NON MESURE : les hooks charges sont anterieurs a "
-             "`runner-signal.ts`. Reinjecter, ou il n'y a pas de signal a attendre.")
-    r = jeu.rpc("attendreRunner", [{"depuis": depuis, "plafondMs": plafond_ms}],
-                timeout=plafond_ms + 30000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("`attendreRunner` NON MESURE : %s" % json.dumps(r, ensure_ascii=False)[:200])
-    if not r.get("atteint"):
-        stop("aucune bataille apparue en %.0f s (generation %s -> %s). Le seed reste ARME pour "
-             "la SUIVANTE : le desarmer par `sandboxModeSeed {seed: null}` si tu renonces."
-             % (plafond_ms / 1000.0, depuis, r.get("generation")))
-    print("   bataille apparue (generation %s -> %s), par signal." % (depuis, r.get("generation")))
-
-
-def verifier_morsure(jeu, n_av, graine):
-    """LE CRAN QUI MANQUAIT. Un seed arme APRES le montage laisse une bataille montee, demarree
-    et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE."""
-    j = jeu.rpc("sandboxModeSeed", [{}], timeout=120000)
-    entrees = (j or {}).get("journal") if isinstance(j, dict) else None
-    if entrees is None:
-        stop("journal du seed NON MESURE apres montage -- ce n'est PAS << il a mordu >>.")
-    neuves = entrees[n_av:]
-    if not neuves:
-        stop("le seed n'a PAS ete impose : `IdunRunner$$Initialize` n'a rien journalise.\n"
-             "         La bataille montee tourne donc sur un AUTRE tirage que le replay ; "
-             "la rejouer ne mesurerait rien.")
-    imposee = [e for e in neuves if e.get("par") == int(graine)]
-    if not imposee:
-        stop("le journal porte %d entree(s) neuve(s), mais aucune n'impose %s : %s"
-             % (len(neuves), graine, json.dumps(neuves, ensure_ascii=False)[:240]))
-    print("   seed IMPOSE : %s" % json.dumps(imposee[0], ensure_ascii=False))
-
-
-def verifier_phase_avant_start(jeu):
-    """(!)LE TEMOIN EST `battleStatus.stageName`, PAS `ordreConversion`.
-
-    `deploymentEtat.ordreConversion` lit `IdunGameViews$$GetPlaceholderUnitViews()`, qui N'EST
-    PAS VIDEE apres conversion : une bataille DEJA demarree rend donc une liste de cinq vues,
-    identique a celle d'une phase de deploiement. Mesure du 2026-08-20 -- c'est exactement ce
-    qui a fait prendre une bataille en cours pour un deploiement en attente.
-    """
-    b = jeu.rpc("battleStatus", [{}], timeout=120000)
-    if not isinstance(b, dict) or not b.get("ok"):
-        stop("`battleStatus` NON MESURE : %s" % json.dumps(b, ensure_ascii=False)[:200])
-    stage = b.get("stageName")
-    if stage == "Running":
-        stop("la bataille est DEJA `Running` (%s unites) : le deploiement est passe, il est "
-             "trop tard pour le poser. Remonter." % b.get("unitsAlive"))
-    print("   phase = %s (pas `Running`) -- le deploiement est encore ouvert." % stage)
 
 
 def main(argv=None):

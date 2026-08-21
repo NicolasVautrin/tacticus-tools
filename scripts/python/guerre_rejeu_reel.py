@@ -52,8 +52,23 @@ from desarmer_relais import passer as relais_lire            # noqa: E402
 from desarmer_relais import rendre_compte as relais_rendre_compte  # noqa: E402
 # ⛔ LA CHAINE COMMUNE -- pose, controle du lineup, START, rejeu. IDENTIQUE aux deux voies, et
 # deja eprouvee par `campagne_rejeu_reel.py`. On la REEMPLOIE, on ne la recopie pas.
-from deploiement_commun import jouer_la_suite                # noqa: E402
+from deploiement_commun import armer_les_relais, jouer_la_suite   # noqa: E402
 from replay_rejouer import poses_du_replay                   # noqa: E402
+# ⛔ LES GARDES D'AVANT-ENTREE VIENNENT DU FOYER COMMUN, ON NE LES REECRIT PAS.
+#
+# ⚠ ILS MANQUAIENT TOUS LES CINQ ICI, et deux d'entre eux gardent une consigne explicite :
+# `desarmer_capture_de_fin` empeche la bataille rejouee d'ECRASER le replay de reference, et
+# `armer_le_fil` est la SEULE facon de dire ce qui est reellement parti au serveur. Un troisieme
+# est fatal en soi -- `armer_les_relais` doit tourner AVANT que la bataille existe (les capteurs
+# ne tirent qu'a sa CREATION), donc une tentative de guilde aurait ete depensee pour un
+# deploiement AVEUGLE. Recopier ces crans serait la faute que `deploiement_commun` documente en
+# tete de fichier ; on les REEMPLOIE.
+from rejeu_commun import (                                   # noqa: E402
+    armer_le_fil, armer_le_seed, attendre_le_runner, bc_vivante,
+    controler_le_capteur_de_vue, desarmer_capture_de_fin, ecarts_bc,
+    generation_du_runner, rendre_compte_du_fil, verifier_morsure,
+    verifier_phase_avant_start,
+)
 
 HOTE = "http://127.0.0.1:8765"
 _ABSENT = "<ABSENT>"
@@ -340,6 +355,33 @@ def main(argv=None):
                 print("   %s" % ligne)
         print("   MONTE.")
     else:
+        # ⛔ TOUT CE BLOC EST *AVANT* L'ENGAGEMENT, ET L'ORDRE EST LE SUJET.
+        #
+        # Les capteurs de vue et de HUD ne tirent qu'a la CREATION de la bataille. Armes apres,
+        # ils ne tirent JAMAIS pour celle-la : on aurait depense une tentative de GUILDE pour un
+        # deploiement aveugle. C'est l'ordre que `campagne_rejeu_reel` tient a ses crans 7 a 9,
+        # et que cette chaine-ci n'avait pas du tout.
+        print()
+        print("cran 7b -- desarmer la capture de fin -- LE REPLAY DE REFERENCE EST INTOUCHABLE")
+        desarmer_capture_de_fin(j)
+
+        print()
+        print("cran 7c -- ARMER LE FIL -- ce qui part au serveur se MESURE, il ne se promet pas")
+        armer_le_fil(j)
+
+        print()
+        print("cran 7d -- ARMER LES RELAIS ET LE SEED, *AVANT* que la bataille existe")
+        armer_les_relais(j)
+        controler_le_capteur_de_vue(j)
+        # (!)LE SEED S'IMPOSE ICI AUSSI, ET IL EST CONDITIONNE. `armer_le_seed` le pose sur
+        # `IdunRunner$$Initialize` POUR UN SEUL COUP et seulement `siConfigId` correspond -- donc
+        # entrer ailleurs par megarde est SANS CONSEQUENCE. Sans lui les tirages divergent, et
+        # une difference de degat se lit a tort comme un ecart de moteur (mesure du 2026-08-21 :
+        # 1888 contre 2020 sur un flux de MEME longueur).
+        graine, bc_id = d.get("RngSeed"), (bc_replay or {}).get("Id")
+        n_av = armer_le_seed(j, graine, bc_id)
+        gen = generation_du_runner(j)
+
         print()
         print("cran 8 -- ENGAGEMENT REEL. Ceci prend une tentative de guilde et part au serveur.")
         r = j.rpc("guildWarEngagerReel", [{"confirmer": True,
@@ -349,6 +391,27 @@ def main(argv=None):
         if not r.get("ok"):
             stop("REFUS a l'engagement : %s" % json.dumps(r, ensure_ascii=False)[:500], code=1)
         print("   appel PASSE. %s" % r.get("note"))
+        # (!)L'APPEL PASSE NE DIT RIEN DU MONTAGE -- on attend LE SIGNAL, pas une duree.
+        attendre_le_runner(j, gen, plafond_ms=120000)
+
+        print()
+        print("cran 8b -- LE SEED A-T-IL MORDU ?")
+        verifier_morsure(j, n_av, graine)
+
+        print()
+        print("cran 8c -- la BC REELLEMENT MONTEE est-elle celle du replay ?")
+        # (!)LA FORGE DU CRAN 5 EST UNE PREDICTION, CECI EST LE FAIT. Les deux sont exiges parce
+        # qu'ils peuvent diverger : le lineup n'entre pas dans la forge.
+        ecarts = ecarts_bc(bc_replay, bc_vivante(j), voie="BC montee")
+        if ecarts:
+            stop("la BC MONTEE differe du replay sur %d point(s) -- on ne rejoue pas dessus :\n"
+                 "         %s" % (len(ecarts),
+                                  "\n         ".join(str(e)[:160] for e in ecarts[:12])))
+        print("   0 ecart : la bataille porte le substrat du replay.")
+
+        print()
+        print("cran 8d -- la phase, par le BON temoin (`battleStatus.stageName`)")
+        verifier_phase_avant_start(j)
 
     # ------------------------------------------------------- crans 9 et 10 : LA CHAINE COMMUNE
     #
@@ -387,8 +450,16 @@ def main(argv=None):
     # replay est rejouable (BC a 0 ecart, lineup au cap, tentatives) et ne coutent RIEN. La
     # repetition `--sandbox` reste la voie a jouer AVANT `--armer`, qui prend une tentative de
     # guilde AU CHARGEMENT.
-    return jouer_la_suite(j, d, chemin, args.hote, sid,
-                          premier_cran=9, sur_reelle=bool(args.armer))
+    rc = jouer_la_suite(j, d, chemin, args.hote, sid,
+                        premier_cran=9, sur_reelle=bool(args.armer))
+
+    # ⛔ ET ON DIT CE QUI EST REELLEMENT PARTI AU SERVEUR -- mesure au FIL, jamais promis. Sans ce
+    # cran, la seule reponse a << qu'est-ce qui a ete communique ? >> serait une supposition.
+    if args.armer:
+        print()
+        print("cran 12 -- CE QUI EST PARTI AU SERVEUR")
+        rendre_compte_du_fil(j)
+    return rc
 
 
 if __name__ == "__main__":

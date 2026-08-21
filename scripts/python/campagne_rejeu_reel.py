@@ -130,57 +130,22 @@ from deploiement_commun import (                           # noqa: E402
     stop, cran, armer_les_relais, jouer_la_suite,
 )
 from campagne_rejeu import (                               # noqa: E402
-    resoudre_hors_ligne, forger_bc, armer_le_seed, desarmer_capture_de_fin,
-    generation_du_runner, verifier_morsure, verifier_phase_avant_start, NOM_TYPE,
+    resoudre_hors_ligne, forger_bc, NOM_TYPE,
+)
+# (!)CE QUI N'EST PAS PROPRE A UN MODE VIT DANS `rejeu_commun`, ET C'EST LE CRITERE. Ces treize
+# definitions etaient ici ou dans `campagne_rejeu` ; la chaine de guerre de guilde en avait
+# besoin -- elle n'en avait AUCUNE -- et devait les importer depuis un module << campagne >>.
+# Elles ont ete DEPLACEES par extraction du texte exact, jamais recopiees.
+from rejeu_commun import (                                 # noqa: E402,F401
+    armer_le_fil, armer_le_seed, bc_vivante, confronter, controler_le_capteur_de_vue,
+    desarmer_capture_de_fin, ecarts_bc, EVENEMENTS_DE_JEU, generation_du_runner,
+    rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
 )
 # (!)LA CHAINE CONSTATE L'ETAT DES RELAIS, ELLE NE LE CHANGE PAS (cran 7). On importe donc la
 # LECTURE, jamais le desarmement -- cf. le cran lui-meme pour le pourquoi.
 from desarmer_relais import (                              # noqa: E402
     passer as relais_lire, rendre_compte as relais_rendre_compte,
 )
-
-
-# --------------------------------------------------------------------------------------------
-# LE DIFF -- recursif, et il NOMME la voie de chaque ecart.
-#
-# (!)UN DIFF QUI RESUME NE SERT A RIEN ICI. << les BC different >> ne permet pas de decider si
-# l'ecart est benin (un compteur) ou fatal (une unite ennemie de plus). On rend la VOIE COMPLETE
-# et les deux valeurs, pour que la lecture tranche au lieu de deviner.
-# --------------------------------------------------------------------------------------------
-def ecarts_bc(a, b, voie="BC", dedans=None):
-    """Tous les ecarts entre deux BC, chacun avec sa voie complete. Liste vide = identiques."""
-    dedans = [] if dedans is None else dedans
-    if type(a) is not type(b):
-        dedans.append((voie, "TYPE %s vs %s" % (type(a).__name__, type(b).__name__)))
-    elif isinstance(a, dict):
-        for k in sorted(set(a) | set(b)):
-            if k not in a:
-                dedans.append((voie + "." + k, "ABSENT du replay (noeud=%r)" % (b[k],)))
-            elif k not in b:
-                dedans.append((voie + "." + k, "ABSENT du noeud (replay=%r)" % (a[k],)))
-            else:
-                ecarts_bc(a[k], b[k], voie + "." + k, dedans)
-    elif isinstance(a, list):
-        if len(a) != len(b):
-            dedans.append((voie, "LONGUEUR %d (replay) vs %d (noeud)" % (len(a), len(b))))
-        else:
-            for i, (u, v) in enumerate(zip(a, b)):
-                ecarts_bc(u, v, "%s[%d]" % (voie, i), dedans)
-    elif a != b:
-        dedans.append((voie, "%r (replay) vs %r (noeud)" % (a, b)))
-    return dedans
-
-
-def confronter(a, b, quoi):
-    """Diffe et ARRETE au moindre ecart. C'est la consigne, litteralement."""
-    e = ecarts_bc(a, b)
-    if e:
-        print("   %d ecart(s) -- les 30 premiers :" % len(e))
-        for voie, quel in e[:30]:
-            print("      %-58s %s" % (voie, quel[:110]))
-        stop("%s DIFFERE du replay. On ne rejoue pas sur un substrat different : les coups "
-             "frapperaient d'autres unites, sur d'autres cases." % quoi)
-    print("   %s : 0 ecart, la BC entiere (team affrontee comprise)." % quoi)
 
 
 def equipe_adverse(bc):
@@ -291,78 +256,12 @@ def chargeur_au_repos(jeu):
     print("   chargeur au repos (etape 0).")
 
 
-def armer_le_fil(jeu):
-    """(!)CE QUI PART AU SERVEUR SE MESURE, IL NE SE PROMET PAS. `net-capture` ancre les TROIS
-    portes de `Snowprint.ClientSdk.Web.WwwWebHelper` (`PostString`, `PostBytes`, `PostData`) --
-    le point de FIL, pas les DTO : un DTO construit ne prouve pas qu'il PARTE (il y a une file,
-    `GameEventQueueProcesser$$AddToQueue`), et un ancrage par type ne voit que les types qu'on a
-    pense a nommer."""
-    r = jeu.rpc("netCaptureArm", [], timeout=120000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("`netCaptureArm` a ECHOUE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-    d = jeu.rpc("netCaptureDump", [{"reset": True, "sansCorps": True}], timeout=120000)
-    n = d.get("count") if isinstance(d, dict) else None
-    print("   fil ARME (%s porte(s)), journal remis a zero (%s entree(s) jetees)."
-          % (r.get("armes"), n))
-    return 0
-
-
-# L'endpoint des EVENEMENTS DE JEU -- celui qui porte `StartCampaignLocation`,
-# `CompleteCampaignLocation`, `FailCampaignLocation` et le `replay`. Mesure #993 : un corps de
-# bataille y pese ~85 Ko. Les autres hotes qui apparaissent au journal (`ct-live/ct/...` =
-# telemetrie d'interaction, `api-live/player/player2/...` = etat joueur) ne portent AUCUN
-# evenement de bataille -- les CONFONDRE ferait lire << ca a communique >> sur du bruit de fond.
-EVENEMENTS_DE_JEU = "game-event"
-
 # L'ECRAN DE FIN. Ancre sur `idun.battle.view.BattleEndScreen$$ShowVictory` / `$$ShowDefeat`, et
 # NON sur `GuiId.BattleEnd` : mesure du 2026-08-21, `ScreenVisibilityManager` ne voit pas cet
 # ecran -- une fin de victoire n'emet aucune transition `montre-*`. Detail dans
 # `campagne_rejeu_boucle.py`.
 ECRAN_FIN = "BattleEndScreen"
 FINS = ["bataille-fin-victoire", "bataille-fin-defaite"]
-
-
-def rendre_compte_du_fil(jeu):
-    """Ce qui est REELLEMENT parti, en clair.
-
-    (!)UN JOURNAL VIDE EST UN RESULTAT, PAS UN SILENCE -- mais seulement si le capteur etait
-    ARME. On republie donc `arme` : un `0` capteur eteint et un `0` capteur arme ne disent pas
-    la meme chose, et rien d'autre ne les distingue apres coup."""
-    d = jeu.rpc("netCaptureDump", [{"sansCorps": True}], timeout=180000)
-    if not isinstance(d, dict) or not d.get("ok"):
-        print("   fil NON MESURE : %s" % json.dumps(d, ensure_ascii=False)[:200])
-        return
-    if not d.get("arme"):
-        print("   ⛔ CAPTEUR NON ARME -- ce journal ne prouve RIEN.")
-    entrees = d.get("entries") or []
-    jeux = [e for e in entrees if EVENEMENTS_DE_JEU in str(e.get("url"))]
-    print("   %d requete(s) sortie(s), dont %d evenement(s) de jeu (`%s`) :"
-          % (len(entrees), len(jeux), EVENEMENTS_DE_JEU))
-    for e in entrees:
-        marque = "  <<< EVENEMENT DE JEU" if EVENEMENTS_DE_JEU in str(e.get("url")) else ""
-        print("      #%-3s %-10s %7s car.  %s%s"
-              % (e.get("n"), e.get("via"), e.get("len"), str(e.get("url"))[:88], marque))
-    if d.get("corpsOmis"):
-        print("      (%d corps omis du journal -- budget)" % d.get("corpsOmis"))
-
-
-def controler_le_capteur_de_vue(jeu):
-    """(!)ARMER NE SUFFIT PAS, ON RELIT. `armer_les_relais` verifie que l'APPEL a passe ; ce cran
-    verifie que l'ANCRAGE tient. Sans `IdunGameViews$$Enable` ancre, `ordreDeConversion()`
-    retombe sur un `FindObjectsByType` qui a rendu NUL -- mesure du 2026-08-21 : `deploymentEtat`
-    publiait `placeholders: 5` et un `ordreHud` JUSTE tout en rendant `ordreConversion: {erreur}`,
-    et le refus accusait la POSE alors que seule la LECTURE manquait."""
-    e = jeu.rpc("deploymentPhaseStatus", [{}], timeout=120000)
-    arme = e.get("enableArme") if isinstance(e, dict) else None
-    if arme is None:
-        stop("etat du capteur de vue NON MESURE -- ce n'est PAS << arme >>.")
-    if not arme:
-        stop("`IdunGameViews$$Enable` n'est PAS ancre apres armement : sans lui la phase de "
-             "deploiement sera ILLISIBLE, et on ne demarre pas a l'aveugle.")
-    if e.get("forcer"):
-        stop("`forcer` est ACTIF : ce drapeau FABRIQUE une phase de deploiement, ce qui n'a de "
-             "sens qu'en sandbox. Sur une bataille reelle il ecrirait sur la partie du joueur.")
-    print("   capteur de vue ancre (`IdunGameViews$$Enable`), `forcer` eteint.")
 
 
 def entrer_dans_la_bataille(jeu, campagne, type_, noeud, depuis, plafond_ms, par_retry=False):
@@ -433,24 +332,6 @@ def entrer_dans_la_bataille(jeu, campagne, type_, noeud, depuis, plafond_ms, par
              % (plafond_ms / 1000.0, depuis, r.get("generation")))
     print("   bataille apparue (generation %s -> %s), par signal."
           % (depuis, r.get("generation")))
-
-
-def bc_vivante(jeu):
-    """(!)LA FORGE EST UNE PREDICTION, CECI EST LE FAIT. Le cran 3 diffe ce que le noeud
-    PRODUIRAIT ; celui-ci diffe ce que la bataille PORTE. Les deux sont exiges parce qu'ils
-    peuvent diverger : le lineup, lui, n'entre pas dans la forge -- il vient de l'ecran de
-    selection, donc de ton geste."""
-    r = jeu.rpc("dumpBattleConfig", [], timeout=180000)
-    if not isinstance(r, dict) or not r.get("ok"):
-        stop("`dumpBattleConfig` NON MESURE : %s" % json.dumps(r, ensure_ascii=False)[:240])
-    brut = r.get("configJson")
-    if not isinstance(brut, str):
-        stop("la BC vivante n'est pas revenue en JSON : %s"
-             % json.dumps(r, ensure_ascii=False)[:240])
-    try:
-        return json.loads(brut)
-    except Exception as e:                                          # noqa: BLE001
-        stop("la BC vivante ne se relit pas (%s)" % e)
 
 
 def main(argv=None):
