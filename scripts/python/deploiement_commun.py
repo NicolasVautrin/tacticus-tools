@@ -105,6 +105,61 @@ def armer_les_relais(jeu, liste=None, etiquette="capteurs"):
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # LA POSE, LE START, LE REJEU -- la SUITE, identique aux deux chaines
 # ─────────────────────────────────────────────────────────────────────────────────────────────
+def mow_du_replay(d):
+    """La Machine of War du replay, PLATEFORME COMPRISE -- ou `None` s'il n'y en a pas.
+
+    ⚠ CETTE FONCTION EXISTE PARCE QUE `poser_le_deploiement` PASSAIT `mow: None` EN DUR. Elle a
+    ete ecrite pour la CAMPAGNE, ou il n'y a pas de Machine of War -- et sur une bataille qui en
+    porte une, elle ne la posait pas ET ecrasait l'entree MoW de la memoire a chaque pose. Mesure
+    du 2026-08-21 : trois crashs du jeu sur la chaine de guerre de guilde, dont le dernier
+    (`Tacticus.exe.22660.dmp`, 15:58) PENDANT la pose. La seule difference de fond avec nos
+    rejeux de campagne, qui passent, est la MoW.
+
+    ⚠ ON RESTE EN REGIME PLACEHOLDER -- c'est le seul. La pose passe donc par l'etage FSM
+    (`deploymentMoWPoser` -> `UnitDeployment_PlaceMachineOfWarUnitOnBoard`), et c'est le START du
+    jeu qui convertit. PAS `AddMachineMessage`, qui CRASHE ; pas `PredefinedMachines`, qui DECALE
+    les ids.
+
+    ⚠ LA PLATEFORME N'EST PAS DANS LE REPLAY et se DERIVE : chaque `SpawnPointGroup` du jeu de
+    spawns que la BC designe porte un `MachineOfWarPosition`, et on reconnait NOTRE groupe au
+    fait que NOS positions enregistrees sont dedans. On l'apparie PAR LES POSITIONS, jamais par
+    le `TeamWithPlayerIndex` : mesure sur maradak, nos 5 poses tombent 5/5 dans le groupe
+    d'index 0 alors que notre `TeamId` vaut 1 -- l'apparier par l'equipe aurait pris l'AUTRE
+    groupe et pose la machine sur la mauvaise plateforme.
+
+    Rend `None` quand la plateforme ne se derive pas : on ne la devine pas.
+    """
+    mow = None
+    for m in d.get("Messages") or []:
+        jm = json.loads((m.get("Message") or {}).get("MessageJson") or "{}")
+        if jm.get("Name") == "StartBattleMessage":
+            break
+        if jm.get("Name") == "AddMachineMessage":
+            mow = {"unitId": jm.get("UnitId"), "playerId": jm.get("PlayerId")}
+    if mow is None:
+        return None
+
+    bc = d.get("BattleConfiguration") or {}
+    idx = bc.get("SpawnPointSetIndex")
+    jeux = ((bc.get("Board") or {}).get("SpawnPointSets") or [])
+    if not isinstance(idx, int) or idx >= len(jeux):
+        print("   (!) MoW %s : `SpawnPointSetIndex`=%r hors des %d jeux -- plateforme "
+              "INDERIVABLE, on ne la pose pas." % (mow["unitId"], idx, len(jeux)))
+        return None
+    nos = [(c, r) for (_u, c, r) in (poses_du_replay(d) or [])]
+    candidats = []
+    for g in jeux[idx].get("SpawnPointGroups") or []:
+        pts = set((s.get("Column"), s.get("Row")) for s in (g.get("SpawnPoints") or []))
+        if nos and all(p in pts for p in nos):
+            candidats.append(g)
+    if len(candidats) != 1:
+        print("   (!) MoW %s : %d groupe(s) de spawns contiennent nos positions -- appariement "
+              "NON UNIVOQUE, on ne pose pas." % (mow["unitId"], len(candidats)))
+        return None
+    mow["position"] = candidats[0].get("MachineOfWarPosition")
+    return mow
+
+
 def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
     """CONFRONTER d'abord, poser seulement si ca diverge, et RE-CONFRONTER.
 
@@ -139,10 +194,19 @@ def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
     print("   -> on pose les %d unites du replay%s"
           % (len(voulu), " (SUR BATAILLE REELLE)" if sur_reelle else ""))
 
+    # ⚠ LA MoW EST LUE, PLUS FORCEE A `None`. Ce `None` en dur venait de la campagne, qui n'en a
+    # pas -- et sur une bataille qui en porte une il ne se contentait pas de l'ignorer : il
+    # ECRASAIT l'entree MoW de la memoire a chaque pose. Pour un replay de campagne
+    # `mow_du_replay` rend `None` et le comportement est identique au precedent.
+    mow = mow_du_replay(d)
+    if mow is not None:
+        print("   MoW du replay : %s -> plateforme %s (DERIVEE des spawns)"
+              % (mow["unitId"], mow.get("position")))
+
     for etiquette, suite in (("INVERSE de l'ordre du replay", list(reversed(voulu))),
                              ("ordre du replay", list(voulu))):
         poses = [{"unitId": u, "playerId": 11, "col": c, "row": r} for (u, c, r) in suite]
-        jeu.rpc("deploymentMemoire", [{"poser": {"poses": poses, "mow": None}}], timeout=120000)
+        jeu.rpc("deploymentMemoire", [{"poser": {"poses": poses, "mow": mow}}], timeout=120000)
         corps = {"rejouer": True, "confirmer": True}
         # ⛔ COUP PAR COUP, jamais retenu -- cf. l'en-tete du module.
         if sur_reelle:
