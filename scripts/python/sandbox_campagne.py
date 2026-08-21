@@ -88,6 +88,12 @@ ap.add_argument("--ia-ennemie", dest="ia", action="store_true", default=True,
 ap.add_argument("--confirmer", action="store_true",
                 help="sans lui : lecture seule, rien n'est construit ni monte")
 ap.add_argument("--sans-replay", action="store_true", help="ne pas armer la capture de fin")
+# (!)LA MEMOIRE DE POSE N'A DE SENS QU'ENTRE DEUX PASSES D'UNE MEME BATAILLE. Par defaut on la
+# vide : sinon elle rejoue la composition de la bataille PRECEDENTE, et elle VIDE LE PLATEAU
+# avant de le faire -- donc elle ecrase aussi le dernier deploiement que le jeu propose de
+# lui-meme par `GetBattleLineup`.
+ap.add_argument("--garder-memoire", action="store_true",
+                help="ne PAS vider la memoire de pose (cas du retry sur la MEME bataille)")
 args = ap.parse_args()
 
 idx = args.noeud - 1
@@ -192,6 +198,36 @@ if bmin is None or bmax is None:
           % (bmin, bmax))
     sys.exit(1)
 print("bornes de pose (LUES sur la source) : min=%d max=%d" % (bmin, bmax))
+
+# 3ter. OUBLIER LA MEMOIRE DE POSE -- AVANT d'armer, et c'est un cran, pas une precaution.
+#
+# (!)MESURE DU 2026-08-22, RAPPORTEE PAR L'ECRAN : montage de `campaign1` noeud 22 juste apres
+# avoir joue le noeud 19, et le deploiement s'ouvre avec une lineup DEJA POSEE qui ne correspond
+# pas au plateau. `deploymentMemoire` portait encore les cinq poses du noeud 19
+# (`ultraApothecary`, `ultraInceptorSgt`, `ultraEliminatorSgt`, `ultraCalgar`, `ultraTigurius`)
+# et les avait rejouees telles quelles sur `C1_05`, qui n'a pas la meme geometrie -- compteur
+# `rejeux: 1`, `dernier: "rejeu de 5 pose(s) | plateau VIDE avant rejeu"`.
+#
+# La memoire vit dans des variables du SCRIPT INJECTE : elle survit au remontage, et meme a un
+# changement de MODE. Elle ne rejoue que si le camp du joueur est vide -- donc un ecran neuf est
+# exactement le cas ou elle mord. `sandbox_gw.py` la vide depuis le 2026-08-21, pour la meme
+# cause ; ce script-ci se contentait de l'ARMER, ce qui capture les poses a venir sans jamais
+# jeter les precedentes.
+#
+# Le rappel de composition n'a de sens qu'ENTRE DEUX PASSES D'UNE MEME bataille (c'est ce que le
+# retry exige). A l'ouverture d'une bataille NEUVE, la memoire d'une autre est du bruit --
+# `--garder-memoire` reste la pour le cas du retry, mais il faut le DEMANDER.
+if args.garder_memoire:
+    print("memoire de pose CONSERVEE (--garder-memoire) -- elle sera rejouee si le camp du "
+          "joueur est vide.")
+else:
+    o = j.rpc("deploymentMemoire", [{"oublier": True}], 120000) or {}
+    if not o.get("ok"):
+        print("REFUS : `deploymentMemoire {oublier}` NON MESURE : %s"
+              % json.dumps(o, ensure_ascii=False)[:250])
+        sys.exit(1)
+    print("memoire de pose VIDEE avant montage (%d rejeu(x) au compteur, %d pose(s) jetee(s))"
+          % (o.get("rejeux") or 0, len(o.get("poses") or [])))
 
 # 4. Les capteurs AVANT le montage -- c'est le regime nominal.
 r = j.rpc("sandboxModeBcOverride", [{"configJson": bc}], 180000) or {}
