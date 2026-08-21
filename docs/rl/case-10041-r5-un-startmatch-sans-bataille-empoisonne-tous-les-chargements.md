@@ -6,14 +6,41 @@
 
 `idun.shared.commands.ViewCommandExecutor$$StartMatch(source, checkIfAlreadyRunning)` écrit la
 source dans le créneau **« match courant »** du jeu (un statique) puis appelle
-`thor.Loader$$LoadBattle`. Si la bataille n'aboutit pas, **le créneau reste occupé par notre
-source**. Tout chargement suivant — le nôtre comme **celui du joueur** — monte alors *cette*
-source-là.
+`thor.Loader$$LoadBattle`. Si la bataille n'aboutit pas, **le créneau reste occupé** et — c'est
+là le fait — **le verrou d'entrée reste armé** : plus aucun chargement ne démarre, ni le nôtre,
+ni **celui du joueur**.
 
 Symptôme côté joueur, verbatim : *« la battle se charge et disparaît direct »*, *« y'avait
-0 units »*. Une bataille sans unité se termine à l'instant où elle apparaît.
+0 units »*.
 
-**Seule une relance du jeu libère le créneau.** Aucun désarmement de relais n'y suffit.
+⚠ **CE FICHIER A PORTÉ « tout chargement suivant monte CETTE source-là ». Ça ne tient pas au
+décompilé** : `StartMatch` **réécrit** le créneau à chaque appel (`*S = holder`, sans condition),
+donc la source montée par le joueur était la **sienne**. Ce qui a été établi, c'est le **verrou**
+(section suivante) ; la bataille **à 0 unité** reste, elle, **inexpliquée** — et l'expliquer par
+une phrase qu'on n'a pas mesurée est exactement ce qui a fait chercher deux heures du mauvais
+côté.
+
+⚠ **CE FICHIER A PORTÉ « seule une relance du jeu libère le créneau ». C'EST FAUX**, et la
+phrase a survécu une journée entière en faisant demander des relances à l'utilisateur. Ce qui
+était vrai — et qui reste écrit ici parce que c'est ce qui l'a rendue crédible — c'est
+qu'**aucun désarmement de relais n'y suffit** : on cherchait le remède du mauvais côté.
+
+## Le verrou est `IdunMainView.IsActive`, et le jeu porte sa propre libération
+
+Le refus de `StartMatch` teste **un statique d'`IdunMainView`**, celui que lit
+`idun.IdunMainView$$get_IsActive`. Ce n'est **pas** `IsBattleActive`, que lit
+`idun.IdunMainView$$get_IsBattleActive` — le statique **VOISIN d'un octet**, et celui que publie
+`retreatStatus.batailleActive`. D'où la lecture qui n'a aucun sens tant qu'on confond les deux :
+*« aucune bataille ne tourne, et pourtant plus rien ne se charge »*.
+
+`idun.IdunMainView$$SetBattleNotRunning()` — **statique, sans argument** — remet les **deux** à
+zéro. C'est ce que le jeu s'appelle à lui-même en fin de bataille, et c'est joignable par
+`viewInvoke {cible: "statique"}`. Foyer : `rejeu_commun.liberer_le_verrou_de_match`.
+
+⚠ **Et la libération est CONDITIONNELLE.** Un verrou armé pendant qu'une bataille vit est
+**légitime** : le lever autoriserait le montage suivant à écraser un match dont la tentative est
+déjà enregistrée côté serveur. Le foyer n'ouvre que sur un verrou **ORPHELIN** — armé, sans
+`IdunMainView` vivante, chargeur au repos — et **ARRÊTE** sinon.
 
 ## Pourquoi ça a coûté si cher
 
@@ -51,7 +78,10 @@ Neuf gestes innocentés un par un ; le dernier est le seul qui écrive dans le j
 
 * **Ne jamais laisser un `StartMatch` en plan.** Si la bataille n'est pas là en quelques
   secondes, le créneau doit être rendu — sinon la session entière est perdue, pour nous ET pour
-  le joueur.
+  le joueur. Le rendre, c'est `liberer_le_verrou_de_match` ; **pas** une relance.
+* ⚠ **Désarmer `checkIfAlreadyRunning` n'est PAS ce remède** — c'est passer outre. Le montage
+  passe alors quoi qu'il y ait dans le créneau, et surtout **la partie du joueur reste bloquée** :
+  SON `StartMatch`, lui, teste toujours. `sandbox_gw.py` a porté ce contournement une journée.
 * **`runnerGeneration` n'est PAS un témoin de montage.** Il compte les runners CRÉÉS, pas ceux
   qui vivent. Le témoin est la scène (`sandboxProbe.instance`) ou `retreatStatus.batailleActive`.
 * ⚠ **Après un montage douteux, ne rien conclure de la session** : relancer d'abord. Toute mesure

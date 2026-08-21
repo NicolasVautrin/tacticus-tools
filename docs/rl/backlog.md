@@ -5366,21 +5366,22 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
 
-- **#10041-r5 — un `StartMatch` sans bataille EMPOISONNE la session : rendre le creneau, ou refuser.** `[opus]`
+- **#10041-r5 — la BATAILLE A 0 UNITE : le verrou est LEVE, le montage vide reste INEXPLIQUE.** `[opus]`
   Point d'entree : `docs/rl/case-10041-r5-un-startmatch-sans-bataille-empoisonne-tous-les-chargements.md`.
-  `StartMatch` ecrit la source dans le creneau << match courant >> puis appelle `LoadBattle`. Si la
-  bataille n'aboutit pas, le creneau RESTE OCCUPE : tout chargement suivant monte CETTE source --
-  y compris celui du JOUEUR, qui obtient une bataille a 0 unite se terminant a l'instant. Mesure du
-  2026-08-21, verbatim utilisateur : << la battle se charge et disparait direct >>, << y'avait
-  0 units >>. Seule une relance du jeu libere le creneau ; aucun desarmement n'y suffit.
+  LE VOLET << rendre le creneau >> EST FAIT (2026-08-21) : la garde de `StartMatch` teste le
+  statique `IdunMainView.IsActive` (arme par `IdunMainView$$SetBattleLoading`, PAS le voisin
+  `IsBattleActive` que publie `retreatStatus`), et `IdunMainView$$SetBattleNotRunning()` le leve.
+  Foyer : `rejeu_commun.liberer_le_verrou_de_match`, qui REFUSE quand le verrou n'est pas orphelin.
+  Eprouve en armant le verrou pour de vrai, puis en le faisant lever.
+  ⚠ CE QUI RESTE OUVERT, et dont la case-doc portait une explication NON ETABLIE : pourquoi le
+  joueur a obtenu une bataille << qui se charge et disparait direct >>, << y'avait 0 units >>.
+  << le creneau reste occupe donc tout chargement suivant monte CETTE source >> ne tient pas au
+  decompile : `StartMatch` REECRIT le creneau a chaque appel. Donc la source montee etait la
+  SIENNE, et c'est autre chose qui l'a videe. A re-mesurer, sans reprendre cette phrase.
   ⚠ Le symptome ne designe jamais sa cause et il SE DEPLACE (`runnerGeneration` monte alors que le
-  runner meurt ; `__loadingStep` a 0 alors qu'il a charge). Coût mesure : ~2 h et ~10 relances,
-  passees a bisecter un bundle innocent.
-  A faire : apres un `StartMatch`, si la bataille n'est pas la en quelques secondes, RENDRE le
-  creneau (ou refuser d'armer tant qu'il est occupe) plutot que de laisser la session perdue.
-  Et cesser de lire `runnerGeneration` comme un temoin de montage -- il compte les runners CREES.
-  Montage : la bisection qui l'a nomme est dans la case-doc ; son discriminant est le JOUEUR
-  (<< peux-tu lancer une bataille de campagne a la main ? >>), auquel aucun capteur ne repond.
+  runner meurt ; `__loadingStep` a 0 alors qu'il a charge). Cout mesure : ~2 h et ~10 relances,
+  passees a bisecter un bundle innocent. Le discriminant a ete le JOUEUR (<< peux-tu lancer une
+  bataille de campagne a la main ? >>), auquel aucun capteur ne repond.
   FOYER: frida/hooks/features/sandbox-mode.ts, frida/hooks/features/guild-war-config.ts
   BLOCAGE: aucun
 

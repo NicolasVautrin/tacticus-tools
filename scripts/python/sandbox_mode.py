@@ -411,16 +411,21 @@ def cmd_bc(jeu, args, monter):
         # REELLE, une tentative est enregistree AU CHARGEMENT : ecraser la PERD sans qu'aucun
         # compteur local ne bouge, et ca a deja coute deux jetons. La regle reste donc `true`.
         #
-        # (!)MAIS ELLE BLOQUE LA REPETITION, et c'est mesure. Mesure du 2026-08-21 : une bataille
-        # qui se TERMINE (victoire au bout des coups) laisse le creneau << match courant >>
-        # occupe -- rien ne le libere, ni la fin de la scene, ni `OnBattleEndClose` (il n'y a plus
-        # d'`IdunMainView` a qui parler). Tout chargement suivant est alors refuse EN SILENCE :
-        # le notre ET CELUI DU JOUEUR, qui ne peut plus lancer une bataille de campagne jusqu'a
-        # relance du jeu. Detail : `docs/rl/case-10041-r5-*`.
+        # (!)ET CE DRAPEAU N'EST PAS LE REMEDE A << PLUS RIEN NE SE CHARGE >> -- il passe OUTRE.
         #
-        # ⇒ Un montage SANDBOX n'enregistre RIEN cote serveur (surface de
-        # `SandboxGameModeSource` relevee methode par methode : aucun `Send*GameEvent`). Y ecraser
-        # le creneau ne peut donc rien perdre. C'est le seul cas ou desarmer est licite.
+        # Ce qui bloque les chargements est le statique `IdunMainView.IsActive`, qu'un montage
+        # NON ABOUTI laisse arme sans aucune bataille pour l'expliquer. Ce que teste `StartMatch`,
+        # c'est LUI. `IdunMainView$$SetBattleNotRunning()` le leve -- c'est la methode du jeu, et
+        # `rejeu_commun.liberer_le_verrou_de_match` l'appelle QUAND LE VERROU EST ORPHELIN, en
+        # refusant sinon. C'est par la que passe la repetition depuis le 2026-08-21.
+        #
+        # ⚠ Desarmer la garde ne debloque QUE NOUS : le `StartMatch` du joueur, lui, teste
+        # toujours -- donc sa campagne reste bloquee. C'est precisement ce qu'il a vecu.
+        # Detail : `docs/rl/case-10041-r5-*`.
+        #
+        # ⇒ Reste comme DERNIER RECOURS, et seulement ici : un montage SANDBOX n'enregistre RIEN
+        # cote serveur (surface de `SandboxGameModeSource` relevee methode par methode : aucun
+        # `Send*GameEvent`), donc y ecraser le creneau ne peut rien perdre.
         if args.ecraser_le_match_courant:
             corps["checkIfAlreadyRunning"] = False
         d = jeu.rpc("sandboxModeStart", [corps], timeout=120000)
@@ -493,12 +498,14 @@ def main(argv):
     ap.add_argument("--confirmer", action="store_true")
     ap.add_argument("--ecraser-le-match-courant", dest="ecraser_le_match_courant",
                     action="store_true",
-                    help="⛔ SANDBOX SEULEMENT. Desarme `checkIfAlreadyRunning`, donc ECRASE le "
-                         "match courant. Une bataille TERMINEE laisse le creneau occupe et bloque "
-                         "TOUS les chargements suivants -- y compris ceux du joueur -- jusqu'a "
-                         "relance du jeu ; c'est la seule facon de rejouer sans relancer. NE "
-                         "JAMAIS l'utiliser quand un match est enregistre cote serveur (boss de "
-                         "guilde, guerre de guilde REELLE) : la tentative serait PERDUE.")
+                    help="DERNIER RECOURS, SANDBOX SEULEMENT. Desarme `checkIfAlreadyRunning`, "
+                         "donc ECRASE le match courant QUOI QU'IL Y AIT dedans. Ce n'est PAS le "
+                         "remede a << plus rien ne se charge >> : ce verrou-la est le statique "
+                         "`IdunMainView.IsActive`, et `IdunMainView$$SetBattleNotRunning()` le "
+                         "leve proprement (voir `rejeu_commun.liberer_le_verrou_de_match`, qui "
+                         "refuse quand le verrou n'est pas orphelin). NE JAMAIS l'utiliser quand "
+                         "un match est enregistre cote serveur (boss de guilde, guerre de guilde "
+                         "REELLE) : la tentative serait PERDUE.")
     args = ap.parse_args(argv)
 
     jeu = Jeu(args.hote, args.session)

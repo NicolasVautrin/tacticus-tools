@@ -285,6 +285,95 @@ def bc_vivante(jeu):
         stop("la BC vivante ne se relit pas (%s)" % e)
 
 
+def _statique_booleen(jeu, methode):
+    """Lit un statique d'`IdunMainView` par son getter. TRI-ETAT : `None` = PAS MESURE."""
+    r = jeu.rpc("viewInvoke", [{"cible": "statique", "methode": methode,
+                                "confirmer": True}], timeout=30000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        return None
+    ret = r.get("retour")
+    if not isinstance(ret, dict) or ret.get("decode") is not True:
+        return None
+    v = ret.get("valeur")
+    return v if isinstance(v, bool) else None
+
+
+def etat_du_verrou_de_match(jeu):
+    """Les deux statiques d'`IdunMainView` qui commandent l'entree en bataille.
+
+    `idun.shared.commands.ViewCommandExecutor$$StartMatch` commence par, quand son parametre
+    `checkIfAlreadyRunning` est vrai, LIRE un booleen statique et REFUSER s'il vaut vrai (il
+    journalise par `Idun.Shared.Extensions.IIdunLoggerExtensions$$LogError` et retourne, sans
+    jamais appeler `thor.Loader$$LoadBattle`).
+
+    (!)CE BOOLEEN EST `IsActive`, PAS `IsBattleActive`, et les confondre envoie chercher la
+    mauvaise cause. Les deux statiques sont voisins d'un octet dans les champs statiques
+    d'`IdunMainView` : `IdunMainView$$get_IsActive` lit celui que `StartMatch` teste,
+    `IdunMainView$$get_IsBattleActive` lit le suivant. `retreatStatus.batailleActive` publie
+    le SECOND -- il peut donc rendre `false` (aucune bataille) pendant que le premier bloque
+    encore toute entree. C'est exactement l'ecart qui se lit << rien ne tourne, et pourtant
+    plus rien ne se charge >>.
+    """
+    return {"IsActive": _statique_booleen(jeu, "get_IsActive"),
+            "IsBattleActive": _statique_booleen(jeu, "get_IsBattleActive")}
+
+
+def liberer_le_verrou_de_match(jeu, exiger_la_mesure=True):
+    """LIBERER le verrou d'entree QUAND IL EST ORPHELIN -- et REFUSER quand il ne l'est pas.
+
+    (!)IL Y A UNE METHODE DU JEU POUR CA : `idun.IdunMainView$$SetBattleNotRunning()`, statique,
+    sans argument, qui remet les DEUX booleens a zero. C'est ce que le jeu s'appelle a lui-meme
+    en fin de bataille. On n'ecrit donc pas en memoire : on rejoue le geste natif.
+
+    ⚠ CE QUE CE CRAN CORRIGE DANS `case-10041-r5` : il y etait ecrit << seule une relance du jeu
+    libere le creneau >>. C'est FAUX, et le croire a coute une dizaine de relances a
+    l'utilisateur. Ce qui est vrai, c'est qu'aucun DESARMEMENT DE RELAIS n'y suffisait -- on
+    cherchait le remede du mauvais cote.
+
+    ⚠ ET LA LIBERATION EST CONDITIONNELLE, PARCE QU'UN VERROU LEGITIME PROTEGE UNE TENTATIVE.
+    Si une bataille vit vraiment, effacer `IsActive` autorise le montage suivant a ECRASER le
+    match courant -- cote boss de guilde ou GW reelle, la tentative est enregistree AU
+    CHARGEMENT, donc l'ecraser la PERD sans qu'aucun compteur local ne bouge. On n'ouvre donc
+    que sur un verrou ORPHELIN : arme, mais sans `IdunMainView` vivante et chargeur au repos.
+    """
+    av = etat_du_verrou_de_match(jeu)
+    if av["IsActive"] is None:
+        if exiger_la_mesure:
+            stop("verrou d'entree NON MESURE (`IdunMainView$$get_IsActive` injoignable) -- "
+                 "ce n'est PAS << libre >>, et on ne monte pas sur un etat inconnu.")
+        print("   verrou d'entree NON MESURE -- on n'y touche pas.")
+        return None
+    if av["IsActive"] is False:
+        print("   verrou d'entree LIBRE (`IsActive` faux) -- rien a liberer.")
+        return False
+
+    p = jeu.rpc("sandboxProbe", [], timeout=60000)
+    instance = p.get("instance") if isinstance(p, dict) and p.get("ok") else "NON MESURE"
+    l = jeu.rpc("loaderStatus", [], timeout=120000)
+    au_repos = (isinstance(l, dict) and l.get("ok")
+                and l.get("etape") == 0 and l.get("chargementEnCours") is False)
+    if instance is not None or not au_repos:
+        stop("le verrou d'entree est ARME et il n'est PAS orphelin (IdunMainView=%s, chargeur "
+             "au repos=%s). Le lever ferait ECRASER un match qui vit -- et une tentative "
+             "enregistree au chargement se perd sans qu'aucun compteur ne bouge. On s'arrete."
+             % (json.dumps(instance, ensure_ascii=False), au_repos))
+
+    r = jeu.rpc("viewInvoke", [{"cible": "statique", "methode": "SetBattleNotRunning",
+                                "confirmer": True}], timeout=60000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        stop("`IdunMainView$$SetBattleNotRunning` a REFUSE : %s"
+             % json.dumps(r, ensure_ascii=False)[:240])
+    # ⚠ ON RELIT. Un `ok: true` dit que l'appel a passe, pas que la mutation a mordu.
+    ap = etat_du_verrou_de_match(jeu)
+    if ap["IsActive"] is not False:
+        stop("`SetBattleNotRunning` a rendu `ok` mais `IsActive` vaut TOUJOURS %s -- la "
+             "mutation n'a pas mordu, on ne monte pas par-dessus." % ap["IsActive"])
+    print("   verrou d'entree ORPHELIN libere par `IdunMainView$$SetBattleNotRunning` "
+          "(IsActive %s -> %s, IsBattleActive %s -> %s)."
+          % (av["IsActive"], ap["IsActive"], av["IsBattleActive"], ap["IsBattleActive"]))
+    return True
+
+
 def chargeur_au_repos(jeu):
     """(!)LE DISCRIMINANT DE #993, ET IL VAUT DANS LES DEUX SENS. `thor.Loader$$LoadScene`
     REFUSE EN SILENCE quand un chargement est deja en cours : il journalise et retourne. Lancer

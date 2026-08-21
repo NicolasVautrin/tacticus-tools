@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante          # noqa: E402
 from sandbox_mode import Jeu                      # noqa: E402
 from deploiement_commun import ARMEMENTS_CAPTEURS  # noqa: E402
+from rejeu_commun import liberer_le_verrou_de_match  # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
 
@@ -300,19 +301,22 @@ for nom, corps in armements:
 # 7. Le montage. Le mode importe peu : l'override substitue la BC, ce qui compte est la SOURCE.
 print()
 cmd = [sys.executable, str(RACINE / "scripts" / "python" / "sandbox_mode.py"),
-       "start", "--mode", "waves", "--session", str(sid), "--onslaught-tier", "5", "--confirmer",
-       # ⛔ SANDBOX, DONC LICITE -- et NECESSAIRE pour rejouer sans relancer le jeu.
-       #
-       # Une bataille qui se TERMINE laisse le creneau << match courant >> occupe, et rien ne le
-       # libere : ni la fin de la scene, ni `OnBattleEndClose` (plus d'`IdunMainView`). Tout
-       # chargement suivant est refuse EN SILENCE -- le notre, ET CELUI DU JOUEUR. Mesure du
-       # 2026-08-21, verbatim : << la battle se charge et disparait direct >>. Sans ce drapeau, il
-       # faut relancer le jeu entre chaque repetition.
-       #
-       # ⚠ CE N'EST LICITE QU'ICI : cette voie monte une `SandboxGameModeSource`, qui n'enregistre
-       # RIEN cote serveur. La voie REELLE (`guerre_rejeu_reel.py --armer`) n'y touche JAMAIS --
-       # une tentative de guilde y est enregistree AU CHARGEMENT, donc l'ecraser la PERDRAIT.
-       "--ecraser-le-match-courant"]
+       "start", "--mode", "waves", "--session", str(sid), "--onslaught-tier", "5", "--confirmer"]
+# (!)ON LEVE LE VERROU S'IL EST ORPHELIN -- ON NE DESARME PLUS LA GARDE.
+#
+# Ce site passait `--ecraser-le-match-courant`, qui met `checkIfAlreadyRunning` a faux : la garde
+# de `ViewCommandExecutor$$StartMatch` sautait, donc le montage passait QUOI QU'IL Y AIT dans le
+# creneau. Ca reglait la repetition, et ca reglait aussi ce qu'il ne fallait pas regler.
+#
+# Ce que `StartMatch` teste est le statique `IdunMainView.IsActive` (le getter est
+# `IdunMainView$$get_IsActive`) -- pas `IsBattleActive`, que publie `retreatStatus.batailleActive`.
+# Un verrou reste donc ARME apres un montage qui n'aboutit pas, sans aucune bataille pour
+# l'expliquer, et bloque tous les chargements suivants : le notre ET CELUI DU JOUEUR.
+#
+# `IdunMainView$$SetBattleNotRunning()` est la methode du jeu qui les remet a zero. La lever
+# QUAND ELLE EST ORPHELINE traite la cause ; desarmer la garde ne faisait que passer outre --
+# et laissait la partie du joueur bloquee, puisque SON `StartMatch`, lui, teste toujours.
+liberer_le_verrou_de_match(j)
 if args.seed is not None:
     cmd += ["--seed", str(args.seed)]
     print("seed pose au montage : %s" % args.seed)

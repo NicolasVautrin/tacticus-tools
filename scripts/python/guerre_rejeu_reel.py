@@ -67,8 +67,8 @@ from replay_rejouer import poses_du_replay                   # noqa: E402
 from rejeu_commun import (                                   # noqa: E402
     armer_le_fil, armer_le_seed, attendre_le_runner, bc_vivante, chargeur_au_repos,
     controler_le_capteur_de_vue, desarmer_capture_de_fin, ecarts_bc,
-    generation_du_runner, rendre_compte_du_fil, verifier_morsure,
-    verifier_phase_avant_start,
+    etat_du_verrou_de_match, generation_du_runner, liberer_le_verrou_de_match,
+    rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
 )
 
 HOTE = "http://127.0.0.1:8765"
@@ -391,6 +391,19 @@ def main(argv=None):
         gen = generation_du_runner(j)
 
         print()
+        print("cran 7e -- LE VERROU D'ENTREE, mesure au plus PRES de l'appel irreversible")
+        # (!)C'EST LE CRAN QUI EMPECHE DE DEPENSER UNE TENTATIVE POUR RIEN. `StartMatch` REFUSE
+        # EN SILENCE quand le statique `IdunMainView.IsActive` est arme -- il journalise et
+        # retourne, sans charger. Un montage precedent qui n'a pas abouti le laisse arme SANS
+        # aucune bataille pour l'expliquer, et `retreatStatus.batailleActive` ne le montre pas :
+        # ce temoin-la publie `IsBattleActive`, le statique VOISIN.
+        #
+        # On le lit donc ici, juste avant l'appel, et on le leve S'IL EST ORPHELIN. S'il ne l'est
+        # pas, `liberer_le_verrou_de_match` ARRETE -- car lever un verrou legitime autoriserait
+        # le montage a ECRASER un match dont la tentative est deja enregistree cote serveur.
+        liberer_le_verrou_de_match(j)
+
+        print()
         print("cran 8 -- ENGAGEMENT REEL. Ceci prend une tentative de guilde et part au serveur.")
         r = j.rpc("guildWarEngagerReel", [{"confirmer": True,
                                            "warZoneId": cible["warZoneId"],
@@ -414,16 +427,25 @@ def main(argv=None):
         time.sleep(1.5)
         l = j.rpc("loaderStatus", [], timeout=120000) or {}
         if l.get("etape") == 0 and l.get("chargementEnCours") is False:
+            # (!)ON LES DEPARTAGE MAINTENANT, ET SANS LE JOURNAL DU JEU. Ce cran renvoyait les
+            # deux refus dos a dos en disant qu'il ne savait pas choisir. Il sait : le verrou
+            # de `StartMatch` EST le statique `IdunMainView.IsActive`, et il se lit. Le cran 7e
+            # vient de le mesurer LIBRE ; s'il est ARME juste apres, c'est que notre propre appel
+            # l'a pose -- donc `StartMatch` est passe et le refus est en aval, chez le chargeur.
+            v = etat_du_verrou_de_match(j)
+            if v["IsActive"] is True:
+                cause = ("`IdunMainView.IsActive` est ARME : `StartMatch` a bien pose le match "
+                         "et le refus est EN AVAL -- `thor.Loader$$LoadBattle` journalise et "
+                         "retourne dans ses propres cas de refus.")
+            elif v["IsActive"] is False:
+                cause = ("`IdunMainView.IsActive` est LIBRE : `StartMatch` n'a rien pose du tout. "
+                         "Le refus est donc AVANT le chargeur -- relire le retour de l'appel.")
+            else:
+                cause = ("verrou d'entree NON MESURE apres coup -- on ne designe personne.")
             stop("`StartMatch` est PASSE mais AUCUN chargement n'a demarre (`__loadingStep` "
                  "toujours a 0). Le chargement n'a donc pas ECHOUE : il n'a jamais COMMENCE.\n"
-                 "         DEUX refus silencieux peuvent le produire, et CE CRAN NE LES DISTINGUE "
-                 "PAS -- ne pas en designer un :\n"
-                 "           * `StartMatch` lui-meme : avec `checkIfAlreadyRunning`, il "
-                 "journalise une erreur et RETOURNE si un match est deja enregistre ;\n"
-                 "           * `thor.Loader$$LoadBattle` : il journalise et retourne aussi, dans "
-                 "ses propres cas de refus.\n"
-                 "         Les departager se fait au JOURNAL DU JEU (`Player.log`), ou les deux "
-                 "ecrivent. Rien n'est parti au serveur -- le verifier au fil.", code=1)
+                 "         %s\n"
+                 "         Rien n'est parti au serveur -- le verifier au fil." % cause, code=1)
 
         # (!)L'APPEL PASSE NE DIT RIEN DU MONTAGE -- on attend LE SIGNAL, pas une duree. ET 30 s
         # SUFFISENT : une bataille monte en quelques secondes ou ne monte pas. Attendre plus long
