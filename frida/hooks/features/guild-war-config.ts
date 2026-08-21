@@ -1464,8 +1464,31 @@ export function register(ctx: Ctx): void {
                 // echappatoire EXPLICITE, jamais le defaut.
                 i32(rarityCap),                           // RarityCap
                 env,                                      // EnvironmentAbilities
-                NULL,                                     // Buffs        -- HUD seul
-                NULL,                                     // EnemyPlayer  -- replay seul
+                // ⛔ CES DEUX NULS FONT LEVER L'ENGAGEMENT REEL. Mesure du 2026-08-21.
+                //
+                // Le commentaire qui tenait ici -- << Buffs : HUD seul >>, << EnemyPlayer :
+                // replay seul >> -- etait une justification ECRITE, jamais mesuree, et fausse.
+                // `GuildWarsGameModeSource$$SendLoadBattleGameEventInternal` ENUMERE `Buffs`
+                // (record +0x50) et tombe sur son lanceur d'exception s'il est nul :
+                //
+                //     if ((*(this+0x78) != 0) && (l = *(*(this+0x78) + 0x50), l != 0)) { ... }
+                //     FUN_1801f5460();   // NullReferenceException
+                //
+                // C'est le SEUL geste du montage que la sandbox ne fait pas -- d'ou une
+                // repetition bit-exacte et un engagement reel qui leve, par les DEUX points
+                // d'entree. Le throw precede `TempBattleData$$GenerateNewBattleId`, donc rien
+                // ne part au serveur et aucune tentative n'est consommee (mesure : 10 avant,
+                // 10 apres, deux fois).
+                //
+                // (!)ILS SE DERIVENT, ILS NE S'INVENTENT PAS. Le site de construction du jeu est
+                // `ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked`, qui les
+                // tire tous deux de la progression de guerre de guilde -- `Buffs` par un
+                // `ListExtensions$$Map` sur le retour de l'interface (slot 0x1f, warZoneId), et
+                // `EnemyPlayer` par un autre appel d'interface (slot 0x15, warZoneId +
+                // zonePartIndex). Une liste VIDE est le cas normal d'une zone sans buff ; `null`
+                // ne l'est jamais.
+                NULL,                                     // Buffs        -- A DERIVER (#10041-r6)
+                NULL,                                     // EnemyPlayer  -- A DERIVER (#10041-r6)
             ]);
         } catch (e) { return refus("`GuildWarBattleData..ctor` a LEVE : " + (e as Error).message); }
 
@@ -1591,53 +1614,51 @@ export function register(ctx: Ctx): void {
         const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
         if (!kExec) return refus("classe `ViewCommandExecutor` introuvable");
 
-        // ⛔ ON N'APPELLE PAS `StartGuildWarsMatch` : IL LEVE, ET LE DECOMPILE DIT POURQUOI.
+        // ⛔ ON ENGAGE PAR `StartGuildWarsMatch`, ET ON NE LUI SUBSTITUE PAS NOTRE SOURCE.
         //
-        // `idun.shared.commands.ViewCommandExecutor$$StartGuildWarsMatch` ne fait QUE deux
-        // choses -- construire une `GuildWarsGameModeSource`, puis appeler `StartMatch`. Mais il
-        // lit ses 17 arguments de ctor SUR L'EXECUTEUR, derriere deux gardes :
+        // `idun.shared.commands.ViewCommandExecutor$$StartGuildWarsMatch(battleData)` a
+        // exactement la forme de `ViewCommandExecutor$$StartCampaignMatch` : il CONSTRUIT la
+        // source a partir de ses PROPRES champs, puis appelle `StartMatch`. Rien d'autre -- pas
+        // de preparation, pas de navigation, pas d'etat a poser. Sur un match OFFICIEL, c'est
+        // donc lui le point d'entree : la source que le serveur verra doit etre celle que le jeu
+        // se fabrique, pas une que nous aurions assemblee.
         //
-        //     if (*(this + 0x3a0) != 0) { ... if (*(this + 0x530) != 0) { ctor(); StartMatch(); }}
-        //     FUN_1801f5460();   // WARNING: Subroutine does not return  -> le throw
+        // ⚠ CE COMMENTAIRE A PORTE L'INVERSE, ET C'ETAIT FAUX. Il disait que `StartGuildWarsMatch`
+        // levait parce que l'un de ses deux champs de garde etait NUL, et en tirait qu'il fallait
+        // passer par `StartMatch` avec une source forgee. MESURE DU 2026-08-21, sur l'executeur
+        // vivant : `_userProgression` (+0x3a0) et `_menuSystems` (+0x530) sont NON NULS, comme
+        // les quatre champs lus derriere eux -- `_userProgression._guildWarPhaseProgression`,
+        // et `unitDeploymentHud` / `GuildWarInBattleHud` / `idunGameHud` sur `_menuSystems`.
+        // Les gardes PASSENT. Le `NullReferenceException` venait donc d'AILLEURS, en AVAL --
+        // et le contournement l'a emporte avec lui : la voie `StartMatch` leve au meme endroit.
         //
-        // Mesure du 2026-08-21 : l'appel leve `NullReferenceException`, donc l'un des deux champs
-        // est NUL sur l'executeur vivant. Le second est `_menuSystems` -- le natif y lit
-        // `+0x188`, `+0x3c8`, `+0xf8`, exactement les offsets que `guildWarSourceForger` resout
-        // par NOM de champ pour ses trois HUD.
+        // ⚠ `StartGuildWarsMatch` appelle `StartMatch(this, source, 1)` -- `checkIfAlreadyRunning`
+        // code en dur a `true` par le jeu lui-meme. Ecraser un match DEJA enregistre cote serveur
+        // PERD la tentative sans qu'aucun compteur local ne bouge ; passer par le natif nous
+        // enleve jusqu'a la possibilite de le desarmer.
         //
-        // (!)ET C'EST SANS CONSEQUENCE POUR NOUS, parce qu'on a DEJA fait le travail que ces
-        // champs servaient a faire : la source est forgee par `guildWarSourceForger`, avec les
-        // MEMES 17 arguments dans le MEME ordre, resolus autrement. Il ne reste donc que le
-        // second geste du natif -- et `StartMatch` ne dereference NI `+0x3a0` NI `+0x530` : il
-        // pose la source dans un porteur, l'ecrit dans le statique, et appelle
-        // `thor.Loader$$LoadBattle`. C'est la methode du jeu, pas un contournement.
-        //
-        // ⚠ `checkIfAlreadyRunning` RESTE A `true`. `StartMatch` ECRASE le match courant : ecraser
-        // un match DEJA enregistre cote serveur PERD la tentative sans qu'aucun compteur local ne
-        // bouge. Le desarmer a deja coute deux jetons de boss de guilde.
-        if (sourceForgeeGw === null || sourceForgeeGw.isNull()) {
-            return { ok: false, cible: c, error: "aucune `GuildWarsGameModeSource` forgee -- "
-                + "rejouer `guildWarSourceForger {confirmer:true}`. On n'engage que ce qu'on a "
-                + "construit." };
+        // Ce qu'on forge reste le `GuildWarBattleData` -- la CIBLE (zone, slot, equipe defendante),
+        // lue du plateau, jamais inventee. C'est l'argument que le natif attend.
+        if (recordForgeGw === null || recordForgeGw.isNull()) {
+            return { ok: false, cible: c, error: "aucun `GuildWarBattleData` forge -- rejouer "
+                + "`guildWarSourceForger {confirmer:true}`. On n'engage que ce qu'on a construit." };
         }
-        const m = findMethodByParamCount(kExec, "StartMatch", 2);
+        const m = findMethodByParamCount(kExec, "StartGuildWarsMatch", 1);
         if (!m) {
-            return refus("`ViewCommandExecutor$$StartMatch(2)` INTROUVABLE -- signature CHANGEE "
-                + "sur ce build. On n'invente pas un point d'entree pour engager.");
+            return refus("`ViewCommandExecutor$$StartGuildWarsMatch(1)` INTROUVABLE -- signature "
+                + "CHANGEE sur ce build. On n'invente pas un point d'entree pour engager.");
         }
-        const chk = Memory.alloc(1);
-        chk.writeU8(1);                       // checkIfAlreadyRunning = true, jamais desarme ici
         try {
-            invokeMethod(m.info, exec as NativePointer, [sourceForgeeGw, chk]);
+            invokeMethod(m.info, exec as NativePointer, [recordForgeGw]);
         } catch (e) {
             return { ok: false, cible: c, engage: "INCERTAIN",
-                     error: "`StartMatch` a LEVE : " + (e as Error).message
+                     error: "`StartGuildWarsMatch` a LEVE : " + (e as Error).message
                          + " -- (!)L'EXCEPTION NE PROUVE PAS QUE RIEN N'EST PARTI : le battleId "
                          + "peut avoir ete pousse avant. Relire `attemptsLeft` avant de retenter." };
         }
         return {
-            ok: true, cible: c, methode: "ViewCommandExecutor$$StartMatch",
-            source: sourceForgeeGw.toString(),
+            ok: true, cible: c, methode: "ViewCommandExecutor$$StartGuildWarsMatch",
+            record: recordForgeGw.toString(),
             note: "l'appel est PASSE -- ca ne dit rien du montage, et ca ne dit pas non plus que "
                 + "la tentative a ete comptee. Verifier les DEUX : `sandboxProbe` / "
                 + "`retreatStatus.batailleActive` pour la scene, et `guildWarBoardRead."

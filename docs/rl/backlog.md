@@ -5366,27 +5366,34 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
 
-- **#10041-r6 — l'ENGAGEMENT REEL leve une `NullReferenceException` DANS `thor.Loader$$LoadScene`.** `[opus]`
-  Point d'entree : `frida/hooks/features/guild-war-config.ts` (`guildWarEngagerReel`), et le
-  decompile de `thor.Loader$$LoadBattle` / `thor.Loader$$LoadScene`.
-  Mesure du 2026-08-21, session 137, bundle portant `StartMatch` : les crans 1 a 7e passent tous
-  (BC 0 ecart, lineup conforme, relais propres, chargeur au repos, verrou libre), puis
-  `ViewCommandExecutor$$StartMatch(sourceForgeeGw, checkIfAlreadyRunning=1)` LEVE une
-  `NullReferenceException`. AUCUNE tentative consommee : `attemptsLeft` = 10 avant ET apres.
-  (!)L'ETAGE EST LOCALISE, ET PAR UNE MESURE, PAS PAR LECTURE. Apres le throw,
-  `IdunMainView.IsActive` valait VRAI. Or le seul ecrivain de ce statique sur ce chemin est
-  `IdunMainView$$SetBattleLoading()`, appele par `LoadBattle` a son AVANT-DERNIERE instruction.
-  Donc `StartMatch` a fini, `LoadBattle` a passe son bloc de progression de campagne, et le throw
-  est dans `thor.Loader$$LoadScene(1, 1, 0)` -- qui porte SEPT `goto` vers le lanceur d'exception.
-  ⚠ ET `LoadScene` NE LIT PAS LA SOURCE : il ne lit que les statiques de `thor.Loader`. L'accuser
-  d'etre << notre source qui est malformee >> serait donc une hypothese, pas une lecture.
-  ⚠ Le rejeu SANDBOX de la meme zone passe le meme `StartMatch` sans lever -- mais il monte une
-  `SandboxGameModeSource` avec la BC en override, PAS la `GuildWarsGameModeSource`. Les deux ne
-  different donc PAS que par la source : ils different aussi par tout ce que le montage sandbox
-  arme avant. Ne pas conclure de l'un sur l'autre sans isoler.
-  A faire : nommer le `goto` fautif. Piste la moins chere : `Player.log` est a ZERO octet sur
-  cette installation -- `LoadScene` journalise pourtant par `SPLogger$$LogDebug` AVANT ses
-  branches risquees, donc retablir ce journal partagerait la fonction en deux.
+- **#10041-r6 — l'engagement reel leve parce que `Buffs` et `EnemyPlayer` du record sont NULS.** `[opus]`
+  Point d'entree : `frida/hooks/features/guild-war-config.ts` (`guildWarSourceForger`, le ctor du
+  record), et le decompile de
+  `IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource$$SendLoadBattleGameEventInternal`.
+  Mesure du 2026-08-21 : les crans 1 a 7e passent tous, puis l'engagement leve une
+  `NullReferenceException`. AUCUNE tentative consommee -- `attemptsLeft` = 10 avant ET apres,
+  DEUX fois, par les DEUX points d'entree.
+  CAUSE : `SendLoadBattleGameEventInternal` enumere `Buffs` (record +0x50) et tombe sur son
+  lanceur d'exception s'il est nul. Le throw precede `TempBattleData$$GenerateNewBattleId`, donc
+  rien ne part au serveur -- ce qui explique les tentatives intactes. C'est le SEUL geste du
+  montage que la sandbox ne fait pas, d'ou une repetition bit-exacte a cote d'un engagement qui
+  leve. `EnemyPlayer` (+0x58) est nul aussi, par la meme ligne de code.
+  A FAIRE : les DERIVER, jamais les inventer. Le site de construction du jeu est
+  `ShowGuildWarsBattlePreviewPopupCommand$$OnStartBattleButtonClicked` -- `Buffs` par un
+  `idun.shared.extensions.ListExtensions$$Map` sur le retour d'un appel d'interface (slot 0x1f,
+  warZoneId) de la progression de guerre de guilde, `EnemyPlayer` par un autre (slot 0x15,
+  warZoneId + zonePartIndex). Une liste VIDE est le cas normal d'une zone sans buff ; `null` ne
+  l'est jamais.
+  ⚠ CE QUI A COUTE LE PLUS ICI EST UN COMMENTAIRE. Le site portait `NULL, // Buffs -- HUD seul` :
+  une justification ECRITE, jamais mesuree, qui a fait passer le champ pour un detail d'affichage
+  pendant que le natif l'exigeait. Le meme fichier portait aussi que `StartGuildWarsMatch` levait
+  a cause d'un champ nul sur l'executeur -- MESURE : `_userProgression` (+0x3a0) et `_menuSystems`
+  (+0x530) sont non nuls, comme les quatre champs lus derriere eux. Les deux gardes PASSENT ; ce
+  diagnostic-la etait faux, et la forge de source qu'il justifiait etait inutile.
+  ⚠ ET ELLE ETAIT ILLEGITIME : sur un match officiel on ne forge pas la source (consigne
+  utilisateur du 2026-08-21). `guildWarEngagerReel` appelle desormais
+  `ViewCommandExecutor$$StartGuildWarsMatch(record)` -- meme forme exacte que `StartCampaignMatch`,
+  qui ne fait RIEN d'autre que construire sa source puis appeler `StartMatch`.
   FOYER: frida/hooks/features/guild-war-config.ts
   BLOCAGE: aucun
 
