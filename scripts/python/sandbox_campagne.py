@@ -94,6 +94,9 @@ ap.add_argument("--sans-replay", action="store_true", help="ne pas armer la capt
 # lui-meme par `GetBattleLineup`.
 ap.add_argument("--garder-memoire", action="store_true",
                 help="ne PAS vider la memoire de pose (cas du retry sur la MEME bataille)")
+
+# L'ordinal de `--type` -> son nom, tel que la localisation et `battles.campaigns` le nomment.
+TYPE_NOMME = {0: "Standard", 1: "Elite", 2: "Mirror", 3: "EliteMirror", 4: "Event"}
 args = ap.parse_args()
 
 idx = args.noeud - 1
@@ -274,5 +277,29 @@ rc = subprocess.run(cmd, cwd=str(RACINE)).returncode
 if rc != 0:
     print("REFUS : le montage a echoue (rc=%d)." % rc)
     sys.exit(1)
+
+# 6. LAISSER LA TRACE DE CE QU'ON A MONTE -- c'est le seul endroit qui le SACHE.
+#
+# ⛔ `BC.Id` NE DIT PAS LE TYPE DE CAMPAGNE. Les quatre types portent le meme prefixe :
+# `Campaign2_12` designe aussi bien la Standard que l'Elite, la Mirror ou l'EliteMirror. Mesure
+# du 2026-08-22 -- ce montage-ci (`elite2` noeud 12) a rendu `BC.Id = Campaign2_12`, et le
+# classeur l'a range en `campaign2`. Le fichier avait l'air juste.
+#
+# Le PLATEAU desambigue souvent (campagne#2 noeud 12 : `C2_14` en Standard, `EC2_04` en Elite),
+# mais pas toujours -- 28 couples sur 366 partagent un board entre deux types -- et il derive
+# d'une saison a l'autre : deux replays anciens du depot portent un board que le gameconfig
+# COURANT n'associe plus a leur noeud. Une derivation seule refuserait donc a tort.
+#
+# Ce fichier-ci est ecrit par CELUI QUI SAIT, au moment ou il sait. Le classeur s'en sert et le
+# CONFRONTE au `BC.Id` et au board de la capture : concordance exigee, sinon refus.
+_trace = {"campagne": args.campagne, "type": args.type, "typeNom": TYPE_NOMME.get(args.type),
+          "noeud": args.noeud, "bcId": d.get("Id"),
+          "board": (d.get("Board") or {}).get("Id"),
+          "seuilEclair": _seuil}
+_p = RACINE / "logs" / "dernier-montage.json"
+_p.parent.mkdir(parents=True, exist_ok=True)
+_p.write_text(json.dumps(_trace, ensure_ascii=False, indent=1), encoding="utf-8")
+print("montage TRACE dans %s" % _p)
+
 print()
 print("MONTE. Verifier par `sandboxProbe` / l'ecran -- l'appel passe ne dit RIEN du montage.")
