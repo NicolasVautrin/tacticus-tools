@@ -82,8 +82,8 @@ const journal: Fire[] = [];
 let recus = 0;
 let ecartes = 0;
 
-/** Un ancrage POSE, garde avec de quoi le REPOSER. Cf. `retreatInvoke` : on ne peut pas
- *  invoquer une methode qu'on ancre sans l'avoir deposee d'abord. */
+/** Un ancrage RESOLU, garde avec de quoi l'attacher plus tard. `listener` nul = resolu mais pas
+ *  attache : c'est le defaut, l'attache etant un geste explicite (`retreatArmer`). */
 interface Ancrage {
     nom: string;
     ptr: NativePointer;
@@ -269,9 +269,10 @@ function ancrer(
             } catch { /* best effort */ }
         },
     };
-    ancres.push({
-        nom: etiquette, ptr: mr.ptr, spec, listener: Interceptor.attach(mr.ptr, spec),
-    });
+    // ⚠ ON RESOUT, ON N'ATTACHE PAS. Depuis le 2026-08-21 l'attache est un geste EXPLICITE
+    // (`retreatArmer`) : voir le pave de `armerTout` plus bas pour ce que l'attache permanente
+    // coutait.
+    ancres.push({ nom: etiquette, ptr: mr.ptr, spec, listener: null });
     return true;
 }
 
@@ -304,10 +305,7 @@ function installer(): void {
                     } catch { /* jamais throw */ }
                 },
             };
-            ancres.push({
-                nom: nomCtor, ptr: ctor.ptr, spec,
-                listener: Interceptor.attach(ctor.ptr, spec),
-            });
+            ancres.push({ nom: nomCtor, ptr: ctor.ptr, spec, listener: null });
             poses.push(nomCtor);
         } else { rates.push(nomCtor); }
     } else {
@@ -334,34 +332,57 @@ function installer(): void {
     ancragesRates = rates;
 }
 
-/** DEPOSER tous nos ancrages, puis les REPOSER.
+/** ARMER / DESARMER l'observation. Geste EXPLICITE depuis le 2026-08-21.
  *
- *  ⚠ CE N'EST PAS UNE PRECAUTION, C'EST UNE MESURE. « Invoquer une methode qu'on ancre, depuis
- *  du JS qui tourne sur le main thread, deadlocke a coup sur (3 gels sur 3) : l'appel natif
- *  retombe dans notre propre trampoline, Frida veut y executer un handler JS, et le runtime est
- *  deja tenu par ce thread. » (en-tete d'`il2cpp/delegate.ts`,
- *  `docs/rl/case-600-gel-du-dispatch-natif.md`). Et un gel ne se signale PAS tout seul : il se
- *  lit comme un RPC qui ne revient pas.
+ *  ⚠ CE QUI A CHANGE, ET POURQUOI. Ces ancres etaient posees au `register`, donc EN PERMANENCE,
+ *  et `provoquerRetraite` les DEPOSAIT puis les REPOSAIT autour de son invoke -- onze `detach`
+ *  suivis d'onze `attach`, sur le thread principal, PENDANT le demontage de la scene de
+ *  bataille. On payait un piege permanent pour une observation rare, et on le desamorcait au
+ *  pire moment.
  *
- *  On depose TOUT, pas seulement la methode visee : invoquer `OnBattleSurrender` fait entrer le
- *  jeu dans `PauseSurrender`, `ContinueSurrender`, `ProcessFinishSurrender`... que nous ancrons
- *  AUSSI. Deposer la seule cible laisserait le piege arme un cran plus bas. */
-function deposerTout(): void {
+ *  ⚠ ET LES DEUX REGIMES NE SONT PAS EXCLUSIFS -- la premisse qui les separait est REFUTEE.
+ *  Elle disait : « Invoquer une methode qu'on ancre, depuis du JS qui tourne sur le main
+ *  thread, deadlocke a coup sur (3 gels sur 3) » (en-tete d'`il2cpp/delegate.ts`,
+ *  `docs/rl/case-600-gel-du-dispatch-natif.md`). Contre-epreuve du 2026-08-21, MEME nombre
+ *  d'essais : douze ancres armees -- dont la methode invoquee elle-meme -- invoke, 3/3 revenus
+ *  en 1,64 / 1,44 / 1,20 s, avec 3 handlers JS ayant tire PENDANT chaque appel et la bataille
+ *  effectivement quittee. Le trampoline a donc bien ete re-entre, sans geler.
+ *
+ *  ⚠ CE QUI N'ETAIT PAS UN CONTRE-EXEMPLE, et qu'il ne faut pas relire comme tel : une retraite
+ *  pilotee par l'UI traverse ces memes methodes sans rien geler (`case-992`) -- mais la c'est LE
+ *  JEU qui appelle, pas notre JS, donc la pile n'est pas re-entrante. C'est la contre-epreuve
+ *  ci-dessus qui tranche, pas cette observation.
+ *
+ *  L'armement ne commande donc plus qu'UNE chose : observe-t-on, ou non.
+ *    - DESARME (defaut)  -- rien n'est journalise. Le verdict d'une retraite se prend sur
+ *                           l'ETAT (`get_IsBattleActive`, `sandboxProbe.instance`) ;
+ *    - ARME              -- chaque passage est journalise, pile comprise. Utile pour LIRE la
+ *                           chaine, qu'elle soit declenchee a la main ou par `retreatInvoke`. */
+function armerTout(): { poses: string[]; rates: string[] } {
+    const poses: string[] = [];
+    const rates: string[] = [];
     for (const a of ancres) {
-        if (a.listener !== null) {
-            try { a.listener.detach(); } catch { /* best effort */ }
-            a.listener = null;
-        }
+        if (a.listener !== null) { poses.push(a.nom); continue; }
+        try { a.listener = Interceptor.attach(a.ptr, a.spec); poses.push(a.nom); }
+        catch (e) { rates.push(`${a.nom} : ${(e as Error).message}`); }
     }
+    return { poses, rates };
 }
 
-function reposerTout(): void {
+function desarmerTout(): number {
+    let n = 0;
     for (const a of ancres) {
-        if (a.listener === null) {
-            try { a.listener = Interceptor.attach(a.ptr, a.spec); }
-            catch { /* un ancrage perdu se lira dans `retreatStatus` */ }
-        }
+        if (a.listener === null) continue;
+        try { a.listener.detach(); } catch { /* best effort */ }
+        a.listener = null;
+        n++;
     }
+    return n;
+}
+
+/** Les ancres ACTUELLEMENT posees. C'est ce que `provoquerRetraite` doit trouver VIDE. */
+function ancresArmees(): string[] {
+    return ancres.filter((a) => a.listener !== null).map((a) => a.nom);
 }
 
 /** Les entrees qu'on s'autorise a INVOQUER, et rien d'autre. Liste blanche explicite :
@@ -467,21 +488,56 @@ export function provoquerRetraite(body?: {
         return { ok: false, error: "surcharge SANS PARAMETRE de " + methode
             + " introuvable sur " + CLS_VIEW };
     }
+    // ⚠ NI DEPOSE, NI REFUS : ON INVOQUE, ANCRES EN PLACE. Ce module a porte successivement
+    // les deux parades, et la MESURE les a rendues toutes deux inutiles.
+    //
+    // La version d'avant le 2026-08-21 DEPOSAIT les douze ancres puis les REPOSAIT autour de
+    // l'invoke -- douze `detach` puis douze `attach` sur le thread principal, en plein demontage
+    // de scene. Celle du 2026-08-21 les a remplaces par un REFUS quand des ancres sont armees.
+    // Les deux servaient la meme premisse, heritee d'`il2cpp/delegate.ts` :
+    //   « Invoquer une methode qu'on ancre, depuis du JS qui tourne sur le main thread,
+    //     deadlocke a coup sur (3 gels sur 3). »
+    //
+    // ⚠ CETTE PREMISSE EST REFUTEE POUR CE CHEMIN -- 3 essais sur 3, le 2026-08-21, meme
+    // nombre d'essais que la mesure qu'elle contredit. Protocole : douze ancres ARMEES (dont
+    // `IdunMainView$$OnBattleSurrender` elle-meme, la methode invoquee), invoke, bataille de
+    // campagne en sandbox. Resultat 3/3 : retour en 1,64 / 1,44 / 1,20 s, TROIS handlers JS
+    // ayant tire PENDANT l'appel a chaque fois (donc le trampoline a bien ete re-entre),
+    // `get_IsBattleActive()` passe a FAUX (l'effet est produit, pas seulement le retour), et
+    // le process `Responding`.
+    //
+    // ⚠ SUR L'ATTRIBUTION, ON NE TRANCHE PAS, ET C'EST DELIBERE. Deux explications restent
+    // ouvertes : (a) la premisse datait du ~2026-08-10, soit DIX JOURS avant le passage de
+    // `il2cpp_runtime_invoke` en `exceptions: "propagate"` (`95e88699`), et une exception
+    // managee CONFISQUEE par Frida gele exactement comme une re-entrance -- meme symptome, un
+    // RPC qui ne revient jamais ; (b) le regime de #600 n'est pas celui-ci (dispatch de
+    // DELEGATE natif, pas `runtime_invoke`). Ce qui est etabli, c'est que le piege ne se
+    // reproduit pas ICI ; `il2cpp/delegate.ts` garde donc son avertissement pour SON regime.
+    //
+    // ⚠ PORTEE DE LA MESURE : << charger, puis sortir aussitot >>. C'est le geste que ces
+    // parades protegeaient, et c'est aussi celui qui avait gele en guerre de guilde. Une
+    // bataille avancee de plusieurs tours n'a PAS ete eprouvee.
+    const armees = ancresArmees();
     return queueOnMainThread(() => {
-        deposerTout();
         try {
             invokeMethod(mr.info, cible, null);
         } catch (e) {
-            return { ok: false, error: "invoke a leve : " + (e as Error).message,
-                     firesPendantInvoke: null };
-        } finally {
-            reposerTout();
+            return { ok: false, error: "invoke a leve : " + (e as Error).message };
         }
-        return { ok: true, methode,
-                 firesPendantInvoke: null,
-                 note: "ancrages DEPOSES pendant l'appel (sinon gel) : les fires de la "
-                     + "chaine ne sont PAS mesures. Confirmer la sortie par "
-                     + "`uiWindowEvents` (retrait de GuiId.PauseMenu, #390-r2)." };
+        // ⚠ `ok` NE VEUT DIRE QUE << l'invoke n'a pas leve >>. Il ne dit PAS qu'on est sorti, et
+        // il ne peut pas : `OnBattleSurrender` DIFFERE par construction (`PauseSurrender` rend
+        // `true`, puis c'est l'UnityEvent du bouton de confirmation qui appelle
+        // `ContinueSurrender`). Le verdict se prend sur l'ETAT, apres -- `get_IsBattleActive`
+        // ci-dessous, et `sandboxProbe.instance` cote appelant.
+        return { ok: true, methode, batailleEncoreActive: enBataille(),
+                 // Ce que l'appel a TRAVERSE. Non vide = on a invoque ancres POSEES, et l'appel
+                 // est revenu : c'est le fait qui refute le deadlock, et il se re-mesure a
+                 // chaque appel au lieu de se citer.
+                 ancragesArmesPendant: armees,
+                 firesPendantInvoke: journal.length,
+                 note: "`ok` = l'invoke n'a pas leve, PAS << sorti >>. `OnBattleSurrender` "
+                     + "DIFFERE : la sortie n'aboutit qu'apres `ContinueSurrender`. Verifier "
+                     + "`batailleEncoreActive` puis relire `sandboxProbe.instance`." };
     });
 }
 
@@ -493,10 +549,40 @@ export function register(ctx: Ctx): void {
      *  TRI-ETAT : `ancrages: null` = JAMAIS pose (classes absentes du build) -- a ne pas lire
      *  comme « pose et silencieux ». `ancragesRates` dit LESQUELS ont echoue, pour qu'une
      *  peremption de nom se voie au lieu de se traduire par un journal vide. */
+    /** ARMER l'observation. Sans argument : lecture pure.
+     *
+     *  ⚠ COMPATIBLE AVEC `retreatInvoke` -- l'exclusion qui figurait ici reposait sur un
+     *  deadlock refute 3/3 le 2026-08-21 (cf. le pave d'`armerTout`). Armer pendant un invoke
+     *  est meme le moyen de LIRE la chaine qu'il declenche. */
+    ctx.rpc.retreatArmer = (body?: { armer?: boolean }): unknown => {
+        if (body?.armer === undefined) {
+            return { ok: true, lecture: true, armees: ancresArmees(), resolus: ancrages,
+                     note: "`armer: true` pour journaliser les passages (pile comprise), "
+                         + "`armer: false` pour n'en garder aucun. Sans effet sur "
+                         + "`retreatInvoke`, qui fonctionne dans les deux regimes." };
+        }
+        if (body.armer === false) {
+            return { ok: true, desarmes: desarmerTout(), armees: ancresArmees() };
+        }
+        const r = armerTout();
+        return { ok: true, armees: r.poses, rates: r.rates,
+                 note: "OBSERVATION armee -- `retreatJournal` publiera les passages." };
+    };
+
     ctx.rpc.retreatStatus = (): unknown => ({
         ok: true,
         ancrages, ancragesRates,
-        posesMaintenant: ancres.filter((a) => a.listener !== null).map((a) => a.nom),
+        posesMaintenant: ancresArmees(),
+        // ⚠ LA PRECONDITION REELLE DE `retreatInvoke`, et elle n'etait PAS publiee -- un appelant
+        // ne pouvait donc pas lire la condition qu'on lui oppose, et devait la DEVINER depuis
+        // `mainViewVivant`. Les deux sont DISJOINTS : mesure du 2026-08-21, `mainViewVivant: true`
+        // (l'objet Unity existe) avec `get_IsBattleActive() == false` (rien a quitter) -- une
+        // attente batie sur le premier rendait la main immediatement et l'invoke refusait.
+        // `null` = NON MESURE, jamais rabattu sur `false`.
+        batailleActive: enBataille(),
+        // Le pointeur epingle, et la resolution COMPLETE (repli `FindObjectsByType` compris) :
+        // `mainView` seul vaut `null` tant qu'aucun ancrage n'a tire, meme sur une scene montee.
+        mainViewJoignable: mainViewCourante() !== null,
         mainView: mainView ? mainView.toString() : null,
         mainViewClasse: mainView ? nomClasseDe(mainView) : null,
         // ⚠ TRI-ETAT, et ce n'est pas de la coquetterie : `true` = utilisable, `false` = objet
@@ -566,17 +652,25 @@ export function register(ctx: Ctx): void {
      *     progression du compte. Un appel par inadvertance n'est pas rattrapable.
      *  2. Une instance EPINGLEE est exigee. Sans elle il n'y a pas de `this`, et invoquer avec
      *     `null` ecrirait a une adresse arbitraire.
-     *  3. **LA METHODE DOIT AVOIR ETE OBSERVEE** au moins une fois dans ce journal. C'est le
-     *     cran qui compte : il interdit d'invoquer une entree dont on a SUPPOSE qu'elle etait
-     *     la bonne. Le depot a deja paye une chaine d'appels inferee des NOMS et dementie par
-     *     la mesure. Corollaire assume : tant qu'aucune retraite pilotee par l'UI n'a eu lieu
-     *     dans cette session, ce RPC REFUSE -- et c'est le comportement voulu.
+     *  3. Une BATAILLE ACTIVE est exigee (`get_IsBattleActive`), et c'est la comptabilite du
+     *     jeu, pas un proxy d'ecran. `null` = non mesure -> on refuse aussi.
      *
-     *  ⚠ CE QUE CE RPC NE PEUT PAS OBSERVER, ET QU'IL DIT. Nos ancrages sont DEPOSES pendant
-     *  l'invoke (sinon : gel, cf. `deposerTout`). Les fires survenus pendant l'appel ne sont
-     *  donc PAS MESURES -- le champ le nomme, plutot que de rendre une liste vide qui se lirait
-     *  « rien ne s'est produit ». La confirmation se prend AILLEURS : au signal de sortie de
-     *  #390-r2 (`GuiId.PauseMenu` retire), via `uiWindowEvents`. */
+     *  (!)IL N'Y A PLUS DE TROISIEME PARADE CONTRE LE << DEADLOCK DE TRAMPOLINE >>, ni depose
+     *  ni refus : refutee 3/3 le 2026-08-21 dans ce regime. Detail au corps de
+     *  `provoquerRetraite`, avec la portee de la mesure et ce qui reste ouvert sur sa cause.
+     *
+     *  ⚠ CE QUE CE RPC NE DIT PAS, ET QU'IL FAUT ALLER CHERCHER. `ok` signifie << l'invoke n'a
+     *  pas leve >>, jamais << on est sorti >> : `OnBattleSurrender` DIFFERE par construction
+     *  (`PauseSurrender` rend `true`, puis l'UnityEvent du bouton de confirmation appelle
+     *  `ContinueSurrender`). Le verdict se prend sur l'ETAT -- `batailleEncoreActive` rendu ici,
+     *  puis `sandboxProbe.instance` cote appelant, et le signal de sortie de #390-r2
+     *  (`GuiId.PauseMenu` retire) via `uiWindowEvents`.
+     *
+     *  (!)LE CRAN << METHODE DEJA OBSERVEE >> A ETE RETIRE AVANT CE COMMIT, et la raison tient
+     *  toujours : il exigeait qu'une retraite pilotee par l'UI ait fait tirer la methode DANS LA
+     *  SESSION COURANTE, ce qui rendait le chemin non autosuffisant a froid (session 77 : le RPC
+     *  refusait, le jeu restait bloque en bataille). L'observation qui le motivait a eu lieu --
+     *  c'est `case-992`, et la liste blanche `INVOCABLES` EN EST le resultat. */
     ctx.rpc.retreatInvoke = (body?: {
         methode?: string; confirmer?: boolean;
     }): Promise<unknown> | unknown => provoquerRetraite(body);

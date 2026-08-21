@@ -122,11 +122,31 @@ if not args.confirmer:
     sys.exit(0)
 
 # 2. Une bataille deja montee ? Le montage l'ECRASERAIT.
+#
+# (!)L'INSTANCE N'EST PAS LE PREDICAT, ET LE CONFONDRE BLOQUE POUR RIEN. Mesure du 2026-08-21 :
+# apres une sortie, `sandboxProbe.instance` reste NON NULLE et `mainViewVivant` reste VRAI --
+# l'objet Unity survit a la bataille -- alors que `IdunMainView$$get_IsBattleActive()` rend
+# FAUX. Le refus tombait donc sur un RESIDU, et aucune sortie ne pouvait le lever : `retreatInvoke`
+# exige lui-meme une bataille active. On restait coince, sans rien a quitter.
+#
+# Le predicat est la COMPTABILITE DU JEU. `null` = NON MESURE : on refuse aussi, on ne rabat
+# jamais sur << pas de bataille >>.
+#
+# ⛔ CE RELACHEMENT NE VAUT QUE POUR LA CAMPAGNE EN SANDBOX. `sandbox_boss.py` et `sandbox_gw.py`
+# gardent le refus sur l'instance : cote boss de guilde une TENTATIVE est enregistree AU
+# CHARGEMENT, donc ecraser un match deja charge mais pas encore actif la PERDRAIT -- et
+# << `IsBattleActive` pendant la phase de deploiement >> n'est PAS mesure.
 p = j.rpc("sandboxProbe", [{}], 120000) or {}
-if p.get("instance") not in (None, "0x0"):
-    print("REFUS : une bataille tourne DEJA (instance=%s). Sortir d'abord "
-          "(`retreatInvoke OnBattleSurrender`)." % p.get("instance"))
+r = j.rpc("retreatStatus", [], 120000) or {}
+active = r.get("batailleActive")
+if active is not False:
+    print("REFUS : bataille %s (get_IsBattleActive=%r, sandboxProbe.instance=%s). Sortir "
+          "d'abord (`retreatInvoke OnBattleSurrender`)."
+          % ("ACTIVE" if active else "NON MESUREE", active, p.get("instance")))
     sys.exit(2)
+if p.get("instance") not in (None, "0x0"):
+    print("(!) instance IdunMainView RESIDUELLE (%s) sans bataille active -- l'objet Unity "
+          "survit a la scene. Rien a ecraser, on monte." % p.get("instance"))
 
 # 3. Forger, puis tirer la BC.
 f = j.rpc("campaignSourceForger", [dict(cible, confirmer=True)], 240000) or {}

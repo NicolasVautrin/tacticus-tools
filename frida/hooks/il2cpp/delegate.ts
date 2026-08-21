@@ -44,6 +44,19 @@
 // retombe dans notre propre trampoline, Frida veut y executer un handler JS, et le runtime
 // est deja tenu par ce thread. Detacher AVANT d'appeler. Detail :
 // `docs/rl/case-600-gel-du-dispatch-natif.md`.
+//
+// ⚠ ⚠ CETTE PHRASE VAUT POUR LE DISPATCH DE DELEGATE, PAS PARTOUT -- ET ELLE A DEJA ETE CITEE
+// TROP LARGE. `retreat-capture.ts` s'en est servi pour justifier un churn d'`Interceptor`
+// (douze `detach` + douze `attach` autour de chaque invoke, en plein demontage de scene), puis
+// un refus. CONTRE-EPREUVE du 2026-08-21, meme nombre d'essais que la mesure ci-dessus : douze
+// ancrages ARMES -- dont la methode invoquee elle-meme -- invoke par `invokeMethod`
+// (`il2cpp_runtime_invoke`), **6/6 revenus** en 0,25 a 1,64 s, avec 3 handlers JS ayant tire
+// PENDANT chaque appel et l'effet natif produit. Le trampoline EST re-entre, sans geler.
+// Deux causes restent en lice pour les 3 gels d'origine, et rien ici ne les separe : (a) ils
+// precedent de DIX JOURS le passage d'`il2cpp_runtime_invoke` en `exceptions: "propagate"`
+// (`95e88699`), et une exception managee confisquee gele avec le MEME symptome ; (b) le regime
+// mesure ici n'est pas le dispatch de delegate. AVANT de recopier cet avertissement ailleurs :
+// mesure-le dans TON regime. Detail : `docs/rl/case-10041-le-deadlock-de-trampoline-refute-sur-la-retraite.md`.
 
 import { getFieldOffset } from "./helpers.js";
 import { il2cpp_object_new } from "./invoke.js";

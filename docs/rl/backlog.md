@@ -5365,3 +5365,33 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   separerait les deux.
   FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
+
+- **#10041-r1 — `get_IsBattleActive` pendant la PHASE DE DEPLOIEMENT : NON MESURE, et c'est ce qui bloque l'alignement de boss/GW.** `[opus]`
+  Point d'entree : `docs/rl/case-10041-le-deadlock-de-trampoline-refute-sur-la-retraite.md` Sec.
+  « Deux defauts d'instrument ».
+  `sandbox_campagne.py` refuse desormais sur `IdunMainView$$get_IsBattleActive()` et non sur
+  « `sandboxProbe.instance` non nulle » — l'instance survit a la bataille, donc l'ancien predicat
+  refusait sur un RESIDU qu'aucune sortie ne pouvait lever (`retreatInvoke` exige lui-meme une
+  bataille active : on restait coince, sans rien a quitter).
+  ⚠ `sandbox_boss.py` et `sandbox_gw.py` gardent VOLONTAIREMENT l'ancien predicat : cote boss de
+  guilde une TENTATIVE est enregistree AU CHARGEMENT, donc ecraser un match charge mais pas encore
+  actif la PERDRAIT. Les aligner exige de savoir si `get_IsBattleActive()` est VRAI pendant le
+  deploiement — s'il est FAUX, le predicat de la campagne y serait DANGEREUX.
+  Montage : monter une sandbox, lire `retreatStatus.batailleActive` AVANT le START, puis apres.
+  FOYER: scripts/python/sandbox_boss.py, scripts/python/sandbox_gw.py
+  BLOCAGE: aucun
+
+- **#10041-r2 — le gel de `retreatInvoke OnBattleSurrender` sur une source de GUERRE DE GUILDE reste INEXPLIQUE.** `[fable]`
+  Point d'entree : `docs/rl/case-10041-le-deadlock-de-trampoline-refute-sur-la-retraite.md` Sec.
+  « Residus » + `frida/hooks/features/retreat-capture.ts`.
+  Mesure du 2026-08-21 : par script, ~60 s puis blocage ; par l'UI sur la MEME source, instantane
+  (`ping` 0,08 s, `sandboxProbe.instance` nul, 0 exception de vue). Des DEUX suspects, le churn
+  d'`Interceptor` a disparu (#10041) sans qu'on ait etabli qu'il etait le coupable. Reste le
+  GESTE INCOMPLET : l'UI fait `OnBattleSurrender` -> `PauseSurrender` (rend `true`, donc DIFFERE)
+  -> bouton de confirmation -> `ContinueSurrender`, et on s'arretait au premier.
+  ⚠ ET LA BRANCHE DEPEND DE LA SOURCE : sur une source de CAMPAGNE, `OnBattleSurrender` seul SORT
+  (6/6 mesures). Ne pas transposer ce resultat a la GW — c'est justement l'ecart a mesurer.
+  ⚠ `case-992` prescrit de ne jamais appeler `ContinueSurrender` sans l'EFFET observe
+  d'`OnBattleSurrender` (`montre-fin`), jamais sur la seule presence du bouton.
+  FOYER: frida/hooks/features/retreat-capture.ts
+  BLOCAGE: capteur
