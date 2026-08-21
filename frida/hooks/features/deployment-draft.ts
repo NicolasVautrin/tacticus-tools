@@ -3683,6 +3683,21 @@ let memoireDernier: string | null = null;
  */
 interface PoseMoW { unitId: string; playerId: number; position: number }
 let memoireMoW: PoseMoW | null = null;      // une seule MoW par bataille
+/** OÙ la MoW s'intercale dans la séquence de pose. `null` = en DERNIER, le comportement
+ *  historique -- c'est le défaut, donc rien ne change pour un appelant qui l'ignore.
+ *
+ *  (!)POURQUOI CET INDEX EXISTE. La MoW était posée APRÈS les unités, toujours, parce qu'elle
+ *  passe par un autre chemin (`rejouerLaMoW` vs `poserUnHerosParFsm`). Conséquence MESURÉE le
+ *  2026-08-21 : l'ordre de conversion obtenu ne peut mettre la machine qu'aux EXTRÉMITÉS --
+ *  dernière sur plateau vierge (`U + [M]`), première sur plateau plein, où la liste libre se
+ *  comporte en pile (`reverse(U + [M])` = `[M] + reverse(U)`). Aucune permutation des unités ne
+ *  l'en déloge : elle n'est pas dans la partie permutée.
+ *
+ *  Or un replay où le joueur a posé la MoW AU MILIEU enregistre exactement ça -- et il devient
+ *  alors irreproductible. Ce n'était pas visible tant que tous nos replays venaient de notre
+ *  propre chaîne, qui la posait en dernier ; la capture automatique de fin de bataille en
+ *  produit désormais d'autres. Le gisement est né de cette ouverture, pas d'un défaut du jeu. */
+let memoireMoWIndex: number | null = null;
 let vuesJeu: NativePointer | null = null;   // l'`IdunGameViews` vivante, captée au passage
 let listenerMoW: InvocationListener | null = null;
 
@@ -3808,10 +3823,17 @@ function rejouerMemoire(): void {
                 return;
             }
             memoireDernier = (memoireDernier ?? "") + " | plateau VIDÉ avant rejeu";
-            for (const p of memoirePoses) {
-                poserUnHerosParFsm(p);
+            // ⚠ LA MoW S'INTERCALE, ELLE N'EST PLUS FORCÉMENT DERNIÈRE. `memoireMoWIndex` dit
+            // combien d'unités la précèdent ; `null` (le défaut) la remet en fin de séquence,
+            // donc un appelant qui l'ignore obtient exactement le comportement d'avant.
+            const idxMoW = memoireMoW === null ? -1
+                : (memoireMoWIndex === null ? memoirePoses.length
+                    : Math.max(0, Math.min(memoirePoses.length, memoireMoWIndex)));
+            for (let i = 0; i < memoirePoses.length; i++) {
+                if (i === idxMoW) rejouerLaMoW(memoireMoW as PoseMoW);
+                poserUnHerosParFsm(memoirePoses[i]);
             }
-            if (memoireMoW !== null) rejouerLaMoW(memoireMoW);
+            if (idxMoW >= memoirePoses.length) rejouerLaMoW(memoireMoW as PoseMoW);
         }, (e) => { memoireDernier = "rejeu ANNULÉ -- clear levé : " + String(e); });
     }, (e) => { memoireDernier = "rejeu ÉCHOUÉ : " + String(e); });
 }
@@ -4382,6 +4404,9 @@ export function register(ctx: Ctx): void {
             // La MoW est SÉPARÉE, parce que son chemin natif l'est : elle n'a ni colonne ni
             // ligne. La publier à part évite de la croire absente quand on lit `poses`.
             mow: memoireMoW,
+            // `null` = en dernier. Publié parce que c'est ce qui décide la POSITION de la machine
+            // dans l'ordre de conversion, et qu'un appelant qui le croit sans le lire se trompe.
+            mowIndex: memoireMoWIndex,
             vuesJeu: vuesJeu === null ? null : vuesJeu.toString(),
             // ⚠ SANS CE CAPTEUR, L'INSTANTANÉ NE SE PREND JAMAIS. Le publier évite de lire
             // `arme: true` comme « la mémoire se remplira » alors qu'elle restera vide.
@@ -4389,7 +4414,7 @@ export function register(ctx: Ctx): void {
             rejeux: memoireRejeux, dernier: memoireDernier,
         });
         if (body?.oublier === true) {
-            memoirePoses.length = 0; memoireMoW = null;
+            memoirePoses.length = 0; memoireMoW = null; memoireMoWIndex = null;
             // ⚠ LES POINTEURS DE LA BATAILLE PRÉCÉDENTE PARTENT AVEC LA MÉMOIRE, et c'est ici que
             // ça doit se faire : ce verbe est ce que l'appelant joue AVANT chaque montage
             // (`sandbox_gw.py` : « memoire de pose VIDEE avant montage »). Cf.
@@ -4414,8 +4439,13 @@ export function register(ctx: Ctx): void {
                 if (typeof p?.unitId === "string" && p.unitId !== "") memoriser(p as Pose);
             }
             memoireMoW = body.poser.mow ?? null;
+            // `mowIndex` ABSENT != `mowIndex: 0`. Un appelant qui ne connaît pas ce champ doit
+            // retrouver le comportement d'avant (MoW en dernier), pas la poser en tête.
+            const mi = (body.poser as { mowIndex?: unknown }).mowIndex;
+            memoireMoWIndex = typeof mi === "number" && isFinite(mi) ? Math.trunc(mi) : null;
             memoireDernier = `mémoire POSÉE depuis l'extérieur : ${memoirePoses.length} pose(s)`
-                + (memoireMoW ? ` + MoW ${memoireMoW.unitId}` : " (aucune MoW)");
+                + (memoireMoW ? ` + MoW ${memoireMoW.unitId}` : " (aucune MoW)")
+                + (memoireMoWIndex === null ? "" : ` (MoW intercalée en ${memoireMoWIndex})`);
             return { ok: true, action: "posee", ...etat() };
         }
         if (body?.rejouer === true) {

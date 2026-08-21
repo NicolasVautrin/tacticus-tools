@@ -8,6 +8,7 @@ import { buildRouter } from "./router.js";
 import { attachWss } from "./ws.js";
 import { initConfigStore } from "./config-store.js";
 import { initBattleStore } from "./battle-store.js";
+import { initReplayStore } from "./replay-store.js";
 import { initAiTraceStore, closeAiTraceStore } from "./ai-trace-store.js";
 import { postMessage, restoreSessions, stopAllPreservingState } from "./sessions.js";
 import { startRunnerReconciler, stopRunnerReconciler } from "./runner-reconcile.js";
@@ -37,6 +38,7 @@ attachWss(server);
 await initConfigStore();
 await initBattleStore();
 await initAiTraceStore();
+initReplayStore();
 
 // Mirror agent-side `log()` calls to the host stdout so `npm run dev` stays
 // readable. The full payload is also persisted to logs/run-*_<target>.jsonl

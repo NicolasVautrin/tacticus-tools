@@ -229,10 +229,49 @@ def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
     # << pas vierge >>, il faisait prendre le mauvais essai, donc perdre l'unique occasion.
     #
     # Le second essai reste : il rattrape le cas SANS MoW, ou la permutation des unites suffit.
-    for etiquette, suite in (("ordre du replay", list(voulu)),
-                             ("INVERSE de l'ordre du replay", list(reversed(voulu)))):
-        poses = [{"unitId": u, "playerId": 11, "col": c, "row": r} for (u, c, r) in suite]
-        jeu.rpc("deploymentMemoire", [{"poser": {"poses": poses, "mow": mow}}], timeout=120000)
+    # (!)L'ORDRE DE POSE SE DERIVE DE LA MISE EN PLACE COMPLETE, MoW COMPRISE.
+    #
+    # Ce site n'essayait que deux ordres des UNITES, la machine etant posee apres elles dans les
+    # deux cas. Ca ne peut donc produire qu'une conversion ou la MoW est a une EXTREMITE --
+    # derniere sur plateau vierge, premiere sur plateau plein. Mesure du 2026-08-21 sur
+    # `maradak-f1z2p0s1` : le replay porte la machine en 5e position sur 6, avec une unite APRES
+    # elle, et les deux essais tombent -- non parce que l'ordre des unites est faux, mais parce
+    # que cette position-la etait INATTEIGNABLE.
+    #
+    # Le gisement vient de NOUS : les six replays historiques enregistrent la MoW en dernier
+    # parce qu'ils sortent tous de cette fonction. La capture automatique de fin de bataille en
+    # produit desormais d'autres -- quand le joueur pose a la main, la machine atterrit ou il la
+    # met.
+    #
+    # On derive donc la sequence de la mise en place ENTIERE (`mise_en_place_du_replay`, qui
+    # porte la MoW a sa vraie place), et on passe son index au hook. Les deux essais restent :
+    # ils couvrent les deux regimes de conversion, `U + [M]` et son inverse.
+    mep, _n, _r = mise_en_place_du_replay(d)
+    if mep is None:
+        stop(_r)
+    par_id = {u: (c, r) for (u, c, r) in voulu}
+
+    def sequence(entrees):
+        """(poses, mowIndex) -- l'index dit combien d'unites PRECEDENT la machine."""
+        poses, idx = [], None
+        for e in entrees:
+            if e["genre"] == "mow":
+                idx = len(poses)
+                continue
+            cr = par_id.get(e["unitId"])
+            if cr is None:
+                stop("l'unite %s de la mise en place n'a pas de case dans les poses du replay"
+                     % e["unitId"])
+            poses.append({"unitId": e["unitId"], "playerId": 11, "col": cr[0], "row": cr[1]})
+        return poses, idx
+
+    for etiquette, entrees in (("ordre du replay", list(mep)),
+                               ("INVERSE de l'ordre du replay", list(reversed(mep)))):
+        poses, mow_idx = sequence(entrees)
+        corps_poser = {"poses": poses, "mow": mow}
+        if mow is not None and mow_idx is not None:
+            corps_poser["mowIndex"] = mow_idx
+        jeu.rpc("deploymentMemoire", [{"poser": corps_poser}], timeout=120000)
         corps = {"rejouer": True, "confirmer": True}
         # ⛔ COUP PAR COUP, jamais retenu -- cf. l'en-tete du module.
         if sur_reelle:
@@ -261,6 +300,32 @@ def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):
     # ⚠ QUAND LES DEUX ESSAIS TOMBENT AVEC LA MoW EN TETE DES DEUX COTES LIVE, LA CAUSE N'EST PAS
     # L'ORDRE : c'est que le plateau n'etait pas vierge. On le NOMME, parce que le motif
     # << aucun des deux ordres >> a deja fait accuser l'ordre deux fois pour d'autres causes.
+    # ⛔ AVANT D'ACCUSER L'ORDRE : Y A-T-IL SEULEMENT QUELQUE CHOSE DE POSE ?
+    #
+    # Mesure du 2026-08-21. Ce refus a dit << aucun des deux ordres de pose ne rend l'ordre de
+    # conversion >> sur un plateau ou le live portait ZERO unite -- il n'y avait donc AUCUN ordre
+    # a rendre. La cause etait que les six unites du replay etaient EPUISEES (elles venaient de
+    # combattre), donc impossibles a deployer. Un refus qui nomme la mauvaise cause fait chercher
+    # au mauvais endroit : il a failli faire conclure que l'intercalage de la MoW ne marchait pas,
+    # alors que la memoire du hook rendait bien `mowIndex`.
+    etat = jeu.rpc("deploymentEtat", [{}], timeout=120000)
+    poses_live = etat.get("ordreConversion") if isinstance(etat, dict) else None
+    if isinstance(poses_live, list) and len(poses_live) == 0:
+        epuisees = []
+        b = jeu.rpc("guildWarBoardRead", [{}], timeout=240000)
+        if isinstance(b, dict) and b.get("ok"):
+            ep = set(b.get("exhaustedUnits") or [])
+            epuisees = [u for (u, _c, _r) in voulu if u in ep]
+            if mow is not None and mow.get("unitId") in ep:
+                epuisees.append(mow["unitId"] + " (MoW)")
+        stop("le plateau est reste VIDE -- AUCUNE unite posee, donc aucun ordre de conversion a "
+             "confronter. Ce n'est PAS un probleme d'ordre.\n"
+             "         %s"
+             % ("unites EPUISEES, donc non deployables : " + ", ".join(epuisees)
+                if epuisees else
+                "les unites du replay ne sont pas epuisees -- la cause est ailleurs "
+                "(pool, cap de rarete, capteurs de pose non armes). NE PAS conclure a l'ordre."))
+
     mep, _n, _r = mise_en_place_du_replay(d)
     detail = ""
     if mep and mep[-1]["genre"] == "mow":

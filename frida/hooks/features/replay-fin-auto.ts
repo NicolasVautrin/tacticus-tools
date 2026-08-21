@@ -128,6 +128,32 @@ function capturer(raison: string, stageName: string | null, winner: number | nul
     derniereCapture = c;
     captures.push(c);
     if (captures.length > CAPTURES_MAX) captures.shift();
+    // (!)ON LE SORT DU JEU TOUT DE SUITE, SANS ATTENDRE QU'ON PENSE A LE DEMANDER.
+    //
+    // Ce module a longtemps garde sa capture EN MEMOIRE du script injecte, et
+    // `replay_recuperer.py` en tete le disait sans detour : << Rien ne l'en sortait : ca se
+    // faisait a la main >>. Mesure du 2026-08-21 : une bataille de guerre de guilde jouee A LA
+    // MAIN a bien ete captee (`dejaCapture: true`, 42 pas, `Finished`) et n'existait NULLE PART
+    // sur disque -- personne ne vide ce tampon quand aucune chaine Python ne tourne. Une capture
+    // qu'il faut penser a aller chercher est une capture qu'on perd.
+    //
+    // Le host, lui, tourne toujours : `router-messages` route chaque `send({t})` vers un
+    // handler qui peut ECRIRE. On pousse donc l'artefact a la seconde ou il existe.
+    //
+    // ⚠ ON N'ENVOIE QUE L'OFFICIEL. C'est le seul que `replayLancer` sache relire ; la trace
+    // d'output stream sert a valider le port Python et se demande explicitement
+    // (`replayFinEtat {avecReplay:true}`). Les melanger a deja fait chercher un replay ailleurs.
+    // ⚠ ET JAMAIS UN ARTEFACT TRONQUE : un replay partiel qui atterrit sous un nom de replay est
+    // pire que pas de fichier -- il se rejoue, et il ment.
+    if (c.officiel !== null && !c.officielTronque) {
+        send({
+            t: "replay_fin",
+            officiel: c.officiel,               // base64(gzip(JSON)), tel que le jeu le produit
+            raison, stageName: c.stageName, winner: c.winner,
+            frameNo: c.frameNo, stepCount: c.stepCount,
+            longueur: c.officielLongueur,
+        });
+    }
     send({ t: "diag", msg: "[replay-fin-auto] " + raison + " -- trace : "
         + (c.replay === null ? "ECHEC (" + c.err + ")"
                              : c.longueur + " car." + (c.tronque ? " TRONQUEE" : ""))
