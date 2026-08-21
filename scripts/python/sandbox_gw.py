@@ -2,6 +2,7 @@
 
     python scripts/python/sandbox_gw.py --joueur szkot --slot 2 --confirmer
     python scripts/python/sandbox_gw.py --joueur szkot --slot 2            # lecture seule
+    python scripts/python/sandbox_gw.py --depuis-capture FENRIS-f1z1p0s1 --confirmer
 
 C'est l'homologue de `sandbox_campagne.py` et de `sandbox_boss.py`, sur la MEME chaine :
 
@@ -36,7 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante          # noqa: E402
 from sandbox_mode import Jeu                      # noqa: E402
 from deploiement_commun import ARMEMENTS_CAPTEURS  # noqa: E402
-from rejeu_commun import liberer_le_verrou_de_match  # noqa: E402
+from rejeu_commun import ecarts_bc, liberer_le_verrou_de_match  # noqa: E402
+from guerre_bc_capture import DEPOT, ascii_seul, lire_bc  # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
 
@@ -70,8 +72,17 @@ def stop(msg, code=2):
 
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--joueur", required=True, help="le DEFENSEUR qui tient la zone (ex. `szkot`)")
-ap.add_argument("--slot", type=int, required=True, help="le slot vise, tel qu'affiche (0-base)")
+ap.add_argument("--joueur", default=None, help="le DEFENSEUR qui tient la zone (ex. `szkot`)")
+ap.add_argument("--slot", type=int, default=None, help="le slot vise, tel qu'affiche (0-base)")
+# (!)MONTER UNE BC MOISSONNEE, ET LA CONFRONTER A CELLE DU JEU AU PASSAGE.
+#
+# La cible n'est plus a ecrire : elle est DANS le fichier (`Cible`). Ce qui compte est ce qu'on
+# monte -- la BC du DISQUE, pas celle que la forge vient de produire. La forge reste jouee, pour
+# deux raisons : le HUD de deploiement lui delegue son roster et ses bornes de pose (sans source
+# forgee, l'ecran est VIDE), et sa BC donne le TEMOIN qui dit si la capture a vieilli.
+ap.add_argument("--depuis-capture", default=None,
+                help="monter la BC d'une capture `data/gw-bc/` (nom ou chemin) au lieu de celle "
+                     "que la forge produit a l'instant. La cible est lue dans le fichier.")
 ap.add_argument("--hote", default=HOTE)
 ap.add_argument("--session", type=int, default=None)
 ap.add_argument("--confirmer", action="store_true",
@@ -96,6 +107,37 @@ ap.add_argument("--seed", type=int, default=None,
                      "moteur.")
 args = ap.parse_args()
 
+# 0. LA CAPTURE, S'IL Y EN A UNE. Elle porte sa propre cible : on ne la retape pas.
+capture = None
+if args.depuis_capture:
+    p = Path(args.depuis_capture)
+    if not p.exists():
+        p = DEPOT / args.depuis_capture
+    if not p.exists() and not str(args.depuis_capture).endswith(".json.gz"):
+        p = DEPOT / (str(args.depuis_capture) + ".json.gz")
+    if not p.exists():
+        stop("capture introuvable : %s (ni dans %s)" % (ascii_seul(args.depuis_capture), DEPOT))
+    capture = lire_bc(p)
+    c = capture.get("Cible") or {}
+    if not isinstance(capture.get("BattleConfiguration"), dict) or not c.get("zoneId"):
+        stop("%s n'est pas une capture exploitable (cles : %s)"
+             % (p.name, ", ".join(sorted(capture))[:200]))
+    # La cible ECRITE prime, mais on refuse de la contredire en silence.
+    if args.joueur and (args.joueur.lower() != (c.get("joueur") or "").lower()):
+        stop("--joueur %r contredit la capture, qui vise %s"
+             % (args.joueur, ascii_seul(c.get("joueur"))))
+    if args.slot is not None and args.slot != c.get("slot"):
+        stop("--slot %d contredit la capture, qui vise le slot %s" % (args.slot, c.get("slot")))
+    args.joueur, args.slot = c.get("joueur"), c.get("slot")
+    print("capture : %s" % p.name)
+    print("   prise le %s (build %s)" % ((capture.get("Capture") or {}).get("date"),
+                                         (capture.get("Capture") or {}).get("build")))
+    print("   vise %s -- front %s zone %s (%s) part %s slot %s"
+          % (ascii_seul(c.get("joueur")), c.get("affiliation"), c.get("zoneIndex"),
+             c.get("zoneType"), c.get("zonePartIndex"), c.get("slot")))
+elif not args.joueur or args.slot is None:
+    stop("il faut soit `--joueur` ET `--slot`, soit `--depuis-capture <fichier>`.")
+
 sid = args.session if args.session is not None else session_vivante(args.hote)
 if sid is None:
     stop("aucune session Frida vivante. Injecter d'abord -- ce script n'injecte JAMAIS.")
@@ -107,50 +149,97 @@ print("session %d" % sid)
 z = j.rpc("guildWarZones", [{}], 180000) or {}
 if not z.get("ok"):
     stop("`guildWarZones` NON MESURE : %s" % json.dumps(z, ensure_ascii=False)[:300])
-trouves = []
-for zone in z.get("zones") or []:
-    for part in zone.get("parts") or []:
-        if (part.get("occupant") or "").lower() == args.joueur.lower():
-            trouves.append((zone, part))
-if not trouves:
-    occupants = sorted({p.get("occupant") for zz in (z.get("zones") or [])
-                        for p in (zz.get("parts") or []) if p.get("occupant")})
-    stop("aucune zone tenue par %r. Occupants vus (%d) : %s"
-         % (args.joueur, len(occupants), ", ".join(occupants)))
-if len(trouves) > 1:
-    # Ambigu = on REFUSE. Choisir a sa place ferait attaquer la mauvaise zone.
-    print("REFUS : %r tient %d zones -- lever l'ambiguite :" % (args.joueur, len(trouves)))
-    for zone, part in trouves:
-        print("   front %s zone %s (%s) part %s -- zoneId %s"
-              % (zone.get("affiliation"), zone.get("index"), zone.get("type"),
-                 part.get("zonePartIndex"), zone.get("zoneId")))
-    sys.exit(2)
-zone, part = trouves[0]
-slots = {s.get("slot"): s for s in (part.get("slots") or [])}
-if args.slot not in slots:
-    stop("slot %d absent : la part n'en porte que %s"
-         % (args.slot, sorted(k for k in slots if k is not None)))
-s = slots[args.slot]
-print("cible : %s -- front %s zone %s (%s) part %s slot %d"
-      % (args.joueur, zone.get("affiliation"), zone.get("index"), zone.get("type"),
-         part.get("zonePartIndex"), args.slot))
-print("   zoneId %s" % zone.get("zoneId"))
-print("   slot   : %s unite(s), mow=%s, tentatives=%s, perdues=%s, battu=%s"
-      % (s.get("unites"), s.get("mow"), s.get("tentatives"), s.get("perdues"), s.get("battu")))
-if s.get("battu"):
-    print("   (!) ce slot est DEJA BATTU -- le monter en sandbox reste possible, c'est une "
-          "repetition hors ligne.")
 
-# 2. LE PLATEAU, DERIVE DU TYPE DE ZONE -- jamais ecrit en dur.
-c = j.rpc("guildWarZoneConfigs", [{}], 180000) or {}
-cfgs = ((c.get("config") or {}).get("zoneTypeConfigs") or {})
-zc = cfgs.get(zone.get("type"))
-if not isinstance(zc, dict) or not zc.get("boardId"):
-    stop("type de zone %r absent de `zoneTypeConfigs` (%d type(s) declares) -- rien a deriver."
-         % (zone.get("type"), len(cfgs)))
-board, sps = zc["boardId"], zc.get("spawnPointsSet")
-print("   plateau: %s  spawnPointsSet=%s  (derives de `zoneTypeConfigs[%s]`)"
-      % (board, sps, zone.get("type")))
+# ⛔ HORS GUERRE, ON NE MONTE PAS -- ET CE N'EST PAS UN MANQUE D'OUTILLAGE.
+#
+# La guerre finie, le plateau disparait avec elle : mesure du 2026-08-21, vingt minutes apres la
+# moisson, `guildWarZones` rend 0 zone et `guildWarEtat` retombe en PREPARATION (`guerreId:
+# null`). La source de guerre n'est donc plus forgeable, et le HUD de deploiement n'a plus ni
+# roster ni bornes de pose.
+#
+# Deux substitutions ont ete envisagees puis ECARTEES, pour la MEME raison : la campagne ne
+# connait pas les machines de guerre -- or les 258 captures en portent toutes une -- et la source
+# PvP, qui les connait, N'APPLIQUE PAS LE CAP DE RARETE de la guerre. Emprunter l'un ou l'autre
+# roster donnerait un ecran qui s'affiche et une bataille jouable, mais sous des contraintes de
+# roster QUI NE SONT PAS CELLES DU MODE : un decor, pas un entrainement. On refuse plutot que de
+# monter quelque chose qui a l'air juste.
+#
+# La voie qui reste est HORS JEU : `guerre_bc_capture.py --extraire` + le runner. Elle ne demande
+# aucune source -- mais elle bute aujourd'hui sur `buildNormalizedBC` (cf. le residu).
+if capture is not None and not (z.get("zones") or []):
+    stop("AUCUNE ZONE sur le plateau vivant -- la guerre est TERMINEE, la source de guerre n'est "
+         "plus forgeable.\n"
+         "         La capture, elle, reste entiere (plateau, ennemis, buffs, SPS).\n"
+         "         Aucune source de substitution ne convient : la campagne ignore les MoW, et le "
+         "PvP ne cappe pas le roster.\n"
+         "         Voie hors jeu : `guerre_bc_capture.py --extraire %s`."
+         % Path(args.depuis_capture).name)
+
+# Il y a un plateau vivant : la resolution normale s'applique, capture ou pas.
+if z.get("zones"):
+    trouves = []
+    for zone in z.get("zones") or []:
+        for part in zone.get("parts") or []:
+            if (part.get("occupant") or "").lower() == args.joueur.lower():
+                trouves.append((zone, part))
+    if not trouves:
+        occupants = sorted({p.get("occupant") for zz in (z.get("zones") or [])
+                            for p in (zz.get("parts") or []) if p.get("occupant")})
+        stop("aucune zone tenue par %r. Occupants vus (%d) : %s"
+             % (ascii_seul(args.joueur), len(occupants),
+                ascii_seul(", ".join(occupants))))
+    if capture is not None:
+        # (!)UNE CAPTURE DESIGNE SA ZONE PAR SON `zoneId`, PAS PAR UN NOM -- et c'est ce qui la
+        # rend utilisable. La plupart des defenseurs tiennent DEUX zones (un front 0 et un front
+        # 2) : la levee d'ambiguite par le nom seul refuserait presque toutes les captures. On
+        # restreint donc par l'identifiant exact, puis on laisse le refus ci-dessous juger de ce
+        # qui reste.
+        cc = capture["Cible"]
+        exact = [(zz, pp) for zz, pp in trouves
+                 if zz.get("zoneId") == cc.get("zoneId")
+                 and pp.get("zonePartIndex") == cc.get("zonePartIndex")]
+        if not exact:
+            stop("la zone de la capture (%s part %s) n'est PLUS tenue par %s sur le plateau "
+                 "vivant. Le plateau a bouge depuis la capture -- on ne monte pas une cible "
+                 "perimee." % (cc.get("zoneId"), cc.get("zonePartIndex"),
+                               ascii_seul(args.joueur)))
+        trouves = exact
+    if len(trouves) > 1:
+        # Ambigu = on REFUSE. Choisir a sa place ferait attaquer la mauvaise zone.
+        print("REFUS : %s tient %d zones -- lever l'ambiguite :"
+              % (ascii_seul(args.joueur), len(trouves)))
+        for zone, part in trouves:
+            print("   front %s zone %s (%s) part %s -- zoneId %s"
+                  % (zone.get("affiliation"), zone.get("index"), zone.get("type"),
+                     part.get("zonePartIndex"), zone.get("zoneId")))
+        sys.exit(2)
+    zone, part = trouves[0]
+    slots = {s.get("slot"): s for s in (part.get("slots") or [])}
+    if args.slot not in slots:
+        stop("slot %d absent : la part n'en porte que %s"
+             % (args.slot, sorted(k for k in slots if k is not None)))
+    s = slots[args.slot]
+    print("cible : %s -- front %s zone %s (%s) part %s slot %d"
+          % (ascii_seul(args.joueur), zone.get("affiliation"), zone.get("index"),
+             zone.get("type"), part.get("zonePartIndex"), args.slot))
+    print("   zoneId %s" % zone.get("zoneId"))
+    print("   slot   : %s unite(s), mow=%s, tentatives=%s, perdues=%s, battu=%s"
+          % (s.get("unites"), s.get("mow"), s.get("tentatives"), s.get("perdues"),
+             s.get("battu")))
+    if s.get("battu"):
+        print("   (!) ce slot est DEJA BATTU -- le monter en sandbox reste possible, c'est une "
+              "repetition hors ligne.")
+
+    # 2. LE PLATEAU, DERIVE DU TYPE DE ZONE -- jamais ecrit en dur.
+    c = j.rpc("guildWarZoneConfigs", [{}], 180000) or {}
+    cfgs = ((c.get("config") or {}).get("zoneTypeConfigs") or {})
+    zc = cfgs.get(zone.get("type"))
+    if not isinstance(zc, dict) or not zc.get("boardId"):
+        stop("type de zone %r absent de `zoneTypeConfigs` (%d type(s) declares) -- rien a "
+             "deriver." % (zone.get("type"), len(cfgs)))
+    board, sps = zc["boardId"], zc.get("spawnPointsSet")
+    print("   plateau: %s  spawnPointsSet=%s  (derives de `zoneTypeConfigs[%s]`)"
+          % (board, sps, zone.get("type")))
 
 if not args.confirmer:
     print()
@@ -233,6 +322,32 @@ bc = b["configJson"]
 d = json.loads(bc)
 print("BC : Id=%s GameMode=%s board=%s  (%d octets)"
       % (d.get("Id"), d.get("GameMode"), (d.get("Board") or {}).get("Id"), len(bc)))
+
+# 4bis. LA BC DU DISQUE PREND LA PLACE -- APRES CONFRONTATION, JAMAIS AVANT.
+#
+# (!)LA CONFRONTATION EST LE TEST, LE MONTAGE N'EN EST QUE LA SUITE. La forge qu'on vient de
+# jouer est un TEMOIN pris a l'instant sur le meme slot : si la capture est fidele, l'ecart est
+# nul. S'il ne l'est pas, ce n'est pas forcement une faute de la capture -- le plateau vit (PV
+# des defenseurs, buffs de phase, cap de rarete) -- mais il faut le VOIR avant de monter, pas le
+# decouvrir en jouant. On NOMME les ecarts et on monte quand meme la capture : c'est elle qu'on
+# teste. Un ecart silencieux, lui, ferait passer pour une divergence de MOTEUR ce qui n'est
+# qu'un substrat different.
+if capture is not None:
+    disque = capture["BattleConfiguration"]
+    ec = ecarts_bc(disque, d, voie="BC")
+    if not ec:
+        print("CONFRONTATION capture <-> forge du moment : 0 ECART -- la capture est EXACTE.")
+    else:
+        print("CONFRONTATION capture <-> forge du moment : %d ECART(S) -- le plateau a bougE "
+              "depuis la capture. On monte LA CAPTURE (c'est elle qu'on teste) :" % len(ec))
+        for voie, quoi in ec[:25]:
+            print("   %-58s %s" % (voie, ascii_seul(str(quoi))[:110]))
+        if len(ec) > 25:
+            print("   ... et %d autre(s)" % (len(ec) - 25))
+    bc = json.dumps(disque, ensure_ascii=False)
+    d = disque
+    print("MONTE DEPUIS LE DISQUE : board=%s  (%d octets)"
+          % ((d.get("Board") or {}).get("Id"), len(bc)))
 
 # 5. LES BORNES DE POSE -- LUES SUR LA SOURCE, jamais ecrites en dur. Le HUD les recoit du relais
 #    `VisualBattleQuery`, qui interroge la source du mode MONTE (la SANDBOX, qui rend 0/0) : un

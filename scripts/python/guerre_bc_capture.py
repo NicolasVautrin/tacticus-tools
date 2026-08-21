@@ -128,6 +128,9 @@ def main():
     ap.add_argument("--refaire", action="store_true",
                     help="re-capturer meme si le fichier existe deja")
     ap.add_argument("--max", type=int, default=None, help="borne le nombre de captures")
+    ap.add_argument("--sans-record", action="store_true",
+                    help="moissonner MEME SI le bundle ne publie pas `recordJson` -- les captures "
+                         "seront alors inutilisables pour re-forger une source hors guerre")
     ap.add_argument("--sortie", default=str(DEPOT))
     args = ap.parse_args()
 
@@ -262,6 +265,16 @@ def main():
             index.append(dict(t, _slot=None, refus="forge: " + motif))
             refuses += 1
             continue
+        # ⛔ UN CHAMP ABSENT DU BUNDLE NE DOIT PAS SORTIR EN CAPTURE AMPUTEE, SILENCIEUSEMENT.
+        # C'est la faute exacte du 2026-08-21 : douze champs choisis a la main, `GuildWarId`
+        # oublie, et la guerre finie vingt minutes plus tard. On refuse AVANT d'ecrire le premier
+        # fichier, avec une echappatoire EXPLICITE.
+        if "recordJson" not in f and not args.sans_record:
+            stop("le bundle injecte NE PUBLIE PAS `recordJson` : les captures seraient amputees "
+                 "du `GuildWarBattleData`, donc inutilisables pour re-forger une source une fois "
+                 "la guerre finie.\n"
+                 "         Rebuild + reinject, ou `--sans-record` pour moissonner quand meme.",
+                 code=1)
         b = j.rpc("guildWarSourceBc", [{"confirmer": True}], 300000) or {}
         if not b.get("configJson"):
             motif = ascii_seul(json.dumps(b, ensure_ascii=False)[:200])
@@ -273,6 +286,15 @@ def main():
         bc = json.loads(b["configJson"])
         ea = bc.get("EnvironmentAbilities") or {}
         s = t["_slot"] or {}
+        # (!)LES BORNES DE POSE NE VIVENT PAS DANS LA BC -- verifie, ses 34 cles racine n'en
+        # portent aucune. Elles sont sur la SOURCE, donc elles disparaissent avec la guerre. On
+        # les LIT ici, tant qu'il y a une source. `null` = NON MESURE, jamais un defaut devine.
+        bornes = {}
+        for nom in ("MinUnitsNeededToStartBattle", "MaxUnitsPossibleToStartBattle"):
+            rb = j.rpc("viewInvoke", [{"surPointeur": f.get("instance"), "methode": nom,
+                                       "confirmer": True}], 60000) or {}
+            v = (rb.get("retour") or {}).get("valeur") if rb.get("ok") else None
+            bornes[nom] = v if isinstance(v, int) else None
         doc = {
             "Cible": {k: t[k] for k in ("joueur", "userId", "affiliation", "zoneIndex",
                                         "zoneType", "zoneId", "revealed", "zonePartIndex",
@@ -292,6 +314,19 @@ def main():
                 "bcEnhancements": ea.get("EnhancementsEnvironmentAbilities"),
             },
             "Adversaire": f.get("adversaire"),
+            "BornesDePose": bornes,
+            # (!)LE RECORD ENTIER -- LE 17e ARGUMENT DU CTOR DE LA SOURCE.
+            #
+            # Les seize autres arguments sont des services vivants de l'executeur, disponibles
+            # hors guerre. Celui-ci est le seul qui meurt avec elle : qui le possede peut
+            # RE-FORGER la source une fois la guerre finie, donc retrouver le roster CAPPE et les
+            # bornes du mode -- ce qu'aucune source de substitution ne sait faire (la campagne
+            # ignore les MoW, le PvP ne cappe pas).
+            #
+            # ⚠ ON PREND TOUT, ON TRIE APRES. La premiere moisson n'enregistrait que douze champs
+            # CHOISIS A LA MAIN, et la fin de la guerre a montre qu'il en manquait -- `GuildWarId`
+            # notamment. Un record entier ne pose plus la question de savoir lesquels comptaient.
+            "GuildWarBattleData": f.get("recordJson"),
             "Capture": {"date": quand, "build": build, "session": sid,
                         "voie": "guildWarSourceForger + guildWarSourceBc "
                                 "(aucun StartMatch, aucune tentative)"},

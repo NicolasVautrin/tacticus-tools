@@ -1664,6 +1664,23 @@ export function register(ctx: Ctx): void {
         recordCible = { warZoneId: body.warZoneId, zonePartIndex: part, slotIndex: slotIdx };
         return {
             ok: true, action: "FORGEE", record: rec.toString(), instance: src.toString(),
+            // ⚠ LE RECORD ENTIER, SERIALISE -- PAS SEULEMENT SON ADRESSE.
+            //
+            // `record` ci-dessus est un POINTEUR : il ne survit ni a la session, ni a la guerre.
+            // Or c'est le 17e argument du ctor de la source, et le SEUL qui ne soit pas un
+            // service vivant de l'executeur -- les seize autres (`_unitProgression`,
+            // `_guildWarPhaseProgression`, `viewCommandExecutor`, les HUD...) existent hors
+            // guerre comme pendant. Qui possede ce record possede donc de quoi RE-FORGER la
+            // source apres la fin de la guerre.
+            //
+            // Mesure du 2026-08-21 : la guerre s'est terminee vingt minutes apres la moisson des
+            // 258 BC. `guildWarZones` est tombe a 0 zone, et les captures -- qui ne portaient que
+            // douze champs CHOISIS A LA MAIN -- se sont revelees amputees de `GuildWarId`, qu'on
+            // n'avait pas pense a prendre. Publier le record ENTIER supprime la question de
+            // savoir quels champs comptent : on prend tout, on trie apres.
+            //
+            // Un echec de serialisation sort en `{erreur: ...}`, jamais en nul silencieux.
+            recordJson: enJson(rec),
             // L'ENVIRONNEMENT, buff par buff -- `arme: true` = une ability posee avec son niveau.
             // Un `ecarte` non nul n'est PAS un detail : c'est un ecart mesure avec le natif.
             rarityCap,
