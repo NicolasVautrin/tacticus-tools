@@ -347,16 +347,27 @@ def liberer_le_verrou_de_match(jeu, exiger_la_mesure=True):
         print("   verrou d'entree LIBRE (`IsActive` faux) -- rien a liberer.")
         return False
 
+    # (!)L'ORPHELINAT SE PROUVE PAR `IsBattleActive` ET LE CHARGEUR -- PAS PAR L'INSTANCE.
+    #
+    # `sandboxProbe.instance` reste NON NULLE apres une sortie : l'objet Unity survit a la scene.
+    # C'est deja mesure dans ce depot (#10041), et le refus bati dessus tombait sur un RESIDU
+    # qu'AUCUNE sortie ne pouvait lever -- `retreatInvoke` exigeant lui-meme une bataille active,
+    # on restait coince sans rien a quitter. On l'AFFICHE, on ne s'en sert pas pour trancher.
+    #
+    # Les deux temoins qui tranchent : `IsBattleActive` (une bataille TOURNE) et le chargeur (une
+    # bataille se CHARGE -- c'est l'etat ou `IsActive` est arme sans que `IsBattleActive` le soit,
+    # `IdunMainView$$SetBattleLoading` ecrivant le premier des le depart du chargement).
     p = jeu.rpc("sandboxProbe", [], timeout=60000)
     instance = p.get("instance") if isinstance(p, dict) and p.get("ok") else "NON MESURE"
     l = jeu.rpc("loaderStatus", [], timeout=120000)
     au_repos = (isinstance(l, dict) and l.get("ok")
                 and l.get("etape") == 0 and l.get("chargementEnCours") is False)
-    if instance is not None or not au_repos:
-        stop("le verrou d'entree est ARME et il n'est PAS orphelin (IdunMainView=%s, chargeur "
-             "au repos=%s). Le lever ferait ECRASER un match qui vit -- et une tentative "
-             "enregistree au chargement se perd sans qu'aucun compteur ne bouge. On s'arrete."
-             % (json.dumps(instance, ensure_ascii=False), au_repos))
+    if av["IsBattleActive"] is not False or not au_repos:
+        stop("le verrou d'entree est ARME et il n'est PAS orphelin (IsBattleActive=%s, chargeur "
+             "au repos=%s ; IdunMainView=%s, pour information). Le lever ferait ECRASER un match "
+             "qui vit -- et une tentative enregistree au chargement se perd sans qu'aucun "
+             "compteur ne bouge. SORTIR d'abord (`retreatInvoke OnBattleSurrender`)."
+             % (av["IsBattleActive"], au_repos, json.dumps(instance, ensure_ascii=False)))
 
     r = jeu.rpc("viewInvoke", [{"cible": "statique", "methode": "SetBattleNotRunning",
                                 "confirmer": True}], timeout=60000)
