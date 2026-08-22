@@ -4,6 +4,11 @@ Lu au décompilé sur `t6dpr4k06g`, en cherchant pourquoi le camp adverse dispar
 inverse les `TeamId`. La chaîne est fermée, **et l'étape qui échoue l'est aussi depuis le
 2026-08-23** — mais ce n'est **aucune** de celles que ce document accusait : cf. §5.
 
+⛔ **VERDICT : inverser les `TeamId` FONCTIONNE côté natif.** Les cinq abandons muets sont
+négatifs et les 10 unités montent, dès lors qu'on ne laisse pas le HARNAIS viser un groupe de
+spawn qui ne lui appartient plus (§5ter). La « disparition du camp adverse » était une collision
+de tuiles causée par un `TWPI 0` codé en dur dans `rl_duel`, pas un refus du jeu.
+
 ## 1. La chaîne, de l'escouade au tuile
 
 ```
@@ -106,9 +111,41 @@ les N unités prédéfinies occupent N tuiles du groupe, et N unités du joueur 
 `GroupForPlayer` s'échangent proprement (joueur 12 → équipe 1 → index 0 ; joueur 11 → équipe 2 →
 index 1), et l'index re-dérivé du §3 concorde **4/4** avec le natif.
 
-⚠ **Reste ouvert** : *pourquoi* les unités du joueur visent le groupe déjà occupé. Le harnais
-(`rl_duel --p-units` = « team 1 ») et le natif sont tous deux candidats — non tranché. Ce qui est
-établi, c'est le **gate** qui les refuse et le **mécanisme** (occupation), pas le choix de tuile.
+## 5ter. Le choix de tuile est HARNAIS — et le natif encaisse l'inversion SANS BRONCHER
+
+**Tranché le 2026-08-23.** `rl_duel.py` (≈ l.1205) place les unités du joueur sur **TWPI 0, en dur** :
+
+```python
+spawns = _spawn_points_by_twpi(bc)
+player_pts = spawns.get(0) or []          # <- TWPI 0 CODE EN DUR
+```
+
+Après inversion, le joueur 11 passe en équipe 2, donc son groupe natif est TWPI **1** — mais le
+harnais l'envoie toujours sur TWPI 0, devenu celui de l'IA, dont l'escouade prédéfinie vient
+d'occuper les 5 tuiles. D'où la collision, et d'où le rapport 1-pour-1.
+
+**Preuve** : même seed inversée, mais unités du joueur placées explicitement sur les points de
+TWPI 1 (`--place custoAtlacoya:6,8 ...`) :
+
+```
+AddUnitOperation.Execute  10 fires  RENDU-NULL=0
+gates: disallowed=0  reserved=0  inFog=0  pendingDraft=0
+```
+
+**Les 10 unités montent**, confirmé au second canal (`rl_duel view` : A-E et a-e sur le plateau),
+et la vue annonce « c'est le tour de l'ADVERSAIRE (team 1) » — l'inversion porte jusque dans
+l'ordre des tours. ⇒ **Inverser les `TeamId` FONCTIONNE côté natif.** Aucun gate ne tire.
+
+⚠ **DEUX faux rouges du harnais sous inversion**, à ne pas prendre pour des refus natifs :
+
+| symptôme | réalité |
+|---|---|
+| `roster NON MONTE ... x0` | comptabilité indexée par ÉQUIPE, désalignée par l'inversion |
+| `placement NON HONORE ... @NULLE PART` | idem — l'unité est là, sur l'autre équipe |
+
+Les deux ont accusé des unités **démontrablement présentes**. C'est l'hypothèse `p-units == team 1`
+qui traverse tout `rl_duel` (`--p-units` « MON roster (team 1) », `_verify_roster` qui itère
+`(1, p_units), (2, a_units)`), pas un verdict du jeu.
 
 ⚠ L'unique montage où les 7 NPC sont apparus était la configuration **instable** (correspondance
 de groupes clé par la VALEUR, donc non idempotente sous `consumeOnce: false`) — un artefact, pas
@@ -135,7 +172,18 @@ autre chemin. Toute lecture qui suppose les deux camps posés là est fausse.
 
 ⚠ Le contrôle de roster de `rl_duel` rend « NON MONTE » pour des unités **réellement présentes**
 sous inversion : sa comptabilité est indexée par équipe, et l'inversion la désaligne. Ne pas
-conclure de ce message ; lire la trace.
+conclure de ce message ; lire la trace (cf. §5ter).
+
+**Pour monter une bataille inversée QUI MARCHE**, ajouter le placement explicite sur le groupe
+réel du joueur (TWPI 1 après inversion) — sinon le harnais vise TWPI 0 et tout se télescope :
+
+```powershell
+python -c "import sys; sys.path.insert(0,'scripts/python'); from rl_collect_batch import _load_board_dump, _spawn_points_by_twpi as f; d=_load_board_dump('MC1_67'); print(f({'Board':d['board'],'SpawnPointSetIndex':d.get('spawnPointsSet') or 0}))"
+# -> TWPI 1 = [(6,8),(6,7),(5,8),(4,8),(6,6)] pour MC1_67
+rl_duel.py build ... --place "custoAtlacoya:6,8" --place "genesKelermorph:6,7" ...
+```
+
+Le déficit de roster reste imprimé (faux rouge, §5ter) : `TACTICUS_ALLOW_ROSTER_DEFICIT=1` le lève.
 
 ## 6. Sûreté — le BOARD persiste, la BC non
 
