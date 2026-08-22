@@ -94,6 +94,48 @@ le DTO, +0x1c sur `UnitProgressData`) et aucune des neuf affectations ne l'écri
 ⇒ La donnée pour un banc FIDÈLE est complète. `GetPublicProfileLineup(...)` rend une
 `List<IUnitModel>` — exactement le type qu'attend `PlayerUnits[1]`.
 
+## ⚠ LA VRAIE REFERENCE EST `PvpGameModeSource`, PAS L'ECRAN DE DEV
+
+`idun.ui.SandboxContainer$$GetSandboxPvpBattleConfig` est le bac-a-sable **de developpement** du
+jeu : son corps lit des *dropdowns* (`GetMachineOfWarFromCurrentDropDowns`) et des toggles. Il
+montre comment REMPLIR notre config sandbox (ctor 9 args -> `DeactivateActiveAbilitiesOnAI` ->
+`SandboxContainer$$AddEnvironmentAbilities`), mais ce n'est PAS le chemin d'un duel officiel.
+
+**Les xrefs de `GetPvpLevelConfig` donnent la vraie reponse — CINQ appelants, et le duel reel en
+fait partie :**
+
+```
+BattleConfigBuilder$$GetHotseatSyncPvpConfig            <- notre banc (sandbox)
+AutomaticTestingPvpConfigFactory$$Build                 <- tests automatises
+FriendlyGameModeSource$$LoadBattle                      <- duels amicaux
+PvpGameModeSource$$LoadBattleInternal                   <<< L'ARENE OFFICIELLE
+PvpStarterSeasonGameModeSource$$LoadBattleInternal      <- saison debutant
+```
+
+⇒ **Le duel officiel et le banc convergent sur le MEME constructeur de BC.** Le banc n'est pas un
+chemin parallele : c'est le meme code, alimente autrement.
+
+Ce que passe `PvpGameModeSource$$LoadBattleInternal`, et qui DIFFERE du chemin sandbox :
+
+| paramètre | Arène officielle | notre banc |
+|---|---|---|
+| `opponentLineup` | `this+0xC8` — ses modèles, depuis SA progression | `PlayerUnits[1]` — nos ids, notre progression |
+| `overrideMainPlayerUnits` | **NULL** — le builder résout depuis le compte | `PlayerUnits[0]` |
+| `overrideMainPlayerMachineOfWar` | **NULL** | `cfg.MainPlayerMachineOfWar` |
+| `environmentAbilities` | `AProgressionGameModeSource$$GetEnvironmentAbilitiesFromProgression` | champ laissé vide |
+| `opponentUnitIdPostFix` | une **CONSTANTE** (non nulle) | **0** — codé en dur par `GetHotseatSyncPvpConfig` |
+
+⚠ **`opponentUnitIdPostFix` EXPLIQUE LE SYMPTOME EXACT.** C'est un suffixe applique aux ids
+adverses. Le duel reel le pose, donc deux unites homonymes restent DEUX entrees de catalogue.
+Le chemin sandbox passe `0` — d'ou l'`ultraTigurius` UNIQUE mesure plus haut, partage par les
+deux equipes. **C'est une limite STRUCTURELLE du chemin sandbox** : meme avec les bons modeles
+en `PlayerUnits[1]`, deux homonymes fusionneraient. Le ctor a 9 arguments ne l'expose pas.
+
+⚠ **Et `overrideMainPlayerUnits = NULL` renverse une hypothese** : on croyait devoir fournir NOS
+unites. Le duel officiel ne les fournit pas — il laisse le builder les tirer de la progression du
+compte, qui est justement ce que le ctor de la source lui donne. Notre equipe n'a donc jamais eu
+besoin d'etre passee en position 4.
+
 ## La tranche suivante
 
 1. **`PlayerUnits[1]`** ← les `IUnitModel` de `GetPublicProfileLineup`. Demande un genre de plus
