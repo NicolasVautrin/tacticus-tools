@@ -292,7 +292,42 @@ pas produire ça. Plus `tyranBiovore` (MoW, PV 0 — cf. section MoW).
 **Coût mesuré NUL** (baseline avant / contre-épreuve après) : `BattleTokens` identiques,
 `energyUsedSinceServerUpdate` 0, `rating` 0, `trophies` 29 156 inchangés.
 
-## ⚠ L'ENVIRONNEMENT N'EST PAS GREFFÉ — et « configuré » n'est pas « installé »
+## ✅ L'ENVIRONNEMENT EST GREFFÉ — et les DEUX moitiés ont mordu
+
+`--environnement arene` (défaut d'`arene_banc.py`). Lu sur la BC du **runner monté**, session 16 :
+
+```
+EnvironmentAbilities : [{ConfigId: "EnvEndBombardment", Level: 1, PlayerId: null, Type: 1281}]
+catalogue            : {nrOfRounds: "8", healthPct: "20"}
+```
+
+A/B sur trois BC du MÊME constructeur — c'est ce qui établit que la greffe est la cause :
+
+| BC | catalogue `EnvEndBombardment` | installées |
+|---|---|---|
+| voie fidèle, sans greffe | 6 / 30 | **0** |
+| voie ids, sans greffe | 6 / 30 | **0** |
+| voie fidèle **+ greffe** | **8 / 20** | **1** |
+
+⇒ La greffe pose l'ability **et** corrige les constantes. Le second effet n'était pas acquis :
+`AbilitiesConfigurations` est fusionné par `GetPvpLevelConfig` dans
+`BC.Abilities.EnvironmentAbilities`, donc le catalogue lui-même passe de 6/30 à 8/20.
+
+**Comment**, et c'est un seul appel natif :
+`AProgressionGameModeSource$$ApplyEnvironmentAbilities(env, extraAbilitiesConfig)` fait
+`Abilities.AddRange(Map(...))` **et** `DictionaryExtensions.AddRange(AbilitiesConfigurations, …)`.
+Cette seconde ligne est celle qu'on ne sait PAS écrire à la main — clé de type valeur, et se
+tromper ne lève pas, ça CRASHE (mesuré le 2026-08-21). Le foyer partagé
+`frida/hooks/features/environment-abilities.ts` porte le geste ; `guild-war-config` le consomme
+aussi (le réceptacle en venait).
+
+⚠ `this` n'est jamais déréférencé par ce corps — on lui passe une instance **nue** et bien typée
+d'`AProgressionGameModeSource`, pas un nul : si un build futur se met à lire `this`, il lèvera
+au lieu de rendre un résultat faux.
+
+**Coût NUL** re-mesuré (baseline / contre-épreuve) : jetons, rating, trophées inchangés.
+
+## ⚠ CE QUI PRÉCÉDAIT LA GREFFE — « configuré » n'est pas « installé »
 
 Mesuré sur la BC du runner monté. Le piège est qu'un `grep` y trouve **3 occurrences** de
 `EnvEndBombardment` — de quoi conclure à tort qu'il est là :
