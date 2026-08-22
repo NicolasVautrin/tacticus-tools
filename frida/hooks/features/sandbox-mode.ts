@@ -131,6 +131,9 @@ import * as pvpOpponents from "./pvp-opponents.js";
 // le 2026-08-22 : les deux modules posent le même objet, dont le ctor natif ne crée AUCUN des
 // trois membres. Deux copies auraient divergé -- et ce sont des ÉCRITURES en mémoire managée.
 import * as envAbilities from "./environment-abilities.js";
+// Le FOYER du forcage d'initialisation de classe (#982-r6). Il tient la discipline qui compte :
+// lire l'etat AVANT, et distinguer une classe deja chaude d'une classe qu'on a chauffee soi-meme.
+import { ClassInitState, classInitState, LIVE_CLASS_INIT_PROBE } from "../il2cpp/class-init.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -545,17 +548,35 @@ function chaineManageeEnracinee(v: string): NativePointer {
     return p;
 }
 
-/** `PvpGameModeSource.PVP_UNIT_POST_FIX`, LU sur le jeu. */
+/** L'état d'initialisation de `PvpGameModeSource` au dernier appel -- PUBLIÉ, jamais supposé. */
+let postfixInit: ClassInitState | null = null;
+
+/** `PvpGameModeSource.PVP_UNIT_POST_FIX`, LU sur le jeu.
+ *
+ *  ⚠ IL FAUT FORCER L'INITIALISATION DE LA CLASSE, et ce n'est pas une liberté : IL2CPP ne
+ *  remplit le bloc de statiques qu'à l'initialisation, et `PvpGameModeSource` n'est instanciée
+ *  qu'en entrant dans un VRAI duel — donc froide dans toute session qui n'en a pas joué. Lue à
+ *  froid, elle rend `null`, et c'est exactement ce qui est arrivé au premier essai (session 17).
+ *
+ *  **Le natif fait littéralement ce forçage au même endroit** : `GetUnitModel` porte
+ *  `if (*(klass + 0xe4) == 0) il2cpp_runtime_class_init(klass);` juste avant de lire ce
+ *  statique. On mirroite, on n'invente pas.
+ *
+ *  ⚠ L'ÉTAT SE LIT AVANT, et il est publié : une classe déjà chaude mesure le jeu, une classe
+ *  qu'on vient de forcer mesure un état qu'on a créé soi-même. Le foyer `classInitState` tient
+ *  cet ordre — c'est pour ça qu'on passe par lui plutôt que par `runtime_class_init` en direct. */
 function postfixDuJeu(): string | Refus {
     const k = findClassAnywhere(NS_SRC, "PvpGameModeSource");
     if (!k) return refus("classe `PvpGameModeSource` introuvable -- chemin PÉRIMÉ");
+    postfixInit = classInitState(LIVE_CLASS_INIT_PROBE, k, true);
     const p = readStaticObjectField(k, "PVP_UNIT_POST_FIX");
     if (p === null) {
-        return refus("`PvpGameModeSource.PVP_UNIT_POST_FIX` NON LU. Trois causes possibles et "
-            + "on ne les rabat PAS sur une valeur par défaut : champ absent du build, classe "
-            + "pas encore initialisée (ouvrir l'écran d'Arène l'initialise), ou statique nul. "
-            + "Une chaîne inventée s'appliquerait sans rien casser et fabriquerait un montage "
-            + "faux.");
+        return refus("`PvpGameModeSource.PVP_UNIT_POST_FIX` NON LU (classe initialisée avant="
+            + postfixInit.initializedBefore + ", forcée=" + postfixInit.forcedInit
+            + ", après=" + postfixInit.initialized
+            + (postfixInit.forceInitError ? ", " + postfixInit.forceInitError : "")
+            + "). On ne rabat PAS sur une valeur par défaut : une chaîne inventée s'appliquerait "
+            + "sans rien casser et fabriquerait un montage faux.");
     }
     const v = readIl2cppString(p);
     if (v === null || v === "") {
@@ -595,6 +616,17 @@ function methodeResolveurSandbox(): { info: NativePointer; ptr: NativePointer } 
         + vus.length + " display class de `BattleConfigBuilder` -- chemin PÉRIMÉ. Ne PAS se "
         + "replier sur un nom indexé (`<>c__DisplayClass37_0`) : l'index est attribué par le "
         + "compilateur et change sans bruit.");
+}
+
+/** L'état COURANT des deux ancrages — à relire APRÈS `LoadBattle`.
+ *
+ *  ⚠ POURQUOI CETTE FONCTION EXISTE. `armerPostfix` rend ses compteurs à l'ARMEMENT, donc à
+ *  zéro : les deux ancrages ne tirent que pendant `LoadBattle`, qui vient plus tard. Publier
+ *  l'objet d'armement dans la réponse affichait `pose=0 retire=0` sur un montage pourtant
+ *  RÉUSSI -- un faux négatif qui aurait fait chercher une panne inexistante. Mesuré, corrigé. */
+function etatPostfix(): Record<string, unknown> {
+    return { arme: postfixListeners.length > 0, postfix: postfixValeur,
+             pose: postfixPose, retire: postfixRetire, classeInit: postfixInit };
 }
 
 /** Arme (ou désarme) les DEUX ancrages. Ils vont ENSEMBLE : poser le postfix sans adapter le
@@ -658,6 +690,9 @@ function armerPostfix(actif: boolean): Record<string, unknown> | Refus {
     }));
 
     return { ok: true, arme: true, postfix: pf,
+             // L'état d'init est PUBLIÉ : « classe déjà chaude » et « classe que nous avons
+             // forcée » ne sont pas la même mesure, et le lecteur doit pouvoir les séparer.
+             classeInit: postfixInit,
              methodes: ["Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetPvpLevelConfig",
                         "BattleConfigBuilder.<>c__DisplayClass*"
                             + "$$<GetHotseatSyncPvpConfig>g__GetEnemy|0"],
@@ -1601,7 +1636,7 @@ export function register(ctx: Ctx): void {
                 // TRI-ÉTAT : `null` = greffe PAS DEMANDÉE (donc environnement VIDE), jamais
                 // à lire comme « rien à installer ». Sinon, le compte des INSTALLÉES.
                 environnement: m.environnement,
-                postfix: m.postfix,
+                postfix: etatPostfix(),   // RELU ici : les ancrages ne tirent que pendant LoadBattle
             };
         });
     };
@@ -1757,7 +1792,7 @@ export function register(ctx: Ctx): void {
                 champsSource: champsDeLaSource(m.source),
                 // TRI-ÉTAT : `null` = greffe PAS DEMANDÉE (environnement VIDE).
                 environnement: m.environnement,
-                postfix: m.postfix,
+                postfix: etatPostfix(),   // RELU ici : les ancrages ne tirent que pendant LoadBattle
                 avertissement: "l'APPEL est passé -- ça ne dit RIEN du montage. Le vérifier "
                     + "par `sandboxProbe` / l'écran. Et la SORTIE reste non éprouvée sur cette "
                     + "source : elle porte les six `Handle*`, ce qui est la cause identifiée "

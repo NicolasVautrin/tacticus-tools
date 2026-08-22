@@ -380,7 +380,37 @@ unités maxées. Le mécanisme : `b__0` fait `cfg.Id = enemyTypeId` — sans pos
 mesurable AVANT le montage (les deux lineups sont connus), donc il doit être DIT — un banc qui
 ment en silence est pire qu'un refus.
 
-## Ce qui reste ouvert : le POSTFIX, et lui seul
+## ✅ LE POSTFIX EST POSÉ — les deux camps coexistent avec LEURS statistiques
+
+Deux ancrages, indissociables, **mirror du natif** (`LoadBattleInternal` passe
+`PVP_UNIT_POST_FIX`, `GetUnitModel` fait `String.Replace(unitId, <postfix>, "")`). Armés **sans
+condition** : un drapeau qu'on oublie rend un banc qui ment.
+
+Confronté sur la proposition 2, 4 ids partagés sur 5 :
+
+| catalogue | rang | PV | puissance |
+|---|---|---|---|
+| `ultraInceptorSgt` (nous) | 17 | 7 758 | 396 257 |
+| `ultraInceptorSgt:pvp` (lui) | 2 | 193 | **221** |
+| `ultraTigurius` (nous) | 14 | 3 467 | 110 486 |
+| `ultraTigurius:pvp` (lui) | 2 | 154 | **455** |
+
+⚠ **La confirmation n'est pas « ça marche », c'est l'ÉGALITÉ AU TÉMOIN** : les cinq valeurs
+`:pvp` (455 / 221 / 200 / 369 / 103) sont **exactement** celles du contrôle « 0 id partagé »
+mesuré plus haut, au chiffre près. Le chemin postfixé *reproduit* le contrôle — il ne produit
+pas seulement quelque chose de plausible.
+
+⚠ **Il faut FORCER l'initialisation de `PvpGameModeSource`** : elle n'est instanciée qu'en
+entrant dans un vrai duel, donc froide son bloc de statiques est vide et `PVP_UNIT_POST_FIX`
+rend `null` (mesuré — refus au premier essai). Le natif fait littéralement ce forçage au même
+endroit. Foyer : `il2cpp/class-init.ts`, qui distingue « déjà chaude » de « chauffée par nous ».
+
+⚠ **Le résolveur ne se trouve PAS par son nom de classe** : `<>c__DisplayClass37_0`, où le `37`
+est un index attribué par le compilateur — il bouge dès qu'une méthode est ajoutée à
+`BattleConfigBuilder`, en silence. On énumère les types imbriqués et on retient celui qui porte
+`<GetHotseatSyncPvpConfig>g__GetEnemy|0`.
+
+## Trace historique : ce que le postfix a coûté avant d'être posé
 
 Il n'a d'effet que si les **deux équipes alignent le même `unitId`** — `b__0` fait
 `cfg.Id = enemyTypeId`, donc deux homonymes se fondent encore en une entrée de catalogue. C'est
