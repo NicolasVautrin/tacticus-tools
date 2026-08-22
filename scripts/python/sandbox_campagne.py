@@ -94,6 +94,14 @@ ap.add_argument("--sans-replay", action="store_true", help="ne pas armer la capt
 # lui-meme par `GetBattleLineup`.
 ap.add_argument("--garder-memoire", action="store_true",
                 help="ne PAS vider la memoire de pose (cas du retry sur la MEME bataille)")
+# SUBSTITUER UNE BC RETOUCHEE -- la source reste FORGEE, seule la config change.
+#
+# (!)LA SOURCE EST FORGEE MEME AVEC `--bc`, ET CE N'EST PAS DU GASPILLAGE. Les bornes de pose, le
+# roster du HUD et `GetBattleLineup` sont DELEGUES a cette source (cf. `deploymentPoolArmer`
+# ci-dessus) : sans elle l'ecran de deploiement est vide, quelle que soit la BC. On ne remplace
+# donc que la BC passee a `sandboxModeBcOverride`, jamais la source.
+ap.add_argument("--bc", default=None,
+                help="chemin d'une BC JSON a monter A LA PLACE de celle que la source produit")
 
 # L'ordinal de `--type` -> son nom, tel que la localisation et `battles.campaigns` le nomment.
 TYPE_NOMME = {0: "Standard", 1: "Elite", 2: "Mirror", 3: "EliteMirror", 4: "Event"}
@@ -173,6 +181,34 @@ bc = b["json"]
 d = json.loads(bc)
 print("BC : Id=%s GameMode=%s board=%s  (%d octets)"
       % (d.get("Id"), d.get("GameMode"), (d.get("Board") or {}).get("Id"), len(bc)))
+
+if args.bc:
+    # (!)ON CONFRONTE LA BC SUBSTITUEE A CELLE QUE LA SOURCE VIENT DE PRODUIRE. Monter la BC d'un
+    # AUTRE noeud sous les armements de celui-ci donnerait un plateau et un roster discordants --
+    # et ca se verrait a l'ecran, trop tard. Le refus porte sur le `Id` et le board, les deux
+    # seules identites que la BC porte.
+    _p = Path(args.bc)
+    if not _p.is_absolute():
+        _p = RACINE / _p
+    if not _p.exists():
+        print("REFUS : `--bc %s` INTROUVABLE (%s)" % (args.bc, _p))
+        sys.exit(2)
+    _bc = _p.read_text(encoding="utf-8")
+    _d = json.loads(_bc)
+    _ecarts = [(c, d.get(c), _d.get(c)) for c in ("Id", "GameMode")
+               if d.get(c) != _d.get(c)]
+    if (d.get("Board") or {}).get("Id") != (_d.get("Board") or {}).get("Id"):
+        _ecarts.append(("Board.Id", (d.get("Board") or {}).get("Id"),
+                        (_d.get("Board") or {}).get("Id")))
+    if _ecarts:
+        print("REFUS : la BC de `--bc` ne DECRIT PAS cette bataille --")
+        for c, att, vu in _ecarts:
+            print("        %-10s source=%r  fichier=%r" % (c, att, vu))
+        sys.exit(2)
+    _t = ((_d.get("UnitSpawningOverTime") or {}).get("Tiers") or {})
+    print("BC SUBSTITUEE : %s (%d octets, %d tour(s) de vagues) -- concordante (Id, GameMode, "
+          "board)" % (_p.name, len(_bc), len(_t)))
+    bc, d = _bc, _d
 
 
 # 3bis. LES BORNES DE POSE -- LUES SUR LA SOURCE, jamais ecrites en dur.

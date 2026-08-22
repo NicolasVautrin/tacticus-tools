@@ -118,6 +118,7 @@ import { chargementEnCours } from "../game/loader.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant, premiereInstance } from "./view-command.js";
+import { noterSourceMontee } from "./source-vivante.js";
 // (!)FORME B (`import * as` puis appel attributaire), et c'est la doctrine du dépôt : une
 // liaison de module n'est jamais gelée, donc elle reste substituable par un test. `deployment-
 // draft` n'importe pas ce module -- pas de cycle.
@@ -1785,6 +1786,10 @@ export function register(ctx: Ctx): void {
             catch (e) {
                 return refus("StartMatch a levé : " + (e as Error).message);
             }
+            // ⚠ NOTER LA SOURCE, SINON LES LECTEURS DE BC REGARDENT UNE SOURCE MORTE. Sans ce
+            // cran, `getLiveBattleConfig` retombe sur les sources CAPTURÉES et rend la BC d'une
+            // bataille qui ne joue plus -- avec un `Id` plausible, donc sans rien signaler.
+            noterSourceMontee(m.source);
             return {
                 ok: true,
                 source: m.source.toString(),

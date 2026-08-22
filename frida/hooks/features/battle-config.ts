@@ -74,6 +74,7 @@ import {
     findClass, findCtorByParamCount, findMethodByParamCount,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+import { bcDeLaSourceMontee, sourceMontee } from "./source-vivante.js";
 import { serializeToJson as _serializeBcToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { log } from "../runtime/diag.js";
@@ -217,7 +218,21 @@ function readCurrentBattleIfValid(
     } catch { return null; }
 }
 
-function getLiveBattleConfig(): NativePointer | null {
+export function getLiveBattleConfig(): NativePointer | null {
+    // ⚠ LA SOURCE RÉELLEMENT MONTÉE PASSE AVANT TOUTES LES SOURCES CAPTURÉES, ET C'EST UN
+    // CORRECTIF, PAS UN CONFORT. Les trois candidats ci-dessous sont des sources CAPTURÉES au
+    // vol (amorce, hooks de ctor) : aucune ne connaît `SandboxGameModeSource`. Mesuré le
+    // 2026-08-22 -- un onslaught `Waves_Imperial_22` MONTÉ et tournant, et `getLiveBattleConfig`
+    // rendait la BC `Campaign1_06` / board `C1_01` d'une source qui ne jouait plus.
+    //
+    // ⚠ CE QUI REND LA PANNE INVISIBLE : la BC périmée est PARFAITEMENT LISIBLE. Elle porte un
+    // `Id`, un board, ses templates -- `inspectBattleConfig` la décrit sans broncher, et une
+    // mutation appliquée dessus rend `relu: true` sans avoir le moindre effet. Le type-guard
+    // ci-dessous ne peut rien contre ça : l'objet EST une `BattleConfiguration` valide, elle
+    // n'est simplement plus celle qu'on joue. Seule la source montée le sait.
+    const bcMontee = bcDeLaSourceMontee();
+    if (bcMontee !== null && isBattleConfig(bcMontee)) return bcMontee;
+
     // Priorité : Pvp > MoW Event > Campaign. Quand l'user navigue vers un mode plus avancé
     // (PvP, MoW), on veut sa BC en priorité (plus riche : RuleSet, MoW ammo, templates :pvp).
     // CHAQUE candidat est TYPE-GUARDÉ (BattleConfiguration) : une source stale d'un mode

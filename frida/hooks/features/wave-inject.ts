@@ -38,6 +38,8 @@ import {
 } from "../game/match-state.js";
 import { estRefus, refus } from "./lecture-champs.js";
 import { Refus } from "./view-command.js";
+import { getLiveBattleConfig } from "./battle-config.js";
+import { sourceMontee } from "./source-vivante.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 
@@ -184,7 +186,192 @@ function etatDuRunner(runnerId: unknown): NativePointer | Refus {
     return p;
 }
 
+// --- LA BC VIVANTE : POSER LE CALENDRIER DE VAGUES AVANT LE SETUP -------------------------
+//
+// ⚠ CE CHEMIN CONTREDIT L'EN-TÊTE DE CE MODULE, ET C'EST DÉLIBÉRÉ. L'en-tête affirme que muter
+// la BC pendant le déploiement « n'a AUCUN effet ». C'était une DÉDUCTION, jamais une mesure :
+// elle est vraie si `AddPlayer` s'est déjà joué, fausse s'il se joue au START. Le module d'à
+// côté écrit noir sur blanc que son patch sert à « tweak stats mid-deployment », et le montage
+// sandbox que « c'est le START du jeu qui convertit ». Les deux lectures ne peuvent pas être
+// vraies ensemble. Ce RPC EXISTE POUR TRANCHER — et `diagPredefMachinesFires` (compteur sur
+// `SetupGameOperation$$AddPredefinedMachines`) dit de quel côté, en comptant les tirs avant et
+// après le START.
+//
+// ⚠ ON ÉCRIT L'OBJET ENTIER, DÉSÉRIALISÉ PAR LE JEU. `Tiers` est un
+// `Dictionary<Int32, Dictionary<PlayerId, Wave>>` : le construire à la main exigerait de boxer
+// des clés de type valeur, et c'est exactement ce qui a tué le process le 2026-08-21 sur
+// `EnvironmentAbilities.AbilitiesConfigurations`. Newtonsoft, lui, sait convertir les clés
+// JSON (des chaînes) vers `Int32` et vers l'enum — c'est la forme que le jeu SÉRIALISE
+// lui-même, on la lui rend telle quelle.
+
+/** L'offset de `BattleConfiguration.UnitSpawningOverTime`, résolu PAR NOM sur la classe de
+ *  L'OBJET VIVANT — pas sur une classe cherchée par nom, qui pourrait ne pas être la sienne. */
+function offsetUsoDe(bc: NativePointer): { off: number; classe: NativePointer } | Refus {
+    let klass: NativePointer;
+    try { klass = bc.readPointer(); } catch (e) {
+        return refus("classe de la BC illisible : " + (e as Error).message);
+    }
+    if (klass.isNull()) return refus("la BC vivante porte une classe NULLE");
+    let nomClasse: string;
+    try { nomClasse = s(class_get_name(klass) as NativePointer); }
+    catch (e) { return refus("nom de classe illisible : " + (e as Error).message); }
+    if (nomClasse !== "BattleConfiguration") {
+        return refus("l'objet vivant est un `" + nomClasse + "`, pas une `BattleConfiguration` "
+            + "-- écrire dedans corromprait un objet d'un autre type");
+    }
+    for (const nom of ["UnitSpawningOverTime", "<UnitSpawningOverTime>k__BackingField"]) {
+        const off = getFieldOffset(klass, nom);
+        if (off >= 0) return { off, classe: klass };
+    }
+    return refus("`BattleConfiguration.UnitSpawningOverTime` ABSENT sous ses deux écritures "
+        + "connues -- chemin PÉRIMÉ sur ce build");
+}
+
 export function register(ctx: Ctx): void {
+    /** LECTURE + MUTATION de `BC.UnitSpawningOverTime` sur la BC **VIVANTE**.
+     *
+     *  Sans `confirmer`, c'est une LECTURE : on rend l'offset résolu et le pointeur courant du
+     *  nœud, sans rien écrire. C'est ce qui permet de voir qu'on vise bien une BC, et laquelle.
+     *
+     *  body: { confirmer?, unitId?, parTour?, tours?, playerId?, tag?, tiers? }
+     *  `tiers` (JSON brut) l'emporte sur la forme paramétrée, pour les calendriers qui ne se
+     *  réduisent pas à « N unités identiques à chaque tour ». */
+    ctx.rpc.bcWaveSet = (
+        body?: {
+            confirmer?: boolean; unitId?: string; parTour?: number; tours?: number;
+            playerId?: string | number; tag?: string; tiers?: unknown;
+            useAtomicGroup?: boolean; useSpawnPointFromUnitIndex?: boolean;
+        },
+    ) => queueOnMainThread(() => {
+        const bc = getLiveBattleConfig();
+        if (bc === null) {
+            return {
+                ok: false,
+                error: "aucune `BattleConfiguration` VIVANTE -- monter une bataille d'abord "
+                    + "(la lecture passe par les sources capturées : Pvp > MoW > Campaign)",
+            };
+        }
+        const r = offsetUsoDe(bc);
+        if (estRefus(r)) return { ok: false, error: r.error };
+        const { off } = r as { off: number; classe: NativePointer };
+
+        let avant: string;
+        try { avant = bc.add(off).readPointer().toString(); }
+        catch (e) { return { ok: false, error: "lecture du nœud : " + (e as Error).message }; }
+
+        // ⚠ DIRE D'OÙ VIENT LA BC, TOUJOURS. Une BC périmée est parfaitement lisible : c'est
+        // ce silence qui a fait muter, le 2026-08-22, la BC d'une source campagne morte pendant
+        // qu'un onslaught tournait -- écriture passée, `relu: true`, zéro effet. `null` =
+        // AUCUNE source montée notée, donc la BC vient des sources capturées : à ce moment-là
+        // rien ne garantit qu'elle soit celle qu'on joue.
+        const src = sourceMontee();
+        const provenance = src === null
+            ? "sources CAPTUREES (aucune source montée notée) -- NON GARANTIE COURANTE"
+            : "source MONTÉE : " + (src.classe ?? "?") + " @" + src.ptr.toString();
+
+        if (!body?.confirmer) {
+            return {
+                ok: true, ecrit: false, bc: bc.toString(), offset: "+0x" + off.toString(16),
+                noeudAvant: avant, provenance,
+                note: "LECTURE SEULE. `confirmer: true` pour ÉCRIRE. Un pointeur non nul ne dit "
+                    + "pas que des vagues sont posées : le nœud existe avec `Tiers` VIDE sur "
+                    + "toute BC de campagne.",
+            };
+        }
+
+        // Le calendrier : soit fourni tel quel, soit construit depuis la forme paramétrée.
+        let tiers: unknown;
+        if (body.tiers !== undefined && body.tiers !== null) {
+            tiers = body.tiers;
+        } else {
+            const unitId = body.unitId;
+            const tours = body.tours ?? 5;
+            const parTour = body.parTour ?? 2;
+            const playerId = body.playerId;
+            if (typeof unitId !== "string" || !unitId) {
+                return { ok: false, error: "`unitId` manquant (ou fournir `tiers` en brut)" };
+            }
+            if (playerId === undefined || playerId === null || playerId === "") {
+                return {
+                    ok: false,
+                    error: "`playerId` manquant -- il se LIT dans `BC.Player.Players` (celui "
+                        + "dont `PlayerType == 1` est l'ennemi) ; le deviner viserait le mauvais "
+                        + "camp, et un calendrier posé sur SOI fait apparaître les renforts "
+                        + "DANS SON PROPRE camp",
+                };
+            }
+            if (!(tours >= 1) || !(parTour >= 1)) {
+                return { ok: false, error: "`tours` et `parTour` doivent valoir au moins 1" };
+            }
+            const tag = body.tag ?? "";
+            const vague = {
+                Index: 0,
+                ToSpawn: Array.from({ length: parTour }, () => ({
+                    SpawnPointTag: tag, UnitId: unitId, SpawnSource: 3, IsClone: false,
+                })),
+                ToSpawnOnComplete: [] as unknown[],
+                UpgradeToRarity: null,
+                IsCloneAllUnits: false,
+                CloneAllUnitsHealthPct: null,
+            };
+            const t: Record<string, unknown> = {};
+            for (let i = 1; i <= tours; i++) t[String(i)] = { [String(playerId)]: vague };
+            tiers = t;
+        }
+
+        if (!isDeserializerReady()) {
+            return {
+                ok: false,
+                error: "`JsonConvert.DeserializeObject` non résolu -- le nœud ne peut pas être "
+                    + "construit sans lui, et je ne le fabrique pas à la main",
+            };
+        }
+        const kUso = findClassAnywhere(NS_CFG, "UnitSpawningOverTimeConfiguration");
+        if (!kUso) {
+            return {
+                ok: false,
+                error: "classe `" + NS_CFG + ".UnitSpawningOverTimeConfiguration` introuvable "
+                    + "-- chemin PÉRIMÉ sur ce build",
+            };
+        }
+        const json = JSON.stringify({
+            Tiers: tiers,
+            UseAtomicGroup: body.useAtomicGroup ?? false,
+            UseSpawnPointFromUnitIndex: body.useSpawnPointFromUnitIndex ?? false,
+        });
+        let noeud: NativePointer;
+        try { noeud = deserializeFromJson(json, kUso); }
+        catch (e) {
+            return {
+                ok: false,
+                error: "désérialisation d'`UnitSpawningOverTimeConfiguration` : "
+                    + (e as Error).message,
+            };
+        }
+        if (noeud.isNull()) {
+            return { ok: false, error: "nœud désérialisé en NUL -- rien n'a été écrit" };
+        }
+        // ⚠ ENRACINER AVANT D'ÉCRIRE. Le GC d'IL2CPP ne voit pas notre référence JS ; un objet
+        // frais peut être collecté entre sa création et l'écriture du champ.
+        gcRoot.add(noeud);
+        try { bc.add(off).writePointer(noeud); }
+        catch (e) { return { ok: false, error: "écriture du champ : " + (e as Error).message }; }
+
+        let apres: string;
+        try { apres = bc.add(off).readPointer().toString(); } catch { apres = "?"; }
+        return {
+            ok: true, ecrit: true, bc: bc.toString(), offset: "+0x" + off.toString(16),
+            noeudAvant: avant, noeudApres: apres, provenance,
+            relu: apres === noeud.toString(),
+            octetsJson: json.length,
+            note: "ÉCRIT dans la BC VIVANTE. L'écriture passée ne dit RIEN de l'effet : le "
+                + "calendrier n'est lu qu'au SETUP (`OperationProcessor$$AddPlayer`, param "
+                + "`spawnsPerTurn`). Si le setup a DÉJÀ eu lieu, ce nœud ne sera jamais relu. "
+                + "Mesurer par `diagPredefMachinesFires` avant/après le START, puis par les "
+                + "entités réellement apparues.",
+        };
+    });
+
     /** LECTURE SEULE — qui sont les joueurs, et quelle vague porte tel tour.
      *  À jouer AVANT et APRÈS toute injection : c'est la mesure, l'injection n'est que le geste.
      *  body: { runnerId, turn? } */
