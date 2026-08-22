@@ -83,6 +83,25 @@ ORDRE = {
         ("enemies", "List`1"),
         ("unitModifiers", "Dictionary`2"),
     ],
+    # (!)LE DUEL. `playerUnits` est une liste PAR JOUEUR -- `List<List<IUnitModel>>` -- et c'est
+    # le seul mode qui en porte une. Un `List`1` inflate s'affiche pareil qu'un
+    # `List<IUnitModel>`, et `runtime_invoke` ne type-check pas : y verser les unites a plat ne
+    # leverait RIEN et corromprait a l'iteration, cote jeu. D'ou le genre `unitesParJoueur`.
+    #
+    # ⚠ ET LE SPS EST EN POSITION 5, PAS 2. Le jeu d'arguments qui servait de modele portait
+    # `0` en 2 et `3` en 5 ; en recopier la forme monterait le mauvais jeu de points
+    # d'apparition SANS que rien ne proteste. Les deux MoW ont leur place propre, 6 et 7.
+    "pvp": [
+        ("boardId", "String"),
+        ("useAccountUnits", "Boolean"),
+        ("player1Type", "PlayerType"),
+        ("player2Type", "PlayerType"),
+        ("playerUnits", "List`1"),
+        ("spawnpointSet", "Int32"),
+        ("mainPlayerMachineOfWar", None),
+        ("enemyPlayerMachineOfWar", None),
+        ("bossUnit", None),
+    ],
 }
 
 
@@ -346,6 +365,28 @@ def batir_args(args):
             {"genre": "json", "valeur": liste(args.enemies)},   # enemies
             {"genre": "json", "valeur": {}},                    # unitModifiers
         ]
+    if args.mode == "pvp":
+        adverses = liste(args.enemies)
+        if not adverses:
+            print("REFUS : `--enemies <ids>` est obligatoire pour pvp -- c'est l'equipe d'en "
+                  "face. Sans elle on monterait un duel contre personne.")
+            return None
+        return [
+            {"genre": "texte", "valeur": args.board},
+            {"genre": "booleen", "valeur": args.account_units},
+            {"genre": "entier", "valeur": args.player_type},
+            {"genre": "entier", "valeur": args.player2_type},
+            # ⛔ PAR JOUEUR, JAMAIS A PLAT : joueur 1 = nous, joueur 2 = l'adversaire.
+            {"genre": "unitesParJoueur", "joueurs": [
+                {"ids": liste(args.units)},
+                {"ids": adverses},
+            ]},
+            {"genre": "entier", "valeur": args.spawn_set},
+            ({"genre": "unite", "id": args.machine} if args.machine else {"genre": "nul"}),
+            ({"genre": "unite", "id": args.enemy_machine} if args.enemy_machine
+             else {"genre": "nul"}),
+            {"genre": "nul"},                                   # bossUnit -- aucun en duel
+        ]
     print("REFUS : mode `%s` non porte (portes : %s)" % (args.mode, ", ".join(sorted(ORDRE))))
     return None
 
@@ -489,7 +530,18 @@ def main(argv):
     ap.add_argument("--boss", default=None)
     ap.add_argument("--npc1", default=None)
     ap.add_argument("--npc2", default=None)
-    ap.add_argument("--enemies", default="")
+    ap.add_argument("--enemies", default="",
+                    help="pvp : l'equipe D'EN FACE (obligatoire) ; guildBoss : les adds")
+    # pvp
+    ap.add_argument("--enemy-machine", dest="enemy_machine", default=None,
+                    help="pvp : la Machine of War ADVERSE (`--machine` est la notre)")
+    ap.add_argument("--player2-type", dest="player2_type", type=int, default=1,
+                    help="pvp : `PlayerType` du joueur 2. Defaut 1 (AI) -- c'est ce qui fait "
+                         "jouer l'adversaire tout seul. Cf. l'avertissement de `--player-type`, "
+                         "qui ne vaut QUE pour le joueur 1.")
+    ap.add_argument("--account-units", dest="account_units", action="store_true",
+                    help="pvp : poser `useAccountUnits` -- les unites viennent de la "
+                         "progression du COMPTE. Sans lui, elles sont montees par defaut.")
     ap.add_argument("--health", type=int, default=1000000)
     ap.add_argument("--remaining", type=int, default=-1, help="defaut = --health")
     ap.add_argument("--rounds", type=int, default=10)
