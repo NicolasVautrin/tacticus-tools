@@ -80,6 +80,23 @@ def main():
     ap.add_argument("--ability", action="append", default=[],
                     help="`<nom|ordinal>[:niveau]`, repetable. Niveau par defaut 1 "
                          "(0 n'arme RIEN -- c'est ce que fait le natif).")
+    # L'EQUIPE D'UN JOUEUR -- un entier ECRIT EN PLACE dans `BC.Player.Players[<id>].TeamId`.
+    #
+    # ⚠ POURQUOI : les abilities d'environnement sont ecrites pour la GUERRE DE GUILDE, ou
+    # l'equipe 1 ATTAQUE et l'equipe 2 DEFEND. Lu au decompile : `EnvFortified` buffe
+    # `UnitsFromTeam(..., 2)`, `EnvArtillerySupport` bombarde `UnitsFromTeam(..., 1)`. Or le
+    # joueur est `TeamId = 1`. Tout arrive donc a l'envers -- une cause UNIQUE, pas une
+    # malchance ability par ability.
+    #
+    # ⚠ RISQUE NON BORNE PAR LA LECTURE : `TeamId` est un CHAMP, donc tous les
+    # `if (a.TeamId == b.TeamId)` du moteur sont INVISIBLES d'un index par methode. Ce qui est
+    # etabli : `GetHumanPlayerTeamId` le DERIVE (aucun 1 en dur), et `ToOldPlayerIndex` code en
+    # dur mais n'est appele que par du RENDU. Se teste, ne se devine pas.
+    ap.add_argument("--equipe", action="append", default=[],
+                    help="`<playerId>:<teamId>`, repetable. Ex. `11:2` met le joueur en equipe 2.")
+    ap.add_argument("--inverser-equipes", action="store_true",
+                    help="raccourci : joueur(11) -> equipe 2, ennemi(12) -> equipe 1. "
+                         "L'environnement (13, equipe 0) n'est PAS touche.")
     a = ap.parse_args()
 
     if not (a.poser or a.retirer or a.etat or a.lister_shield):
@@ -130,9 +147,26 @@ def main():
         print("patch RETIRE : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:200])
         return 0 if r.get("ok") else 1
 
-    if not a.ability:
-        print("REFUS : `--poser` sans `--ability`. Rien a installer.")
+    # LES EQUIPES -- lues d'abord, parce qu'une pose peut ne porter QUE sur elles.
+    equipes = {}
+    if a.inverser_equipes:
+        equipes = {"11": 2, "12": 1}
+    for spec in a.equipe:
+        pid, _, tid = spec.partition(":")
+        if not tid.strip().lstrip("-").isdigit() or not pid.strip().isdigit():
+            print("REFUS : `--equipe %s` mal forme, attendu `<playerId>:<teamId>`." % spec)
+            return 2
+        equipes[pid.strip()] = int(tid)
+
+    if not a.ability and not equipes:
+        print("REFUS : `--poser` sans `--ability` ni `--equipe`. Rien a faire.")
         return 2
+
+    if equipes:
+        print("equipes demandees :")
+        for k in sorted(equipes, key=int):
+            print("  playerId %-4s -> TeamId %d" % (k, equipes[k]))
+        print("  (l'environnement n'est pas touche s'il n'est pas cite)")
 
     demandes = []
     for spec in a.ability:
@@ -161,14 +195,19 @@ def main():
     # `consumeOnce: False` -- le montage traverse plusieurs `LoadBattle` (la lecture de la source,
     # puis le montage lui-meme). On RETIRE explicitement apres coup (`--retirer`), ce qui est
     # verifiable, alors qu'une consommation automatique ne se voit pas.
-    patch = {"environmentAbilities": demandes, "consumeOnce": False}
+    patch = {"consumeOnce": False}
+    if demandes:
+        patch["environmentAbilities"] = demandes
+    if equipes:
+        patch["playerTeamIds"] = {k: int(v) for k, v in equipes.items()}
     r = j.rpc("setBattleConfigPatch", [patch], 60000) or {}
     if not r.get("ok"):
         print("REFUS : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:400])
         return 1
 
     print()
-    print("patch ARME : %d ability(ies) d'environnement." % len(demandes))
+    print("patch ARME : %d ability(ies) d'environnement, %d equipe(s) reecrite(s)."
+          % (len(demandes), len(equipes)))
     print("Applique au PROCHAIN `LoadBattle`, PAR MUTATION de la BC que la source produit.")
     print("Monter ensuite le noeud, puis `--etat` : `lastApply.operations` dit ce qui a ete")
     print("REELLEMENT installe (`installees`), et `warnings` nomme une absence du CATALOGUE.")

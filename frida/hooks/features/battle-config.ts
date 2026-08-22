@@ -72,6 +72,7 @@ import { registerRunner, getRunner as getRegistryRunner,
     from "../game/runner-registry.js";
 import {
     findClass, findCtorByParamCount, findMethodByParamCount, methodParamClass,
+    getFieldInfo, field_get_type, type_get_class_or_element_class, class_instance_size,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { bcDeLaSourceMontee, sourceMontee } from "./source-vivante.js";
@@ -537,6 +538,23 @@ interface BattleConfigPatch {
      *        `TotalTurnsFinished == <const>`, cible `_allAliveUnits - _currentTurnUnits`,
      *        donc le camp qui NE joue PAS -- team-agnostique, et pas forcément le tien. */
     environmentAbilities?: Array<{ abilityType: number; niveau: number }>;
+    /** L'ÉQUIPE de chaque joueur -- `BC.Player.Players[<playerId>].TeamId`, ÉCRIT EN PLACE.
+     *  Clé = le `playerId` tel qu'il est dans la BC (`"11"` le joueur, `"12"` l'ennemi,
+     *  `"13"` l'environnement), valeur = le `TeamId` voulu.
+     *
+     *  ⚠ POURQUOI ÇA PEUT SERVIR : les abilities d'environnement sont écrites pour la GUERRE DE
+     *  GUILDE, où l'équipe 1 attaque et l'équipe 2 défend. Lu au décompilé sur `t6dpr4k06g` :
+     *  `EnvFortified` buffe `UnitsFromTeam(..., 2)` et `EnvArtillerySupport` bombarde
+     *  `UnitsFromTeam(..., 1)`. Or le joueur est `TeamId = 1`. Tout arrive donc À L'ENVERS, et
+     *  c'est une cause UNIQUE, pas une malchance ability par ability.
+     *
+     *  ⚠ CE N'EST PAS SANS RISQUE, ET LA LECTURE NE SUFFIT PAS À LE DIRE. `TeamId` est un CHAMP :
+     *  la table des symboles étant indexée par méthode, tous les `if (a.TeamId == b.TeamId)` du
+     *  moteur y sont INVISIBLES. Ce qui est établi : `GetHumanPlayerTeamId` le DÉRIVE de l'entité
+     *  (aucun `1` en dur), et `ToOldPlayerIndex` code en dur mais n'est appelé que par
+     *  `AUnitView$$Create` / `PlaceholderUnitView$$Create` -- du RENDU. Tout ce qui compare deux
+     *  équipes ENTRE ELLES survit ; seul ce qui lit la valeur ABSOLUE bascule. */
+    playerTeamIds?: Record<string, number>;
     /** If true (default), the patch is cleared after a single application. */
     consumeOnce?: boolean;
 }
@@ -875,6 +893,257 @@ export function ecrireAbilitesEnvironnement(
     };
 }
 
+// ---------------------------------------------------------------------------------------
+// L'EQUIPE D'UN JOUEUR -- UN ENTIER, ECRIT EN PLACE.
+//
+// ⛔ PAS DE SERIALISATION, PAS DE RECONSTRUCTION. La premiere version de ce geste proposait de
+// serialiser `BC.Player`, d'y changer les `TeamId` et de redeserialiser -- c'est une
+// SUBSTITUTION du sous-arbre, pas une mutation : elle jette l'identite de l'objet, et quiconque
+// tient deja une reference sur l'ancien `PlayersConfiguration` ne verrait jamais le changement.
+// La deserialisation se justifie pour `Tiers` (un dictionnaire imbrique qu'on CREE de zero, sur
+// un champ NUL) ; ici l'objet EXISTE et le champ est un `int`. On l'ecrit, point.
+//
+// ⚠ LE DICTIONNAIRE SE PARCOURT, IL NE SE MODIFIE PAS. Le crash du 2026-08-21
+// (`Tacticus.exe.30620.dmp`) venait de l'INSERTION avec une cle de type valeur boxee. Lire le
+// tableau `_entries` ne boxe rien et n'insere rien -- c'est une traversee en lecture seule,
+// suivie d'une ecriture d'entier sur l'objet VALEUR. Aucune des deux n'est le geste qui a tue.
+//
+// ⚠ LE LAYOUT SE DERIVE DE L'INSTANCE, JAMAIS D'UN NOM DE CLASSE GENERIQUE. Mesure deja au
+// depot (`game/receive-damage-types.ts`) : `classFields("System.Collections.Generic",
+// "Dictionary`2")` rend ses DIX champs a l'offset 0. Donc `_entries@0` et `_count@0` -- deux
+// offsets qui ne sont PAS negatifs, et qu'une garde `< 0` LAISSE PASSER. La classe `Entry` se
+// deduit du TYPE DU CHAMP `_entries`, donc du dictionnaire reel.
+interface EcritureEquipes {
+    ok: boolean;
+    /** Par joueur : ce qu'on a lu AVANT et ce qu'on a relu APRES. Le seul verdict qui vaut. */
+    joueurs?: Array<Record<string, unknown>>;
+    error?: string;
+}
+
+/** Le meme geste, sur un `SortedDictionary` : parcours de son arbre rouge-noir.
+ *
+ *  `SortedDictionary<K,V>` delegue tout a un `TreeSet`/`SortedSet<KeyValuePair<K,V>>` : un champ
+ *  (`_set`) pointe la collection, qui porte une `root`, et chaque noeud porte `Item` (la paire,
+ *  INLINE), `Left` et `Right`. Aucun tableau plat -- d'ou l'echec de la lecture par `_entries`.
+ *
+ *  ⚠ `Item` est un TYPE VALEUR stocke INLINE : les offsets de ses champs sont donnes pour la
+ *  forme BOXEE, donc on retranche `0x10`. Meme regle que l'ecriture de `TriggeredAbilityConfigId`
+ *  dans `environment-abilities.ts` -- oublier ce retrait lit 16 octets a cote, en silence.
+ *
+ *  ⚠ Parcours ITERATIF avec une borne dure : un arbre corrompu (ou un champ mal resolu qui rend
+ *  un pointeur plausible) ferait boucler le thread principal du jeu, ce qui le tue. La borne est
+ *  un garde-fou, pas une limite de taille attendue -- il y a trois joueurs. */
+function ecrireEquipesParArbre(
+    dict: NativePointer, kDict: NativePointer, nomDict: string,
+    mapping: Record<string, number>,
+): EcritureEquipes {
+    const BOX = 0x10;
+    const champ = (k: NativePointer, noms: string[]): number => {
+        for (const n of noms) { const o = getFieldOffset(k, n); if (o > 0) return o; }
+        return -1;
+    };
+    const offSet = champ(kDict, ["_set", "set", "dictionary"]);
+    if (offSet < 0) {
+        return { ok: false, error: "`" + nomDict + "` : ni `_set` ni `set` -- chemin PERIME" };
+    }
+    let ensemble: NativePointer;
+    try { ensemble = dict.add(offSet).readPointer(); }
+    catch (e) { return { ok: false, error: "lecture de `_set` : " + (e as Error).message }; }
+    if (ensemble.isNull()) return { ok: false, error: "`_set` est NUL -- rien a parcourir" };
+
+    const kSet = ensemble.readPointer();
+    const offRoot = champ(kSet, ["root", "_root"]);
+    if (offRoot < 0) {
+        let nomSet = "?";
+        try { nomSet = cstr(class_get_name(kSet) as NativePointer); } catch { /* ignore */ }
+        return { ok: false, error: "`" + nomSet + "` : ni `root` ni `_root` -- chemin PERIME" };
+    }
+    let racine: NativePointer;
+    try { racine = ensemble.add(offRoot).readPointer(); }
+    catch (e) { return { ok: false, error: "lecture de `root` : " + (e as Error).message }; }
+    if (racine.isNull()) return { ok: true, joueurs: [] };   // arbre VIDE, pas une panne
+
+    // ⚠ SUR .NET CORE, `Node.Item`/`Left`/`Right` SONT DES PROPRIETES : le champ porte alors le
+    // nom de backing `<Item>k__BackingField`. Les trois ecritures sont essayees, et l'echec NOMME
+    // la classe -- deviner un nom de champ trois fois de suite est ce qu'on evite ici.
+    const kNode = racine.readPointer();
+    const NOMS_ITEM = ["Item", "item", "_item", "<Item>k__BackingField"];
+    const NOMS_LEFT = ["Left", "left", "_left", "<Left>k__BackingField"];
+    const NOMS_RIGHT = ["Right", "right", "_right", "<Right>k__BackingField"];
+    const offItem = champ(kNode, NOMS_ITEM);
+    const offLeft = champ(kNode, NOMS_LEFT);
+    const offRight = champ(kNode, NOMS_RIGHT);
+    if (offItem < 0 || offLeft < 0 || offRight < 0) {
+        let nomNode = "?";
+        try { nomNode = cstr(class_get_name(kNode) as NativePointer); } catch { /* ignore */ }
+        return { ok: false, error: "noeud `" + nomNode + "` non decodable "
+            + `(Item=${offItem}, Left=${offLeft}, Right=${offRight}). Ecritures essayees : `
+            + NOMS_ITEM.join("/") + ". Demander ses champs au jeu par `classFields`." };
+    }
+    // La paire est INLINE dans le noeud : ses offsets sont ceux de la forme BOXEE, d'ou `-0x10`.
+    const kItem = (() => {
+        let f: NativePointer | null = null;
+        for (const n of NOMS_ITEM) { f = getFieldInfo(kNode, n); if (f) break; }
+        if (!f) return null;
+        const t = field_get_type(f) as NativePointer;
+        if (t.isNull()) return null;
+        const c = type_get_class_or_element_class(t) as NativePointer;
+        return c.isNull() ? null : c;
+    })();
+    if (kItem === null) return { ok: false, error: "type de `Item` (KeyValuePair) non resolu" };
+    const offKey = champ(kItem, ["key", "_key", "Key"]);
+    const offValue = champ(kItem, ["value", "_value", "Value"]);
+    if (offKey < 0 || offValue < 0) {
+        return { ok: false, error: `KeyValuePair non decodable (key=${offKey}, value=${offValue})` };
+    }
+
+    const joueurs: Array<Record<string, unknown>> = [];
+    const pile: NativePointer[] = [racine];
+    let visites = 0;
+    while (pile.length > 0) {
+        if (++visites > 256) {
+            return { ok: false, error: "plus de 256 noeuds parcourus -- arbre suspect, on ARRETE "
+                + "plutot que de risquer une boucle sur le thread principal du jeu" };
+        }
+        const noeud = pile.pop() as NativePointer;
+        if (noeud.isNull()) continue;
+        let playerId: number;
+        let valeur: NativePointer;
+        try {
+            playerId = noeud.add(offItem + (offKey - BOX)).readS32();
+            valeur = noeud.add(offItem + (offValue - BOX)).readPointer();
+            const g = noeud.add(offLeft).readPointer();
+            const d = noeud.add(offRight).readPointer();
+            if (!g.isNull()) pile.push(g);
+            if (!d.isNull()) pile.push(d);
+        } catch (e) {
+            return { ok: false, error: "parcours du noeud : " + (e as Error).message };
+        }
+        if (valeur.isNull()) continue;
+
+        const kVal = valeur.readPointer();
+        const offTeam = getFieldOffset(kVal, "TeamId");
+        const offType = getFieldOffset(kVal, "PlayerType");
+        if (offTeam < 0) {
+            return { ok: false, error: "`PlayerConfiguration.TeamId` ABSENT -- chemin PERIME" };
+        }
+        const avant = valeur.add(offTeam).readS32();
+        const typeJoueur = offType >= 0 ? valeur.add(offType).readS32() : null;
+        const cible = mapping[String(playerId)];
+        if (cible === undefined) {
+            joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, touche: false });
+            continue;
+        }
+        try { valeur.add(offTeam).writeS32(cible | 0); }
+        catch (e) { return { ok: false, error: "ecriture de `TeamId` : " + (e as Error).message }; }
+        const apres = valeur.add(offTeam).readS32();   // ON RELIT : l'ecriture ne s'atteste pas seule
+        joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, teamApres: apres,
+                       touche: true, relu: apres === (cible | 0) });
+    }
+    return { ok: true, joueurs };
+}
+
+export function ecrireEquipesDesJoueurs(
+    bc: NativePointer, mapping: Record<string, number>,
+): EcritureEquipes {
+    const cfgJoueurs = champPointeur(bc, "Player");
+    if (estRefus(cfgJoueurs)) {
+        return { ok: false, error: "`BC.Player` : " + (cfgJoueurs as { error: string }).error };
+    }
+    const dictR = champPointeur(cfgJoueurs as NativePointer, "Players");
+    if (estRefus(dictR)) {
+        return { ok: false, error: "`BC.Player.Players` : " + (dictR as { error: string }).error };
+    }
+    const dict = dictR as NativePointer;
+    const kDict = dict.readPointer();
+
+    // ⚠ CE N'EST PAS UN `Dictionary`, C'EST UN `SortedDictionary` -- MESURE, PAS SUPPOSE.
+    // La premiere version cherchait `_entries`/`_count` et refusait proprement (`-1`/`-1`) ;
+    // le refus NOMMAIT la classe, et c'est ce nom qui a donne la reponse : `SortedDictionary`2`
+    // n'a AUCUN tableau d'entrees. Il enveloppe un arbre rouge-noir, et on le parcourt.
+    // La traversee reste une LECTURE PURE : ni insertion, ni boxing de cle -- donc pas le geste
+    // qui a tue le process le 2026-08-21.
+    let nomDict = "?";
+    try { nomDict = cstr(class_get_name(kDict) as NativePointer); } catch { /* garde le `?` */ }
+    if (nomDict.startsWith("SortedDictionary")) {
+        return ecrireEquipesParArbre(dict, kDict, nomDict, mapping);
+    }
+    let cleEntries = "";
+    let cleCount = "";
+    let offEntries = -1;
+    let offCount = -1;
+    for (const n of ["_entries", "entries"]) {
+        const o = getFieldOffset(kDict, n);
+        if (o > 0) { offEntries = o; cleEntries = n; break; }
+    }
+    for (const n of ["_count", "count"]) {
+        const o = getFieldOffset(kDict, n);
+        if (o > 0) { offCount = o; cleCount = n; break; }
+    }
+    // GARDE DE PLAGE, pas garde de signe -- cf. le pave ci-dessus : la definition OUVERTE rend
+    // des zeros, qui passeraient un `< 0`. Deux offsets DISTINCTS et non nuls, ou on refuse.
+    if (offEntries <= 0 || offCount <= 0 || offEntries === offCount) {
+        return { ok: false, error: "layout non derivable sur `" + nomDict + "` "
+            + `(entries=${offEntries}, count=${offCount}) -- ni \`_entries\`/\`_count\` ni `
+            + "`entries`/`count` ne resolvent. Si ce n'est pas un `Dictionary`, c'est le CHEMIN "
+            + "`BC.Player.Players` qui est faux, pas le decodeur." };
+    }
+    const fEntries = getFieldInfo(kDict, cleEntries);
+    if (!fEntries) return { ok: false, error: "`FieldInfo` de `_entries` non resolu" };
+    const tEntries = field_get_type(fEntries) as NativePointer;
+    if (tEntries.isNull()) return { ok: false, error: "type de `_entries` non resolu" };
+    const kEntry = type_get_class_or_element_class(tEntries) as NativePointer;
+    if (kEntry.isNull()) return { ok: false, error: "classe `Entry` non resolue" };
+    if (!class_instance_size) {
+        return { ok: false, error: "`il2cpp_class_instance_size` indisponible -- stride non mesurable" };
+    }
+    const BOX = 0x10;
+    const stride = (class_instance_size(kEntry) as number) - BOX;
+    const offKey = getFieldOffset(kEntry, "key") - BOX;
+    const offValue = getFieldOffset(kEntry, "value") - BOX;
+    if (stride <= 0 || offKey < 0 || offValue < 0) {
+        return { ok: false, error: `layout d'\`Entry\` invalide (stride=${stride}, `
+            + `key=${offKey}, value=${offValue})` };
+    }
+
+    const n = dict.add(offCount).readS32();
+    const tableau = dict.add(offEntries).readPointer();
+    if (tableau.isNull()) return { ok: false, error: "`_entries` est NUL" };
+
+    const joueurs: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < n; i++) {
+        // `+0x20` = l'en-tete d'un tableau IL2CPP (objet + bounds + length) avant les elements.
+        const e = tableau.add(0x20 + i * stride);
+        let playerId: number;
+        let valeur: NativePointer;
+        try {
+            playerId = e.add(offKey).readS32();
+            valeur = e.add(offValue).readPointer();
+        } catch (ex) { return { ok: false, error: "lecture d'une entree : " + (ex as Error).message }; }
+        if (valeur.isNull()) continue;
+
+        const cible = mapping[String(playerId)];
+        const offTeam = getFieldOffset(valeur.readPointer(), "TeamId");
+        const offType = getFieldOffset(valeur.readPointer(), "PlayerType");
+        if (offTeam < 0) {
+            return { ok: false, error: "`PlayerConfiguration.TeamId` ABSENT sur ce build -- PERIME" };
+        }
+        const avant = valeur.add(offTeam).readS32();
+        const typeJoueur = offType >= 0 ? valeur.add(offType).readS32() : null;
+        if (cible === undefined) {
+            joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, touche: false });
+            continue;
+        }
+        try { valeur.add(offTeam).writeS32(cible | 0); }
+        catch (ex) { return { ok: false, error: "ecriture de `TeamId` : " + (ex as Error).message }; }
+        // ON RELIT -- « l'ecriture est passee » ne dit rien tant qu'on n'a pas relu.
+        const apres = valeur.add(offTeam).readS32();
+        joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, teamApres: apres,
+                       touche: true, relu: apres === (cible | 0) });
+    }
+    return { ok: true, joueurs };
+}
+
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch,
 ): PatchApplyResult {
@@ -923,6 +1192,24 @@ function applyPatchToConfig(
             }
         } else {
             warnings.push(`environmentAbilities: ${w.error}`);
+        }
+    }
+
+    // Les équipes -- ÉCRITURE EN PLACE d'un entier, aucune reconstruction d'objet.
+    if (patch.playerTeamIds !== undefined && patch.playerTeamIds !== null) {
+        const w = ecrireEquipesDesJoueurs(bc, patch.playerTeamIds);
+        if (w.ok) {
+            const lu = (w.joueurs ?? []).map((j) =>
+                `${j.playerId}:${j.teamAvant}` + (j.touche ? `->${j.teamApres}` : "(inchangé)"));
+            ops.push(`playerTeamIds ${lu.join(" ")}`);
+            for (const j of w.joueurs ?? []) {
+                if (j.touche === true && j.relu !== true) {
+                    warnings.push(`playerTeamIds[${j.playerId}]: RELECTURE DIVERGENTE `
+                        + `(écrit ${patch.playerTeamIds[String(j.playerId)]}, relu ${j.teamApres})`);
+                }
+            }
+        } else {
+            warnings.push(`playerTeamIds: ${w.error}`);
         }
     }
 
