@@ -167,6 +167,10 @@ def main():
     ap.add_argument("--sans-ouvrir", dest="sans_ouvrir", action="store_true",
                     help="ne pas naviguer vers l'Arene si la liste est vide")
     ap.add_argument("--sans-archive", dest="sans_archive", action="store_true")
+    ap.add_argument("--ids-partages-je-sais", dest="ids_partages_je_sais", action="store_true",
+                    help="monter QUAND MEME avec des unites que l'adversaire aligne aussi. "
+                         "Sans postfix elles n'ont qu'UNE entree de catalogue, remplie par NOS "
+                         "stats -- l'adversaire recoit nos versions maxees de ses propres heros.")
     ap.add_argument("--sans-environnement", dest="sans_environnement", action="store_true",
                     help="NE PAS greffer l'environnement d'Arene. Le banc se joue alors sans "
                          "limite de tour : pas d'`EnvEndBombardment`, donc un duel peut "
@@ -212,6 +216,32 @@ def main():
     if not lineup:
         print("REFUS : la proposition %d ne porte pas de lineup adverse (%s) -- rien a monter "
               "en face." % (args.n, p.get("refusAdversaire")))
+        return 2
+
+    # ⛔ LES IDS PARTAGES INVERSENT LE RAPPORT DE FORCE, EN SILENCE -- REFUS EXECUTABLE.
+    #
+    # Sans postfix (le chemin sandbox en ecrit un NUL en dur), les deux camps ecrivent la MEME
+    # ligne de catalogue, et c'est la NOTRE qui gagne : `b__0` fait `cfg.Id = enemyTypeId`.
+    # Mesure du 2026-08-22, A/B controle sur la proposition 2 (`Player1262`, niveau 13) --
+    # son `ultraInceptorSgt` sort a 396 257 de puissance au lieu de 221. Facteur 1 800, EN SA
+    # FAVEUR, sans que rien ne le signale.
+    #
+    # Le temoin qui l'etablit : `necroSpyder`, jamais partage, est IDENTIQUE dans les deux
+    # montages -- donc la voie fidele n'est pas en cause, c'est bien la collision.
+    #
+    # C'est mesurable ICI, avant tout montage : les deux lineups sont connus.
+    nos_ids = [x.strip() for x in (args.units or "").split(",") if x.strip()]
+    partages = sorted(set(nos_ids) & set(lineup))
+    if partages and not args.ids_partages_je_sais:
+        print("REFUS : %d identifiant(s) partage(s) avec l'equipe adverse -- %s"
+              % (len(partages), ", ".join(partages)))
+        print()
+        print("        Sans postfix, ces unites n'ont QU'UNE entree de catalogue, et ce sont")
+        print("        NOS stats qui la remplissent. L'adversaire recevrait nos versions")
+        print("        maxees de ses propres heros -- mesure : facteur 1 800 sur un cas reel.")
+        print()
+        print("        - retirer ces unites de `--units` (le contournement est gratuit)")
+        print("        - ou `--ids-partages-je-sais` pour monter quand meme")
         return 2
 
     cmd = [sys.executable, str(Path(__file__).resolve().parent / "sandbox_mode.py"),

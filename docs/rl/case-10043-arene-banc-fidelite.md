@@ -349,6 +349,37 @@ les valeurs PAR MODE viennent de la progression, ce que fait précisément
 `AProgressionGameModeSource$$GetEnvironmentAbilitiesFromProgression`. Recopier les constantes du
 catalogue monterait une pression de fin FAUSSE, et silencieusement.
 
+## ⛔ LE POSTFIX EST L'AFFAIRE DE LA **SOURCE**, ET LA COLLISION EST SÉVÈRE — MESURÉE
+
+Cadrage corrigé (2026-08-22, sur remarque de l'utilisateur) : ce n'est PAS « un paramètre qu'on
+devrait fournir ». `PvpGameModeSource$$LoadBattleInternal` lit un **statique de classe**
+(`+0xb8`) et le passe ; `GetHotseatSyncPvpConfig` écrit `null` EN DUR. C'est de la plomberie de
+source, et le chemin sandbox n'en a pas.
+
+**A/B contrôlé** — proposition 2 (`Player1262`, niveau 13), même adversaire, seule NOTRE équipe
+change :
+
+| son unité | notre équipe partage 4 ids | notre équipe en partage 0 |
+|---|---|---|
+| `ultraInceptorSgt` | 17 · 7 758 PV · **396 257** | 2 · 193 PV · **221** |
+| `adeptRetributor` | 16 · 6 186 PV · 281 720 | 2 · 149 PV · 200 |
+| `ultraTigurius` | 14 · 3 467 PV · 110 486 | 2 · 154 PV · 455 |
+| `ultraEliminatorSgt` | 11 · 1 754 PV · 37 819 | 3 · 141 PV · 369 |
+| `necroSpyder` (jamais partagé) | 0 · 140 PV · 103 | 0 · 140 PV · 103 |
+
+⇒ **`necroSpyder` identique des deux côtés est le témoin** : la voie fidèle n'est pas en cause,
+elle rend bien un joueur de niveau 13 (rangs 2-3). Les quatre autres sont remplacées par NOS
+versions maxées — facteur **1 800** sur `ultraInceptorSgt`.
+
+⚠ **Ce n'est donc pas un détail de catalogue, c'est une inversion du rapport de force**, et elle
+est SILENCIEUSE. Un banc monté contre un débutant qui partage nos héros oppose nos propres
+unités maxées. Le mécanisme : `b__0` fait `cfg.Id = enemyTypeId` — sans postfix, les deux camps
+écrivent la même ligne de catalogue, et c'est la nôtre qui gagne.
+
+**Contournement gratuit et immédiat** : ne pas aligner d'unité que l'adversaire aligne. Il est
+mesurable AVANT le montage (les deux lineups sont connus), donc il doit être DIT — un banc qui
+ment en silence est pire qu'un refus.
+
 ## Ce qui reste ouvert : le POSTFIX, et lui seul
 
 Il n'a d'effet que si les **deux équipes alignent le même `unitId`** — `b__0` fait
