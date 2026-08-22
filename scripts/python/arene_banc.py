@@ -167,10 +167,6 @@ def main():
     ap.add_argument("--sans-ouvrir", dest="sans_ouvrir", action="store_true",
                     help="ne pas naviguer vers l'Arene si la liste est vide")
     ap.add_argument("--sans-archive", dest="sans_archive", action="store_true")
-    ap.add_argument("--ids-partages-je-sais", dest="ids_partages_je_sais", action="store_true",
-                    help="monter QUAND MEME avec des unites que l'adversaire aligne aussi. "
-                         "Sans postfix elles n'ont qu'UNE entree de catalogue, remplie par NOS "
-                         "stats -- l'adversaire recoit nos versions maxees de ses propres heros.")
     ap.add_argument("--sans-environnement", dest="sans_environnement", action="store_true",
                     help="NE PAS greffer l'environnement d'Arene. Le banc se joue alors sans "
                          "limite de tour : pas d'`EnvEndBombardment`, donc un duel peut "
@@ -230,19 +226,17 @@ def main():
     # montages -- donc la voie fidele n'est pas en cause, c'est bien la collision.
     #
     # C'est mesurable ICI, avant tout montage : les deux lineups sont connus.
+    # Les ids partages ne sont plus un REFUS : le postfix est arme SANS CONDITION cote hook,
+    # comme le duel reel le fait. On les SIGNALE quand meme -- c'est le cas ou le postfix
+    # travaille, donc c'est la ou il faut regarder si un montage sort de travers.
     nos_ids = [x.strip() for x in (args.units or "").split(",") if x.strip()]
     partages = sorted(set(nos_ids) & set(lineup))
-    if partages and not args.ids_partages_je_sais:
-        print("REFUS : %d identifiant(s) partage(s) avec l'equipe adverse -- %s"
+    if partages:
+        print("%d identifiant(s) partage(s) avec l'equipe adverse -- %s"
               % (len(partages), ", ".join(partages)))
+        print("  -> c'est le postfix qui les separe. Sans lui, ces unites n'auraient qu'UNE")
+        print("     entree de catalogue, remplie par NOS stats (mesure : facteur 1 800).")
         print()
-        print("        Sans postfix, ces unites n'ont QU'UNE entree de catalogue, et ce sont")
-        print("        NOS stats qui la remplissent. L'adversaire recevrait nos versions")
-        print("        maxees de ses propres heros -- mesure : facteur 1 800 sur un cas reel.")
-        print()
-        print("        - retirer ces unites de `--units` (le contournement est gratuit)")
-        print("        - ou `--ids-partages-je-sais` pour monter quand meme")
-        return 2
 
     cmd = [sys.executable, str(Path(__file__).resolve().parent / "sandbox_mode.py"),
            "start" if args.confirmer else "bc",

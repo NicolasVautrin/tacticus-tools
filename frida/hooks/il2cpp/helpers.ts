@@ -51,6 +51,17 @@ export const field_get_name = new NativeFunction(
     exp("il2cpp_field_get_name"), "pointer", ["pointer"]);
 export const field_get_offset = new NativeFunction(
     exp("il2cpp_field_get_offset"), "int32", ["pointer"]);
+/** Lire un champ STATIQUE par l'API IL2CPP, plutôt qu'en marchant `klass->static_fields`.
+ *
+ *  ⚠ La voie manuelle exige l'offset de `static_fields` dans `Il2CppClass` (`+0xb8` sur ce
+ *  build) -- une constante de DISPOSITION INTERNE du runtime, qui n'a ni nom ni garde et que
+ *  rien ne signalerait si elle bougeait : on lirait un pointeur plausible. L'export, lui,
+ *  suit la disposition quoi qu'elle devienne.
+ *
+ *  Signature : `void il2cpp_field_static_get_value(FieldInfo* field, void* value)` -- `value`
+ *  est un tampon FOURNI PAR L'APPELANT, jamais une valeur de retour. */
+export const field_static_get_value = new NativeFunction(
+    exp("il2cpp_field_static_get_value"), "void", ["pointer", "pointer"]);
 export const field_get_type = new NativeFunction(
     exp("il2cpp_field_get_type"), "pointer", ["pointer"]);
 export const type_get_class_or_element_class = new NativeFunction(
@@ -500,6 +511,27 @@ export function getFieldInfo(
         k = class_get_parent(k) as NativePointer;
     }
     return null;
+}
+
+/** La valeur d'un champ statique de type RÉFÉRENCE, par son nom. `null` = PAS LU.
+ *
+ *  ⚠ TRI-ÉTAT, et il compte ici : `null` couvre « champ absent du build », « classe pas encore
+ *  initialisée » et « statique réellement nul ». Un appelant qui a besoin de distinguer doit
+ *  d'abord tester `getFieldInfo` -- on ne rabat pas les trois sur une valeur par défaut, parce
+ *  qu'une chaîne vide substituée à un postfix manquant s'appliquerait SANS RIEN CASSER et
+ *  fabriquerait un montage faux. */
+export function readStaticObjectField(
+    klass: NativePointer, fieldName: string,
+): NativePointer | null {
+    const f = getFieldInfo(klass, fieldName);
+    if (f === null) return null;
+    try {
+        const buf = Memory.alloc(Process.pointerSize);
+        buf.writePointer(ptr(0));
+        field_static_get_value(f, buf);
+        const v = buf.readPointer();
+        return v.isNull() ? null : v;
+    } catch { return null; }
 }
 
 // --- Hook convenience wrapper ---

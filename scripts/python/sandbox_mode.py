@@ -512,6 +512,14 @@ def cmd_bc(jeu, args, monter):
               "%s enhancement(s), %s config(s)"
               % (env.get("voie"), inst.get("Abilities"),
                  inst.get("EnhancementAbilities"), inst.get("AbilitiesConfigurations")))
+    # ⚠ Le postfix se rend compte en DEUX chiffres, `pose` et `retire`, et il faut les DEUX :
+    #   poser sans retirer ferait LEVER la resolution, retirer sans poser ne servirait a rien.
+    #   Un `pose > 0, retire == 0` est le symptome exact d'un cran 2 qui n'a pas mordu.
+    pf = d.get("postfix")
+    if pf is not None:
+        print("postfix ARME (%s) -- pose=%s retire=%s"
+              % (json.dumps(pf.get("postfix"), ensure_ascii=False),
+                 pf.get("pose", 0), pf.get("retire", 0)))
     champs = d.get("champsSource") or {}
     nuls = [k for k, v in champs.items() if v in ("0x0", None)]
     if nuls:

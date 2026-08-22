@@ -104,9 +104,10 @@
 // qui prennent un `BattleSetConfigDto` : survival et infested.
 
 import {
-    class_get_fields, class_get_name, class_get_parent, class_is_valuetype, field_get_name,
-    field_get_offset, field_get_type, findClassAnywhere, findMethodByParamClasses,
-    findMethodByParamCount, getFieldOffset, methodParamClass, readIl2cppString, s,
+    class_get_fields, class_get_methods, class_get_name, class_get_nested_types, class_get_parent,
+    class_is_valuetype, field_get_name, field_get_offset, field_get_type, findClassAnywhere,
+    findMethodByParamClasses, findMethodByParamCount, getFieldOffset, method_get_name,
+    methodEntry, methodParamClass, readIl2cppString, readStaticObjectField, s,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { state } from "../game/state.js";
@@ -140,6 +141,8 @@ function refus(msg: string): Refus { return { ok: false, error: msg }; }
 
 const NS_CFG = "IdunBattle.ViewLogic.BattleSource.SandboxBattleConfig";
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
+/** Le namespace de `BattleConfigBuilder` -- la FABRIQUE de BC, pas une source. */
+const NS_VIEW = "Idun.Source.IdunBattle.View";
 
 /** Les modes portés, et LEUR CLASSE — c'est la seule table écrite en dur, et elle ne contient
  *  que des NOMS (stables à 97,5 % inter-build), jamais une arité ni un ordre de paramètres.
@@ -508,6 +511,160 @@ interface Deps {
     itemProg: NativePointer | null;
 }
 
+// --- LE POSTFIX D'IDS ADVERSES ----------------------------------------------------------
+//
+// CE QUE ÇA RÉPARE. Sans lui, une unité alignée par LES DEUX camps n'a qu'UNE entrée de
+// catalogue, remplie par NOS statistiques : `b__0` termine par `cfg.Id = enemyTypeId`, donc les
+// deux côtés écrivent la même ligne. Mesuré le 2026-08-22 (A/B contrôlé, proposition 2) --
+// l'`ultraInceptorSgt` d'un joueur de niveau 13 sortait à 396 257 de puissance au lieu de 221.
+// Facteur 1 800, EN SA FAVEUR, et en silence.
+//
+// ⚠ CE N'EST PAS UNE INVENTION — C'EST CE QUE FAIT LE NATIF, et les deux moitiés sont lues :
+//
+//     PvpGameModeSource$$LoadBattleInternal     passe `PVP_UNIT_POST_FIX` en 14ᵉ argument
+//     PvpGameModeSource$$GetUnitModel           fait `String.Replace(unitId, <postfix>, "")`
+//                                               avant de résoudre sur la progression adverse
+//
+// Le chemin sandbox, lui, passe un `0` LITTÉRAL compilé dans `GetHotseatSyncPvpConfig` : il n'y
+// a ni argument de ctor ni champ de config à poser, d'où l'ancrage.
+//
+// ⚠ ON REPREND LA CHAÎNE DU JEU (`PvpGameModeSource.PVP_UNIT_POST_FIX`), pas une inventée : si
+// un autre étage la retire lui aussi, une valeur à nous passerait au travers.
+
+let postfixListeners: InvocationListener[] = [];
+let postfixPose = 0;          // fois où le 14ᵉ argument a été écrit
+let postfixRetire = 0;        // fois où le résolveur l'a vu et retiré
+let postfixValeur: string | null = null;
+/** Les chaînes managées qu'on fabrique doivent survivre à l'appel — bornées, sinon fuite. */
+const postfixChaines: NativePointer[] = [];
+function chaineManageeEnracinee(v: string): NativePointer {
+    const p = createManagedString(v);
+    gcRoot.add(p);
+    postfixChaines.push(p);
+    if (postfixChaines.length > 256) postfixChaines.shift();
+    return p;
+}
+
+/** `PvpGameModeSource.PVP_UNIT_POST_FIX`, LU sur le jeu. */
+function postfixDuJeu(): string | Refus {
+    const k = findClassAnywhere(NS_SRC, "PvpGameModeSource");
+    if (!k) return refus("classe `PvpGameModeSource` introuvable -- chemin PÉRIMÉ");
+    const p = readStaticObjectField(k, "PVP_UNIT_POST_FIX");
+    if (p === null) {
+        return refus("`PvpGameModeSource.PVP_UNIT_POST_FIX` NON LU. Trois causes possibles et "
+            + "on ne les rabat PAS sur une valeur par défaut : champ absent du build, classe "
+            + "pas encore initialisée (ouvrir l'écran d'Arène l'initialise), ou statique nul. "
+            + "Une chaîne inventée s'appliquerait sans rien casser et fabriquerait un montage "
+            + "faux.");
+    }
+    const v = readIl2cppString(p);
+    if (v === null || v === "") {
+        return refus("`PVP_UNIT_POST_FIX` lu mais VIDE -- un postfix vide ne sépare rien");
+    }
+    return v;
+}
+
+/** Le résolveur du chemin sandbox, trouvé par sa partie STABLE.
+ *
+ *  ⚠ Sa classe est `<>c__DisplayClass37_0`, et le `37` est un index attribué par le COMPILATEUR :
+ *  il bouge dès qu'une méthode est ajoutée à `BattleConfigBuilder`, SANS que rien ne le signale.
+ *  On énumère donc les types imbriqués et on retient celui qui PORTE une méthode nommée
+ *  `<GetHotseatSyncPvpConfig>g__GetEnemy|0` -- le nom de la méthode englobante, lui, est stable. */
+function methodeResolveurSandbox(): { info: NativePointer; ptr: NativePointer } | Refus {
+    const kB = findClassAnywhere(NS_VIEW, "BattleConfigBuilder");
+    if (!kB) return refus("classe `" + NS_VIEW + ".BattleConfigBuilder` introuvable");
+    const it = Memory.alloc(Process.pointerSize);
+    it.writePointer(ptr(0));
+    let n: NativePointer;
+    const vus: string[] = [];
+    while (!(n = class_get_nested_types(kB, it) as NativePointer).isNull()) {
+        const nom = nomDeClasse(n) ?? "?";
+        if (!nom.startsWith("<>c__DisplayClass")) continue;
+        vus.push(nom);
+        const mit = Memory.alloc(Process.pointerSize);
+        mit.writePointer(ptr(0));
+        let m: NativePointer;
+        while (!(m = class_get_methods(n, mit) as NativePointer).isNull()) {
+            const mn = s(method_get_name(m) as NativePointer);
+            if (mn.includes("GetHotseatSyncPvpConfig") && mn.includes("g__GetEnemy")) {
+                return { info: m, ptr: methodEntry(m) };
+            }
+        }
+    }
+    return refus("résolveur `<GetHotseatSyncPvpConfig>g__GetEnemy` INTROUVABLE parmi les "
+        + vus.length + " display class de `BattleConfigBuilder` -- chemin PÉRIMÉ. Ne PAS se "
+        + "replier sur un nom indexé (`<>c__DisplayClass37_0`) : l'index est attribué par le "
+        + "compilateur et change sans bruit.");
+}
+
+/** Arme (ou désarme) les DEUX ancrages. Ils vont ENSEMBLE : poser le postfix sans adapter le
+ *  résolveur le fait LEVER -- il apparie par égalité exacte et finit sur `Enumerable.First`,
+ *  qui n'a pas de variante `OrDefault`. */
+function armerPostfix(actif: boolean): Record<string, unknown> | Refus {
+    if (!actif) {
+        for (const l of postfixListeners) { try { l.detach(); } catch { /* best effort */ } }
+        postfixListeners = [];
+        postfixValeur = null;
+        return { ok: true, arme: false };
+    }
+    if (postfixListeners.length) {
+        return { ok: true, arme: true, postfix: postfixValeur, deja: true,
+                 pose: postfixPose, retire: postfixRetire };
+    }
+    const pf = postfixDuJeu();
+    if (estRefus(pf)) return pf;
+    const kB = findClassAnywhere(NS_VIEW, "BattleConfigBuilder");
+    if (!kB) return refus("classe `BattleConfigBuilder` introuvable");
+    const mBuild = findMethodByParamCount(kB, "GetPvpLevelConfig", 14);
+    if (!mBuild) {
+        return refus("`BattleConfigBuilder$$GetPvpLevelConfig` à 14 paramètres INTROUVABLE -- "
+            + "chemin PÉRIMÉ (le 14ᵉ est `opponentUnitIdPostFix`)");
+    }
+    const mRes = methodeResolveurSandbox();
+    if (estRefus(mRes)) return mRes;
+
+    postfixValeur = pf;
+    const chainePostfix = chaineManageeEnracinee(pf);
+
+    // CRAN 1 -- poser le 14ᵉ argument.
+    postfixListeners.push(Interceptor.attach(mBuild.ptr, {
+        onEnter(args) {
+            // ⛔ ON N'ÉCRIT QUE SUR UN NUL, et c'est la garde qui compte : le duel RÉEL passe
+            // DÉJÀ son postfix (`PvpGameModeSource$$LoadBattleInternal`). L'écraser toucherait
+            // une partie qui n'a rien demandé -- le vice exact du relais laissé armé qui a
+            // coûté un jeton de boss de guilde le 2026-08-20.
+            try {
+                if (!args[14].isNull()) return;
+                args[14] = chainePostfix;
+                postfixPose++;
+            } catch { /* un argument illisible fait RENONCER, jamais forcer */ }
+        },
+    }));
+
+    // CRAN 2 -- le retirer à la résolution, COMME LE NATIF.
+    postfixListeners.push(Interceptor.attach(mRes.ptr, {
+        onEnter(args) {
+            // args[0] = display class, args[1] = unitId, args[2] = isExtraEnemyUnit.
+            try {
+                const id = readIl2cppString(args[1]);
+                if (id === null || postfixValeur === null) return;
+                if (!id.includes(postfixValeur)) return;
+                // `String.Replace` remplace TOUTES les occurrences -- on mirroite, y compris
+                // son risque (un id qui contiendrait le motif serait mutilé chez le natif aussi).
+                args[1] = chaineManageeEnracinee(id.split(postfixValeur).join(""));
+                postfixRetire++;
+            } catch { /* idem : renoncer */ }
+        },
+    }));
+
+    return { ok: true, arme: true, postfix: pf,
+             methodes: ["Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetPvpLevelConfig",
+                        "BattleConfigBuilder.<>c__DisplayClass*"
+                            + "$$<GetHotseatSyncPvpConfig>g__GetEnemy|0"],
+             note: "les deux ancrages vont ENSEMBLE. Le cran 1 n'écrit QUE sur un argument nul, "
+                 + "donc un duel d'Arène RÉEL (qui passe déjà le sien) n'est pas touché." };
+}
+
 /** GREFFER L'ENVIRONNEMENT DU MODE sur une config sandbox déjà construite.
  *
  *  ⚠ CE N'EST PAS UN ARGUMENT DE CTOR — d'où une étape SÉPARÉE, après la construction.
@@ -676,6 +833,8 @@ interface Montage {
     config: NativePointer; source: NativePointer; deps: Deps;
     /** `null` = pas demandé. Sinon le compte-rendu de la greffe, MESURÉ. */
     environnement: Record<string, unknown> | null;
+    /** TOUJOURS renseigné -- le postfix est arme sans condition. */
+    postfix: Record<string, unknown>;
 }
 
 function construire(
@@ -696,6 +855,32 @@ function construire(
         return refus("`" + (nomDeClasse(kCfg) ?? "?") + "..ctor` à " + args.length
             + " paramètre(s) INTROUVABLE. Arité(s) réellement portée(s) : "
             + (arites.length ? arites.join(", ") : "aucune") + ".");
+    }
+
+    // --- LE POSTFIX, ARMÉ SANS CONDITION ----------------------------------------------
+    //
+    // ⛔ PAS D'OPTION, ET C'EST LE POINT. Un drapeau qu'on oublie de passer rend un banc qui
+    // MENT -- l'unité alignée des deux côtés sort avec NOS statistiques, sans erreur, sans
+    // trace. Le duel réel pose ce postfix systématiquement ; on fait pareil.
+    //
+    // ⚠ AVANT le ctor, et pas après : le cran 1 ancre `GetPvpLevelConfig`, que `LoadBattle`
+    // appellera plus tard. Armé trop tard, il ne tirerait pas -- et son absence ne se verrait
+    // que par des statistiques adverses fausses, c'est-à-dire pas du tout.
+    //
+    // ⚠ L'ÉCHEC N'EST FATAL QUE POUR LE PVP. Les deux ancrages ne peuvent tirer que sur le
+    // chemin PvP (`GetPvpLevelConfig` et le résolveur de `GetHotseatSyncPvpConfig`) : bloquer
+    // un montage `waves` parce que `PVP_UNIT_POST_FIX` n'est pas lisible serait une panne
+    // fabriquée. On PUBLIE le refus dans les deux cas -- il n'est jamais tu.
+    const estPvp = nomDeClasse(kCfg) === MODES.pvp;
+    let postfixRapport: Record<string, unknown> = armerPostfix(true) as Record<string, unknown>;
+    if (estRefus(postfixRapport)) {
+        if (estPvp) {
+            return refus("postfix NON ARMÉ, et c'est un montage PvP -- une unité alignée par "
+                + "les deux camps sortirait avec NOS statistiques, en silence. "
+                + (postfixRapport as unknown as Refus).error);
+        }
+        postfixRapport = { arme: false, sansEffetIci: true,
+                           raison: (postfixRapport as unknown as Refus).error };
     }
 
     const deps = dependances();
@@ -759,7 +944,8 @@ function construire(
     } catch (e) {
         return refus("SandboxGameModeSource..ctor a levé : " + (e as Error).message);
     }
-    return { config: cfg, source: src, deps, environnement: envRapport };
+    return { config: cfg, source: src, deps,
+             environnement: envRapport, postfix: postfixRapport };
 }
 
 /** Relit les champs de la source APRÈS construction. Le ctor n'en renseigne que 5 sur 9 —
@@ -1415,6 +1601,7 @@ export function register(ctx: Ctx): void {
                 // TRI-ÉTAT : `null` = greffe PAS DEMANDÉE (donc environnement VIDE), jamais
                 // à lire comme « rien à installer ». Sinon, le compte des INSTALLÉES.
                 environnement: m.environnement,
+                postfix: m.postfix,
             };
         });
     };
@@ -1570,6 +1757,7 @@ export function register(ctx: Ctx): void {
                 champsSource: champsDeLaSource(m.source),
                 // TRI-ÉTAT : `null` = greffe PAS DEMANDÉE (environnement VIDE).
                 environnement: m.environnement,
+                postfix: m.postfix,
                 avertissement: "l'APPEL est passé -- ça ne dit RIEN du montage. Le vérifier "
                     + "par `sandboxProbe` / l'écran. Et la SORTIE reste non éprouvée sur cette "
                     + "source : elle porte les six `Handle*`, ce qui est la cause identifiée "
