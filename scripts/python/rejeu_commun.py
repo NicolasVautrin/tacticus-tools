@@ -116,7 +116,11 @@ def attendre_le_runner(jeu, depuis, plafond_ms=60000):
     print("   bataille apparue (generation %s -> %s), par signal." % (depuis, r.get("generation")))
 
 
-def verifier_morsure(jeu, n_av, graine, plafond_s=10.0):
+def verifier_morsure(jeu, n_av, graine, plafond_s=20.0):
+    # (!)20 s, ET 10 s A DEJA RENDU UN FAUX REFUS. Mesure du 2026-08-22 sur `eliteMirror4` 27 --
+    # passe 1 BIT-EXACTE en 34 s, puis passe 2 refusee sur << RIEN journalise en 10,0 s >>. Le
+    # montage de ce noeud est simplement plus lent que celui de `campaign1` 28. Le plafond borne
+    # une ATTENTE, pas un budget : le tenir serre ne protege de rien, il fabrique des refus.
     """LE CRAN QUI MANQUAIT. Un seed arme APRES le montage laisse une bataille montee, demarree
     et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE.
 

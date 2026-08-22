@@ -327,12 +327,17 @@ def main(argv=None):
         #   rejoue `campaign1` 28. La chaine l'a refuse (rc 2, aucun jeton consomme), mais le
         #   diagnostic n'etait lisible qu'apres coup. `--entree start` tranche a la source, et
         #   c'est ce qu'il faut passer des qu'on CHANGE de noeud.
-        if args.entree == "start":
+        # ⚠ LE FORCAGE NE VAUT QUE POUR LA PREMIERE PASSE, et l'oublier casse la seconde.
+        #   Mesure du 2026-08-22 : `--entree start` applique a CHAQUE tour a fait refuser la
+        #   passe 2 au cran 5 (<< une bataille TOURNE DEJA >>) -- normal, la passe 1 venait de
+        #   gagner et l'ecran de fin etait la. Ce qu'on impose, c'est PAR OU L'ON ENTRE quand on
+        #   arrive de l'exterieur ; une fois dans le noeud, c'est le retry qui enchaine.
+        if n == 1 and args.entree == "start":
             par_retry = False
-            print("   (voie IMPOSEE : start -- `--entree start`)")
-        elif args.entree == "retry":
+            print("   (voie IMPOSEE : start -- `--entree start`, premiere passe)")
+        elif n == 1 and args.entree == "retry":
             par_retry = True
-            print("   (voie IMPOSEE : retry -- `--entree retry`)")
+            print("   (voie IMPOSEE : retry -- `--entree retry`, premiere passe)")
         elif ecranVu is None:
             b = jeu.rpc("battleStatus", [{}], timeout=120000)
             par_retry = isinstance(b, dict) and b.get("stageName") == "Finished"
@@ -396,6 +401,40 @@ def main(argv=None):
                   "         Et desarmer, sinon les relais restent montes : "
                   "`python scripts/python/desarmer_relais.py`" % (n, motif))
             break
+
+    # ⛔ NE JAMAIS LAISSER UNE BATAILLE DERRIERE SOI -- c'est le PENDANT du desarmement des relais,
+    #   et son absence a empoisonne toute la seance du 2026-08-22. Quand la chaine refuse APRES le
+    #   cran 10, elle a deja monte une bataille et, par principe, elle ne se retire pas (<< une
+    #   retraite est une ecriture sur le compte >>). La bataille reste donc au `Setup`, et avec
+    #   elle le booleen statique que `ViewCommandExecutor$$StartMatch` teste sous
+    #   `checkIfAlreadyRunning` : il LOG UNE ERREUR ET RETOURNE. Toute tentative suivante -- meme
+    #   sur un AUTRE noeud, meme depuis l'UI du jeu -- est alors refusee EN SILENCE.
+    #   Mesure : `IsActive=1`, `IsBattleActive=1`, `stage=Setup`, chargeur au repos, et
+    #   `Initialize` qui ne tourne plus du tout.
+    #
+    #   La chaine a raison de ne pas se retirer toute seule ; c'est a l'ORCHESTRATEUR de rendre
+    #   l'etat propre, une fois, en sortant. Mesure du cout : une retraite avant START ne consomme
+    #   NI jeton NI energie (verifie -- `rejeux` inchange sur 6 tentatives), elle n'ajoute qu'un
+    #   `perdu` au compteur du noeud.
+    try:
+        s = jeu.rpc("retreatStatus", [], timeout=120000)
+        if isinstance(s, dict) and s.get("batailleActive") is True:
+            print()
+            print("SORTIE -- une bataille est restee montee ; on la quitte pour ne pas verrouiller")
+            print("          la suivante (`StartMatch` refuse EN SILENCE tant qu'un match tourne).")
+            for m in ("OnBattleSurrender", "ContinueSurrender"):
+                jeu.rpc("retreatInvoke", [{"methode": m, "confirmer": True}], timeout=180000)
+            s2 = jeu.rpc("retreatStatus", [], timeout=120000)
+            reste = s2.get("batailleActive") if isinstance(s2, dict) else None
+            print("          `get_IsBattleActive()` = %s"
+                  % ("false -- etat PROPRE" if reste is False
+                     else ("NON MESURE" if reste is None else "TOUJOURS true -- a constater")))
+        elif isinstance(s, dict) and s.get("batailleActive") is None:
+            # TRI-ETAT : pas mesure n'est pas << rien a faire >>. On le DIT.
+            print("\n(!) `batailleActive` NON MESURE en sortie -- impossible de garantir un etat "
+                  "propre.")
+    except Exception as e:                                    # noqa: BLE001
+        print("\n(!) sortie de bataille EN ECHEC : %s" % e)
 
     print()
     print("=" * 92)

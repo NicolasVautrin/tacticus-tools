@@ -526,7 +526,23 @@ def main(argv=None):
     verifier_morsure(jeu, n_av, graine)
 
     cran(12, "la BC REELLEMENT MONTEE est-elle celle du replay ?")
-    confronter(bcr, bc_vivante(jeu), "la BC montee")
+    # (!)MEME TRAITEMENT QU'AU CRAN 3, ET POUR LA MEME MESURE. Ce cran compare la BC ENTIERE,
+    # catalogue d'unites compris ; une unite entree au ROSTER (`BC.Units` 175 -> 176, plus ses
+    # deux abilities) l'a fait refuser alors qu'elle n'entre dans AUCUNE bataille. Le cran 3 le
+    # faisait sur la BC FORGEE, celui-ci sur la BC MONTEE -- meme critere trop large, meme effet :
+    # les 27 replays condamnes d'un coup par un changement sans rapport avec le substrat joue.
+    #
+    # ⚠ ET LA DIGUE RESTE EN AVAL : le cran 16 confronte CHAQUE COUP au caractere pres contre la
+    #   reference. Un substrat reellement different produirait un flux different et serait vu la,
+    #   sur le FAIT plutot que sur une presomption. C'est ce qui autorise a ne plus refuser ici.
+    ecarts_montee = ecarts_bc(bcr, bc_vivante(jeu))
+    if not ecarts_montee:
+        print("   la BC montee : 0 ecart avec le replay.")
+    else:
+        print("   %d ecart(s) avec la BC montee -- INFORMATIF, on ne s'arrete plus dessus "
+              "(le cran 16 tranche sur les coups) :" % len(ecarts_montee))
+        for e in ecarts_montee[:8]:
+            print("      %s" % str(e)[:150])
 
     cran(13, "la phase, par le BON temoin")
     verifier_phase_avant_start(jeu)
