@@ -555,6 +555,21 @@ interface BattleConfigPatch {
      *  `AUnitView$$Create` / `PlaceholderUnitView$$Create` -- du RENDU. Tout ce qui compare deux
      *  équipes ENTRE ELLES survit ; seul ce qui lit la valeur ABSOLUE bascule. */
     playerTeamIds?: Record<string, number>;
+    /** L'INDEX DE JOUEUR des groupes de spawn -- `Board.SpawnPointSets[].SpawnPointGroups[]`.
+     *  Clé = la **POSITION** du groupe dans son set, valeur = l'index à écrire.
+     *  `{"0":1,"1":0}` = « le 1ᵉʳ groupe prend l'index 1, le 2ᵉ prend 0 » -- soit l'échange.
+     *
+     *  ⚠ PAR POSITION, JAMAIS PAR VALEUR COURANTE. Une correspondance lue sur la valeur n'est pas
+     *  IDEMPOTENTE : appliquée deux fois elle se défait, et le patch vit en `consumeOnce: false`
+     *  alors qu'un montage traverse plusieurs `LoadBattle`. Mesuré le 2026-08-22 : les deux camps
+     *  ont fini DANS LA MÊME ZONE, parce que les sets partagent apparemment leurs objets de
+     *  groupe et que chaque visite retournait la valeur.
+     *
+     *  ⚠ INDISSOCIABLE de `playerTeamIds` : ce champ est un INDEX DE JOUEUR, relié au `TeamId`
+     *  par `ToOldPlayerIndex` (1→0, 2→1). Les groupes ne sont PAS symétriques -- 5 points d'un
+     *  côté, 12 de l'autre sur `C1_01` -- donc inverser les équipes SANS inverser ceci envoie un
+     *  camp dans un groupe trop petit pour lui. */
+    spawnGroupPlayerIndexes?: Record<string, number>;
     /** If true (default), the patch is cleared after a single application. */
     consumeOnce?: boolean;
 }
@@ -1043,6 +1058,82 @@ function ecrireEquipesParArbre(
     return { ok: true, joueurs };
 }
 
+/** LES GROUPES DE POINTS DE SPAWN -- `Board.SpawnPointSets[].SpawnPointGroups[].TeamWithPlayerIndex`.
+ *
+ *  ⚠ CE CHAMP EST UN **INDEX DE JOUEUR**, PAS UN `TeamId` -- et c'est ce qui rend l'inversion
+ *  d'equipes INCOMPLETE si on l'oublie. La conversion est `IdunBattle.Core.TeamIdExtensions$$ToOldPlayerIndex` :
+ *
+ *      TeamId 1 -> index 0        TeamId 2 -> index 1        TeamId 0 -> index 2
+ *
+ *  Mesure sur `data/seed-bc.json` (board `C1_01`) : le groupe d'index 0 porte **5** points et
+ *  celui d'index 1 en porte **12**, pour un joueur a 5 unites et un adversaire a 7. Les groupes
+ *  ne sont donc PAS symetriques : chacun est dimensionne pour son camp. Inverser les `TeamId`
+ *  sans inverser ceci enverrait les 7 unites adverses dans un groupe de 5.
+ *
+ *  ⚠ J'AI CLASSE `ToOldPlayerIndex` << COSMETIQUE >> A TORT. Ses xrefs Ghidra ne nomment que
+ *  `AUnitView$$Create` et `PlaceholderUnitView$$Create` -- du rendu. Mais la MEME conversion
+ *  commande le choix du groupe de spawn, par un chemin que l'index par methode ne montre pas.
+ *  Une xref incomplete se lit comme une absence, et une absence ne prouve rien. */
+function ecrireIndexDesGroupesDeSpawn(
+    bc: NativePointer, mapping: Record<string, number>,
+): EcritureEquipes {
+    const board = champPointeur(bc, "Board");
+    if (estRefus(board)) {
+        return { ok: false, error: "`BC.Board` : " + (board as { error: string }).error };
+    }
+    const setsP = champPointeur(board as NativePointer, "SpawnPointSets");
+    if (estRefus(setsP)) {
+        return { ok: false, error: "`Board.SpawnPointSets` : " + (setsP as { error: string }).error };
+    }
+    const sets = readManagedList(setsP as NativePointer);
+    if (sets === null) return { ok: false, error: "`SpawnPointSets` illisible comme `List`" };
+
+    const groupes: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < sets.size; i++) {
+        const s = readListItem(sets, i);
+        if (s.isNull()) continue;
+        const grP = champPointeur(s, "SpawnPointGroups");
+        if (estRefus(grP)) continue;                      // un set sans groupes n'est pas une panne
+        const gr = readManagedList(grP as NativePointer);
+        if (gr === null) continue;
+        for (let j = 0; j < gr.size; j++) {
+            const g = readListItem(gr, j);
+            if (g.isNull()) continue;
+            const kG = g.readPointer();
+            let off = -1;
+            for (const n of ["TeamWithPlayerIndex", "<TeamWithPlayerIndex>k__BackingField"]) {
+                off = getFieldOffset(kG, n);
+                if (off >= 0) break;
+            }
+            if (off < 0) {
+                return { ok: false, error: "`SpawnPointGroup.TeamWithPlayerIndex` ABSENT sous ses "
+                    + "deux ecritures connues -- chemin PERIME" };
+            }
+            const avant = g.add(off).readS32();
+            // ⚠ LA CLE EST LA **POSITION** DU GROUPE, PAS SA VALEUR COURANTE -- ET C'EST UN
+            // CORRECTIF, PAS UN CHOIX DE STYLE. Une correspondance `{0->1, 1->0}` lue sur la
+            // valeur n'est PAS IDEMPOTENTE : appliquee deux fois elle se DEFAIT. Or le patch
+            // vit en `consumeOnce: false` et un montage traverse PLUSIEURS `LoadBattle`, donc
+            // le resultat dependait de la PARITE du nombre de passages. Pire, les sets semblent
+            // PARTAGER leurs objets de groupe (la trace alterne `1->0`, `0->1`, `0->1`... :
+            // la signature d'un meme objet revisite et retourne a chaque fois), si bien que les
+            // deux camps ont fini DANS LA MEME ZONE. Mesure du 2026-08-22.
+            // Clef par position : le groupe en position j prend toujours le meme index, quel
+            // que soit le nombre de visites et que l'objet soit partage ou non.
+            const cible = mapping[String(j)];
+            if (cible === undefined) {
+                groupes.push({ set: i, groupe: j, indexAvant: avant, touche: false });
+                continue;
+            }
+            g.add(off).writeS32(cible | 0);
+            const apres = g.add(off).readS32();           // ON RELIT, toujours
+            groupes.push({ set: i, groupe: j, indexAvant: avant, indexApres: apres,
+                           touche: true, relu: apres === (cible | 0) });
+        }
+    }
+    return { ok: true, joueurs: groupes };
+}
+
 export function ecrireEquipesDesJoueurs(
     bc: NativePointer, mapping: Record<string, number>,
 ): EcritureEquipes {
@@ -1210,6 +1301,26 @@ function applyPatchToConfig(
             }
         } else {
             warnings.push(`playerTeamIds: ${w.error}`);
+        }
+    }
+
+    // Les groupes de spawn -- même geste, même fenêtre, et INDISSOCIABLE des équipes.
+    if (patch.spawnGroupPlayerIndexes !== undefined && patch.spawnGroupPlayerIndexes !== null) {
+        const w = ecrireIndexDesGroupesDeSpawn(bc, patch.spawnGroupPlayerIndexes);
+        if (w.ok) {
+            const lu = (w.joueurs ?? []).filter((g) => g.touche === true)
+                .map((g) => `s${g.set}g${g.groupe}:${g.indexAvant}->${g.indexApres}`);
+            const intacts = (w.joueurs ?? []).filter((g) => g.touche !== true).length;
+            ops.push(`spawnGroupPlayerIndexes ${lu.join(" ")}`
+                + (intacts > 0 ? ` (${intacts} groupe(s) non cité(s), intacts)` : ""));
+            for (const g of w.joueurs ?? []) {
+                if (g.touche === true && g.relu !== true) {
+                    warnings.push(`spawnGroupPlayerIndexes[s${g.set}g${g.groupe}]: `
+                        + `RELECTURE DIVERGENTE (relu ${g.indexApres})`);
+                }
+            }
+        } else {
+            warnings.push(`spawnGroupPlayerIndexes: ${w.error}`);
         }
     }
 
