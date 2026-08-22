@@ -15,30 +15,37 @@ aucune tentative consommee, aucun octet envoye au serveur, aucun adversaire reel
 sert a REPETER -- essayer une equipe, voir ou ca casse -- avant de decider quel duel engager
 pour de vrai, a la main, par le jeu.
 
-⛔ L'EQUIPE ADVERSE EST FAUSSE, ET LE MONTAGE EST DONC REFUSE PAR DEFAUT (mesure du
-2026-08-22). On passe des IDENTIFIANTS en position 4 du ctor ; la source les resout -- tres
-correctement -- par `UnitProgression$$GetUnit` sur la progression DU COMPTE (`sandbox-mode.ts`
-l'assume explicitement : une progression de test est vide, elle rendrait une BC sans unites).
-Resultat : l'equipe d'en face, c'est NOTRE roster portant leurs noms.
+L'EQUIPE ADVERSE EST DESORMAIS LA VRAIE -- et le detour qu'on a failli prendre vaut d'etre dit.
 
-Mesure sur la proposition 0 de `Player7419` -- `ultraTigurius` et `ultraInceptorSgt` etaient
-dans LES DEUX equipes, et le catalogue de la BC n'en porte qu'UN SEUL exemplaire chacun : la
-meme entree, nos stats, des deux cotes. Et pour ce qu'on ne possede pas : `darkaAzrael` sort a
-RANG 0 / puissance 562, contre 396 257 pour notre `ultraInceptorSgt`. Ce n'est pas un
-adversaire affaibli, c'est une coquille -- leur Machine of War aussi (rang 0).
+Le defaut monte l'adversaire par `--adversaire <n>`, qui delegue a
+`PvpOpponentProgressionData$$GetPublicProfileLineup(unitProgression, itemProgression, logger,
+null)` : les services de lecture sont les NOTRES, les stats sortent de SES donnees (rank,
+xpLevel, upgrades, items, ecrites par le serveur via `PvpServerResponseTranslator$$ApplyUnitInfo`).
+
+⚠ CE QUI EST TOUJOURS FAUX, ET RESTE ACCESSIBLE : `--enemies <ids>` resout les identifiants par
+`UnitProgression$$GetUnit`, donc sur la progression DU COMPTE -- l'equipe d'en face, c'est NOTRE
+roster portant leurs noms. Mesure du 2026-08-22 sur la proposition 0 de `Player7419` :
+`ultraTigurius` etait dans LES DEUX equipes et le catalogue n'en portait qu'UN exemplaire (la
+meme entree, nos stats, des deux cotes) ; `darkaAzrael`, qu'on ne possede pas, sortait a RANG 0
+/ puissance 562 contre 396 257 pour notre `ultraInceptorSgt`, sa MoW aussi. Ca garde un usage
+-- essayer une COMPOSITION sur le bon plateau -- mais ca ne confronte personne, d'ou
+l'echappatoire nommee `--adversaire-faux-je-sais`.
 
 ⚠ NE PAS RETOMBER SUR << banc de FORME, pas de PUISSANCE >> : cette formule a ete ecrite ici
 avant la mesure, et elle est trop indulgente. Une unite a 562 de puissance n'approxime rien.
 
-CE QUI LE REPARERAIT, et c'est ECRIT et MESURE : le jeu DETIENT la progression reelle de
-l'adversaire -- `PvpOpponentProgressionData.GetKnownUnitIds()` rend les 6 ids (5 + la MoW) et
-`GetUnit(id)` un `IUnitProgressData`, alimentes par le SERVEUR via
-`PvpServerResponseTranslator.ApplyUnitInfo`. Il suffit de passer en position 4 les `IUnitModel`
-que rend `GetPublicProfileLineup(...)` au lieu d'ids -- ce qui demande un genre de plus cote
-hook (des modeles DEJA RESOLUS, passes par pointeur), donc un rebuild et un reinject.
+⛔ ET SURTOUT : IL N'Y AVAIT AUCUN HOOK A ECRIRE. Le plan precedent -- ancrer le resolveur
+`<>c__DisplayClass37_0$$<GetHotseatSyncPvpConfig>g__GetEnemy|0` et poser le 14e parametre
+`opponentUnitIdPostFix` de `GetPvpLevelConfig` -- etait une sur-ingenierie. Le decompile de
+`GetHotseatSyncPvpConfig` montre que ce resolveur finit sur
+`Enumerable.First(cfg.PlayerUnits[1], u => u.Id == unitId)` : LA DELEGATION EXISTE DEJA et lit
+la liste qu'on fournit. Il n'y avait qu'a y mettre les bons modeles, comme tous les autres modes.
 
-Tant que ce n'est pas fait, `--confirmer` REFUSE. L'echappatoire est explicite et se nomme
-`--adversaire-faux-je-sais`, pour qui veut quand meme le plateau et les apparitions.
+⚠ CE QUI RESTE OUVERT : le postfix. Il n'a d'effet que si les DEUX equipes alignent le meme
+`unitId` -- `b__0` fait `cfg.Id = enemyTypeId`, donc deux homonymes se fondraient encore en une
+entree de catalogue. C'est une tranche separee, et elle exige les deux crans ensemble (poser le
+postfix SANS adapter le resolveur le fait LEVER : l'appariement est par egalite exacte, et
+`Enumerable.First` n'a pas de variante `OrDefault`).
 
 ⚠ CORRECTION D'UNE AFFIRMATION FAUSSE ECRITE ICI : << le mode sandbox n'installe pas
 `EnvEndBombardment` >>. Il l'installerait tres bien -- c'est NOUS qui ne remplissons pas le
@@ -163,26 +170,10 @@ def main():
     ap.add_argument("--confirmer", action="store_true",
                     help="MONTER la bataille. Sans lui : on imprime la commande, rien n'est monte.")
     ap.add_argument("--adversaire-faux-je-sais", dest="adversaire_faux", action="store_true",
-                    help="monter QUAND MEME, en sachant que l'equipe adverse sort de NOTRE "
-                         "progression et non de la sienne (cf. l'entete de ce fichier)")
+                    help="monter l'equipe adverse depuis NOTRE progression (`--enemies`) au "
+                         "lieu de la sienne -- banc de COMPOSITION, pas de confrontation. "
+                         "Cf. l'entete de ce fichier.")
     args = ap.parse_args()
-
-    # ⛔ LE REFUS EST EXECUTABLE, ET C'EST VOULU. Une prose d'avertissement n'arrete personne :
-    #   la premiere version de ce fichier en portait une, et le banc a quand meme ete monte avec
-    #   un `darkaAzrael` a 562 de puissance en face. Tant que la position 4 prend des IDS, le
-    #   duel n'est pas confrontable -- on le DIT en refusant, pas en commentaire.
-    if args.confirmer and not args.adversaire_faux:
-        print("REFUS : l'equipe adverse serait montee depuis NOTRE progression, pas la sienne.")
-        print("        `UnitProgression$$GetUnit` resout les ids contre le compte -- mesure :")
-        print("        `ultraTigurius` present dans les DEUX equipes n'a qu'UN exemplaire au")
-        print("        catalogue, et `darkaAzrael` sort a rang 0 / puissance 562.")
-        print()
-        print("        Le duel monte n'est donc PAS celui qu'on nous propose.")
-        print("        - pour le plateau et les apparitions seuls : --adversaire-faux-je-sais")
-        print("        - pour un banc FIDELE : passer les `IUnitModel` de")
-        print("          `PvpOpponentProgressionData.GetPublicProfileLineup(...)` en position 4")
-        print("          (genre `modeles` cote hook -> rebuild + reinject)")
-        return 2
 
     sid = args.session or session_vivante(args.hote)
     if sid is None:
@@ -224,12 +215,21 @@ def main():
            "--mode", "pvp", "--session", str(sid),
            "--board", str(p.get("boardId")),
            "--spawn-set", str(p.get("spawnPointsSet")),
-           "--units", args.units,
-           "--enemies", ",".join(lineup)]
+           "--units", args.units]
+    if args.adversaire_faux:
+        # ⚠ L'INDICE DU BANC EST CELUI DE `pvpOpponents`, et les deux voies DOIVENT viser la
+        #   meme proposition. Ici on n'envoie que des ids : le lineup vient de la proposition
+        #   `args.n` qu'on vient de lire, donc la cible est la meme -- ce sont les STATS qui
+        #   seront fausses, pas l'adversaire designe.
+        cmd += ["--enemies", ",".join(lineup)]
+        if adv.get("machineOfWarLineup"):
+            cmd += ["--enemy-machine", adv["machineOfWarLineup"]]
+    else:
+        # LA VOIE FIDELE : `sandbox_mode.py` ira lire `latestOpponents[n]` lui-meme et
+        # materialisera l'equipe ET la MoW par `GetPublicProfileLineup` sur SA progression.
+        cmd += ["--adversaire", str(args.n)]
     if args.machine:
         cmd += ["--machine", args.machine]
-    if adv.get("machineOfWarLineup"):
-        cmd += ["--enemy-machine", adv["machineOfWarLineup"]]
     if args.account_units:
         cmd += ["--account-units"]
     if args.confirmer:

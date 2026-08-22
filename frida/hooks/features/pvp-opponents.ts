@@ -64,6 +64,65 @@ function progressionPvp(): NativePointer | RefusVue {
     return p;
 }
 
+/** Les propositions, et LA DISTINCTION entre « pas chargees » et « aucune ».
+ *  `liste` est le `List`1` d'origine, garde pour qui veut le SERIALISER en bloc. */
+export interface Propositions {
+    elements: NativePointer[]; listeNulle: boolean; liste: NativePointer | null;
+}
+
+/** Les `PvpEncounterProgressionData` chargees, ou un refus NOMME.
+ *
+ *  ⚠ EXTRAIT du corps de `pvpOpponents` (2026-08-22) parce que `sandbox-mode` en a besoin pour
+ *  monter un banc sur les VRAIS modeles adverses. Une seconde copie de cette marche aurait
+ *  diverge en silence -- c'est trois dereferencements dont chacun a son propre refus. */
+export function propositionsChargees(): Propositions | RefusVue {
+    const prog = progressionPvp();
+    if (estRefus(prog)) return prog;
+    const data = champPointeur(prog as NativePointer, "_pvpProgressionData");
+    if (estRefus(data)) return data;
+    if (data.isNull()) {
+        return refus("`_pvpProgressionData` est NUL -- c'est la garde meme que le natif teste "
+            + "avant de lever. Les donnees PvP ne sont pas chargees : ouvrir l'ecran d'Arene "
+            + "suffit (ouvrir ne consomme AUCUNE tentative ; seul un combat en consomme).");
+    }
+    const liste = champPointeur(data, "latestOpponents");
+    if (estRefus(liste)) return liste;
+    // ⚠ TRI-ETAT CONSERVE, et ce n'est pas du zele : une liste NULLE veut dire « rien n'a ete
+    // charge » (le remede est d'ouvrir l'Arene), une liste VIDE veut dire « l'Arene ne propose
+    // personne » (le remede est d'attendre). Les rabattre sur un meme `0` ferait chercher la
+    // mauvaise cause -- d'ou le drapeau plutot qu'un tableau vide dans les deux cas.
+    if (liste.isNull()) return { elements: [], listeNulle: true, liste: null };
+    const els = elementsDeListe(liste);
+    if (estRefus(els)) return els;
+    return { elements: els.filter((p) => !p.isNull()), listeNulle: false, liste };
+}
+
+/** LA `PvpOpponentProgressionData` d'une proposition, par son INDEX dans `latestOpponents`.
+ *
+ *  C'est l'objet qui porte la progression REELLE de l'adversaire -- son `rank`, son `xpLevel`,
+ *  ses `upgrades`, ses `items`, unite par unite (`<units>k__BackingField`). C'est donc lui, et
+ *  lui seul, qui permet de materialiser une equipe adverse FIDELE ; les resoudre par
+ *  `UnitProgression$$GetUnit` rendrait NOS unites sous LEURS noms.
+ *
+ *  ⚠ L'index est celui de la LISTE, pas un identifiant stable : les propositions TOURNENT. Un
+ *  appelant qui memorise un index le verra designer quelqu'un d'autre au refresh suivant. */
+export function adversaireParIndex(i: number): NativePointer | RefusVue {
+    const props = propositionsChargees();
+    if (estRefus(props)) return props;
+    const n = props.elements.length;
+    if (!Number.isInteger(i) || i < 0 || i >= n) {
+        return refus("adversaire " + i + " HORS BORNES -- " + n + " proposition(s) chargee(s)"
+            + (props.listeNulle
+                ? " : `latestOpponents` est NUL, rien n'a ete charge -- ouvrir l'ecran d'Arene "
+                    + "(aucune tentative consommee)"
+                : n === 0 ? " : l'Arene est chargee mais ne propose personne -- attendre" : ""));
+    }
+    const adv = champPointeur(props.elements[i], "opponent");
+    if (estRefus(adv)) return adv;
+    if (adv.isNull()) return refus("proposition " + i + " : son champ `opponent` est NUL");
+    return adv;
+}
+
 /** Le resume d'UNE proposition : ce dont un montage sandbox a besoin, et rien de plus. */
 function resumeProposition(enc: NativePointer): Record<string, unknown> {
     const adv = champPointeur(enc, "opponent");
@@ -104,44 +163,29 @@ export function register(ctx: Ctx): void {
      */
     ctx.rpc.pvpOpponents = (body?: { json?: boolean }): Promise<unknown> =>
         queueOnMainThread(() => {
+            // ⚠ La marche vit dans `propositionsChargees` -- foyer PARTAGE avec `sandbox-mode`,
+            // qui monte un banc sur ces memes objets. Une seconde copie aurait diverge.
+            const props = propositionsChargees();
+            if (estRefus(props)) return { ...props, nombre: null };
             const prog = progressionPvp();
-            if (estRefus(prog)) return { ...prog, nombre: null };
-
-            const data = champPointeur(prog as NativePointer, "_pvpProgressionData");
-            if (estRefus(data)) return { ...data, nombre: null };
-            if (data.isNull()) {
-                return { ok: false, nombre: null,
-                         error: "`_pvpProgressionData` est NUL -- c'est la garde meme que le "
-                             + "natif teste avant de lever. Les donnees PvP ne sont pas "
-                             + "chargees : ouvrir l'ecran d'Arene suffit (ouvrir ne consomme "
-                             + "AUCUNE tentative ; seul un combat en consomme)." };
-            }
-
-            const liste = champPointeur(data, "latestOpponents");
-            if (estRefus(liste)) return { ...liste, nombre: null };
-            if (liste.isNull()) {
+            if (props.listeNulle) {
                 return { ok: true, nombre: 0, propositions: [],
                          note: "`latestOpponents` est NUL : la progression PvP est chargee mais "
                              + "aucune proposition ne l'accompagne -- ouvrir l'ecran d'Arene." };
             }
 
-            const els = elementsDeListe(liste);
-            if (estRefus(els)) return { ...els, nombre: null };
-
-            const propositions = els
-                .filter((p) => !p.isNull())
-                .map((p) => resumeProposition(p));
+            const propositions = props.elements.map((p) => resumeProposition(p));
 
             const sortie: Record<string, unknown> = {
                 ok: true,
                 nombre: propositions.length,
-                progression: (prog as NativePointer).toString(),
+                progression: estRefus(prog) ? null : (prog as NativePointer).toString(),
                 propositions,
             };
             if (body?.json === true) {
                 // Best-effort : `serializeToJson` rend `null` si Newtonsoft refuse le graphe.
                 // On PUBLIE l'echec plutot que de le taire -- le resume reste valable.
-                const j = serializeToJson(liste);
+                const j = props.liste === null ? null : serializeToJson(props.liste);
                 sortie.json = j;
                 sortie.jsonRefus = j === null
                     ? "serialisation Newtonsoft en echec -- le resume ci-dessus reste lu "

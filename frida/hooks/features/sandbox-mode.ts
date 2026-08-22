@@ -121,6 +121,11 @@ import { executeurVivant, premiereInstance } from "./view-command.js";
 // liaison de module n'est jamais gelée, donc elle reste substituable par un test. `deployment-
 // draft` n'importe pas ce module -- pas de cycle.
 import * as deploymentDraft from "./deployment-draft.js";
+// (!)FORME B aussi, et le foyer est CHEZ LUI : `pvp-opponents` porte la marche
+// `_pvpProgression -> _pvpProgressionData -> latestOpponents`, avec un refus nommé à chaque
+// pas. La recopier ici aurait fait deux versions d'une garde. Pas de cycle : `pvp-opponents`
+// n'importe pas ce module.
+import * as pvpOpponents from "./pvp-opponents.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -164,10 +169,25 @@ type Arg =
     // s'affiche `List`1` exactement comme un `List<IUnitModel>`. Or `il2cpp_runtime_invoke`
     // ne type-check pas : `unites` y ajouterait des `IUnitModel` sans rien lever, et la
     // corruption ne se verrait qu'à l'itération côté jeu. D'où un genre SÉPARÉ.
-    | { genre: "unitesParJoueur";
-        joueurs: Array<{ ids: string[]; voie?: "unit" | "npc" | "summon" }> }
+    | { genre: "unitesParJoueur"; joueurs: JoueurSpec[] }
+    // L'équipe RÉELLE d'un adversaire d'Arène, matérialisée PAR LE JEU. Cf. `lineupAdverse`.
+    | { genre: "machineAdverse"; adversaire: number }
     | { genre: "json"; valeur: unknown }         // DTO, List<String>, Dictionary<...>
     | { genre: "nul" };
+
+/** Un joueur de `unitesParJoueur`. `ids` et `adversaire` sont EXCLUSIFS.
+ *
+ *  ⚠ `ids` résout sur NOTRE progression (`UnitProgression$$GetUnit`) — c'est ce qu'il faut pour
+ *  notre camp, et c'est FAUX pour un camp adverse : ça rend NOS unités sous LEURS noms (mesuré
+ *  le 2026-08-22 — un `darkaAzrael` qu'on ne possède pas sortait à rang 0 / puissance 562,
+ *  et un `ultraTigurius` présent des deux côtés ne faisait QU'UNE entrée de catalogue). */
+interface JoueurSpec {
+    ids?: string[];
+    voie?: "unit" | "npc" | "summon";
+    /** INDEX d'une proposition d'Arène (`latestOpponents`). ⚠ Les propositions TOURNENT :
+     *  un index mémorisé désignera quelqu'un d'autre au rafraîchissement suivant. */
+    adversaire?: number;
+}
 
 // --- primitives génériques -------------------------------------------------------------
 
@@ -247,10 +267,78 @@ function modeleUnite(
     return r;
 }
 
+// --- l'équipe adverse RÉELLE ------------------------------------------------------------
+//
+// ⚠ ON NE FABRIQUE RIEN, ON DEMANDE AU JEU — et ce n'est pas un principe, c'est ce que le
+// décompilé impose. `BattleConfigBuilder$$GetHotseatSyncPvpConfig` range `cfg.PlayerUnits[1]`
+// dans le champ `+0x28` de son display class, et son résolveur
+// `<>c__DisplayClass37_0$$<GetHotseatSyncPvpConfig>g__GetEnemy|0` finit sur
+// `Enumerable.First(PlayerUnits[1], u => u.Id == unitId)`. La délégation EXISTE donc déjà et
+// lit la liste qu'on fournit : il n'y a rien à ancrer, seulement à y mettre les BONS modèles.
+//
+// ⚠ ET C'EST L'OBJET ADVERSE QUI LES PORTE, PAS NOTRE PROGRESSION.
+// `PvpOpponentProgressionData` garde la progression de l'adversaire unité par unité
+// (`<units>k__BackingField`, remplie par `PvpServerResponseTranslator$$ApplyUnitInfo` depuis
+// le DTO serveur : rank, xpLevel, upgrades, items). Ses deux accesseurs prennent NOTRE
+// `IUnitProgression` / `IItemProgression` comme SERVICES de lecture du catalogue, mais les
+// stats sortent de SES données :
+//
+//     GetPublicProfileLineup(unitProgression, itemProgression, logger, overrideLineup)
+//         -> List<IUnitModel>          <- exactement le type de `PlayerUnits[1]`
+//     GetPublicProfileMachineOfWarLineup(unitProgression, itemProgression, logger, overrideLineup)
+//         -> IUnitModel
+//
+// `overrideLineup` reste NUL : sans lui le natif prend le lineup public de l'adversaire, qui
+// est précisément ce qu'on veut affronter.
+
+/** Les trois services que les deux accesseurs adverses réclament, ou un refus NOMMÉ. */
+function servicesProfil(deps: Deps): NativePointer[] | Refus {
+    if (deps.itemProg === null) {
+        return refus("`ViewCommandExecutor._itemProgression` NON LU (champ absent ou nul) -- "
+            + "c'est le 2e argument de `GetPublicProfileLineup`, et on ne le remplace pas par "
+            + "un nul : le natif s'en sert pour lire les objets équipés de l'adversaire");
+    }
+    return [deps.prog, deps.itemProg, deps.logger, ptr(0)];
+}
+
+/** L'accesseur `nom` sur la `PvpOpponentProgressionData` de la proposition `index`. */
+function invoquerSurAdversaire(
+    deps: Deps, index: number, nom: string,
+): NativePointer | Refus {
+    const adv = pvpOpponents.adversaireParIndex(index);
+    if (estRefus(adv)) return adv;
+    const kAdv = classeDeLObjet(adv as NativePointer);
+    if (!kAdv) return refus("classe de l'adversaire " + index + " illisible");
+    const mi = findMethodByParamCount(kAdv, nom, 4);
+    if (!mi) {
+        return refus("`" + (nomDeClasse(kAdv) ?? "?") + "$$" + nom + "` à 4 paramètres "
+            + "INTROUVABLE -- chemin PÉRIMÉ. Ne PAS se replier sur les ids du lineup : les "
+            + "résoudre sur notre progression rendrait NOS unités sous LEURS noms, sans rien "
+            + "lever, et c'est exactement le bug que ce genre existe pour fermer.");
+    }
+    const svc = servicesProfil(deps);
+    if (estRefus(svc)) return svc;
+    try { return invokeMethod(mi.info, adv as NativePointer, svc); }
+    catch (e) { return refus(nom + "(adversaire " + index + ") a levé : " + (e as Error).message); }
+}
+
+/** `List<IUnitModel>` de l'équipe adverse RÉELLE. */
+function lineupAdverse(deps: Deps, index: number): NativePointer | Refus {
+    const l = invoquerSurAdversaire(deps, index, "GetPublicProfileLineup");
+    if (estRefus(l)) return l;
+    if (l.isNull()) {
+        return refus("`GetPublicProfileLineup(adversaire " + index + ")` a rendu NULL -- "
+            + "l'adversaire est chargé mais sans lineup public");
+    }
+    gcRoot.add(l);
+    return l;
+}
+
 /** Lie UN argument contre la classe RÉELLE de son paramètre. */
 function lier(
-    kParam: NativePointer | null, a: Arg, prog: NativePointer,
+    kParam: NativePointer | null, a: Arg, deps: Deps,
 ): NativePointer | Refus {
+    const prog = deps.prog;
     switch (a.genre) {
         case "nul":
             return ptr(0);
@@ -317,15 +405,60 @@ function lier(
                     + "listes ; c'est `unites` qu'il faut, pas `unitesParJoueur`");
             }
             for (let j = 0; j < a.joueurs.length; j++) {
-                const interne = collectionVide(kInt);
-                if (estRefus(interne)) return interne;
-                for (const id of a.joueurs[j].ids) {
-                    const m = modeleUnite(prog, id, a.joueurs[j].voie ?? "unit");
-                    if (estRefus(m)) return refus("joueur " + j + " : " + m.error);
-                    try { invokeMethod(addInt.info, interne, [m]); }
-                    catch (e) {
-                        return refus("joueur " + j + " : Add(" + id + ") a levé : "
-                            + (e as Error).message);
+                const spec = a.joueurs[j];
+                const parIds = Array.isArray(spec.ids);
+                const parAdv = typeof spec.adversaire === "number";
+                // EXCLUSIFS, et les DEUX manques se nomment. « ni l'un ni l'autre » donnerait
+                // une équipe VIDE sans rien lever ; « les deux » ferait taire silencieusement
+                // l'une des deux intentions.
+                if (parIds && parAdv) {
+                    return refus("joueur " + j + " : `ids` ET `adversaire` fournis -- ils sont "
+                        + "EXCLUSIFS (l'un résout sur NOTRE progression, l'autre sur la SIENNE)");
+                }
+                if (!parIds && !parAdv) {
+                    return refus("joueur " + j + " : ni `ids` ni `adversaire` -- une équipe vide "
+                        + "ne serait signalée par rien");
+                }
+
+                let interne: NativePointer;
+                if (parAdv) {
+                    // ⚠ LA LISTE VIENT DU JEU, ENTIÈRE : on ne la recopie pas élément par
+                    // élément dans une `collectionVide`, ce qui n'apporterait rien et
+                    // ajouterait un point de divergence.
+                    const l = lineupAdverse(deps, spec.adversaire as number);
+                    if (estRefus(l)) return refus("joueur " + j + " : " + l.error);
+                    // GARDE DE TYPE : `List`1` ne distingue rien par son nom. On compare la
+                    // classe RENDUE à celle que le paramètre attend -- un `List<String>` glissé
+                    // là ne lèverait qu'à l'itération, côté jeu, loin d'ici.
+                    const kRendu = classeDeLObjet(l);
+                    if (kRendu === null || !kRendu.equals(kInt)) {
+                        const nr = nomDeClasse(kRendu) ?? "?", ni = nomDeClasse(kInt) ?? "?";
+                        // ⚠ Deux causes, et un message unique se lirait comme du charabia dans
+                        // le second cas (« un `List`1` là où on attend un `List`1` »). IL2CPP
+                        // INTERNE les instanciations génériques, donc deux pointeurs distincts
+                        // pour un même nom veut dire que l'hypothèse d'internement est fausse
+                        // sur ce build -- pas que les types diffèrent.
+                        return refus("joueur " + j + " : " + (nr === ni
+                            ? "`GetPublicProfileLineup` rend bien un `" + nr + "` mais d'une "
+                                + "CLASSE INFLATÉE DIFFÉRENTE (" + kRendu + " vs " + kInt
+                                + ") -- l'internement des génériques ne tient pas ici, la garde "
+                                + "de type est à revoir avant de forcer"
+                            : "`GetPublicProfileLineup` a rendu un `" + nr + "` là où le "
+                                + "paramètre attend un `" + ni + "` -- types INCOMPATIBLES"));
+                    }
+                    interne = l;
+                } else {
+                    const vide = collectionVide(kInt);
+                    if (estRefus(vide)) return vide;
+                    interne = vide;
+                    for (const id of spec.ids as string[]) {
+                        const m = modeleUnite(prog, id, spec.voie ?? "unit");
+                        if (estRefus(m)) return refus("joueur " + j + " : " + m.error);
+                        try { invokeMethod(addInt.info, interne, [m]); }
+                        catch (e) {
+                            return refus("joueur " + j + " : Add(" + id + ") a levé : "
+                                + (e as Error).message);
+                        }
                     }
                 }
                 try { invokeMethod(addExt.info, ext, [interne]); }
@@ -335,6 +468,16 @@ function lier(
                 }
             }
             return ext;
+        }
+        case "machineAdverse": {
+            // ⚠ TRI-ÉTAT ASSUMÉ : un adversaire PEUT n'avoir aucune machine de guerre, et
+            // `EnemyPlayerMachineOfWar` accepte un nul. On rend donc `ptr(0)` sur un NULL lu --
+            // mais JAMAIS sur un échec d'appel, qui reste un refus nommé.
+            const m = invoquerSurAdversaire(deps, a.adversaire,
+                                            "GetPublicProfileMachineOfWarLineup");
+            if (estRefus(m)) return m;
+            if (!m.isNull()) gcRoot.add(m);
+            return m;
         }
         case "json": {
             if (!kParam) return refus("classe du paramètre illisible -- JSON non liable");
@@ -353,6 +496,12 @@ function lier(
 interface Deps {
     exec: NativePointer; prog: NativePointer; gameConfig: NativePointer;
     logger: NativePointer; featureUnlocker: NativePointer;
+    /** ⚠ OPTIONNEL, et le tri-état est le point : `null` = PAS LU, jamais « absent donc on
+     *  s'en passe ». Le ctor de la source ne le demande PAS -- seul le genre `adversaire`
+     *  en a besoin (2ᵉ argument de `GetPublicProfileLineup`). L'exiger dans la boucle
+     *  ci-dessous ferait refuser les NEUF autres modes pour une dépendance qu'ils n'utilisent
+     *  pas. Le refus est donc porté AU SITE qui le consomme, où il peut se nommer. */
+    itemProg: NativePointer | null;
 }
 
 /** Les cinq dépendances du ctor, lues PAR NOM sur l'exécuteur vivant.
@@ -403,9 +552,20 @@ function dependances(): Deps | Refus {
     catch (e) { return refus("get_gameConfigDto a levé : " + (e as Error).message); }
     if (dto.isNull()) return refus("get_gameConfigDto a rendu NULL");
 
+    // `_itemProgression` est lu SÉPARÉMENT et sans refus : cf. le tri-état sur `Deps.itemProg`.
+    // Mesuré le 2026-08-22 (`classFields`) : `IItemProgression` à +0x3c8, juste après
+    // `_unitProgression`. Un `null` ici veut dire « champ absent ou non renseigné », et c'est
+    // le genre `adversaire` qui le dira, pas cette fonction.
+    let itemProg: NativePointer | null = null;
+    const offItem = getFieldOffset(kExec, "_itemProgression");
+    if (offItem >= 0) {
+        const p = ex.add(offItem).readPointer();
+        if (!p.isNull()) itemProg = p;
+    }
+
     return {
         exec: ex, prog: lu["_unitProgression"], gameConfig: dto,
-        logger: lu["_logger"], featureUnlocker: lu["_featureUnlocker"],
+        logger: lu["_logger"], featureUnlocker: lu["_featureUnlocker"], itemProg,
     };
 }
 
@@ -465,7 +625,7 @@ function construire(mode: string | undefined, classe: string | undefined, args: 
     const lies: NativePointer[] = [];
     for (let i = 0; i < args.length; i++) {
         const kParam = methodParamClass(ctorCfg.info, i);
-        const v = lier(kParam, args[i], deps.prog);
+        const v = lier(kParam, args[i], deps);
         if (estRefus(v)) {
             return refus("paramètre " + i + " (attendu : " + (nomDeClasse(kParam) ?? "?")
                 + ") -- " + v.error);

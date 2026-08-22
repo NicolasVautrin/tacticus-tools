@@ -367,24 +367,43 @@ def batir_args(args):
         ]
     if args.mode == "pvp":
         adverses = liste(args.enemies)
-        if not adverses:
-            print("REFUS : `--enemies <ids>` est obligatoire pour pvp -- c'est l'equipe d'en "
-                  "face. Sans elle on monterait un duel contre personne.")
+        par_index = args.adversaire is not None
+        if par_index and adverses:
+            print("REFUS : `--adversaire` et `--enemies` sont EXCLUSIFS. Le premier monte "
+                  "l'equipe REELLE d'une proposition d'Arene ; le second resout des ids sur "
+                  "NOTRE progression. Les deux ensemble, l'un des deux serait ignore.")
             return None
+        if not par_index and not adverses:
+            print("REFUS : il faut `--adversaire <n>` (l'equipe REELLE de la proposition n) ou "
+                  "`--enemies <ids>`. Sans l'un des deux on monterait un duel contre personne.")
+            return None
+        # ⛔ PAR JOUEUR, JAMAIS A PLAT : joueur 1 = nous, joueur 2 = l'adversaire.
+        #
+        # ⚠ `--enemies` monte NOS unites sous LEURS noms : les ids sont resolus par
+        # `UnitProgression$$GetUnit`, donc sur la progression du COMPTE. Mesure du 2026-08-22 :
+        # un `darkaAzrael` qu'on ne possede pas sortait a rang 0 / puissance 562. Ca reste utile
+        # pour un banc de FORME (tester une composition), jamais pour confronter un adversaire.
+        # `--adversaire <n>` passe par `GetPublicProfileLineup` sur SA progression -- c'est la
+        # seule voie fidele.
+        joueur2 = ({"adversaire": args.adversaire} if par_index else {"ids": adverses})
+        if par_index:
+            mow_adverse = {"genre": "machineAdverse", "adversaire": args.adversaire}
+        elif args.enemy_machine:
+            mow_adverse = {"genre": "unite", "id": args.enemy_machine}
+        else:
+            mow_adverse = {"genre": "nul"}
         return [
             {"genre": "texte", "valeur": args.board},
             {"genre": "booleen", "valeur": args.account_units},
             {"genre": "entier", "valeur": args.player_type},
             {"genre": "entier", "valeur": args.player2_type},
-            # ⛔ PAR JOUEUR, JAMAIS A PLAT : joueur 1 = nous, joueur 2 = l'adversaire.
             {"genre": "unitesParJoueur", "joueurs": [
                 {"ids": liste(args.units)},
-                {"ids": adverses},
+                joueur2,
             ]},
             {"genre": "entier", "valeur": args.spawn_set},
             ({"genre": "unite", "id": args.machine} if args.machine else {"genre": "nul"}),
-            ({"genre": "unite", "id": args.enemy_machine} if args.enemy_machine
-             else {"genre": "nul"}),
+            mow_adverse,
             {"genre": "nul"},                                   # bossUnit -- aucun en duel
         ]
     print("REFUS : mode `%s` non porte (portes : %s)" % (args.mode, ", ".join(sorted(ORDRE))))
@@ -533,8 +552,14 @@ def main(argv):
     ap.add_argument("--enemies", default="",
                     help="pvp : l'equipe D'EN FACE (obligatoire) ; guildBoss : les adds")
     # pvp
+    ap.add_argument("--adversaire", type=int, default=None,
+                    help="pvp : INDEX d'une proposition d'Arene (`pvpOpponents`). Monte son "
+                         "equipe REELLE et sa MoW par `GetPublicProfileLineup` sur SA "
+                         "progression. Exclusif avec `--enemies`, et c'est la SEULE voie "
+                         "fidele. ⚠ Les propositions TOURNENT : l'index n'est pas stable.")
     ap.add_argument("--enemy-machine", dest="enemy_machine", default=None,
-                    help="pvp : la Machine of War ADVERSE (`--machine` est la notre)")
+                    help="pvp : la Machine of War ADVERSE (`--machine` est la notre). Ignore "
+                         "avec `--adversaire`, qui prend la sienne.")
     ap.add_argument("--player2-type", dest="player2_type", type=int, default=1,
                     help="pvp : `PlayerType` du joueur 2. Defaut 1 (AI) -- c'est ce qui fait "
                          "jouer l'adversaire tout seul. Cf. l'avertissement de `--player-type`, "
