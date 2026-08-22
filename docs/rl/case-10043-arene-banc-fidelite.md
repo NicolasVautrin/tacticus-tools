@@ -273,6 +273,47 @@ un joueur de `unitesParJoueur` s'écrit `{adversaire: n}`, et la liste vient de
 `PvpOpponentProgressionData$$GetPublicProfileLineup(unitProgression, itemProgression, logger,
 null)` — nos services de lecture, SES données. Idem `machineAdverse` pour la MoW.
 
+## ✅ BANC MONTÉ POUR DE VRAI — 11 unités, session 15, coût NUL
+
+`arene_banc.py --n 0 --units … --confirmer` sur la proposition 0. Lu sur le **runner vivant**
+(`combatSnapshot`), pas sur un fichier :
+
+| nous | PV | | Tarkin | PV | rareté |
+|---|---|---|---|---|---|
+| ultraInceptorSgt | 7 758 | | custoTrajann | 2 012 | 4 |
+| ultraTitus | 7 022 | | orksWarboss | 2 253 | 4 |
+| adeptRetributor | 6 186 | | emperExultant | 1 396 | **3** |
+| ultraTigurius | 3 467 | | custoBladeChampion | 778 | **3** |
+| ultraEliminatorSgt | 1 754 | | custoVexilusPraetor | 569 | **3** |
+
+⇒ **Les raretés 3 sont la preuve la plus nette** : notre roster est uniformément 4, il ne pouvait
+pas produire ça. Plus `tyranBiovore` (MoW, PV 0 — cf. section MoW).
+
+**Coût mesuré NUL** (baseline avant / contre-épreuve après) : `BattleTokens` identiques,
+`energyUsedSinceServerUpdate` 0, `rating` 0, `trophies` 29 156 inchangés.
+
+## ⚠ L'ENVIRONNEMENT N'EST PAS GREFFÉ — et « configuré » n'est pas « installé »
+
+Mesuré sur la BC du runner monté. Le piège est qu'un `grep` y trouve **3 occurrences** de
+`EnvEndBombardment` — de quoi conclure à tort qu'il est là :
+
+```
+$.Abilities.EnvironmentAbilities.EnvEndBombardment   {nrOfRounds: 6, healthPct: 30}   <- CONFIG
+$.Utilities.Default.EnvEndBombardment                {_TileToAvoid: -30}              <- poids IA
+$.EnvironmentAbilities.EnvironmentAbilities          []                               <- INSTALLE
+$.EnvironmentAbilities.EnhancementsEnvironmentAbilities  []
+```
+
+⇒ La **configuration** de l'ability et son **poids IA** sont dans la BC ; la **liste des
+installées est VIDE**. Rien ne la déclenchera : le banc se joue sans limite de tour.
+
+⚠ **ET LA CONSTANTE DU CATALOGUE N'EST PAS CELLE DE L'ARÈNE** : la BC porte `nrOfRounds: 6` /
+`healthPct: 30`, alors que l'Arène tourne à **8 / 20** (lus sur
+`PvpProgression$$GetEnvironmentAbilitiesConfig`). Installer l'ability ne suffirait donc pas —
+les valeurs PAR MODE viennent de la progression, ce que fait précisément
+`AProgressionGameModeSource$$GetEnvironmentAbilitiesFromProgression`. Recopier les constantes du
+catalogue monterait une pression de fin FAUSSE, et silencieusement.
+
 ## Ce qui reste ouvert : le POSTFIX, et lui seul
 
 Il n'a d'effet que si les **deux équipes alignent le même `unitId`** — `b__0` fait
