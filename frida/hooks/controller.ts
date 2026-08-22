@@ -200,6 +200,7 @@ import { checkStatsFields } from "./probes/check-stats-fields.js";
 // statique dont la classe n'a pas de `.cctor` nomme.
 import { interfaceSlotProbe, classInterfaces } from "./probes/interface-slot-probe.js";
 import { staticFieldProbe } from "./probes/static-field-probe.js";
+import { staticFieldWrite } from "./probes/static-field-write.js";
 // #969-r1 / #975-r1 — les deux capteurs de ce lot qui exigent VRAIMENT une fenetre de reinject.
 // Les DEUX `register` n'arment RIEN : `shouldEvaluateTrace` pose ses `Interceptor` uniquement sur
 // `{action:"arm"}`, et `validTargetsFrom` n'ancre rien du tout (il n'INVOQUE que des queries).
@@ -433,6 +434,13 @@ export function wireRpc(ctx: Ctx): void {
         classInterfaces(args);
     ctx.rpc.staticFieldProbe = (args: Parameters<typeof staticFieldProbe>[0]) =>
         staticFieldProbe(args);
+    // ⛔ ECRITURE -- le seul RPC de ce bloc qui MUTE le jeu. Il exige `confirmer: true`, refuse
+    // les types reference et les classes non initialisees, et RELIT apres pour que la mutation
+    // soit une mesure et pas une croyance. Motif : le latch `IdunMainView::<IsActive>` qui bloque
+    // `StartMatch` EN SILENCE et qu'aucune voie native ne libere quand aucune bataille n'est
+    // montee (mesure du 2026-08-22).
+    ctx.rpc.staticFieldWrite = (args: Parameters<typeof staticFieldWrite>[0]) =>
+        staticFieldWrite(args);
     // --- #969-r1 / #975-r1 — capteurs on-demand (aucun hook pose au register).
     registerShouldEvaluateTrace(ctx);
     registerPlaybookUtilityTrace(ctx);
