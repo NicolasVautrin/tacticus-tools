@@ -250,22 +250,39 @@ Trois faits qui en découlent :
    **égalité de chaîne exacte** et termine sur `Enumerable.First` — pas `FirstOrDefault`. Un
    `ultraTigurius<postfix>` ne matche rien et **lève**.
 
-## La tranche suivante — hooker le RÉSOLVEUR, pas fabriquer un délégué
+## ⛔ ET POURTANT IL N'Y AVAIT AUCUN HOOK À ÉCRIRE — la délégation existait déjà
 
-Il n'y a jamais eu à construire un `Func<...>` depuis Frida (ce que
-`reference_il2cpp_delegate_ne_se_recible_pas` rend hasardeux). `b__0` invoque le délégué par un
-**pointeur pris dans l'objet délégué** : on laisse donc le jeu construire le sien, et on
-`Interceptor.attach` le CORPS du résolveur — `g__GetEnemy|0` est une méthode NOMMÉE, résoluble
-au runtime comme n'importe quelle autre.
+**Cette section a d'abord prescrit d'ancrer `g__GetEnemy|0` et de poser le postfix. C'était une
+sur-ingénierie**, bâtie sur une lecture partielle : `b__0` est la clôture côté **builder**, et en
+conclure « le délégué est obligatoire donc on le hooke » saute une question — *contre quoi le
+résolveur sandbox résout-il ?* Le corps de `GetHotseatSyncPvpConfig` y répond :
 
-Les deux crans vont ensemble, dans le même commit, sinon le second lève :
+```
+<>c__DisplayClass37_0  +0x10 = le SandboxPvpBattleConfig   +0x20 = le builder
+                       +0x18 = extraEnemyUnits             +0x28 = cfg.PlayerUnits[1]
 
-1. `GetPvpLevelConfig` — poser `opponentUnitIdPostFix` (14ᵉ paramètre, `System.String`) ;
-2. `g__GetEnemy|0` — retirer le postfix de l'id reçu et rendre le modèle adverse RÉEL, pris dans
-   la `List<IUnitModel>` de `GetPublicProfileLineup`.
+g__GetEnemy|0(unitId) -> ... -> Enumerable.First(PlayerUnits[1], u => u.Id == unitId)
+```
 
-⚠ NON CONFRONTÉ tant que ce n'est pas joué : la mesure ci-dessus est une lecture de décompilé,
-pas une bataille montée.
+⇒ **le résolveur lit la liste QU'ON FOURNIT.** Le délégué est bien obligatoire ; le *hooker* ne
+l'a jamais été. Le seul défaut était la **source** des modèles : `modeleUnite()` les résolvait par
+`UnitProgression$$GetUnit`, donc sur NOTRE progression.
+
+**Le correctif est une délégation, comme dans les neuf autres modes** (livré le 2026-08-22) :
+un joueur de `unitesParJoueur` s'écrit `{adversaire: n}`, et la liste vient de
+`PvpOpponentProgressionData$$GetPublicProfileLineup(unitProgression, itemProgression, logger,
+null)` — nos services de lecture, SES données. Idem `machineAdverse` pour la MoW.
+
+## Ce qui reste ouvert : le POSTFIX, et lui seul
+
+Il n'a d'effet que si les **deux équipes alignent le même `unitId`** — `b__0` fait
+`cfg.Id = enemyTypeId`, donc deux homonymes se fondent encore en une entrée de catalogue. C'est
+une tranche séparée, et elle exige les **deux crans ensemble** : poser
+`opponentUnitIdPostFix` sans adapter le résolveur le fait **lever** (appariement par égalité
+exacte, `Enumerable.First` sans variante `OrDefault`).
+
+⚠ NON CONFRONTÉ : tout ce qui précède est une lecture de décompilé plus un bundle vert. Aucune
+bataille montée sur la voie fidèle.
 
 ## Garde en place
 
