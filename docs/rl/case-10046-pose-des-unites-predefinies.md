@@ -147,6 +147,10 @@ Les deux ont accusé des unités **démontrablement présentes**. C'est l'hypoth
 qui traverse tout `rl_duel` (`--p-units` « MON roster (team 1) », `_verify_roster` qui itère
 `(1, p_units), (2, a_units)`), pas un verdict du jeu.
 
+➜ **Résidu ouvert : `#10046-r1`** (rendre `rl_duel` agnostique à l'équipe). Ce n'est pas un
+correctif de passage — l'hypothèse traverse `--p-units`/`--a-units`, `PLAYER_ID_HUMAN`,
+`_patch_predefined_units` et les deux gardes, dans un foyer très partagé.
+
 ⚠ L'unique montage où les 7 NPC sont apparus était la configuration **instable** (correspondance
 de groupes clé par la VALEUR, donc non idempotente sous `consumeOnce: false`) — un artefact, pas
 un succès. « La capacité du groupe explique l'absence » est **RÉFUTÉ**.
