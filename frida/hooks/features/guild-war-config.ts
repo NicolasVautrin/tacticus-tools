@@ -91,6 +91,11 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant, Refus as RefusVue } from "./view-command.js";
 import { champPointeur, estRefus, refus } from "./lecture-champs.js";
+// (!)FORME B. Le FOYER du receptacle `EnvironmentAbilities` et de l'ecriture d'un
+// `EnvironmentAbilityConfiguration` -- extrait d'ICI le 2026-08-22, quand `sandbox-mode` a eu
+// besoin des memes gestes. Il n'importe que des FEUILLES (`lecture-champs`, `view-command` pour
+// le seul type `Refus`, et `il2cpp/*`) : aucune ne remonte vers ce fichier, donc pas de cycle.
+import * as envAbilities from "./environment-abilities.js";
 import { getCapturedUniverse } from "./unit-visual-resolve.js";
 // La comptabilite du JEU pour << une bataille tourne-t-elle ? >>. Le corps vit dans
 // `retreat-capture.ts` -- deux lectures de `get_IsBattleActive` divergeraient en silence.
@@ -671,23 +676,6 @@ function armerBuffsDeZone(
     if (buffs.isNull()) return refus("`GetActiveBuffs` a rendu NUL -- pas de liste a parcourir");
     gcRoot.add(buffs);
 
-    const kEac = findClassAnywhere(NS_CFG, "EnvironmentAbilityConfiguration");
-    const kTid = findClassAnywhere("IdunShared", "TriggeredAbilityConfigId");
-    if (!kEac) return refus("classe `EnvironmentAbilityConfiguration` introuvable");
-    if (!kTid) return refus("classe `TriggeredAbilityConfigId` introuvable");
-    const offCfgId = getFieldOffset(kEac, "ConfigId");
-    const offLevel = getFieldOffset(kEac, "Level");
-    const offType = getFieldOffset(kTid, "AbilityType");
-    const offVariant = getFieldOffset(kTid, "VariantId");
-    if (offCfgId < 0 || offLevel < 0 || offType < 0 || offVariant < 0) {
-        return refus("champ(s) absent(s) sur ce build : "
-            + `ConfigId=${offCfgId} Level=${offLevel} AbilityType=${offType} `
-            + `VariantId=${offVariant} -- chemin PERIME, pas de repli sur un offset`);
-    }
-    // Le receptacle que le ctor d'`EnvironmentAbilities` a cree pour nous.
-    const listeAb = champ(env, "Abilities");
-    if (estRefus(listeAb)) return listeAb as RefusVue;
-
     const n = buffs.add(0x18).readS32();
     for (let i = 0; i < n; i++) {
         const b = elementDeListe(buffs, i);
@@ -726,28 +714,16 @@ function armerBuffsDeZone(
         // pas, c'est que le dictionnaire est necessaire, et il faudra alors trancher la
         // convention de cle par une mesure, pas par un essai sur la partie de l'utilisateur.
 
-        if (niveau === 0) {
+        // `Abilities += EnvironmentAbilityConfiguration { ConfigId, Level }`, par le foyer
+        // partage. Il porte l'ecriture INLINE des deux structs (retrait de `0x10`, l'en-tete
+        // que la version boxee a et pas l'inline) ET la regle du niveau nul.
+        const pose = envAbilities.ajouterAbility(env, abilityType, niveau);
+        if (estRefus(pose)) return pose as RefusVue;
+        if (pose === false) {
             detail.push({ abilityType, niveau, arme: false,
                           raison: "niveau 0 -- le natif n'arme pas non plus" });
             continue;
         }
-        // `Abilities += EnvironmentAbilityConfiguration { ConfigId, Level }`
-        //
-        // Les deux structs sont ECRITES INLINE plutot que construites par leurs ctors : `Level`
-        // n'a qu'un `val:Int32` et `TriggeredAbilityConfigId` qu'un `AbilityType` + un
-        // `VariantId` (nul ici). Les offsets INTERNES se retranchent de `0x10`, l'en-tete que
-        // porte la version BOXEE de la struct mais pas sa version INLINE.
-        const eac = il2cpp_object_new(kEac);
-        if (eac.isNull()) return refus("allocation d'`EnvironmentAbilityConfiguration` a rendu NUL");
-        gcRoot.add(eac);
-        eac.add(offCfgId + (offType - 0x10)).writeS32(abilityType);
-        eac.add(offCfgId + (offVariant - 0x10)).writePointer(NULL);
-        eac.add(offLevel).writeS32(niveau);
-        const la = listeAb as NativePointer;
-        const mAddL = findMethodByParamCount(la.readPointer(), "Add", 1);
-        if (!mAddL) return refus("`List.Add(1)` INTROUVABLE sur `Abilities`");
-        try { invokeMethod(mAddL.info, la, [eac]); }
-        catch (e) { return refus("`Abilities.Add` a LEVE : " + (e as Error).message); }
         detail.push({ abilityType, niveau, rarityCap, arme: true });
     }
     return true;
@@ -1435,16 +1411,15 @@ export function register(ctx: Ctx): void {
         // ACCUMULATEUR a `BattleEnvironmentAbilityExtensions$$Apply`, qui ECRIT dedans. Ses trois
         // membres (`Abilities`, `EnhancementAbilities`, `AbilitiesConfigurations`) doivent donc
         // exister. Le ctor natif ne les cree pas -- c'est l'appelant qui le fait, verifie au
-        // decompile de la popup. On les fait creer par Newtonsoft, qui connait leurs generiques.
-        const kEnv = findClassAnywhere(NS_CFG, "EnvironmentAbilities");
-        if (!kEnv) return refus("classe `IdunBattle.Configuration.EnvironmentAbilities` introuvable");
-        let env: NativePointer;
-        try {
-            env = deserializeFromJson(
-                '{"Abilities":[],"EnhancementAbilities":[],"AbilitiesConfigurations":{}}', kEnv);
-        } catch (e) { return refus("`EnvironmentAbilities` : " + (e as Error).message); }
-        if (env.isNull()) return refus("`EnvironmentAbilities` deserialise en NUL");
-        gcRoot.add(env);
+        // decompile de la popup.
+        //
+        // ⚠ LE GESTE VIT DANS `environment-abilities.ts` DEPUIS LE 2026-08-22 : `sandbox-mode` a
+        // eu besoin du meme receptacle pour greffer la pression de fin d'Arene. Deux copies
+        // auraient diverge -- et ce sont des ECRITURES en memoire managee, ou une divergence ne
+        // donne pas un resultat different mais un CRASH.
+        const envR = envAbilities.creerReceptacle();
+        if (estRefus(envR)) return envR;
+        const env = envR as NativePointer;
 
         // --- ET ON LE REMPLIT : LES BUFFS DE ZONE ---------------------------------------------
         //

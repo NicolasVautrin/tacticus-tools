@@ -126,6 +126,10 @@ import * as deploymentDraft from "./deployment-draft.js";
 // pas. La recopier ici aurait fait deux versions d'une garde. Pas de cycle : `pvp-opponents`
 // n'importe pas ce module.
 import * as pvpOpponents from "./pvp-opponents.js";
+// (!)FORME B. Le FOYER du réceptacle `EnvironmentAbilities`, extrait de `guild-war-config.ts`
+// le 2026-08-22 : les deux modules posent le même objet, dont le ctor natif ne crée AUCUN des
+// trois membres. Deux copies auraient divergé -- et ce sont des ÉCRITURES en mémoire managée.
+import * as envAbilities from "./environment-abilities.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -504,6 +508,76 @@ interface Deps {
     itemProg: NativePointer | null;
 }
 
+/** GREFFER L'ENVIRONNEMENT DU MODE sur une config sandbox déjà construite.
+ *
+ *  ⚠ CE N'EST PAS UN ARGUMENT DE CTOR — d'où une étape SÉPARÉE, après la construction.
+ *  `SandboxPvpBattleConfig..ctor` ne pose que `BoardId` (+0x28) → `BossUnit` (+0x58) ;
+ *  `EnvironmentAbilities` est une auto-propriété (+0x18) qu'il laisse NULLE. C'est exactement
+ *  pour ça qu'un banc d'Arène se jouait sans limite de tour.
+ *
+ *  ⚠ « CONFIGURÉ » N'EST PAS « INSTALLÉ », et c'est le piège mesuré le 2026-08-22 : un grep de
+ *  la BC trouve `EnvEndBombardment` TROIS fois (sa config d'ability dans
+ *  `Abilities.EnvironmentAbilities`, son poids IA dans `Utilities.Default`) alors que la liste
+ *  des installées est VIDE. Seul le compte des membres tranche — d'où le `resume` publié.
+ *
+ *  ⚠ ET LES CONSTANTES DU CATALOGUE NE SONT PAS CELLES DU MODE. La BC porte
+ *  `nrOfRounds: 6` / `healthPct: 30` ; l'Arène tourne à **8 / 20**. Recopier le catalogue
+ *  monterait une pression de fin FAUSSE, en silence. Les valeurs PAR MODE viennent de
+ *  `PvpProgression$$GetEnvironmentAbilitiesConfig()`, et c'est elle qu'on demande. */
+function grefferEnvironnement(cfg: NativePointer): Record<string, unknown> | Refus {
+    const prog = pvpOpponents.progressionPvp();
+    if (estRefus(prog)) return prog;
+    const kProg = classeDeLObjet(prog as NativePointer);
+    if (!kProg) return refus("classe de la `PvpProgression` illisible");
+
+    const mCfg = findMethodByParamCount(kProg, "GetEnvironmentAbilitiesConfig", 0);
+    if (!mCfg) {
+        return refus("`" + (nomDeClasse(kProg) ?? "?") + "$$GetEnvironmentAbilitiesConfig()` "
+            + "INTROUVABLE -- chemin PÉRIMÉ. Ne PAS se replier sur les constantes du catalogue "
+            + "de la BC : elles valent 6/30, l'Arène tourne à 8/20.");
+    }
+    let extra: NativePointer;
+    try { extra = invokeMethod(mCfg.info, prog as NativePointer, null); }
+    catch (e) { return refus("`GetEnvironmentAbilitiesConfig` a levé : " + (e as Error).message); }
+    if (extra.isNull()) {
+        // Le décompilé passe par `GetCurrentSeason` : hors saison, il n'y a rien à greffer.
+        // C'est un ÉTAT du compte, pas une panne — mais on ne le rend pas comme un succès.
+        return refus("`GetEnvironmentAbilitiesConfig` a rendu NULL -- pas de saison PvP courante "
+            + "(le natif passe par `GetCurrentSeason`). Rien à greffer, et ce n'est pas un "
+            + "environnement vide : c'est un environnement NON MESURÉ.");
+    }
+    gcRoot.add(extra);
+
+    const env = envAbilities.creerReceptacle();
+    if (estRefus(env)) return env;
+    const fus = envAbilities.fusionnerDepuisConfig(env as NativePointer, extra);
+    if (estRefus(fus)) return fus;
+
+    // La POSE sur la config : par le setter si le build l'expose, sinon par le champ de
+    // backing -- et on DIT lequel, parce que les deux n'ont pas la même garantie.
+    const kCfg = classeDeLObjet(cfg);
+    if (!kCfg) return refus("classe de la config sandbox illisible");
+    let voie: string;
+    const setter = findMethodByParamCount(kCfg, "set_EnvironmentAbilities", 1);
+    if (setter) {
+        try { invokeMethod(setter.info, cfg, [env as NativePointer]); }
+        catch (e) { return refus("`set_EnvironmentAbilities` a levé : " + (e as Error).message); }
+        voie = "set_EnvironmentAbilities";
+    } else {
+        const off = getFieldOffset(kCfg, "<EnvironmentAbilities>k__BackingField");
+        if (off < 0) {
+            return refus("ni `set_EnvironmentAbilities` ni le champ de backing "
+                + "`<EnvironmentAbilities>k__BackingField` sur `" + (nomDeClasse(kCfg) ?? "?")
+                + "` -- chemin PÉRIMÉ");
+        }
+        cfg.add(off).writePointer(env as NativePointer);
+        voie = "<EnvironmentAbilities>k__BackingField (+0x" + off.toString(16) + ")";
+    }
+
+    // Ce qui est RÉELLEMENT installé -- une mesure, pas la confiance dans l'appel.
+    return { pose: true, voie, installe: envAbilities.resume(env as NativePointer) };
+}
+
 /** Les cinq dépendances du ctor, lues PAR NOM sur l'exécuteur vivant.
  *
  *  ⚠ Par nom, jamais par offset : un offset lu au mauvais endroit ne se signale pas, il rend
@@ -598,10 +672,16 @@ function classeDuMode(mode?: string, classe?: string): NativePointer | Refus {
     return k;
 }
 
-interface Montage { config: NativePointer; source: NativePointer; deps: Deps }
+interface Montage {
+    config: NativePointer; source: NativePointer; deps: Deps;
+    /** `null` = pas demandé. Sinon le compte-rendu de la greffe, MESURÉ. */
+    environnement: Record<string, unknown> | null;
+}
 
-function construire(mode: string | undefined, classe: string | undefined, args: Arg[])
-    : Montage | Refus {
+function construire(
+    mode: string | undefined, classe: string | undefined, args: Arg[],
+    environnement?: string | null,
+): Montage | Refus {
     const kCfg = classeDuMode(mode, classe);
     if (estRefus(kCfg)) return kCfg;
 
@@ -643,6 +723,24 @@ function construire(mode: string | undefined, classe: string | undefined, args: 
         return refus("ctor de " + nomDeClasse(kCfg) + " a levé : " + (e as Error).message);
     }
 
+    // --- LA GREFFE D'ENVIRONNEMENT, APRÈS le ctor et AVANT la source ---------------------
+    //
+    // ⚠ Le refus est DUR, pas un avertissement. Un banc d'Arène qu'on croit sous pression de
+    // fin et qui n'y est pas se joue tout entier sur une prémisse fausse -- exactement ce que
+    // le montage du 2026-08-22 a fait, sans que rien ne le dise.
+    let envRapport: Record<string, unknown> | null = null;
+    if (environnement != null && environnement !== "") {
+        if (environnement !== "arene") {
+            return refus("`environnement` inconnu : " + JSON.stringify(environnement)
+                + ". Porté : `arene` (la config de la saison PvP courante). Les autres modes "
+                + "ont leur propre getter et ne sont PAS interchangeables : les constantes "
+                + "sont PAR MODE.");
+        }
+        const g = grefferEnvironnement(cfg);
+        if (estRefus(g)) return refus("greffe de l'environnement : " + g.error);
+        envRapport = g;
+    }
+
     const kSrc = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
     if (!kSrc) return refus("classe `SandboxGameModeSource` introuvable sur ce build");
     const ctorSrc = findMethodByParamCount(kSrc, ".ctor", 5);
@@ -661,7 +759,7 @@ function construire(mode: string | undefined, classe: string | undefined, args: 
     } catch (e) {
         return refus("SandboxGameModeSource..ctor a levé : " + (e as Error).message);
     }
-    return { config: cfg, source: src, deps };
+    return { config: cfg, source: src, deps, environnement: envRapport };
 }
 
 /** Relit les champs de la source APRÈS construction. Le ctor n'en renseigne que 5 sur 9 —
@@ -1264,6 +1362,9 @@ export function register(ctx: Ctx): void {
      *  corps — s'il écrivait quelque part, on ne le saurait pas. Il est appelé UNE fois. */
     ctx.rpc.sandboxModeBuildBc = (body?: {
         mode?: string; classe?: string; args?: Arg[]; isRestart?: boolean;
+        /** `"arene"` greffe la config d'environnement de la saison PvP (8 rounds / 20 %).
+         *  Absent = champ laissé NUL, donc AUCUNE ability d'environnement installée. */
+        environnement?: string | null;
     }): Promise<unknown> | unknown => {
         if (!Array.isArray(body?.args)) {
             return refus("`args` manquant (tableau, un descripteur par paramètre du ctor). "
@@ -1276,7 +1377,8 @@ export function register(ctx: Ctx): void {
                     + "Retirer l'override par `sandboxModeBcOverride { configJson: null }`, "
                     + "ou utiliser `sandboxModeStart`, où c'est le JEU qui appelle LoadBattle.");
             }
-            const m = construire(body?.mode, body?.classe, body?.args as Arg[]);
+            const m = construire(body?.mode, body?.classe, body?.args as Arg[],
+                                 body?.environnement);
             if (estRefus(m)) return m;
             const kSrc = findClassAnywhere(NS_SRC, "SandboxGameModeSource");
             const mi = kSrc ? findMethodByParamCount(kSrc, "LoadBattle", 1) : null;
@@ -1310,6 +1412,9 @@ export function register(ctx: Ctx): void {
                 taille: json ? json.length : null,
                 configJson: json,
                 champsSource: champsDeLaSource(m.source),
+                // TRI-ÉTAT : `null` = greffe PAS DEMANDÉE (donc environnement VIDE), jamais
+                // à lire comme « rien à installer ». Sinon, le compte des INSTALLÉES.
+                environnement: m.environnement,
             };
         });
     };
@@ -1428,6 +1533,9 @@ export function register(ctx: Ctx): void {
     ctx.rpc.sandboxModeStart = (body?: {
         mode?: string; classe?: string; args?: Arg[];
         confirmer?: boolean; checkIfAlreadyRunning?: boolean; injecterGameViews?: boolean;
+        /** Cf. `sandboxModeBuildBc`. Le compte-rendu de la greffe est publié en retour --
+         *  « l'appel est passé » ne dit rien de ce qui est INSTALLÉ. */
+        environnement?: string | null;
     }): Promise<unknown> | unknown => {
         if (!Array.isArray(body?.args)) return refus("`args` manquant");
         if (body?.confirmer !== true) {
@@ -1440,7 +1548,8 @@ export function register(ctx: Ctx): void {
                 return refus("chargement de scène EN COURS -- `thor.Loader` refuserait EN "
                     + "SILENCE, l'appel est bloqué ici pour que ça se voie");
             }
-            const m = construire(body?.mode, body?.classe, body?.args as Arg[]);
+            const m = construire(body?.mode, body?.classe, body?.args as Arg[],
+                                 body?.environnement);
             if (estRefus(m)) return m;
             const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");
             const miStart = kExec ? findMethodByParamCount(kExec, "StartMatch", 2) : null;
@@ -1459,6 +1568,8 @@ export function register(ctx: Ctx): void {
                 source: m.source.toString(),
                 config: m.config.toString(),
                 champsSource: champsDeLaSource(m.source),
+                // TRI-ÉTAT : `null` = greffe PAS DEMANDÉE (environnement VIDE).
+                environnement: m.environnement,
                 avertissement: "l'APPEL est passé -- ça ne dit RIEN du montage. Le vérifier "
                     + "par `sandboxProbe` / l'écran. Et la SORTIE reste non éprouvée sur cette "
                     + "source : elle porte les six `Handle*`, ce qui est la cause identifiée "

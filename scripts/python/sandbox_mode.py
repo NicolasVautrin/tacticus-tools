@@ -465,6 +465,8 @@ def cmd_bc(jeu, args, monter):
         print("seed arme : %s (un coup) sur %s" % (args.seed, d.get("methode")))
     if monter:
         corps = {"mode": args.mode, "args": a, "confirmer": True}
+        if args.environnement:
+            corps["environnement"] = args.environnement
         # ⛔ LA GARDE NE SE DESARME QUE POUR UNE SANDBOX, ET L'APPELANT DOIT LE DEMANDER.
         #
         # `checkIfAlreadyRunning` protege d'un ECRASEMENT de match. Cote boss de guilde ou GW
@@ -490,10 +492,26 @@ def cmd_bc(jeu, args, monter):
             corps["checkIfAlreadyRunning"] = False
         d = jeu.rpc("sandboxModeStart", [corps], timeout=120000)
     else:
-        d = jeu.rpc("sandboxModeBuildBc", [{"mode": args.mode, "args": a}], timeout=120000)
+        corps = {"mode": args.mode, "args": a}
+        if args.environnement:
+            corps["environnement"] = args.environnement
+        d = jeu.rpc("sandboxModeBuildBc", [corps], timeout=120000)
     if not isinstance(d, dict) or not d.get("ok"):
         print("ECHEC : %s" % json.dumps(d, ensure_ascii=False)[:900])
         return 1
+    # ⚠ TRI-ETAT : `None` = greffe PAS DEMANDEE (donc environnement VIDE), et ce n'est PAS la
+    # meme chose que « rien a installer ». On le DIT, parce qu'un banc qu'on croit sous pression
+    # de fin et qui n'y est pas se joue tout entier sur une premisse fausse.
+    env = d.get("environnement")
+    if env is None:
+        print("environnement : AUCUN (non demande) -- pas de limite de tour, "
+              "pas d'`EnvEndBombardment`. `--environnement arene` pour le greffer.")
+    else:
+        inst = env.get("installe") or {}
+        print("environnement GREFFE par %s -- installees : %s ability(ies), "
+              "%s enhancement(s), %s config(s)"
+              % (env.get("voie"), inst.get("Abilities"),
+                 inst.get("EnhancementAbilities"), inst.get("AbilitiesConfigurations")))
     champs = d.get("champsSource") or {}
     nuls = [k for k, v in champs.items() if v in ("0x0", None)]
     if nuls:
@@ -552,6 +570,13 @@ def main(argv):
     ap.add_argument("--enemies", default="",
                     help="pvp : l'equipe D'EN FACE (obligatoire) ; guildBoss : les adds")
     # pvp
+    ap.add_argument("--environnement", default=None, choices=["arene"],
+                    help="GREFFER l'environnement du mode. `arene` prend la config de la saison "
+                         "PvP courante (`PvpProgression$$GetEnvironmentAbilitiesConfig`), qui "
+                         "porte les 8 rounds / 20 %% de l'`EnvEndBombardment`. SANS lui, le "
+                         "champ reste NUL et AUCUNE ability d'environnement n'est installee -- "
+                         "le banc se joue sans limite de tour. ⚠ Ne PAS recopier les constantes "
+                         "du catalogue de la BC : elles valent 6/30, pas 8/20.")
     ap.add_argument("--adversaire", type=int, default=None,
                     help="pvp : INDEX d'une proposition d'Arene (`pvpOpponents`). Monte son "
                          "equipe REELLE et sa MoW par `GetPublicProfileLineup` sur SA "

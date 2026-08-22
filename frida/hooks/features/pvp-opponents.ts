@@ -45,8 +45,12 @@ import { serializeToJson } from "../il2cpp/serializer.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 
-/** La `PvpProgression` vivante, via le foyer `executeurVivant`. */
-function progressionPvp(): NativePointer | RefusVue {
+/** La `PvpProgression` vivante, via le foyer `executeurVivant`.
+ *
+ *  ⚠ EXPORTEE le 2026-08-22 : `sandbox-mode` en a besoin pour greffer l'environnement d'Arene
+ *  (`GetEnvironmentAbilitiesConfig`, qui porte les 8 rounds / 20 % PAR MODE). Foyer unique --
+ *  la marche vers `_pvpProgression` ne se refait nulle part ailleurs. */
+export function progressionPvp(): NativePointer | RefusVue {
     const exec = executeurVivant();
     if (estRefus(exec)) return exec;
     const kExec = findClassAnywhere("idun.shared.commands", "ViewCommandExecutor");

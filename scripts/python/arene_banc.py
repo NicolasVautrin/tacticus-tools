@@ -167,6 +167,10 @@ def main():
     ap.add_argument("--sans-ouvrir", dest="sans_ouvrir", action="store_true",
                     help="ne pas naviguer vers l'Arene si la liste est vide")
     ap.add_argument("--sans-archive", dest="sans_archive", action="store_true")
+    ap.add_argument("--sans-environnement", dest="sans_environnement", action="store_true",
+                    help="NE PAS greffer l'environnement d'Arene. Le banc se joue alors sans "
+                         "limite de tour : pas d'`EnvEndBombardment`, donc un duel peut "
+                         "s'eterniser. La greffe est le DEFAUT.")
     ap.add_argument("--confirmer", action="store_true",
                     help="MONTER la bataille. Sans lui : on imprime la commande, rien n'est monte.")
     ap.add_argument("--adversaire-faux-je-sais", dest="adversaire_faux", action="store_true",
@@ -228,6 +232,12 @@ def main():
         # LA VOIE FIDELE : `sandbox_mode.py` ira lire `latestOpponents[n]` lui-meme et
         # materialisera l'equipe ET la MoW par `GetPublicProfileLineup` sur SA progression.
         cmd += ["--adversaire", str(args.n)]
+    # ⚠ LA GREFFE EST LE DEFAUT ICI, et c'est le point : un banc d'ARENE sans la pression de fin
+    #   n'est pas l'Arene. `EnvEndBombardment` (8 rounds / 20 % PV) est ce qui empeche un duel de
+    #   s'eterniser ; sans lui on repete une bataille qui n'existe pas. `--sans-environnement`
+    #   reste possible, mais il faut le DEMANDER.
+    if not args.sans_environnement:
+        cmd += ["--environnement", "arene"]
     if args.machine:
         cmd += ["--machine", args.machine]
     if args.account_units:
