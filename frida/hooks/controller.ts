@@ -34,6 +34,11 @@ import * as sandbox from "./features/sandbox.js";
 // `SandboxGameModeSource$$LoadBattle` la construit depuis une `ISandboxBattleConfig`, donc
 // plus besoin d'avoir capture une BC au prealable. N'installe AUCUN hook au register.
 import * as sandboxMode from "./features/sandbox-mode.js";
+// POSER des unites dans la vague d'un joueur VIVANT. N'installe AUCUN hook au register :
+// deux RPC, dont un en lecture seule. `BC.UnitSpawningOverTime` n'est lu qu'au SETUP (par
+// `OperationProcessor$$AddPlayer`), donc muter la BC apres coup ne fait rien -- on passe par
+// les mutateurs du `PlayerComponent`, qui sont des methodes du jeu sur un etat vivant.
+import * as waveInject from "./features/wave-inject.js";
 // NOMMER une boucle native en echantillonnant les piles. Le SEUL RPC du depot qui ne passe
 // PAS par `queueOnMainThread`, et deliberement : il mesure un thread principal qui ne rend
 // pas la main. Lecture pure, aucun hook installe.
@@ -479,7 +484,7 @@ export function wireRpc(ctx: Ctx): void {
      // par les porteurs natifs de `ViewCommandExecutor`.
      // `ui-windows.ts` SURVIT sans `register` : d'autres modules importent
      // `ecouterTransitions`, qui OBSERVE les transitions de fenêtre et ne clique rien.
-     viewCommand, sandbox, sandboxMode, stackSample, retreatCapture,
+     viewCommand, sandbox, sandboxMode, waveInject, stackSample, retreatCapture,
      fsmInput, battleEvents, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.
