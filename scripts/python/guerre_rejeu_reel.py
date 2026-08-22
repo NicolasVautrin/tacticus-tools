@@ -68,7 +68,7 @@ from rejeu_commun import (                                   # noqa: E402
     armer_le_fil, armer_le_seed, attendre_le_runner, chargeur_au_repos,
     controler_le_capteur_de_vue, desarmer_capture_de_fin,
     etat_du_verrou_de_match, generation_du_runner, liberer_le_verrou_de_match,
-    rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
+    rendre_compte_du_fil, verifier_phase_avant_start,
 )
 
 HOTE = "http://127.0.0.1:8765"
@@ -387,7 +387,7 @@ def main(argv=None):
         # une difference de degat se lit a tort comme un ecart de moteur (mesure du 2026-08-21 :
         # 1888 contre 2020 sur un flux de MEME longueur).
         graine, bc_id = d.get("RngSeed"), (bc_replay or {}).get("Id")
-        n_av = armer_le_seed(j, graine, bc_id)
+        armer_le_seed(j, graine, bc_id)
         gen = generation_du_runner(j)
 
         print()
@@ -452,9 +452,15 @@ def main(argv=None):
         # laisse seulement le slot dans un etat incertain plus longtemps.
         attendre_le_runner(j, gen, plafond_ms=30000)
 
-        print()
-        print("cran 8b -- LE SEED A-T-IL MORDU ?")
-        verifier_morsure(j, n_av, graine)
+        # ⛔ IL Y AVAIT ICI UN CRAN 8b << LE SEED A-T-IL MORDU ? >> -- RETIRE le 2026-08-22, et
+        # pour la meme raison de fond que le 8c ci-dessous : il vient APRES l'appel irreversible,
+        # donc il ne peut RIEN empecher, et son unique effet etait de refuser.
+        #
+        # S'y ajoutait un defaut propre : il lisait le journal du seed, une VUE tronquee a 8
+        # entrees dont il prenait la LONGUEUR pour un compteur. Passe la 8e bataille d'une session
+        # il refusait des batailles parfaitement montees -- c'est le pretendu << plafond de
+        # 8 batailles >> (8, 8, 7, 8 sur quatre sessions de farming), qui n'etait que la taille de
+        # NOTRE fenetre. Le journal est parti avec lui.
 
         # ⛔ IL Y AVAIT ICI UN CRAN 8c -- << la BC REELLEMENT MONTEE est-elle celle du replay ? >>.
         # RETIRE le 2026-08-21, et pas pour un detail : il est DOMINE, et son seul effet possible

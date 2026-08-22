@@ -299,12 +299,9 @@ else:
     else:
         print("   tout le reste est IDENTIQUE : stats, adds, abilities, carte, poids d'IA.")
 
-seed_avant = None
 if not args.deja_la:
     print()
     print("CRAN 1 -- armer le seed du replay, puis ATTENDRE que la bataille apparaisse")
-    j0 = (rpc(sid, "sandboxModeSeed", [{}], timeout=60000).get("result") or {}).get("journal") or []
-    seed_avant = len(j0)
     graine = d.get("RngSeed")
     if graine is None:
         stop("le replay ne porte pas de `RngSeed` -- on ne rejoue pas sans.")
@@ -316,8 +313,7 @@ if not args.deja_la:
                                       "siConfigId": ATTENDU_ID}], timeout=60000).get("result") or {}
     if r.get("arme") is not True:
         stop("le seed n'a PAS ete arme : " + json.dumps(r, ensure_ascii=False)[:240])
-    print("   seed %s arme (un coup), CONDITIONNE a Id=%s -- journal a %d entree(s) avant"
-          % (graine, ATTENDU_ID, seed_avant))
+    print("   seed %s arme (un coup), CONDITIONNE a Id=%s" % (graine, ATTENDU_ID))
 
     # ─────────────────────────────────────────────────────────────────────────────────────────
     # (!)LES CAPTEURS S'ARMENT ICI, AVANT QUE LA BATAILLE EXISTE. C'EST LA CAUSE RACINE.
@@ -369,23 +365,19 @@ if not p.get("instance"):
     stop("aucune `IdunMainView` vivante.")
 print("   IdunMainView %s" % p.get("instance"))
 
-print()
-print("CRAN 3 -- le seed a-t-il ete SUBSTITUE pour CETTE bataille ?")
-s = rpc(sid, "sandboxModeSeed", [{}], timeout=60000).get("result") or {}
-j = s.get("journal") or []
-imposes = [x for x in j if x.get("mode") == "impose"]
-print("   journal : %d entree(s), dont %d imposition(s)" % (len(j), len(imposes)))
-if not imposes:
-    stop("aucune imposition de seed -- rejouer sur un autre tirage ne prouve rien.")
-if seed_avant is not None:
-    neuves = len(j) - seed_avant
-    print("   entrees NEUVES depuis l'armement : %d" % neuves)
-    if neuves != 1:
-        stop("on attend EXACTEMENT une entree neuve (%d) -- le journal CUMULE sur la session, "
-             "donc sa longueur brute ne dit pas quelle bataille a pris le seed." % neuves)
-else:
-    print("   (!) `--deja-la` : le seed n'a pas ete arme par ce script, donc on ne peut pas dire "
-          "QUELLE bataille l'a pris.")
+# ⛔ IL Y AVAIT ICI UN CRAN 3 << le seed a-t-il ete SUBSTITUE pour CETTE bataille ? >>.
+# RETIRE le 2026-08-22, avec le journal du seed lui-meme.
+#
+# Il comptait les entrees NEUVES du journal (`len(j) - seed_avant`) et exigeait exactement 1.
+# Or ce journal est A NOUS -- un tableau JS de notre script Frida -- et il etait rendu TRONQUE a
+# ses 8 dernieres entrees : sa longueur SATURE. Passe la 8e bataille d'une session, `neuves`
+# tombait a 0 et le cran refusait une bataille parfaitement montee. C'est la meme cause que le
+# pretendu << plafond de 8 batailles >> des chaines de rejeu (8, 8, 7, 8 sur quatre sessions).
+#
+# Ce que le cran cherchait a etablir reste etabli, mais AILLEURS et mieux : `batailleIdentite`
+# publie l'`Id` de la BC vue passer a `IdunRunner$$Initialize`, EPINGLE AU POINTEUR DU RUNNER,
+# et dit s'il concorde avec le runner vivant. C'est une reponse a << QUELLE bataille >>, pas un
+# comptage d'entrees dans une fenetre glissante.
 
 print()
 print("CRAN 4 -- est-ce BIEN la bataille visee, et son camp est-il VIDE ?")

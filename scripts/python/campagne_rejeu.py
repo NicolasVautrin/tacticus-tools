@@ -65,7 +65,7 @@ from deploiement_commun import stop, cran, jouer_la_suite  # noqa: E402
 # n'etaient pas propres a la campagne. Un seul exemplaire, dans `rejeu_commun`.
 from rejeu_commun import (                                 # noqa: E402,F401
     armer_le_seed, attendre_le_runner, desarmer_capture_de_fin, generation_du_runner,
-    verifier_morsure, verifier_phase_avant_start,
+    verifier_phase_avant_start,
 )
 
 # Les types de campagne, tels que `campaignSourceForger` les prend.
@@ -587,7 +587,7 @@ def main(argv=None):
     sortir_de_bataille(jeu, args.confirmer)
 
     cran(4, "ARMER LE SEED, *AVANT* le montage")
-    n_av = armer_le_seed(jeu, graine, bc_id)
+    armer_le_seed(jeu, graine, bc_id)
 
     cran(5, "monter le noeud en sandbox")
     # LA GENERATION *AVANT* LE MONTAGE -- c'est elle qui ferme la course entre le geste et
@@ -604,8 +604,12 @@ def main(argv=None):
              % (p.returncode, (p.stdout or "") + (p.stderr or ""))[:600])
     attendre_le_runner(jeu, gen)
 
-    cran(6, "LE SEED A-T-IL MORDU ? -- le cran qui manquait")
-    verifier_morsure(jeu, n_av, graine)
+    # ⛔ IL Y AVAIT ICI UN CRAN 6 << LE SEED A-T-IL MORDU ? >> -- RETIRE (2026-08-22). Il lisait
+    #    le journal du seed, une VUE tronquee a 8 entrees dont il prenait la LONGUEUR pour un
+    #    compteur : passe la 8e bataille d'une session il refusait des batailles parfaitement
+    #    montees. C'est le pretendu << plafond de 8 batailles >>, qui etait la taille de NOTRE
+    #    fenetre. Il n'arbitrait rien -- la confrontation coup par coup, en aval, tranche au
+    #    caractere pres. Le journal est parti avec lui.
     desarmer_capture_de_fin(jeu)
 
     cran(7, "la phase, par le BON temoin")

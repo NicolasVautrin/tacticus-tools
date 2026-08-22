@@ -139,7 +139,7 @@ from campagne_rejeu import (                               # noqa: E402
 from rejeu_commun import (                                 # noqa: E402,F401
     armer_le_fil, armer_le_seed, bc_vivante, chargeur_au_repos, confronter,
     controler_le_capteur_de_vue, desarmer_capture_de_fin, ecarts_bc, EVENEMENTS_DE_JEU,
-    generation_du_runner, rendre_compte_du_fil, verifier_morsure, verifier_phase_avant_start,
+    generation_du_runner, rendre_compte_du_fil, verifier_phase_avant_start,
 )
 # (!)LA CHAINE CONSTATE L'ETAT DES RELAIS, ELLE NE LE CHANGE PAS (cran 7). On importe donc la
 # LECTURE, jamais le desarmement -- cf. le cran lui-meme pour le pourquoi.
@@ -515,16 +515,20 @@ def main(argv=None):
     # pose serait passee par la voie COMMIT, celle du 10-pour-5.
     armer_les_relais(jeu)
     controler_le_capteur_de_vue(jeu)
-    n_av = armer_le_seed(jeu, graine, bc_id)
+    armer_le_seed(jeu, graine, bc_id)
     gen = generation_du_runner(jeu)
 
     cran(10, "ENTRER dans la bataille -- par la voie native, sans rien engager")
     entrer_dans_la_bataille(jeu, campagne, type_, noeud, gen, args.attente * 1000,
                             par_retry=args.par_retry)
 
-    cran(11, "LE SEED A-T-IL MORDU ?")
-    verifier_morsure(jeu, n_av, graine)
-
+    # ⛔ IL Y AVAIT ICI UN CRAN 11 << LE SEED A-T-IL MORDU ? >> -- RETIRE (2026-08-22).
+    #    Il lisait le journal du seed, une VUE tronquee a 8 entrees dont il prenait la LONGUEUR
+    #    pour un compteur : passe la 8e bataille d'une session il refusait des batailles
+    #    parfaitement montees. C'est le pretendu << plafond de 8 batailles >> (8, 8, 7, 8 sur
+    #    quatre sessions de farming) -- la taille de NOTRE fenetre, prise pour une limite du jeu.
+    #    Il n'arbitrait rien : le cran 16 confronte CHAQUE COUP au caractere pres, et un seed qui
+    #    n'a pas mordu diverge des le premier jet de des. Le journal est parti avec lui.
     cran(12, "la BC REELLEMENT MONTEE est-elle celle du replay ?")
     # (!)MEME TRAITEMENT QU'AU CRAN 3, ET POUR LA MEME MESURE. Ce cran compare la BC ENTIERE,
     # catalogue d'unites compris ; une unite entree au ROSTER (`BC.Units` 175 -> 176, plus ses

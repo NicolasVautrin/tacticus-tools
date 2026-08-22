@@ -2,8 +2,8 @@
 
 Rejouer un replay sur une bataille REELLE exige une serie de gestes qui n'ont RIEN de propre a un
 mode de jeu : desarmer la capture de fin, armer le fil reseau, armer les relais et le seed AVANT
-que la bataille existe, puis verifier que le seed a mordu, que la BC montee est la bonne et que la
-phase est encore ouverte.
+que la bataille existe, puis verifier que la BC montee est la bonne et que la phase est encore
+ouverte.
 
 (!)POURQUOI CE MODULE EXISTE. Ces douze fonctions vivaient dans `campagne_rejeu.py` et
 `campagne_rejeu_reel.py`. Quand la chaine de GUERRE DE GUILDE en a eu besoin -- elle n'en avait
@@ -25,7 +25,6 @@ aujourd'hui >> mais << est-ce que ca parle d'un mode >>.
 """
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -35,20 +34,28 @@ from deploiement_commun import stop                          # noqa: E402
 
 def armer_le_seed(jeu, graine, bc_id):
     """(!)AVANT LE MONTAGE, ET CONDITIONNE. Sans `siConfigId`, le seed partirait sur la
-    PROCHAINE bataille quelle qu'elle soit. Avec, entrer ailleurs est SANS CONSEQUENCE."""
+    PROCHAINE bataille quelle qu'elle soit. Avec, entrer ailleurs est SANS CONSEQUENCE.
+
+    (!)ON ARME, ON NE VERIFIE PLUS QUE CA A MORDU -- ET C'EST DELIBERE (#10042, 2026-08-22).
+    Un cran 11 lisait le journal du seed apres montage pour attester la morsure. Ce journal est
+    A NOUS (un tableau JS de notre script Frida), il est rendu TRONQUE a ses 8 dernieres entrees,
+    et le cran en prenait la LONGUEUR pour un compteur : passe la 8e bataille d'une session il
+    saturait a 8 et sa tranche rendait [] quoi qu'il arrive. Quatre sessions de farming ont bute
+    a 8, 8, 7, 8 batailles -- la TAILLE DE NOTRE FENETRE prise pour un plafond du JEU, sur des
+    batailles qui avaient parfaitement monte.
+
+    Le cran est RETIRE plutot que repare, parce qu'il n'arbitrait rien : la morsure se constate
+    DE TOUTE FACON en aval, au caractere pres, quand chaque coup est confronte a la reference.
+    Ce que le cran achetait, c'etait au mieux un jeton -- et son seul mode de panne, lui, etait
+    d'immobiliser une session entiere.
+    """
     if graine is None:
         stop("le replay ne porte pas de `RngSeed` -- on ne rejoue pas sans.")
-    av = jeu.rpc("sandboxModeSeed", [{}], timeout=120000)
-    n_av = len((av or {}).get("journal") or []) if isinstance(av, dict) else None
-    if n_av is None:
-        stop("journal du seed NON MESURE -- on ne saurait pas dire s'il a mordu.")
     r = jeu.rpc("sandboxModeSeed",
                 [{"seed": int(graine), "unCoup": True, "siConfigId": bc_id}], timeout=120000)
     if not isinstance(r, dict) or r.get("arme") is not True:
         stop("le seed n'a PAS ete arme : %s" % json.dumps(r, ensure_ascii=False)[:240])
-    print("   seed %s arme (un coup), CONDITIONNE a Id=%s -- journal a %d entree(s) avant"
-          % (graine, bc_id, n_av))
-    return n_av
+    print("   seed %s arme (un coup), CONDITIONNE a Id=%s" % (graine, bc_id))
 
 
 def desarmer_capture_de_fin(jeu):
@@ -116,64 +123,24 @@ def attendre_le_runner(jeu, depuis, plafond_ms=60000):
     print("   bataille apparue (generation %s -> %s), par signal." % (depuis, r.get("generation")))
 
 
-def verifier_morsure(jeu, n_av, graine, plafond_s=20.0):
-    # (!)20 s, ET 10 s A DEJA RENDU UN FAUX REFUS. Mesure du 2026-08-22 sur `eliteMirror4` 27 --
-    # passe 1 BIT-EXACTE en 34 s, puis passe 2 refusee sur << RIEN journalise en 10,0 s >>. Le
-    # montage de ce noeud est simplement plus lent que celui de `campaign1` 28. Le plafond borne
-    # une ATTENTE, pas un budget : le tenir serre ne protege de rien, il fabrique des refus.
-    """LE CRAN QUI MANQUAIT. Un seed arme APRES le montage laisse une bataille montee, demarree
-    et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE.
-
-    (!)IL ATTEND LE FAIT, IL NE LIT PLUS UNE FOIS. Ce cran lisait le journal a l'instant ou il
-    s'executait. Or `attendreRunner` rend la main sur la transition `_runner : null -> r`, qui
-    n'est pas le meme evenement que l'ecriture du journal : entre les deux il y a une fenetre, et
-    une lecture unique peut tomber dedans. Mesure du 2026-08-22 sur `elite3` 5 -- refus repete du
-    cran 11, alors que le seed avait DEJA mordu cinq fois sur ce meme noeud dans la meme session.
-    On sonde donc jusqu'au plafond, et on s'arrete au PREMIER fait, pas au premier coup d'oeil.
-
-    (!)ET IL SEPARE DEUX PANNES QUE L'ANCIEN MESSAGE CONFONDAIT. << rien journalise >> couvrait
-    a la fois << la bataille n'a pas monte / `Initialize` n'a pas tourne >> et << elle a tourne
-    mais la CONDITION D'IDENTITE l'a rejetee >>. Ce sont deux enquetes opposees, et le hook sait
-    deja les distinguer : sur rejet d'Id il pousse une entree portant `ignore` qui NOMME l'Id reel
-    (`Id=<reel> != <attendu>`). Les confondre m'a fait poursuivre un zero-prefixe inexistant.
-    """
-    debut = time.time()
-    neuves, entrees = [], None
-    while True:
-        j = jeu.rpc("sandboxModeSeed", [{}], timeout=120000)
-        entrees = (j or {}).get("journal") if isinstance(j, dict) else None
-        if entrees is None:
-            stop("journal du seed NON MESURE apres montage -- ce n'est PAS << il a mordu >>.")
-        neuves = entrees[n_av:]
-        if neuves or (time.time() - debut) >= plafond_s:
-            break
-    attente = time.time() - debut
-
-    if not neuves:
-        stop("le seed n'a PAS ete impose : `IdunRunner$$Initialize` n'a RIEN journalise en "
-             "%.1f s.\n"
-             "         AUCUNE entree -- pas meme un rejet d'identite (qui, lui, porterait "
-             "`ignore`).\n"
-             "         Ce n'est donc PAS une BC qui diverge : c'est `Initialize` qui n'a pas "
-             "tourne dans la fenetre.\n"
-             "         Piste : le montage n'a pas abouti (verifier `battleStatus.stage`, qui "
-             "reste NUL tant que la scene charge)." % attente)
-
-    # Le hook NOMME l'Id reel quand il rejette : on relaie ce nom au lieu de le deviner.
-    rejets = [e for e in neuves if e.get("ignore")]
-    imposee = [e for e in neuves if e.get("par") == int(graine)]
-    if not imposee:
-        if rejets:
-            stop("le seed a ete REJETE sur l'identite -- `Initialize` a bien tourne, mais la BC "
-                 "montee n'est pas celle attendue :\n"
-                 "         %s\n"
-                 "         (c'est le hook qui nomme les deux Id, pas une deduction)"
-                 % "\n         ".join(str(e.get("ignore")) for e in rejets[:4]))
-        stop("le journal porte %d entree(s) neuve(s) en %.1f s, mais aucune n'impose %s : %s"
-             % (len(neuves), attente, graine, json.dumps(neuves, ensure_ascii=False)[:240]))
-    print("   seed IMPOSE apres %.1f s : %s"
-          % (attente, json.dumps(imposee[0], ensure_ascii=False)))
-
+# ⛔ `verifier_morsure` A ETE RETIRE (#10042, 2026-08-22) -- NE PAS LE REECRIRE.
+#
+# Il lisait le journal du seed apres montage pour attester que `IdunRunner$$Initialize` avait
+# bien recu notre graine. CE JOURNAL EST A NOUS : un tableau JS de notre propre script Frida,
+# borne a 32 en interne et rendu TRONQUE a ses 8 dernieres entrees. Le cran en prenait la
+# LONGUEUR pour un compteur (`n_av = len(journal)`, puis `journal[n_av:]`), si bien qu'a partir
+# de la 8e bataille d'une session la tranche rendait [] QUOI QU'IL ARRIVE.
+#
+# Ce qu'on a cru voir : un << plafond de 8 batailles >> du JEU, reproduit a 8, 8, 7, 8 sur quatre
+# sessions de farming, qu'un redemarrage du jeu << reparait >>. Ce qui se passait vraiment : notre
+# fenetre etait pleine, et un reinject la vidait. Les batailles refusees avaient parfaitement
+# monte (`IsActive` = 1, `batailleActive` = true, seed effectivement impose).
+#
+# LE CRAN N'EST PAS REPARE, IL EST SUPPRIME, et c'est le bon geste : il n'arbitrait rien. La
+# morsure du seed se constate DE TOUTE FACON en aval, au caractere pres, quand chaque coup est
+# confronte a la reference -- un rejeu dont le seed n'a pas mordu diverge des le premier jet de
+# des. Ce cran-ci n'achetait qu'un jeton, au mieux ; son unique mode de panne immobilisait une
+# session entiere. Le rapport n'a jamais ete favorable.
 
 def verifier_phase_avant_start(jeu):
     """(!)LE TEMOIN EST `battleStatus.stageName`, PAS `ordreConversion`.
