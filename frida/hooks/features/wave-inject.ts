@@ -127,6 +127,30 @@ function offsetTeamId(): number | Refus {
         + "-- chemin PÉRIMÉ");
 }
 
+// --- LE COMPTEUR DE TIRS ------------------------------------------------------------------
+//
+// ⚠ POURQUOI UN COMPTEUR ET PAS UN XREF. `VerifyCompleteWaveOperation$$Execute` n'a qu'UN
+// appelant, `OperationProcessor$$VerifyCompleteWave` -- lequel n'a AUCUN xref de code, rien
+// que des entrées DATA : il est appelé par dispatch d'interface (`IOperationProcessor`).
+// Savoir s'il tourne dans une bataille ordinaire ne se lit donc pas, ça se COMPTE.
+//
+// Ancrage PASSIF (`Interceptor.attach`, aucun `replace`), sur une méthode FROIDE : elle ne
+// peut tirer qu'une fois par tour et par joueur. Armé à la demande, jamais au register.
+let verifTirs = 0;
+let verifArme: InvocationListener | null = null;
+
+function armerCompteur(): true | Refus {
+    if (verifArme) return true;
+    const k = findClassAnywhere("IdunBattle.Operations", "VerifyCompleteWaveOperation");
+    if (!k) return refus("classe `VerifyCompleteWaveOperation` introuvable");
+    const m = findMethodByParamCount(k, "Execute", 0);
+    if (!m || m.ptr.isNull()) {
+        return refus("`VerifyCompleteWaveOperation$$Execute()` non résolue -- chemin PÉRIMÉ");
+    }
+    verifArme = Interceptor.attach(m.ptr, { onEnter() { verifTirs++; } });
+    return true;
+}
+
 interface Joueur { entite: NativePointer; comp: NativePointer; teamId: number; }
 
 /** Tous les joueurs de l'état, avec leur `PlayerComponent` et leur `TeamId`. */
@@ -164,28 +188,40 @@ export function register(ctx: Ctx): void {
     /** LECTURE SEULE — qui sont les joueurs, et quelle vague porte tel tour.
      *  À jouer AVANT et APRÈS toute injection : c'est la mesure, l'injection n'est que le geste.
      *  body: { runnerId, turn? } */
-    ctx.rpc.waveState = (body?: { runnerId?: number; turn?: number }) => queueOnMainThread(() => {
+    ctx.rpc.waveState = (
+        body?: { runnerId?: number; turn?: number; armer?: boolean },
+    ) => queueOnMainThread(() => {
+        if (body?.armer) {
+            const a = armerCompteur();
+            if (estRefus(a)) return { ok: false, error: a.error };
+        }
         const st = etatDuRunner(body?.runnerId);
         if (estRefus(st)) return { ok: false, error: st.error };
         const js = joueurs(st as NativePointer);
         if (estRefus(js)) return { ok: false, error: js.error };
 
-        const mGetWaveTurn = playerComponentClass
-            ? findMethodByParamCount(playerComponentClass, "GetWaveTurn", 1) : null;
-        const tour = typeof body?.turn === "number" ? body.turn : 0;
+        // ⚠ LECTURES BRUTES, AUCUN `invokeMethod`. La version precedente appelait
+        // `GetWaveTurn` et lisait son retour comme un entier -- or `runtime_invoke` BOXE les
+        // types valeur, donc elle rendait un POINTEUR (mesure : -41634880, -41634912,
+        // -41634944, espaces de 32 octets, soit trois boites consecutives). Le decompile
+        // rend l'appel inutile : `GetWaveTurn(t) = this[+0x60] + t`, donc le decalage se LIT.
         const out = (js as Joueur[]).map((j) => {
-            let waveIndex: number | null = null;
-            if (mGetWaveTurn) {
-                try {
-                    const r = invokeMethod(mGetWaveTurn.info, j.comp, [argInt(tour)]);
-                    waveIndex = r.toInt32();
-                } catch { waveIndex = null; }   // TRI-ÉTAT : `null` = PAS LU, jamais un 0
-            }
-            return { entite: j.entite.toString(), teamId: j.teamId, tour, waveIndex };
+            let decalage: number | null = null;
+            let vaguesPosees: boolean | null = null;
+            try { decalage = j.comp.add(0x60).readS32(); } catch { decalage = null; }
+            try { vaguesPosees = !j.comp.add(0x58).readPointer().isNull(); }
+            catch { vaguesPosees = null; }
+            return { entite: j.entite.toString(), teamId: j.teamId, decalage, vaguesPosees };
         });
         return {
             ok: true, joueurs: out,
-            note: "`waveIndex` null = NON MESURE (methode absente ou levee), jamais un zero",
+            verifTirs,
+            verifArme: verifArme !== null,
+            note: "`decalage` = PlayerComponent[+0x60] : la boucle de "
+                + "`VerifyCompleteWaveForPlayer` visite les tours 0..(decalage + toursDemarres). "
+                + "`verifTirs` = nombre de passages REELS dans `VerifyCompleteWaveOperation"
+                + "$$Execute` -- 0 avec `verifArme: true` signifie que l'operation NE TOURNE PAS. "
+                + "null = NON MESURE, jamais un zero.",
         };
     });
 
