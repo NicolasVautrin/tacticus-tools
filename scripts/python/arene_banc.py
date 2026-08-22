@@ -40,6 +40,36 @@ hook (des modeles DEJA RESOLUS, passes par pointeur), donc un rebuild et un rein
 Tant que ce n'est pas fait, `--confirmer` REFUSE. L'echappatoire est explicite et se nomme
 `--adversaire-faux-je-sais`, pour qui veut quand meme le plateau et les apparitions.
 
+⚠ CORRECTION D'UNE AFFIRMATION FAUSSE ECRITE ICI : << le mode sandbox n'installe pas
+`EnvEndBombardment` >>. Il l'installerait tres bien -- c'est NOUS qui ne remplissons pas le
+champ. `SandboxPvpBattleConfig` porte QUATRE proprietes que le ctor a 9 arguments ne touche
+pas, car il ne pose que `BoardId` (+0x28) a `BossUnit` (+0x58) :
+
+    0x10  DeactivateActiveAbilitiesOnAI   Boolean
+    0x11  DisableOverkill                 Boolean
+    0x18  EnvironmentAbilities            EnvironmentAbilities
+    0x20  EnvironmentAbilityTeams         Dictionary`2
+
+`BattleConfigBuilder$$GetHotseatSyncPvpConfig` LIT `EnvironmentAbilities` (+0x18) -- il en tire
+`GetExtraEnemyUnits` et le repasse a `GetPvpLevelConfig` en parametre `environmentAbilities`.
+Un banc qui remplit ce champ retrouverait donc la pression de fin de l'Arene (8 rounds / 20 %).
+
+LA CORRESPONDANCE EST LUE AU CORPS, plus deduite -- les 14 parametres de `GetPvpLevelConfig`
+se posent un par un :
+
+    opponentLineup            <- PlayerUnits[1]      (eux)
+    overrideMainPlayerUnits   <- PlayerUnits[0]      (nous)
+    getEnemyUnit              <- une CLOTURE Func<String, Boolean, IUnitModel>
+    environmentAbilities      <- cfg.EnvironmentAbilities
+    opponentMachineOfWarLineup / overrideMainPlayerMachineOfWar / mainPlayerType /
+    enemyPlayerType / boardId / spawnPointsSet <- les champs homonymes
+
+⚠ ET LE CTOR DE LA SOURCE N'EST PAS LE LEVIER, contrairement a ce qu'on pourrait croire en
+voyant `SandboxGameModeSource..ctor(config, IUnitProgression, ...)` passer sa progression a
+`BattleConfigBuilder..ctor(unitProgression, ...)`. Elle y va bien, mais `GetUnitConfiguration`
+(unitModel, logger, remainingHealth) STATE A PARTIR DU MODELE SEUL : ce qui est deja un
+`IUnitModel` est fige. Le seul levier est donc la position 4 du CONFIG.
+
 ⚠ OUVRIR L'ARENE NE COUTE RIEN, MAIS IL FAUT L'AVOIR OUVERTE : `latestOpponents` est nul tant
 que l'ecran n'a pas charge. Ce script le fait lui-meme par `IdunNavigation.ToPvp` si la liste
 est vide -- ouvrir ne consomme aucune tentative, seul un combat en consomme.
