@@ -15,12 +15,30 @@ aucune tentative consommee, aucun octet envoye au serveur, aucun adversaire reel
 sert a REPETER -- essayer une equipe, voir ou ca casse -- avant de decider quel duel engager
 pour de vrai, a la main, par le jeu.
 
-⚠ CE QU'IL NE REPRODUIT PAS FIDELEMENT, ET IL FAUT LE SAVOIR : la proposition ne porte que des
-IDENTIFIANTS d'unite. Ni rang, ni niveau, ni etoiles, ni items -- le seul equipement qu'elle
-publie est celui du JOUEUR adverse, pas la progression de ses unites. Les unites d'en face
-seront donc montees avec ce que le mode sandbox leur donne, PAS avec les stats reelles de
-l'adversaire. Le banc est un banc de FORME (composition, plateau, points d'apparition), pas de
-PUISSANCE. Ne pas en tirer un pronostic de victoire.
+⛔ L'EQUIPE ADVERSE EST FAUSSE, ET LE MONTAGE EST DONC REFUSE PAR DEFAUT (mesure du
+2026-08-22). On passe des IDENTIFIANTS en position 4 du ctor ; la source les resout -- tres
+correctement -- par `UnitProgression$$GetUnit` sur la progression DU COMPTE (`sandbox-mode.ts`
+l'assume explicitement : une progression de test est vide, elle rendrait une BC sans unites).
+Resultat : l'equipe d'en face, c'est NOTRE roster portant leurs noms.
+
+Mesure sur la proposition 0 de `Player7419` -- `ultraTigurius` et `ultraInceptorSgt` etaient
+dans LES DEUX equipes, et le catalogue de la BC n'en porte qu'UN SEUL exemplaire chacun : la
+meme entree, nos stats, des deux cotes. Et pour ce qu'on ne possede pas : `darkaAzrael` sort a
+RANG 0 / puissance 562, contre 396 257 pour notre `ultraInceptorSgt`. Ce n'est pas un
+adversaire affaibli, c'est une coquille -- leur Machine of War aussi (rang 0).
+
+⚠ NE PAS RETOMBER SUR << banc de FORME, pas de PUISSANCE >> : cette formule a ete ecrite ici
+avant la mesure, et elle est trop indulgente. Une unite a 562 de puissance n'approxime rien.
+
+CE QUI LE REPARERAIT, et c'est ECRIT et MESURE : le jeu DETIENT la progression reelle de
+l'adversaire -- `PvpOpponentProgressionData.GetKnownUnitIds()` rend les 6 ids (5 + la MoW) et
+`GetUnit(id)` un `IUnitProgressData`, alimentes par le SERVEUR via
+`PvpServerResponseTranslator.ApplyUnitInfo`. Il suffit de passer en position 4 les `IUnitModel`
+que rend `GetPublicProfileLineup(...)` au lieu d'ids -- ce qui demande un genre de plus cote
+hook (des modeles DEJA RESOLUS, passes par pointeur), donc un rebuild et un reinject.
+
+Tant que ce n'est pas fait, `--confirmer` REFUSE. L'echappatoire est explicite et se nomme
+`--adversaire-faux-je-sais`, pour qui veut quand meme le plateau et les apparitions.
 
 ⚠ OUVRIR L'ARENE NE COUTE RIEN, MAIS IL FAUT L'AVOIR OUVERTE : `latestOpponents` est nul tant
 que l'ecran n'a pas charge. Ce script le fait lui-meme par `IdunNavigation.ToPvp` si la liste
@@ -114,7 +132,27 @@ def main():
     ap.add_argument("--sans-archive", dest="sans_archive", action="store_true")
     ap.add_argument("--confirmer", action="store_true",
                     help="MONTER la bataille. Sans lui : on imprime la commande, rien n'est monte.")
+    ap.add_argument("--adversaire-faux-je-sais", dest="adversaire_faux", action="store_true",
+                    help="monter QUAND MEME, en sachant que l'equipe adverse sort de NOTRE "
+                         "progression et non de la sienne (cf. l'entete de ce fichier)")
     args = ap.parse_args()
+
+    # ⛔ LE REFUS EST EXECUTABLE, ET C'EST VOULU. Une prose d'avertissement n'arrete personne :
+    #   la premiere version de ce fichier en portait une, et le banc a quand meme ete monte avec
+    #   un `darkaAzrael` a 562 de puissance en face. Tant que la position 4 prend des IDS, le
+    #   duel n'est pas confrontable -- on le DIT en refusant, pas en commentaire.
+    if args.confirmer and not args.adversaire_faux:
+        print("REFUS : l'equipe adverse serait montee depuis NOTRE progression, pas la sienne.")
+        print("        `UnitProgression$$GetUnit` resout les ids contre le compte -- mesure :")
+        print("        `ultraTigurius` present dans les DEUX equipes n'a qu'UN exemplaire au")
+        print("        catalogue, et `darkaAzrael` sort a rang 0 / puissance 562.")
+        print()
+        print("        Le duel monte n'est donc PAS celui qu'on nous propose.")
+        print("        - pour le plateau et les apparitions seuls : --adversaire-faux-je-sais")
+        print("        - pour un banc FIDELE : passer les `IUnitModel` de")
+        print("          `PvpOpponentProgressionData.GetPublicProfileLineup(...)` en position 4")
+        print("          (genre `modeles` cote hook -> rebuild + reinject)")
+        return 2
 
     sid = args.session or session_vivante(args.hote)
     if sid is None:
