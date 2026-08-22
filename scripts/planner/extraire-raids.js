@@ -29,7 +29,18 @@
     const iDate = L.findIndex((s) => /^\d+(st|nd|rd|th) of \w+$/.test(s));
     if (iDate >= 0) res.entete.finPrevue = L[iDate];
 
-    // --- 1. compteurs, par le texte a plat : "<possede>/<requis>" puis le nom -----------------
+    // --- 1. compteurs, par le texte a plat : "<couvert>/<requis>" puis le nom ------------------
+    //
+    // (!)LE PREMIER NOMBRE N'EST PAS L'INVENTAIRE -- C'EST `min(inventaire, requis)`.
+    // Il dit ce qui est COUVERT du besoin, PLAFONNE au besoin. Mesure du 2026-08-22 sur les
+    // 24 lignes du plan : sur les 22 ou `couvert < requis`, il vaut EXACTEMENT la quantite lue
+    // en jeu (22/22) ; les 2 seules divergences apparentes etaient les 2 lignes ou
+    // `couvert == requis` -- Kill Count << 4/4 >> pour 7 en stock, Boon of Slaanesh << 0/0 >>
+    // pour 6. Le plafond, pas un retard de synchronisation.
+    //
+    // ⛔ NE PAS le renommer `possede` : c'est ce nom-la qui a fait lire un plafond comme un
+    // inventaire, et conclure a tort que le planner datait et reclamait un << Sync with
+    // Tacticus >>. Une ligne plafonnee ne dit RIEN de l'avoir -- seulement qu'il suffit.
     const cpt = /^(\d+)\/(\d+)$/;
     const parTexte = [];
     for (let i = 0; i + 1 < L.length; i++) {
@@ -37,7 +48,7 @@
         if (!m) continue;
         const nom = L[i + 1];
         if (!nom || cpt.test(nom) || /^\d+$/.test(nom)) continue;
-        parTexte.push({ nom, possede: +m[1], requis: +m[2] });
+        parTexte.push({ nom, couvert: +m[1], requis: +m[2] });
     }
 
     // --- 1bis. L'ID DE MATERIAU, LU DANS L'URL DE SON ICONE ------------------------------------
@@ -78,7 +89,7 @@
         if (a.nom !== b.nom) res.desaccords.push({ index: i, texte: a.nom, dom: b.nom });
         // `id` a `null` = NON APPARIE, jamais devine : l'appelant le verra et pourra le dire.
         res.materiaux.push({ nom: a.nom, id: idParNom[a.nom] ?? null,
-                             possede: a.possede, requis: a.requis, noeuds: b.noeuds });
+                             couvert: a.couvert, requis: a.requis, noeuds: b.noeuds });
     }
     return res;
 }

@@ -150,7 +150,10 @@ def main():
             cle = (ident, n["noeud"])
             e2 = noeuds.setdefault(cle, {"nom": nom, "type": typ, "ordinal": ordinal,
                                          "abrege": n.get("abrege"), "pour": []})
-            e2["pour"].append("%s %d/%d" % (m["nom"], m["possede"], m["requis"]))
+            # `couvert` = min(inventaire, requis) : un PLAFOND, pas un avoir. L'ancien nom
+            # `possede` (plans anterieurs au 2026-08-22) est lu, jamais rendu.
+            couvert = m.get("couvert", m.get("possede"))
+            e2["pour"].append("%s %s/%s" % (m["nom"], couvert, m["requis"]))
     if inconnus:
         # NON APPARIE n'est pas NON EXISTANT : on le dit, on ne le jette pas en silence.
         print("(!) %d nom(s) de campagne INCONNUS de la localisation du jeu -- non traites : %s"

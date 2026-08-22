@@ -12,10 +12,18 @@ rafraichit PAS a chaque bataille -- mesure du 2026-08-22 : 37 minutes de retard 
 dizaine de raids venaient d'etre joues. On lit donc `UpgradeProgression$$GetAmount` en memoire,
 par le RPC `inventaireUpgrades`.
 
-(!)LE PLANNER DIT LE BESOIN, LE JEU DIT L'AVOIR -- ET ON PREND CHACUN POUR CE QU'IL SAIT. Le
-`possede` affiche par le planner vient de sa propre synchronisation, qui date ; la quantite lue
-en jeu est le fait. Les deux sont affichees cote a cote, et un ECART est signale plutot que
-silencieusement arbitre : il veut dire que le planner a besoin d'un << Sync with Tacticus >>.
+(!)LE PREMIER NOMBRE DU PLANNER EST UN PLAFOND, PAS UN INVENTAIRE. Il affiche
+`<couvert>/<requis>` ou `couvert = min(inventaire, requis)` : ce qui est couvert DU BESOIN. Une
+ligne << 4/4 >> ne dit donc PAS << j'en ai 4 >>, elle dit << il y en a assez >> -- le stock reel
+valait 7. Le << reste >> se calcule sur la quantite lue EN JEU, jamais sur ce nombre-la.
+
+⛔ ET UN ECART NE SE DECLARE PAS PAR SIMPLE INEGALITE. Compare a plat, le plafond fabrique un
+faux ecart sur toute ligne couverte. Mesure du 2026-08-22 : 2 << ecarts >> annonces, 2 faux, et
+c'etaient exactement les 2 lignes plafonnees. Ce que chaque regime permet de conclure :
+
+  - `couvert <  requis` : le plafond NE MORD PAS, le nombre EST l'inventaire -> egalite EXIGEE.
+  - `couvert == requis` : plafonne, il ne dit que << il y en a assez >> -> `jeu >= requis` EXIGE,
+                          et rien de plus. Un stock superieur est NORMAL.
 """
 import argparse
 import json
@@ -53,6 +61,31 @@ def lire_plan(chemin):
         stop("l'extracteur signale %d desaccord(s) -- la page a change de forme, compteurs et "
              "noeuds ne s'apparient plus." % len(d["desaccords"]))
     return d, mats
+
+
+def couvert_du_plan(m):
+    """Le premier nombre de la ligne, sous SON nom -- `possede` etant l'ancien, TROMPEUR.
+
+    Un plan produit avant le 2026-08-22 porte encore `possede` ; on le lit plutot que de refuser
+    (le regenerer exige la page ouverte sous MCP Chrome), mais on ne rend jamais le nom fautif.
+    """
+    v = m.get("couvert")
+    return m.get("possede") if v is None else v
+
+
+def divergence(couvert, requis, q):
+    """Ce que la ligne du planner permet de CONCLURE face au stock vif -- ou None si rien.
+
+    Le premier nombre etant plafonne au besoin, il n'est comparable a plat que TANT QU'IL NE
+    L'EST PAS. Sinon il ne porte qu'une borne INFERIEURE.
+    """
+    if q is None or couvert is None or requis is None:
+        return None
+    if couvert < requis:
+        return None if q == couvert else "planner %d, en jeu %d" % (couvert, q)
+    # Ligne couverte : le planner affirme << il y en a assez >>. Seul un stock INSUFFISANT
+    # le contredit -- un stock superieur est le regime normal du plafond.
+    return None if q >= requis else "planner dit COUVERT (%d), en jeu %d" % (requis, q)
 
 
 def lire_jalons():
@@ -114,25 +147,41 @@ def main():
     print(entete)
     print("-" * len(entete))
 
-    ecarts, restant_total = [], 0
-    for m in sorted(mats, key=lambda x: -(x.get("requis") or 0)):
-        i = m.get("id")
+    # (!)LE STOCK EST UN SEUL POOL, MEME QUAND LE PLAN PORTE PLUSIEURS LIGNES POUR LUI.
+    # `Pile of Salvage` occupe DEUX lignes du plan (besoins 9 et 27) pour le meme `upgArmC003`.
+    # Deduire le stock ligne par ligne le compterait deux fois : a 5 en stock, (9-5)+(27-5) = 26
+    # au lieu de 36-5 = 31. On AGREGE donc les besoins par identifiant avant de soustraire --
+    # correct quelle que soit la facon dont le planner repartit son plafond entre ses lignes.
+    groupes = {}
+    for m in mats:
+        g = groupes.setdefault(m.get("id"), {"nom": m["nom"], "requis": 0, "lignes": 0})
+        g["requis"] += m.get("requis") or 0
+        g["lignes"] += 1
+
+    # La DIVERGENCE, elle, se juge LIGNE PAR LIGNE : chaque plafond est propre a sa ligne, et
+    # additionner deux `couvert` plafonnes separement ne veut rien dire.
+    ecarts = []
+    for m in mats:
+        div = divergence(couvert_du_plan(m), m.get("requis"), vif.get(m.get("id")))
+        if div:
+            ecarts.append((m["nom"], div))
+
+    restant_total = 0
+    for i, g in sorted(groupes.items(), key=lambda kv: -kv[1]["requis"]):
         q = vif.get(i) if i else None
-        req = m.get("requis")
-        reste = None if (q is None or req is None) else max(0, req - q)
+        req = g["requis"]
+        reste = None if q is None else max(0, req - q)
         if reste is not None:
             restant_total += reste
+        nom = g["nom"] + (" (x%d)" % g["lignes"] if g["lignes"] > 1 else "")
         ligne = "%-24s %-13s %6s %6s %7s" % (
-            m["nom"][:22], i or "-", "?" if q is None else q,
-            "?" if req is None else req, "?" if reste is None else reste)
+            nom[:22], i or "-", "?" if q is None else q, req,
+            "?" if reste is None else reste)
         if base:
             avant = (base.get("quantites") or {}).get(i)
-            g = None if (q is None or avant is None) else q - avant
-            ligne += " %7s" % ("?" if g is None else ("+%d" % g if g > 0 else g))
+            gain = None if (q is None or avant is None) else q - avant
+            ligne += " %7s" % ("?" if gain is None else ("+%d" % gain if gain > 0 else gain))
         print(ligne)
-        # Le `possede` du planner contre le vif : un ecart = planner a resynchroniser.
-        if q is not None and m.get("possede") is not None and q != m["possede"]:
-            ecarts.append((m["nom"], m["possede"], q))
 
     print()
     print("besoin restant, tous materiaux : %d unite(s)" % restant_total)
@@ -140,10 +189,13 @@ def main():
         print("(!) %d materiau(x) SANS id, non lus en jeu : %s"
               % (len(sans_id), ", ".join(sans_id)))
     if ecarts:
-        print("(!) %d ECART(S) planner <-> jeu -- le planner date, un << Sync with Tacticus >> "
-              "le remettrait d'aplomb :" % len(ecarts))
-        for nom, p, q in ecarts:
-            print("      %-24s planner %s, en jeu %s" % (nom[:22], p, q))
+        print("(!) %d ECART(S) REEL(S) planner <-> jeu -- un << Sync with Tacticus >> sur le "
+              "planner le remettrait d'aplomb :" % len(ecarts))
+        for nom, quoi in ecarts:
+            print("      %-24s %s" % (nom[:22], quoi))
+    else:
+        print("planner <-> jeu : d'accord partout ou le planner peut le dire "
+              "(une ligne COUVERTE ne dit que << il y en a assez >>).")
     return 0
 
 
