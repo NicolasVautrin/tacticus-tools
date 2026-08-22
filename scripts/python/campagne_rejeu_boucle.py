@@ -416,19 +416,43 @@ def main(argv=None):
     #   l'etat propre, une fois, en sortant. Mesure du cout : une retraite avant START ne consomme
     #   NI jeton NI energie (verifie -- `rejeux` inchange sur 6 tentatives), elle n'ajoute qu'un
     #   `perdu` au compteur du noeud.
+    # ⚠ LE DRAPEAU A SURVEILLER EST `IsActive`, PAS `IsBattleActive` -- ils DIVERGENT, et se
+    #   tromper de temoin rend ce nettoyage inoperant au moment ou il servirait. Mesure du
+    #   2026-08-22 : `<IsActive>k__BackingField` = 1 avec `get_IsBattleActive()` = **false**,
+    #   chargeur au repos, aucune bataille -- et `StartMatch` refusant quand meme, avec un
+    #   `GenericMessagePopup` a l'ecran (son `LogError`). C'est `IsActive` que teste
+    #   `checkIfAlreadyRunning`. Une sortie conditionnee a `batailleActive` sautait donc
+    #   exactement le cas qu'elle devait reparer.
+    latch = None
+    try:
+        pr = jeu.rpc("staticFieldProbe", [{"ns": "idun", "cls": "IdunMainView"}], timeout=120000)
+        for f in ((pr or {}).get("fields") or []):
+            if f.get("name") == "<IsActive>k__BackingField":
+                brut = f.get("rawHex")
+                latch = None if brut is None else (int(brut, 16) != 0)
+    except Exception as e:                                    # noqa: BLE001
+        print("\n(!) lecture du latch `IsActive` EN ECHEC : %s" % e)
+
     try:
         s = jeu.rpc("retreatStatus", [], timeout=120000)
-        if isinstance(s, dict) and s.get("batailleActive") is True:
+        if latch is True or (isinstance(s, dict) and s.get("batailleActive") is True):
             print()
-            print("SORTIE -- une bataille est restee montee ; on la quitte pour ne pas verrouiller")
-            print("          la suivante (`StartMatch` refuse EN SILENCE tant qu'un match tourne).")
+            print("SORTIE -- le latch est arme (IsActive=%s, batailleActive=%s) ; on le libere"
+                  % (latch, (s or {}).get("batailleActive") if isinstance(s, dict) else None))
+            print("          sinon `StartMatch` refuse EN SILENCE la bataille suivante.")
             for m in ("OnBattleSurrender", "ContinueSurrender"):
                 jeu.rpc("retreatInvoke", [{"methode": m, "confirmer": True}], timeout=180000)
-            s2 = jeu.rpc("retreatStatus", [], timeout=120000)
-            reste = s2.get("batailleActive") if isinstance(s2, dict) else None
-            print("          `get_IsBattleActive()` = %s"
-                  % ("false -- etat PROPRE" if reste is False
-                     else ("NON MESURE" if reste is None else "TOUJOURS true -- a constater")))
+            # On RELIT le latch lui-meme : c'est lui qui conditionne la suite, pas `batailleActive`.
+            apres = None
+            pr2 = jeu.rpc("staticFieldProbe", [{"ns": "idun", "cls": "IdunMainView"}],
+                          timeout=120000)
+            for f in ((pr2 or {}).get("fields") or []):
+                if f.get("name") == "<IsActive>k__BackingField":
+                    brut = f.get("rawHex")
+                    apres = None if brut is None else (int(brut, 16) != 0)
+            print("          `IsActive` = %s"
+                  % ("0 -- etat PROPRE" if apres is False
+                     else ("NON MESURE" if apres is None else "TOUJOURS 1 -- relancer le jeu")))
         elif isinstance(s, dict) and s.get("batailleActive") is None:
             # TRI-ETAT : pas mesure n'est pas << rien a faire >>. On le DIT.
             print("\n(!) `batailleActive` NON MESURE en sortie -- impossible de garantir un etat "
