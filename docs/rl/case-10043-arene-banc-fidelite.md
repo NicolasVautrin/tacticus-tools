@@ -281,8 +281,36 @@ une tranche séparée, et elle exige les **deux crans ensemble** : poser
 `opponentUnitIdPostFix` sans adapter le résolveur le fait **lever** (appariement par égalité
 exacte, `Enumerable.First` sans variante `OrDefault`).
 
-⚠ NON CONFRONTÉ : tout ce qui précède est une lecture de décompilé plus un bundle vert. Aucune
-bataille montée sur la voie fidèle.
+## ✅ CONFRONTÉ — A/B sur la MÊME proposition, build `t6dpr4k06g`, session 15, 2026-08-22
+
+Proposition 0 (`Tarkin`, rating 477, niveau 43). Deux BC construites (`bc`, rien monté), la même
+équipe de notre côté, seul l'argument du camp adverse change.
+
+| unité adverse | `--adversaire 0` (FIDÈLE) | `--enemies` (PAR IDS) |
+|---|---|---|
+| `custoTrajann` | rang 10 · niv 36 · 2 012 PV · 30 463 | rang 17 · niv 50 · 8 213 PV · **343 212** |
+| `orksWarboss` | rang 11 · niv 32 · 2 253 PV · 31 115 | rang 17 · niv 52 · 9 584 PV · **569 109** |
+| `custoBladeChampion` | rang 7 · niv 27 · 778 PV · 5 021 | rang 17 · niv 50 · 8 670 PV · **507 238** |
+| `emperExultant` | rang 9 · niv 35 · 1 396 PV · 25 852 | **rang 0 · niv 1 · 90 PV · 0** |
+| `custoVexilusPraetor` | rang 5 · niv 19 · 569 PV · 2 148 | **rang 0** · niv 25 · 198 PV · 1 282 |
+
+⇒ La colonne PAR IDS est **notre roster** : ce qu'on possède sort maxé (rang 17, jusqu'à 569 109
+de puissance), ce qu'on ne possède pas sort en **coquille** (rang 0). La colonne FIDÈLE est
+cohérente de bout en bout — rangs 5 à 11, niveaux 19 à 36, puissances 2 148 à 31 115 — ce à quoi
+ressemble un joueur de niveau 43. L'erreur allait donc **dans les deux sens** : elle gonflait ET
+elle rabotait.
+
+⚠ **LA MACHINE OF WAR EST LE CAS QUI A FAIT ROUGIR MON PROPRE GARDE, À TORT.** `tyranBiovore`
+sort `Rank 0` / `Health 0` / `Damage 0` — mais **à l'identique sur les DEUX voies**, donc ce
+n'est pas causé par le changement. Ce qui diffère est `StarLevel` **4 (le sien) contre 8 (le
+nôtre)** et `Power` 154 contre 604 : la liaison MORD bien. **L'axe de progression d'une MoW est
+`StarLevel`, pas `Rank`** — un critère écrit sur le rang rend un faux échec sur un modèle
+pourtant juste.
+
+**Résidu ouvert, PRÉEXISTANT et hors de cette tranche** : les statistiques de combat d'une MoW
+(`Health`, `Damage`, `Movement`, `Armor`) sont à **zéro dans `Units`** sur les deux voies, alors
+que ses abilities et ses traits, eux, sont peuplés. Où le natif les prend au moment de la
+bataille n'est pas établi — `PredefinedMachines[0].MachineOfWar` ne porte qu'un `UnitId`.
 
 ## Garde en place
 
