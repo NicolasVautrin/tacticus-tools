@@ -168,14 +168,28 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
 
     const filter = args.unitsFilter ? new Set(args.unitsFilter) : null;
     const listItemsKlass = state.emptyListItemsKlass!;
-    // `exceptions: "propagate"` -- appel MANAGE, et celui-ci tourne dans la FABRIQUE DE BC,
-    // donc a chaque montage. Sans lui, une levee de ce natif serait confisquee et le
-    // `try/catch` du jeu ne jouerait pas. Le pourquoi complet est au foyer,
-    // `il2cpp/invoke.ts`.
+    // ⚠ PAS DE `exceptions: "propagate"` ICI, ET C'EST L'INVERSE DU FOYER -- A DESSEIN.
+    //
+    // La regle du foyer (`il2cpp/invoke.ts`) vaut pour `il2cpp_runtime_invoke`, qui RATTRAPE
+    // lui-meme l'exception managee et la rend par son parametre de sortie `exc`. Il y a donc
+    // toujours un catcher. Ici, `statsForMi.ptr` est un POINTEUR DE METHODE BRUT appele par un
+    // `NativeFunction` nu : ni `exc`, ni catch integre, et AUCUNE frame managee au-dessus --
+    // notre appel EST le point d'entree. Sous `propagate`, la levee remonte le dereouleur natif
+    // sans jamais trouver de `catch` et emporte le PROCESS.
+    //
+    // Et cet appel LEVE PAR CONCEPTION : le chemin de stats explicite, plus bas, existe
+    // precisement parce que « for these carriers the formula does not merely return a wrong
+    // number, it THROWS » (#419-r1-tr12-r2). Sans `--explicit-stats`, la boucle balaie les 717
+    // unites du seed BC et en rencontre forcement une.
+    //
+    // MESURE (2026-08-22, build t6dpr4k06g) : sous `propagate`, `rl_duel build --seed-bc` a tue
+    // le jeu 3 fois sur 3 -- y compris sur le seed NON MODIFIE, ce qui disculpe l'entree.
+    // Le defaut `steal` rend a Frida son role de seul catcher, donc le `try/catch` du bloc
+    // ci-dessous redevient le filet prevu : la carrier fautive part dans `result.skipped`.
     const fn = new NativeFunction(state.statsForMi.ptr, "void", [
         "pointer", "pointer", "pointer", "uchar", "int", "int",
         "pointer", "pointer",
-    ], { exceptions: "propagate" });
+    ]);
 
     // Diagnostic counters: IsMOW=true detection rate, irrespective of
     // formula success. If `mowAttempted` stays 0 we know IsMOW itself
