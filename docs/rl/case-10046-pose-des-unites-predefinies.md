@@ -1,7 +1,8 @@
-# case-10046 — la POSE des unités prédéfinies : la chaîne complète, et ses TROIS abandons muets
+# case-10046 — la POSE des unités prédéfinies : la chaîne complète, et ses CINQ abandons muets
 
 Lu au décompilé sur `t6dpr4k06g`, en cherchant pourquoi le camp adverse disparaît quand on
-inverse les `TeamId`. La chaîne est fermée ; l'étape qui échoue ne l'est **pas** — cf. §5.
+inverse les `TeamId`. La chaîne est fermée, **et l'étape qui échoue l'est aussi depuis le
+2026-08-23** — mais ce n'est **aucune** de celles que ce document accusait : cf. §5.
 
 ## 1. La chaîne, de l'escouade au tuile
 
@@ -17,17 +18,30 @@ BC.PredefinedUnits[].Id (playerId)
 `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits(this, spawnPointSet)` porte la
 boucle. Le compteur `i` est tenu **par playerId** dans un `SortedDictionary` local.
 
-## 2. ⚠ TROIS ABANDONS MUETS — ce sous-système NE LÈVE JAMAIS
+## 2. ⚠ CINQ ABANDONS MUETS — ce sous-système NE LÈVE JAMAIS
 
-| # | condition | effet |
-|---|---|---|
-| 1 | `GetTeam` rend un `Nullable` **sans valeur** | escouade **entièrement passée** |
-| 2 | `GroupForPlayer` rend **null** | escouade **entièrement passée** |
-| 3 | `i >= groupe.SpawnPoints.Count` | `break` — unités restantes **abandonnées** |
+| # | condition | effet | mesuré (§5) |
+|---|---|---|---|
+| 1 | `GetTeam` rend un `Nullable` **sans valeur** | escouade **entièrement passée** | ne tire **jamais** |
+| 2 | `GroupForPlayer` rend **null** | escouade **entièrement passée** | ne tire **jamais** |
+| 3 | `i >= groupe.SpawnPoints.Count` | `break` — unités restantes **abandonnées** | ne tire pas |
+| 4 | `IsPredefinedUnitDisabledByModifiers` | unité **sautée**, compteur seul incrémenté | ne tire pas |
+| 5 | `AddUnitOperation$$AreTilesDisallowedAndLog` | `Execute` rend **null** — unité inexistante | **C'EST LUI** |
 
 Aucun ne produit d'erreur ni d'événement. C'est pour ça que chaque tentative ressemble à
 « il ne se passe rien » : il n'y a **rien à voir**, par construction. Même famille que le
 `UnitId` absent du catalogue d'une vague (`reference_vague_bc_gabarit_doit_etre_au_catalogue`).
+
+⚠ **Le n°1 est structurellement INATTEIGNABLE**, et ça se lit :
+`StateExtensions.u003CGetTeamPlayersu003Ed__39$$MoveNext` filtre sur `PlayerComponent+0x24`, soit
+le **même champ** dont `GetTeam` tire le `teamId` qu'il passe — un joueur est donc toujours présent
+dans l'énumération de sa propre équipe. Mesuré `hasValue` vrai **5/5** dans les deux régimes.
+
+⚠ **Le n°4 est ORTHOGONAL à l'équipe** : son corps ne lit que la liste de modificateurs indexée par
+`unitId`, jamais un `TeamId`. Il écarterait les mêmes unités dans les deux sens.
+
+⚠ **Le n°5 n'est PAS dans `AddPredefinedUnits`** — il est en **aval**, dans l'opération de
+placement, et c'est pourquoi quatre relectures de la pose ne pouvaient pas le trouver.
 
 ## 3. L'index de groupe est une table à DEUX dimensions
 
@@ -62,15 +76,39 @@ groupe+0x10  TeamWithPlayerIndex (int)   +0x14  MachineOfWarPosition   +0x18  Sp
 cache de points de spawn est perdu en entier. Laisser ce champ dans un état arbitraire n'est
 donc pas « un groupe mal attribué », c'est une exception qui emporte tout l'écran.
 
-## 5. ⛔ CE QUI N'EST PAS RÉSOLU
+## 5. RÉSOLU (2026-08-23) — c'est l'OCCUPATION DE TUILE, en aval de la pose
 
-Le camp adverse ne spawne pas quand les `TeamId` sont inversés (`11:1→2`, `12:2→1`), groupes
-échangés ou non. **Déroulé à la main, ça devrait marcher** : joueur 12 en équipe 1 rang 0 →
-index 0 → le groupe de 12 points ; joueur 11 en équipe 2 rang 0 → index 1 → celui de 5. La
-lecture dit oui, la mesure dit non.
+**La prémisse de ce document était fausse.** « Un des abandons de `AddPredefinedUnits` tire » est
+**réfuté par la mesure** : sous inversion, les quatre sont négatifs et la pose se déroule
+**parfaitement** — puis la bataille est vide quand même.
 
-Ce que la lecture apporte : il ne reste que **trois points d'observation**, tous nommés au §2.
-Un ancrage sur `GetTeam` et `GroupForPlayer` dirait lequel, en un montage.
+Capteur : `frida/hooks/probes/setup-spawn-trace.ts` (`setupSpawnTrace {action:"arm"}`), qui ancre
+les cinq points. Ce que le régime inversé rend :
+
+```
+GetTeam            5 fires   VIDE=0                  <- n°1 negatif
+GroupForPlayer     5 fires   NULL=1 (equipe 0 seule) <- n°2 negatif, le null est l'environnement
+DisabledByModifiers 5 fires  DISABLED=0              <- n°4 negatif
+                   5 unites pour un groupe de 5      <- n°3 negatif
+AddUnitOperation.Execute 10 fires  RENDU-NULL=5
+gates: disallowed=5  reserved=0  inFog=0  pendingDraft=0
+```
+
+Les 5 unités **prédéfinies** se posent (`executeNull=False`) ; les 5 unités **du joueur**, placées
+**après** `setupLeave`, sont refusées 5/5 par `AreTilesDisallowedAndLog`. Les trois autres gates
+valent `None` — jamais atteintes, celle-là court-circuite avant.
+
+**Cause : collision de tuiles, DOSE-DÉPENDANTE.** Le même montage avec **une seule** unité adverse
+rend **exactement une** refusée (`custoAtlacoya`) et **les quatre autres montent**. Un pour un :
+les N unités prédéfinies occupent N tuiles du groupe, et N unités du joueur sont refusées.
+
+**Ce qui n'est PAS en cause** : la résolution d'équipe. Sous inversion, `GetTeam` et
+`GroupForPlayer` s'échangent proprement (joueur 12 → équipe 1 → index 0 ; joueur 11 → équipe 2 →
+index 1), et l'index re-dérivé du §3 concorde **4/4** avec le natif.
+
+⚠ **Reste ouvert** : *pourquoi* les unités du joueur visent le groupe déjà occupé. Le harnais
+(`rl_duel --p-units` = « team 1 ») et le natif sont tous deux candidats — non tranché. Ce qui est
+établi, c'est le **gate** qui les refuse et le **mécanisme** (occupation), pas le choix de tuile.
 
 ⚠ L'unique montage où les 7 NPC sont apparus était la configuration **instable** (correspondance
 de groupes clé par la VALEUR, donc non idempotente sous `consumeOnce: false`) — un artefact, pas
@@ -80,6 +118,25 @@ un succès. « La capacité du groupe explique l'absence » est **RÉFUTÉ**.
 configurations, sans que ce qu'il compte à ce moment-là soit établi. Il a fondé trois
 conclusions successives, toutes corrigées par ce que l'utilisateur voyait à l'écran.
 
+## 5bis. Reproduction HORS LIGNE — plus besoin d'une bataille réelle
+
+```powershell
+python -c "import json; bc=json.load(open('data/seed-bc.json',encoding='utf-8')); p=bc['Player']['Players']; p['11']['TeamId']=2; p['12']['TeamId']=1; json.dump(bc,open('logs/_inv.json','w',encoding='utf-8'))"
+python scripts/python/rl_duel.py build --seed 777 --board MC1_67 --seed-bc logs/_inv.json --state-file logs/_inv_state.json
+```
+
+**Le TÉMOIN doit passer par `--seed-bc` lui aussi** (copie non modifiée) : cette voie déclenche une
+re-synthèse d'abilities que le chemin par défaut ne fait pas. Contrôlé — le témoin `--seed-bc`
+monte sans erreur, donc **seul le `TeamId` diffère** entre les deux runs.
+
+⚠ La seed BC ne porte qu'**UNE** entrée `PredefinedUnits`, `Id=12` — le joueur **IA**.
+`AddPredefinedUnits` ne pose donc **que l'escouade adverse** ; les unités du joueur arrivent par un
+autre chemin. Toute lecture qui suppose les deux camps posés là est fausse.
+
+⚠ Le contrôle de roster de `rl_duel` rend « NON MONTE » pour des unités **réellement présentes**
+sous inversion : sa comptabilité est indexée par équipe, et l'inversion la désaligne. Ne pas
+conclure de ce message ; lire la trace.
+
 ## 6. Sûreté — le BOARD persiste, la BC non
 
 Mesuré à la restauration : les `TeamId` étaient **déjà revenus d'eux-mêmes** (la BC est
@@ -87,6 +144,29 @@ reconstruite à chaque `LoadBattle`) alors qu'un groupe de spawn portait **encor
 d'un montage précédent. Muter `TeamWithPlayerIndex` n'est donc **pas borné à la bataille
 courante** : ça survit et ça peut fuir vers une partie réelle. Toute expérience dessus se
 termine par une remise à l'état d'origine — et il n'existe aucun garde qui l'impose.
+
+## 6bis. ⚠ Deux pièges d'ANCRAGE, tous deux payés
+
+**`GetTeam` a un PREMIER ARGUMENT CACHÉ.** Il rend un `Nullable<ValueTuple<TeamId,TeamPlayerIndex>>`
+— 12 octets, donc retourné par **pointeur caché (sret)**. Le profil réel est
+`GetTeam(bufferRetour, state, player)`, le joueur arrivant en `R8`. **Ghidra nomme ses paramètres à
+côté de la plaque** : son `state` EST le buffer, son `player` EST l'état, et le joueur réel
+n'apparaît que comme un `in_R8` **non déclaré**. Lire `args[1]` comme « le joueur » lit l'ÉTAT,
+silencieusement.
+
+**La disposition du buffer est l'INVERSE de la disposition C#.** `Nullable<T>` s'écrit
+`{ T value; bool hasValue; }` en C# ; IL2CPP émet ici :
+
+```
+buf+0x0  hasValue (int32)   buf+0x4  TeamId   buf+0x8  TeamPlayerIndex/rang
+```
+
+⚠ **La faute était INDÉTECTABLE au décompilé** — les deux lectures sont cohérentes avec le code —
+**et elle se présentait comme un RÉSULTAT CRÉDIBLE** : `hasValue` sortait faux **5/5**, soit
+exactement la sortie muette n°1 qu'on cherchait. Ce qui l'a tuée est un **SECOND CANAL** : les
+arguments que `GroupForPlayer` reçoit juste après sont `(teamId, rang)`, et ils coïncidaient 5/5
+avec `buf+0x4`/`buf+0x8`, jamais avec `buf+0x0`. **Un capteur qui ne se recoupe avec rien peut
+confirmer l'hypothèse qui l'a fait naître** — c'est la leçon la plus chère de cette tranche.
 
 ## 7. Outil
 

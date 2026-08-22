@@ -213,6 +213,9 @@ import { queueOnMainThread } from "./runtime/queue.js";
 import { registerShouldEvaluateTrace } from "./probes/should-evaluate-trace.js";
 import { registerPlaybookUtilityTrace } from "./probes/playbook-utility-trace.js";
 import { registerValidTargetsFrom } from "./probes/valid-targets-from.js";
+// #10046 — meme discipline : le `register` n'arme RIEN, les `Interceptor` ne sont poses que sur
+// `setupSpawnTrace {action:"arm"}`. Il ancre les quatre sorties muettes de la pose des unites.
+import { registerSetupSpawnTrace } from "./probes/setup-spawn-trace.js";
 
 
 
@@ -459,6 +462,7 @@ export function wireRpc(ctx: Ctx): void {
     registerShouldEvaluateTrace(ctx);
     registerPlaybookUtilityTrace(ctx);
     registerValidTargetsFrom(ctx);
+    registerSetupSpawnTrace(ctx);
 
     rlBridge.register(ctx);
 
