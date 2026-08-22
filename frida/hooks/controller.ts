@@ -201,6 +201,7 @@ import { checkStatsFields } from "./probes/check-stats-fields.js";
 import { interfaceSlotProbe, classInterfaces } from "./probes/interface-slot-probe.js";
 import { staticFieldProbe } from "./probes/static-field-probe.js";
 import { staticFieldWrite } from "./probes/static-field-write.js";
+import { queueOnMainThread } from "./runtime/queue.js";
 // #969-r1 / #975-r1 — les deux capteurs de ce lot qui exigent VRAIMENT une fenetre de reinject.
 // Les DEUX `register` n'arment RIEN : `shouldEvaluateTrace` pose ses `Interceptor` uniquement sur
 // `{action:"arm"}`, et `validTargetsFrom` n'ancre rien du tout (il n'INVOQUE que des queries).
@@ -439,8 +440,16 @@ export function wireRpc(ctx: Ctx): void {
     // soit une mesure et pas une croyance. Motif : le latch `IdunMainView::<IsActive>` qui bloque
     // `StartMatch` EN SILENCE et qu'aucune voie native ne libere quand aucune bataille n'est
     // montee (mesure du 2026-08-22).
+    //
+    // ⛔ ET IL PASSE PAR `queueOnMainThread` -- LA LECTURE PEUT S'EN PASSER, PAS L'ECRITURE.
+    //    Mesure du 2026-08-22, payee d'un crash du jeu : enregistre comme son voisin
+    //    `staticFieldProbe` (appel direct), le premier `staticFieldWrite` reel a fait tomber le
+    //    jeu sur << Fatal error in GC -- Collecting from unknown thread >>. `il2cpp_field_static_
+    //    set_value` touche le runtime managé ; l'appeler depuis le thread JS de Frida, que le GC
+    //    ne connait pas, est exactement ce que ce message denonce. Le voisin lit et s'en tire ;
+    //    on n'en deduit RIEN pour l'ecriture -- une lecture ne declenche pas de barriere.
     ctx.rpc.staticFieldWrite = (args: Parameters<typeof staticFieldWrite>[0]) =>
-        staticFieldWrite(args);
+        queueOnMainThread(() => staticFieldWrite(args));
     // --- #969-r1 / #975-r1 — capteurs on-demand (aucun hook pose au register).
     registerShouldEvaluateTrace(ctx);
     registerPlaybookUtilityTrace(ctx);
