@@ -75,6 +75,8 @@ import {
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { bcDeLaSourceMontee, sourceMontee } from "./source-vivante.js";
+import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
+import { getFieldOffset } from "../il2cpp/helpers.js";
 import { serializeToJson as _serializeBcToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { log } from "../runtime/diag.js";
@@ -494,6 +496,24 @@ interface BattleConfigPatch {
     randomizeAi?: boolean;
     /** Set the spawn-point preset index (each board has 1-N presets). */
     spawnPointSetIndex?: number;
+    /** Le calendrier de vagues -- `BC.UnitSpawningOverTime.Tiers`, forme
+     *  `{ "<tour>": { "<playerId>": <Wave> } }`.
+     *
+     *  ⚠ APPLIQUÉ AU `LoadBattle.onLeave`, DONC SUR LA BC QUE LA SOURCE VIENT DE PRODUIRE, en
+     *  mémoire -- aucune sérialisation, aucune substitution. C'est le seul moment où le
+     *  calendrier est encore modifiable : `OperationProcessor$$AddPlayer(..., spawnsPerTurn,
+     *  ...)` le transcrit dans le `PlayerComponent` au SETUP, et ne le relit jamais.
+     *
+     *  ⚠ LES VALEURS QUI MARCHENT SE LISENT SUR UNE BC PRODUITE PAR LE JEU (un onslaught en
+     *  porte six). Mesuré le 2026-08-22 : `SpawnPointTag` vaut `"defaultGroup"` -- et il ne
+     *  s'apparie à AUCUN `Tag` du board, dont les 17 points portent la chaîne vide. C'est une
+     *  clé de CONVENTION du moteur, pas une référence au plateau : la « dériver du board » est
+     *  un raisonnement faux qui se donne l'air rigoureux. `Index` est incrémenté d'une vague à
+     *  l'autre (0,1,2,…), pas remis à zéro. */
+    unitSpawningOverTime?: unknown;
+    /** Compagnons de `Tiers` dans le nœud, conservés à leur valeur par défaut sauf demande. */
+    useAtomicGroup?: boolean;
+    useSpawnPointFromUnitIndex?: boolean;
     /** If true (default), the patch is cleared after a single application. */
     consumeOnce?: boolean;
 }
@@ -521,6 +541,110 @@ const UC_OFF_CRIT_DAMAGE = 0x64;
 const UC_OFF_BLOCK_CHANCE = 0x68;
 const UC_OFF_BLOCK_DAMAGE = 0x6C;
 
+// --- LE CALENDRIER DE VAGUES, ÉCRIT DANS LA BC ---------------------------------------------
+//
+// ⚠ FOYER UNIQUE. `bcWaveSet` (wave-inject.ts) et le patch `LoadBattle.onLeave` écrivent tous
+// deux `BC.UnitSpawningOverTime` ; deux implémentations dériveraient, et celle qui ne sert pas
+// pourrirait en silence. Le champ se résout PAR NOM sur la classe de l'objet — les offsets en
+// dur de ce fichier valent chacun pour UNE classe, en appliquer un à une autre lirait un champ
+// voisin et rendrait un pointeur plausible.
+//
+// ⚠ ON DÉSÉRIALISE L'OBJET ENTIER PLUTÔT QUE DE LE CONSTRUIRE. `Tiers` est un
+// `Dictionary<Int32, Dictionary<PlayerId, Wave>>` : le bâtir à la main exigerait de boxer des
+// clés de type valeur, ce qui a déjà tué le process le 2026-08-21 sur
+// `EnvironmentAbilities.AbilitiesConfigurations`. Newtonsoft convertit les clés JSON (chaînes)
+// vers `Int32` — c'est la forme que le jeu SÉRIALISE lui-même, on la lui rend telle quelle.
+export interface EcritureCalendrier {
+    ok: boolean;
+    offset?: string;
+    noeudAvant?: string;
+    noeudApres?: string;
+    relu?: boolean;
+    octetsJson?: number;
+    error?: string;
+}
+
+export function ecrireCalendrierDeVagues(
+    bc: NativePointer, tiers: unknown,
+    opts?: { useAtomicGroup?: boolean; useSpawnPointFromUnitIndex?: boolean },
+): EcritureCalendrier {
+    let klass: NativePointer;
+    try { klass = bc.readPointer(); } catch (e) {
+        return { ok: false, error: "classe de la BC illisible : " + (e as Error).message };
+    }
+    if (klass.isNull()) return { ok: false, error: "la BC porte une classe NULLE" };
+    let nomClasse: string;
+    try { nomClasse = cstr(class_get_name(klass) as NativePointer); }
+    catch (e) { return { ok: false, error: "nom de classe illisible : " + (e as Error).message }; }
+    if (nomClasse !== "BattleConfiguration") {
+        return {
+            ok: false,
+            error: "l'objet est un `" + nomClasse + "`, pas une `BattleConfiguration` -- écrire "
+                + "dedans corromprait un objet d'un autre type",
+        };
+    }
+    let off = -1;
+    for (const nom of ["UnitSpawningOverTime", "<UnitSpawningOverTime>k__BackingField"]) {
+        off = getFieldOffset(klass, nom);
+        if (off >= 0) break;
+    }
+    if (off < 0) {
+        return {
+            ok: false,
+            error: "`BattleConfiguration.UnitSpawningOverTime` ABSENT sous ses deux écritures "
+                + "connues -- chemin PÉRIMÉ sur ce build",
+        };
+    }
+    let avant: string;
+    try { avant = bc.add(off).readPointer().toString(); }
+    catch (e) { return { ok: false, error: "lecture du champ : " + (e as Error).message }; }
+
+    if (!isDeserializerReady()) {
+        return {
+            ok: false,
+            error: "`JsonConvert.DeserializeObject` non résolu -- le nœud ne peut pas être "
+                + "construit sans lui, et je ne le fabrique pas à la main",
+        };
+    }
+    const kUso = findClassAnywhere("IdunBattle.Configuration",
+                                   "UnitSpawningOverTimeConfiguration");
+    if (!kUso) {
+        return {
+            ok: false,
+            error: "classe `IdunBattle.Configuration.UnitSpawningOverTimeConfiguration` "
+                + "introuvable -- chemin PÉRIMÉ sur ce build",
+        };
+    }
+    const json = JSON.stringify({
+        Tiers: tiers,
+        UseAtomicGroup: opts?.useAtomicGroup ?? false,
+        UseSpawnPointFromUnitIndex: opts?.useSpawnPointFromUnitIndex ?? false,
+    });
+    let noeud: NativePointer;
+    try { noeud = deserializeFromJson(json, kUso); }
+    catch (e) {
+        return {
+            ok: false,
+            error: "désérialisation d'`UnitSpawningOverTimeConfiguration` : "
+                + (e as Error).message,
+        };
+    }
+    if (noeud.isNull()) {
+        return { ok: false, error: "nœud désérialisé en NUL -- rien n'a été écrit" };
+    }
+    // ⚠ ENRACINER AVANT D'ÉCRIRE : le GC d'IL2CPP ne voit pas notre référence JS, et un objet
+    // frais peut être collecté entre sa création et l'écriture du champ.
+    gcRoot.add(noeud);
+    try { bc.add(off).writePointer(noeud); }
+    catch (e) { return { ok: false, error: "écriture du champ : " + (e as Error).message }; }
+    let apres: string;
+    try { apres = bc.add(off).readPointer().toString(); } catch { apres = "?"; }
+    return {
+        ok: true, offset: "+0x" + off.toString(16), noeudAvant: avant, noeudApres: apres,
+        relu: apres === noeud.toString(), octetsJson: json.length,
+    };
+}
+
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch,
 ): PatchApplyResult {
@@ -534,6 +658,22 @@ function applyPatchToConfig(
             ops.push(`randomizeAi=${patch.randomizeAi}`);
         } catch (e) {
             warnings.push(`randomizeAi: ${(e as Error).message}`);
+        }
+    }
+
+    // Le calendrier de vagues -- MUTATION de la BC produite, jamais une substitution.
+    if (patch.unitSpawningOverTime !== undefined && patch.unitSpawningOverTime !== null) {
+        const w = ecrireCalendrierDeVagues(bc, patch.unitSpawningOverTime, {
+            useAtomicGroup: patch.useAtomicGroup,
+            useSpawnPointFromUnitIndex: patch.useSpawnPointFromUnitIndex,
+        });
+        if (w.ok) {
+            const n = typeof patch.unitSpawningOverTime === "object"
+                ? Object.keys(patch.unitSpawningOverTime as object).length : 0;
+            ops.push(`unitSpawningOverTime=${n} tour(s) @${w.offset} `
+                + `(${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu})`);
+        } else {
+            warnings.push(`unitSpawningOverTime: ${w.error}`);
         }
     }
 

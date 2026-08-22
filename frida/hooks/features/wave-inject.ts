@@ -38,7 +38,7 @@ import {
 } from "../game/match-state.js";
 import { estRefus, refus } from "./lecture-champs.js";
 import { Refus } from "./view-command.js";
-import { getLiveBattleConfig } from "./battle-config.js";
+import { ecrireCalendrierDeVagues, getLiveBattleConfig } from "./battle-config.js";
 import { sourceMontee } from "./source-vivante.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
@@ -154,6 +154,49 @@ function armerCompteur(): true | Refus {
 }
 
 interface Joueur { entite: NativePointer; comp: NativePointer; teamId: number; }
+
+/** Le dictionnaire de vagues du `PlayerComponent`, LU PAR SON CONTENU.
+ *
+ *  ⚠ « NON NUL » N'EST PAS « PLEIN », ET LES CONFONDRE M'A COÛTÉ UNE SOIRÉE. La version
+ *  précédente rendait `vaguesPosees: !comp[+0x58].isNull()` : elle a répondu `true` pour les
+ *  TROIS joueurs -- environnement compris -- sur un runner où AUCUNE vague n'a jamais produit
+ *  d'unité. Un dictionnaire fraîchement construit est non nul et vide ; le seul fait qui
+ *  distingue « le calendrier est arrivé » de « il ne l'est pas » est son NOMBRE D'ENTRÉES.
+ *
+ *  ⚠ L'OFFSET `+0x58` EST EN DUR, ET LA LECTURE LE DÉCLARE. Il vient du décompilé
+ *  (`PlayerComponent$$AddOrCreateWave` : `dict[+0x58]`, clé = le tour) et je n'ai pas le nom du
+ *  champ. On ne peut donc pas le résoudre par nom -- alors on rend la CLASSE de l'objet lu :
+ *  si ce n'est pas un `Dictionary`, l'offset a glissé et ça se VOIT au lieu de rendre un
+ *  compte plausible. */
+function lireVagues(comp: NativePointer): {
+    vaguesClasse: string | null; vaguesCount: number | null; vaguesNote?: string;
+} {
+    let dict: NativePointer;
+    try { dict = comp.add(0x58).readPointer(); }
+    catch { return { vaguesClasse: null, vaguesCount: null, vaguesNote: "champ illisible" }; }
+    if (dict.isNull()) return { vaguesClasse: null, vaguesCount: 0, vaguesNote: "dictionnaire NUL" };
+    let nom: string;
+    try { nom = s(class_get_name(dict.readPointer()) as NativePointer); }
+    catch { return { vaguesClasse: null, vaguesCount: null, vaguesNote: "classe illisible" }; }
+    if (!nom.startsWith("Dictionary")) {
+        return {
+            vaguesClasse: nom, vaguesCount: null,
+            vaguesNote: "`PlayerComponent+0x58` n'est PAS un Dictionary mais un `" + nom
+                + "` -- l'offset en dur a GLISSÉ sur ce build, le compte serait faux",
+        };
+    }
+    // `Dictionary<K,V>._count` -- résolu PAR NOM sur la classe réelle, jamais deviné.
+    let off = -1;
+    for (const champ of ["_count", "count"]) {
+        off = getFieldOffset(dict.readPointer(), champ);
+        if (off >= 0) break;
+    }
+    if (off < 0) {
+        return { vaguesClasse: nom, vaguesCount: null, vaguesNote: "`_count` introuvable" };
+    }
+    try { return { vaguesClasse: nom, vaguesCount: dict.add(off).readS32() }; }
+    catch { return { vaguesClasse: nom, vaguesCount: null, vaguesNote: "`_count` illisible" }; }
+}
 
 /** Tous les joueurs de l'état, avec leur `PlayerComponent` et leur `TeamId`. */
 function joueurs(statePtr: NativePointer): Joueur[] | Refus {
@@ -319,51 +362,19 @@ export function register(ctx: Ctx): void {
             tiers = t;
         }
 
-        if (!isDeserializerReady()) {
-            return {
-                ok: false,
-                error: "`JsonConvert.DeserializeObject` non résolu -- le nœud ne peut pas être "
-                    + "construit sans lui, et je ne le fabrique pas à la main",
-            };
-        }
-        const kUso = findClassAnywhere(NS_CFG, "UnitSpawningOverTimeConfiguration");
-        if (!kUso) {
-            return {
-                ok: false,
-                error: "classe `" + NS_CFG + ".UnitSpawningOverTimeConfiguration` introuvable "
-                    + "-- chemin PÉRIMÉ sur ce build",
-            };
-        }
-        const json = JSON.stringify({
-            Tiers: tiers,
-            UseAtomicGroup: body.useAtomicGroup ?? false,
-            UseSpawnPointFromUnitIndex: body.useSpawnPointFromUnitIndex ?? false,
+        // ⚠ UN SEUL ÉCRIVAIN POUR CE CHAMP. L'écriture vit dans `battle-config.ts`, partagée
+        // avec le patch `LoadBattle.onLeave` : deux implémentations dériveraient, et celle qui
+        // sert le moins pourrirait sans que rien ne le dise.
+        const w = ecrireCalendrierDeVagues(bc, tiers, {
+            useAtomicGroup: body.useAtomicGroup,
+            useSpawnPointFromUnitIndex: body.useSpawnPointFromUnitIndex,
         });
-        let noeud: NativePointer;
-        try { noeud = deserializeFromJson(json, kUso); }
-        catch (e) {
-            return {
-                ok: false,
-                error: "désérialisation d'`UnitSpawningOverTimeConfiguration` : "
-                    + (e as Error).message,
-            };
-        }
-        if (noeud.isNull()) {
-            return { ok: false, error: "nœud désérialisé en NUL -- rien n'a été écrit" };
-        }
-        // ⚠ ENRACINER AVANT D'ÉCRIRE. Le GC d'IL2CPP ne voit pas notre référence JS ; un objet
-        // frais peut être collecté entre sa création et l'écriture du champ.
-        gcRoot.add(noeud);
-        try { bc.add(off).writePointer(noeud); }
-        catch (e) { return { ok: false, error: "écriture du champ : " + (e as Error).message }; }
-
-        let apres: string;
-        try { apres = bc.add(off).readPointer().toString(); } catch { apres = "?"; }
+        if (!w.ok) return { ok: false, error: w.error, provenance };
         return {
-            ok: true, ecrit: true, bc: bc.toString(), offset: "+0x" + off.toString(16),
-            noeudAvant: avant, noeudApres: apres, provenance,
-            relu: apres === noeud.toString(),
-            octetsJson: json.length,
+            ok: true, ecrit: true, bc: bc.toString(), offset: w.offset,
+            noeudAvant: w.noeudAvant, noeudApres: w.noeudApres, provenance,
+            relu: w.relu,
+            octetsJson: w.octetsJson,
             note: "ÉCRIT dans la BC VIVANTE. L'écriture passée ne dit RIEN de l'effet : le "
                 + "calendrier n'est lu qu'au SETUP (`OperationProcessor$$AddPlayer`, param "
                 + "`spawnsPerTurn`). Si le setup a DÉJÀ eu lieu, ce nœud ne sera jamais relu. "
@@ -394,20 +405,23 @@ export function register(ctx: Ctx): void {
         // rend l'appel inutile : `GetWaveTurn(t) = this[+0x60] + t`, donc le decalage se LIT.
         const out = (js as Joueur[]).map((j) => {
             let decalage: number | null = null;
-            let vaguesPosees: boolean | null = null;
             try { decalage = j.comp.add(0x60).readS32(); } catch { decalage = null; }
-            try { vaguesPosees = !j.comp.add(0x58).readPointer().isNull(); }
-            catch { vaguesPosees = null; }
-            return { entite: j.entite.toString(), teamId: j.teamId, decalage, vaguesPosees };
+            return {
+                entite: j.entite.toString(), teamId: j.teamId, decalage,
+                ...lireVagues(j.comp),
+            };
         });
         return {
             ok: true, joueurs: out,
             verifTirs,
             verifArme: verifArme !== null,
-            note: "`decalage` = PlayerComponent[+0x60] : la boucle de "
+            note: "`vaguesCount` = NOMBRE D'ENTREES du dictionnaire de vagues -- c'est LUI qui "
+                + "dit si le calendrier de la BC est arrive jusqu'au moteur ; un dictionnaire "
+                + "non nul mais VIDE se lisait auparavant comme `vaguesPosees: true`. "
+                + "`decalage` = PlayerComponent[+0x60] : la boucle de "
                 + "`VerifyCompleteWaveForPlayer` visite les tours 0..(decalage + toursDemarres). "
-                + "`verifTirs` = nombre de passages REELS dans `VerifyCompleteWaveOperation"
-                + "$$Execute` -- 0 avec `verifArme: true` signifie que l'operation NE TOURNE PAS. "
+                + "`verifTirs` = passages REELS dans `VerifyCompleteWaveOperation$$Execute` -- "
+                + "MESURE le 2026-08-22 a 41 sur 4 tours, donc l'operation TOURNE. "
                 + "null = NON MESURE, jamais un zero.",
         };
     });
