@@ -116,23 +116,59 @@ def attendre_le_runner(jeu, depuis, plafond_ms=60000):
     print("   bataille apparue (generation %s -> %s), par signal." % (depuis, r.get("generation")))
 
 
-def verifier_morsure(jeu, n_av, graine):
+def verifier_morsure(jeu, n_av, graine, plafond_s=10.0):
     """LE CRAN QUI MANQUAIT. Un seed arme APRES le montage laisse une bataille montee, demarree
-    et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE."""
-    j = jeu.rpc("sandboxModeSeed", [{}], timeout=120000)
-    entrees = (j or {}).get("journal") if isinstance(j, dict) else None
-    if entrees is None:
-        stop("journal du seed NON MESURE apres montage -- ce n'est PAS << il a mordu >>.")
-    neuves = entrees[n_av:]
+    et inutilisable -- sans le moindre signal. Ici, l'absence d'entree ARRETE.
+
+    (!)IL ATTEND LE FAIT, IL NE LIT PLUS UNE FOIS. Ce cran lisait le journal a l'instant ou il
+    s'executait. Or `attendreRunner` rend la main sur la transition `_runner : null -> r`, qui
+    n'est pas le meme evenement que l'ecriture du journal : entre les deux il y a une fenetre, et
+    une lecture unique peut tomber dedans. Mesure du 2026-08-22 sur `elite3` 5 -- refus repete du
+    cran 11, alors que le seed avait DEJA mordu cinq fois sur ce meme noeud dans la meme session.
+    On sonde donc jusqu'au plafond, et on s'arrete au PREMIER fait, pas au premier coup d'oeil.
+
+    (!)ET IL SEPARE DEUX PANNES QUE L'ANCIEN MESSAGE CONFONDAIT. << rien journalise >> couvrait
+    a la fois << la bataille n'a pas monte / `Initialize` n'a pas tourne >> et << elle a tourne
+    mais la CONDITION D'IDENTITE l'a rejetee >>. Ce sont deux enquetes opposees, et le hook sait
+    deja les distinguer : sur rejet d'Id il pousse une entree portant `ignore` qui NOMME l'Id reel
+    (`Id=<reel> != <attendu>`). Les confondre m'a fait poursuivre un zero-prefixe inexistant.
+    """
+    debut = time.time()
+    neuves, entrees = [], None
+    while True:
+        j = jeu.rpc("sandboxModeSeed", [{}], timeout=120000)
+        entrees = (j or {}).get("journal") if isinstance(j, dict) else None
+        if entrees is None:
+            stop("journal du seed NON MESURE apres montage -- ce n'est PAS << il a mordu >>.")
+        neuves = entrees[n_av:]
+        if neuves or (time.time() - debut) >= plafond_s:
+            break
+    attente = time.time() - debut
+
     if not neuves:
-        stop("le seed n'a PAS ete impose : `IdunRunner$$Initialize` n'a rien journalise.\n"
-             "         La bataille montee tourne donc sur un AUTRE tirage que le replay ; "
-             "la rejouer ne mesurerait rien.")
+        stop("le seed n'a PAS ete impose : `IdunRunner$$Initialize` n'a RIEN journalise en "
+             "%.1f s.\n"
+             "         AUCUNE entree -- pas meme un rejet d'identite (qui, lui, porterait "
+             "`ignore`).\n"
+             "         Ce n'est donc PAS une BC qui diverge : c'est `Initialize` qui n'a pas "
+             "tourne dans la fenetre.\n"
+             "         Piste : le montage n'a pas abouti (verifier `battleStatus.stage`, qui "
+             "reste NUL tant que la scene charge)." % attente)
+
+    # Le hook NOMME l'Id reel quand il rejette : on relaie ce nom au lieu de le deviner.
+    rejets = [e for e in neuves if e.get("ignore")]
     imposee = [e for e in neuves if e.get("par") == int(graine)]
     if not imposee:
-        stop("le journal porte %d entree(s) neuve(s), mais aucune n'impose %s : %s"
-             % (len(neuves), graine, json.dumps(neuves, ensure_ascii=False)[:240]))
-    print("   seed IMPOSE : %s" % json.dumps(imposee[0], ensure_ascii=False))
+        if rejets:
+            stop("le seed a ete REJETE sur l'identite -- `Initialize` a bien tourne, mais la BC "
+                 "montee n'est pas celle attendue :\n"
+                 "         %s\n"
+                 "         (c'est le hook qui nomme les deux Id, pas une deduction)"
+                 % "\n         ".join(str(e.get("ignore")) for e in rejets[:4]))
+        stop("le journal porte %d entree(s) neuve(s) en %.1f s, mais aucune n'impose %s : %s"
+             % (len(neuves), attente, graine, json.dumps(neuves, ensure_ascii=False)[:240]))
+    print("   seed IMPOSE apres %.1f s : %s"
+          % (attente, json.dumps(imposee[0], ensure_ascii=False)))
 
 
 def verifier_phase_avant_start(jeu):

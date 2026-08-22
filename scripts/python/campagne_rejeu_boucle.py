@@ -120,7 +120,15 @@ def generation_ecran(jeu):
     return r.get("generation")
 
 
-def attendre_ecran_de_fin(jeu, depuis, plafond_s=180.0):
+def attendre_ecran_de_fin(jeu, depuis, plafond_s=20.0):
+    # (!)20 s, PAS 180. Le plafond a valu 180 s, et c'etait un CHOIX DE PATIENCE deguise en
+    # securite : quand l'ecran ne vient pas, on ne l'apprenait qu'apres trois minutes de silence.
+    # Un plafond serre transforme un blocage en REFUS RAPIDE -- c'est tout l'interet d'en avoir un.
+    #
+    # ⚠ MAIS PAS 10 s : ESSAYE, ET FAUX. Mesure du 2026-08-22 -- `campaign1` 28 rend l'ecran en
+    #   5,4 a 6,2 s, `elite2` 12 le depasse. A 10 s la boucle a rompu en annoncant que la bataille
+    #   n'avait pas fini, alors qu'elle etait GAGNEE (`gagne` 155 -> 156, `winner=3`). Un plafond
+    #   trop court ne perd pas le tour, il arrete la boucle pour rien.
     """(!)LE SIGNAL VIENT DE L'UI, PAS DU RUNNER -- et c'est mesure. Le rejeu laisse la bataille
     au dernier coup du replay ; le jeu la termine ensuite seul. On a d'abord attendu ca en
     sondant `sandboxProbe` + `loaderStatus` chaque seconde : le minuteur deguise que ce depot a
@@ -175,6 +183,28 @@ def main(argv=None):
     ap.add_argument("--session", type=int, default=None)
     ap.add_argument("--armer", action="store_true",
                     help="sans lui : on affiche le plan et l'etat du noeud, rien n'est joue")
+    # Le PLAFOND DUR d'une passe entiere : recon, crans, puis les coups. Mesure du 2026-08-22 sur
+    # `campaign1` 28 : **26,5 s** pour 8 coups.
+    #
+    # (!)60 s = DEUX FOIS LA MESURE, et le facteur vient de la mesure, pas d'une intuition. Un
+    # plafond genereux n'est pas une securite, c'est de la patience deguisee : c'est un plafond de
+    # 180 s qui a laisse un blocage passer inapercu jusqu'a ce qu'un humain regarde l'ecran. Si un
+    # noeud plus long le depasse, la boucle rend la main VITE et se releve avec `--plafond-passe`.
+    ap.add_argument("--plafond-passe", dest="plafond_passe", type=float, default=60.0,
+                    help="secondes accordees a UNE passe entiere avant de la tuer (defaut 60)")
+    # (!)LE PLAFOND DE FIN DEPEND DU NOEUD, ET 10 s A RENDU UN FAUX ARRET. Mesure du 2026-08-22 :
+    # `campaign1` 28 rend l'ecran de fin en **5,4 a 6,2 s**, mais `elite2` 12 le depasse -- sa
+    # bataille etait GAGNEE (`gagne` 155 -> 156, `winner=3`, `Finished`) alors que la boucle venait
+    # de rompre en annoncant qu'elle n'avait pas fini. Un plafond trop serre ne perd rien (le tour
+    # est joue et compte) mais il arrete la boucle pour rien. 20 s couvre les deux regimes mesures
+    # tout en restant loin des 180 s d'origine, qui laissaient un blocage passer inapercu.
+    ap.add_argument("--plafond-fin", dest="plafond_fin", type=float, default=20.0,
+                    help="secondes accordees a l'ecran de fin apres la passe (defaut 20)")
+    ap.add_argument("--entree", choices=("auto", "start", "retry"), default="auto",
+                    help="voie d'entree de la PREMIERE passe. `auto` (defaut) aiguille sur le "
+                         "signal d'ecran, avec repli sur le runner. `start` FORCE l'entree "
+                         "fraiche -- a passer des qu'on CHANGE de noeud, car << play again >> "
+                         "rejoue le noeud de l'ecran de fin, pas le notre.")
     args = ap.parse_args(argv)
 
     chemin = Path(args.replay)
@@ -290,12 +320,25 @@ def main(argv=None):
         # Quand le signal n'a rien a dire, on AIGUILLE sur le runner et on le NOMME. Ce n'est
         # pas une confirmation -- `campagne_rejeu_reel.py` refera la sienne, avec son propre
         # repli nomme --, c'est un choix de voie, et le repli y est legitime.
-        if ecranVu is None:
+        # ⛔ ET << RETRY >> REJOUE *CE* NOEUD, PAS LE NOTRE. Le repli sur le runner ne regarde que
+        #   `stageName == "Finished"` -- il ne dit RIEN de QUELLE bataille vient de finir. Mesure
+        #   du 2026-08-22 : apres avoir epuise `campaign1` 28, la boucle lancee sur `elite2` 12 a
+        #   choisi retry depuis l'ecran de victoire du PREMIER, donc << play again >> aurait
+        #   rejoue `campaign1` 28. La chaine l'a refuse (rc 2, aucun jeton consomme), mais le
+        #   diagnostic n'etait lisible qu'apres coup. `--entree start` tranche a la source, et
+        #   c'est ce qu'il faut passer des qu'on CHANGE de noeud.
+        if args.entree == "start":
+            par_retry = False
+            print("   (voie IMPOSEE : start -- `--entree start`)")
+        elif args.entree == "retry":
+            par_retry = True
+            print("   (voie IMPOSEE : retry -- `--entree retry`)")
+        elif ecranVu is None:
             b = jeu.rpc("battleStatus", [{}], timeout=120000)
             par_retry = isinstance(b, dict) and b.get("stageName") == "Finished"
             if par_retry:
                 print("   (pas d'historique de signal : voie choisie sur le RUNNER, "
-                      "stage=Finished)")
+                      "stage=Finished -- ⚠ ne dit pas QUELLE bataille a fini)")
         else:
             par_retry = ecranVu is True
         cmd = [sys.executable, str(RACINE / "scripts" / "python" / "campagne_rejeu_reel.py"),
@@ -304,26 +347,54 @@ def main(argv=None):
             cmd.append("--par-retry")
         print("   entree : %s" % ("<< play again >>" if par_retry else "StartCampaignMatch"))
         t0 = time.time()
-        p = subprocess.run(cmd, cwd=str(RACINE), text=True)
+        # (!)UN PLAFOND PAR PASSE, PARCE QUE SANS LUI LA BOUCLE ATTEND SANS FIN. Mesure du
+        # 2026-08-22 : une passe s'est arretee en phase de deploiement, START jamais parti, et
+        # rien au-dessus ne pouvait le constater -- l'arret n'a ete vu que par un humain qui
+        # regardait l'ecran. `subprocess.run` sans `timeout` n'a AUCUN plafond : le sous-processus
+        # porte les siens (`--attente`, l'ecran de fin), mais s'il se coince EN DEHORS d'une de
+        # ses attentes bornees, personne ne tranche.
+        tue = False
+        try:
+            p = subprocess.run(cmd, cwd=str(RACINE), text=True, timeout=args.plafond_passe)
+            rc = p.returncode
+        except subprocess.TimeoutExpired:
+            # ⚠ ON NE REJOUE PAS PAR-DESSUS. Le sous-processus est tue, mais la BATAILLE, elle,
+            #   reste ou elle est -- c'est justement ce qu'il faut aller constater a la main.
+            tue = True
+            rc = -9
+            print("   PLAFOND DE PASSE ATTEINT (%.0f s) -- sous-processus TUE."
+                  % args.plafond_passe)
         duree = time.time() - t0
 
-        fini, attente, motif = attendre_ecran_de_fin(jeu, gen_ecran)
+        fini, attente, motif = attendre_ecran_de_fin(jeu, gen_ecran, args.plafond_fin)
         ecranVu = fini
         print("   fin de bataille : %s   [%.1f s]" % (motif, attente))
         types = evenements_de_jeu(jeu)
         e1 = etat_du_noeud(jeu, campagne, type_, noeud) or {}
-        bilan.append({"passe": n, "rc": p.returncode, "duree": duree, "entree":
-                      "retry" if par_retry else "start",
+        bilan.append({"passe": n, "rc": rc, "duree": duree, "entree":
+                      "retry" if par_retry else "start", "tue": tue,
                       "attente_fin": attente, "fin_vue": fini, "evenements": types,
                       "gagne": e1.get("timesWon"), "perdu": e1.get("timesLost"),
                       "jetons": e1.get("hasTokens"), "energie": e1.get("hasStamina")})
         print("   passe %d : rc=%d en %.1f s (+%.1f s de fin) -- %s | gagne=%s perdu=%s"
-              % (n, p.returncode, duree, attente,
+              % (n, rc, duree, attente,
                  ", ".join(types) if types else "AUCUN evenement de jeu",
                  e1.get("timesWon"), e1.get("timesLost")))
-        if p.returncode != 0:
+        if rc != 0:
             print("\nARRET -- la passe %d a rendu %d. On ne rejoue pas par-dessus un ecart."
-                  % (n, p.returncode))
+                  % (n, rc))
+            break
+        # ⛔ ET ON ROMPT AUSSI QUAND LA BATAILLE N'A PAS FINI. Ce cran manquait : `fini` etait
+        #   ENREGISTRE au bilan (`fin_vue: False`) et la boucle enchainait par-dessus -- donc on
+        #   depensait un jeton de plus sur un etat qu'on savait deja casse. Un rc de 0 dit que la
+        #   passe s'est deroulee, pas que la BATAILLE s'est terminee : ce sont deux faits
+        #   distincts, et c'est le second qui autorise la passe suivante.
+        if not fini:
+            print("\nARRET -- passe %d : l'ecran de fin n'est PAS venu (%s).\n"
+                  "         La bataille est peut-etre encore ouverte : aller la CONSTATER avant "
+                  "de rejouer.\n"
+                  "         Et desarmer, sinon les relais restent montes : "
+                  "`python scripts/python/desarmer_relais.py`" % (n, motif))
             break
 
     print()

@@ -182,16 +182,30 @@ def refuser_si_en_bataille(jeu):
     ici : une retraite reelle emet `FailCampaignLocation` et consomme le jeton. Et de toute
     facon, une bataille deja montee a deja construit son `MersenneTwister` : le seed ne peut
     plus etre impose. Sortir SOI-MEME est donc la seule voie, et c'est une decision."""
-    p = jeu.rpc("sandboxProbe", [], timeout=120000)
-    if not isinstance(p, dict):
-        stop("`sandboxProbe` NON MESURE : %s" % json.dumps(p, ensure_ascii=False)[:200])
-    if p.get("instance"):
-        stop("une bataille TOURNE DEJA (instance=%s).\n"
+    # (!)LE TEMOIN EST `get_IsBattleActive()`, PAS UN POINTEUR EPINGLE. Ce cran a longtemps lu
+    # `sandboxProbe.instance` -- or `retreat-capture.ts` dit de ce pointeur qu'il SURVIT a la
+    # scene : << apres une amorce, le pointeur epingle survit alors que `FindObjectsByType` rend
+    # 0 instance. Un predicat qui ne testerait que le premier rendrait `true` sur une coquille. >>
+    # Mesure du 2026-08-22 : trois relances de suite refusees sur `elite3` 5 avec ce temoin, dont
+    # au moins une alors que l'utilisateur etait SORTI -- le refus accusait une bataille au lieu
+    # d'accuser une coquille, donc il envoyait chercher une sortie deja faite.
+    # `retreatStatus.batailleActive` appelle la propriete DU JEU, et il est publie a cote.
+    r = jeu.rpc("retreatStatus", [], timeout=120000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        stop("`retreatStatus` NON MESURE : %s" % json.dumps(r, ensure_ascii=False)[:200])
+    active = r.get("batailleActive")
+    if active is None:
+        # ⚠ TRI-ETAT : `null` = pas mesure. On REFUSE -- entrer sans savoir, c'est risquer de
+        #   monter par-dessus une bataille vivante -- mais on le NOMME autrement qu'un « oui ».
+        stop("`batailleActive` NON MESURE (`get_IsBattleActive()` injoignable) : on n'entre pas "
+             "sans savoir s'il y a deja une bataille.")
+    if active:
+        stop("une bataille TOURNE DEJA (`get_IsBattleActive()` = true, mainView=%s).\n"
              "         Le seed ne peut plus etre impose : `IdunRunner$$Initialize` a deja cree "
              "son `MersenneTwister`.\n"
              "         Sors-en TOI-MEME (une retraite est une ecriture sur le compte, je ne la "
-             "declenche pas), puis relance." % p.get("instance"))
-    print("   hors bataille -- le seed peut encore etre impose.")
+             "declenche pas), puis relance." % r.get("mainView"))
+    print("   hors bataille (`get_IsBattleActive()` = false) -- le seed peut encore etre impose.")
 
 
 def confirmer_ecran_de_fin(jeu):
@@ -326,8 +340,15 @@ def main(argv=None):
     ap.add_argument("--session", type=int, default=None)
     ap.add_argument("--campagne", default=None, help="court-circuite la resolution")
     ap.add_argument("--type", type=int, default=None, help="0=Standard 1=Elite 2=Mirror ...")
-    ap.add_argument("--attente", type=int, default=120,
-                    help="secondes accordees au chargement de la bataille (defaut 120)")
+    # (!)20 s, ET LES DEUX BORNES ONT ETE MESUREES. 120 s etait de la patience deguisee en
+    # securite -- quand la bataille n'apparait pas, on ne l'apprenait qu'au bout de deux minutes,
+    # et le 2026-08-22 c'est un humain devant l'ecran, pas le harnais, qui a constate l'arret.
+    # Mais 10 s, essaye le meme jour, est TROP COURT : `campaign1` 28 monte dessous, `elite3` 5
+    # non (<< aucune bataille apparue en 10 s, generation 15 -> 15 >>), et le refus accusait alors
+    # un montage rate la ou il n'y avait qu'une scene plus lourde. Ce delai borne le CHARGEMENT
+    # DE LA SCENE, pas l'ecran de fin -- les deux n'ont aucune raison d'avoir la meme valeur.
+    ap.add_argument("--attente", type=int, default=20,
+                    help="secondes accordees au chargement de la bataille (defaut 20)")
     ap.add_argument("--armer", action="store_true",
                     help="⛔ VA JUSQU'AU JETON (au START, cran 15). Sans lui : LECTURE SEULE -- "
                          "les crans 0 a 6 sont joues, rien n'est arme, rien n'est lance.")
@@ -394,7 +415,30 @@ def main(argv=None):
     print("   team affrontee, LUE dans `PredefinedUnits` du noeud -- %d unite(s) :" % len(adverse))
     for gid, uid in adverse:
         print("      groupe %s  %s" % (gid, uid))
-    confronter(bcr, bcf, "la BC du noeud")
+
+    # (!)CE CRAN N'ARRETE PLUS -- IL RENSEIGNE. Il comparait la BC ENTIERE, catalogue d'unites
+    # compris, et refusait au moindre ecart. Mesure du 2026-08-22 : une unite entree au ROSTER
+    # (`BC.Units` 175 -> 176, plus ses deux abilities) a fait diverger les **27 replays d'un
+    # coup**, alors qu'elle n'entre dans AUCUNE bataille. Un critere qui condamne tout le corpus
+    # sur un changement sans rapport avec le substrat joue n'est pas un garde-fou, c'est un
+    # verrou : il rend le farming impraticable des que le roster bouge, c'est-a-dire souvent.
+    #
+    # ⚠ CE N'EST PAS LA DERNIERE DIGUE, et c'est pour ca qu'on peut le desarmer. Le cran 16
+    #   confronte CHAQUE COUP au caractere pres contre la reference : un substrat reellement
+    #   different produirait un flux different et serait vu la, sur le FAIT plutot que sur une
+    #   presomption. Le risque theorique qui restait -- un decalage d'indices dans `BC.Units`
+    #   faisant frapper une autre entite -- tombe donc sous ce controle-la, qui est plus fort.
+    #
+    # On garde l'AFFICHAGE : le diff ne coute rien et il a de la valeur diagnostique (c'est lui
+    # qui a nomme l'unite entree au roster). Seul le refus part.
+    ecarts = ecarts_bc(bcr, bcf)
+    if not ecarts:
+        print("   la BC du noeud : 0 ecart, la BC entiere (team affrontee comprise).")
+    else:
+        print("   %d ecart(s) avec la BC forgee -- INFORMATIF, on ne s'arrete plus dessus "
+              "(le cran 16 tranche sur les coups) :" % len(ecarts))
+        for e in ecarts[:8]:
+            print("      %s" % str(e)[:150])
 
     cran(4, "l'etat du noeud -- un refus ici coute zero")
     etat_du_noeud(jeu, campagne, type_, noeud)
@@ -504,5 +548,56 @@ def main(argv=None):
     return rc
 
 
+def desarmer_en_sortie(hote):
+    """DESARMER LES RELAIS, QUOI QU'IL ARRIVE -- au point de sortie du process.
+
+    (!)C'EST LA REPARATION DU 2026-08-22, ET ELLE A COUTE UNE SEANCE. Le cran 9 arme des relais
+    d'ECRITURE (`deploymentMemoire`, `deploymentPhaseArmer`, `deploymentPrefabArmer`, le seed) et
+    AUCUN chemin de sortie ne les rendait -- la conception supposant qu'une passe suivante
+    viendrait les consommer. Quand il n'y en a pas -- passe unique, ou refus a un cran, comme le
+    cran 11 ce jour-la -- l'attelage RESTE MONTE sur un compte reel et tourne tout seul : victoire
+    -> retry -> la memoire repose la lineup -> start -> victoire. Mesure : **7 batailles** jouees
+    sans qu'aucune commande ne les demande, puis un arret en phase de deploiement que rien
+    au-dessus ne pouvait constater.
+
+    ⛔ AU POINT DE SORTIE, PAS EN FIN DE `main`. Un `return` propre n'est qu'un chemin sur trois :
+    `stop()` leve `SystemExit` a chaque cran, et une exception non prevue sort par un troisieme.
+    Les trois passent par ce `finally`.
+
+    (!)ET IL NE MASQUE JAMAIS LE RESULTAT. Un desarmement qui echoue s'IMPRIME et ne change pas le
+    code de retour : le verdict de la passe appartient aux crans, pas au menage.
+
+    La boucle re-arme a chaque passe (cran 9), donc desarmer ici ne lui coute rien -- quelques RPC
+    par passe contre l'impossibilite structurelle de laisser un attelage vivant derriere soi.
+    """
+    try:
+        sid = session_vivante(hote)
+        if sid is None:
+            print("desarmement IMPOSSIBLE : aucune session vivante (le jeu est-il tombe ?)")
+            return
+        # `relais_lire` est `desarmer_relais.passer` -- avec `lire=False` il DESARME.
+        restants, muets = relais_lire(Jeu(hote, sid), lire=False, montrer_observateurs=False)
+        if restants:
+            print("(!) %d relais d'ecriture ENCORE ARMES apres desarmement : %s"
+                  % (len(restants), ", ".join(sorted(restants))))
+        if muets:
+            print("(!) %d relais NON MESURES au desarmement : %s"
+                  % (len(muets), ", ".join(sorted(muets))))
+    except Exception as e:                                    # noqa: BLE001
+        # Le menage ne doit jamais faire disparaitre le verdict de la passe.
+        print("desarmement en sortie EN ECHEC : %s" % e)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _hote = "http://127.0.0.1:8765"
+    for _i, _a in enumerate(sys.argv):
+        if _a == "--hote" and _i + 1 < len(sys.argv):
+            _hote = sys.argv[_i + 1]
+    _code = 2
+    try:
+        _code = main()
+    except SystemExit as _e:
+        _code = _e.code if isinstance(_e.code, int) else 2
+    finally:
+        desarmer_en_sortie(_hote)
+    sys.exit(_code)
