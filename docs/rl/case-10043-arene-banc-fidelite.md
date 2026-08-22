@@ -58,7 +58,8 @@ compte agit en amont, quand le harnais résout les ids (`UnitProgression$$GetUni
 
 ## QUATRE propriétés que le ctor à 9 arguments ne pose PAS
 
-Il ne remplit que `BoardId` (+0x28) → `BossUnit` (+0x58) :
+Il ne remplit que `BoardId` (+0x28) → `BossUnit` (+0x58). Les quatre autres sont des
+**auto-propriétés** (`k__BackingField` ⇒ il existe un setter, lu au RPC `classFields`) :
 
 ```
 0x10  DeactivateActiveAbilitiesOnAI   Boolean
@@ -73,12 +74,70 @@ Il ne remplit que `BoardId` (+0x28) → `BossUnit` (+0x58) :
 à `GetPvpLevelConfig`. Un banc qui remplit ce champ retrouve la pression de fin de l'Arène
 (`nrOfRounds = 8`, `healthPct = 20`, lus sur `PvpProgression$$GetEnvironmentAbilitiesConfig`).
 
-⚠ `EnvironmentAbilityTeams` est **nommé, pas typé** : ses types de clé et de valeur n'ont pas été
-lus. Le nom suggère une table ability → équipe, ce qui recouperait la question « une triggered
-qui ne vise que l'adversaire » — mais la latéralité mesurée ailleurs est un `TeamId` **en dur**
-dans le DSL de chaque ability (`EnvArtillerySupport` → `Team1_Default` ; `EnvAttemptDebuff` et
-`EnvDefenderHealthBuff` → `Team2_DefaultEnemy`). Les deux mécanismes coexistent peut-être ;
-**ne rien conclure avant d'avoir lu le dictionnaire**.
+## L'objet `EnvironmentAbilities` est ENTIÈREMENT lu — 40 octets, 3 champs
+
+Taille `classes.tsv` = 40 = les trois champs ci-dessous et rien d'autre ; les trois écritures
+sont lues dans `idun.ui.SandboxContainer$$AddEnvironmentAbilities`, qui pose l'objet sur le
+config par un appel d'interface **slot 5** (`set_EnvironmentAbilities`).
+
+```
+IdunBattle.Configuration.EnvironmentAbilities                (40)
+  0x10  Abilities                List<EnvironmentAbilityConfiguration>
+  0x18  EnhancementAbilities     List<EnhancementsEnvironmentAbilityConfiguration>
+  0x20  AbilitiesConfigurations  Dictionary<TriggeredAbilityConfigId, AbilityConfiguration>
+
+IdunBattle.Configuration.EnvironmentAbilityConfiguration     (48)
+  0x10  ConfigId   TriggeredAbilityConfigId
+  0x20  Level      Idun.Shared.Level          <- clampé 0..100 par le ctor de l'écran de dev
+  0x24  PlayerId   Nullable<PlayerId>         <<< LA LATÉRALITÉ, ET ELLE EST PAR ABILITY
+
+IdunBattle.Configuration.EnhancementsEnvironmentAbilityConfiguration  (64, dérive du précédent)
+  0x30  Targets    List`1
+  0x38  Stack      Int32
+```
+
+⚠ **`EnvironmentAbilityConfiguration.PlayerId` répond à « une triggered qui ne vise que
+l'adversaire »** : chaque ability d'environnement porte un propriétaire OPTIONNEL. L'écran de dev
+écrit `null` (`*(cfg + 0x24) = 0`), donc « sans propriétaire » est un DÉFAUT, pas une contrainte.
+Ce que fait le natif de ce `PlayerId` n'est PAS encore lu — seule son existence est établie.
+Elle **coexiste** avec le `TeamId` en dur du DSL de chaque ability (`EnvArtillerySupport` →
+`Team1_Default` ; `EnvAttemptDebuff` et `EnvDefenderHealthBuff` → `Team2_DefaultEnemy`) : lequel
+gagne reste à mesurer.
+
+⚠ `EnvironmentAbilityTeams` (+0x20 du **config**, à ne pas confondre avec `AbilitiesConfigurations`
++0x20 de l'**objet**) reste un `Dictionary\`2` dont les paramètres ne sont pas résolus. Fait
+mesuré : `AddEnvironmentAbilities` **ne l'écrit jamais** — l'écran de dev du jeu monte donc des
+batailles sandbox en le laissant nul. Il n'est pas requis. Piste voisine :
+`BattleConfigBuilder$$GetAdditionalPlayersRequiredByEnvironmentAbilities(battleConfig)` rend un
+`OrderedSet<StaticBattleRules.AbilityPlayerRequirement>`.
+
+## ⛔ NE PAS CONSTRUIRE `EnvironmentAbilities` À LA MAIN — le jeu en a TROIS fabriques
+
+Toutes rendent l'objet fini, signatures lues dans `frida/methods.tsv` :
+
+```
+SyncPvpGameModeSource$$GetEnvironmentAbilities()                          -> EnvironmentAbilities
+AProgressionGameModeSource$$GetEnvironmentAbilitiesFromProgression(extraAbilitiesConfig)
+                                                                         -> EnvironmentAbilities
+AutomaticTestingEnvironmentAbilitiesFactory$$Build(gameMode, units, battleCount, probability)
+                                                                         -> EnvironmentAbilities
+```
+
+La deuxième est celle de l'Arène réelle (`PvpGameModeSource` dérive d'`AProgressionGameModeSource`).
+Demander l'objet au jeu et passer le pointeur au setter coûte moins qu'un mirror, et ne peut pas
+diverger du build.
+
+## Ce que `SetupGameOperation` en fait vraiment, à la pose
+
+`SetupGameOperation$$GetEnvironmentAbilities(gameMode)` APLATIT les deux listes de `BC+0x78` dans
+une seule (même `MethodInfo` d'`AddRange` pour les deux ⇒ `EnhancementAbilities` est bien une
+sous-classe), puis ajoute **des ids EN DUR** : `1483` et `24` inconditionnellement, `1326` sous
+condition de mode, plus tout `StaticBattleRules.DamageTrait$$GetDamageTraitAbilities()`, plus les
+dérivées de `StaticBattleRules.TriggeredAbility$$GetDerivedEnvironmentAbilities(<clé>)` pour
+chaque clé du dictionnaire `BC+0x90 +0x18`.
+
+⇒ **Une BC à `EnvironmentAbilities` vide n'est PAS une bataille sans environnement** : ces
+ajouts-là tombent quand même. Ce qui manque au banc, c'est le bombardement de fin, pas tout.
 
 ## Ce que le jeu DÉTIENT sur l'adversaire, et qu'on n'exploite pas
 
@@ -123,28 +182,51 @@ Ce que passe `PvpGameModeSource$$LoadBattleInternal`, et qui DIFFERE du chemin s
 | `overrideMainPlayerUnits` | **NULL** — le builder résout depuis le compte | `PlayerUnits[0]` |
 | `overrideMainPlayerMachineOfWar` | **NULL** | `cfg.MainPlayerMachineOfWar` |
 | `environmentAbilities` | `AProgressionGameModeSource$$GetEnvironmentAbilitiesFromProgression` | champ laissé vide |
-| `opponentUnitIdPostFix` | une **CONSTANTE** (non nulle) | **0** — codé en dur par `GetHotseatSyncPvpConfig` |
+| `opponentUnitIdPostFix` (`System.String`) | une **CONSTANTE** non nulle | **null** — codé en dur par `GetHotseatSyncPvpConfig` |
 
 ⚠ **`opponentUnitIdPostFix` EXPLIQUE LE SYMPTOME EXACT.** C'est un suffixe applique aux ids
 adverses. Le duel reel le pose, donc deux unites homonymes restent DEUX entrees de catalogue.
 Le chemin sandbox passe `0` — d'ou l'`ultraTigurius` UNIQUE mesure plus haut, partage par les
-deux equipes. **C'est une limite STRUCTURELLE du chemin sandbox** : meme avec les bons modeles
-en `PlayerUnits[1]`, deux homonymes fusionneraient. Le ctor a 9 arguments ne l'expose pas.
+deux equipes. **C'est une limite du chemin par CONFIG SANDBOX** : meme avec les bons modeles en
+`PlayerUnits[1]`, deux homonymes fusionneraient, et le ctor a 9 arguments ne l'expose pas. Les
+deux autres appelants accessibles passent `null` eux aussi (`AutomaticTestingPvpConfigFactory$$Build`
+mesuré : `randomizeAiInput = 1`, postfix `0`). ⚠ Ce n'est PAS une limite du MOTEUR : le paramètre
+existe sur `GetPvpLevelConfig`, qu'on peut appeler directement — cf. « La tranche suivante ».
 
 ⚠ **Et `overrideMainPlayerUnits = NULL` renverse une hypothese** : on croyait devoir fournir NOS
 unites. Le duel officiel ne les fournit pas — il laisse le builder les tirer de la progression du
 compte, qui est justement ce que le ctor de la source lui donne. Notre equipe n'a donc jamais eu
 besoin d'etre passee en position 4.
 
-## La tranche suivante
+## La tranche suivante — et elle NE PASSE PLUS par `SandboxPvpBattleConfig`
 
-1. **`PlayerUnits[1]`** ← les `IUnitModel` de `GetPublicProfileLineup`. Demande un genre de plus
-   côté hook : des modèles DÉJÀ RÉSOLUS passés par pointeur, au lieu d'ids.
-2. **`EnvironmentAbilities`** ← pour retrouver le bombardement.
+Le config sandbox est un **emballage de commodité**. Dès lors qu'on touche au hook (inévitable
+pour passer des `IUnitModel` par pointeur), viser directement le constructeur coûte le même
+geste et lève le verrou du postfix. `frida/methods.tsv` en donne la signature COMPLÈTE, nommée
+et typée — c'est la découverte qui change le plan (`#187` le disait déjà : les noms de paramètres
+natifs sont lisibles hors Ghidra) :
 
-⚠ **NE PAS DEVINER comment poser ces propriétés** : `idun.ui.SandboxContainer$$GetSandboxPvpBattleConfig`
-est le constructeur du JEU pour ce config (identifié dans `case-10020` §statique PvP) — il alloue
-sur le même statique puis appelle le ctor. C'est la référence à mirrorer.
+```
+BattleConfigBuilder$$GetPvpLevelConfig(
+    id: String, boardId: String, spawnPointsSet: Int32,
+    opponentLineup: List<IUnitModel>, opponentMachineOfWarLineup: IUnitModel,
+    getEnemyUnit: Func<String, Boolean, IUnitModel>, playerAmmo: Int32,
+    environmentAbilities: EnvironmentAbilities,
+    overrideMainPlayerUnits: List<IUnitModel>, overrideMainPlayerMachineOfWar: IUnitModel,
+    mainPlayerType: Nullable<PlayerType>, enemyPlayerType: Nullable<PlayerType>,
+    randomizeAiInput: Boolean, opponentUnitIdPostFix: String)   -> BattleConfiguration
+```
+
+⚠ **`opponentUnitIdPostFix` est un `System.String`**, pas un entier opaque : le `0` lu partout
+ailleurs est un `null`. En appelant le constructeur directement on le FOURNIT, et la fusion des
+homonymes disparaît — le verrou n'était structurel qu'au chemin sandbox.
+
+**Le seul étage réellement ouvert est `getEnemyUnit`** : un `Func<String, Boolean, IUnitModel>`,
+donc un délégué managé. Fabriquer un délégué depuis Frida est le point dur (cf.
+`reference_il2cpp_delegate_ne_se_recible_pas`). Deux sorties à mesurer, dans cet ordre :
+réutiliser le délégué que le jeu construit déjà sur le chemin PvP, ou établir qu'un lineup
+entièrement matérialisé rend le résolveur inutile (il n'est appelé que pour les ids non résolus).
+Tant que ce n'est pas mesuré, écrire NON CONFRONTÉ.
 
 ## Garde en place
 
