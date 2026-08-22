@@ -221,12 +221,51 @@ BattleConfigBuilder$$GetPvpLevelConfig(
 ailleurs est un `null`. En appelant le constructeur directement on le FOURNIT, et la fusion des
 homonymes disparaît — le verrou n'était structurel qu'au chemin sandbox.
 
-**Le seul étage réellement ouvert est `getEnemyUnit`** : un `Func<String, Boolean, IUnitModel>`,
-donc un délégué managé. Fabriquer un délégué depuis Frida est le point dur (cf.
-`reference_il2cpp_delegate_ne_se_recible_pas`). Deux sorties à mesurer, dans cet ordre :
-réutiliser le délégué que le jeu construit déjà sur le chemin PvP, ou établir qu'un lineup
-entièrement matérialisé rend le résolveur inutile (il n'est appelé que pour les ids non résolus).
-Tant que ce n'est pas mesuré, écrire NON CONFRONTÉ.
+## ⛔ MESURÉ : un lineup MATÉRIALISÉ ne dispense PAS du résolveur — le natif le DÉ-matérialise
+
+L'espoir était qu'en passant des `IUnitModel` déjà résolus, `getEnemyUnit` ne serve qu'aux ids
+manquants et puisse rester nul. **Le corps de `GetPvpLevelConfig` le réfute** : il fait
+délibérément l'aller-retour `modèle -> chaîne -> modèle`.
+
+```
+b__2(u: IUnitModel) -> String        // MAP appliqué a opponentLineup
+    u.Id  puis  String.Concat(id, postFix)      <- le POSTFIX est appliqué ICI
+
+b__0(enemyTypeId: String) -> UnitConfiguration  // RÉSOLVEUR passé a GetLevelConfigWithRealUnits
+    isExtra = extraEnemyUnits.Contains(enemyTypeId)
+    modele  = getEnemyUnit.Invoke(enemyTypeId, isExtra)   <- INVOCATION INCONDITIONNELLE
+    cfg     = GetUnitConfiguration(modele, logger, null)
+    cfg.Id  = enemyTypeId                                 <- RE-ESTAMPE l'id POSTFIXÉ
+```
+
+Trois faits qui en découlent :
+
+1. **`getEnemyUnit` est invoqué pour CHAQUE unité adverse, sans garde de nullité** — la branche
+   sans délégué tombe sur le helper de `throw`. Passer `null` lève, ça ne dégrade pas.
+2. **Le postfix et le résolveur sont COUPLÉS.** `cfg.Id = enemyTypeId` est *le* mécanisme qui
+   garde deux homonymes distincts au catalogue — la question de départ. Il n'a de sens que si le
+   résolveur sait rendre un modèle pour un id postfixé.
+3. ⇒ **Patcher le seul `opponentUnitIdPostFix` CASSE la résolution.** Le résolveur du chemin
+   sandbox (`<>c__DisplayClass37_0$$<GetHotseatSyncPvpConfig>g__GetEnemy|0`) apparie par
+   **égalité de chaîne exacte** et termine sur `Enumerable.First` — pas `FirstOrDefault`. Un
+   `ultraTigurius<postfix>` ne matche rien et **lève**.
+
+## La tranche suivante — hooker le RÉSOLVEUR, pas fabriquer un délégué
+
+Il n'y a jamais eu à construire un `Func<...>` depuis Frida (ce que
+`reference_il2cpp_delegate_ne_se_recible_pas` rend hasardeux). `b__0` invoque le délégué par un
+**pointeur pris dans l'objet délégué** : on laisse donc le jeu construire le sien, et on
+`Interceptor.attach` le CORPS du résolveur — `g__GetEnemy|0` est une méthode NOMMÉE, résoluble
+au runtime comme n'importe quelle autre.
+
+Les deux crans vont ensemble, dans le même commit, sinon le second lève :
+
+1. `GetPvpLevelConfig` — poser `opponentUnitIdPostFix` (14ᵉ paramètre, `System.String`) ;
+2. `g__GetEnemy|0` — retirer le postfix de l'id reçu et rendre le modèle adverse RÉEL, pris dans
+   la `List<IUnitModel>` de `GetPublicProfileLineup`.
+
+⚠ NON CONFRONTÉ tant que ce n'est pas joué : la mesure ci-dessus est une lecture de décompilé,
+pas une bataille montée.
 
 ## Garde en place
 
