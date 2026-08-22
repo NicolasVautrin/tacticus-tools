@@ -40,6 +40,20 @@
         parTexte.push({ nom, possede: +m[1], requis: +m[2] });
     }
 
+    // --- 1bis. L'ID DE MATERIAU, LU DANS L'URL DE SON ICONE ------------------------------------
+    //
+    // (!)C'EST LUI QUI FERME LA BOUCLE AVEC LE JEU. Le planner n'affiche que des noms anglais
+    // (<< Pile of Salvage >>) ; l'inventaire vivant, lui, est indexe par identifiant
+    // (`upgArmC003`). Sans cet id il faudrait une table nom -> id ecrite a la main, qui se
+    // perimerait au premier materiau ajoute. L'icone porte l'id dans son nom de fichier :
+    // `ui_icon_upgrade_upgArmC003-BeDLXVw0.png`, et son `alt` porte le nom -- les deux bouts du
+    // pont sont dans le meme element.
+    const idParNom = {};
+    document.querySelectorAll('img[src*="ui_icon_upgrade_"]').forEach((im) => {
+        const m = (im.getAttribute("src") || "").match(/ui_icon_upgrade_([A-Za-z0-9]+)-/);
+        if (m && im.alt) idParNom[im.alt.trim()] = m[1];
+    });
+
     // --- 2. noeuds, par parcours DOM en ordre de document -------------------------------------
     const parDom = [];
     let courant = null;
@@ -62,7 +76,9 @@
         const a = parTexte[i], b = parDom[i];
         if (!a || !b) { res.desaccords.push({ index: i, texte: a || null, dom: b || null }); continue; }
         if (a.nom !== b.nom) res.desaccords.push({ index: i, texte: a.nom, dom: b.nom });
-        res.materiaux.push({ nom: a.nom, possede: a.possede, requis: a.requis, noeuds: b.noeuds });
+        // `id` a `null` = NON APPARIE, jamais devine : l'appelant le verra et pourra le dire.
+        res.materiaux.push({ nom: a.nom, id: idParNom[a.nom] ?? null,
+                             possede: a.possede, requis: a.requis, noeuds: b.noeuds });
     }
     return res;
 }

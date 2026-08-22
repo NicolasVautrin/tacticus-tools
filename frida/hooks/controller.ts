@@ -58,6 +58,7 @@ import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as campaignSourceForge from "./features/campaign-source-forge.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
+import * as upgradesInventory from "./features/upgrades-inventory.js";
 import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
 import * as replayFinAuto from "./features/replay-fin-auto.js";
@@ -516,6 +517,10 @@ export function wireRpc(ctx: Ctx): void {
      // `SendLoadBattleGameEventInternal` enregistre une tentative SERVEUR au chargement. Il rend un
      // JSON ; il ne monte rien. Aucune tentative consommee, aucun octet reseau.
      guildWarConfig,
+     // `upgradesInventory` n'INSTALLE RIEN au register : sa lecture (`GetAmount`) est un
+     // accesseur pur, et son ancrage sur `AddUpgradeLocally` s'arme explicitement. Il n'appelle
+     // JAMAIS `CheatAddUpgrade` / `CheatClearUpgrades`, qui vivent dans la meme classe.
+     upgradesInventory,
      // `vueException` n'INSTALLE RIEN au register : son ancrage sur
      // `IdunGameViews$$HandleException` est en observation pure et s'arme explicitement. Il
      // existe parce que ce natif pose `_isLogicPausedFromException` EN PREMIER et SANS
