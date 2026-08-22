@@ -8,7 +8,41 @@ description: Farmer la VRAIE campagne en rejouant un replay N fois — jetons, �
 ⛔ **Ici, tout est RÉEL.** Chaque passe consomme un jeton et de l'énergie, et ce qui part au
 serveur est irréversible. C'est l'exact opposé de `tacticus-sandbox`, qui ne touche à rien.
 
-## Une commande
+## La chaîne
+
+```
+tacticusplanner.app/plan/dailyRaids          QUI DROPPE QUOI
+  -> scripts/planner/extraire-raids.js       (MCP Chrome, page CONNECTÉE)
+  -> logs/planner-raids.json
+  -> farming_plan.py                         L'ORDRE des nœuds a farmer
+  -> campagne_rejeu_boucle.py                N passes sur le compte RÉEL
+  -> replayFinAuto -> data/replays/_captures/
+  -> classer_replay.py                       -> data/replays/campaign/
+  -> farming_suivi.py                        ce qui a été GAGNÉ
+```
+
+## Par où commencer : `farming_plan.py`
+
+```powershell
+python scripts/python/farming_plan.py        # l'ordre, + les commandes prêtes à jouer
+```
+
+Il croise **trois** entrées : le plan du planner (qui droppe quoi), l'**inventaire vivant** du
+jeu (le besoin restant) et `data/replays/campaign/` (ce qui est rejouable). Il classe les nœuds
+par utilité et **imprime les commandes** — il ne joue RIEN.
+
+- **Un nœud sert plusieurs matériaux** : son utilité est la **somme** des besoins restants qu'il
+  touche. On ne divise pas par le nombre de matériaux — farmer un nœud qui en sert trois avance
+  sur les trois à la fois.
+- ⚠ **UN BESOIN N'EST PAS UNE DISPONIBILITÉ**, et le script a confondu les deux (2026-08-22) : il
+  mettait en tête des nœuds **épuisés** (`campaign1` 28, utilité 27, **0 jeton sur 10**). La
+  commande imprimée ne pouvait que se faire refuser. Les jetons sont donc **lus**, et un nœud
+  sans jeton **sort des commandes en le disant**.
+- ⚠ **Tri-état** : jetons `None` = **pas mesuré**, jamais rabattu sur 0. Un nœud dont la lecture
+  échoue reste **proposé** — la boucle relit de toute façon. L'inverse ferait disparaître un
+  nœud jouable pour une panne de lecture.
+
+## Jouer une passe
 
 ```powershell
 python scripts/python/campagne_rejeu_reel.py --replay data/replays/campaign/<x>.json
@@ -44,6 +78,71 @@ le chiffre à l'écran. `jetons_restants()` descend la chaîne native et rend `5
 
 `--passes N` ne peut que **baisser** ce plafond : un `N` plus grand est ramené aux jetons
 disponibles — on ne planifie pas des passes qui seront refusées.
+
+## `--entree start` — dès qu'on CHANGE de nœud
+
+`--entree` vaut `auto` par défaut : la voie d'entrée de la **première** passe est choisie sur le
+signal d'écran, avec repli sur le runner.
+
+⚠ **`Finished` ne dit pas QUELLE bataille vient de finir.** Mesuré le 2026-08-22 : après avoir
+épuisé `campaign1` 28, la boucle lancée sur `elite2` 12 a choisi **retry** depuis l'écran de
+victoire du **premier** — donc « play again » aurait rejoué `campaign1` 28. La chaîne l'a refusé
+(rc 2, aucun jeton consommé), mais le diagnostic n'était lisible qu'après coup. **`--entree start`
+tranche à la source**, et c'est ce qu'il faut passer dès qu'on change de nœud (`farming_plan.py`
+le met dans toutes ses commandes).
+
+⚠ **Le forçage ne vaut QUE pour la première passe**, et l'imposer à chaque tour casse la seconde :
+mesuré le même jour, la passe 2 est refusée au cran 5 (« une bataille TOURNE DÉJÀ ») — normal, la
+passe 1 vient de gagner et l'écran de fin est là. Ce qu'on impose, c'est **par où l'on entre quand
+on arrive de l'extérieur** ; une fois dans le nœud, c'est le retry qui enchaîne.
+
+## Classer les captures — `classer_replay.py`
+
+```powershell
+python scripts/python/classer_replay.py              # toutes les captures en attente
+python scripts/python/classer_replay.py <fichier>    # une seule
+```
+
+`replayFinAuto` + `frida/host/replay-store.ts` déposent sous
+`data/replays/_captures/<GameMode>-<seed>-f<frame>.json` — un nom qui porte le **mode** et le
+**seed**, mais ni la campagne ni le nœud. Ce script les nomme.
+
+- **L'identité se lit DANS le fichier, jamais dans son nom.** Le préfixe dit `Campaign`, pas
+  `campaign1` : c'est `BattleConfiguration.Id` (`Campaign1_19`) qui porte campagne et nœud.
+  Classer sur le nom de fichier rangerait une bataille sous une campagne qui n'est pas la sienne.
+- **N'écrase JAMAIS** : un nom canonique déjà pris est un **refus**. Deux passages du même nœud
+  portent des seeds différents, donc une collision signale un vrai problème.
+
+⛔ **NE PAS CLASSER UNE CAPTURE DE BANC.** Mesuré le 2026-08-22 : `_captures/` contenait un
+`Campaign1_06` portant **nos** vagues greffées (`UnitSpawningOverTime.Tiers` = 5 tours) et
+`EndReason: None` — une bataille de test jamais terminée. Classée, elle serait rejouée **telle
+quelle sur le compte**. Avant de classer, vérifier `BattleConfiguration.UnitSpawningOverTime` et
+`BattleResult.EndReason` : des vagues inattendues ou un `EndReason` nul dénoncent un replay de
+banc, pas une partie.
+
+## Le suivi — `farming_suivi.py`
+
+```powershell
+python scripts/python/farming_suivi.py                 # besoin restant par matériau
+python scripts/python/farming_suivi.py --jalon avant   # poser un jalon
+python scripts/python/farming_suivi.py --depuis avant  # ce qui a été GAGNÉ depuis
+```
+
+⛔ **Le miroir sur disque ne sert à rien ici.** `user_progression.json` (AppData/LocalLow) ne se
+rafraîchit PAS à chaque bataille — **37 minutes de retard** mesurées alors qu'une dizaine de raids
+venaient d'être joués. On lit `UpgradeProgression$$GetAmount` **en mémoire**, par le RPC
+`inventaireUpgrades`.
+
+⚠ **LE PREMIER NOMBRE DU PLANNER EST UN PLAFOND**, `couvert = min(inventaire, requis)`. Une ligne
+« 4/4 » ne dit **pas** « j'en ai 4 », elle dit « il y en a assez » — le stock réel valait 7. Le
+reste se calcule sur la quantité lue **en jeu**. Et un écart ne se déclare pas par simple
+inégalité : comparé à plat, le plafond fabrique un faux écart sur toute ligne couverte (2 écarts
+annoncés, 2 faux, exactement les 2 lignes plafonnées).
+
+| régime | ce qu'on peut conclure |
+|---|---|
+| `couvert < requis` | le plafond NE MORD PAS, le nombre **est** l'inventaire → égalité EXIGÉE |
+| `couvert == requis` | plafonné → `jeu >= requis` exigé, **et rien de plus** ; un stock supérieur est NORMAL |
 
 ## Les pièges
 
@@ -119,6 +218,13 @@ en cause. Un replay entier a déjà été perdu ainsi. Relire : `replayFinEtat {
 
 ## Aller plus loin
 
+- `scripts/python/farming_plan.py` — l'ordre des nœuds : besoin restant × jetons lus.
+- `scripts/python/farming_suivi.py` — le besoin restant et les jalons.
+- `scripts/python/classer_replay.py` — nommer les captures de `_captures/`.
+- `scripts/python/raids_plan.py` — la COUVERTURE : quels nœuds du plan n'ont pas de replay, et
+  la commande de montage **sandbox** (gratuite) pour en capturer un.
+- `scripts/planner/extraire-raids.js` — l'extraction du plan, via MCP Chrome sur la page
+  connectée `tacticusplanner.app/plan/dailyRaids`.
 - `scripts/python/campagne_rejeu_reel.py` — les **17 crans**, listés en tête de fichier, avec la
   frontière GRATUIT / `--armer` / LE SEUL CRAN QUI ENGAGE.
 - `scripts/python/campagne_rejeu_boucle.py` — la boucle N passes et la lecture des jetons.
