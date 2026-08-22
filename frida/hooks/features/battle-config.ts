@@ -71,10 +71,18 @@ import { registerRunner, getRunner as getRegistryRunner,
     listRunners as listRegistryRunners, MAX_RUNNERS }
     from "../game/runner-registry.js";
 import {
-    findClass, findCtorByParamCount, findMethodByParamCount,
+    findClass, findCtorByParamCount, findMethodByParamCount, methodParamClass,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { bcDeLaSourceMontee, sourceMontee } from "./source-vivante.js";
+// (!)FORME B. Le FOYER du réceptacle `EnvironmentAbilities` -- même objet que celui que posent
+// `guild-war-config` (buffs de zone) et `sandbox-mode` (pression de fin d'Arène). Son ctor natif
+// ne crée AUCUN de ses trois membres : une troisième copie du geste aurait divergé, et ce sont
+// des ÉCRITURES en mémoire managée, où une divergence ne donne pas un résultat différent mais un
+// CRASH. Pas de cycle : `environment-abilities` n'importe pas ce module.
+import * as envAbilities from "./environment-abilities.js";
+import { champPointeur, estRefus } from "./lecture-champs.js";
+import { triggeredAbilityName } from "../data/triggered-ability-names.js";
 import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
 import { getFieldOffset } from "../il2cpp/helpers.js";
 import { serializeToJson as _serializeBcToJson } from "../il2cpp/serializer.js";
@@ -514,6 +522,21 @@ interface BattleConfigPatch {
     /** Compagnons de `Tiers` dans le nœud, conservés à leur valeur par défaut sauf demande. */
     useAtomicGroup?: boolean;
     useSpawnPointFromUnitIndex?: boolean;
+    /** Les abilities d'ENVIRONNEMENT à INSTALLER -- `BC.EnvironmentAbilities`, le RÉCEPTACLE,
+     *  et surtout PAS le catalogue `BC.Abilities.EnvironmentAbilities` (166 définitions).
+     *
+     *  `abilityType` est un ordinal de `IdunBattle.Entities.Enum.TriggeredAbilityType`, `niveau`
+     *  choisit dans les tableaux de variables de la config (0 = le natif n'arme rien).
+     *
+     *  ⚠ CE QUI DÉCIDE DE LA CIBLE EST LE `CreateTrigger` DE L'ABILITY, PAS UN ARGUMENT D'ICI --
+     *  il n'existe aucun champ « équipe » à passer. Mesuré au décompilé sur `t6dpr4k06g` :
+     *    `EnvReinforcementShield` (1270) = `On(UnitAdded) | On(InitialMatchUnitAdded)`
+     *        `AND IsHero(Actor) AND IsInTeam(Actor, 1)` -> l'équipe du JOUEUR (`TeamId=1`,
+     *        `playerId=11`, `PlayerType=0` dans `BC.Player.Players`) ;
+     *    `EnvStartProtection` (1280) = `On(TurnStart_EffectActivation)` gardé par
+     *        `TotalTurnsFinished == <const>`, cible `_allAliveUnits - _currentTurnUnits`,
+     *        donc le camp qui NE joue PAS -- team-agnostique, et pas forcément le tien. */
+    environmentAbilities?: Array<{ abilityType: number; niveau: number }>;
     /** If true (default), the patch is cleared after a single application. */
     consumeOnce?: boolean;
 }
@@ -645,6 +668,213 @@ export function ecrireCalendrierDeVagues(
     };
 }
 
+// ---------------------------------------------------------------------------------------
+// LES ABILITIES D'ENVIRONNEMENT -- INSTALLER, ET SAVOIR SI ELLES SONT INSTALLABLES.
+//
+// DEUX CHAMPS PORTENT CE NOM, ET LES CONFONDRE EST LE PIEGE :
+//
+//   `BattleConfiguration.EnvironmentAbilities`        <- le RECEPTACLE : ce qui est INSTALLE
+//   `BattleConfiguration.Abilities.EnvironmentAbilities` <- le CATALOGUE : 166 DEFINITIONS
+//
+// Le premier dit « cette bataille joue ces abilities-la » ; le second dit « voici a quoi
+// ressemble chacune ». Un grep de la BC trouve un nom dans le SECOND et fait croire au PREMIER
+// -- c'est la mesure du 2026-08-22 sur `EnvEndBombardment`, trouve TROIS fois dans une BC dont
+// la liste des installees etait VIDE.
+//
+// ⚠ ET LE CATALOGUE EST UNE CONDITION QUI N'EMET AUCUN SIGNAL, exactement comme le `UnitId`
+// d'une vague (cf. `unitSpawningOverTime` ci-dessus) : `EnvReinforcementShield` est ABSENT du
+// catalogue de `data/seed-bc.json` (166 entrees), alors que `EnvStartProtection` y est avec son
+// `shieldHp: 500`. On PUBLIE donc, pour chaque ability demandee, si son nom est au catalogue --
+// pour qu'un echec ait un NOM AVANT d'etre observe, au lieu de trois causes accusees a tort.
+export interface EcritureEnvironnement {
+    ok: boolean;
+    offset?: string;
+    noeudAvant?: string;
+    noeudApres?: string;
+    relu?: boolean;
+    /** Ce qui est REELLEMENT dans le receptacle -- compte des membres, pas un « configure ». */
+    installees?: Record<string, unknown>;
+    /** FUSION dans le receptacle de la progression, ou receptacle NEUF. Les deux n'ont pas les
+     *  memes consequences : la seconde jetterait ce que le mode avait pose. */
+    voie?: string;
+    /** Le nombre de definitions du catalogue. `null` = pas lu. Un catalogue a 0 et un catalogue
+     *  a 166 ne racontent pas la meme histoire quand rien n'apparait en bataille. */
+    tailleCatalogue?: number | null;
+    detail?: Array<Record<string, unknown>>;
+    error?: string;
+}
+
+/** Le nom d'une ability est-il au CATALOGUE de cette BC ?
+ *
+ *  Tri-etat : `null` = PAS MESURE, jamais rendu comme un `false` -- « absent » et « pas
+ *  regarde » n'autorisent pas la meme conclusion.
+ *
+ *  ⚠ CETTE SONDE A MENTI, ET LA FORME DU MENSONGE EST INSTRUCTIVE. Premiere version : elle
+ *  appelait `ContainsKey` avec une chaine managee, SANS verifier le type de cle du
+ *  dictionnaire. Mesure du 2026-08-22 : elle a rendu ABSENT pour `EnvStartProtection` alors
+ *  que le catalogue vivant le PORTE (166 definitions, verifie en serialisant la BC). Une
+ *  reponse UNIFORME sur toutes les entrees est la signature d'une sonde cassee, pas d'un
+ *  catalogue vide -- et elle a failli faire accuser le catalogue a la place du vrai defaut.
+ *
+ *  Le correctif n'est pas un ajustement : c'est un REFUS DE REPONDRE quand la question ne se
+ *  pose pas. On lit le type du parametre de `ContainsKey` ; si ce n'est pas `System.String`,
+ *  la cle est un type valeur (un `TriggeredAbilityConfigId`, serialise en nom mais pas stocke
+ *  comme tel) et l'appel n'a aucun sens -- on rend `null`. */
+function catalogueContient(bc: NativePointer, nom: string): boolean | null {
+    try {
+        const abilities = champPointeur(bc, "Abilities");
+        if (estRefus(abilities)) return null;
+        const dict = champPointeur(abilities as NativePointer, "EnvironmentAbilities");
+        if (estRefus(dict)) return null;
+        const d = dict as NativePointer;
+        const mHas = findMethodByParamCount(d.readPointer(), "ContainsKey", 1);
+        if (!mHas) return null;
+        // LE CRAN QUI MANQUAIT : la cle est-elle vraiment une chaine ?
+        const kParam = methodParamClass(mHas.info, 0);
+        if (!kParam) return null;
+        let nomParam: string;
+        try { nomParam = cstr(class_get_name(kParam) as NativePointer); } catch { return null; }
+        if (nomParam !== "String") return null;
+        const r = invokeMethod(mHas.info, d, [createManagedString(nom)]);
+        if (r.isNull()) return null;
+        // ⚠ `il2cpp_runtime_invoke` BOXE les types valeur : le `bool` est a +0x10, pas au
+        // pointeur lui-meme. Le lire au mauvais endroit rendrait un vrai/faux plausible.
+        return r.add(0x10).readU8() !== 0;
+    } catch { return null; }
+}
+
+/** Le nombre de definitions du catalogue -- un FAIT, la ou `catalogueContient` peut se taire.
+ *  `null` = pas lu. Publie systematiquement : un catalogue a 0 et un catalogue a 166 ne
+ *  racontent pas la meme histoire quand rien n'apparait en bataille. */
+function catalogueTaille(bc: NativePointer): number | null {
+    try {
+        const abilities = champPointeur(bc, "Abilities");
+        if (estRefus(abilities)) return null;
+        const dict = champPointeur(abilities as NativePointer, "EnvironmentAbilities");
+        if (estRefus(dict)) return null;
+        const d = dict as NativePointer;
+        const off = getFieldOffset(d.readPointer(), "_count");
+        return off < 0 ? null : d.add(off).readS32();
+    } catch { return null; }
+}
+
+/** INSTALLER des abilities d'environnement sur la BC que la source vient de produire.
+ *
+ *  ⚠ MEME FENETRE QUE LE CALENDRIER DE VAGUES : on ecrit au `LoadBattle.onLeave`, sur l'objet
+ *  en memoire, sans aucune serialisation ni substitution.
+ *
+ *  ⚠ LE RECEPTACLE NE SE CONSTRUIT PAS AU CTOR. `EnvironmentAbilities..ctor` laisse ses trois
+ *  membres NULS ; `creerReceptacle` passe par Newtonsoft parce que ces membres sont des
+ *  generiques INFLATES, introuvables par leur nom.
+ *
+ *  ⚠ `AbilitiesConfigurations` reste VIDE, et c'est le choix deja pris par `guild-war-config` :
+ *  sa cle est un TYPE VALEUR, et se tromper de convention ne leve pas -- ca CRASHE le jeu
+ *  (2026-08-21, `Tacticus.exe.30620.dmp`). L'hypothese est que le CATALOGUE de la BC suffit ;
+ *  `catalogueContient` la rend verifiable au lieu de la laisser tacite. */
+export function ecrireAbilitesEnvironnement(
+    bc: NativePointer, demandes: Array<{ abilityType: number; niveau: number }>,
+): EcritureEnvironnement {
+    let klass: NativePointer;
+    try { klass = bc.readPointer(); } catch (e) {
+        return { ok: false, error: "classe de la BC illisible : " + (e as Error).message };
+    }
+    if (klass.isNull()) return { ok: false, error: "la BC porte une classe NULLE" };
+    let nomClasse: string;
+    try { nomClasse = cstr(class_get_name(klass) as NativePointer); }
+    catch (e) { return { ok: false, error: "nom de classe illisible : " + (e as Error).message }; }
+    if (nomClasse !== "BattleConfiguration") {
+        return {
+            ok: false,
+            error: "l'objet est un `" + nomClasse + "`, pas une `BattleConfiguration` -- écrire "
+                + "dedans corromprait un objet d'un autre type",
+        };
+    }
+    let off = -1;
+    for (const nom of ["EnvironmentAbilities", "<EnvironmentAbilities>k__BackingField"]) {
+        off = getFieldOffset(klass, nom);
+        if (off >= 0) break;
+    }
+    if (off < 0) {
+        return {
+            ok: false,
+            error: "`BattleConfiguration.EnvironmentAbilities` ABSENT sous ses deux écritures "
+                + "connues -- chemin PÉRIMÉ sur ce build",
+        };
+    }
+    let avant: string;
+    try { avant = bc.add(off).readPointer().toString(); }
+    catch (e) { return { ok: false, error: "lecture du champ : " + (e as Error).message }; }
+
+    // ⚠ ON FUSIONNE, ON NE REMPLACE PAS -- ET C'EST UNE EXIGENCE DU CHEMIN REEL.
+    // `CampaignGameModeSource$$LoadBattle` appelle `ApplyEnvironmentAbilitiesFromProgression`
+    // AVANT que ce hook ne rende la main (xrefs mesurees : la campagne, l'evenement de
+    // campagne, l'amicale, le boss de guilde et la guerre de guilde passent TOUS par la).
+    // Ecrire un receptacle neuf jetterait donc en silence les abilities que la progression du
+    // joueur vient d'y poser. On REUTILISE celui qui est deja la quand il est utilisable, et on
+    // DIT laquelle des deux voies a servi.
+    let env: NativePointer;
+    let voie: string;
+    const existant = (() => {
+        try {
+            const p = bc.add(off).readPointer();
+            if (p.isNull()) return null;
+            // Type-garde : on n'ajoute pas dans un objet dont on ne sait pas ce qu'il est.
+            const n = cstr(class_get_name(p.readPointer()) as NativePointer);
+            return n === "EnvironmentAbilities" ? p : null;
+        } catch { return null; }
+    })();
+    if (existant !== null) {
+        env = existant;
+        voie = "FUSION dans le réceptacle posé par la progression";
+    } else {
+        const envR = envAbilities.creerReceptacle();
+        if (estRefus(envR)) return { ok: false, error: (envR as { error: string }).error };
+        env = envR as NativePointer;
+        voie = "réceptacle NEUF (le champ était nul ou d'un autre type)";
+    }
+
+    const tailleCatalogue = catalogueTaille(bc);
+    const detail: Array<Record<string, unknown>> = [];
+    for (const d of demandes) {
+        const nom = triggeredAbilityName(d.abilityType);
+        const auCatalogue = catalogueContient(bc, nom);
+        const pose = envAbilities.ajouterAbility(env, d.abilityType, d.niveau);
+        if (estRefus(pose)) {
+            return { ok: false, error: "`" + nom + "` : " + (pose as { error: string }).error };
+        }
+        detail.push({
+            abilityType: d.abilityType, nom, niveau: d.niveau,
+            arme: pose === true,
+            // `false` = le natif n'arme pas non plus a niveau 0 ; ce n'est pas un echec.
+            raison: pose === false ? "niveau 0 -- le natif n'arme pas non plus" : undefined,
+            auCatalogue,
+            avertissement: auCatalogue === false
+                ? "ABSENTE du catalogue `Abilities.EnvironmentAbilities` de cette BC ("
+                  + tailleCatalogue + " définitions) -- si rien n'apparaît en bataille, c'est "
+                  + "la première cause à regarder, et elle n'émettra AUCUNE trace"
+                : (auCatalogue === null
+                    ? "catalogue NON MESURÉ (clé non-`String` ou dictionnaire illisible) -- "
+                      + "cette sonde se TAIT plutôt que de rendre un `absent` qu'elle ne peut "
+                      + "pas établir"
+                    : undefined),
+        });
+    }
+
+    // La ré-écriture du champ est INUTILE en fusion (l'objet est déjà en place) mais elle est
+    // faite quand même : elle est idempotente, et elle donne le `relu` qui atteste.
+    try { bc.add(off).writePointer(env); }
+    catch (e) { return { ok: false, error: "écriture du champ : " + (e as Error).message }; }
+    let apres: string;
+    try { apres = bc.add(off).readPointer().toString(); } catch { apres = "?"; }
+    return {
+        ok: true, offset: "+0x" + off.toString(16), noeudAvant: avant, noeudApres: apres,
+        relu: apres === env.toString(), voie, tailleCatalogue,
+        // « CONFIGURE » N'EST PAS « INSTALLE » : seul le compte des membres tranche.
+        installees: envAbilities.resume(env),
+        detail,
+    };
+}
+
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch,
 ): PatchApplyResult {
@@ -674,6 +904,25 @@ function applyPatchToConfig(
                 + `(${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu})`);
         } else {
             warnings.push(`unitSpawningOverTime: ${w.error}`);
+        }
+    }
+
+    // Les abilities d'environnement -- MUTATION du même objet, à la même fenêtre.
+    if (patch.environmentAbilities !== undefined && patch.environmentAbilities !== null
+        && patch.environmentAbilities.length > 0) {
+        const w = ecrireAbilitesEnvironnement(bc, patch.environmentAbilities);
+        if (w.ok) {
+            const inst = JSON.stringify(w.installees);
+            ops.push(`environmentAbilities=${patch.environmentAbilities.length} demandée(s) `
+                + `@${w.offset} (${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu}) `
+                + `installées=${inst}`);
+            // L'absence au catalogue ne fait PAS échouer l'écriture -- elle est ANNONCÉE, parce
+            // que c'est une cause qui, sinon, n'émet aucune trace.
+            for (const d of w.detail ?? []) {
+                if (d.avertissement) warnings.push(`environmentAbilities[${d.nom}]: ${d.avertissement}`);
+            }
+        } else {
+            warnings.push(`environmentAbilities: ${w.error}`);
         }
     }
 
