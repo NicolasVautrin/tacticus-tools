@@ -300,17 +300,29 @@ cohérente de bout en bout — rangs 5 à 11, niveaux 19 à 36, puissances 2 148
 ressemble un joueur de niveau 43. L'erreur allait donc **dans les deux sens** : elle gonflait ET
 elle rabotait.
 
-⚠ **LA MACHINE OF WAR EST LE CAS QUI A FAIT ROUGIR MON PROPRE GARDE, À TORT.** `tyranBiovore`
-sort `Rank 0` / `Health 0` / `Damage 0` — mais **à l'identique sur les DEUX voies**, donc ce
-n'est pas causé par le changement. Ce qui diffère est `StarLevel` **4 (le sien) contre 8 (le
-nôtre)** et `Power` 154 contre 604 : la liaison MORD bien. **L'axe de progression d'une MoW est
-`StarLevel`, pas `Rank`** — un critère écrit sur le rang rend un faux échec sur un modèle
-pourtant juste.
+## ⛔ UNE MoW N'A PAS DE STATS — TOUT PASSE PAR LES ABILITIES
 
-**Résidu ouvert, PRÉEXISTANT et hors de cette tranche** : les statistiques de combat d'une MoW
-(`Health`, `Damage`, `Movement`, `Armor`) sont à **zéro dans `Units`** sur les deux voies, alors
-que ses abilities et ses traits, eux, sont peuplés. Où le natif les prend au moment de la
-bataille n'est pas établi — `PredefinedMachines[0].MachineOfWar` ne porte qu'un `UnitId`.
+C'est la règle du jeu, et elle a d'abord été prise pour un défaut : mon garde a rendu `ECHEC`
+sur `tyranBiovore` parce qu'il jugeait sur `Rank`. Mesuré sur la BC construite, les deux voies :
+
+```
+stats de combat NON NULLES sur la MoW : AUCUNE  (11/11 a zero, les DEUX voies)
+Weapons            MoW = 0        hero = 1        <- pas d'arme, donc pas d'attaque normale
+ActiveAbilities    MoW = 2        hero = 1        <- 1144, 1145
+PassiveAbilities   MoW = 0        hero = 1
+
+StarLevel  ==  ActiveAbilityLevel        4 == 4 (le sien)  ·  8 == 8 (le notre)
+```
+
+⇒ **`StarLevel` EST le niveau d'ability.** Toute la progression d'une MoW tient là : star level →
+niveau d'ability → variables de l'ability. `Health`/`Damage`/`Movement`/`Armor` à zéro n'est pas
+un trou de montage, c'est la **forme normale** — il n'y a rien à y chercher.
+
+⚠ **DEUX LEÇONS, et la seconde vaut plus que la première.** (1) Un critère écrit sur `Rank` rend
+un faux échec sur un modèle juste : l'axe d'une MoW est `StarLevel`. (2) **C'est l'A/B qui a
+dissout l'accusation, pas la lecture d'un seul montage** — un champ nul *des deux côtés* n'est
+causé par aucun des deux. Juger une voie seule aurait fait ouvrir un résidu qui n'existe pas ;
+il a d'ailleurs été ouvert ici pendant quinze minutes avant d'être retiré.
 
 ## Garde en place
 
