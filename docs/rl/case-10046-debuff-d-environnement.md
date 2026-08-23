@@ -117,6 +117,28 @@ Mesure (`adeptCanoness`, PV max 8533, `--unit-stat RemainingHealth=2000`, `hpPct
 | 1 | **4560** | +2560 = 30 % × 8533 |
 | 2 | **7120** | +5120 = 2 × 2560 |
 
+**D'où ça vient — l'INCURSION.** Un seul live event du gameconfig porte des `enhancements` :
+`liveEvents/idunLiveEventConfigs[1545]`, `eventType: mowEvent`. Son graphe de nœuds est fait de
+**2178** `incursionBattle` et **1870** `incursionEnhancement` — on choisit un enhancement entre
+deux batailles. Les 19 entrées y déclarent exactement les deux boutons trouvés ci-dessus :
+
+```json
+"Regeneration_01": {"type": "Regeneration", "abilityId": "EnhancementRegeneration", "stacks": true}
+"AddTrait_01":     {"type": "AddTrait", "unitAmount": 1, "abilityId": "EnhancementAddTrait:MkXGravis", "stacks": false}
+"DamageBoost_01":  {"type": "DamageBoost", "unitAmount": 1, "abilityId": "EnhancementDamageBoost", "stacks": true}
+```
+
+`stacks` ↔ le champ `Stack` de l'entrée (le multiplicateur mesuré) ; `unitAmount` ↔ la longueur de
+la liste `Targets`.
+
+⚠ **L'incursion n'expose qu'une FRACTION du catalogue, et l'écart est le gisement.** `units/abilities`
+du gameconfig porte **20** entrées `Enhancement*` ; l'event en cite **17** (toutes présentes, et
+toutes au catalogue de la BC). Mais côté `AddTrait`, le gameconfig n'en connaît que **quatre** —
+`MkXGravis`, `RapidAssault`, `Resilient`, `Infiltrate` — là où le catalogue de la BC porte **106**
+variantes `EnhancementAddTrait:<Trait>`. Les 102 autres n'existent **que** dans la BC : elles sont
+hors de portée de l'UI d'incursion, et c'est exactement ce qui les rend atteignables par la voie
+seed-BC ci-dessus.
+
 ⚠ **Elle tire AU MONTAGE, pas par tour.** Mesuré : un héros qui encaisse sur deux tours
 (8533 → 6418 → 1385) n'est **jamais** soigné — `6418 − 5033 = 1385` exactement. C'est un héros
 **déjà blessé à la construction** qui l'est. Contrairement à `EnhancementDamageBoost`, qui pose un
