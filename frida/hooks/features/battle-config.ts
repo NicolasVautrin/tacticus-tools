@@ -1554,26 +1554,9 @@ function spawnPredefinedUnitsInto(
 /** Les noms de chargeur cherches, dans l'ordre de preference. */
 const NOMS_DE_CHARGEUR = ["LoadBattle", "LoadBattleInternal"] as const;
 
-/** ⛔ LES SOURCES QU'ON REFUSE D'ANCRER, ET POURQUOI. Tout le reste est accepte.
- *
- *  Le critere n'est pas le mode, c'est l'EFFET SUR AUTRUI : patcher la BC y changerait l'issue
- *  d'une partie pour d'AUTRES JOUEURS. Le PvE solo, lui, ne regarde que le compte qui le joue.
- *
- *  Le besoin de repetition sur ces modes-la passe par le BANC : `sandbox_gw.py` monte le slot de
- *  guerre de guilde exact (plateau, defenseurs, buffs de zone, cap de rarete) sur
- *  `SandboxGameModeSource`, qui est decouverte et ancree comme les autres -- donc deja patchable,
- *  et sans consommer de tentative. */
 const SOURCES_REFUSEES: Readonly<Record<string, string>> = {
     SyncPvpGameModeSource:
         "PvP synchrone -- un adversaire reel joue en face.",
-    PvpGameModeSource:
-        "arene asynchrone -- on affronte l'equipe de defense d'un joueur reel, "
-        + "et son classement bouge avec l'issue.",
-    PvpStarterSeasonGameModeSource:
-        "arene asynchrone (saison debutant) -- meme raison.",
-    GuildWarsGameModeSource:
-        "defenses posees par les joueurs d'une autre guilde ; le resultat compte "
-        + "pour eux autant que pour nous.",
 };
 
 const NS_BASE = "IdunBattle.ViewLogic.BattleSource";
@@ -1677,7 +1660,7 @@ function installLoadBattleHook(): void {
 
     // ⛔ LE CORPS DE LA BASE — RÉSOLU POUR ÊTRE REFUSÉ, JAMAIS ANCRÉ. Ancrer
     // `AGameModeSource.LoadBattle` couvrirait d'un coup TOUTES les sources qui ne l'overrident
-    // pas, dont GuildWars, Pvp et PvpStarterSeason. `findMethod` n'itère que les méthodes
+    // pas. `findMethod` n'itère que les méthodes
     // DÉCLARÉES, donc ce cas ne devrait pas se produire — on le teste quand même, parce qu'un
     // garde de PORTÉE ne se fonde pas sur une propriété d'un helper qu'on ne contrôle pas.
     const kBase = findClassAnywhere(NS_BASE, CLS_BASE);
