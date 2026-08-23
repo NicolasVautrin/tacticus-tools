@@ -70,6 +70,7 @@ import {
     findPvpGameModeSourceViaHeap,
 } from "./campaign-builder.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
+import { lineupDeLaSource } from "../game/source-lineup.js";
 import { registerRunner, getRunner as getRegistryRunner,
     listRunners as listRegistryRunners, MAX_RUNNERS }
     from "../game/runner-registry.js";
@@ -302,6 +303,214 @@ function readListItem(
 ): NativePointer {
     return listInfo.array.add(ARRAY_OFF_DATA + i * Process.pointerSize)
         .readPointer();
+}
+
+/** La partie AVANT le `:` d'un `unitId`.
+ *
+ *  ⚠ C'est ce que fait `IdunBattle.Configuration.UnitConfigId$$CreateFromString` : il SCINDE, et
+ *  `PureId` ne garde jamais le suffixe. On compare donc des `PureId`, jamais des chaines brutes --
+ *  `tyranNpc3Termagant:6` et `tyranNpc3Termagant` designent la meme unite de catalogue. */
+function pureId(brut: string): string {
+    const i = brut.indexOf(":");
+    return i < 0 ? brut : brut.slice(0, i);
+}
+
+/** Les `PureId` de `BC.PredefinedUnits`, tous joueurs confondus. `null` = PAS LU.
+ *
+ *  ⚠ TRI-ETAT, et il porte une decision : `null` (champ illisible) ne doit pas se lire comme
+ *  « aucune unite predefinie ». Rendre `[]` sur une lecture ratee ferait poser un debuff SANS
+ *  cible -- installe, compte a 1, et parfaitement inerte. L'appelant AVERTIT au lieu de deviner.
+ *
+ *  ⚠ POURQUOI TOUS LES JOUEURS SANS DISTINCTION DE CAMP : sur les BC que le jeu produit vraiment,
+ *  ce champ porte l'ADVERSAIRE et lui seul -- mesure du 2026-08-23, une BC d'Arene reelle n'a
+ *  qu'UN groupe (le sien), et les unites du joueur entrent par `AddUnitMessage` au deploiement
+ *  (`GetPvpLevelConfig` recoit `overrideMainPlayerUnits = 0`, lu au decompile). Meme forme cote
+ *  onslaught. Lire le camp exigerait de parcourir `BC.Player.Players`, un `SortedDictionary`
+ *  (arbre rouge-noir) sur le thread principal, a cette fenetre-la : le cout n'est pas justifie
+ *  tant que la mesure dit qu'il n'y a qu'un camp ici.
+ *  ⚠ LA LIMITE EST REELLE ET SE DIT : sur une BC qui porterait les DEUX camps (une sandbox montee
+ *  avec `--units`, par exemple), `ciblesAuto: "adversaire"` viserait AUSSI les siennes. */
+function unitesPredefinies(bc: NativePointer): string[] | null {
+    try {
+        const pu = readManagedList(bc.add(BC_OFF_PREDEFINED_UNITS).readPointer());
+        if (pu === null) return null;
+        const out = new Set<string>();
+        for (let i = 0; i < pu.size; i++) {
+            const grp = readListItem(pu, i);
+            if (grp.isNull()) continue;
+            const units = readManagedList(grp.add(PU_OFF_UNITS).readPointer());
+            if (units === null) continue;
+            for (let j = 0; j < units.size; j++) {
+                const p = readListItem(units, j);
+                if (p.isNull()) continue;
+                const id = readIl2cppString(p.add(PUNIT_OFF_UNIT_ID).readPointer());
+                if (id) out.add(pureId(id));
+            }
+        }
+        // Les MACHINES comptent comme des unites adverses -- meme liste, mesure sur la BC d'Arene
+        // reelle ou `tyranBiovore:pvp` est en `PredefinedMachines`, pas en `PredefinedUnits`.
+        // Les offsets sont ceux qu'`inspectBattleConfig` exerce a chaque appel, donc confrontes.
+        const pm = readManagedList(bc.add(BC_OFF_PREDEFINED_MACHINES).readPointer());
+        if (pm !== null) {
+            for (let i = 0; i < pm.size; i++) {
+                const entry = readListItem(pm, i);
+                if (entry.isNull()) continue;
+                const mp = entry.add(PMOW_OFF_MACHINE).readPointer();
+                if (mp.isNull()) continue;
+                const id = readIl2cppString(mp.add(PMOW_OFF_UNIT_ID).readPointer());
+                if (id) out.add(pureId(id));
+            }
+        }
+        return Array.from(out);
+    } catch { return null; }
+}
+
+/** Combien de tours de VAGUES la BC programme -- `UnitSpawningOverTime.Tiers._count`.
+ *
+ *  `0` = aucune vague. `null` = PAS MESURE. Dans les DEUX cas non nuls, `ciblesAuto` est
+ *  INCOMPLET et doit le DIRE.
+ *
+ *  ⚠ ON COMPTE, ON NE PARCOURT PAS. `Tiers` est un `Dictionary<Int32, Dictionary<PlayerId, Wave>>` :
+ *  des cles de TYPE VALEUR imbriquees, c'est-a-dire exactement le geste qui a tue le process le
+ *  2026-08-21 sur `EnvironmentAbilities.AbilitiesConfigurations`. Lire `_count` est un `readS32`
+ *  sur un champ resolu par nom -- aucun boxage, aucune enumeration.
+ *
+ *  ⇒ Consequence assumee : en ONSLAUGHT, `ciblesAuto: "adversaire"` ne couvre que la POSE
+ *  INITIALE. Le tirage des vagues (4 a 7 types sur un pool de 12) passe par
+ *  `onslaught_commun.py`, qui lit le SUR-ENSEMBLE du tier dans la progression du compte et le
+ *  passe en cibles EXPLICITES -- rater un type coute la bataille, en viser un qui n'apparait
+ *  jamais ne coute rien. */
+/** Les deux camps de la BC, DERIVES -- `{ miens, adverses }` en `PureId`. `null` = PAS DERIVABLE.
+ *
+ * ⛔ CE QUI A RENDU CETTE FONCTION NECESSAIRE, ET C'ETAIT UNE INVERSION COMPLETE.
+ * La premiere version posait « `PredefinedUnits` = l'adversaire », mesure sur une BC d'Arene ou ce
+ * champ ne porte effectivement que lui. Rejoue sur une BC A VAGUES (onslaught, tier 18) le
+ * 2026-08-23, le meme champ portait **MES CINQ UNITES** : le `-100 %` s'est donc arme sur ma
+ * propre equipe (9 cibles = mes 5 + les 4 de vague) et l'Immune sur PERSONNE (0 cible, tout
+ * retranche). Le patch se retournait integralement. Une regle tiree d'UN mode n'est pas une regle.
+ *
+ * LA REGLE, ELLE, SE DERIVE -- structure identique mesuree sur les deux modes :
+ *
+ *     Player.Players = { "<playerId>": { TeamId, PlayerType, Name } }
+ *        PlayerType 0 = le JOUEUR HUMAIN     (Name "player")
+ *        PlayerType 1 = l'adversaire         (Name "enemy")
+ *        PlayerType 2 = l'environnement      (Name "Environment", TeamId 0)
+ *
+ * Mon equipe = le `TeamId` du joueur a `PlayerType 0`. Est ADVERSE tout ce qui appartient a un
+ * `TeamId` different. Chaque groupe de `PredefinedUnits`/`PredefinedMachines` porte son `Id`
+ * (= playerId), et `Tiers[<tour>]` est KEYE par playerId -- donc les vagues se rattachent a un
+ * camp, elles aussi.
+ *
+ * ⚠ ON REFUSE PLUTOT QUE DE DEVINER : s'il n'y a pas EXACTEMENT un joueur a `PlayerType 0`, on
+ * rend `null`. Un patch sans cible est inerte et se voit ; un patch aux cibles INVERSEES gagne la
+ * bataille pour l'adversaire.
+ *
+ * ⚠ ON PASSE PAR LA SERIALISATION, comme `dumpBattleConfig`. Lire `Player.Players` nativement
+ * demanderait de marcher un `SortedDictionary` (arbre rouge-noir) a cles de TYPE VALEUR, sur le
+ * thread principal, a la fenetre de chargement. Newtonsoft le fait deja, et rend la MEME forme que
+ * `bc_apparitions.py` lit cote Python -- une seule forme pour deux lecteurs. */
+function campsDeLaBc(bc: NativePointer): { miens: string[]; adverses: string[] } | null {
+    let json: string | null;
+    try { json = _serializeBcToJson(bc); } catch { return null; }
+    if (json === null) return null;
+    let o: Record<string, unknown>;
+    try { o = JSON.parse(json) as Record<string, unknown>; } catch { return null; }
+
+    const players = ((o["Player"] as Record<string, unknown> | null)
+        ?? {})["Players"] as Record<string, Record<string, unknown>> | null | undefined;
+    if (players === null || players === undefined) return null;
+    const equipeDe = new Map<string, number>();
+    const humains: string[] = [];
+    for (const [pid, p] of Object.entries(players)) {
+        if (p === null || typeof p !== "object") continue;
+        const team = p["TeamId"];
+        if (typeof team === "number") equipeDe.set(pid, team);
+        if (p["PlayerType"] === 0) humains.push(pid);
+    }
+    if (humains.length !== 1) return null;          // ni deviner, ni choisir
+    const monEquipe = equipeDe.get(humains[0]);
+    if (monEquipe === undefined) return null;
+
+    const miens = new Set<string>();
+    const adverses = new Set<string>();
+    const ranger = (pid: unknown, id: unknown): void => {
+        if (typeof id !== "string" || id === "") return;
+        const t = equipeDe.get(String(pid));
+        if (t === undefined) return;               // joueur inconnu : on ne classe pas au hasard
+        (t === monEquipe ? miens : adverses).add(pureId(id));
+    };
+
+    for (const g of (o["PredefinedUnits"] as Array<Record<string, unknown>> | null) ?? []) {
+        for (const u of (g?.["Units"] as Array<Record<string, unknown>> | null) ?? []) {
+            ranger(g?.["Id"], u?.["UnitId"]);
+        }
+    }
+    for (const m of (o["PredefinedMachines"] as Array<Record<string, unknown>> | null) ?? []) {
+        const mow = m?.["MachineOfWar"] as Record<string, unknown> | null;
+        ranger(m?.["Id"], mow?.["UnitId"]);
+    }
+    const tiers = ((o["UnitSpawningOverTime"] as Record<string, unknown> | null)
+        ?? {})["Tiers"] as Record<string, unknown> | null | undefined;
+    for (const parJoueur of Object.values(tiers ?? {})) {
+        if (parJoueur === null || typeof parJoueur !== "object") continue;
+        for (const [pid, spec] of Object.entries(parJoueur as Record<string, unknown>)) {
+            const aSpawner = (spec as Record<string, unknown> | null)?.["ToSpawn"];
+            if (!Array.isArray(aSpawner)) continue;
+            for (const s of aSpawner) ranger(pid, (s as Record<string, unknown> | null)?.["UnitId"]);
+        }
+    }
+    return { miens: Array.from(miens), adverses: Array.from(adverses) };
+}
+
+/** Les `PureId` que le CALENDRIER DE VAGUES programme -- `UnitSpawningOverTime.Tiers`.
+ *
+ *  `null` = PAS LU (jamais a confondre avec « aucune vague », qui est `[]`).
+ *
+ *  ⚠ ON PASSE PAR LA SERIALISATION, ET C'EST LE CHOIX SUR. `Tiers` est un
+ *  `Dictionary<Int32, Dictionary<PlayerId, Wave>>` : marcher ses `_entries` a la main demanderait
+ *  de decoder des cles de TYPE VALEUR imbriquees. Newtonsoft sait deja le faire -- c'est la meme
+ *  voie que `dumpBattleConfig`, et la meme forme que `bc_apparitions.py` lit cote Python
+ *  (`Tiers[<round>][<player>].ToSpawn[].UnitId`), donc une seule forme pour deux lecteurs.
+ *
+ *  ⚠ LE COUT EST CONDITIONNEL, ET C'EST POURQUOI L'APPELANT COMPTE D'ABORD : on ne serialise la BC
+ *  (200 a 600 Ko) QUE si `Tiers` porte au moins un tour. Une BC d'Arene n'en porte aucun, donc le
+ *  cas courant ne paie rien. */
+function unitesDesVagues(bc: NativePointer): string[] | null {
+    let json: string | null;
+    try { json = _serializeBcToJson(bc); } catch { return null; }
+    if (json === null) return null;
+    try {
+        const o = JSON.parse(json) as Record<string, unknown>;
+        const uso = o["UnitSpawningOverTime"] as Record<string, unknown> | null | undefined;
+        const tiers = (uso ?? {})["Tiers"] as Record<string, unknown> | null | undefined;
+        if (tiers === null || tiers === undefined) return [];
+        const out = new Set<string>();
+        for (const parJoueur of Object.values(tiers)) {
+            if (parJoueur === null || typeof parJoueur !== "object") continue;
+            for (const spec of Object.values(parJoueur as Record<string, unknown>)) {
+                if (spec === null || typeof spec !== "object") continue;
+                const aSpawner = (spec as Record<string, unknown>)["ToSpawn"];
+                if (!Array.isArray(aSpawner)) continue;
+                for (const s of aSpawner) {
+                    const id = (s as Record<string, unknown> | null)?.["UnitId"];
+                    if (typeof id === "string" && id !== "") out.add(pureId(id));
+                }
+            }
+        }
+        return Array.from(out);
+    } catch { return null; }
+}
+
+function nombreDeVagues(bc: NativePointer): number | null {
+    try {
+        const uso = champPointeur(bc, "UnitSpawningOverTime");
+        if (estRefus(uso)) return null;
+        const tiers = champPointeur(uso as NativePointer, "Tiers");
+        if (estRefus(tiers)) return null;
+        const d = tiers as NativePointer;
+        const off = getFieldOffset(d.readPointer(), "_count");
+        return off < 0 ? null : d.add(off).readS32();
+    } catch { return null; }
 }
 
 // --- Inspection RPC ---
@@ -1203,8 +1412,13 @@ export function ecrireAbilitesEnvironnement(
     };
 }
 
+/** `srcInstance` = l'instance de la SOURCE qui vient de produire cette BC, quand on l'a (hook
+ *  `LoadBattle.onLeave`). C'est le SEUL endroit d'où la composition du joueur est lisible : la BC
+ *  ne la porte pas en PvP -- cf. `game/source-lineup.ts`. `null` depuis les voies qui patchent une
+ *  BC déjà montée (`applyBattleConfigPatch`, runner) : `ciblesAuto: "moi"` s'y rabat sur les camps
+ *  dérivés de la BC, et le DIT. */
 function applyPatchToConfig(
-    bc: NativePointer, patch: BattleConfigPatch,
+    bc: NativePointer, patch: BattleConfigPatch, srcInstance: NativePointer | null = null,
 ): PatchApplyResult {
     const ops: string[] = [];
     const warnings: string[] = [];
@@ -1284,7 +1498,85 @@ function applyPatchToConfig(
     // réceptacle (fusion ou neuf), donc pas deux chances d'en créer un second et de jeter le
     // premier.
     const demandesEnv = patch.environmentAbilities ?? [];
-    const demandesEnh = patch.environmentEnhancements ?? [];
+    // ⚠ LES CIBLES `ciblesAuto` SE RESOLVENT ICI, PAS A L'ARMEMENT -- c'est tout l'interet : la BC
+    // n'existe qu'a cette fenetre, donc c'est le seul moment ou l'adversaire est ENUMERABLE. Un
+    // patch arme une fois mord alors sur n'importe quelle source (PvP, onslaught, ...) sans qu'on
+    // ait a renommer ses cibles a chaque proposition.
+    const specsEnh = patch.environmentEnhancements ?? [];
+    // Les camps sont derives UNE fois (la serialisation coute, et deux entrees `ciblesAuto` la
+    // paieraient deux fois) -- et seulement si quelqu'un les demande.
+    const camps = specsEnh.some((e) => e.ciblesAuto !== undefined) ? campsDeLaBc(bc) : null;
+    if (camps !== null) {
+        ops.push(`camps derives : ${camps.miens.length} unite(s) a MOI, `
+            + `${camps.adverses.length} ADVERSE(S) (PredefinedUnits + machines + vagues, `
+            + `classees par TeamId)`);
+    }
+    // La composition du joueur ne se lit PAS dans la BC (vide en PvP) : on la DEMANDE a la source.
+    // On ne paie l'invocation que si quelqu'un vise `moi`, et seulement quand la source est la --
+    // c'est-a-dire au `LoadBattle.onLeave`, ou l'on est deja sur le thread principal.
+    const veutMoi = specsEnh.some((e) => e.ciblesAuto === "moi");
+    const lineupSource = (veutMoi && srcInstance !== null)
+        ? lineupDeLaSource(srcInstance) : null;
+    if (lineupSource !== null) {
+        ops.push(`lineup demandee a \`${lineupSource.classe}\` : `
+            + `${lineupSource.unites === null ? "NON MESUREE" : lineupSource.unites.length} unite(s)`
+            + `, places=${lineupSource.places}, mow=${lineupSource.mow ?? "aucune"}`
+            + (lineupSource.refus !== null ? ` -- ${lineupSource.refus}` : ""));
+    }
+    const demandesEnh = specsEnh.map((e) => {
+        if (e.ciblesAuto === undefined) return e;
+        if (camps === null) {
+            // ⚠ SANS CAMPS, ON NE POSE RIEN. Une entree sans cible est INERTE et se voit ; une
+            // entree aux cibles INVERSEES arme le `-100 %` sur sa propre equipe -- mesure du
+            // 2026-08-23 sur une BC a vagues, 9 cibles dont mes 5 unites.
+            warnings.push(`environmentEnhancements[${e.ability}]: \`ciblesAuto\` demande mais les `
+                + `CAMPS ne sont pas derivables (\`Player.Players\` illisible, ou pas exactement `
+                + `un joueur \`PlayerType 0\`) -- entree posee SANS cible plutot qu'a l'envers`);
+            return { ...e, cibles: [] };
+        }
+        if (e.ciblesAuto === "adversaire") return { ...e, cibles: camps.adverses };
+        // `moi` : ON DEMANDE LA COMPOSITION A LA SOURCE, puis on retranche tout ce qui est adverse.
+        //
+        // ⛔ NE PAS SE CONTENTER DE `camps.miens`. Mesure du 2026-08-23 sur une BC PvP REELLE
+        // (forgee, sans consommer de tentative) : `camps.miens` y est VIDE -- les unites du joueur
+        // n'entrent qu'au DEPLOIEMENT, par `AddUnitMessage`, donc APRES cette fenetre. La BC ne
+        // porte pas la reponse ; la SOURCE, elle, la connait, et c'est elle qui la donnera au HUD.
+        // Foyer unique de cette demande : `game/source-lineup.ts`.
+        //
+        // ⚠ LA SOUSTRACTION N'EST PAS UNE PRECAUTION : `UnitConfigId$$Equals` ignore `IsPvpOpponent`
+        // (et ne regarde ni le tour ni le camp), donc un id present DES DEUX COTES apparierait aussi
+        // la copie d'en face. Un `Immune` offert a l'adversaire est pire que pas d'`Immune`.
+        const exclus = new Set(camps.adverses);
+        // La MACHINE DE GUERRE est une unite a moi comme une autre, et elle n'apparait dans AUCUNE
+        // des deux autres voies : `GetBattleLineup` ne rend que les heros, et la BC ne porte que
+        // les `PredefinedMachines` de l'adversaire.
+        const depuisSource = lineupSource === null ? [] : [
+            ...(lineupSource.unites ?? []),
+            ...(lineupSource.mow !== null ? [lineupSource.mow] : []),
+        ];
+        const base = Array.from(new Set([
+            ...(e.cibles ?? []).map(pureId), ...depuisSource.map(pureId), ...camps.miens,
+        ]));
+        const gardees = base.filter((c) => !exclus.has(c));
+        const retires = base.length - gardees.length;
+        if (retires > 0) {
+            ops.push(`environmentEnhancements[${e.ability}]: ${retires} cible(s) RETIREE(S) `
+                + `(homonymes presents dans LES DEUX camps -- \`Equals\` ne lit pas `
+                + `\`IsPvpOpponent\`, la copie adverse serait appariee aussi)`);
+        }
+        ops.push(`environmentEnhancements[${e.ability}]: ${gardees.length} cible(s) = `
+            + `${depuisSource.length} de la SOURCE U ${camps.miens.length} de la BC `
+            + `U ${(e.cibles ?? []).length} fournie(s) - ${retires} homonyme(s)`);
+        if (gardees.length === 0) {
+            warnings.push(`environmentEnhancements[${e.ability}]: AUCUNE cible -- `
+                + (lineupSource === null
+                    ? `la SOURCE n'a pas ete transmise (patch applique hors \`LoadBattle\`), et la `
+                        + `BC ne porte pas la composition du joueur`
+                    : `la source \`${lineupSource.classe}\` a repondu : `
+                        + `${lineupSource.refus ?? "aucune unite"}`));
+        }
+        return { ...e, cibles: gardees };
+    });
     if (demandesEnv.length > 0 || demandesEnh.length > 0) {
         const w = ecrireAbilitesEnvironnement(bc, demandesEnv, demandesEnh);
         if (w.ok) {
@@ -1557,6 +1849,21 @@ const NOMS_DE_CHARGEUR = ["LoadBattle", "LoadBattleInternal"] as const;
 const SOURCES_REFUSEES: Readonly<Record<string, string>> = {
     SyncPvpGameModeSource:
         "PvP synchrone -- un adversaire reel joue en face.",
+    // ⛔ FAUX ANCRAGE, MESURE le 2026-08-23. Son `LoadBattle` tire en PERMANENCE -- y compris quand
+    // aucune bataille n'est montee -- et son retval n'est JAMAIS une `BattleConfiguration` : quatre
+    // types differents observes sur autant de tirs (`List`1`, `RectTransform`, `UnitEntity`,
+    // `DefaultJsonNameTable`). Signature du corps TRIVIAL DEDUPLIQUE par IL2CPP : la classe declare
+    // un stub, IL2CPP fusionne son corps avec celui de dizaines de methodes sans rapport, et
+    // `findMethod` rend ce corps partage. On n'ancre donc pas une source, on ancre un carrefour.
+    //
+    // Le degat n'est pas la corruption -- la garde de type refuse d'ecrire, c'est son role -- mais
+    // l'EFFACEMENT : chaque tir ecrase `lastApply`, donc le seul temoin de ce qu'une VRAIE source a
+    // installe. Mesure : une BC PvP forgee a 18:32 etait deja recouverte a 18:33 par un tir de ce
+    // stub, `bcPtr` different, cibles introuvables. On lisait « les camps ne sont pas derivables »
+    // en croyant juger le PvP, alors qu'on jugeait un `RectTransform`.
+    TestSceneBattleModeSource:
+        "corps TRIVIAL DEDUPLIQUE : le `LoadBattle` resolu est partage avec des methodes sans "
+        + "rapport, tire hors de toute bataille et rend n'importe quel type -- il EFFACE `lastApply`.",
 };
 
 const NS_BASE = "IdunBattle.ViewLogic.BattleSource";
@@ -1761,6 +2068,14 @@ function installLoadBattleHook(): void {
 function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean {
     try {
         Interceptor.attach(ptr, {
+            // ⚠ ON CAPTURE `this` DE LA METHODE NATIVE. `LoadBattle` est une methode D'INSTANCE :
+            // en x64, `args[0]` EST la source. C'est le seul endroit d'ou la composition du joueur
+            // est lisible -- la BC ne la porte pas (mesure PvP du 2026-08-23), la source si.
+            // `InvocationContext` est propre a l'appel, donc pas de fuite entre deux montages, et
+            // pas de course entre deux sources chargees en parallele.
+            onEnter(args) {
+                (this as unknown as { srcInstance: NativePointer }).srcInstance = args[0];
+            },
             onLeave(retval) {
                 if (pendingPatch === null) return;
                 if (retval.isNull()) return;
@@ -1768,8 +2083,10 @@ function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean
                 if (patch.consumeOnce !== false) {
                     pendingPatch = null; // consume now to avoid re-apply
                 }
+                const src = (this as unknown as { srcInstance?: NativePointer }).srcInstance
+                    ?? null;
                 try {
-                    const result = applyPatchToConfig(retval, patch);
+                    const result = applyPatchToConfig(retval, patch, src);
                     // La SOURCE est publiée : sans elle, un `lastApply` ne dit pas si le patch a
                     // mordu sur la campagne ou sur le banc, et les deux se lisent pareil.
                     result.operations.unshift(`source=${source}`);

@@ -286,3 +286,46 @@ la BC, jamais contre le seul littéral du décompilé.**
   le gameconfig » accusait la **mauvaise table**. Les configs d'env-ability vivent dans
   `BC.Abilities.EnvironmentAbilities`, pas dans le gameconfig — `EnvThinVeil` y est à 0 occurrence
   alors qu'il **est** au catalogue de la BC. La conclusion (absent) restait juste, la preuve non.
+
+## Cibler « moi » et « l'adversaire » sans les nommer (2026-08-23)
+
+**Le patch se résout à l'APPLICATION, pas à l'armement** (`ciblesAuto: "adversaire" | "moi"`).
+Un armement unique mord alors sur n'importe quelle source. Validé en PvP live.
+
+**L'ADVERSAIRE se dérive de la BC.** `BC.Player.Players` : `PlayerType 0` = le joueur humain, son
+`TeamId` définit « moi ». Les groupes `PredefinedUnits`/`PredefinedMachines` portent leur playerId,
+`UnitSpawningOverTime.Tiers` est keyé par playerId — les vagues se rattachent donc à un camp.
+
+⚠ **NE PAS écrire « `PredefinedUnits` = l'adversaire ».** Règle tirée d'UNE BC d'Arène, **INVERSÉE**
+sur une BC à vagues où le champ porte MES unités : le `-100 %` s'est armé sur ma propre équipe
+(9 cibles = mes 5 + les 4 de vague) et l'Immune sur personne. Une règle tirée d'un mode n'est pas
+une règle.
+
+**MOI ne se dérive PAS de la BC — on le DEMANDE À LA SOURCE.** Mesuré sur une BC PvP **réelle**
+(forgée par `pvp-source-forge`, aucune tentative consommée) : le camp du joueur y est **VIDE**, les
+unités n'entrent qu'au **déploiement** par `AddUnitMessage`, donc **après** `LoadBattle.onLeave`.
+Deux replis tentés, tous deux faux : épingler la lineup (5 ids d'onslaught contre une lineup
+d'arène → **0 appariement, aucun trait posé, rien ne le signalait**) ; dériver de la BC (rend 0, ce
+qui se lit « pas de camp » au lieu de « pas dans cet objet »).
+
+Foyer unique : **`frida/hooks/game/source-lineup.ts`** — `GetBattleLineup(places)` +
+`GetBattleMachineOfWarLineup()`, `places` **lu** sur la source (`MaxUnitsPossibleToStartBattle`),
+jamais un `5` écrit. Le hook `LoadBattle` capture `args[0]` à l'`onEnter` : c'est le `this` de la
+source, on est déjà sur le thread principal, et l'objet est complet. Mesure PvP : 5 unités +
+`blackForgefiend`, `places=5`.
+
+⚠ **`GetBattleLineup` prend une TAILLE, pas un index** — son paramètre s'appelle `lineupIndex` dans
+le dump et dit le contraire. `0 -> []`, `1 -> 1`, `18 -> 18`.
+
+⚠ **`UnitConfigId.PureId` RETIRE le suffixe `:pvp`** (`CreateFromString` scinde). Un homonyme d'en
+face est donc apparié : sur 6 unités à moi, **2 retirées** (`worldKharn`, `blackForgefiend`, joués
+des deux côtés). Ce n'est pas contournable — le natif lui-même ne les distingue pas ; leur donner
+l'Immune le donnerait aussi aux copies adverses.
+
+⛔ **`TestSceneBattleModeSource` est un FAUX ANCRAGE, désormais refusé.** Son `LoadBattle` est un
+corps **trivial dédupliqué** par IL2CPP : il tire **hors de toute bataille** et rend n'importe quel
+type (`List`1`, `RectTransform`, `UnitEntity`, `DefaultJsonNameTable` sur quatre tirs). La garde de
+type refusait d'écrire — mais chaque tir **ÉCRASAIT `lastApply`**, seul témoin de ce qu'une vraie
+source avait installé. Effet mesuré : une BC PvP appliquée à 18:32 était recouverte à 18:33, et on
+lisait « les camps ne sont pas dérivables » en croyant juger le PvP alors qu'on jugeait un
+`RectTransform`. **Un anti-écrasement vaut mieux qu'un verdict plausible.**

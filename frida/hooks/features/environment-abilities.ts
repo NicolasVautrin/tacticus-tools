@@ -192,6 +192,34 @@ export interface SpecEnhancement {
     /** Les `unitId` VISES. C'est ce que `IdunBattleLogic.Entities.DSLTriggers$$IsEnhancementTarget`
      *  confronte -- l'equivalent du `unitAmount` de l'UI d'incursion. */
     cibles?: string[];
+    /** Resoudre les cibles CONTRE LA BC au moment de l'application, au lieu de les figer a
+     *  l'armement. Le camp se lit dans `BC.Player.Players` -- `PlayerType 0` est le joueur humain,
+     *  son `TeamId` definit « moi ». Chaque groupe de `PredefinedUnits`/`PredefinedMachines` porte
+     *  son playerId, et `UnitSpawningOverTime.Tiers` est keye par playerId : les vagues se
+     *  rattachent a un camp elles aussi.
+     *
+     *  `"adversaire"` : tout ce qui appartient a un `TeamId` autre que le mien. `cibles` est ignore.
+     *  `"moi"`        : `cibles` UNION le camp derive, MOINS tout ce qui est adverse.
+     *
+     *  ⛔ NE PAS RETOMBER SUR « `PredefinedUnits` = l'adversaire ». Cette regle, tiree d'une seule
+     *  BC d'Arene, s'est INVERSEE sur une BC a vagues (le champ y porte MES unites) : le `-100 %`
+     *  s'est arme sur ma propre equipe.
+     *
+     *  ⛔ ET NE PAS CROIRE QUE `"moi"` SE DERIVE SEUL. Mesure du 2026-08-23 sur une BC PvP REELLE
+     *  (forgee par `pvp-source-forge`, sans consommer de tentative) : `camps.miens` y est VIDE --
+     *  les unites du joueur n'entrent qu'au DEPLOIEMENT, par `AddUnitMessage`, donc apres la
+     *  fenetre `LoadBattle.onLeave`. D'ou l'UNION : on fournit un sur-ensemble (le roster), la BC
+     *  ajoute ce qu'elle porte, la soustraction tranche. Une cible qui ne correspond a aucune unite
+     *  presente est INERTE, jamais une erreur -- un sur-ensemble ne coute donc rien.
+     *
+     *  ⚠ LA SOUSTRACTION DES HOMONYMES N'EST PAS UNE PRECAUTION, C'EST LA CORRECTION D'UN BUG MESURE.
+     *  `IdunBattle.Configuration.UnitConfigId$$Equals` ne compare que PureId, Rarity, Level et
+     *  IsBorrowed -- il ne lit JAMAIS `IsPvpOpponent` (+0x19 dans la struct inline, absent du
+     *  corps, verifie au decompile). Le suffixe `:pvp` ne separe donc RIEN : une cible ecrite
+     *  `thousTzaangor` apparie le `thousTzaangor:pvp` d'en face. Sans cette soustraction, poser
+     *  un trait sur son propre roster le pose AUSSI sur les unites homonymes de l'adversaire --
+     *  constate le 2026-08-23 sur 6 unites. */
+    ciblesAuto?: "adversaire" | "moi";
     /** Le MULTIPLICATEUR (`IdunBattleLogic.Entities.DSLFormulas$$EnhancementStack`), pas un
      *  compteur decoratif : mesure sur `EnhancementRegeneration`, stack 1 -> +30 % des PV max,
      *  stack 2 -> +60 %. C'est le `stacks` de l'entree d'incursion. */

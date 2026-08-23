@@ -62,6 +62,7 @@ import * as shop from "./features/shop.js";
 import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as campaignSourceForge from "./features/campaign-source-forge.js";
+import * as pvpSourceForge from "./features/pvp-source-forge.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
 import * as onslaughtSource from "./features/onslaught-source.js";
 import * as upgradesInventory from "./features/upgrades-inventory.js";
@@ -540,6 +541,16 @@ export function wireRpc(ctx: Ctx): void {
      // SORTIE ANTICIPEE, avant l'appel d'interface que le bras `false` atteint (decompile).
      // Il n'appelle JAMAIS `StartCampaignMatch`, qui est ce qui engage l'energie.
      campaignSourceForge,
+     // `pvpSourceForge` est le MEME geste pour l'Arene, et il existe pour une raison PRECISE :
+     // debuffer un duel exige de NOMMER les unites adverses, donc de connaitre la forme exacte de
+     // leurs `unitId` -- qu'on derivait jusqu'ici d'un banc sandbox relu en JSON. Il forge la
+     // `PvpGameModeSource` depuis les services de l'executeur et appelle `LoadBattleInternal`,
+     // qui est de la CONSTRUCTION PURE au decompile : ni `GenerateNewBattleId`, ni evenement, ni
+     // reseau (le parametre `isRestart` n'y est meme jamais lu). L'enregistrement de la tentative
+     // vit dans la methode SOEUR `SendLoadBattleGameEventInternal`, qui n'est JAMAIS appelee --
+     // meme forme que le boss de guilde, ou une tentative enregistree puis non terminee est PERDUE.
+     // Il n'appelle ni `LoadBattle` (la methode publique de la base) ni `StartMatch`.
+     pvpSourceForge,
      // `guildWarConfig` est le SEUL mode sans voie sandbox native (ni `SandboxGuildWarBattleConfig`,
      // ni `GetHotseatGuildWarsConfig`, ni branche dans le routeur `GetHotSeatGameModeSpecificConfig`).
      // Il appelle donc la FABRIQUE `BattleConfigBuilder$$GetGuildWarsConfig` -- purement

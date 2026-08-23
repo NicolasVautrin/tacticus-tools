@@ -270,12 +270,23 @@ def main():
         morceaux = reste.split(";")
         cibles = [u for u in morceaux[0].split(",") if u]
         opts = {}
+        auto = None
         for o in morceaux[1:]:
             k, s2, v = o.partition("=")
-            if not s2 or k not in ("stack", "niveau", "player"):
+            if not s2 or k not in ("stack", "niveau", "player", "auto"):
                 print("REFUS : --enhancement, option inconnue %r (attendu stack= / niveau= /"
-                      " player=)" % o)
+                      " player= / auto=)" % o)
                 return 2
+            # ⚠ `auto` NE SE RESOUT PAS ICI. Les cibles se derivent de la BC, qui n'existe qu'a
+            # la fenetre `LoadBattle.onLeave` -- c'est justement ce qui permet a UN armement de
+            # mordre sur n'importe quelle proposition sans qu'on renomme quoi que ce soit.
+            if k == "auto":
+                if v not in ("adversaire", "moi"):
+                    print("REFUS : --enhancement, `auto=` attend `adversaire` ou `moi`,"
+                          " recu %r" % v)
+                    return 2
+                auto = v
+                continue
             try:
                 opts[k] = int(v)
             except ValueError:
@@ -283,13 +294,36 @@ def main():
                 return 2
         e = {"ability": nom, "cibles": cibles,
              "stack": opts.get("stack", 1), "niveau": opts.get("niveau", 1)}
+        if auto is not None:
+            e["ciblesAuto"] = auto
         if "player" in opts:
             e["playerId"] = opts["player"]
         enhancements.append(e)
-        print("  enhancement %-30s cibles=%s stack=%d niveau=%d%s"
-              % (nom, ",".join(cibles) or "(AUCUNE)", e["stack"], e["niveau"],
+        print("  enhancement %-30s cibles=%s stack=%d niveau=%d%s%s"
+              % (nom, ",".join(cibles) or ("(AUTO)" if auto else "(AUCUNE)"),
+                 e["stack"], e["niveau"],
+                 (" auto=%s" % auto) if auto else "",
                  (" player=%d" % e["playerId"]) if "playerId" in e else ""))
-        if not cibles:
+        if auto is not None:
+            camp = "d'un TeamId AUTRE que le mien" if auto == "adversaire" else "de MON TeamId"
+            print("      cibles DERIVEES a l'application : tout ce qui appartient a un joueur %s"
+                  % camp)
+            print("      (`BC.Player.Players`, `PlayerType 0` = moi ; poses + machines + vagues).")
+            print("      Rien a renommer quand la proposition ou la lineup change.")
+            if auto == "moi":
+                print("      UNION avec les %d cible(s) ecrite(s) ci-dessus, MOINS tout ce qui est"
+                      % len(cibles))
+                print("      adverse (`UnitConfigId$$Equals` ignore `IsPvpOpponent`, donc la copie")
+                print("      d'en face serait appariee elle aussi).")
+                if not cibles:
+                    print("      (!) AUCUNE cible ecrite : en PvP la BC ne porte PAS ta lineup (elle")
+                    print("          entre par `AddUnitMessage` au deploiement) -- l'entree y serait")
+                    print("          VIDE. Fournir un sur-ensemble (le roster) est ce qui tient.")
+            elif cibles:
+                print("      (!) les %d cible(s) ecrite(s) ci-dessus seront IGNOREES :"
+                      % len(cibles))
+                print("          `auto=adversaire` derive integralement.")
+        elif not cibles:
             print("      (!) AUCUNE cible : legitime pour une ability qui choisit sa cible dans")
             print("          son propre arbre (ex. EnhancementRegeneration, qui vise team 1 /")
             print("          UnitTrait.Hero), mais la famille EnhancementAddTrait ne tirera PAS.")
