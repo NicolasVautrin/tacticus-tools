@@ -63,6 +63,7 @@ import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as campaignSourceForge from "./features/campaign-source-forge.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
+import * as onslaughtSource from "./features/onslaught-source.js";
 import * as upgradesInventory from "./features/upgrades-inventory.js";
 import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
@@ -546,6 +547,12 @@ export function wireRpc(ctx: Ctx): void {
      // `SendLoadBattleGameEventInternal` enregistre une tentative SERVEUR au chargement. Il rend un
      // JSON ; il ne monte rien. Aucune tentative consommee, aucun octet reseau.
      guildWarConfig,
+     // `onslaughtSource` est le MEME geste pour l'onslaught, et il n'existe QUE pour preter un
+     // roster : un onslaught monte en sandbox ouvre bien sa phase de deploiement (`stage: Setup`)
+     // mais avec un ecran VIDE -- le stub sandbox ne lit aucun champ de `this`. Il ne construit
+     // aucune BC (c'est la voie `--mode waves` qui le fait) et n'appelle JAMAIS `LoadBattle` :
+     // aucun jeton engage, aucune bataille montee.
+     onslaughtSource,
      // `upgradesInventory` n'INSTALLE RIEN au register : sa lecture (`GetAmount`) est un
      // accesseur pur, et son ancrage sur `AddUpgradeLocally` s'arme explicitement. Il n'appelle
      // JAMAIS `CheatAddUpgrade` / `CheatClearUpgrades`, qui vivent dans la meme classe.

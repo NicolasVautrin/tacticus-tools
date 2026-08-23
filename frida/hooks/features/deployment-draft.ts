@@ -74,6 +74,7 @@ import { premiereInstance } from "./view-command.js";
 import { rosterPooledGuildBoss, sourceGuildBossForgee } from "./guild-boss-config.js";
 import { sourceCampagneForgee } from "./campaign-source-forge.js";
 import { sourceGuildWarForgee } from "./guild-war-config.js";
+import { sourceOnslaughtForgee } from "./onslaught-source.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // (!)PLUS AUCUN `buildAddUnitMessage` ICI (2026-08-21). Ce module ne fabrique plus d'ajout
@@ -985,7 +986,23 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
  *
  * La source vient de `guildWarSourceForger` — donc du MODE MONTÉ, comme cette section l'exige.
  */
-type Preteur = "campagne" | "guildBoss" | "guildWar";
+/**
+ * ⚠ `onslaught` A LE MÊME DÉFAUT, ET SA CLASSE N'EST PAS LÀ OÙ ON LA CHERCHE.
+ * Mesuré le 2026-08-23, tier 18 voie Chaos monté par `sandbox_mode.py start --mode waves` :
+ * `stage = Setup` (la phase s'ouvre), mais le HUD rend `minUnitsPossible: 0
+ * maxUnitsPossible: 0  allUnitModels: 0  allUnlockedUnitModels: 0` et `_units.taille = 0`.
+ * Même stub sandbox, même remède : déléguer à la source du mode.
+ *
+ * ⚠ Et le piège est en amont du câblage : `OnslaughtGameModeSource` ne vit PAS dans
+ * `IdunBattle.ViewLogic.BattleSource` — où sont les 23 autres sources de mode — mais sous
+ * `idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle`. Un balayage limité au namespace
+ * des autres rend ZÉRO et fait conclure « pas de source onslaught sur ce build ». Conclusion
+ * FAUSSE, tirée d'une recherche trop étroite — elle a été faite avant ce commit.
+ *
+ * La source vient de `onslaughtSourceForger {alliance, tier}` — donc du MODE, et paramétrée par
+ * la voie et le palier, qui sont des arguments EN CLAIR de son ctor.
+ */
+type Preteur = "campagne" | "guildBoss" | "guildWar" | "onslaught";
 let preteurDelegation: Preteur = "campagne";
 
 /** La source qui prête, et la CLASSE sur laquelle résoudre la méthode déléguée. */
@@ -995,6 +1012,9 @@ function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteu
     }
     if (preteurDelegation === "guildWar") {
         return { ptr: sourceGuildWarForgee(), cls: "GuildWarsGameModeSource", nom: "guildWar" };
+    }
+    if (preteurDelegation === "onslaught") {
+        return { ptr: sourceOnslaughtForgee(), cls: "OnslaughtGameModeSource", nom: "onslaught" };
     }
     // ⚠ LA CAPTÉE D'ABORD, LA FORGÉE ENSUITE -- et le repli n'est pas un confort.
     // La source captée l'est par un ancrage sur le ctor, qui ne tire QU'À LA NAVIGATION : après
@@ -6847,7 +6867,9 @@ export function register(ctx: Ctx): void {
                     + "à rien. Campagne : l'amorce ne l'a pas prise (session froide, ou la "
                     + "navigation auto est éteinte) ; guild boss : `guildBossSourceForger "
                     + "{confirmer:true}` n'a pas été appelé ; guild war : "
-                    + "`guildWarSourceForger` n'a pas été appelé.");
+                    + "`guildWarSourceForger` n'a pas été appelé ; onslaught : "
+                    + "`onslaughtSourceForger {alliance, tier, confirmer:true}` n'a pas été "
+                    + "appelé.");
             }
             if (body.only !== undefined) {
                 const connus = DELEGUEES.map((x) => x.nom);
