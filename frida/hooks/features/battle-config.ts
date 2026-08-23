@@ -2069,6 +2069,69 @@ function installLoadBattleHook(): void {
         + (heritees.length > 0 ? " | REFUSÉES (corps hérité) : " + heritees.join(", ") : ""));
 }
 
+/** La source dont le `LoadBattle` est DÉTOURNÉ par un override de BC (`sandboxModeBcOverride`),
+ *  ou `null`. Déclarée par le porteur de l'override, jamais devinée ici. */
+let sourceDetourneeParOverride: string | null = null;
+
+/** `sandbox-mode` DÉCLARE qu'il remplacera le retour de `<source>.LoadBattle` par un objet à lui.
+ *  Passer `null` à la levée de l'override. */
+export function declarerOverrideDeBc(source: string | null): void {
+    sourceDetourneeParOverride = source;
+}
+
+/**
+ * APPLIQUER le patch en attente à UNE `BattleConfiguration`, et publier le témoin.
+ *
+ * ⛔ CE FOYER EST PUBLIC PARCE QUE LA SANDBOX NE MUTE PAS, ELLE SUBSTITUE. `sandboxModeBcOverride`
+ * désérialise un objet À PART puis fait `retval.replace(...)` sur le même `LoadBattle` que nous :
+ * notre mutation portait donc sur l'objet que PLUS PERSONNE ne lit, pendant que la bataille
+ * tournait sur le sien. Mesuré le 2026-08-23 -- patch écrit sur `0x22c13b0e200`, BC vivante
+ * `0x22c1021c600`, `ok: true` et `relu: true` DES DEUX CÔTÉS, aucun signal.
+ *
+ * ⚠ ET C'EST LA SANDBOX QUI PERD LE PLUS À CE SILENCE : son objet est d'éprouver ce que le patch
+ * FAIT. Un banc où le patch est le seul à ne pas s'appliquer valide un chemin que la vraie
+ * bataille ne suit pas -- pire que pas de banc. L'override reste le TRANSPORT (monter une BC
+ * arbitraire) ; le patch, lui, passe par le même pipeline des deux côtés.
+ *
+ * ⚠ UNE SEULE APPLICATION : le hook de `<source>.LoadBattle` s'EFFACE quand cette source est
+ * déclarée détournée (`declarerOverrideDeBc`). Sans ce cran, `consumeOnce` serait consommé par la
+ * mutation inutile et l'override ne recevrait rien -- exactement la panne d'origine, déplacée.
+ */
+export function appliquerPatchEnAttenteSur(bc: NativePointer, source: string): boolean {
+    if (pendingPatch === null || bc.isNull()) return false;
+    const nomRetour = (() => {
+        try { return cstr(class_get_name(bc.readPointer()) as NativePointer); }
+        catch { return null; }
+    })();
+    if (nomRetour !== "BattleConfiguration") {
+        lastRejet = {
+            rejeteA: new Date().toISOString(), source,
+            classeRendue: nomRetour, ptr: bc.toString(),
+            motif: "l'objet visé n'est pas une `BattleConfiguration` -- rien n'a été écrit, et "
+                + "`lastApply` est LAISSÉ INTACT.",
+        };
+        return false;
+    }
+    const patch = pendingPatch;
+    if (patch.consumeOnce !== false) pendingPatch = null;
+    try {
+        const result = applyPatchToConfig(bc, patch, null);
+        result.operations.unshift(`source=${source}`);
+        lastApply = result;
+        log(`[battle-config] patch applied (${source}): ${result.operations.join("; ")}`
+            + (result.warnings.length > 0 ? ` | warnings: ${result.warnings.join("; ")}` : ""));
+        return true;
+    } catch (e) {
+        log(`[battle-config] patch threw: ${(e as Error).message}`);
+        lastApply = {
+            ok: false, appliedAt: new Date().toISOString(), bcPtr: bc.toString(),
+            operations: [`source=${source}`],
+            warnings: [`exception: ${(e as Error).message}`],
+        };
+        return false;
+    }
+}
+
 /** Pose le canal de mutation sur UN `LoadBattle`. Rend `false` si l'attache échoue — une source
  *  manquante n'est pas une panne du patch, seulement un mode qu'on ne peut pas piloter. */
 function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean {
@@ -2085,6 +2148,11 @@ function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean
             onLeave(retval) {
                 if (pendingPatch === null) return;
                 if (retval.isNull()) return;
+                // ⛔ CETTE SOURCE EST DETOURNEE : son retour sera REMPLACE par l'objet d'un
+                // override, et muter `retval` ici n'atteindrait que l'objet abandonne. On laisse
+                // le porteur de l'override appliquer -- il vise le bon objet, et il est SEUL a
+                // savoir lequel. Consommer `consumeOnce` ici le priverait du patch.
+                if (sourceDetourneeParOverride === source) return;
                 // ⛔ LE TYPE D'ABORD, ET AVANT DE TOUCHER `lastApply`. Un chargeur qui ne rend pas
                 // une `BattleConfiguration` n'a rien a nous dire -- mais tant que son passage
                 // ECRIVAIT `lastApply`, il EFFACAIT le seul temoin de ce qu'une vraie source avait

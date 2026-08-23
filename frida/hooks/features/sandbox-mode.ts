@@ -112,6 +112,10 @@ import {
 } from "../il2cpp/helpers.js";
 import { state } from "../game/state.js";
 import { createManagedString, il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+// `battle-config` porte le FOYER UNIQUE d'application du patch : la sandbox
+// SUBSTITUE une BC, elle ne mute pas celle du `LoadBattle` -- c'est donc a elle
+// de faire passer SON objet par ce pipeline.
+import * as battleConfig from "./battle-config.js";
 import { deserializeFromJson, isDeserializerReady, isSerializerReady, serializeToJson }
     from "../il2cpp/serializer.js";
 import { chargementEnCours } from "../game/loader.js";
@@ -1675,6 +1679,7 @@ export function register(ctx: Ctx): void {
         return queueOnMainThread(() => {
             if (body.configJson === null) {
                 bcOverride = null;
+                battleConfig.declarerOverrideDeBc(null);
                 return { ok: true, arme: false, action: "retire",
                          note: "l'ancrage reste posé mais devient transparent" };
             }
@@ -1693,6 +1698,10 @@ export function register(ctx: Ctx): void {
             }
             epingler(bc);
             bcOverride = bc;
+            // Le hook de `battle-config` doit S'EFFACER sur cette source : sinon il
+            // mute l'objet qu'on jette ET consomme `consumeOnce`, privant du patch
+            // l'objet reellement monte.
+            battleConfig.declarerOverrideDeBc("SandboxGameModeSource");
 
             // ⛔ LE MONTAGE DÉCLARE SA BATAILLE À LA MÉMOIRE DE POSE -- c'est ICI, et nulle part
             // ailleurs, qu'on sait qu'une bataille est LA NÔTRE. Deux dégâts mesurés le
@@ -1719,6 +1728,20 @@ export function register(ctx: Ctx): void {
                     onLeave(retval) {
                         if (bcOverride === null) return;   // transparent quand non armé
                         overrideFires++;
+                        // ⛔ LE PATCH S'APPLIQUE A NOTRE OBJET, PAS A CELUI QU'ON JETTE.
+                        // La sandbox ne MUTE pas la BC produite : elle en SUBSTITUE une autre,
+                        // désérialisée à l'armement. Le hook de `battle-config` mutait donc le
+                        // retour d'origine -- que ce `replace` rend aussitôt inaccessible.
+                        // Mesuré le 2026-08-23 : patch écrit sur `0x22c13b0e200`, BC vivante
+                        // `0x22c1021c600`, `ok: true` et `relu: true` des deux côtés, AUCUN signal.
+                        //
+                        // ⚠ Et c'est la sandbox qui perdait le plus à ce silence : son objet est
+                        // d'éprouver ce que le patch FAIT. Un banc où le patch est le seul à ne pas
+                        // s'appliquer valide un chemin que la vraie bataille ne suit pas. L'override
+                        // reste le TRANSPORT ; le patch passe par le même pipeline des deux côtés.
+                        // `declarerOverrideDeBc` empêche la double application (cf. là-bas).
+                        battleConfig.appliquerPatchEnAttenteSur(
+                            bcOverride, "SandboxGameModeSource (BC substituée)");
                         retval.replace(bcOverride);
                         // ⛔ LE JETON DE REJEU SE REPOSE ICI, ET C'EST LE RETRY QUI L'EXIGE.
                         // Ce point tire à CHAQUE chargement de la bataille sandbox -- montage
