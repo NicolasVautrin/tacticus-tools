@@ -103,7 +103,7 @@ Les onze restants n'ont pas de `shieldPct` : par la branche `Nothing()` du §1, 
 ## 6. Résidus
 
 - La voie LIVE n'est pas outillée : le patch de `frida/hooks/features/battle-config.ts` sait
-  écrire `turnOrder`, `environmentAbilities`, `playerTeamIds`, `templateOverrides` — **pas** les
+  écrire `turnOrder`, `environmentAbilities`, `templateOverrides` — **pas** les
   `Constants` d'une ability de `BC.Abilities.PassiveAbilities`. Sans ce levier, un power-up posé
   en bataille réelle donne le régime d'usine (100 % des PV, `TurnsLeft=2`), ce qui **ne demande
   aucun reinject**. Le régime réglé, lui, en demande un.

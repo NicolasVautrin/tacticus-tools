@@ -189,9 +189,27 @@ quelque chose ». Il a fallu le diff de stats **et** le décompilé du ctor pour
 - `PlayerId` de `EnvironmentAbilityConfiguration` n'est écrit par personne côté hook
   (`environment-abilities.ts`, `ajouterAbility` ne pose que `ConfigId` et `Level`). On ne sait pas
   ce qu'il change — non mesuré.
-- La voie LIVE reste sans levier : le patch n'écrit ni le catalogue
-  (`BC.Abilities.EnvironmentAbilities`, clé chaîne — sûr) ni la liste des enhancements. Les deux
-  sont de petits ajouts, et demandent une fenêtre de reinject.
+- ~~La voie LIVE reste sans levier~~ — **LIVRÉE le 2026-08-23** (`environmentAbilityConfigs` +
+  `environmentEnhancements`), validée sur BC vivante : `catalogue 166 -> 167` et
+  `installées={"Abilities":1,"EnhancementAbilities":1}`. Deux crans appris en route, et le
+  premier corrige une erreur de ce document :
+  * ⚠ **le catalogue n'est PAS à clé chaîne**, contrairement à ce que la ligne d'origine
+    affirmait. Sa clé est un `TriggeredAbilityConfigId` — un TYPE VALEUR. Le JSON le fait croire
+    parce qu'un `TriggeredAbilityConfigId` se *sérialise* en nom sans être *stocké* comme tel.
+    Donc on n'y écrit pas soi-même : on passe par
+    `IdunBattle.Configuration.AbilitiesConfiguration$$AddEnvironmentAbility(TriggeredAbilityType, …)`,
+    l'enum plat, en sélectionnant la surcharge par le TYPE de son 1ᵉʳ paramètre (il y en a deux à
+    2 paramètres). **Corollaire : une VARIANTE est inexprimable par le patch** (ordinal +
+    `VariantId`) ; les 106 `EnhancementAddTrait:<Trait>` restent réservées à la voie seed BC, où
+    Newtonsoft construit les clés — et le CLI refuse explicitement.
+  * ⚠ **`GetEnvironmentAbility` ne sait pas dire « absent »** : il rendait non-nul *avant*
+    l'écriture alors que le compte passait de 166 à 167 — il fabrique un défaut au lieu de rendre
+    `null`. Une relecture bâtie dessus serait sortie verte quoi qu'il arrive. Le verdict est le
+    **compte du dictionnaire**, pris avant/après chaque entrée.
+- **Retiré le même jour** : `playerTeamIds` et `spawnGroupPlayerIndexes` (327 lignes), qui
+  réécrivaient les `TeamId` et les index de groupes de spawn pour contourner un symptôme qui
+  n'était pas le leur (cf. `case-10046-pose-des-unites-predefinies.md` §5ter : la cause était le
+  `TWPI 0` du harnais). `turnOrder` et `environmentEnhancements` couvrent leurs usages.
 - ⚠ Rectification d'une ligne du commit `e44ccb6b` : « `EnvReinforcementShield` 0 occurrence dans
   le gameconfig » accusait la **mauvaise table**. Les configs d'env-ability vivent dans
   `BC.Abilities.EnvironmentAbilities`, pas dans le gameconfig — `EnvThinVeil` y est à 0 occurrence
