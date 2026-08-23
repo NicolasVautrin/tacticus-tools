@@ -577,6 +577,32 @@ interface BattleConfigPatch {
      *  ⚠ Une ability gardée par `IsEnhancementTarget` sans `cibles` ne tire JAMAIS -- le retour
      *  le DIT (`note`) plutôt que de le laisser deviner. */
     environmentEnhancements?: Array<envAbilities.SpecEnhancement>;
+    /** VIDER `BC.PredefinedUnits` — le plateau part VIDE, le CATALOGUE reste INTACT.
+     *
+     *  ⚠ POURQUOI CES DEUX CHAMPS DOIVENT ÊTRE SÉPARÉS, ET POURQUOI LE CTOR NE LE PERMET PAS.
+     *  Mesuré le 2026-08-23 sur un onslaught Chaos monté en sandbox : c'est `BC.Units` (le
+     *  CATALOGUE) qui pilote `IdunBattle.View.Game.UnitIdToPrefabDictionary$$Add` — 73 entrées
+     *  du dictionnaire, 73/73 présentes au catalogue, 0 en dehors, et `PredefinedUnits` n'y est
+     *  pour RIEN (les summons, jamais posés, y sont). Or sans prefab, le HUD de déploiement ne
+     *  peut afficher AUCUN placeholder : `UnitIdToPrefabDictionary$$Get` rend NUL sur clé absente
+     *  et ne charge JAMAIS à la demande — le loader vit DANS l'entrée (`+0x18`), pas sur le
+     *  dictionnaire.
+     *
+     *  Côté ctor sandbox, les deux paramètres (`startUnits`, `allUnits`) remplissent l'UN ET
+     *  L'AUTRE : mesuré sur les 4 combinaisons, n'importe lequel non vide pose TOUT, et les deux
+     *  vides laissent le catalogue sans les unités. Il n'existe donc AUCUN état « disponible mais
+     *  non déployée » à la construction.
+     *
+     *  ⇒ On donne le roster au ctor (pour les prefabs) et on vide la pose ICI. Le HUD possède
+     *  alors tout ce qu'il pose, donc il peut le retirer — sans `RemoveUnitMessage` sur une
+     *  bataille vivante, geste qui a déjà coûté une suppression de module (`deploymentRemplacer`,
+     *  « une seconde comptabilité ») et, le 2026-08-23, un crash du jeu dans ce régime exact
+     *  (HUD à 2, runner à 5).
+     *
+     *  On écrit `_size = 0` : c'est ce que fait `List<T>.Clear()` pour la lecture, et le natif ne
+     *  parcourt que jusqu'à `Count`. Le tableau de fond n'est pas touché — donc rien à
+     *  désallouer, et la mutation est IDEMPOTENTE. */
+    viderPredefinedUnits?: boolean;
     // ⛔ `playerTeamIds` ET `spawnGroupPlayerIndexes` ONT ÉTÉ RETIRÉS (2026-08-23), 327 lignes.
     //
     // Ils réécrivaient `BC.Player.Players[].TeamId` (par parcours du dictionnaire ET de l'arbre
@@ -1247,6 +1273,46 @@ function applyPatchToConfig(
                 + `(${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu})`);
         } else {
             warnings.push(`unitSpawningOverTime: ${w.error}`);
+        }
+    }
+
+    // VIDER LA POSE, GARDER LE CATALOGUE. Cf. le pavé sur `viderPredefinedUnits`.
+    if (patch.viderPredefinedUnits === true) {
+        try {
+            const lp = bc.add(BC_OFF_PREDEFINED_UNITS).readPointer();
+            if (lp.isNull()) {
+                // TRI-ÉTAT : on DIT qu'on n'a rien trouvé, on ne le compte pas comme un succès.
+                warnings.push("viderPredefinedUnits: `BC.PredefinedUnits` est NUL -- rien vidé, "
+                    + "et ce n'est PAS « déjà vide »");
+            } else {
+                const avant = readManagedList(lp);
+                if (avant === null) {
+                    warnings.push("viderPredefinedUnits: liste ILLISIBLE (forme inattendue) -- "
+                        + "RIEN écrit plutôt qu'un `_size` posé à l'aveugle");
+                } else {
+                    // Le compte AVANT est publié avec le compte APRÈS : sans lui, un `0` ne
+                    // distingue pas « vidé » de « c'était déjà vide », et les deux appellent des
+                    // enquêtes opposées quand l'écran reste peuplé.
+                    let unites = 0;
+                    for (let i = 0; i < avant.size; i++) {
+                        const grp = readListItem(avant, i);
+                        if (grp.isNull()) continue;
+                        const ul = readManagedList(grp.add(PU_OFF_UNITS).readPointer());
+                        unites += ul?.size ?? 0;
+                    }
+                    lp.add(LIST_OFF_SIZE).writeS32(0);
+                    const apres = readManagedList(lp);
+                    ops.push(`viderPredefinedUnits ${avant.size} groupe(s) / ${unites} unite(s) `
+                        + `-> ${apres === null ? "RELECTURE ÉCHOUÉE" : apres.size} groupe(s) `
+                        + "(catalogue `BC.Units` INTACT)");
+                    if (apres !== null && apres.size !== 0) {
+                        warnings.push(`viderPredefinedUnits: relu à ${apres.size}, pas 0 -- `
+                            + "l'écriture N'A PAS PRIS");
+                    }
+                }
+            }
+        } catch (e) {
+            warnings.push("viderPredefinedUnits: " + (e as Error).message);
         }
     }
 

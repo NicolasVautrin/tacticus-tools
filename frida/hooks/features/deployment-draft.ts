@@ -3110,8 +3110,22 @@ function armerPoseDiag(): true | Refus {
                         lecture: !retval.isNull() ? "prefab rendu"
                             : dl > 0 ? "le loader A TIRÉ et n'a rien produit -- entrée présente, "
                                 + "fabrication du prefab EN ÉCHEC"
-                            : "le loader N'A PAS tiré -- `Get` est sorti par « clé absente », "
-                                + "donc sa clé DIFFÈRE de celle de `HasPrefabForUnitId`",
+                            // ⚠ CE VERDICT ACCUSAIT UN DÉCALAGE DE CLÉ QUI N'EXISTE PAS. Il
+                            // disait « sa clé DIFFÈRE de celle de `HasPrefabForUnitId` », ce qui
+                            // envoie chercher une normalisation divergente -- et fait perdre du
+                            // temps. Décompilé le 2026-08-23 :
+                            // `IdunBattle.View.Game.UnitIdToPrefabDictionary$$Get` ET `$$Add`
+                            // passent tous DEUX par
+                            // `idun.shared.UnitNamingConventions$$GetUnitIdForUniverse`. La clé
+                            // est donc la MÊME des deux côtés. Ce que dit vraiment ce cas, c'est
+                            // que l'entrée n'a JAMAIS été ajoutée -- et `Get` ne charge rien à la
+                            // demande : le loader vit DANS l'entrée (`+0x18`), pas sur le
+                            // dictionnaire ; clé absente = `return 0` + une ligne de log.
+                            : "le loader N'A PAS tiré -- clé ABSENTE du dictionnaire. `Add` n'a "
+                                + "jamais été appelé pour cet unitId, et `Get` ne charge RIEN à "
+                                + "la demande (le loader est par ENTRÉE). La clé n'est pas en "
+                                + "cause : `Get` et `Add` normalisent par le même "
+                                + "`UnitNamingConventions$$GetUnitIdForUniverse`.",
                     });
                 }
             },
@@ -4509,6 +4523,11 @@ function etatPool(): Record<string, unknown> {
         // (!)CE N'EST PAS LE PRÊTEUR -- c'est la source de campagne captée par l'amorce, qui ne
         // sert que si `preteur === "campagne"`.
         sourceCampagne: src && !src.isNull() ? src.toString() : null,
+        // LE ROSTER EMPRUNTÉ, EN CLAIR. Il était lu, mis en cache et versé dans la liste du jeu
+        // sans jamais être publié : impossible de savoir CE QUE le HUD a reçu, ni de s'en servir
+        // ailleurs (ex. peupler `BC.Units` pour que ces unités aient un prefab). `null` = pas
+        // encore emprunté, ce qui n'est PAS « roster vide ».
+        rosterEmprunte: cacheRoster(p.nom),
         delegations: delegations.map((d) => ({
             nom: d.nom, role: d.role, arme: d.listener !== null,
             // `null` = jamais armée. Un écart avec `preteur` ci-dessus signale une résolution
