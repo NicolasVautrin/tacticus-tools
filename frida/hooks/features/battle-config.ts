@@ -860,6 +860,12 @@ interface PatchApplyResult {
 
 let pendingPatch: BattleConfigPatch | null = null;
 let lastApply: PatchApplyResult | null = null;
+/** Le dernier passage REFUSE au `LoadBattle.onLeave` faute d'avoir rendu une `BattleConfiguration`.
+ *  Publie a cote de `lastApply`, jamais a sa place : c'est ce qui distingue « le hook n'est pas
+ *  pose » de « le hook est pose, mais l'ancrage vise un corps deduplique ». */
+let lastRejet: {
+    rejeteA: string; source: string; classeRendue: string | null; ptr: string; motif: string;
+} | null = null;
 /** Le RECENSEMENT de la pose. `null` = pose pas encore tentée -- jamais à lire comme « aucune ».
  *
  *  `posees`               : `<Classe>.<chargeur>` réellement ancrés — un patch ne peut mordre QUE là.
@@ -2079,6 +2085,33 @@ function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean
             onLeave(retval) {
                 if (pendingPatch === null) return;
                 if (retval.isNull()) return;
+                // ⛔ LE TYPE D'ABORD, ET AVANT DE TOUCHER `lastApply`. Un chargeur qui ne rend pas
+                // une `BattleConfiguration` n'a rien a nous dire -- mais tant que son passage
+                // ECRIVAIT `lastApply`, il EFFACAIT le seul temoin de ce qu'une vraie source avait
+                // installe. Mesure du 2026-08-23, DEUX fois : `TestSceneBattleModeSource` (retval
+                // `List`1` / `RectTransform` / `UnitEntity` / `DefaultJsonNameTable`) puis
+                // `AReplayGameModeSource` (`this` = `ExpeditionProgressionData`, retval `List`1`).
+                // Ce sont des corps TRIVIAUX DEDUPLIQUES par IL2CPP : on croit ancrer une methode,
+                // on ancre un carrefour partage avec des dizaines d'autres.
+                //
+                // ⚠ ON REFUSE PAR INVARIANT, PAS PAR LISTE NOIRE. Nommer les deux coupables connus
+                // laisserait passer le troisieme -- et il y en aura un, la deduplication ne se
+                // decrete pas. Le rejet est publie dans `lastRejet` : muet, il ferait chercher un
+                // hook qui ne se pose pas.
+                const nomRetour = (() => {
+                    try { return cstr(class_get_name(retval.readPointer()) as NativePointer); }
+                    catch { return null; }
+                })();
+                if (nomRetour !== "BattleConfiguration") {
+                    lastRejet = {
+                        rejeteA: new Date().toISOString(), source,
+                        classeRendue: nomRetour, ptr: retval.toString(),
+                        motif: "le chargeur n'a pas rendu une `BattleConfiguration` -- corps "
+                            + "trivial DEDUPLIQUE, l'ancrage vise un carrefour partage. `lastApply` "
+                            + "est LAISSE INTACT : un passage qui n'ecrit rien n'efface rien.",
+                    };
+                    return;
+                }
                 const patch = pendingPatch;
                 if (patch.consumeOnce !== false) {
                     pendingPatch = null; // consume now to avoid re-apply
@@ -2197,6 +2230,7 @@ export function register(ctx: Ctx): void {
         ok: true,
         pending: pendingPatch,
         lastApply,
+        lastRejet,
         // `sourcesAncrees.posees` dit sur QUELS modes un `pending` peut mordre. Un patch armé pour
         // un mode absent de cette liste n'a AUCUNE chance de s'appliquer -- et rien d'autre ne le
         // signale. `null` = pose pas encore tentée, ce n'est PAS « aucune ».
