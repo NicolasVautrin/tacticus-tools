@@ -216,12 +216,38 @@ passer `tyranNpc4Warrior:6` (vagues 6, 8) et `tyranNpc6SporeMine:6` (vague 5).
 d'environnement (défaut **câblé** au joueur 2), pas qui est affecté. Atteste par la mesure :
 l'effet s'est posé sur une unité du joueur 11 avec un propriétaire joueur 2.
 
-⚠ **Le ciblage « tout un camp » existe, mais dans l'AUTRE liste** — celle dont le ciblage est
-écrit dans le `CreateTrigger`. Deux candidats **écartés par mesure** : `EnvAttemptDebuff` cible
-juste et ne fait rien (§5), et `EnvStrategicBuff` (`dmgPct`) cible
-`Filter(unités, IsHumanPlayer(OriginalOwner))` — le camp du **joueur humain** — avec une ampleur
-indexée sur `NumControlledTerritory`. Aucun debuff d'adversaire team-scopé n'est établi à ce jour ;
-`EnvThinVeil` et `EnvDespoiledGroundTileDamage` restent **non lus**.
+## 5ter. ⚠ AUCUNE env-ability À CONSTANTE DE DÉGÂTS N'EST TEAM-SCOPÉE — les 4 lues, les 4 écartées
+
+Le catalogue (166) n'en porte que quatre qui touchent aux dégâts hors `EnhancementDamageBoost`.
+Ciblages **lus au décompilé**, pas déduits des noms :
+
+| ability | ciblage | pourquoi ça ne sert pas |
+|---|---|---|
+| `EnvAttemptDebuff` | `IsInTeam(.., TeamId 2)` | cible juste, **ne fait rien** (§5) |
+| `EnvStrategicBuff` | `Filter(unités, IsHumanPlayer(OriginalOwner))` | vise le **joueur humain**, ampleur indexée sur `NumControlledTerritory` |
+| `EnvThinVeil` | `On(UnitAdded \| InitialMatchUnitAdded) AND HasTrait(Psyker) AND HasTrait(Hero)` | **aucun filtre d'équipe** — frappe les deux camps |
+| `EnvDespoiledGroundTileDamage` | `UnitsWithoutTraits(all, [Steppable, Immune]) AND Units(EntitiesWithAnyEffect(all, DespoiledGround))` | **positionnel**, les deux camps |
+
+⇒ Le « tout l'adversaire sans le nommer » **n'existe pas** dans ce catalogue. L'énumération
+(§5bis) reste la voie.
+
+**Deux leviers en sont quand même sortis**, différents mais réels :
+
+- `EnvDespoiledGroundTileDamage` inflige
+  `AttackWithAbilityDamage(RandomAmount(PVmax × minHpPct%, PVmax × maxHpPct%))` à chaque
+  `TurnStart_EnvironmentEffects`, soit **6–9 % des PV max par tour** à qui piétine la zone.
+  ⚠ Son `extraDmgPct: 15` **n'est pas ce dégât** : c'est un **buff** posé par
+  `If(IsTurnOf(cible) AND HasTrait(Chaos) AND NOT HasTrait(Immune), AddEffect(DespoiledGround_ExtraDamagePct))`.
+- `EnvThinVeil` cible par **trait** — et un trait se **pose** (`EnhancementAddTrait:<Trait>`).
+
+⚠ **PIÈGE DE LECTURE, ÉVITÉ DE JUSTESSE.** Le décompilé de `CreateBehaviour` montre deux
+constantes lues avec les littéraux `9` et `10`. Résolus contre `AbilityConstantType` ils donnent
+`unitToSpawn_red` / `unitToSpawn_green` — absurde pour un `PercentageOf(Health, X)`. Vérification :
+`minHpPct` = **132**, `maxHpPct` = **133**. Les `9`/`10` ne sont donc **pas** des ordinaux de cet
+enum (argument d'un accesseur générique, ou artefact de convention d'appel). Aggravant :
+`extraDmgPct` a l'ordinal **15** et sa valeur dans la BC vaut aussi **15** — une coïncidence qui
+rend une lecture fausse plausible. **Le nom d'une constante se recoupe contre les `Constants` de
+la BC, jamais contre le seul littéral du décompilé.**
 
 ## 6. Résidus
 
