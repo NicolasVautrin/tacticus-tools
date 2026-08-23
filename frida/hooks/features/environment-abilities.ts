@@ -26,6 +26,7 @@
 // ca CRASHE le jeu (mesure le 2026-08-21, dump `Tacticus.exe.30620.dmp`). `fusionnerDepuisConfig`
 // existe pour ca : elle laisse le NATIF faire l'insertion.
 
+import { dumpEnum } from "../il2cpp/enum-dump.js";
 import { findClassAnywhere, findMethodByParamCount, getFieldOffset } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
@@ -107,6 +108,80 @@ export function ajouterAbility(
     return true;
 }
 
+/** Un `IdunBattle.Configuration.UnitConfigId`, dans la forme que Newtonsoft deserialise. */
+interface CibleUnite {
+    PureId: string;
+    Rarity: number | null;
+    Level: number | null;
+    IsBorrowed: boolean;
+    IsPvpOpponent: boolean;
+}
+
+/** Les membres de `idun.meta.Rarity`, LUS SUR LE BUILD -- memoise. `null` = PAS LU. */
+let _raretes: Record<string, string> | null | undefined;
+function raretes(): Record<string, string> | null {
+    if (_raretes === undefined) _raretes = dumpEnum("", "idun.meta", "Rarity");
+    return _raretes;
+}
+
+/** Mirror 1:1 de `IdunBattle.Configuration.UnitConfigId$$CreateFromString`.
+ *
+ *  ⚠ ECRIRE `PureId: "tyranNpc3Termagant:6"` TEL QUEL N'APPARIE RIEN, ET C'EST SILENCIEUX.
+ *  `IdunBattle.Entities.Selectors.EnhancementTargetSelector$$Select` convertit l'id de CHAQUE
+ *  unite vivante par `UnitConfigId$$op_Implicit(string)` -- qui delegue a `CreateFromString`, donc
+ *  qui SCINDE sur le `:` -- puis compare par `UnitConfigId$$op_Equality`. Or `Equals` confronte
+ *  PureId, Rarity, Level ET IsBorrowed : un `PureId` qui porte encore son suffixe n'est egal a
+ *  rien. L'effet ne se pose pas, aucune erreur n'est levee, et `EnhancementAbilities` compte quand
+ *  meme 1 -- on lit « installe » pour « inerte ». Toute unite de VAGUE est dans ce cas
+ *  (`UnitSpawningOverTime` n'ecrit que des `<id>:<niveau>`).
+ *
+ *  Les quatre suffixes, dans l'ORDRE ou le natif les essaie -- l'ordre COMPTE : `Enum.TryParse`
+ *  accepterait aussi une chaine numerique, mais `Int32.TryParse` a deja gagne :
+ *
+ *      `:<entier>`   -> Level           (`Int32.TryParse`)
+ *      `:<Rarity>`   -> Rarity          (`Enum.TryParse<Rarity>`, par NOM, casse SENSIBLE)
+ *      `:borrowed`   -> IsBorrowed      (`UnitConfigId.BORROWED_UNIT_POST_FIX`)
+ *      `:pvp`        -> IsPvpOpponent   (`UnitConfigId.PVP_UNIT_POST_FIX`)
+ *      inconnu       -> `LogWarning`, et `PureId` reste la partie AVANT le `:`
+ *
+ *  Ce dernier cas est mirrore lui aussi : le natif ne garde PAS la chaine entiere, et diverger
+ *  ici fabriquerait un appariement faux au lieu d'un non-appariement visible.
+ *
+ *  ⚠ Les noms de rarete sont DUMPES DU BUILD, jamais ecrits ici : une table de noms recopiee est
+ *  exactement la citation qui se perime en silence au changement de build. Build muet => on ne
+ *  devine pas, on retombe sur la branche « suffixe inconnu », qui est ce que fait le natif. */
+function unitConfigId(brut: string): CibleUnite {
+    const nu: CibleUnite = {
+        PureId: brut, Rarity: null, Level: null, IsBorrowed: false, IsPvpOpponent: false,
+    };
+    const i = brut.indexOf(":");
+    if (i < 0) return nu;
+
+    // `String.Split(':')` puis `parts[0]` / `parts[1]` : un TROISIEME segment est IGNORE.
+    const pureId = brut.slice(0, i);
+    const reste = brut.slice(i + 1);
+    const j = reste.indexOf(":");
+    const suffixe = j < 0 ? reste : reste.slice(0, j);
+
+    // 1. `Int32.TryParse` -- decimal signe. On est plus STRICT que le natif (qui tolere les
+    //    espaces autour) : un id d'unite n'en porte pas, et refuser large ferait un faux Level.
+    if (/^[+-]?\d+$/.test(suffixe)) {
+        const n = Number(suffixe);
+        if (Number.isSafeInteger(n) && n >= -2147483648 && n <= 2147483647) {
+            return { ...nu, PureId: pureId, Level: n };
+        }
+    }
+    // 2. `Enum.TryParse<Rarity>` -- on emet l'ORDINAL, pas le nom : Newtonsoft n'a alors aucune
+    //    convention de nommage a deviner.
+    const r = raretes();
+    if (r && Object.prototype.hasOwnProperty.call(r, suffixe)) {
+        return { ...nu, PureId: pureId, Rarity: Number(r[suffixe]) };
+    }
+    if (suffixe === "borrowed") return { ...nu, PureId: pureId, IsBorrowed: true };
+    if (suffixe === "pvp") return { ...nu, PureId: pureId, IsPvpOpponent: true };
+    return { ...nu, PureId: pureId };
+}
+
 /** Ce qu'une entree d'ENHANCEMENT porte, cote appelant. */
 export interface SpecEnhancement {
     /** Nom PLEIN, tel qu'il est CLE du catalogue : `EnhancementAddTrait:Stationary`. */
@@ -144,7 +219,7 @@ export interface SpecEnhancement {
  *  ⚠ Un niveau NUL n'arme rien -- meme regle que `ajouterAbility`, et pour la meme raison. */
 export function ajouterEnhancement(
     env: NativePointer, spec: SpecEnhancement,
-): { ok: true; note?: string } | Refus {
+): { ok: true; note?: string; ciblesResolues?: CibleUnite[] } | Refus {
     const niveau = spec.niveau ?? 1;
     if (niveau === 0) {
         return refus("`" + spec.ability + "` : niveau 0 -- le natif n'arme rien. On REFUSE plutot "
@@ -162,17 +237,12 @@ export function ajouterEnhancement(
 
     const cibles = spec.cibles ?? [];
     const stack = spec.stack ?? 1;
+    const resolues = cibles.map(unitConfigId);
     const charge = {
         ConfigId: spec.ability,
         Level: niveau,
         PlayerId: spec.playerId ?? null,
-        Targets: cibles.map((u) => ({
-            Target: {
-                PureId: u, Rarity: null, Level: null,
-                IsBorrowed: false, IsPvpOpponent: false,
-            },
-            Stack: stack,
-        })),
+        Targets: resolues.map((t) => ({ Target: t, Stack: stack })),
         Stack: stack,
     };
 
@@ -202,11 +272,14 @@ export function ajouterEnhancement(
     // `Targets` ; `EnhancementAddTrait`, lui, passe par `IsEnhancementTarget` et ne tirera JAMAIS
     // sans cible nommee. On ne peut pas trancher depuis ici sans lire l'arbre de chaque ability --
     // alors on le DIT, au lieu de refuser a tort ou de laisser croire que c'est arme.
+    // ⚠ ET LES CIBLES RESOLUES REMONTENT. Le suffixe est scinde par `unitConfigId` : sans cet
+    // echo, un `:6` mal interprete ne se verrait NULLE PART -- l'installation resterait `ok`, la
+    // liste compterait 1, et l'effet ne se poserait juste pas. On publie ce qui a ete APPARIE.
     return cibles.length === 0
         ? { ok: true, note: "AUCUNE cible nommée : légitime pour une ability qui choisit sa cible "
             + "dans son propre arbre (ex. `EnhancementRegeneration`), mais une ability gardée par "
             + "`IsEnhancementTarget` (toute la famille `EnhancementAddTrait`) ne tirera JAMAIS" }
-        : { ok: true };
+        : { ok: true, ciblesResolues: resolues };
 }
 
 /** FUSIONNE une `AbilitiesConfiguration` (config PAR MODE) dans le receptacle, PAR LE NATIF.

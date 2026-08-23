@@ -1135,6 +1135,10 @@ export function ecrireAbilitesEnvironnement(
         detailEnh.push({
             ability: e.ability, niveau: e.niveau ?? 1, playerId: e.playerId ?? null,
             cibles: e.cibles ?? [], stack: e.stack ?? 1,
+            // CE QUI EST REELLEMENT ECRIT dans `Targets`, apres scission du suffixe par le mirror
+            // de `UnitConfigId$$CreateFromString`. Sans cet écho, un `:6` mal apparié ne se verrait
+            // NULLE PART : l'installation resterait `ok` et la liste compterait 1.
+            ciblesResolues: (pose as { ciblesResolues?: unknown[] }).ciblesResolues,
             auCatalogue,
             note: (pose as { note?: string }).note,
             avertissement: auCatalogue === false
