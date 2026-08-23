@@ -9,6 +9,9 @@ négatifs et les 10 unités montent, dès lors qu'on ne laisse pas le HARNAIS vi
 spawn qui ne lui appartient plus (§5ter). La « disparition du camp adverse » était une collision
 de tuiles causée par un `TWPI 0` codé en dur dans `rl_duel`, pas un refus du jeu.
 
+> **Volet POWER-UP** — ce que la même voie de pose permet d'AMENER sur le plateau, et le seul
+> bouclier mesuré dont la **durée soit réglable** : `case-10046-bouclier-de-power-up.md`.
+
 ## 1. La chaîne, de l'escouade au tuile
 
 ```
