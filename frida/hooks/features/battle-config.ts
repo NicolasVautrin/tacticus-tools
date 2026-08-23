@@ -57,7 +57,10 @@
 
 import {
     readIl2cppString, findClassAnywhere, findMethod, class_get_methods, class_get_name,
-    method_get_name, method_get_param_count, methodEntry, s as cstr, MethodRef,
+    class_get_namespace, class_get_parent, method_get_name, method_get_param_count,
+    methodEntry, s as cstr, MethodRef,
+    domain_get, domain_get_assemblies, assembly_get_image, image_get_class,
+    image_get_class_count,
 } from "../il2cpp/helpers.js";
 import { createManagedString } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -648,9 +651,23 @@ interface PatchApplyResult {
 
 let pendingPatch: BattleConfigPatch | null = null;
 let lastApply: PatchApplyResult | null = null;
-/** Les sources dont le `LoadBattle` est RÉELLEMENT ancré. `null` = pose pas encore tentée --
- *  jamais à lire comme « aucune ». */
-let sourcesAncrees: { posees: string[]; nonResolues: string[] } | null = null;
+/** Le RECENSEMENT de la pose. `null` = pose pas encore tentée -- jamais à lire comme « aucune ».
+ *
+ *  `posees`               : `<Classe>.<chargeur>` réellement ancrés — un patch ne peut mordre QUE là.
+ *  `couvertesParHeritage` : pas de chargeur propre, mais celui dont elles héritent EST ancré.
+ *  `refuseesDecision`     : écartées par `SOURCES_REFUSEES` (elles touchent d'autres joueurs).
+ *  `refuseesHeritage`     : leur chargeur EST le corps de la base — l'ancrer déborderait sur tout.
+ *  `nonResolues`          : implémentent `IGameModeSource` et ne sont couvertes par RIEN. Un vrai
+ *                           trou, et le seul champ à lire comme tel.
+ *
+ *  ⚠ Les cinq sont publiés parce qu'un armement doit pouvoir se CONFRONTER à ce qui est ancré.
+ *  Le 2026-08-23, l'onslaught n'était couvert par rien et le seul endroit qui le disait était une
+ *  ligne de `log` : un `pending` parfaitement visible, et la certitude fausse que ça mordrait. */
+let sourcesAncrees: {
+    posees: string[]; nonResolues: string[]; couvertesParHeritage: string[];
+    refuseesHeritage: string[]; refuseesDecision: string[];
+} | null = null;
+let sourcesRefusees: string[] = [];
 
 // ⛔ LES NEUF OFFSETS D'ÉCRITURE DE `UnitConfiguration` SONT RETIRÉS AVEC `templateOverrides`
 // (2026-08-23) : `Armor` 0x44, `FixedArmor` 0x48, `Shield` 0x4C, `Movement` 0x54, `Range` 0x5C,
@@ -1504,69 +1521,256 @@ function spawnPredefinedUnitsInto(
     return { ok: result.every((r) => r.errors.length === 0), spawned: result };
 }
 
-// --- LoadBattle.onLeave hook ---
+// --- LoadBattle.onLeave : LE canal de mutation de BC ------------------------------------------
 //
-// Applique le patch en attente à la BC que `LoadBattle` vient de rendre. Plusieurs
-// `Interceptor.attach` sur la même méthode sont sûrs — `mode-source-capture.ts` y est déjà pour
-// la CAPTURE ; on ajoute un canal latéral de MUTATION.
+// Applique le patch en attente a la `BattleConfiguration` que le chargeur vient de RENDRE, dans
+// l'intervalle entre sa fabrication et sa remise au runner. Plusieurs `Interceptor.attach` sur la
+// meme methode sont surs -- `mode-source-capture.ts` y est deja pour la CAPTURE.
 //
-// ⚠ DEUX SOURCES, ET LA SECONDE EST CE QUI REND LE BANC D'ESSAI POSSIBLE. Le hook ne visait que
-// `CampaignGameModeSource` : chaque hypothèse à tester coûtait donc une VRAIE bataille à
-// l'utilisateur — montée, observée, abandonnée. `SandboxGameModeSource` porte SON PROPRE
-// `LoadBattle` (vérifié dans `frida/methods.tsv` du build, ce n'est pas un héritage supposé), et
-// la sandbox sait RETRAITER (`HandleBattleSurrender`). L'ancrer rend le banc FIDÈLE au sens fort :
-// même patch, même geste, même fenêtre `onLeave` que le live — pas un régime approchant.
+// ⚠ C'EST LA SEULE FENETRE QUI MORDE, MESURE LE 2026-08-23. Muter la BC APRES coup ne fait RIEN :
+// le runner lit `BC.EnvironmentAbilities` a son `Initialize` et plus personne ne relit la BC
+// ensuite. Sur un onslaught reel en deploiement, `applyBattleConfigPatchNow` a ecrit au BON
+// pointeur (`installees: {EnhancementAbilities: 1}`) et `EnhancementDamageBoost` etait ABSENT des
+// 404 effets portes en jeu.
 //
-// ⚠ On n'ancre PAS `AGameModeSource.LoadBattle` (la base) : ça couvrirait d'un coup les ~12
-// sources, dont la PvP et la guerre de guilde, qui courent sur le compte RÉEL. La liste est
-// EXPLICITE pour que l'ajout d'un mode soit une décision, jamais un effet de bord.
+// ⚠ DEUX FAMILLES DE CHARGEUR, ET UNE LISTE DE NOMS NE LES VOIT PAS. Mesure sur `methods.tsv` :
+// NEUF sources surchargent `LoadBattle(isRestart)` (Campaign, Sandbox, Onslaught, Endless,
+// Friendly, TreasureBeach, AutomaticBattles, SyncPvp, LinearHeroEvent) ; HUIT ne l'overrident PAS
+// et implementent un `LoadBattleInternal` que la base appelle (CampaignEvent, GuildBoss,
+// GuildWars, LegendaryEvent, MachinesOfWarEvent, Pvp, PvpStarterSeason, SurvivalEvent). Les deux
+// rendent une `BattleConfiguration`, donc le canal vaut pour les deux -- encore faut-il viser la
+// methode que CHAQUE source implemente vraiment.
 //
-// ⚠ ET LE NAMESPACE FAIT PARTIE DE L'ENTRÉE. Les deux premières vivent dans
-// `IdunBattle.ViewLogic.BattleSource`, comme 23 des sources de mode ; l'onslaught, NON — il est
-// rangé sous `idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle`. Une liste de simples noms
-// résolus dans le namespace des autres ne pouvait donc pas l'atteindre, et le disait seulement
-// dans un `log` (« NON RÉSOLUES »), que personne ne lit au moment d'armer un patch.
+// ⇒ ON DECOUVRE AU LIEU D'ENUMERER. On balaye les classes qui descendent d'`AGameModeSource` et on
+// ancre, pour chacune, le chargeur qu'elle DECLARE. Un mode neuf est couvert sans qu'on y pense --
+// c'est le regime demande : par defaut on accepte, on GARDE par exception.
 //
-// ⚠ L'ONSLAUGHT COURT SUR LE COMPTE RÉEL, ET C'EST UNE DÉCISION, PAS UN OUBLI RÉPARÉ. Ajouté le
-// 2026-08-23 à la demande explicite de l'utilisateur, pour pouvoir débuffer un onslaught qu'il
-// joue. Il reste du PvE solo — contrairement à la PvP et à la guerre de guilde, qui restent hors
-// de cette liste et doivent y rester : ce qu'on y écrirait toucherait d'autres joueurs.
-//
-// ⚠ POURQUOI CE CANAL EST LE SEUL QUI MORDE, MESURÉ LE 2026-08-23. Muter la BC APRÈS coup ne fait
-// RIEN : le runner lit `BC.EnvironmentAbilities` à son `Initialize`, et plus personne ne relit la
-// BC ensuite. Sur un onslaught réel en déploiement, `applyBattleConfigPatchNow` a écrit au BON
-// pointeur (`installées: {EnhancementAbilities: 1}`) et `EnhancementDamageBoost` était ABSENT des
-// 404 effets portés en jeu. La fenêtre est `LoadBattle.onLeave` — entre la BC produite et le
-// runner qui la consomme — ou rien.
-const SOURCES_PATCHABLES: ReadonlyArray<{ ns: string; cls: string }> = [
-    { ns: "IdunBattle.ViewLogic.BattleSource", cls: "CampaignGameModeSource" },
-    { ns: "IdunBattle.ViewLogic.BattleSource", cls: "SandboxGameModeSource" },
-    { ns: "idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle",
-      cls: "OnslaughtGameModeSource" },
-];
+// ⚠ `findMethod` itere `class_get_methods`, donc les methodes DECLAREES : une source qui
+// n'implemente pas le nom cherche rend `null`, jamais le corps herite de la base. C'est ce qui
+// rend la decouverte sure -- sans quoi ancrer une source de la 2e famille par le nom `LoadBattle`
+// aurait attrape la BASE, donc toutes les autres d'un coup. Le recensement publie le chargeur
+// retenu pour CHAQUE source, ce qui rend ce fait verifiable a chaque injection au lieu d'etre cru.
+
+/** Les noms de chargeur cherches, dans l'ordre de preference. */
+const NOMS_DE_CHARGEUR = ["LoadBattle", "LoadBattleInternal"] as const;
+
+/** ⛔ LES SOURCES QU'ON REFUSE D'ANCRER, ET POURQUOI. Tout le reste est accepte.
+ *
+ *  Le critere n'est pas le mode, c'est l'EFFET SUR AUTRUI : patcher la BC y changerait l'issue
+ *  d'une partie pour d'AUTRES JOUEURS. Le PvE solo, lui, ne regarde que le compte qui le joue.
+ *
+ *  Le besoin de repetition sur ces modes-la passe par le BANC : `sandbox_gw.py` monte le slot de
+ *  guerre de guilde exact (plateau, defenseurs, buffs de zone, cap de rarete) sur
+ *  `SandboxGameModeSource`, qui est decouverte et ancree comme les autres -- donc deja patchable,
+ *  et sans consommer de tentative. */
+const SOURCES_REFUSEES: Readonly<Record<string, string>> = {
+    SyncPvpGameModeSource:
+        "PvP synchrone -- un adversaire reel joue en face.",
+    PvpGameModeSource:
+        "arene asynchrone -- on affronte l'equipe de defense d'un joueur reel, "
+        + "et son classement bouge avec l'issue.",
+    PvpStarterSeasonGameModeSource:
+        "arene asynchrone (saison debutant) -- meme raison.",
+    GuildWarsGameModeSource:
+        "defenses posees par les joueurs d'une autre guilde ; le resultat compte "
+        + "pour eux autant que pour nous.",
+};
+
+const NS_BASE = "IdunBattle.ViewLogic.BattleSource";
+const CLS_BASE = "AGameModeSource";
+const CLS_INTERFACE = "IGameModeSource";
+
+/** `il2cpp_class_get_interfaces(klass, &iter)` -- résolu paresseusement, comme `dsl-node-probe`. */
+let _classGetInterfaces: NativeFunction<NativePointer, [NativePointer, NativePointer]> | null = null;
+let _cgiTente = false;
+function classGetInterfaces(): typeof _classGetInterfaces {
+    if (_cgiTente) return _classGetInterfaces;
+    _cgiTente = true;
+    try {
+        const mod = Process.findModuleByName("GameAssembly.dll");
+        const p = mod ? mod.findExportByName("il2cpp_class_get_interfaces") : null;
+        if (p !== null) {
+            _classGetInterfaces = new NativeFunction(p, "pointer", ["pointer", "pointer"]);
+        }
+    } catch { _classGetInterfaces = null; }
+    return _classGetInterfaces;
+}
+
+/** Toutes les classes qui implémentent `IGameModeSource`, DIRECTEMENT OU PAR HÉRITAGE.
+ *
+ *  ⚠ AUCUN DES DEUX CRITÈRES ÉVIDENTS N'EST COMPLET, ET LES DEUX RENDENT UN RECENSEMENT
+ *  D'APPARENCE SAINE. Mesuré le 2026-08-23, deux fois, sur le harnais vivant :
+ *
+ *    * balayer les DESCENDANTES d'`AGameModeSource` -> 8 sources, toutes en `LoadBattleInternal`.
+ *      Il n'y a pas UNE hiérarchie mais TROIS racines : `Campaign`, `Onslaught`, `SyncPvp` et
+ *      `LinearHeroEvent` sont des SŒURS d'`AGameModeSource` sous `AProgressionGameModeSource` ;
+ *      `Endless` passe par `ATestGameModeSource` ; `Sandbox` dérive de `Object` DIRECTEMENT.
+ *
+ *    * balayer les interfaces DÉCLARÉES -> 10 sources, exactement les autres.
+ *      `il2cpp_class_get_interfaces` ne rend que ce que la classe déclare ELLE-MÊME : les
+ *      sous-classes d'`AGameModeSource` héritent l'implémentation sans la redéclarer.
+ *
+ *  Les deux ont rendu `nonResolues: []` — donc muets sur ce qu'ils ne visitaient pas. C'est le
+ *  mode de panne du jour : un recenseur ne peut pas rendre zéro sur ce qu'il ne visite pas.
+ *
+ *  ⇒ L'UNION : on remonte la chaîne de parenté et on teste les interfaces À CHAQUE ÉTAGE.
+ *
+ *  ⚠ ET LE NOM NE MARCHE PAS NON PLUS : filtrer sur un suffixe « GameModeSource » couvrirait le
+ *  build d'aujourd'hui et raterait en silence la première source nommée autrement.
+ *
+ *  Si `il2cpp_class_get_interfaces` n'est pas exporté, on rend `null` — PAS une liste vide : le
+ *  recensement doit dire « pas mesuré », jamais « aucune source ». */
+function sourcesDeMode(): NativePointer[] | null {
+    const cgi = classGetInterfaces();
+    const cible = findClassAnywhere(NS_BASE, CLS_INTERFACE);
+    if (cgi === null || cible === null) return null;
+    const it = Memory.alloc(Process.pointerSize);
+
+    const declare = (k: NativePointer): boolean => {
+        try {
+            it.writePointer(ptr(0));
+            let ifc: NativePointer;
+            let garde = 0;
+            while (!(ifc = cgi(k, it) as NativePointer).isNull() && garde++ < 64) {
+                if (ifc.equals(cible)) return true;
+            }
+        } catch { /* illisible */ }
+        return false;
+    };
+
+    const out: NativePointer[] = [];
+    const domain = domain_get() as NativePointer;
+    const taille = Memory.alloc(4);
+    const assemblees = domain_get_assemblies(domain, taille) as NativePointer;
+    const nbAsm = taille.readU32();
+    for (let i = 0; i < nbAsm; i++) {
+        const asm = assemblees.add(i * Process.pointerSize).readPointer();
+        let image: NativePointer;
+        try { image = assembly_get_image(asm) as NativePointer; } catch { continue; }
+        let nb = 0;
+        try { nb = image_get_class_count(image) as number; } catch { continue; }
+        for (let j = 0; j < nb; j++) {
+            let k: NativePointer;
+            try { k = image_get_class(image, j) as NativePointer; } catch { continue; }
+            if (k.isNull() || k.equals(cible)) continue;
+            // La classe elle-même, puis ses ancêtres — profondeur réelle mesurée : 2 à 3.
+            let p: NativePointer | null = k;
+            for (let d = 0; d < 8 && p !== null && !p.isNull(); d++) {
+                if (declare(p)) { out.push(k); break; }
+                try { p = class_get_parent(p) as NativePointer; } catch { break; }
+            }
+        }
+    }
+    return out;
+}
+
 
 function installLoadBattleHook(): void {
     const poses: string[] = [];
     const manquantes: string[] = [];
-    for (const { ns, cls } of SOURCES_PATCHABLES) {
-        const klass = findClassAnywhere(ns, cls);
-        const m = klass ? findMethod(klass, "LoadBattle") : null;
-        if (!m) { manquantes.push(cls); continue; }
-        if (attacherPatchSurLoadBattle(m.ptr, cls)) poses.push(cls);
+    const heritees: string[] = [];
+
+    const refusees: string[] = [];
+    const heriteesCouvertes: string[] = [];
+    const sansChargeurPropre: Array<{ klass: NativePointer; nom: string }> = [];
+    const ancres = new Set<string>();
+
+    // ⛔ LE CORPS DE LA BASE — RÉSOLU POUR ÊTRE REFUSÉ, JAMAIS ANCRÉ. Ancrer
+    // `AGameModeSource.LoadBattle` couvrirait d'un coup TOUTES les sources qui ne l'overrident
+    // pas, dont GuildWars, Pvp et PvpStarterSeason. `findMethod` n'itère que les méthodes
+    // DÉCLARÉES, donc ce cas ne devrait pas se produire — on le teste quand même, parce qu'un
+    // garde de PORTÉE ne se fonde pas sur une propriété d'un helper qu'on ne contrôle pas.
+    const kBase = findClassAnywhere(NS_BASE, CLS_BASE);
+    const ptrsBase = new Set<string>();
+    for (const nom of NOMS_DE_CHARGEUR) {
+        const m = kBase ? findMethod(kBase, nom) : null;
+        if (m) ptrsBase.add(m.ptr.toString());
     }
+
+    const trouvees = sourcesDeMode();
+    if (trouvees === null) {
+        // TRI-ÉTAT : NON MESURÉ, jamais « aucune source ». Un recensement vide qui se lit comme
+        // un fait ferait armer des patchs qui ne mordront nulle part.
+        sourcesAncrees = { posees: [], nonResolues: ["<ENUMERATION IMPOSSIBLE>"],
+                           couvertesParHeritage: [],
+                           refuseesHeritage: [], refuseesDecision: [] };
+        log("[battle-config] `il2cpp_class_get_interfaces` ou `IGameModeSource` INTROUVABLE — "
+            + "aucune source découverte, patch hook désactivé (NON MESURÉ, pas « aucune »)");
+        return;
+    }
+    for (const klass of trouvees) {
+        const cls = cstr(class_get_name(klass) as NativePointer);
+        const ns = cstr(class_get_namespace(klass) as NativePointer);
+
+        const motif = SOURCES_REFUSEES[cls];
+        if (motif !== undefined) {
+            refusees.push(cls);
+            log(`[battle-config] ${cls} NON ancrée (décision) : ${motif}`);
+            continue;
+        }
+
+        // Le chargeur qu'elle DÉCLARE, dans l'ordre de préférence.
+        let choisi: { nom: string; m: MethodRef } | null = null;
+        for (const nom of NOMS_DE_CHARGEUR) {
+            const m = findMethod(klass, nom);
+            if (m) { choisi = { nom, m }; break; }
+        }
+        if (choisi === null) {
+            // Ni l'un ni l'autre : elle hérite le chargeur d'un ancêtre. Ce n'est un TROU que si
+            // cet ancêtre n'est pas ancré — sinon la source est couverte, et l'afficher parmi les
+            // « non résolues » ferait croire à une brèche. On tranche par le CODE.
+            sansChargeurPropre.push({ klass, nom: `${ns}.${cls}` });
+            continue;
+        }
+        if (ptrsBase.has(choisi.m.ptr.toString())) {
+            heritees.push(`${cls}.${choisi.nom}`);
+            log(`[battle-config] REFUS d'ancrer ${cls} : son \`${choisi.nom}\` EST le corps de `
+                + "`AGameModeSource` — l'ancrer couvrirait toutes les sources qui ne l'overrident "
+                + "pas, dont celles délibérément refusées.");
+            continue;
+        }
+        if (attacherPatchSurLoadBattle(choisi.m.ptr, cls)) {
+            poses.push(`${cls}.${choisi.nom}`);
+            ancres.add(choisi.m.ptr.toString());
+        }
+    }
+
+    // Les sources SANS chargeur propre : couvertes si l'ancêtre dont elles héritent est ancré.
+    // ⚠ ON LE DÉRIVE, ON NE LE SUPPOSE PAS. Trois d'entre elles (`DebugReplay`, `Trailer`,
+    // `UserReplay`) héritent d'`AReplayGameModeSource`, qui EST ancrée — les laisser en « non
+    // résolues » ferait lire une brèche là où il n'y en a pas. L'inverse serait pire : conclure
+    // « couverte » sans vérifier laisserait un vrai trou invisible.
+    for (const { klass, nom } of sansChargeurPropre) {
+        let couverte = false;
+        let p: NativePointer | null = klass;
+        for (let d = 0; d < 8 && p !== null && !p.isNull() && !couverte; d++) {
+            try { p = class_get_parent(p) as NativePointer; } catch { break; }
+            if (p === null || p.isNull()) break;
+            for (const n of NOMS_DE_CHARGEUR) {
+                const m = findMethod(p, n);
+                if (m && ancres.has(m.ptr.toString())) { couverte = true; break; }
+            }
+        }
+        if (couverte) heriteesCouvertes.push(nom);
+        else manquantes.push(nom);
+    }
+    sourcesRefusees = refusees.slice();
     // ⚠ PUBLIÉ, PAS SEULEMENT LOGGÉ. C'est le cran qui manquait le 2026-08-23 : le hook n'était
     // posé que sur la campagne et le banc, l'onslaught n'était donc PATCHABLE PAR RIEN, et le seul
     // endroit qui le disait était cette ligne de `log`. Résultat : un patch armé, un `pending`
     // parfaitement visible, et une certitude fausse que « ça mordra au prochain load ». Un
     // armement doit pouvoir se confronter à la liste des sources RÉELLEMENT ancrées.
-    sourcesAncrees = { posees: poses.slice(), nonResolues: manquantes.slice() };
+    sourcesAncrees = { posees: poses.slice(), nonResolues: manquantes.slice(),
+                       refuseesHeritage: heritees.slice(), refuseesDecision: sourcesRefusees,
+                       couvertesParHeritage: heriteesCouvertes.slice() };
     if (poses.length === 0) {
         log("[battle-config] AUCUNE source patchable résolue (" + manquantes.join(", ")
             + ") — patch hook désactivé");
         return;
     }
     log("[battle-config] LoadBattle.onLeave patch hook installé sur : " + poses.join(", ")
-        + (manquantes.length > 0 ? " | NON RÉSOLUES : " + manquantes.join(", ") : ""));
+        + (manquantes.length > 0 ? " | NON RÉSOLUES : " + manquantes.join(", ") : "")
+        + (heritees.length > 0 ? " | REFUSÉES (corps hérité) : " + heritees.join(", ") : ""));
 }
 
 /** Pose le canal de mutation sur UN `LoadBattle`. Rend `false` si l'attache échoue — une source
