@@ -113,19 +113,12 @@ def main():
                          "PV max, stack 2 -> +60 %%. Une ability gardee par `IsEnhancementTarget` "
                          "(toute la famille `EnhancementAddTrait`) sans cible ne tire JAMAIS -- "
                          "le hook le DIT au lieu de te le laisser deviner.")
-    ap.add_argument("--equipe", action="append", default=[],
-                    help="`<playerId>:<teamId>`, repetable. Ex. `11:2` met le joueur en equipe 2.")
-    ap.add_argument("--inverser-equipes", action="store_true",
-                    help="raccourci : joueur(11) -> equipe 2, ennemi(12) -> equipe 1, ET "
-                         "echange des groupes de spawn (index 0 <-> 1). Les DEUX, parce qu'ils "
-                         "sont indissociables : `TeamWithPlayerIndex` est un INDEX DE JOUEUR, "
-                         "relie au TeamId par `ToOldPlayerIndex` (1->0, 2->1), et les groupes ne "
-                         "sont PAS symetriques (5 points d'un cote, 12 de l'autre sur C1_01). "
-                         "L'environnement (13, equipe 0) n'est PAS touche.")
-    ap.add_argument("--sans-groupes-spawn", action="store_true",
-                    help="avec `--inverser-equipes` : n'echanger QUE les equipes, pas les "
-                         "groupes. Sert a REPRODUIRE l'echec du 2026-08-22 (spawn adverse "
-                         "absent), pas a jouer.")
+    # ⛔ `--equipe`, `--inverser-equipes` et `--sans-groupes-spawn` RETIRES (2026-08-23).
+    # Ils pilotaient `playerTeamIds` / `spawnGroupPlayerIndexes`, deux contournements d'un
+    # symptome qui n'etait pas le leur : #10046 a mesure que l'inversion des `TeamId` FONCTIONNE
+    # cote natif, et que la disparition du camp adverse venait d'un `TWPI 0` code en dur dans
+    # `rl_duel.py` -- du HARNAIS. Ce qu'ils visaient se fait par `--adversaire-ouvre` (le camp que
+    # protege `EnvStartProtection`) ou par `--enhancement` (viser des unites NOMMEES).
     ap.add_argument("--ordre-des-tours", default=None, metavar="IDS",
                     help="reordonne `BC.Player.TurnOrder`, ex. `12,11,13`. PERMUTATION SEULEMENT "
                          "(le hook refuse toute valeur qui n'est pas un rearrangement de "
@@ -185,36 +178,10 @@ def main():
         print("patch RETIRE : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:200])
         return 0 if r.get("ok") else 1
 
-    # LES EQUIPES -- lues d'abord, parce qu'une pose peut ne porter QUE sur elles.
-    equipes = {}
-    groupes = {}
-    if a.inverser_equipes:
-        equipes = {"11": 2, "12": 1}
-        if not a.sans_groupes_spawn:
-            groupes = {"0": 1, "1": 0}
-    for spec in a.equipe:
-        pid, _, tid = spec.partition(":")
-        if not tid.strip().lstrip("-").isdigit() or not pid.strip().isdigit():
-            print("REFUS : `--equipe %s` mal forme, attendu `<playerId>:<teamId>`." % spec)
-            return 2
-        equipes[pid.strip()] = int(tid)
-
-    if not a.ability and not equipes and not a.config_ability and not a.enhancement:
-        print("REFUS : `--poser` sans `--ability`, `--equipe`, `--config-ability` ni"
-              " `--enhancement`. Rien a faire.")
+    if not a.ability and not a.config_ability and not a.enhancement:
+        print("REFUS : `--poser` sans `--ability`, `--config-ability` ni `--enhancement`."
+              " Rien a faire.")
         return 2
-
-    if equipes:
-        print("equipes demandees :")
-        for k in sorted(equipes, key=int):
-            print("  playerId %-4s -> TeamId %d" % (k, equipes[k]))
-        print("  (l'environnement n'est pas touche s'il n'est pas cite)")
-    if groupes:
-        print("groupes de spawn : " + ", ".join(
-            "index %s -> %d" % (k, groupes[k]) for k in sorted(groupes, key=int)))
-    elif equipes and a.sans_groupes_spawn:
-        print("(!) groupes de spawn NON echanges (`--sans-groupes-spawn`) -- c'est le regime")
-        print("    qui a fait DISPARAITRE le camp adverse le 2026-08-22.")
 
     demandes = []
     for spec in a.ability:
@@ -263,8 +230,33 @@ def main():
             print("REFUS : --config-ability `%s` sans aucune constante. Ecrire une definition"
                   " VIDE ferait LEVER le premier getter au lieu de le doter." % nom)
             return 2
-        configs.append({"ability": nom, "constants": consts})
-        print("  catalogue %-34s <- %s" % (nom, json.dumps(consts, ensure_ascii=False)))
+        # ⚠ LA CLE EST UN ORDINAL, PAS UN NOM. Le catalogue est keye par un
+        # `TriggeredAbilityConfigId` (TYPE VALEUR) ; le hook passe donc par
+        # `AbilitiesConfiguration$$AddEnvironmentAbility(TriggeredAbilityType, ...)`, qui prend un
+        # ENUM PLAT. Consequence : une VARIANTE (`EnhancementAddTrait:Stationary` = ordinal PLUS
+        # `VariantId`) est INEXPRIMABLE par cette voie -- on REFUSE plutot que d'ecrire sur la
+        # base et de laisser croire que la variante est dotee.
+        if ":" in nom:
+            base = nom.split(":", 1)[0]
+            print("REFUS : `%s` est une VARIANTE. Le catalogue se keye par un"
+                  " `TriggeredAbilityConfigId`" % nom)
+            print("        (ordinal + VariantId) et la voie du patch ne passe qu'un ordinal :"
+                  " ecrire ici")
+            print("        doterait `%s` tout court, pas ta variante. Les 106"
+                  " `EnhancementAddTrait:<Trait>`" % base)
+            print("        restent joignables par la voie SEED BC (`--seed-bc` de rl_duel), ou"
+                  " Newtonsoft")
+            print("        construit les cles lui-meme.")
+            return 3
+        if nom not in par_nom:
+            proches = sorted(k for k in par_nom if nom.lower()[:6] in k.lower())
+            print("REFUS : `%s` ABSENT de `%s` sur ce build." % (nom, ENUM_CLS))
+            if proches:
+                print("        approchants : %s" % ", ".join(proches[:8]))
+            return 3
+        configs.append({"abilityType": par_nom[nom], "nom": nom, "constants": consts})
+        print("  catalogue %-30s ordinal %-6d <- %s"
+              % (nom, par_nom[nom], json.dumps(consts, ensure_ascii=False)))
 
     enhancements = []
     for spec in a.enhancement:
@@ -306,10 +298,6 @@ def main():
         patch["environmentEnhancements"] = enhancements
     if demandes:
         patch["environmentAbilities"] = demandes
-    if equipes:
-        patch["playerTeamIds"] = {k: int(v) for k, v in equipes.items()}
-    if groupes:
-        patch["spawnGroupPlayerIndexes"] = {k: int(v) for k, v in groupes.items()}
     ordre = None
     if a.ordre_des_tours:
         try:
@@ -330,8 +318,8 @@ def main():
 
     print()
     print("patch ARME : %d ability(ies) d'environnement, %d definition(s) de catalogue,"
-          " %d enhancement(s), %d equipe(s) reecrite(s)%s."
-          % (len(demandes), len(configs), len(enhancements), len(equipes),
+          " %d enhancement(s)%s."
+          % (len(demandes), len(configs), len(enhancements),
              (", TurnOrder -> [%s]" % ",".join(str(x) for x in ordre)) if ordre else ""))
     print("Applique au PROCHAIN `LoadBattle`, PAR MUTATION de la BC que la source produit.")
     print("Monter ensuite le noeud, puis `--etat` : `lastApply.operations` dit ce qui a ete")

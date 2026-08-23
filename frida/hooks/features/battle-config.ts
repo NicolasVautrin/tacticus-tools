@@ -550,8 +550,20 @@ interface BattleConfigPatch {
      *      à `-100`, qui met les dégâts de la cible à ZÉRO (multiplicateur `1 + pct/100`, borné
      *      à zéro en dessous de -100).
      *
-     *  ⚠ Les valeurs sont des CHAÎNES, comme dans la BC (`{"extraDmgPct": "-100"}`). */
-    environmentAbilityConfigs?: Array<{ ability: string; constants?: Record<string, string>;
+     *  ⚠ Les valeurs sont des CHAÎNES, comme dans la BC (`{"extraDmgPct": "-100"}`).
+     *
+     *  ⚠ LA CLÉ EST UN ORDINAL, PAS UN NOM, et ce n'est pas un choix de confort : le
+     *  dictionnaire du catalogue est keyé par un `TriggeredAbilityConfigId` (un TYPE VALEUR --
+     *  le JSON le fait passer pour une chaîne), donc on ne l'écrit pas soi-même. On passe par
+     *  `AbilitiesConfiguration$$AddEnvironmentAbility(TriggeredAbilityType, …)`, qui prend un
+     *  ENUM PLAT et fabrique la clé lui-même.
+     *
+     *  ⚠ CONSÉQUENCE : les VARIANTES sont hors d'atteinte. `EnhancementAddTrait:Stationary` est
+     *  un `TriggeredAbilityType` PLUS un `VariantId`, et l'ordinal seul ne l'exprime pas. Les 106
+     *  variantes restent joignables par la voie SEED BC (Newtonsoft y construit les clés), pas
+     *  par ce patch. `nom` est purement DÉCORATIF -- il n'entre dans aucune clé. */
+    environmentAbilityConfigs?: Array<{ abilityType: number; nom?: string;
+                                        constants?: Record<string, string>;
                                         variables?: Record<string, string[]> }>;
     /** Les ENHANCEMENTS -- la SECONDE liste du réceptacle, et la SEULE qui cible par unité NOMMÉE.
      *
@@ -565,38 +577,24 @@ interface BattleConfigPatch {
      *  ⚠ Une ability gardée par `IsEnhancementTarget` sans `cibles` ne tire JAMAIS -- le retour
      *  le DIT (`note`) plutôt que de le laisser deviner. */
     environmentEnhancements?: Array<envAbilities.SpecEnhancement>;
-    /** L'ÉQUIPE de chaque joueur -- `BC.Player.Players[<playerId>].TeamId`, ÉCRIT EN PLACE.
-     *  Clé = le `playerId` tel qu'il est dans la BC (`"11"` le joueur, `"12"` l'ennemi,
-     *  `"13"` l'environnement), valeur = le `TeamId` voulu.
-     *
-     *  ⚠ POURQUOI ÇA PEUT SERVIR : les abilities d'environnement sont écrites pour la GUERRE DE
-     *  GUILDE, où l'équipe 1 attaque et l'équipe 2 défend. Lu au décompilé sur `t6dpr4k06g` :
-     *  `EnvFortified` buffe `UnitsFromTeam(..., 2)` et `EnvArtillerySupport` bombarde
-     *  `UnitsFromTeam(..., 1)`. Or le joueur est `TeamId = 1`. Tout arrive donc À L'ENVERS, et
-     *  c'est une cause UNIQUE, pas une malchance ability par ability.
-     *
-     *  ⚠ CE N'EST PAS SANS RISQUE, ET LA LECTURE NE SUFFIT PAS À LE DIRE. `TeamId` est un CHAMP :
-     *  la table des symboles étant indexée par méthode, tous les `if (a.TeamId == b.TeamId)` du
-     *  moteur y sont INVISIBLES. Ce qui est établi : `GetHumanPlayerTeamId` le DÉRIVE de l'entité
-     *  (aucun `1` en dur), et `ToOldPlayerIndex` code en dur mais n'est appelé que par
-     *  `AUnitView$$Create` / `PlaceholderUnitView$$Create` -- du RENDU. Tout ce qui compare deux
-     *  équipes ENTRE ELLES survit ; seul ce qui lit la valeur ABSOLUE bascule. */
-    playerTeamIds?: Record<string, number>;
-    /** L'INDEX DE JOUEUR des groupes de spawn -- `Board.SpawnPointSets[].SpawnPointGroups[]`.
-     *  Clé = la **POSITION** du groupe dans son set, valeur = l'index à écrire.
-     *  `{"0":1,"1":0}` = « le 1ᵉʳ groupe prend l'index 1, le 2ᵉ prend 0 » -- soit l'échange.
-     *
-     *  ⚠ PAR POSITION, JAMAIS PAR VALEUR COURANTE. Une correspondance lue sur la valeur n'est pas
-     *  IDEMPOTENTE : appliquée deux fois elle se défait, et le patch vit en `consumeOnce: false`
-     *  alors qu'un montage traverse plusieurs `LoadBattle`. Mesuré le 2026-08-22 : les deux camps
-     *  ont fini DANS LA MÊME ZONE, parce que les sets partagent apparemment leurs objets de
-     *  groupe et que chaque visite retournait la valeur.
-     *
-     *  ⚠ INDISSOCIABLE de `playerTeamIds` : ce champ est un INDEX DE JOUEUR, relié au `TeamId`
-     *  par `ToOldPlayerIndex` (1→0, 2→1). Les groupes ne sont PAS symétriques -- 5 points d'un
-     *  côté, 12 de l'autre sur `C1_01` -- donc inverser les équipes SANS inverser ceci envoie un
-     *  camp dans un groupe trop petit pour lui. */
-    spawnGroupPlayerIndexes?: Record<string, number>;
+    // ⛔ `playerTeamIds` ET `spawnGroupPlayerIndexes` ONT ÉTÉ RETIRÉS (2026-08-23), 327 lignes.
+    //
+    // Ils réécrivaient `BC.Player.Players[].TeamId` (par parcours du dictionnaire ET de l'arbre
+    // rouge-noir d'un `SortedDictionary`) et `Board.SpawnPointSets[].SpawnPointGroups[]
+    // .TeamWithPlayerIndex`, pour contourner « le camp adverse disparaît quand on inverse les
+    // équipes ».
+    //
+    // ⚠ CE SYMPTÔME N'ÉTAIT PAS LE LEUR. Mesuré et clos par #10046 : inverser les `TeamId`
+    // FONCTIONNE côté natif -- les cinq abandons muets de la pose sont négatifs et les 10 unités
+    // montent. La disparition venait d'une COLLISION DE TUILES causée par un `TWPI 0` codé en dur
+    // dans `rl_duel.py`, donc du HARNAIS. Deux mécanismes de contournement sont donc restés
+    // armés sans cible, avec leur propre piège d'idempotence (« appliqué deux fois, ça se
+    // défait ») et un parcours d'arbre rouge-noir à borne dure sur le thread principal du jeu.
+    //
+    // Ce qu'ils visaient reste atteignable, et plus simplement : `turnOrder` ci-dessous pour le
+    // camp que protège `EnvStartProtection`, et `environmentEnhancements` ci-dessus pour viser
+    // des unités NOMMÉES sans toucher à aucune équipe.
+    // Détail : `docs/rl/case-10046-pose-des-unites-predefinies.md` §5ter.
     /** L'ORDRE DES TOURS -- `BC.Player.TurnOrder`, une `List<PlayerId>` RÉORDONNÉE EN PLACE.
      *  `[12, 11, 13]` = « l'ennemi ouvre, puis le joueur, puis l'environnement ».
      *
@@ -843,25 +841,36 @@ function catalogueTaille(bc: NativePointer): number | null {
 }
 
 // ---------------------------------------------------------------------------------------
-// LE CATALOGUE -- `BC.Abilities.EnvironmentAbilities`, ET POURQUOI CELUI-LA EST SUR.
+// LE CATALOGUE -- `BC.Abilities.EnvironmentAbilities`, ET POURQUOI ON N'Y ECRIT PAS SOI-MEME.
 //
-// ⚠ NE PAS CONFONDRE AVEC `env.AbilitiesConfigurations`. Les deux portent des
-// `AbilityConfiguration`, et l'un des deux TUE LE PROCESS :
+// ⚠ LA CLE N'EST PAS UNE CHAINE, ET LE JSON LE FAIT CROIRE. Une BC serialisee montre
+// `{"EnvStartProtection": {...}}` -- on lit un nom, on conclut `Dictionary<String, ...>`. FAUX :
+// mesure du 2026-08-23 sur une BC `SandboxGameModeSource` vivante, le parametre de `ContainsKey`
+// est un `TriggeredAbilityConfigId`. Un `TriggeredAbilityConfigId` SE SERIALISE en nom sans etre
+// STOCKE comme tel -- c'est exactement le piege que `catalogueContient` documente depuis le
+// 2026-08-22, et il se referme une seconde fois des qu'on veut ECRIRE au lieu de lire.
 //
-//   `env.AbilitiesConfigurations`        Dictionary<TriggeredAbilityConfigId, AbilityConfiguration>
-//                                        -> cle TYPE VALEUR. Insertion a la main = crash mesure
-//                                           (2026-08-21, `Tacticus.exe.30620.dmp`). INTERDIT ici.
-//   `BC.Abilities.EnvironmentAbilities`  Dictionary<String, AbilityConfiguration>
-//                                        -> cle CHAINE. Rien a boxer, rien a dereferencer.
+// ⇒ Insertion a la main = boxage d'une cle de type valeur = le geste qui a tue le process le
+//   2026-08-21 (`Tacticus.exe.30620.dmp`). ON NE L'ECRIT PAS.
 //
-// C'est ce second dictionnaire que `catalogueContient` interroge deja, et c'est celui qu'une
-// ability LIT quand elle appelle `AbilityConfiguration$$GetNumberConstant`. Une ability installee
-// sans entree ici fait LEVER ce getter -- « system error » au cast ou au deploiement (cf. #254).
+// ⚠ LA SORTIE EST QUE LE NATIF A SA PROPRE METHODE, et elle est keyee par un ENUM PLAT :
 //
-// ⚠ LE TYPE DE CLE SE VERIFIE, IL NE SE SUPPOSE PAS. `catalogueContient` a deja menti une fois en
-// appelant `ContainsKey` sans regarder le type du parametre (2026-08-22). Meme garde ici, et elle
-// est BLOQUANTE : si la cle n'est pas `System.String`, on REFUSE d'ecrire. Se tromper de
-// convention sur une cle de type valeur ne rend pas un mauvais resultat, ca crashe.
+//     IdunBattle.Configuration.AbilitiesConfiguration$$AddEnvironmentAbility(
+//         id: IdunBattle.Entities.Enum.TriggeredAbilityType, configuration: AbilityConfiguration)
+//     IdunBattle.Configuration.AbilitiesConfiguration$$GetEnvironmentAbility(
+//         abilityType: IdunBattle.Entities.Enum.TriggeredAbilityType) -> AbilityConfiguration
+//
+// Un `int`. C'est le natif qui fabrique le `TriggeredAbilityConfigId`, donc plus rien a boxer.
+// Le getter donne en prime une RELECTURE qui ne depend d'aucune convention de cle.
+//
+// ⚠ IL EXISTE DEUX SURCHARGES A DEUX PARAMETRES (l'autre prend un `TriggeredAbilityConfigId`), et
+// `findMethodByParamCount` en choisirait une AU HASARD. On selectionne par le TYPE du premier
+// parametre -- se tromper ici ne rend pas un mauvais resultat, ca crashe.
+//
+// ⚠ CE QUE CETTE VOIE NE SAIT PAS FAIRE : une VARIANTE. `EnhancementAddTrait:Stationary` est un
+// `TriggeredAbilityType` PLUS un `VariantId`, et l'enum seul ne peut pas l'exprimer. Les 106
+// variantes `EnhancementAddTrait:<Trait>` restent donc joignables par la voie SEED BC (ou
+// Newtonsoft construit les cles) et PAS par ce patch. On le DIT au lieu de le laisser decouvrir.
 interface EcritureCatalogue {
     ok: boolean;
     /** Le compte du dictionnaire AVANT / APRES -- un fait, pas un « configuré ». */
@@ -871,31 +880,29 @@ interface EcritureCatalogue {
     error?: string;
 }
 
-/** Le dictionnaire du catalogue, ET la preuve que sa clé est une chaîne. */
-function catalogueDictionnaire(bc: NativePointer): NativePointer | { error: string } {
-    const abilities = champPointeur(bc, "Abilities");
-    if (estRefus(abilities)) {
-        return { error: "`BC.Abilities` : " + (abilities as { error: string }).error };
+/** La surcharge dont le PREMIER PARAMÈTRE est du type demandé — jamais « la première trouvée ». */
+function methodeParTypeDuPremierParam(
+    klass: NativePointer, nom: string, nbParams: number, nomTypeAttendu: string,
+): { info: NativePointer } | null {
+    let k = klass;
+    while (!k.isNull()) {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        let m: NativePointer;
+        while (!(m = class_get_methods(k, it) as NativePointer).isNull()) {
+            try {
+                if (cstr(method_get_name(m) as NativePointer) !== nom) continue;
+                if ((method_get_param_count(m) as number) !== nbParams) continue;
+                const kp = methodParamClass(m, 0);
+                if (!kp) continue;
+                if (cstr(class_get_name(kp) as NativePointer) === nomTypeAttendu) {
+                    return { info: m };
+                }
+            } catch { /* méthode illisible : on passe, on ne devine pas */ }
+        }
+        break; // pas d'héritage à remonter : la méthode est déclarée sur la classe elle-même
     }
-    const dict = champPointeur(abilities as NativePointer, "EnvironmentAbilities");
-    if (estRefus(dict)) {
-        return { error: "`BC.Abilities.EnvironmentAbilities` : "
-            + (dict as { error: string }).error };
-    }
-    const d = dict as NativePointer;
-    const mHas = findMethodByParamCount(d.readPointer(), "ContainsKey", 1);
-    if (!mHas) return { error: "`ContainsKey(1)` INTROUVABLE sur le catalogue -- chemin PÉRIMÉ" };
-    const kParam = methodParamClass(mHas.info, 0);
-    if (!kParam) return { error: "type de clé du catalogue ILLISIBLE -- on n'écrit pas à l'aveugle" };
-    let nomParam: string;
-    try { nomParam = cstr(class_get_name(kParam) as NativePointer); }
-    catch (e) { return { error: "nom du type de clé illisible : " + (e as Error).message }; }
-    if (nomParam !== "String") {
-        return { error: "la clé du catalogue est un `" + nomParam + "`, PAS une `String` -- écrire "
-            + "dedans exigerait de boxer une clé de type valeur, exactement le geste qui a tué le "
-            + "process le 2026-08-21. REFUS." };
-    }
-    return d;
+    return null;
 }
 
 /** ÉCRIRE des définitions dans le CATALOGUE de la BC — la moitié qui manquait au patch.
@@ -909,41 +916,61 @@ function catalogueDictionnaire(bc: NativePointer): NativePointer | { error: stri
  *  Le retour DIT, par entrée, si elle existait avant — pour qu'un écrasement soit lu, pas subi. */
 export function ecrireCatalogueEnvironnement(
     bc: NativePointer,
-    entrees: Array<{ ability: string; constants?: Record<string, string>;
+    entrees: Array<{ abilityType: number; nom?: string; constants?: Record<string, string>;
                      variables?: Record<string, string[]> }>,
 ): EcritureCatalogue {
     if (!isDeserializerReady()) {
         return { ok: false, error: "`JsonConvert.DeserializeObject` non résolu -- une "
             + "`AbilityConfiguration` ne peut pas être construite" };
     }
-    const d = catalogueDictionnaire(bc);
-    if ((d as { error?: string }).error) return { ok: false, error: (d as { error: string }).error };
-    const dict = d as NativePointer;
+    const abilities = champPointeur(bc, "Abilities");
+    if (estRefus(abilities)) {
+        return { ok: false, error: "`BC.Abilities` : " + (abilities as { error: string }).error };
+    }
+    const cfgAbilities = abilities as NativePointer;
 
     const kCfg = findClassAnywhere("IdunBattle.Configuration", "AbilityConfiguration");
     if (!kCfg) {
         return { ok: false, error: "classe `IdunBattle.Configuration.AbilityConfiguration` "
             + "introuvable -- chemin PÉRIMÉ sur ce build" };
     }
-    const mSet = findMethodByParamCount(dict.readPointer(), "set_Item", 2);
-    const mHas = findMethodByParamCount(dict.readPointer(), "ContainsKey", 1);
-    if (!mSet || !mHas) {
-        return { ok: false, error: "`set_Item(2)`/`ContainsKey(1)` INTROUVABLE sur le catalogue "
-            + "-- chemin PÉRIMÉ" };
+    const kAbilities = cfgAbilities.readPointer();
+    const mAdd = methodeParTypeDuPremierParam(
+        kAbilities, "AddEnvironmentAbility", 2, "TriggeredAbilityType");
+    const mGet = methodeParTypeDuPremierParam(
+        kAbilities, "GetEnvironmentAbility", 1, "TriggeredAbilityType");
+    if (!mAdd) {
+        return { ok: false, error: "`AbilitiesConfiguration$$AddEnvironmentAbility(TriggeredAbility"
+            + "Type, AbilityConfiguration)` INTROUVABLE -- on ne se replie PAS sur la surcharge à "
+            + "`TriggeredAbilityConfigId` : sa clé est un type valeur, et la boxer est le geste "
+            + "qui a tué le process le 2026-08-21" };
     }
 
-    const contient = (nom: string): boolean | null => {
+    // ⚠ `GetEnvironmentAbility` NE SAIT PAS DIRE « ABSENT », ET S'EN SERVIR REND UN VERT VACANT.
+    // Mesure du 2026-08-23 : sur `EnvAttemptDebuff`, il rendait NON-NUL *avant* l'écriture alors
+    // que le compte du dictionnaire passait de 166 à 167 -- l'entrée n'y était donc pas. Il
+    // fabrique un défaut au lieu de rendre `null`. Une vérification bâtie dessus aurait rendu
+    // `relu=true` quoi qu'il arrive, y compris si l'insertion avait échoué : c'est le capteur
+    // qui confirme l'hypothèse l'ayant fait naître, encore lui.
+    //
+    // Le seul signal HONNÊTE est le COMPTE du dictionnaire, pris avant et après CHAQUE entrée :
+    //   apres > avant  -> entrée NEUVE, réellement insérée
+    //   apres == avant -> une entrée existait déjà et vient d'être ÉCRASÉE (le geste voulu quand
+    //                     on change une constante) -- ou l'insertion n'a rien fait, et les deux
+    //                     sont indistinguables par le compte seul. On le DIT.
+    const getterNonNul = (t: number): boolean | null => {
+        if (!mGet) return null;
         try {
-            const r = invokeMethod(mHas.info, dict, [createManagedString(nom)]);
-            // ⚠ `il2cpp_runtime_invoke` BOXE les types valeur : le `bool` est à +0x10.
-            return r.isNull() ? null : r.add(0x10).readU8() !== 0;
+            const buf = Memory.alloc(4); buf.writeS32(t | 0);
+            return !invokeMethod(mGet.info, cfgAbilities, [buf]).isNull();
         } catch { return null; }
     };
 
     const tailleAvant = catalogueTaille(bc);
     const detail: Array<Record<string, unknown>> = [];
     for (const e of entrees) {
-        const avant = contient(e.ability);
+        const nom = e.nom ?? triggeredAbilityName(e.abilityType);
+        const compteAvant = catalogueTaille(bc);
         // La forme que le jeu SÉRIALISE lui-même — on la lui rend telle quelle.
         const charge = {
             Variables: e.variables ?? {},
@@ -956,26 +983,39 @@ export function ecrireCatalogueEnvironnement(
         try { cfg = deserializeFromJson(JSON.stringify(charge), kCfg); }
         catch (err) {
             return { ok: false, tailleAvant, detail,
-                error: "`" + e.ability + "` : désérialisation de l'`AbilityConfiguration` : "
+                error: "`" + nom + "` : désérialisation de l'`AbilityConfiguration` : "
                     + (err as Error).message };
         }
         if (cfg.isNull()) {
             return { ok: false, tailleAvant, detail,
-                error: "`" + e.ability + "` : l'`AbilityConfiguration` s'est désérialisée en NUL" };
+                error: "`" + nom + "` : l'`AbilityConfiguration` s'est désérialisée en NUL" };
         }
         gcRoot.add(cfg);
-        try { invokeMethod(mSet.info, dict, [createManagedString(e.ability), cfg]); }
-        catch (err) {
+        try {
+            const buf = Memory.alloc(4); buf.writeS32(e.abilityType | 0);
+            invokeMethod(mAdd.info, cfgAbilities, [buf, cfg]);
+        } catch (err) {
             return { ok: false, tailleAvant, detail,
-                error: "`" + e.ability + "` : `set_Item` a LEVÉ : " + (err as Error).message };
+                error: "`" + nom + "` : `AddEnvironmentAbility` a LEVÉ : " + (err as Error).message };
         }
+        const compteApres = catalogueTaille(bc);
+        const neuve = (compteAvant !== null && compteApres !== null)
+            ? compteApres > compteAvant : null;
         detail.push({
-            ability: e.ability,
+            abilityType: e.abilityType, nom,
             constants: e.constants ?? {},
-            existaitDeja: avant,
-            // RELECTURE : « l'appel est passé » n'est pas « l'entrée est là ».
-            relu: contient(e.ability),
-            note: avant === true ? "ÉCRASE la définition existante" : undefined,
+            compteAvant, compteApres,
+            /** `true` = entrée NEUVE (le compte a monté) · `false` = une entrée existait et a été
+             *  ÉCRASÉE, OU rien n'a bougé — le compte seul ne les sépare pas · `null` = pas mesuré. */
+            neuve,
+            /** ⚠ NE PROUVE RIEN SUR L'ABSENCE : ce getter fabrique un défaut au lieu de rendre
+             *  `null` (mesuré le 2026-08-23). Publié pour la lecture, jamais comme verdict. */
+            getterNonNul: getterNonNul(e.abilityType),
+            note: neuve === false
+                ? "compte INCHANGÉ : soit la définition existante a été ÉCRASÉE (le geste voulu "
+                  + "pour changer une constante), soit l'insertion n'a rien fait -- le compte ne "
+                  + "sépare pas les deux"
+                : undefined,
         });
     }
     return { ok: true, tailleAvant, tailleApres: catalogueTaille(bc), detail };
@@ -1120,232 +1160,6 @@ export function ecrireAbilitesEnvironnement(
     };
 }
 
-// ---------------------------------------------------------------------------------------
-// L'EQUIPE D'UN JOUEUR -- UN ENTIER, ECRIT EN PLACE.
-//
-// ⛔ PAS DE SERIALISATION, PAS DE RECONSTRUCTION. La premiere version de ce geste proposait de
-// serialiser `BC.Player`, d'y changer les `TeamId` et de redeserialiser -- c'est une
-// SUBSTITUTION du sous-arbre, pas une mutation : elle jette l'identite de l'objet, et quiconque
-// tient deja une reference sur l'ancien `PlayersConfiguration` ne verrait jamais le changement.
-// La deserialisation se justifie pour `Tiers` (un dictionnaire imbrique qu'on CREE de zero, sur
-// un champ NUL) ; ici l'objet EXISTE et le champ est un `int`. On l'ecrit, point.
-//
-// ⚠ LE DICTIONNAIRE SE PARCOURT, IL NE SE MODIFIE PAS. Le crash du 2026-08-21
-// (`Tacticus.exe.30620.dmp`) venait de l'INSERTION avec une cle de type valeur boxee. Lire le
-// tableau `_entries` ne boxe rien et n'insere rien -- c'est une traversee en lecture seule,
-// suivie d'une ecriture d'entier sur l'objet VALEUR. Aucune des deux n'est le geste qui a tue.
-//
-// ⚠ LE LAYOUT SE DERIVE DE L'INSTANCE, JAMAIS D'UN NOM DE CLASSE GENERIQUE. Mesure deja au
-// depot (`game/receive-damage-types.ts`) : `classFields("System.Collections.Generic",
-// "Dictionary`2")` rend ses DIX champs a l'offset 0. Donc `_entries@0` et `_count@0` -- deux
-// offsets qui ne sont PAS negatifs, et qu'une garde `< 0` LAISSE PASSER. La classe `Entry` se
-// deduit du TYPE DU CHAMP `_entries`, donc du dictionnaire reel.
-interface EcritureEquipes {
-    ok: boolean;
-    /** Par joueur : ce qu'on a lu AVANT et ce qu'on a relu APRES. Le seul verdict qui vaut. */
-    joueurs?: Array<Record<string, unknown>>;
-    error?: string;
-}
-
-/** Le meme geste, sur un `SortedDictionary` : parcours de son arbre rouge-noir.
- *
- *  `SortedDictionary<K,V>` delegue tout a un `TreeSet`/`SortedSet<KeyValuePair<K,V>>` : un champ
- *  (`_set`) pointe la collection, qui porte une `root`, et chaque noeud porte `Item` (la paire,
- *  INLINE), `Left` et `Right`. Aucun tableau plat -- d'ou l'echec de la lecture par `_entries`.
- *
- *  ⚠ `Item` est un TYPE VALEUR stocke INLINE : les offsets de ses champs sont donnes pour la
- *  forme BOXEE, donc on retranche `0x10`. Meme regle que l'ecriture de `TriggeredAbilityConfigId`
- *  dans `environment-abilities.ts` -- oublier ce retrait lit 16 octets a cote, en silence.
- *
- *  ⚠ Parcours ITERATIF avec une borne dure : un arbre corrompu (ou un champ mal resolu qui rend
- *  un pointeur plausible) ferait boucler le thread principal du jeu, ce qui le tue. La borne est
- *  un garde-fou, pas une limite de taille attendue -- il y a trois joueurs. */
-function ecrireEquipesParArbre(
-    dict: NativePointer, kDict: NativePointer, nomDict: string,
-    mapping: Record<string, number>,
-): EcritureEquipes {
-    const BOX = 0x10;
-    const champ = (k: NativePointer, noms: string[]): number => {
-        for (const n of noms) { const o = getFieldOffset(k, n); if (o > 0) return o; }
-        return -1;
-    };
-    const offSet = champ(kDict, ["_set", "set", "dictionary"]);
-    if (offSet < 0) {
-        return { ok: false, error: "`" + nomDict + "` : ni `_set` ni `set` -- chemin PERIME" };
-    }
-    let ensemble: NativePointer;
-    try { ensemble = dict.add(offSet).readPointer(); }
-    catch (e) { return { ok: false, error: "lecture de `_set` : " + (e as Error).message }; }
-    if (ensemble.isNull()) return { ok: false, error: "`_set` est NUL -- rien a parcourir" };
-
-    const kSet = ensemble.readPointer();
-    const offRoot = champ(kSet, ["root", "_root"]);
-    if (offRoot < 0) {
-        let nomSet = "?";
-        try { nomSet = cstr(class_get_name(kSet) as NativePointer); } catch { /* ignore */ }
-        return { ok: false, error: "`" + nomSet + "` : ni `root` ni `_root` -- chemin PERIME" };
-    }
-    let racine: NativePointer;
-    try { racine = ensemble.add(offRoot).readPointer(); }
-    catch (e) { return { ok: false, error: "lecture de `root` : " + (e as Error).message }; }
-    if (racine.isNull()) return { ok: true, joueurs: [] };   // arbre VIDE, pas une panne
-
-    // ⚠ SUR .NET CORE, `Node.Item`/`Left`/`Right` SONT DES PROPRIETES : le champ porte alors le
-    // nom de backing `<Item>k__BackingField`. Les trois ecritures sont essayees, et l'echec NOMME
-    // la classe -- deviner un nom de champ trois fois de suite est ce qu'on evite ici.
-    const kNode = racine.readPointer();
-    const NOMS_ITEM = ["Item", "item", "_item", "<Item>k__BackingField"];
-    const NOMS_LEFT = ["Left", "left", "_left", "<Left>k__BackingField"];
-    const NOMS_RIGHT = ["Right", "right", "_right", "<Right>k__BackingField"];
-    const offItem = champ(kNode, NOMS_ITEM);
-    const offLeft = champ(kNode, NOMS_LEFT);
-    const offRight = champ(kNode, NOMS_RIGHT);
-    if (offItem < 0 || offLeft < 0 || offRight < 0) {
-        let nomNode = "?";
-        try { nomNode = cstr(class_get_name(kNode) as NativePointer); } catch { /* ignore */ }
-        return { ok: false, error: "noeud `" + nomNode + "` non decodable "
-            + `(Item=${offItem}, Left=${offLeft}, Right=${offRight}). Ecritures essayees : `
-            + NOMS_ITEM.join("/") + ". Demander ses champs au jeu par `classFields`." };
-    }
-    // La paire est INLINE dans le noeud : ses offsets sont ceux de la forme BOXEE, d'ou `-0x10`.
-    const kItem = (() => {
-        let f: NativePointer | null = null;
-        for (const n of NOMS_ITEM) { f = getFieldInfo(kNode, n); if (f) break; }
-        if (!f) return null;
-        const t = field_get_type(f) as NativePointer;
-        if (t.isNull()) return null;
-        const c = type_get_class_or_element_class(t) as NativePointer;
-        return c.isNull() ? null : c;
-    })();
-    if (kItem === null) return { ok: false, error: "type de `Item` (KeyValuePair) non resolu" };
-    const offKey = champ(kItem, ["key", "_key", "Key"]);
-    const offValue = champ(kItem, ["value", "_value", "Value"]);
-    if (offKey < 0 || offValue < 0) {
-        return { ok: false, error: `KeyValuePair non decodable (key=${offKey}, value=${offValue})` };
-    }
-
-    const joueurs: Array<Record<string, unknown>> = [];
-    const pile: NativePointer[] = [racine];
-    let visites = 0;
-    while (pile.length > 0) {
-        if (++visites > 256) {
-            return { ok: false, error: "plus de 256 noeuds parcourus -- arbre suspect, on ARRETE "
-                + "plutot que de risquer une boucle sur le thread principal du jeu" };
-        }
-        const noeud = pile.pop() as NativePointer;
-        if (noeud.isNull()) continue;
-        let playerId: number;
-        let valeur: NativePointer;
-        try {
-            playerId = noeud.add(offItem + (offKey - BOX)).readS32();
-            valeur = noeud.add(offItem + (offValue - BOX)).readPointer();
-            const g = noeud.add(offLeft).readPointer();
-            const d = noeud.add(offRight).readPointer();
-            if (!g.isNull()) pile.push(g);
-            if (!d.isNull()) pile.push(d);
-        } catch (e) {
-            return { ok: false, error: "parcours du noeud : " + (e as Error).message };
-        }
-        if (valeur.isNull()) continue;
-
-        const kVal = valeur.readPointer();
-        const offTeam = getFieldOffset(kVal, "TeamId");
-        const offType = getFieldOffset(kVal, "PlayerType");
-        if (offTeam < 0) {
-            return { ok: false, error: "`PlayerConfiguration.TeamId` ABSENT -- chemin PERIME" };
-        }
-        const avant = valeur.add(offTeam).readS32();
-        const typeJoueur = offType >= 0 ? valeur.add(offType).readS32() : null;
-        const cible = mapping[String(playerId)];
-        if (cible === undefined) {
-            joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, touche: false });
-            continue;
-        }
-        try { valeur.add(offTeam).writeS32(cible | 0); }
-        catch (e) { return { ok: false, error: "ecriture de `TeamId` : " + (e as Error).message }; }
-        const apres = valeur.add(offTeam).readS32();   // ON RELIT : l'ecriture ne s'atteste pas seule
-        joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, teamApres: apres,
-                       touche: true, relu: apres === (cible | 0) });
-    }
-    return { ok: true, joueurs };
-}
-
-/** LES GROUPES DE POINTS DE SPAWN -- `Board.SpawnPointSets[].SpawnPointGroups[].TeamWithPlayerIndex`.
- *
- *  ⚠ CE CHAMP EST UN **INDEX DE JOUEUR**, PAS UN `TeamId` -- et c'est ce qui rend l'inversion
- *  d'equipes INCOMPLETE si on l'oublie. La conversion est `IdunBattle.Core.TeamIdExtensions$$ToOldPlayerIndex` :
- *
- *      TeamId 1 -> index 0        TeamId 2 -> index 1        TeamId 0 -> index 2
- *
- *  Mesure sur `data/seed-bc.json` (board `C1_01`) : le groupe d'index 0 porte **5** points et
- *  celui d'index 1 en porte **12**, pour un joueur a 5 unites et un adversaire a 7. Les groupes
- *  ne sont donc PAS symetriques : chacun est dimensionne pour son camp. Inverser les `TeamId`
- *  sans inverser ceci enverrait les 7 unites adverses dans un groupe de 5.
- *
- *  ⚠ J'AI CLASSE `ToOldPlayerIndex` << COSMETIQUE >> A TORT. Ses xrefs Ghidra ne nomment que
- *  `AUnitView$$Create` et `PlaceholderUnitView$$Create` -- du rendu. Mais la MEME conversion
- *  commande le choix du groupe de spawn, par un chemin que l'index par methode ne montre pas.
- *  Une xref incomplete se lit comme une absence, et une absence ne prouve rien. */
-function ecrireIndexDesGroupesDeSpawn(
-    bc: NativePointer, mapping: Record<string, number>,
-): EcritureEquipes {
-    const board = champPointeur(bc, "Board");
-    if (estRefus(board)) {
-        return { ok: false, error: "`BC.Board` : " + (board as { error: string }).error };
-    }
-    const setsP = champPointeur(board as NativePointer, "SpawnPointSets");
-    if (estRefus(setsP)) {
-        return { ok: false, error: "`Board.SpawnPointSets` : " + (setsP as { error: string }).error };
-    }
-    const sets = readManagedList(setsP as NativePointer);
-    if (sets === null) return { ok: false, error: "`SpawnPointSets` illisible comme `List`" };
-
-    const groupes: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < sets.size; i++) {
-        const s = readListItem(sets, i);
-        if (s.isNull()) continue;
-        const grP = champPointeur(s, "SpawnPointGroups");
-        if (estRefus(grP)) continue;                      // un set sans groupes n'est pas une panne
-        const gr = readManagedList(grP as NativePointer);
-        if (gr === null) continue;
-        for (let j = 0; j < gr.size; j++) {
-            const g = readListItem(gr, j);
-            if (g.isNull()) continue;
-            const kG = g.readPointer();
-            let off = -1;
-            for (const n of ["TeamWithPlayerIndex", "<TeamWithPlayerIndex>k__BackingField"]) {
-                off = getFieldOffset(kG, n);
-                if (off >= 0) break;
-            }
-            if (off < 0) {
-                return { ok: false, error: "`SpawnPointGroup.TeamWithPlayerIndex` ABSENT sous ses "
-                    + "deux ecritures connues -- chemin PERIME" };
-            }
-            const avant = g.add(off).readS32();
-            // ⚠ LA CLE EST LA **POSITION** DU GROUPE, PAS SA VALEUR COURANTE -- ET C'EST UN
-            // CORRECTIF, PAS UN CHOIX DE STYLE. Une correspondance `{0->1, 1->0}` lue sur la
-            // valeur n'est PAS IDEMPOTENTE : appliquee deux fois elle se DEFAIT. Or le patch
-            // vit en `consumeOnce: false` et un montage traverse PLUSIEURS `LoadBattle`, donc
-            // le resultat dependait de la PARITE du nombre de passages. Pire, les sets semblent
-            // PARTAGER leurs objets de groupe (la trace alterne `1->0`, `0->1`, `0->1`... :
-            // la signature d'un meme objet revisite et retourne a chaque fois), si bien que les
-            // deux camps ont fini DANS LA MEME ZONE. Mesure du 2026-08-22.
-            // Clef par position : le groupe en position j prend toujours le meme index, quel
-            // que soit le nombre de visites et que l'objet soit partage ou non.
-            const cible = mapping[String(j)];
-            if (cible === undefined) {
-                groupes.push({ set: i, groupe: j, indexAvant: avant, touche: false });
-                continue;
-            }
-            g.add(off).writeS32(cible | 0);
-            const apres = g.add(off).readS32();           // ON RELIT, toujours
-            groupes.push({ set: i, groupe: j, indexAvant: avant, indexApres: apres,
-                           touche: true, relu: apres === (cible | 0) });
-        }
-    }
-    return { ok: true, joueurs: groupes };
-}
-
 /** Réordonne `BC.Player.TurnOrder` EN PLACE — c'est le levier du bouclier d'environnement.
  *
  *  ⚠ **PERMUTATION SEULEMENT, et ce refus est aussi l'AUTO-VALIDATION de la disposition.**
@@ -1400,107 +1214,6 @@ function ecrireOrdreDesTours(
     return { ok: true, avant, apres, relu: apres.join(",") === ordre.join(",") };
 }
 
-export function ecrireEquipesDesJoueurs(
-    bc: NativePointer, mapping: Record<string, number>,
-): EcritureEquipes {
-    const cfgJoueurs = champPointeur(bc, "Player");
-    if (estRefus(cfgJoueurs)) {
-        return { ok: false, error: "`BC.Player` : " + (cfgJoueurs as { error: string }).error };
-    }
-    const dictR = champPointeur(cfgJoueurs as NativePointer, "Players");
-    if (estRefus(dictR)) {
-        return { ok: false, error: "`BC.Player.Players` : " + (dictR as { error: string }).error };
-    }
-    const dict = dictR as NativePointer;
-    const kDict = dict.readPointer();
-
-    // ⚠ CE N'EST PAS UN `Dictionary`, C'EST UN `SortedDictionary` -- MESURE, PAS SUPPOSE.
-    // La premiere version cherchait `_entries`/`_count` et refusait proprement (`-1`/`-1`) ;
-    // le refus NOMMAIT la classe, et c'est ce nom qui a donne la reponse : `SortedDictionary`2`
-    // n'a AUCUN tableau d'entrees. Il enveloppe un arbre rouge-noir, et on le parcourt.
-    // La traversee reste une LECTURE PURE : ni insertion, ni boxing de cle -- donc pas le geste
-    // qui a tue le process le 2026-08-21.
-    let nomDict = "?";
-    try { nomDict = cstr(class_get_name(kDict) as NativePointer); } catch { /* garde le `?` */ }
-    if (nomDict.startsWith("SortedDictionary")) {
-        return ecrireEquipesParArbre(dict, kDict, nomDict, mapping);
-    }
-    let cleEntries = "";
-    let cleCount = "";
-    let offEntries = -1;
-    let offCount = -1;
-    for (const n of ["_entries", "entries"]) {
-        const o = getFieldOffset(kDict, n);
-        if (o > 0) { offEntries = o; cleEntries = n; break; }
-    }
-    for (const n of ["_count", "count"]) {
-        const o = getFieldOffset(kDict, n);
-        if (o > 0) { offCount = o; cleCount = n; break; }
-    }
-    // GARDE DE PLAGE, pas garde de signe -- cf. le pave ci-dessus : la definition OUVERTE rend
-    // des zeros, qui passeraient un `< 0`. Deux offsets DISTINCTS et non nuls, ou on refuse.
-    if (offEntries <= 0 || offCount <= 0 || offEntries === offCount) {
-        return { ok: false, error: "layout non derivable sur `" + nomDict + "` "
-            + `(entries=${offEntries}, count=${offCount}) -- ni \`_entries\`/\`_count\` ni `
-            + "`entries`/`count` ne resolvent. Si ce n'est pas un `Dictionary`, c'est le CHEMIN "
-            + "`BC.Player.Players` qui est faux, pas le decodeur." };
-    }
-    const fEntries = getFieldInfo(kDict, cleEntries);
-    if (!fEntries) return { ok: false, error: "`FieldInfo` de `_entries` non resolu" };
-    const tEntries = field_get_type(fEntries) as NativePointer;
-    if (tEntries.isNull()) return { ok: false, error: "type de `_entries` non resolu" };
-    const kEntry = type_get_class_or_element_class(tEntries) as NativePointer;
-    if (kEntry.isNull()) return { ok: false, error: "classe `Entry` non resolue" };
-    if (!class_instance_size) {
-        return { ok: false, error: "`il2cpp_class_instance_size` indisponible -- stride non mesurable" };
-    }
-    const BOX = 0x10;
-    const stride = (class_instance_size(kEntry) as number) - BOX;
-    const offKey = getFieldOffset(kEntry, "key") - BOX;
-    const offValue = getFieldOffset(kEntry, "value") - BOX;
-    if (stride <= 0 || offKey < 0 || offValue < 0) {
-        return { ok: false, error: `layout d'\`Entry\` invalide (stride=${stride}, `
-            + `key=${offKey}, value=${offValue})` };
-    }
-
-    const n = dict.add(offCount).readS32();
-    const tableau = dict.add(offEntries).readPointer();
-    if (tableau.isNull()) return { ok: false, error: "`_entries` est NUL" };
-
-    const joueurs: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < n; i++) {
-        // `+0x20` = l'en-tete d'un tableau IL2CPP (objet + bounds + length) avant les elements.
-        const e = tableau.add(0x20 + i * stride);
-        let playerId: number;
-        let valeur: NativePointer;
-        try {
-            playerId = e.add(offKey).readS32();
-            valeur = e.add(offValue).readPointer();
-        } catch (ex) { return { ok: false, error: "lecture d'une entree : " + (ex as Error).message }; }
-        if (valeur.isNull()) continue;
-
-        const cible = mapping[String(playerId)];
-        const offTeam = getFieldOffset(valeur.readPointer(), "TeamId");
-        const offType = getFieldOffset(valeur.readPointer(), "PlayerType");
-        if (offTeam < 0) {
-            return { ok: false, error: "`PlayerConfiguration.TeamId` ABSENT sur ce build -- PERIME" };
-        }
-        const avant = valeur.add(offTeam).readS32();
-        const typeJoueur = offType >= 0 ? valeur.add(offType).readS32() : null;
-        if (cible === undefined) {
-            joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, touche: false });
-            continue;
-        }
-        try { valeur.add(offTeam).writeS32(cible | 0); }
-        catch (ex) { return { ok: false, error: "ecriture de `TeamId` : " + (ex as Error).message }; }
-        // ON RELIT -- « l'ecriture est passee » ne dit rien tant qu'on n'a pas relu.
-        const apres = valeur.add(offTeam).readS32();
-        joueurs.push({ playerId, playerType: typeJoueur, teamAvant: avant, teamApres: apres,
-                       touche: true, relu: apres === (cible | 0) });
-    }
-    return { ok: true, joueurs };
-}
-
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch,
 ): PatchApplyResult {
@@ -1541,13 +1254,17 @@ function applyPatchToConfig(
         const w = ecrireCatalogueEnvironnement(bc, patch.environmentAbilityConfigs);
         if (w.ok) {
             const lu = (w.detail ?? []).map((d) =>
-                `${d.ability}${d.existaitDeja === true ? "(écrasée)" : ""}:relu=${d.relu}`);
+                `${d.nom}:${d.neuve === true ? "NEUVE" : (d.neuve === false ? "écrase-ou-inerte"
+                    : "non mesurée")}`);
             ops.push(`environmentAbilityConfigs ${lu.join(" ")} `
                 + `(catalogue ${w.tailleAvant} -> ${w.tailleApres})`);
             for (const d of w.detail ?? []) {
-                if (d.relu !== true) {
-                    warnings.push(`environmentAbilityConfigs[${d.ability}]: RELECTURE `
-                        + `DIVERGENTE (relu=${d.relu}) -- l'entrée n'est PAS au catalogue`);
+                // On n'alerte QUE sur ce qu'on ne sait pas mesurer. Un compte inchangé est le
+                // régime NORMAL d'un écrasement de constante -- en faire un warning banaliserait
+                // le canal, et c'est le canal qui porte les vraies causes muettes.
+                if (d.neuve === null) {
+                    warnings.push(`environmentAbilityConfigs[${d.nom}]: compte du catalogue NON `
+                        + `MESURÉ -- l'insertion n'est ni confirmée ni infirmée`);
                 }
             }
         } else {
@@ -1585,24 +1302,6 @@ function applyPatchToConfig(
         }
     }
 
-    // Les équipes -- ÉCRITURE EN PLACE d'un entier, aucune reconstruction d'objet.
-    if (patch.playerTeamIds !== undefined && patch.playerTeamIds !== null) {
-        const w = ecrireEquipesDesJoueurs(bc, patch.playerTeamIds);
-        if (w.ok) {
-            const lu = (w.joueurs ?? []).map((j) =>
-                `${j.playerId}:${j.teamAvant}` + (j.touche ? `->${j.teamApres}` : "(inchangé)"));
-            ops.push(`playerTeamIds ${lu.join(" ")}`);
-            for (const j of w.joueurs ?? []) {
-                if (j.touche === true && j.relu !== true) {
-                    warnings.push(`playerTeamIds[${j.playerId}]: RELECTURE DIVERGENTE `
-                        + `(écrit ${patch.playerTeamIds[String(j.playerId)]}, relu ${j.teamApres})`);
-                }
-            }
-        } else {
-            warnings.push(`playerTeamIds: ${w.error}`);
-        }
-    }
-
     // L'ordre des tours -- le levier du bouclier d'environnement (cf. `turnOrder` en tête).
     if (patch.turnOrder !== undefined && patch.turnOrder !== null) {
         const w = ecrireOrdreDesTours(bc, patch.turnOrder);
@@ -1614,26 +1313,6 @@ function applyPatchToConfig(
             }
         } else {
             warnings.push(`turnOrder: ${w.error}`);
-        }
-    }
-
-    // Les groupes de spawn -- même geste, même fenêtre, et INDISSOCIABLE des équipes.
-    if (patch.spawnGroupPlayerIndexes !== undefined && patch.spawnGroupPlayerIndexes !== null) {
-        const w = ecrireIndexDesGroupesDeSpawn(bc, patch.spawnGroupPlayerIndexes);
-        if (w.ok) {
-            const lu = (w.joueurs ?? []).filter((g) => g.touche === true)
-                .map((g) => `s${g.set}g${g.groupe}:${g.indexAvant}->${g.indexApres}`);
-            const intacts = (w.joueurs ?? []).filter((g) => g.touche !== true).length;
-            ops.push(`spawnGroupPlayerIndexes ${lu.join(" ")}`
-                + (intacts > 0 ? ` (${intacts} groupe(s) non cité(s), intacts)` : ""));
-            for (const g of w.joueurs ?? []) {
-                if (g.touche === true && g.relu !== true) {
-                    warnings.push(`spawnGroupPlayerIndexes[s${g.set}g${g.groupe}]: `
-                        + `RELECTURE DIVERGENTE (relu ${g.indexApres})`);
-                }
-            }
-        } else {
-            warnings.push(`spawnGroupPlayerIndexes: ${w.error}`);
         }
     }
 
