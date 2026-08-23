@@ -342,8 +342,10 @@ def main(argv=None):
             b = jeu.rpc("battleStatus", [{}], timeout=120000)
             par_retry = isinstance(b, dict) and b.get("stageName") == "Finished"
             if par_retry:
+                # ASCII ONLY (console cp1252) : un glyphe ici tuerait la BOUCLE en pleine
+                # seance, entre deux passes deja payees.
                 print("   (pas d'historique de signal : voie choisie sur le RUNNER, "
-                      "stage=Finished -- ⚠ ne dit pas QUELLE bataille a fini)")
+                      "stage=Finished -- /!\\ ne dit pas QUELLE bataille a fini)")
         else:
             par_retry = ecranVu is True
         cmd = [sys.executable, str(RACINE / "scripts" / "python" / "campagne_rejeu_reel.py"),

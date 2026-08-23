@@ -459,7 +459,11 @@ def main(argv=None):
         print("LECTURE SEULE -- rien n'a ete arme, aucune bataille lancee, aucun jeton engage.")
         print("Relancer avec `--armer` pour aller jusqu'au bout.")
         print()
-        print("   ⛔ CE QUE `--armer` ENGAGE, MESURE LE 2026-08-21 :")
+        # ASCII ONLY -- la console Windows tourne en cp1252. Un `print` non-ASCII leve
+        # `UnicodeEncodeError` et TUE le script : mesure du 2026-08-23, le glyphe qui etait ici
+        # faisait planter la forme GRATUITE apres que les six crans avaient passe, donc juste
+        # avant d'afficher ce que `--armer` engage. La sortie la plus importante du fichier.
+        print("   /!\\ CE QUE `--armer` ENGAGE, MESURE LE 2026-08-21 :")
         print("      entrer          -> 0 evenement de jeu (gratuit)")
         print("      START (cran 15) -> `GenerateNewBattleId` + evenement de chargement, JETON")
         print("      se retirer      -> `FAIL_LOCATION` : une DEFAITE COMPTEE (timesLost +1),")
