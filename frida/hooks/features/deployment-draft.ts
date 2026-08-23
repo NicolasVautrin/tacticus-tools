@@ -461,8 +461,32 @@ let dernierRemplissage: { ajoutes: number; erreur: string | null } | null = null
  *  (dés)armement du prêteur, pour qu'un remontage relise plutôt que de servir un roster périmé. */
 let idsGuildWar: string[] | null = null;
 
+/** Le roster ONSLAUGHT, même forme et pour les mêmes raisons.
+ *
+ *  ⚠ IL LUI FAUT SA PROPRE CASE, et pas seulement une branche : le cache est ce qui garde
+ *  l'emprunt à UN SEUL par montage. Le partager avec la guerre de guilde ferait servir le roster
+ *  de l'autre mode après un changement de prêteur -- silencieusement, et avec un roster qui a
+ *  l'air parfaitement valide. */
+let idsOnslaught: string[] | null = null;
+
 /** Le roster CAMPAGNE, même forme et pour les mêmes raisons — cf. la branche `campagne`. */
 let idsCampagne: string[] | null = null;
+
+/** Les ancrages sur les DEUX bornes de `VisualBattleQuery` (cf. `deploymentBornesArmer`). */
+const listenerBornes: InvocationListener[] = [];
+/** Ce que chaque borne a rendu NATIVEMENT et ce qu'on a substitué. Les deux, toujours : sans le
+ *  natif à côté, on ne peut pas dire si la substitution a changé quoi que ce soit. */
+const derniersBornes: Record<string,
+    { natif: number; substitue: number | null; detail: string }> = {};
+
+/** Le cache du prêteur `nom`, en LECTURE et en ÉCRITURE — un seul foyer pour les deux modes
+ *  dont le roster est un `PooledList` à 0 paramètre (`guildWar`, `onslaught`). */
+function cacheRoster(nom: Preteur): string[] | null {
+    return nom === "onslaught" ? idsOnslaught : idsGuildWar;
+}
+function poserCacheRoster(nom: Preteur, v: string[] | null): void {
+    if (nom === "onslaught") { idsOnslaught = v; } else { idsGuildWar = v; }
+}
 
 /**
  * D'un `PooledListElement<T>` aux CHAÎNES qu'il porte. LÈVE si la forme n'est pas celle attendue —
@@ -902,6 +926,26 @@ const CLS_SANDBOX = "SandboxGameModeSource";
  * exactement l'adresse `false`. Les trois autres n'ont AUCUN paramètre : elles fonctionnaient
  * par chance de forme, pas parce que le transfert était correct.
  */
+/** Les méthodes dont le RETOUR est un `System.Int32` — donc un TYPE VALEUR, donc une BOÎTE au
+ *  sortir de `runtime_invoke`. Le chemin générique poserait la boîte telle quelle dans `retval`
+ *  et le HUD lirait une adresse comme un compte. Elles ont leur branche, qui DÉBALLE (`+0x10`). */
+const DELEGUEES_ENTIERES = new Set(["MinUnitsNeededToStartBattle",
+                                    "MaxUnitsPossibleToStartBattle",
+                                    "AmountOfUnlockedUnits"]);
+
+/** Les méthodes dont le corps SANDBOX est TRIVIAL — donc partagé par déduplication — et qu'on
+ *  ancrerait malgré tout, en filtrant sur la classe de `this`.
+ *
+ *  ⚠ VIDE, ET CE N'EST PAS UNE PRUDENCE : C'EST UNE IMPOSSIBILITÉ MESURÉE.
+ *  `SandboxGameModeSource$$AmountOfUnlockedUnits` fait TROIS octets — `33 c0 c3`, soit
+ *  `xor eax,eax ; ret`. Frida refuse net : « unable to intercept function at 00007FFC4B7245B0 »
+ *  (mesuré le 2026-08-23). Un trampoline inline a besoin de plus de place que ça, et les octets
+ *  qui suivent sont le remplissage `cc` d'une AUTRE fonction. Le filtre par classe était donc la
+ *  bonne idée pour le mauvais obstacle : ce n'est pas le partage qui bloque, c'est la TAILLE.
+ *  Le mécanisme reste câblé (il servira à un corps partagé mais assez long) ; la liste, elle,
+ *  reste vide tant qu'aucun cas ne le justifie. */
+const DELEGUEES_TRIVIALES_FILTREES = new Set<string>();
+
 const DELEGUEES: Array<{ nom: string; params: number; role: string; valeurs?: boolean[] }> = [
     { nom: "GetUnitModel", params: 2, valeurs: [false, true],
       role: "commande la POSE -- sandbox rend un `HotseatUnitModel`, qui échoue à `IsUnlocked`" },
@@ -928,6 +972,30 @@ const DELEGUEES: Array<{ nom: string; params: number; role: string; valeurs?: bo
       role: "le DERNIER DÉPLOIEMENT du joueur sur ce noeud -- sandbox rend un tableau VIDE" },
     { nom: "GetUnlockedUnitsPooled", params: 0,
       role: "dictionnaire des débloqués -- MESURÉ jamais appelé sur ce chemin (cf. §13)" },
+    // LES DEUX BORNES DU HUD. Mesuré le 2026-08-23 sur un onslaught Chaos tier 18 : une fois le
+    // roster délégué (`allUnitModels` 0 -> 29), `minUnitsPossible` et `maxUnitsPossible`
+    // restaient à `0` -- le HUD les lit sur la SANDBOX, qui rend zéro. Avec `min = 0` il n'y a
+    // aucun plancher à franchir, et avec `max = 0` aucune place : l'écran a un roster mais reste
+    // inutilisable. La source du mode, elle, rend 3 et 5.
+    { nom: "MinUnitsNeededToStartBattle", params: 0,
+      role: "le PLANCHER de pose -- sandbox rend 0, donc aucune règle de démarrage" },
+    { nom: "MaxUnitsPossibleToStartBattle", params: 0,
+      role: "le PLAFOND de pose -- sandbox rend 0, donc AUCUNE place déployable" },
+    // ⚠ LE TERME QUI ÉCRASE LES DEUX AUTRES, ET QUI N'EST PAS DANS LA FORMULE QU'ON CROYAIT.
+    // Le HUD ne demande PAS ses bornes à la source : il les demande à
+    // `IdunBattle.View.FSM.VisualBattleQuery`, qui les CALCULE (décompilé, 2026-08-23) --
+    //
+    //     Max = SPMath.Min( <slot 0x31 de la source>,
+    //                       GetSpawnPointCoordinatedForHumanPlayer(this).Count,
+    //                       <slot 0x33 de la source> )
+    //     Min = SPMath.Min( <slot 0x31>, <même Count>, <slot 0x32> )
+    //
+    // Déléguer `Min|MaxUnitsPossibleToStartBattle` (les slots 0x32/0x33) ne suffit donc PAS :
+    // un `Min` à trois termes est écrasé par le plus petit. Mesuré sur l'onslaught Chaos tier
+    // 18 : source déléguée à 3 et 5, points d'apparition du joueur = 3, et le HUD affichait
+    // quand même `0/0`. Le terme coupable est le premier.
+    { nom: "AmountOfUnlockedUnits", params: 0,
+      role: "le 1er terme du `SPMath.Min` de `VisualBattleQuery` -- il ÉCRASE les deux bornes" },
 ];
 
 interface Delegation {
@@ -940,13 +1008,17 @@ interface Delegation {
      *  AUTRE prêteur laissait la méthode de l'ancien en place, en silence. */
     preteurArme: Preteur | null;
     fires: number; emprunts: number;
+    /** Appels qui ont PASSÉ le filtre de classe (corps partagé). Égal à `fires` pour une
+     *  méthode à corps propre. L'écart avec `fires` dit combien d'appels ÉTRANGERS traversent
+     *  l'ancrage — c'est ce qui rend un filtre trop étroit visible au lieu d'inerte. */
+    passesFiltre: number;
     /** Dernier incident RÉEL — jamais avalé, jamais résumé en booléen. */
     dernier: { ok: boolean; detail: string } | null;
 }
 
 const delegations: Delegation[] = DELEGUEES.map((d) => ({
     nom: d.nom, role: d.role, listener: null, miCampagne: null, ancrage: null,
-    preteurArme: null, fires: 0, emprunts: 0, dernier: null,
+    preteurArme: null, fires: 0, emprunts: 0, passesFiltre: 0, dernier: null,
 }));
 
 /**
@@ -1005,16 +1077,23 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
 type Preteur = "campagne" | "guildBoss" | "guildWar" | "onslaught";
 let preteurDelegation: Preteur = "campagne";
 
-/** La source qui prête, et la CLASSE sur laquelle résoudre la méthode déléguée. */
-function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteur } {
+/** La source qui prête, son NAMESPACE et la CLASSE sur lesquels résoudre la méthode déléguée.
+ *
+ * ⚠ LE NAMESPACE FAIT PARTIE DU PRÊTEUR. Il était supposé valoir `NS_SRC` pour tout le monde —
+ * vrai pour trois prêteurs sur quatre, faux pour l'onslaught, et l'échec était SILENCIEUX. */
+function sourcePreteuse(): { ptr: NativePointer | null; ns: string; cls: string; nom: Preteur } {
     if (preteurDelegation === "guildBoss") {
-        return { ptr: sourceGuildBossForgee(), cls: "GuildBossGameModeSource", nom: "guildBoss" };
+        return { ptr: sourceGuildBossForgee(), ns: NS_SRC,
+                 cls: "GuildBossGameModeSource", nom: "guildBoss" };
     }
     if (preteurDelegation === "guildWar") {
-        return { ptr: sourceGuildWarForgee(), cls: "GuildWarsGameModeSource", nom: "guildWar" };
+        return { ptr: sourceGuildWarForgee(), ns: NS_SRC,
+                 cls: "GuildWarsGameModeSource", nom: "guildWar" };
     }
     if (preteurDelegation === "onslaught") {
-        return { ptr: sourceOnslaughtForgee(), cls: "OnslaughtGameModeSource", nom: "onslaught" };
+        return { ptr: sourceOnslaughtForgee(),
+                 ns: "idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle",
+                 cls: "OnslaughtGameModeSource", nom: "onslaught" };
     }
     // ⚠ LA CAPTÉE D'ABORD, LA FORGÉE ENSUITE -- et le repli n'est pas un confort.
     // La source captée l'est par un ancrage sur le ctor, qui ne tire QU'À LA NAVIGATION : après
@@ -1025,9 +1104,9 @@ function sourcePreteuse(): { ptr: NativePointer | null; cls: string; nom: Preteu
     // exactement comme le prêteur guild boss accepte la sienne.
     const captee = getCampaignGameModeSourcePtr();
     if (captee !== null && !captee.isNull()) {
-        return { ptr: captee, cls: CLS_CAMP, nom: "campagne" };
+        return { ptr: captee, ns: NS_SRC, cls: CLS_CAMP, nom: "campagne" };
     }
-    return { ptr: sourceCampagneForgee(), cls: CLS_CAMP, nom: "campagne" };
+    return { ptr: sourceCampagneForgee(), ns: NS_SRC, cls: CLS_CAMP, nom: "campagne" };
 }
 
 /** Le contexte du prêteur guild boss, retenu pour pouvoir RÉ-EMPRUNTER à l'identique. */
@@ -1812,16 +1891,37 @@ function armerUneDelegation(
     if (tete.erreur !== null) {
         return refus(`tête du corps de \`${spec.nom}\` ILLISIBLE (${tete.erreur})`);
     }
-    if (teteTriviale(tete)) {
+    // ⚠ L'EXCEPTION À CETTE GARDE, ET POURQUOI ELLE EST SÛRE.
+    // `SandboxGameModeSource$$AmountOfUnlockedUnits` EST un corps trivial : `33 c0 c3`, soit
+    // `xor eax,eax ; ret` -- il rend 0, et son adresse est partagée par toutes les méthodes du
+    // binaire qui rendent 0. Refuser tout net rendait ce terme INATTEIGNABLE, et il est
+    // précisément celui qui écrase les deux bornes du HUD (`SPMath.Min(0, 3, 5) = 0`).
+    //
+    // Ce qui rend l'ancrage dangereux, ce n'est pas le PARTAGE de l'adresse : c'est de répondre
+    // à TOUS ceux qui y passent. On garde donc l'ancrage et on FILTRE SUR LA CLASSE DE `this` --
+    // on ne substitue que quand l'appel vient bien d'une `SandboxGameModeSource`, et on laisse
+    // le `0` natif à tous les autres. Le compteur `passesFiltre` publie la part réellement
+    // substituée : si elle reste à 0 alors que `fires` monte, le filtre est trop étroit et ça
+    // se VOIT, au lieu de se lire comme « la délégation ne sert à rien ».
+    if (teteTriviale(tete) && !DELEGUEES_TRIVIALES_FILTREES.has(spec.nom)) {
         return refus(`REFUS : \`${CLS_SANDBOX}$$${spec.nom}\` résout sur un corps TRIVIAL `
             + `(ret à l'octet ${tete.retA} ; tête = ${tete.hex}) -- adresse probablement PARTAGÉE `
             + "par déduplication IL2CPP. Cf. case-10020 §8.");
     }
+    const corpsPartage = teteTriviale(tete);
 
     // La méthode est résolue sur la classe du PRÊTEUR retenu, pas sur la campagne par défaut.
+    //
+    // ⚠ ET SUR SON NAMESPACE À LUI. `NS_SRC` était écrit en dur ici : trois prêteurs sur quatre
+    // vivent bien dans `IdunBattle.ViewLogic.BattleSource`, mais pas `OnslaughtGameModeSource`
+    // (cf. le pavé de `Preteur`). Mesuré le 2026-08-23 : les 4 délégations rendaient
+    // `IdunBattle.ViewLogic.BattleSource.OnslaughtGameModeSource INTROUVABLE` — et
+    // `deploymentPoolArmer` répondait pourtant `{ok: true, action: "arme"}`, parce que le détail
+    // par méthode vit dans `rapport`, que l'appelant ne lit pas forcément. Un armement qui rend
+    // `ok` sans rien avoir armé se lit comme un succès : c'est l'écran vide qui l'a démenti.
     const preteur = sourcePreteuse();
-    const kc = findClassAnywhere(NS_SRC, preteur.cls);
-    if (!kc) return refus(`${NS_SRC}.${preteur.cls} INTROUVABLE`);
+    const kc = findClassAnywhere(preteur.ns, preteur.cls);
+    if (!kc) return refus(`${preteur.ns}.${preteur.cls} INTROUVABLE`);
     const mc = findMethodByParamCount(kc, spec.nom, spec.params);
     if (!mc) {
         return refus(`\`${preteur.cls}$$${spec.nom}\` INTROUVABLE (${spec.params} param) -- ce `
@@ -1836,6 +1936,16 @@ function armerUneDelegation(
         // `args[0]` est le `this` sandbox — on ne le transmet PAS, c'est tout l'objet de la
         // délégation : la vraie source répond avec SON état.
         onEnter(args) {
+            // CORPS PARTAGÉ : on n'a le droit de répondre que pour la sandbox. La classe de
+            // `this` est le seul discriminant disponible ici — l'adresse, elle, est commune à
+            // toutes les méthodes déduplicées.
+            (this as unknown as { pourNous: boolean }).pourNous = !corpsPartage || (() => {
+                try {
+                    const o = args[0];
+                    if (o.isNull()) return false;
+                    return s(class_get_name(o.readPointer()) as NativePointer) === CLS_SANDBOX;
+                } catch { return false; }
+            })();
             // Un paramètre de type VALEUR doit être RÉ-EMPAQUETÉ : on alloue et on écrit la
             // valeur, puis on transmet SON ADRESSE. Sans ça, `false` (le mot 0) part comme
             // pointeur nul -- cf. le bloc `valeurs` sur `DELEGUEES`.
@@ -1849,6 +1959,11 @@ function armerUneDelegation(
         },
         onLeave(retval) {
             d.fires++;
+            // Sur un corps partagé, tout ce qui n'est pas la sandbox repart avec sa valeur
+            // native. `fires` compte quand même : l'écart `fires - passesFiltre` DIT combien
+            // d'appels étrangers traversent, donc si le filtre est au bon endroit.
+            if (!(this as unknown as { pourNous: boolean }).pourNous) return;
+            d.passesFiltre++;
             const p = sourcePreteuse();
             const src = p.ptr;
             if (src === null || src.isNull()) {
@@ -1906,45 +2021,55 @@ function armerUneDelegation(
             // CE QU'ON FAIT À LA PLACE : on emprunte UNE SEULE FOIS pour LIRE les ids (chaînes
             // JS, mises en cache), puis on remplit la liste que le jeu a déjà louée. Plus aucun
             // objet mis en pool ne traverse la frontière, et le cycle de location reste au jeu.
-            if (spec.nom === METHODE && p.nom === "guildWar") {
-                if (idsGuildWar === null) {
+            //
+            // ⚠ CETTE BRANCHE SERT DEUX PRÊTEURS, ET C'EST UNE MESURE, PAS UNE COMMODITÉ.
+            // `GuildWarsGameModeSource$$GetUnitsForDeploymentHUD` et
+            // `OnslaughtGameModeSource$$GetUnitsForDeploymentHUD` ont la MÊME signature (0
+            // paramètre) et le MÊME retour (`PooledList<System.String>`, un type valeur). Le
+            // traitement est donc identique — mais chacun garde SON cache : partager la case
+            // ferait servir le roster de l'autre mode après un changement de prêteur, avec un
+            // contenu parfaitement plausible et faux.
+            if (spec.nom === METHODE && (p.nom === "guildWar" || p.nom === "onslaught")) {
+                const quoi = p.nom === "onslaught" ? "onslaught" : "guild war";
+                if (cacheRoster(p.nom) === null) {
                     let b: NativePointer;
                     try { b = invokeMethod(mc.info, src, []) as NativePointer; }
                     catch (e) {
                         d.dernier = { ok: false,
-                            detail: "lecture du roster guild war a levé : " + (e as Error).message };
+                            detail: `lecture du roster ${quoi} a levé : ` + (e as Error).message };
                         return;
                     }
                     if (b === null || b.isNull()) {
-                        d.dernier = { ok: false, detail: "la source guild war a rendu NUL" };
+                        d.dernier = { ok: false, detail: `la source ${quoi} a rendu NUL` };
                         return;
                     }
                     gcRoot.add(b);
                     try {
                         // La boîte porte la structure à `+0x10` ; son unique champ est le wrapper
                         // de pool, dont `_object` (résolu PAR NOM) est la `List<String>`.
-                        idsGuildWar = idsDePooledElement(b.add(0x10).readPointer());
+                        poserCacheRoster(p.nom, idsDePooledElement(b.add(0x10).readPointer()));
                     } catch (e) {
                         d.dernier = { ok: false,
-                            detail: "roster guild war illisible : " + (e as Error).message };
+                            detail: `roster ${quoi} illisible : ` + (e as Error).message };
                         return;
                     }
                 }
-                if (idsGuildWar === null || idsGuildWar.length === 0) {
+                const ids = cacheRoster(p.nom);
+                if (ids === null || ids.length === 0) {
                     // « je n'ai pas su lire » et « c'est vide » se disent, ils ne se rabattent pas
                     // sur un roster natif silencieusement faux.
-                    d.dernier = { ok: false, detail: "roster guild war "
-                        + (idsGuildWar === null ? "ILLISIBLE" : "VIDE")
+                    d.dernier = { ok: false, detail: `roster ${quoi} `
+                        + (ids === null ? "ILLISIBLE" : "VIDE")
                         + " -- rien écrit, le retour natif est laissé INTACT" };
-                    idsGuildWar = null;   // relire au prochain tir plutôt que figer un échec
+                    poserCacheRoster(p.nom, null);  // relire au prochain tir, ne pas figer l'échec
                     return;
                 }
-                const r = remplir(retval, idsGuildWar);
+                const r = remplir(retval, ids);
                 d.emprunts++;
                 d.dernier = { ok: r.erreur === null,
                     detail: r.erreur === null
-                        ? `guild war REMPLI ${r.ajoutes}/${idsGuildWar.length} (${r.voie})`
-                        : `remplissage guild war : ${r.erreur}` };
+                        ? `${quoi} REMPLI ${r.ajoutes}/${ids.length} (${r.voie})`
+                        : `remplissage ${quoi} : ${r.erreur}` };
                 return;   // ⚠ `retval` INTACT — c'est tout l'objet du correctif.
             }
             // CAMPAGNE : MÊME REMÈDE QUE LE GUILD WAR — on REMPLIT la liste du jeu.
@@ -2035,8 +2160,38 @@ function armerUneDelegation(
                     + `${memoirePoses.length} pose(s), plus fraîches que la sauvegarde du compte` };
                 return;
             }
-            // ⚠ LE CHEMIN GÉNÉRIQUE NE DOIT PLUS VOIR `METHODE`. Les trois prêteurs ont leur
-            // branche ; s'il en apparaît un quatrième, il tomberait ici et re-poserait une BOÎTE
+            // LES BORNES : un `System.Int32` revient BOXÉ de `runtime_invoke`, et le générique
+            // poserait la boîte. On DÉBALLE à `+0x10` et on remplace par la valeur elle-même.
+            //
+            // ⚠ ET ON VÉRIFIE QUE LE COMPTE EST PLAUSIBLE. Une adresse lue comme un entier donne
+            // un nombre ÉNORME ou NÉGATIF ; un plafond absurde ferait un écran encore plus cassé
+            // qu'un plafond nul, et sans rien dire. Hors bornes, on ne substitue pas.
+            if (DELEGUEES_ENTIERES.has(spec.nom)) {
+                let boite: NativePointer;
+                try { boite = invokeMethod(mc.info, src, []) as NativePointer; }
+                catch (e) {
+                    d.dernier = { ok: false,
+                        detail: `\`${spec.nom}\` a levé : ` + (e as Error).message };
+                    return;
+                }
+                if (boite === null || boite.isNull()) {
+                    d.dernier = { ok: false, detail: `\`${spec.nom}\` a rendu NUL` };
+                    return;
+                }
+                const v = boite.add(0x10).readS32();
+                if (v < 0 || v > 64) {
+                    d.dernier = { ok: false, detail: `\`${spec.nom}\` = ${v} : hors de toute `
+                        + "borne plausible (0..64) -- le déballage est probablement faux, RIEN "
+                        + "SUBSTITUÉ plutôt qu'un plafond absurde" };
+                    return;
+                }
+                retval.replace(ptr(v));
+                d.emprunts++;
+                d.dernier = { ok: true, detail: `${spec.nom} = ${v} (déballé de la boîte)` };
+                return;
+            }
+            // ⚠ LE CHEMIN GÉNÉRIQUE NE DOIT PLUS VOIR `METHODE`. Les quatre prêteurs ont leur
+            // branche ; s'il en apparaît un cinquième, il tomberait ici et re-poserait une BOÎTE
             // dans `retval` — le défaut qu'on vient de corriger. On REFUSE plutôt que de le
             // rejouer en silence.
             if (spec.nom === METHODE) {
@@ -4359,7 +4514,8 @@ function etatPool(): Record<string, unknown> {
             // `null` = jamais armée. Un écart avec `preteur` ci-dessus signale une résolution
             // PÉRIMÉE -- c'est le symptôme qui n'avait aucun capteur.
             preteurArme: d.preteurArme,
-            fires: d.fires, emprunts: d.emprunts, dernier: d.dernier, ancrage: d.ancrage,
+            fires: d.fires, emprunts: d.emprunts, passesFiltre: d.passesFiltre,
+            dernier: d.dernier, ancrage: d.ancrage,
         })),
     };
 }
@@ -6800,6 +6956,147 @@ export function register(ctx: Ctx): void {
     });
 
     /**
+     * LES DEUX BORNES DU HUD, MIRÉES LÀ OÙ ELLES SONT CALCULÉES.
+     *
+     * ⚠ LE HUD NE DEMANDE PAS SES BORNES À LA SOURCE — il les demande à `VisualBattleQuery`, qui
+     * les CALCULE. Décompilé le 2026-08-23 :
+     *
+     *     IdunBattle.View.FSM.VisualBattleQuery$$MaxUnitsPossibleToStartBattle
+     *         = idun.shared.SPMath$$Min( <slot 0x31 de la source>,
+     *                                    GetSpawnPointCoordinatedForHumanPlayer(this).Count,
+     *                                    <slot 0x33 de la source> )
+     *     ...$$MinUnitsNeededToStartBattle : idem, avec <slot 0x32> en 3e terme.
+     *
+     * puis `idun.Ui.IdunGameHud$$UnitDeployment_ShowHud` passe les deux à
+     * `idun.ui.UnitDeploymentHud$$Show(units, min, max, options)`.
+     *
+     * ⇒ DÉLÉGUER `Min|MaxUnitsPossibleToStartBattle` NE SUFFIT PAS, et c'est le piège : un `Min`
+     * à trois termes est écrasé par le plus petit. Mesuré sur l'onslaught Chaos tier 18 — source
+     * déléguée à 3 et 5, points d'apparition du joueur = 3 — le HUD affichait quand même `0/0`.
+     * Le terme coupable est le PREMIER : `SandboxGameModeSource$$AmountOfUnlockedUnits` rend 0.
+     *
+     * ⚠ ET IL EST INANCRABLE. Son corps fait TROIS octets (`33 c0 c3` = `xor eax,eax ; ret`) :
+     * Frida répond « unable to intercept function ». Ce n'est pas le partage par déduplication
+     * qui bloque — c'est la TAILLE. On ne peut donc pas corriger le terme ; on mire la FORMULE.
+     *
+     * Ce qu'on fait ici : on rejoue `SPMath.Min` des trois MÊMES termes, en lisant les deux qui
+     * viennent de la source sur le PRÊTEUR (la vraie source du mode) au lieu du stub. Le terme
+     * des points d'apparition, lui, est relu du natif — on ne le devine pas.
+     */
+    ctx.rpc.deploymentBornesArmer = (body?: {
+        armer?: boolean; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const etat = () => ({
+            arme: listenerBornes.length > 0,
+            derniers: derniersBornes,
+        });
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "{ armer: true, confirmer: true } pour mirer `SPMath.Min` avec les "
+                         + "termes du PRÊTEUR. `deploymentPoolArmer {source}` doit avoir été "
+                         + "joué d'abord : c'est lui qui désigne la source à interroger." };
+        }
+        return queueOnMainThread(() => {
+            if (body.armer === false) {
+                for (const l of listenerBornes) l.detach();
+                listenerBornes.length = 0;
+                Interceptor.flush();
+                return { ok: true, action: "retire", ...etat() };
+            }
+            if (body.confirmer !== true) {
+                return refus("`confirmer: true` exigé : on SUBSTITUE le retour de deux méthodes "
+                    + "de `VisualBattleQuery`, que TOUS les modes partagent.");
+            }
+            if (listenerBornes.length > 0) return { ok: true, action: "deja arme", ...etat() };
+
+            const kQ = findClassAnywhere("IdunBattle.View.FSM", "VisualBattleQuery");
+            if (!kQ) return refus("`IdunBattle.View.FSM.VisualBattleQuery` INTROUVABLE");
+            const miSpawn = findMethodByParamCount(kQ, "GetSpawnPointCoordinatedForHumanPlayer", 0);
+            if (!miSpawn) {
+                return refus("`VisualBattleQuery$$GetSpawnPointCoordinatedForHumanPlayer(0)` "
+                    + "INTROUVABLE -- sans ce terme on ne peut pas rejouer le `Min` sans le "
+                    + "DEVINER, et on ne devine pas");
+            }
+            const rapport: Array<{ nom: string; ok: boolean; detail: string | null }> = [];
+            for (const [nom, surSource] of [
+                ["MinUnitsNeededToStartBattle", "MinUnitsNeededToStartBattle"],
+                ["MaxUnitsPossibleToStartBattle", "MaxUnitsPossibleToStartBattle"],
+            ] as Array<[string, string]>) {
+                const mq = findMethodByParamCount(kQ, nom, 0);
+                if (!mq) {
+                    rapport.push({ nom, ok: false,
+                                   detail: `\`VisualBattleQuery$$${nom}(0)\` INTROUVABLE` });
+                    continue;
+                }
+                const t = lireTete(mq.ptr);
+                if (t.erreur === null && teteTriviale(t)) {
+                    rapport.push({ nom, ok: false,
+                                   detail: `corps TRIVIAL (${t.hex}) -- adresse PARTAGÉE` });
+                    continue;
+                }
+                listenerBornes.push(Interceptor.attach(mq.ptr, {
+                    onEnter(args) {
+                        (this as unknown as { q: NativePointer }).q = args[0];
+                    },
+                    onLeave(retval) {
+                        const q = (this as unknown as { q: NativePointer }).q;
+                        const natif = retval.toInt32();
+                        const p = sourcePreteuse();
+                        if (p.ptr === null || p.ptr.isNull()) {
+                            derniersBornes[nom] = { natif, substitue: null,
+                                detail: `aucune source \`${p.cls}\` (prêteur ${p.nom})` };
+                            return;
+                        }
+                        try {
+                            const klass = p.ptr.readPointer();
+                            // ⚠ CHAQUE `Int32` revient BOXÉ : la valeur est à `+0x10`.
+                            const entier = (m: string): number | null => {
+                                const mi = findMethodByParamCount(klass, m, 0);
+                                if (!mi) return null;
+                                const b = invokeMethod(mi.info, p.ptr as NativePointer, []);
+                                return b.isNull() ? null : b.add(0x10).readS32();
+                            };
+                            const debloquees = entier("AmountOfUnlockedUnits");
+                            const borne = entier(surSource);
+                            // Le terme des points d'apparition se RELIT du natif -- c'est une
+                            // propriété du PLATEAU, pas de la source : l'emprunter serait faux.
+                            const liste = invokeMethod(miSpawn.info, q, []);
+                            const places = liste.isNull() ? null : liste.add(0x18).readS32();
+                            if (debloquees === null || borne === null || places === null) {
+                                derniersBornes[nom] = { natif, substitue: null,
+                                    detail: `terme NON MESURÉ (debloquees=${debloquees} `
+                                        + `borne=${borne} places=${places}) -- RIEN SUBSTITUÉ` };
+                                return;
+                            }
+                            const v = Math.min(debloquees, places, borne);
+                            if (v < 0 || v > 64) {
+                                derniersBornes[nom] = { natif, substitue: null,
+                                    detail: `résultat ${v} hors borne plausible -- RIEN SUBSTITUÉ` };
+                                return;
+                            }
+                            retval.replace(ptr(v));
+                            derniersBornes[nom] = { natif, substitue: v,
+                                detail: `Min(debloquees=${debloquees}, places=${places}, `
+                                    + `${surSource}=${borne}) = ${v}` };
+                        } catch (e) {
+                            derniersBornes[nom] = { natif, substitue: null,
+                                detail: "a levé : " + (e as Error).message };
+                        }
+                    },
+                }));
+                rapport.push({ nom, ok: true, detail: null });
+            }
+            Interceptor.flush();
+            const reussies = rapport.filter((x) => x.ok).length;
+            if (reussies === 0) {
+                return refus("AUCUNE borne ancrée -- "
+                    + rapport.map((x) => `${x.nom} : ${x.detail}`).join(" | "));
+            }
+            return { ok: true, action: "arme", ancrees: reussies, rapport, ...etat() };
+        });
+    };
+
+    /**
      * LA SANDBOX EN **WRAPPER** D'UNE VRAIE SOURCE — on ne patche plus stub par stub, on DÉLÈGUE.
      *
      *   { armer: true, confirmer: true }            -> délègue TOUTE la table
@@ -6837,6 +7134,7 @@ export function register(ctx: Ctx): void {
         // Les rosters empruntés sont relus au prochain tir : un remontage change de source forgée,
         // et servir le cache d'une bataille précédente donnerait un roster PÉRIMÉ sans le dire.
         idsGuildWar = null;
+        idsOnslaught = null;
         idsCampagne = null;
         return queueOnMainThread(() => {
             if (body.armer === false) {
@@ -6889,7 +7187,21 @@ export function register(ctx: Ctx): void {
                     : { nom: spec.nom, ok: false, detail: r.error });
             }
             Interceptor.flush();
-            return { ok: true, action: "arme", rapport, ...etatPool() };
+            // ⚠ UN ARMEMENT QUI N'ARME RIEN N'EST PAS UN SUCCÈS. Ce retour valait `ok: true,
+            // action: "arme"` quel que soit le contenu de `rapport` : le détail par méthode y
+            // était bien écrit, mais un appelant qui ne le lit pas -- et il n'y a aucune raison
+            // de le lire quand `ok` est vrai -- monte sa bataille en croyant l'écran gréé.
+            // Mesuré le 2026-08-23 : 4 délégations sur 4 en échec (mauvais namespace du prêteur),
+            // `ok: true` rendu, et c'est l'ÉCRAN VIDE qui a fini par le démentir -- après un
+            // montage, un armement de relais et un patch d'environnement posés pour rien.
+            const reussies = rapport.filter((x) => x.ok).length;
+            if (rapport.length > 0 && reussies === 0) {
+                return refus(`AUCUNE délégation armée (${rapport.length} tentée(s), prêteur `
+                    + `\`${p.nom}\`) -- l'écran resterait VIDE. Détail : `
+                    + rapport.map((x) => `${x.nom} : ${x.detail}`).join(" | "));
+            }
+            return { ok: true, action: "arme", armees: reussies, tentees: rapport.length,
+                     rapport, ...etatPool() };
         });
     };
 
