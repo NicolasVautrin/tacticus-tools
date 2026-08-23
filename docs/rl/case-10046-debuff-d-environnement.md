@@ -67,6 +67,33 @@ deux unités. Et `Stationary` : les deux ennemis restent en rangée 8 là où il
 qu'au run précédent — **même seed, même board, même placement** — ils atteignaient la rangée 5 en
 un tour.
 
+## 3bis. BAISSER LES DÉGÂTS : un POURCENTAGE NÉGATIF, et il n'y a aucun garde
+
+Le menu des traits est fermé ; celui des pourcentages ne l'est pas.
+`EnhancementDamageBoostAbility$$CreateBehaviour` pose `AddEffect(EffectType 0x5c2)` avec la seule
+constante `extraDmgPct`, et **rien ne l'oblige à être positive**. Posée par la même voie
+enhancement que ci-dessus (`ConfigId: "EnhancementDamageBoost"`), sur `necroWarden` seul, board
+`C1_74`, mêmes placements, même seed :
+
+| `extraDmgPct` | plan d'attaque de l'ennemi | dégâts RÉELLEMENT subis (2 coups) |
+|---|---|---|
+| `+20` | `[2080-3120]` | **4369** |
+| `-50` | `[868-1300]` | — |
+| `-100` | `[0-0]` | **0** |
+| `-150` | `[0-0]` | — |
+
+868/2080 = **0,4167** = (1 − 0,50)/(1 + 0,20), à la quatrième décimale : c'est un multiplicateur
+pur `(1 + pct/100)`, sans clamp jusqu'à `-100`. En dessous, le dégât est **borné à zéro** — pas de
+soin par dégât négatif.
+
+⚠ Mesurer sur le COUP, pas sur le plan : `[0-0]` est une **prédiction**. Les `0 dmg` contre
+`4369 dmg` du témoin viennent d'un `aiturn` réel, à seed et placement identiques.
+
+Même forme disponible sur les autres constantes de la famille : `EnvStrategicBuff`
+(`extraDmgPct`, `extraCritChance`), `EnvStatBoost` (`dmgPct`, `healthPct`, `armorPct`, gardé par
+un `trait`), `EnhancementCritBoost`, `EnhancementPierceBoost`, `EnhancementHitBoost`,
+`EnhancementRegeneration`, `EnhancementLifeSteal` — **non mesurées**.
+
 ## 4. ⚠ LE NOM D'UN TRAIT NE DIT PAS SA SÉMANTIQUE — deux essais perdus dessus
 
 `Harmless` posé : l'adversaire attaque quand même (2115 dmg encaissés). `Immovable` posé :
