@@ -92,7 +92,37 @@ soin par dégât négatif.
 Même forme disponible sur les autres constantes de la famille : `EnvStrategicBuff`
 (`extraDmgPct`, `extraCritChance`), `EnvStatBoost` (`dmgPct`, `healthPct`, `armorPct`, gardé par
 un `trait`), `EnhancementCritBoost`, `EnhancementPierceBoost`, `EnhancementHitBoost`,
-`EnhancementRegeneration`, `EnhancementLifeSteal` — **non mesurées**.
+`EnhancementLifeSteal` — **non mesurées**.
+
+## 3ter. `EnhancementRegeneration` — soigne TES héros, et le `Stack` MULTIPLIE
+
+`EnhancementRegenerationAbility$$CreateBehaviour`, lu au décompilé :
+
+```
+cible   = DSLSelectors$$UnitsWithTrait(DSLSelectors$$UnitsFromTeam(sel, 1), UnitTrait.Hero)
+montant = DSLFormulas$$Multiply(
+              DSLFormulas$$PercentageOf(StatAmount(unit, StatType.health), AbilityConstantType.hpPct),
+              DSLFormulas$$EnhancementStack(sel))
+DSLBehaviors$$Foreach(cible,
+    DSLBehaviors$$If(DSLSelectors$$Repairable(unit), DSLBehaviors$$Repair(...), DSLBehaviors$$Heal(...)))
+```
+
+Team **1** et trait `Hero` sont **écrits dans l'arbre** — c'est un buff pour TOI, pas un debuff.
+`Repairable` route les MoW vers `Repair` plutôt que `Heal`.
+
+Mesure (`adeptCanoness`, PV max 8533, `--unit-stat RemainingHealth=2000`, `hpPct: 30`) :
+
+| `Stack` de l'entrée | PV au montage | soin |
+|---|---|---|
+| 1 | **4560** | +2560 = 30 % × 8533 |
+| 2 | **7120** | +5120 = 2 × 2560 |
+
+⚠ **Elle tire AU MONTAGE, pas par tour.** Mesuré : un héros qui encaisse sur deux tours
+(8533 → 6418 → 1385) n'est **jamais** soigné — `6418 − 5033 = 1385` exactement. C'est un héros
+**déjà blessé à la construction** qui l'est. Contrairement à `EnhancementDamageBoost`, qui pose un
+EFFET persistant, celle-ci exécute une ACTION : sans re-déclenchement, elle ne joue qu'une fois.
+Les deux classes n'overrident que `CreateBehaviour` — leur trigger est hérité et n'a **pas** été
+lu ici.
 
 ## 4. ⚠ LE NOM D'UN TRAIT NE DIT PAS SA SÉMANTIQUE — deux essais perdus dessus
 
