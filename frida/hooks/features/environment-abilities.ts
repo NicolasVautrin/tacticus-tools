@@ -107,6 +107,108 @@ export function ajouterAbility(
     return true;
 }
 
+/** Ce qu'une entree d'ENHANCEMENT porte, cote appelant. */
+export interface SpecEnhancement {
+    /** Nom PLEIN, tel qu'il est CLE du catalogue : `EnhancementAddTrait:Stationary`. */
+    ability: string;
+    niveau?: number;
+    /** `Nullable<PlayerId>` -- `null`/absent laisse le champ nul, comme le ctor natif. */
+    playerId?: number | null;
+    /** Les `unitId` VISES. C'est ce que `IdunBattleLogic.Entities.DSLTriggers$$IsEnhancementTarget`
+     *  confronte -- l'equivalent du `unitAmount` de l'UI d'incursion. */
+    cibles?: string[];
+    /** Le MULTIPLICATEUR (`IdunBattleLogic.Entities.DSLFormulas$$EnhancementStack`), pas un
+     *  compteur decoratif : mesure sur `EnhancementRegeneration`, stack 1 -> +30 % des PV max,
+     *  stack 2 -> +60 %. C'est le `stacks` de l'entree d'incursion. */
+    stack?: number;
+}
+
+/** `env.EnhancementAbilities += EnhancementsEnvironmentAbilityConfiguration { ... }`.
+ *
+ *  ⚠ LA SECONDE LISTE NE CIBLE PAS COMME LA PREMIERE, et c'est TOUT l'interet. `Abilities` porte
+ *  des abilities dont la cible est ECRITE dans leur `CreateTrigger` (`EnvStartProtection` vise
+ *  « le camp qui ne joue pas », `EnvAttemptDebuff` vise `IsInTeam(.., TeamId 2)`) -- il n'y a
+ *  aucun argument a passer. `EnhancementAbilities`, elle, porte des `Targets` : le ciblage se
+ *  fait PAR UNITE NOMMEE. C'est la seule voie mesuree pour viser des unites choisies.
+ *
+ *  ⚠ ON CONSTRUIT PAR NEWTONSOFT, PAS PAR CHAMPS. `ajouterAbility` ecrit ses deux structs a la
+ *  main parce qu'elles sont plates (`AbilityType` + `VariantId`). Ici la forme est un arbre :
+ *  `Targets` est une `List<EnhancementTargetConfiguration>` (generique INFLATE, introuvable par
+ *  son nom) dont chaque element porte un `UnitConfigId`, et `PlayerId` est un `Nullable<>` dont
+ *  la disposition IL2CPP est l'INVERSE de celle de C# (cf. `case-10046` §6bis, ou lire un
+ *  `hasValue` au mauvais offset a fabrique un faux positif 5/5). Newtonsoft connait les trois ;
+ *  nous, il faudrait les DEVINER. La forme JSON ci-dessous est celle que le jeu SERIALISE, et
+ *  elle est validee de bout en bout : posee dans un seed BC, elle rend le trait sur les seules
+ *  unites nommees (`docs/rl/case-10046-debuff-d-environnement.md` §3).
+ *
+ *  ⚠ Un niveau NUL n'arme rien -- meme regle que `ajouterAbility`, et pour la meme raison. */
+export function ajouterEnhancement(
+    env: NativePointer, spec: SpecEnhancement,
+): { ok: true; note?: string } | Refus {
+    const niveau = spec.niveau ?? 1;
+    if (niveau === 0) {
+        return refus("`" + spec.ability + "` : niveau 0 -- le natif n'arme rien. On REFUSE plutot "
+            + "que de rendre un succes qui n'installe rien");
+    }
+    if (!isDeserializerReady()) {
+        return refus("`JsonConvert.DeserializeObject` non resolu -- une entree d'enhancement ne "
+            + "peut pas etre construite (ses `Targets` sont un generique INFLATE)");
+    }
+    const kEec = findClassAnywhere(NS_CFG, "EnhancementsEnvironmentAbilityConfiguration");
+    if (!kEec) {
+        return refus("classe `" + NS_CFG + ".EnhancementsEnvironmentAbilityConfiguration` "
+            + "introuvable -- chemin PERIME sur ce build");
+    }
+
+    const cibles = spec.cibles ?? [];
+    const stack = spec.stack ?? 1;
+    const charge = {
+        ConfigId: spec.ability,
+        Level: niveau,
+        PlayerId: spec.playerId ?? null,
+        Targets: cibles.map((u) => ({
+            Target: {
+                PureId: u, Rarity: null, Level: null,
+                IsBorrowed: false, IsPvpOpponent: false,
+            },
+            Stack: stack,
+        })),
+        Stack: stack,
+    };
+
+    let eec: NativePointer;
+    try { eec = deserializeFromJson(JSON.stringify(charge), kEec); }
+    catch (e) {
+        return refus("deserialisation de l'enhancement `" + spec.ability + "` : "
+            + (e as Error).message);
+    }
+    if (eec.isNull()) {
+        return refus("l'enhancement `" + spec.ability + "` s'est deserialise en NUL");
+    }
+    gcRoot.add(eec);
+
+    const liste = membre(env, "EnhancementAbilities");
+    if (estRefus(liste)) return liste;
+    const l = liste as NativePointer;
+    const mAdd = methode(l.readPointer(), "Add", 1);
+    if (estRefus(mAdd)) return mAdd;
+    try { invokeMethod(mAdd.info, l, [eec]); }
+    catch (e) {
+        return refus("`EnhancementAbilities.Add` a LEVE : " + (e as Error).message);
+    }
+
+    // ⚠ AUCUNE CIBLE N'EST UN CAS LEGITIME, MAIS IL SE DIT. `EnhancementRegeneration` choisit sa
+    // cible dans son propre arbre (`UnitsFromTeam(.., 1)` filtre par `UnitTrait.Hero`) et ignore
+    // `Targets` ; `EnhancementAddTrait`, lui, passe par `IsEnhancementTarget` et ne tirera JAMAIS
+    // sans cible nommee. On ne peut pas trancher depuis ici sans lire l'arbre de chaque ability --
+    // alors on le DIT, au lieu de refuser a tort ou de laisser croire que c'est arme.
+    return cibles.length === 0
+        ? { ok: true, note: "AUCUNE cible nommée : légitime pour une ability qui choisit sa cible "
+            + "dans son propre arbre (ex. `EnhancementRegeneration`), mais une ability gardée par "
+            + "`IsEnhancementTarget` (toute la famille `EnhancementAddTrait`) ne tirera JAMAIS" }
+        : { ok: true };
+}
+
 /** FUSIONNE une `AbilitiesConfiguration` (config PAR MODE) dans le receptacle, PAR LE NATIF.
  *
  *  C'est `AProgressionGameModeSource$$ApplyEnvironmentAbilities(env, extraAbilitiesConfig)`, et

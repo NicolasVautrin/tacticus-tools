@@ -92,6 +92,27 @@ def main():
     # `if (a.TeamId == b.TeamId)` du moteur sont INVISIBLES d'un index par methode. Ce qui est
     # etabli : `GetHumanPlayerTeamId` le DERIVE (aucun 1 en dur), et `ToOldPlayerIndex` code en
     # dur mais n'est appele que par du RENDU. Se teste, ne se devine pas.
+    # ⚠ LE SEPARATEUR EST `=`, ET CE N'EST PAS UN CAPRICE : un nom d'ability d'environnement
+    # CONTIENT des `:` (`EnhancementAddTrait:Stationary`). Couper au `:` -- comme le font
+    # `--ability` ou `--place` -- rendrait ces noms-la inexprimables.
+    ap.add_argument("--config-ability", action="append", default=[], metavar="SPEC",
+                    help="DOTE ou REECRIT une definition du CATALOGUE "
+                         "(`BC.Abilities.EnvironmentAbilities`, cle CHAINE) : "
+                         "'Nom=cle:valeur[,cle:valeur]'. Repetable. Sert (a) a doter une ability "
+                         "qui n'a AUCUNE config -- sans quoi son 1er GetNumberConstant LEVE, en "
+                         "<< system error >> ; (b) a CHANGER une constante existante, ex. "
+                         "'EnhancementDamageBoost=extraDmgPct:-100' qui met les degats de la "
+                         "cible a ZERO. Rien a voir avec `env.AbilitiesConfigurations`, dont la "
+                         "cle est un TYPE VALEUR et dont l'insertion a la main crashe le jeu.")
+    ap.add_argument("--enhancement", action="append", default=[], metavar="SPEC",
+                    help="Installe un ENHANCEMENT -- la SECONDE liste du receptacle, la SEULE "
+                         "qui cible par unite NOMMEE : "
+                         "'Nom=unitId[,unitId][;stack=N][;niveau=N][;player=N]'. Repetable. "
+                         "`stack` est le MULTIPLICATEUR (`DSLFormulas$$EnhancementStack`), pas un "
+                         "compteur : mesure sur `EnhancementRegeneration`, stack 1 -> +30 %% des "
+                         "PV max, stack 2 -> +60 %%. Une ability gardee par `IsEnhancementTarget` "
+                         "(toute la famille `EnhancementAddTrait`) sans cible ne tire JAMAIS -- "
+                         "le hook le DIT au lieu de te le laisser deviner.")
     ap.add_argument("--equipe", action="append", default=[],
                     help="`<playerId>:<teamId>`, repetable. Ex. `11:2` met le joueur en equipe 2.")
     ap.add_argument("--inverser-equipes", action="store_true",
@@ -178,8 +199,9 @@ def main():
             return 2
         equipes[pid.strip()] = int(tid)
 
-    if not a.ability and not equipes:
-        print("REFUS : `--poser` sans `--ability` ni `--equipe`. Rien a faire.")
+    if not a.ability and not equipes and not a.config_ability and not a.enhancement:
+        print("REFUS : `--poser` sans `--ability`, `--equipe`, `--config-ability` ni"
+              " `--enhancement`. Rien a faire.")
         return 2
 
     if equipes:
@@ -221,7 +243,67 @@ def main():
     # `consumeOnce: False` -- le montage traverse plusieurs `LoadBattle` (la lecture de la source,
     # puis le montage lui-meme). On RETIRE explicitement apres coup (`--retirer`), ce qui est
     # verifiable, alors qu'une consommation automatique ne se voit pas.
+    configs = []
+    for spec in a.config_ability:
+        nom, sep, reste = spec.partition("=")
+        if not sep or not nom:
+            print("REFUS : --config-ability attend 'Nom=cle:valeur[,cle:valeur]', recu %r" % spec)
+            return 2
+        consts = {}
+        for kv in reste.split(","):
+            if not kv:
+                continue
+            k, s2, v = kv.partition(":")
+            if not s2 or not k:
+                print("REFUS : --config-ability, paire illisible %r dans %r" % (kv, spec))
+                return 2
+            # Les constantes de la BC sont des CHAINES, meme quand elles portent un nombre.
+            consts[k] = str(v)
+        if not consts:
+            print("REFUS : --config-ability `%s` sans aucune constante. Ecrire une definition"
+                  " VIDE ferait LEVER le premier getter au lieu de le doter." % nom)
+            return 2
+        configs.append({"ability": nom, "constants": consts})
+        print("  catalogue %-34s <- %s" % (nom, json.dumps(consts, ensure_ascii=False)))
+
+    enhancements = []
+    for spec in a.enhancement:
+        nom, sep, reste = spec.partition("=")
+        if not sep or not nom:
+            print("REFUS : --enhancement attend 'Nom=unitId[,unitId][;stack=N]', recu %r" % spec)
+            return 2
+        morceaux = reste.split(";")
+        cibles = [u for u in morceaux[0].split(",") if u]
+        opts = {}
+        for o in morceaux[1:]:
+            k, s2, v = o.partition("=")
+            if not s2 or k not in ("stack", "niveau", "player"):
+                print("REFUS : --enhancement, option inconnue %r (attendu stack= / niveau= /"
+                      " player=)" % o)
+                return 2
+            try:
+                opts[k] = int(v)
+            except ValueError:
+                print("REFUS : --enhancement, `%s` attend un entier, recu %r" % (k, v))
+                return 2
+        e = {"ability": nom, "cibles": cibles,
+             "stack": opts.get("stack", 1), "niveau": opts.get("niveau", 1)}
+        if "player" in opts:
+            e["playerId"] = opts["player"]
+        enhancements.append(e)
+        print("  enhancement %-30s cibles=%s stack=%d niveau=%d%s"
+              % (nom, ",".join(cibles) or "(AUCUNE)", e["stack"], e["niveau"],
+                 (" player=%d" % e["playerId"]) if "playerId" in e else ""))
+        if not cibles:
+            print("      (!) AUCUNE cible : legitime pour une ability qui choisit sa cible dans")
+            print("          son propre arbre (ex. EnhancementRegeneration, qui vise team 1 /")
+            print("          UnitTrait.Hero), mais la famille EnhancementAddTrait ne tirera PAS.")
+
     patch = {"consumeOnce": False}
+    if configs:
+        patch["environmentAbilityConfigs"] = configs
+    if enhancements:
+        patch["environmentEnhancements"] = enhancements
     if demandes:
         patch["environmentAbilities"] = demandes
     if equipes:
@@ -247,8 +329,9 @@ def main():
         return 1
 
     print()
-    print("patch ARME : %d ability(ies) d'environnement, %d equipe(s) reecrite(s)%s."
-          % (len(demandes), len(equipes),
+    print("patch ARME : %d ability(ies) d'environnement, %d definition(s) de catalogue,"
+          " %d enhancement(s), %d equipe(s) reecrite(s)%s."
+          % (len(demandes), len(configs), len(enhancements), len(equipes),
              (", TurnOrder -> [%s]" % ",".join(str(x) for x in ordre)) if ordre else ""))
     print("Applique au PROCHAIN `LoadBattle`, PAR MUTATION de la BC que la source produit.")
     print("Monter ensuite le noeud, puis `--etat` : `lastApply.operations` dit ce qui a ete")

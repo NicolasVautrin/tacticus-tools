@@ -538,6 +538,33 @@ interface BattleConfigPatch {
      *        `TotalTurnsFinished == <const>`, cible `_allAliveUnits - _currentTurnUnits`,
      *        donc le camp qui NE joue PAS -- team-agnostique, et pas forcément le tien. */
     environmentAbilities?: Array<{ abilityType: number; niveau: number }>;
+    /** Les DÉFINITIONS à poser dans le CATALOGUE -- `BC.Abilities.EnvironmentAbilities`, le
+     *  dictionnaire à clé CHAÎNE, et surtout PAS `env.AbilitiesConfigurations` (clé de type
+     *  valeur, dont l'insertion à la main a tué le process le 2026-08-21).
+     *
+     *  Deux usages, tous deux mesurés :
+     *    * DOTER une ability qui n'a aucune config ici -- sans quoi son premier
+     *      `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` LÈVE, et ça remonte
+     *      en « system error » au cast ou au déploiement (#254) ;
+     *    * CHANGER une constante existante -- ex. `EnhancementDamageBoost.extraDmgPct` de `20`
+     *      à `-100`, qui met les dégâts de la cible à ZÉRO (multiplicateur `1 + pct/100`, borné
+     *      à zéro en dessous de -100).
+     *
+     *  ⚠ Les valeurs sont des CHAÎNES, comme dans la BC (`{"extraDmgPct": "-100"}`). */
+    environmentAbilityConfigs?: Array<{ ability: string; constants?: Record<string, string>;
+                                        variables?: Record<string, string[]> }>;
+    /** Les ENHANCEMENTS -- la SECONDE liste du réceptacle, et la SEULE qui cible par unité NOMMÉE.
+     *
+     *  `environmentAbilities` (ci-dessus) installe des abilities dont la cible est écrite dans
+     *  leur `CreateTrigger` : rien à passer. Une entrée d'enhancement porte, elle, une liste
+     *  `Targets` d'`unitId` que `IdunBattleLogic.Entities.DSLTriggers$$IsEnhancementTarget`
+     *  confronte -- c'est l'équivalent du `unitAmount` de l'UI d'incursion, et `stack` celui de
+     *  son `stacks`. Le catalogue de la BC porte **106** variantes `EnhancementAddTrait:<Trait>`
+     *  déjà configurées, dont le gameconfig n'en expose que quatre.
+     *
+     *  ⚠ Une ability gardée par `IsEnhancementTarget` sans `cibles` ne tire JAMAIS -- le retour
+     *  le DIT (`note`) plutôt que de le laisser deviner. */
+    environmentEnhancements?: Array<envAbilities.SpecEnhancement>;
     /** L'ÉQUIPE de chaque joueur -- `BC.Player.Players[<playerId>].TeamId`, ÉCRIT EN PLACE.
      *  Clé = le `playerId` tel qu'il est dans la BC (`"11"` le joueur, `"12"` l'ennemi,
      *  `"13"` l'environnement), valeur = le `TeamId` voulu.
@@ -755,6 +782,9 @@ export interface EcritureEnvironnement {
      *  a 166 ne racontent pas la meme histoire quand rien n'apparait en bataille. */
     tailleCatalogue?: number | null;
     detail?: Array<Record<string, unknown>>;
+    /** La SECONDE liste, quand on lui a demandé quelque chose. Séparée de `detail` : les deux
+     *  listes ne ciblent pas pareil, les confondre dans un même tableau les ferait lire pareil. */
+    detailEnhancements?: Array<Record<string, unknown>>;
     error?: string;
 }
 
@@ -812,6 +842,145 @@ function catalogueTaille(bc: NativePointer): number | null {
     } catch { return null; }
 }
 
+// ---------------------------------------------------------------------------------------
+// LE CATALOGUE -- `BC.Abilities.EnvironmentAbilities`, ET POURQUOI CELUI-LA EST SUR.
+//
+// ⚠ NE PAS CONFONDRE AVEC `env.AbilitiesConfigurations`. Les deux portent des
+// `AbilityConfiguration`, et l'un des deux TUE LE PROCESS :
+//
+//   `env.AbilitiesConfigurations`        Dictionary<TriggeredAbilityConfigId, AbilityConfiguration>
+//                                        -> cle TYPE VALEUR. Insertion a la main = crash mesure
+//                                           (2026-08-21, `Tacticus.exe.30620.dmp`). INTERDIT ici.
+//   `BC.Abilities.EnvironmentAbilities`  Dictionary<String, AbilityConfiguration>
+//                                        -> cle CHAINE. Rien a boxer, rien a dereferencer.
+//
+// C'est ce second dictionnaire que `catalogueContient` interroge deja, et c'est celui qu'une
+// ability LIT quand elle appelle `AbilityConfiguration$$GetNumberConstant`. Une ability installee
+// sans entree ici fait LEVER ce getter -- « system error » au cast ou au deploiement (cf. #254).
+//
+// ⚠ LE TYPE DE CLE SE VERIFIE, IL NE SE SUPPOSE PAS. `catalogueContient` a deja menti une fois en
+// appelant `ContainsKey` sans regarder le type du parametre (2026-08-22). Meme garde ici, et elle
+// est BLOQUANTE : si la cle n'est pas `System.String`, on REFUSE d'ecrire. Se tromper de
+// convention sur une cle de type valeur ne rend pas un mauvais resultat, ca crashe.
+interface EcritureCatalogue {
+    ok: boolean;
+    /** Le compte du dictionnaire AVANT / APRES -- un fait, pas un « configuré ». */
+    tailleAvant?: number | null;
+    tailleApres?: number | null;
+    detail?: Array<Record<string, unknown>>;
+    error?: string;
+}
+
+/** Le dictionnaire du catalogue, ET la preuve que sa clé est une chaîne. */
+function catalogueDictionnaire(bc: NativePointer): NativePointer | { error: string } {
+    const abilities = champPointeur(bc, "Abilities");
+    if (estRefus(abilities)) {
+        return { error: "`BC.Abilities` : " + (abilities as { error: string }).error };
+    }
+    const dict = champPointeur(abilities as NativePointer, "EnvironmentAbilities");
+    if (estRefus(dict)) {
+        return { error: "`BC.Abilities.EnvironmentAbilities` : "
+            + (dict as { error: string }).error };
+    }
+    const d = dict as NativePointer;
+    const mHas = findMethodByParamCount(d.readPointer(), "ContainsKey", 1);
+    if (!mHas) return { error: "`ContainsKey(1)` INTROUVABLE sur le catalogue -- chemin PÉRIMÉ" };
+    const kParam = methodParamClass(mHas.info, 0);
+    if (!kParam) return { error: "type de clé du catalogue ILLISIBLE -- on n'écrit pas à l'aveugle" };
+    let nomParam: string;
+    try { nomParam = cstr(class_get_name(kParam) as NativePointer); }
+    catch (e) { return { error: "nom du type de clé illisible : " + (e as Error).message }; }
+    if (nomParam !== "String") {
+        return { error: "la clé du catalogue est un `" + nomParam + "`, PAS une `String` -- écrire "
+            + "dedans exigerait de boxer une clé de type valeur, exactement le geste qui a tué le "
+            + "process le 2026-08-21. REFUS." };
+    }
+    return d;
+}
+
+/** ÉCRIRE des définitions dans le CATALOGUE de la BC — la moitié qui manquait au patch.
+ *
+ *  Sans elle, `environmentAbilities` pouvait installer une ability dont aucune config n'existe :
+ *  le natif lève au premier `GetNumberConstant`, et le patch n'avait qu'un `avertissement` à
+ *  offrir. Mesuré sur `EnvAttemptDebuff`, absent des 166 définitions du seed BC.
+ *
+ *  ⚠ ON ÉCRASE UNE ENTRÉE EXISTANTE SANS RIEN DEMANDER, ET C'EST VOULU : c'est le seul moyen de
+ *  changer une constante déjà définie (`EnhancementDamageBoost.extraDmgPct` de `20` à `-100`).
+ *  Le retour DIT, par entrée, si elle existait avant — pour qu'un écrasement soit lu, pas subi. */
+export function ecrireCatalogueEnvironnement(
+    bc: NativePointer,
+    entrees: Array<{ ability: string; constants?: Record<string, string>;
+                     variables?: Record<string, string[]> }>,
+): EcritureCatalogue {
+    if (!isDeserializerReady()) {
+        return { ok: false, error: "`JsonConvert.DeserializeObject` non résolu -- une "
+            + "`AbilityConfiguration` ne peut pas être construite" };
+    }
+    const d = catalogueDictionnaire(bc);
+    if ((d as { error?: string }).error) return { ok: false, error: (d as { error: string }).error };
+    const dict = d as NativePointer;
+
+    const kCfg = findClassAnywhere("IdunBattle.Configuration", "AbilityConfiguration");
+    if (!kCfg) {
+        return { ok: false, error: "classe `IdunBattle.Configuration.AbilityConfiguration` "
+            + "introuvable -- chemin PÉRIMÉ sur ce build" };
+    }
+    const mSet = findMethodByParamCount(dict.readPointer(), "set_Item", 2);
+    const mHas = findMethodByParamCount(dict.readPointer(), "ContainsKey", 1);
+    if (!mSet || !mHas) {
+        return { ok: false, error: "`set_Item(2)`/`ContainsKey(1)` INTROUVABLE sur le catalogue "
+            + "-- chemin PÉRIMÉ" };
+    }
+
+    const contient = (nom: string): boolean | null => {
+        try {
+            const r = invokeMethod(mHas.info, dict, [createManagedString(nom)]);
+            // ⚠ `il2cpp_runtime_invoke` BOXE les types valeur : le `bool` est à +0x10.
+            return r.isNull() ? null : r.add(0x10).readU8() !== 0;
+        } catch { return null; }
+    };
+
+    const tailleAvant = catalogueTaille(bc);
+    const detail: Array<Record<string, unknown>> = [];
+    for (const e of entrees) {
+        const avant = contient(e.ability);
+        // La forme que le jeu SÉRIALISE lui-même — on la lui rend telle quelle.
+        const charge = {
+            Variables: e.variables ?? {},
+            Constants: e.constants ?? {},
+            AttackRangeType: 0,
+            VariablesAffectedByUnitRarityMultiplier: [] as number[],
+            TutorialAbilityBehaviours: {},
+        };
+        let cfg: NativePointer;
+        try { cfg = deserializeFromJson(JSON.stringify(charge), kCfg); }
+        catch (err) {
+            return { ok: false, tailleAvant, detail,
+                error: "`" + e.ability + "` : désérialisation de l'`AbilityConfiguration` : "
+                    + (err as Error).message };
+        }
+        if (cfg.isNull()) {
+            return { ok: false, tailleAvant, detail,
+                error: "`" + e.ability + "` : l'`AbilityConfiguration` s'est désérialisée en NUL" };
+        }
+        gcRoot.add(cfg);
+        try { invokeMethod(mSet.info, dict, [createManagedString(e.ability), cfg]); }
+        catch (err) {
+            return { ok: false, tailleAvant, detail,
+                error: "`" + e.ability + "` : `set_Item` a LEVÉ : " + (err as Error).message };
+        }
+        detail.push({
+            ability: e.ability,
+            constants: e.constants ?? {},
+            existaitDeja: avant,
+            // RELECTURE : « l'appel est passé » n'est pas « l'entrée est là ».
+            relu: contient(e.ability),
+            note: avant === true ? "ÉCRASE la définition existante" : undefined,
+        });
+    }
+    return { ok: true, tailleAvant, tailleApres: catalogueTaille(bc), detail };
+}
+
 /** INSTALLER des abilities d'environnement sur la BC que la source vient de produire.
  *
  *  ⚠ MEME FENETRE QUE LE CALENDRIER DE VAGUES : on ecrit au `LoadBattle.onLeave`, sur l'objet
@@ -827,6 +996,7 @@ function catalogueTaille(bc: NativePointer): number | null {
  *  `catalogueContient` la rend verifiable au lieu de la laisser tacite. */
 export function ecrireAbilitesEnvironnement(
     bc: NativePointer, demandes: Array<{ abilityType: number; niveau: number }>,
+    enhancements: envAbilities.SpecEnhancement[] = [],
 ): EcritureEnvironnement {
     let klass: NativePointer;
     try { klass = bc.readPointer(); } catch (e) {
@@ -914,6 +1084,26 @@ export function ecrireAbilitesEnvironnement(
         });
     }
 
+    // Les ENHANCEMENTS -- la SECONDE liste du réceptacle, celle qui cible par unité NOMMÉE.
+    const detailEnh: Array<Record<string, unknown>> = [];
+    for (const e of enhancements) {
+        const auCatalogue = catalogueContient(bc, e.ability);
+        const pose = envAbilities.ajouterEnhancement(env, e);
+        if (estRefus(pose)) {
+            return { ok: false, error: "`" + e.ability + "` : " + (pose as { error: string }).error };
+        }
+        detailEnh.push({
+            ability: e.ability, niveau: e.niveau ?? 1, playerId: e.playerId ?? null,
+            cibles: e.cibles ?? [], stack: e.stack ?? 1,
+            auCatalogue,
+            note: (pose as { note?: string }).note,
+            avertissement: auCatalogue === false
+                ? "ABSENTE du catalogue de cette BC -- son premier `GetNumberConstant` LÈVERA "
+                  + "(« system error »). Poser sa config par `environmentAbilityConfigs` AVANT."
+                : undefined,
+        });
+    }
+
     // La ré-écriture du champ est INUTILE en fusion (l'objet est déjà en place) mais elle est
     // faite quand même : elle est idempotente, et elle donne le `relu` qui atteste.
     try { bc.add(off).writePointer(env); }
@@ -926,6 +1116,7 @@ export function ecrireAbilitesEnvironnement(
         // « CONFIGURE » N'EST PAS « INSTALLE » : seul le compte des membres tranche.
         installees: envAbilities.resume(env),
         detail,
+        detailEnhancements: detailEnh.length > 0 ? detailEnh : undefined,
     };
 }
 
@@ -1342,19 +1533,52 @@ function applyPatchToConfig(
         }
     }
 
+    // ⚠ LE CATALOGUE D'ABORD, ET L'ORDRE N'EST PAS COSMÉTIQUE. Une ability installée sans sa
+    // définition fait LEVER son premier `GetNumberConstant` ; poser la config APRÈS l'installation
+    // laisserait donc une fenêtre où la BC est armée et incohérente. On dote, PUIS on installe.
+    if (patch.environmentAbilityConfigs !== undefined && patch.environmentAbilityConfigs !== null
+        && patch.environmentAbilityConfigs.length > 0) {
+        const w = ecrireCatalogueEnvironnement(bc, patch.environmentAbilityConfigs);
+        if (w.ok) {
+            const lu = (w.detail ?? []).map((d) =>
+                `${d.ability}${d.existaitDeja === true ? "(écrasée)" : ""}:relu=${d.relu}`);
+            ops.push(`environmentAbilityConfigs ${lu.join(" ")} `
+                + `(catalogue ${w.tailleAvant} -> ${w.tailleApres})`);
+            for (const d of w.detail ?? []) {
+                if (d.relu !== true) {
+                    warnings.push(`environmentAbilityConfigs[${d.ability}]: RELECTURE `
+                        + `DIVERGENTE (relu=${d.relu}) -- l'entrée n'est PAS au catalogue`);
+                }
+            }
+        } else {
+            warnings.push(`environmentAbilityConfigs: ${w.error}`);
+        }
+    }
+
     // Les abilities d'environnement -- MUTATION du même objet, à la même fenêtre.
-    if (patch.environmentAbilities !== undefined && patch.environmentAbilities !== null
-        && patch.environmentAbilities.length > 0) {
-        const w = ecrireAbilitesEnvironnement(bc, patch.environmentAbilities);
+    // Les DEUX listes du réceptacle passent par le MÊME appel : il n'y a qu'une acquisition du
+    // réceptacle (fusion ou neuf), donc pas deux chances d'en créer un second et de jeter le
+    // premier.
+    const demandesEnv = patch.environmentAbilities ?? [];
+    const demandesEnh = patch.environmentEnhancements ?? [];
+    if (demandesEnv.length > 0 || demandesEnh.length > 0) {
+        const w = ecrireAbilitesEnvironnement(bc, demandesEnv, demandesEnh);
         if (w.ok) {
             const inst = JSON.stringify(w.installees);
-            ops.push(`environmentAbilities=${patch.environmentAbilities.length} demandée(s) `
+            ops.push(`environmentAbilities=${demandesEnv.length} + enhancements=`
+                + `${demandesEnh.length} demandée(s) `
                 + `@${w.offset} (${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu}) `
                 + `installées=${inst}`);
             // L'absence au catalogue ne fait PAS échouer l'écriture -- elle est ANNONCÉE, parce
             // que c'est une cause qui, sinon, n'émet aucune trace.
             for (const d of w.detail ?? []) {
                 if (d.avertissement) warnings.push(`environmentAbilities[${d.nom}]: ${d.avertissement}`);
+            }
+            for (const d of w.detailEnhancements ?? []) {
+                if (d.avertissement) {
+                    warnings.push(`environmentEnhancements[${d.ability}]: ${d.avertissement}`);
+                }
+                if (d.note) warnings.push(`environmentEnhancements[${d.ability}]: ${d.note}`);
             }
         } else {
             warnings.push(`environmentAbilities: ${w.error}`);
