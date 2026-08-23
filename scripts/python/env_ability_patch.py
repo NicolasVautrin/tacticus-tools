@@ -123,17 +123,14 @@ def main():
     # Ils pilotaient `playerTeamIds` / `spawnGroupPlayerIndexes`, deux contournements d'un
     # symptome qui n'etait pas le leur : #10046 a mesure que l'inversion des `TeamId` FONCTIONNE
     # cote natif, et que la disparition du camp adverse venait d'un `TWPI 0` code en dur dans
-    # `rl_duel.py` -- du HARNAIS. Ce qu'ils visaient se fait par `--adversaire-ouvre` (le camp que
-    # protege `EnvStartProtection`) ou par `--enhancement` (viser des unites NOMMEES).
-    ap.add_argument("--ordre-des-tours", default=None, metavar="IDS",
-                    help="reordonne `BC.Player.TurnOrder`, ex. `12,11,13`. PERMUTATION SEULEMENT "
-                         "(le hook refuse toute valeur qui n'est pas un rearrangement de "
-                         "l'existant).")
-    ap.add_argument("--adversaire-ouvre", action="store_true",
-                    help="LE LEVIER DU BOUCLIER : met l'ennemi(12) en tete de TurnOrder. "
-                         "`EnvStartProtection` protege le camp qui N'OUVRE PAS -- par defaut "
-                         "c'est TOI qui ouvres, donc le bouclier va a l'adversaire. Raccourci de "
-                         "`--ordre-des-tours 12,11,13`.")
+    # `rl_duel.py` -- du HARNAIS. Ce qu'ils visaient se fait par `--enhancement` (viser des
+    # unites NOMMEES).
+    #
+    # ⛔ `--ordre-des-tours` ET `--adversaire-ouvre` RETIRES AUSSI (2026-08-23), avec le champ
+    # `turnOrder` du hook et `ecrireOrdreDesTours`. Aucun appelant par programme : les probes qui
+    # citent `BC.Player.TurnOrder` le LISENT depuis un seed BC sur disque, elles n'ecrivaient
+    # jamais par ce canal. Ils ne servaient qu'au bouclier d'environnement `EnvStartProtection`,
+    # dont on a decide de ne pas se servir.
     a = ap.parse_args()
 
     if not (a.poser or a.retirer or a.etat or a.lister_shield):
@@ -304,19 +301,6 @@ def main():
         patch["environmentEnhancements"] = enhancements
     if demandes:
         patch["environmentAbilities"] = demandes
-    ordre = None
-    if a.ordre_des_tours:
-        try:
-            ordre = [int(x) for x in a.ordre_des_tours.replace(" ", "").split(",") if x]
-        except ValueError:
-            print("REFUS : --ordre-des-tours attend des entiers separes par des virgules.")
-            return 2
-    elif a.adversaire_ouvre:
-        # PLAYER_ID_AI en tete. On ne touche NI aux equipes NI aux groupes de spawn : le ciblage
-        # d'`EnvStartProtection` est team-agnostique, seul l'ordre compte.
-        ordre = [12, 11, 13]
-    if ordre:
-        patch["turnOrder"] = ordre
     r = j.rpc("setBattleConfigPatch", [patch], 60000) or {}
     if not r.get("ok"):
         print("REFUS : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:400])
@@ -324,9 +308,8 @@ def main():
 
     print()
     print("patch ARME : %d ability(ies) d'environnement, %d definition(s) de catalogue,"
-          " %d enhancement(s)%s."
-          % (len(demandes), len(configs), len(enhancements),
-             (", TurnOrder -> [%s]" % ",".join(str(x) for x in ordre)) if ordre else ""))
+          " %d enhancement(s)."
+          % (len(demandes), len(configs), len(enhancements)))
     print("Applique au PROCHAIN `LoadBattle`, PAR MUTATION de la BC que la source produit.")
     print("Monter ensuite le noeud, puis `--etat` : `lastApply.operations` dit ce qui a ete")
     print("REELLEMENT installe (`installees`), et `warnings` nomme une absence du CATALOGUE.")

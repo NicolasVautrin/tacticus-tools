@@ -610,31 +610,30 @@ interface BattleConfigPatch {
     // armés sans cible, avec leur propre piège d'idempotence (« appliqué deux fois, ça se
     // défait ») et un parcours d'arbre rouge-noir à borne dure sur le thread principal du jeu.
     //
-    // Ce qu'ils visaient reste atteignable, et plus simplement : `turnOrder` ci-dessous pour le
-    // camp que protège `EnvStartProtection`, et `environmentEnhancements` ci-dessus pour viser
-    // des unités NOMMÉES sans toucher à aucune équipe.
+    // Ce qu'ils visaient reste atteignable par `environmentEnhancements` ci-dessus, qui vise des
+    // unités NOMMÉES sans toucher à aucune équipe.
     // Détail : `docs/rl/case-10046-pose-des-unites-predefinies.md` §5ter.
-    /** L'ORDRE DES TOURS -- `BC.Player.TurnOrder`, une `List<PlayerId>` RÉORDONNÉE EN PLACE.
-     *  `[12, 11, 13]` = « l'ennemi ouvre, puis le joueur, puis l'environnement ».
-     *
-     *  ⚠ **C'EST LE LEVIER DU BOUCLIER D'ENVIRONNEMENT**, et le seul. `EnvStartProtection` (1280)
-     *  cible `_allAliveUnits - _currentTurnUnits` au tout premier `TurnStart_EffectActivation`
-     *  (gardé par `TotalTurnsFinished == 0`) : elle protège **le camp qui N'OUVRE PAS**. Le défaut
-     *  `[11, 12, 13]` fait donc ouvrir le joueur, dont les unités sont exactement celles
-     *  qu'exclut la soustraction — mesuré le 2026-08-22 en bataille réelle, où les 7 boucliers de
-     *  500 sont allés à l'adversaire. Mettre `12` en tête retourne la soustraction.
-     *
-     *  ⚠ **Ne PAS chercher à corriger ça par les ÉQUIPES** : le ciblage de cette ability est
-     *  team-agnostique (aucun `IsInTeam`), donc `playerTeamIds` n'y change RIEN. La seule ability
-     *  qui vise nommément l'équipe du joueur, `EnvReinforcementShield` (1270), a **0 occurrence
-     *  dans le gameconfig** (re-mesuré le 2026-08-23) : elle est hors d'atteinte sur ce client.
-     *
-     *  ⚠ **PERMUTATION SEULEMENT.** L'écriture refuse si la longueur diffère ou si les valeurs
-     *  demandées ne sont pas un réarrangement de celles déjà présentes — on ne crée pas un
-     *  `playerId` qui n'existe pas, et on ne redimensionne pas la liste. Ce contrôle sert AUSSI
-     *  d'auto-validation de la disposition : si le pas de lecture était faux, on lirait du bruit
-     *  au lieu d'une permutation, et l'écriture serait refusée au lieu de corrompre la liste. */
-    turnOrder?: number[];
+
+    // ⛔ `turnOrder` RETIRÉ (2026-08-23), avec `ecrireOrdreDesTours`, `--ordre-des-tours` et
+    // `--adversaire-ouvre`. Aucun appelant par programme : les probes qui citent `TurnOrder`
+    // le LISENT depuis un seed BC sur disque (`probe_889r9`, `probe_462r4…`, `probe_1083r3`), elles
+    // n'écrivaient jamais par ce canal. Seule une invocation manuelle d'`env_ability_patch`
+    // l'atteignait.
+    //
+    // ⚠ CE QU'ON PERD, ET IL FAUT LE SAVOIR AVANT DE LE REFAIRE : c'était le SEUL levier du
+    // bouclier d'environnement. `EnvStartProtection` (1280) cible `_allAliveUnits -
+    // _currentTurnUnits` au tout premier `TurnStart_EffectActivation` (gardé par
+    // `TotalTurnsFinished == 0`) : elle protège LE CAMP QUI N'OUVRE PAS. Le défaut `[11, 12, 13]`
+    // fait ouvrir le joueur, donc le bouclier va à l'adversaire — mesuré le 2026-08-22 en bataille
+    // réelle, 7 boucliers de 500 partis du mauvais côté. Mettre `12` en tête retournait la
+    // soustraction.
+    //
+    // ⚠ ET LA VOIE ÉVIDENTE POUR LE REFAIRE EST FAUSSE : le ciblage de cette ability est
+    // team-agnostique (aucun `IsInTeam`), donc passer par les ÉQUIPES n'y change rien.
+    // `EnvReinforcementShield` (1270), la seule qui vise nommément l'équipe du joueur, a 0
+    // occurrence dans le gameconfig. Si le besoin revient, c'est bien `BC.Player.TurnOrder` qu'il
+    // faut réordonner — une `List<PlayerId>` de structs à 4 octets, en PERMUTATION seulement.
+
     /** If true (default), the patch is cleared after a single application. */
     consumeOnce?: boolean;
 }
@@ -1187,60 +1186,6 @@ export function ecrireAbilitesEnvironnement(
     };
 }
 
-/** Réordonne `BC.Player.TurnOrder` EN PLACE — c'est le levier du bouclier d'environnement.
- *
- *  ⚠ **PERMUTATION SEULEMENT, et ce refus est aussi l'AUTO-VALIDATION de la disposition.**
- *  `TurnOrder` est une `List<PlayerId>` de structs à 4 octets, donc on lit au pas de 4 — pas au
- *  pas d'un pointeur, comme le fait `readListItem`. Si ce pas était faux, les valeurs lues
- *  seraient du bruit, donc PAS un réarrangement de celles demandées, et l'écriture serait
- *  refusée. Le contrôle métier (« on n'invente pas un `playerId` ») et le contrôle de disposition
- *  (« je lis bien la liste ») sont donc le MÊME test — un capteur qui ne se recoupe avec rien
- *  peut confirmer l'hypothèse qui l'a fait naître (cf. `case-10046` §6bis). */
-function ecrireOrdreDesTours(
-    bc: NativePointer, ordre: number[],
-): { ok: boolean; error?: string; avant?: number[]; apres?: number[]; relu?: boolean } {
-    const cfgJoueurs = champPointeur(bc, "Player");
-    if (estRefus(cfgJoueurs)) {
-        return { ok: false, error: "`BC.Player` : " + (cfgJoueurs as { error: string }).error };
-    }
-    const listeP = champPointeur(cfgJoueurs as NativePointer, "TurnOrder");
-    if (estRefus(listeP)) {
-        return { ok: false,
-            error: "`BC.Player.TurnOrder` : " + (listeP as { error: string }).error };
-    }
-    const info = readManagedList(listeP as NativePointer);
-    if (info === null) return { ok: false, error: "`TurnOrder` illisible comme `List`" };
-    if (info.size !== ordre.length) {
-        return { ok: false, error: `\`TurnOrder\` compte ${info.size} entrée(s), l'ordre demandé `
-            + `en a ${ordre.length} — on NE REDIMENSIONNE PAS, on permute` };
-    }
-
-    const avant: number[] = [];
-    try {
-        for (let i = 0; i < info.size; i++) {
-            avant.push(info.array.add(ARRAY_OFF_DATA + i * 4).readS32());
-        }
-    } catch (e) {
-        return { ok: false, error: `lecture de \`TurnOrder\` impossible : ${e}` };
-    }
-    const trie = (a: number[]) => a.slice().sort((x, y) => x - y).join(",");
-    if (trie(avant) !== trie(ordre)) {
-        return { ok: false, error: `REFUS : l'ordre demandé [${ordre.join(",")}] n'est pas une `
-            + `permutation de celui lu [${avant.join(",")}]. Soit un \`playerId\` est inventé, `
-            + `soit la disposition de la liste a changé sur ce build — dans les deux cas on `
-            + `n'écrit RIEN.` };
-    }
-
-    for (let i = 0; i < info.size; i++) {
-        info.array.add(ARRAY_OFF_DATA + i * 4).writeS32(ordre[i] | 0);
-    }
-    const apres: number[] = [];
-    for (let i = 0; i < info.size; i++) {           // ON RELIT, toujours
-        apres.push(info.array.add(ARRAY_OFF_DATA + i * 4).readS32());
-    }
-    return { ok: true, avant, apres, relu: apres.join(",") === ordre.join(",") };
-}
-
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch,
 ): PatchApplyResult {
@@ -1344,20 +1289,6 @@ function applyPatchToConfig(
             }
         } else {
             warnings.push(`environmentAbilities: ${w.error}`);
-        }
-    }
-
-    // L'ordre des tours -- le levier du bouclier d'environnement (cf. `turnOrder` en tête).
-    if (patch.turnOrder !== undefined && patch.turnOrder !== null) {
-        const w = ecrireOrdreDesTours(bc, patch.turnOrder);
-        if (w.ok) {
-            ops.push(`turnOrder [${(w.avant ?? []).join(",")}] -> [${(w.apres ?? []).join(",")}]`);
-            if (w.relu !== true) {
-                warnings.push("turnOrder: RELECTURE DIVERGENTE "
-                    + `(écrit [${patch.turnOrder.join(",")}], relu [${(w.apres ?? []).join(",")}])`);
-            }
-        } else {
-            warnings.push(`turnOrder: ${w.error}`);
         }
     }
 

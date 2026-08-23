@@ -10,6 +10,12 @@
  *  `[12,11,13]`. Et sur un runner, l'ability pré-installée dans la seed BC n'a **rien** produit
  *  non plus. Trois régimes, trois résultats, et **aucun moyen de dire à quel étage ça casse** :
  *
+ *  ⚠ **LE LEVIER QUI PRODUISAIT LE SECOND RÉGIME N'EXISTE PLUS.** `patch.turnOrder` /
+ *  `--ordre-des-tours` / `--adversaire-ouvre` ont été retirés le 2026-08-23 : le bouclier est
+ *  hors périmètre, décision explicite. Ce récit reste pour ce qu'il a mesuré, pas comme une
+ *  recette — le rejouer demanderait de réécrire `BC.Player.TurnOrder` (`List<PlayerId>`, structs
+ *  de 4 octets, PERMUTATION seulement).
+ *
  *    - installée dans le réceptacle ?   -> `BC.EnvironmentAbilities` (déjà mesurable, `--etat`)
  *    - l'opération d'installation A-T-ELLE TOURNÉ ?          -> étage 1 ci-dessous
  *    - un PORTEUR a-t-il été créé pour elle ?                -> étage 2
