@@ -1740,6 +1740,12 @@ export function register(ctx: Ctx): void {
                         // s'appliquer valide un chemin que la vraie bataille ne suit pas. L'override
                         // reste le TRANSPORT ; le patch passe par le même pipeline des deux côtés.
                         // `declarerOverrideDeBc` empêche la double application (cf. là-bas).
+                        // ⚠ PAS D'`onEnter` SUR CE LISTENER, ET C'EST DELIBERE. En ajouter un
+                        // (pour capturer `args[0]`, la source, dont `ciblesAuto: "moi"` aurait
+                        // besoin) a fait CESSER le tir de cet `onLeave` : mesure du 2026-08-24 --
+                        // ni `lastApply` ni `lastRejet`, donc la fonction n'etait plus appelee du
+                        // tout, et la sandbox montait la BC NON patchee sans rien signaler. Le
+                        // meilleur message d'erreur ne vaut pas la perte du hook.
                         battleConfig.appliquerPatchEnAttenteSur(
                             bcOverride, "SandboxGameModeSource (BC substituée)");
                         retval.replace(bcOverride);

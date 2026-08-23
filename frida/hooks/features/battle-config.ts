@@ -431,13 +431,22 @@ function campsDeLaBc(bc: NativePointer): { miens: string[]; adverses: string[] }
     const monEquipe = equipeDe.get(humains[0]);
     if (monEquipe === undefined) return null;
 
+    // ⛔ ON GARDE L'ID ENTIER, SUFFIXE COMPRIS -- ne PAS le reduire au `PureId` ici.
+    // `IdunBattle.Configuration.UnitConfigId$$Equals` compare PureId, Rarity, Level ET IsBorrowed :
+    // `necroNpc1Warrior` (Level nul) n'egale donc PAS l'unite `necroNpc1Warrior:18`. C'est le
+    // convertisseur d'`environment-abilities` qui scinde `:<entier>` vers `Level` -- lui donner un
+    // id deja rogne lui retire la seule information qui apparie.
+    // Mesure du 2026-08-23 : en pre-rognant ici, le `-100 %` n'appariait AUCUN NPC (tous suffixes
+    // par leur niveau) alors qu'il appariait tous les HEROS (jamais suffixes) -- ce qui se lisait
+    // comme << les NPC sont immunises >>, une conclusion entierement fausse. Le meme patch, arme
+    // avec les ids SUFFIXES ecrits a la main, mordait parfaitement sur les NPC d'onslaught.
     const miens = new Set<string>();
     const adverses = new Set<string>();
     const ranger = (pid: unknown, id: unknown): void => {
         if (typeof id !== "string" || id === "") return;
         const t = equipeDe.get(String(pid));
         if (t === undefined) return;               // joueur inconnu : on ne classe pas au hasard
-        (t === monEquipe ? miens : adverses).add(pureId(id));
+        (t === monEquipe ? miens : adverses).add(id);
     };
 
     for (const g of (o["PredefinedUnits"] as Array<Record<string, unknown>> | null) ?? []) {
@@ -1552,7 +1561,10 @@ function applyPatchToConfig(
         // ⚠ LA SOUSTRACTION N'EST PAS UNE PRECAUTION : `UnitConfigId$$Equals` ignore `IsPvpOpponent`
         // (et ne regarde ni le tour ni le camp), donc un id present DES DEUX COTES apparierait aussi
         // la copie d'en face. Un `Immune` offert a l'adversaire est pire que pas d'`Immune`.
-        const exclus = new Set(camps.adverses);
+        // ⚠ DEUX GRANULARITES, ET C'EST VOULU : on CIBLE avec l'id ENTIER (le suffixe porte le
+        // `Level`, sans quoi rien n'apparie), mais on COMPARE sur le `PureId` -- un homonyme d'en
+        // face s'ecrit `worldKharn:pvp` et designe pourtant le meme `worldKharn`.
+        const exclus = new Set(camps.adverses.map(pureId));
         // La MACHINE DE GUERRE est une unite a moi comme une autre, et elle n'apparait dans AUCUNE
         // des deux autres voies : `GetBattleLineup` ne rend que les heros, et la BC ne porte que
         // les `PredefinedMachines` de l'adversaire.
@@ -1561,9 +1573,9 @@ function applyPatchToConfig(
             ...(lineupSource.mow !== null ? [lineupSource.mow] : []),
         ];
         const base = Array.from(new Set([
-            ...(e.cibles ?? []).map(pureId), ...depuisSource.map(pureId), ...camps.miens,
+            ...(e.cibles ?? []), ...depuisSource, ...camps.miens,
         ]));
-        const gardees = base.filter((c) => !exclus.has(c));
+        const gardees = base.filter((c) => !exclus.has(pureId(c)));
         const retires = base.length - gardees.length;
         if (retires > 0) {
             ops.push(`environmentEnhancements[${e.ability}]: ${retires} cible(s) RETIREE(S) `
@@ -2097,7 +2109,9 @@ export function declarerOverrideDeBc(source: string | null): void {
  * déclarée détournée (`declarerOverrideDeBc`). Sans ce cran, `consumeOnce` serait consommé par la
  * mutation inutile et l'override ne recevrait rien -- exactement la panne d'origine, déplacée.
  */
-export function appliquerPatchEnAttenteSur(bc: NativePointer, source: string): boolean {
+export function appliquerPatchEnAttenteSur(
+    bc: NativePointer, source: string, srcInstance: NativePointer | null = null,
+): boolean {
     if (pendingPatch === null || bc.isNull()) return false;
     const nomRetour = (() => {
         try { return cstr(class_get_name(bc.readPointer()) as NativePointer); }
@@ -2115,7 +2129,7 @@ export function appliquerPatchEnAttenteSur(bc: NativePointer, source: string): b
     const patch = pendingPatch;
     if (patch.consumeOnce !== false) pendingPatch = null;
     try {
-        const result = applyPatchToConfig(bc, patch, null);
+        const result = applyPatchToConfig(bc, patch, srcInstance);
         result.operations.unshift(`source=${source}`);
         lastApply = result;
         log(`[battle-config] patch applied (${source}): ${result.operations.join("; ")}`
@@ -2137,14 +2151,18 @@ export function appliquerPatchEnAttenteSur(bc: NativePointer, source: string): b
 function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean {
     try {
         Interceptor.attach(ptr, {
-            // ⚠ ON CAPTURE `this` DE LA METHODE NATIVE. `LoadBattle` est une methode D'INSTANCE :
-            // en x64, `args[0]` EST la source. C'est le seul endroit d'ou la composition du joueur
-            // est lisible -- la BC ne la porte pas (mesure PvP du 2026-08-23), la source si.
-            // `InvocationContext` est propre a l'appel, donc pas de fuite entre deux montages, et
-            // pas de course entre deux sources chargees en parallele.
-            onEnter(args) {
-                (this as unknown as { srcInstance: NativePointer }).srcInstance = args[0];
-            },
+            // ⛔ PAS D'`onEnter` SUR CE LISTENER -- IL EN TUE LE TIR, MESURE DEUX FOIS.
+            // On en avait posé un pour capturer `args[0]` (la source, seule à connaître la
+            // composition du joueur, dont `ciblesAuto: "moi"` a besoin). Effet mesuré le
+            // 2026-08-23 : plus AUCUN `onLeave` ne tire -- ni `lastApply` ni `lastRejet` pendant
+            // qu'une bataille de campagne était en déploiement à l'écran, et les 17 ancrages
+            // devenus muets D'UN COUP. Même symptôme, même cause, sur le listener d'override de
+            // `sandbox-mode`. La dégradation est TOTALEMENT SILENCIEUSE : `sourcesAncrees.posees`
+            // continue d'annoncer 17 sources, parce qu'elle rapporte l'INSTALLATION, pas le TIR.
+            //
+            // ⚠ CE QUE ÇA COÛTE, ET C'EST ASSUMÉ : `ciblesAuto: "moi"` ne peut pas interroger la
+            // source depuis ici, donc il se rabat sur les camps dérivés de la BC. Un meilleur
+            // ciblage ne vaut pas la perte du canal de mutation tout entier.
             onLeave(retval) {
                 if (pendingPatch === null) return;
                 if (retval.isNull()) return;
@@ -2184,10 +2202,8 @@ function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean
                 if (patch.consumeOnce !== false) {
                     pendingPatch = null; // consume now to avoid re-apply
                 }
-                const src = (this as unknown as { srcInstance?: NativePointer }).srcInstance
-                    ?? null;
                 try {
-                    const result = applyPatchToConfig(retval, patch, src);
+                    const result = applyPatchToConfig(retval, patch, null);
                     // La SOURCE est publiée : sans elle, un `lastApply` ne dit pas si le patch a
                     // mordu sur la campagne ou sur le banc, et les deux se lisent pareil.
                     result.operations.unshift(`source=${source}`);
