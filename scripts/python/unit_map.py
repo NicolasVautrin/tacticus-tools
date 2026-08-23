@@ -2,7 +2,10 @@
 
 But : retrouver vite l'unité voulue pour TESTER un mécanisme précis (dégât, multi-coups, crit, block,
 réduction, trait, ability, effet). Évite la chasse au seed : on PIOQUE l'unité qui a la propriété cherchée,
-puis on monte un runner contrôlé (buildPatchedRunner aiUnits / pilotage manuel) avec elle.
+puis on monte un runner contrôlé (`rl_duel build`) avec elle.
+  ⛔ Cette ligne citait `buildPatchedRunner aiUnits` : le champ `aiUnits` du patch a été RETIRÉ le
+     2026-08-23 (aucun appelant, et sa variante `aiUnitsAt` no-opait en silence). Elle était le
+     DERNIER endroit du dépôt à le nommer — donc la seule piste qu'aurait suivie un lecteur.
 
 Source de vérité = gameconfig (chiffres : weapons.hits/Range, DamageProfile.PiercingRatio, stats, traits,
 abilities) + i2_en.json (texte de RÈGLES via gameconfig.ability_description/trait_description) pour

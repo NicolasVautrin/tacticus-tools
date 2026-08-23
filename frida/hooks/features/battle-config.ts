@@ -175,14 +175,18 @@ const PU_OFF_ID = 0x10;
 const PU_OFF_UNITS = 0x18;
 
 const PUNIT_OFF_UNIT_ID = 0x10;
-const PUNIT_OFF_REMAINING_HP = 0x18; // Nullable<int>: {hasValue@0x10?, value@0x14?} — confirm at runtime
-const PUNIT_OFF_MAX_HP = 0x20;
+// ⛔ `PUNIT_OFF_REMAINING_HP` (0x18) et `PUNIT_OFF_MAX_HP` (0x20) retirés (2026-08-23). Ils étaient
+// morts AVANT le nettoyage de `templateOverrides` — déclarés, jamais lus, et le commentaire disait
+// lui-même « confirm at runtime », ce qui n'a jamais eu lieu. Un offset non confronté est un piège
+// qui attend un lecteur ; `classFields` les re-dérive sur le build chargé si le besoin revient.
 
 const UC_OFF_ID = 0x10;
 const UC_OFF_VISUAL_ID = 0x18;
 const UC_OFF_FACTION = 0x28;
 const UC_OFF_HEALTH = 0x38;
-const UC_OFF_DAMAGE = 0x50;
+// ⛔ `UC_OFF_DAMAGE` (0x50) retiré avec `templateOverrides` : `inspectBattleConfig` échantillonne
+// `Id`/`VisualId`/`Faction`/`Health`, jamais `Damage`. Les quatre ci-dessus restent parce qu'ils
+// sont EXERCÉS à chaque appel, donc confrontés ; celui-là ne l'était plus par personne.
 
 const BCBC_OFF_ID = 0x10;        // Board.Id (also at +0x10 on master BoardConfiguration but with different base)
 const BCBC_OFF_WIDTH = 0x18;
@@ -486,30 +490,30 @@ function inspectBattleConfig(): BattleConfigSnapshot {
 // true) auto-clears the patch after a single application so a subsequent
 // human-driven battle isn't accidentally affected.
 
-interface UnitStatsOverride {
-    health?: number;
-    damage?: number;
-    armor?: number;        // legacy Armor field (Idun)
-    fixedArmor?: number;
-    shield?: number;
-    movement?: number;
-    range?: number;
-    critChance?: number;
-    critDamage?: number;
-    blockChance?: number;
-    blockDamage?: number;
-}
-
 interface BattleConfigPatch {
-    /** Replace all AI units (PredefinedUnits[0].Units). Must match current
-     * count — list resizing not implemented yet. Format: "unitId:level"
-     * e.g., "necroNpc1Warrior:6". */
-    aiUnits?: string[];
-    /** Or: replace specific AI unit slots by index. Same format as aiUnits. */
-    aiUnitsAt?: Record<number, string>;
-    /** Override stats on unit templates by their Id. Affects ALL spawned
-     * instances of that unit. Useful for normalizing power level (RL D3 baseline). */
-    templateOverrides?: Record<string, UnitStatsOverride>;
+    // ⛔ `aiUnits`, `aiUnitsAt` ET `templateOverrides` RETIRÉS (2026-08-23), avec
+    // `UnitStatsOverride`, l'index `templatesById` et `mergeAiUnitsSpec`. Reliques de l'époque où
+    // le harnais fabriquait la BC lui-même ; depuis qu'on laisse la SOURCE la monter, plus rien ne
+    // les appelle — mesuré, ZÉRO appelant dans le dépôt, la seule occurrence restante étant une
+    // docstring de `unit_map.py`.
+    //
+    // ⚠ ET DEUX D'ENTRE EUX MENTAIENT, CE QUI EST PIRE QU'INUTILE :
+    //
+    //   * `aiUnitsAt` était déclaré, documenté... et SANS EFFET : `mergeAiUnitsSpec` rendait `null`
+    //     dessus, sous un « TODO: handle partial slot replacement ». Un champ qui no-ope en
+    //     silence est un piège, pas une fonctionnalité inachevée.
+    //
+    //   * le swat d'`aiUnits` sautait la validation par template en invoquant
+    //     « BattleConfiguration.Units holds the PLAYER roster, not AI enemies ». C'est FAUX :
+    //     mesuré sur 6 replays RÉELS, `BC.Units` porte ~175 gabarits qui contiennent les DEUX
+    //     camps — 19/19 des ennemis de `PredefinedUnits` y sont, et 23/23 des unités du joueur.
+    //     La validation était donc possible depuis le début ; c'est la justification écrite qui
+    //     l'a fait renoncer.
+    //
+    // Le patch de stats a d'ailleurs un pendant vivant et meilleur : `rl_duel --unit-modifier`,
+    // qui pousse de VRAIS `StatModifier` par une Operation là où celui-ci écrasait un scalaire du
+    // template.
+
     /** Toggle the BattleConfiguration.RandomizeAiInput flag. */
     randomizeAi?: boolean;
     /** Set the spawn-point preset index (each board has 1-N presets). */
@@ -649,17 +653,18 @@ let lastApply: PatchApplyResult | null = null;
  *  jamais à lire comme « aucune ». */
 let sourcesAncrees: { posees: string[]; nonResolues: string[] } | null = null;
 
-// Extra UnitConfiguration offsets used only by patch (read-only ones are
-// already declared above for inspectBattleConfig).
-const UC_OFF_ARMOR = 0x44;       // legacy Armor (Idun-only, Obsolete)
-const UC_OFF_FIXED_ARMOR = 0x48;
-const UC_OFF_SHIELD = 0x4C;
-const UC_OFF_MOVEMENT = 0x54;
-const UC_OFF_RANGE = 0x5C;
-const UC_OFF_CRIT_CHANCE = 0x60;
-const UC_OFF_CRIT_DAMAGE = 0x64;
-const UC_OFF_BLOCK_CHANCE = 0x68;
-const UC_OFF_BLOCK_DAMAGE = 0x6C;
+// ⛔ LES NEUF OFFSETS D'ÉCRITURE DE `UnitConfiguration` SONT RETIRÉS AVEC `templateOverrides`
+// (2026-08-23) : `Armor` 0x44, `FixedArmor` 0x48, `Shield` 0x4C, `Movement` 0x54, `Range` 0x5C,
+// `CritChance` 0x60, `CritDamage` 0x64, `BlockChance` 0x68, `BlockDamage` 0x6C.
+//
+// ⚠ ON GARDE LA MÉTHODE, PAS LES NOMBRES — ET C'EST LE CHOIX PRUDENT. Un offset conservé « au cas
+// où » ne se re-vérifie jamais : il survit au changement de build, reste plausible, et écrit à
+// côté en silence. Ceux-ci se re-dérivent en une commande, sur le build CHARGÉ :
+//     rpc `classFields` { ns: "IdunBattle.Configuration", cls: "UnitConfiguration" }
+// (c'est ainsi qu'on a trouvé `IdunRunner.<Configuration>k__BackingField@+0xb0` le même jour).
+//
+// Les offsets de LECTURE restent déclarés plus haut : `inspectBattleConfig` les exerce à chaque
+// appel, donc eux sont confrontés en permanence.
 
 // --- LE CALENDRIER DE VAGUES, ÉCRIT DANS LA BC ---------------------------------------------
 //
@@ -1368,117 +1373,11 @@ function applyPatchToConfig(
         }
     }
 
-    // Index template by Id, for both AI unit validation and stat overrides.
-    const templates = readManagedList(bc.add(BC_OFF_UNITS).readPointer());
-    const templatesById = new Map<string, NativePointer>();
-    if (templates) {
-        for (let i = 0; i < templates.size; i++) {
-            const uc = readListItem(templates, i);
-            if (uc.isNull()) continue;
-            const id = readIl2cppString(uc.add(UC_OFF_ID).readPointer());
-            if (id) templatesById.set(id, uc);
-        }
-    }
-
-    // AI unit swap
-    const wantedAiUnits = mergeAiUnitsSpec(patch);
-    if (wantedAiUnits !== null) {
-        const pu = readManagedList(
-            bc.add(BC_OFF_PREDEFINED_UNITS).readPointer());
-        if (!pu || pu.size < 1) {
-            warnings.push("aiUnits: PredefinedUnits list empty");
-        } else {
-            // First entry assumed to be the AI player (validated by
-            // inspectBattleConfig observation: single group, playerId=12).
-            const aiGroup = readListItem(pu, 0);
-            const aiUnits = readManagedList(
-                aiGroup.add(PU_OFF_UNITS).readPointer());
-            if (!aiUnits) {
-                warnings.push("aiUnits: AI group's Units list null");
-            } else if (wantedAiUnits.length !== aiUnits.size) {
-                warnings.push(
-                    `aiUnits: count mismatch — spec wants ` +
-                    `${wantedAiUnits.length}, current has ${aiUnits.size}. ` +
-                    `List resize not implemented; keeping original.`);
-            } else {
-                // No template validation here — BattleConfiguration.Units
-                // holds the PLAYER roster, not AI enemies. AI unit IDs are
-                // resolved at spawn time against a global registry (likely
-                // GameConfigData). We just write the strings and let the
-                // game complain if an ID is genuinely invalid.
-                for (let i = 0; i < wantedAiUnits.length; i++) {
-                    const pUnit = readListItem(aiUnits, i);
-                    if (pUnit.isNull()) continue;
-                    const newStr = createManagedString(wantedAiUnits[i]);
-                    pUnit.add(PUNIT_OFF_UNIT_ID).writePointer(newStr);
-                }
-                ops.push(`aiUnits=${wantedAiUnits.length} slots replaced`);
-            }
-        }
-    }
-
-    // Template stat overrides
-    if (patch.templateOverrides) {
-        for (const [unitId, stats] of Object.entries(patch.templateOverrides)) {
-            const uc = templatesById.get(unitId);
-            if (!uc) {
-                warnings.push(`templateOverrides: unknown unit ${unitId}`);
-                continue;
-            }
-            const changed: string[] = [];
-            try {
-                if (stats.health !== undefined) {
-                    uc.add(UC_OFF_HEALTH).writeS32(stats.health);
-                    changed.push(`hp=${stats.health}`);
-                }
-                if (stats.damage !== undefined) {
-                    uc.add(UC_OFF_DAMAGE).writeS32(stats.damage);
-                    changed.push(`dmg=${stats.damage}`);
-                }
-                if (stats.armor !== undefined) {
-                    uc.add(UC_OFF_ARMOR).writeS32(stats.armor);
-                    changed.push(`armor=${stats.armor}`);
-                }
-                if (stats.fixedArmor !== undefined) {
-                    uc.add(UC_OFF_FIXED_ARMOR).writeS32(stats.fixedArmor);
-                    changed.push(`fixedArmor=${stats.fixedArmor}`);
-                }
-                if (stats.shield !== undefined) {
-                    uc.add(UC_OFF_SHIELD).writeS32(stats.shield);
-                    changed.push(`shield=${stats.shield}`);
-                }
-                if (stats.movement !== undefined) {
-                    uc.add(UC_OFF_MOVEMENT).writeS32(stats.movement);
-                    changed.push(`mv=${stats.movement}`);
-                }
-                if (stats.range !== undefined) {
-                    uc.add(UC_OFF_RANGE).writeS32(stats.range);
-                    changed.push(`range=${stats.range}`);
-                }
-                if (stats.critChance !== undefined) {
-                    uc.add(UC_OFF_CRIT_CHANCE).writeS32(stats.critChance);
-                    changed.push(`crit%=${stats.critChance}`);
-                }
-                if (stats.critDamage !== undefined) {
-                    uc.add(UC_OFF_CRIT_DAMAGE).writeS32(stats.critDamage);
-                    changed.push(`critDmg=${stats.critDamage}`);
-                }
-                if (stats.blockChance !== undefined) {
-                    uc.add(UC_OFF_BLOCK_CHANCE).writeS32(stats.blockChance);
-                    changed.push(`block%=${stats.blockChance}`);
-                }
-                if (stats.blockDamage !== undefined) {
-                    uc.add(UC_OFF_BLOCK_DAMAGE).writeS32(stats.blockDamage);
-                    changed.push(`blockDmg=${stats.blockDamage}`);
-                }
-            } catch (e) {
-                warnings.push(
-                    `templateOverrides ${unitId}: ${(e as Error).message}`);
-                continue;
-            }
-            ops.push(`${unitId}{${changed.join(",")}}`);
-        }
-    }
+    // ⛔ L'INDEX `templatesById`, LE SWAP `aiUnits` ET LES `templateOverrides` SONT RETIRÉS
+    // (2026-08-23) — cf. le pavé sur `BattleConfigPatch`. Trois raisons, dans cet ordre :
+    // aucun appelant ; `aiUnitsAt` no-opait en silence ; et la justification du swap
+    // (« `BC.Units` = roster du joueur ») est DÉMENTIE par 6 replays réels, où les deux camps y
+    // figurent (19/19 ennemis, 23/23 unités du joueur, ~175 gabarits).
 
     return {
         ok: warnings.length === 0,
@@ -1487,20 +1386,6 @@ function applyPatchToConfig(
         operations: ops,
         warnings,
     };
-}
-
-function mergeAiUnitsSpec(patch: BattleConfigPatch): string[] | null {
-    if (patch.aiUnits) return patch.aiUnits.slice();
-    if (patch.aiUnitsAt) {
-        // Need to know current count; we'll merge against existing inside the
-        // application logic. Return null here; caller handles the partial case
-        // via a separate path. Simpler approach: caller resolves aiUnitsAt
-        // into a full-length array using inspectBattleConfig data — but for
-        // now treat partial as not supported in v1 of the patch API.
-        // TODO: handle partial slot replacement
-        return null;
-    }
-    return null;
 }
 
 // --- Spawn helper: materialize PredefinedUnits into runner via AddUnitMessage ---
