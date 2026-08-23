@@ -570,6 +570,27 @@ interface BattleConfigPatch {
      *  côté, 12 de l'autre sur `C1_01` -- donc inverser les équipes SANS inverser ceci envoie un
      *  camp dans un groupe trop petit pour lui. */
     spawnGroupPlayerIndexes?: Record<string, number>;
+    /** L'ORDRE DES TOURS -- `BC.Player.TurnOrder`, une `List<PlayerId>` RÉORDONNÉE EN PLACE.
+     *  `[12, 11, 13]` = « l'ennemi ouvre, puis le joueur, puis l'environnement ».
+     *
+     *  ⚠ **C'EST LE LEVIER DU BOUCLIER D'ENVIRONNEMENT**, et le seul. `EnvStartProtection` (1280)
+     *  cible `_allAliveUnits - _currentTurnUnits` au tout premier `TurnStart_EffectActivation`
+     *  (gardé par `TotalTurnsFinished == 0`) : elle protège **le camp qui N'OUVRE PAS**. Le défaut
+     *  `[11, 12, 13]` fait donc ouvrir le joueur, dont les unités sont exactement celles
+     *  qu'exclut la soustraction — mesuré le 2026-08-22 en bataille réelle, où les 7 boucliers de
+     *  500 sont allés à l'adversaire. Mettre `12` en tête retourne la soustraction.
+     *
+     *  ⚠ **Ne PAS chercher à corriger ça par les ÉQUIPES** : le ciblage de cette ability est
+     *  team-agnostique (aucun `IsInTeam`), donc `playerTeamIds` n'y change RIEN. La seule ability
+     *  qui vise nommément l'équipe du joueur, `EnvReinforcementShield` (1270), a **0 occurrence
+     *  dans le gameconfig** (re-mesuré le 2026-08-23) : elle est hors d'atteinte sur ce client.
+     *
+     *  ⚠ **PERMUTATION SEULEMENT.** L'écriture refuse si la longueur diffère ou si les valeurs
+     *  demandées ne sont pas un réarrangement de celles déjà présentes — on ne crée pas un
+     *  `playerId` qui n'existe pas, et on ne redimensionne pas la liste. Ce contrôle sert AUSSI
+     *  d'auto-validation de la disposition : si le pas de lecture était faux, on lirait du bruit
+     *  au lieu d'une permutation, et l'écriture serait refusée au lieu de corrompre la liste. */
+    turnOrder?: number[];
     /** If true (default), the patch is cleared after a single application. */
     consumeOnce?: boolean;
 }
@@ -1134,6 +1155,60 @@ function ecrireIndexDesGroupesDeSpawn(
     return { ok: true, joueurs: groupes };
 }
 
+/** Réordonne `BC.Player.TurnOrder` EN PLACE — c'est le levier du bouclier d'environnement.
+ *
+ *  ⚠ **PERMUTATION SEULEMENT, et ce refus est aussi l'AUTO-VALIDATION de la disposition.**
+ *  `TurnOrder` est une `List<PlayerId>` de structs à 4 octets, donc on lit au pas de 4 — pas au
+ *  pas d'un pointeur, comme le fait `readListItem`. Si ce pas était faux, les valeurs lues
+ *  seraient du bruit, donc PAS un réarrangement de celles demandées, et l'écriture serait
+ *  refusée. Le contrôle métier (« on n'invente pas un `playerId` ») et le contrôle de disposition
+ *  (« je lis bien la liste ») sont donc le MÊME test — un capteur qui ne se recoupe avec rien
+ *  peut confirmer l'hypothèse qui l'a fait naître (cf. `case-10046` §6bis). */
+function ecrireOrdreDesTours(
+    bc: NativePointer, ordre: number[],
+): { ok: boolean; error?: string; avant?: number[]; apres?: number[]; relu?: boolean } {
+    const cfgJoueurs = champPointeur(bc, "Player");
+    if (estRefus(cfgJoueurs)) {
+        return { ok: false, error: "`BC.Player` : " + (cfgJoueurs as { error: string }).error };
+    }
+    const listeP = champPointeur(cfgJoueurs as NativePointer, "TurnOrder");
+    if (estRefus(listeP)) {
+        return { ok: false,
+            error: "`BC.Player.TurnOrder` : " + (listeP as { error: string }).error };
+    }
+    const info = readManagedList(listeP as NativePointer);
+    if (info === null) return { ok: false, error: "`TurnOrder` illisible comme `List`" };
+    if (info.size !== ordre.length) {
+        return { ok: false, error: `\`TurnOrder\` compte ${info.size} entrée(s), l'ordre demandé `
+            + `en a ${ordre.length} — on NE REDIMENSIONNE PAS, on permute` };
+    }
+
+    const avant: number[] = [];
+    try {
+        for (let i = 0; i < info.size; i++) {
+            avant.push(info.array.add(ARRAY_OFF_DATA + i * 4).readS32());
+        }
+    } catch (e) {
+        return { ok: false, error: `lecture de \`TurnOrder\` impossible : ${e}` };
+    }
+    const trie = (a: number[]) => a.slice().sort((x, y) => x - y).join(",");
+    if (trie(avant) !== trie(ordre)) {
+        return { ok: false, error: `REFUS : l'ordre demandé [${ordre.join(",")}] n'est pas une `
+            + `permutation de celui lu [${avant.join(",")}]. Soit un \`playerId\` est inventé, `
+            + `soit la disposition de la liste a changé sur ce build — dans les deux cas on `
+            + `n'écrit RIEN.` };
+    }
+
+    for (let i = 0; i < info.size; i++) {
+        info.array.add(ARRAY_OFF_DATA + i * 4).writeS32(ordre[i] | 0);
+    }
+    const apres: number[] = [];
+    for (let i = 0; i < info.size; i++) {           // ON RELIT, toujours
+        apres.push(info.array.add(ARRAY_OFF_DATA + i * 4).readS32());
+    }
+    return { ok: true, avant, apres, relu: apres.join(",") === ordre.join(",") };
+}
+
 export function ecrireEquipesDesJoueurs(
     bc: NativePointer, mapping: Record<string, number>,
 ): EcritureEquipes {
@@ -1301,6 +1376,20 @@ function applyPatchToConfig(
             }
         } else {
             warnings.push(`playerTeamIds: ${w.error}`);
+        }
+    }
+
+    // L'ordre des tours -- le levier du bouclier d'environnement (cf. `turnOrder` en tête).
+    if (patch.turnOrder !== undefined && patch.turnOrder !== null) {
+        const w = ecrireOrdreDesTours(bc, patch.turnOrder);
+        if (w.ok) {
+            ops.push(`turnOrder [${(w.avant ?? []).join(",")}] -> [${(w.apres ?? []).join(",")}]`);
+            if (w.relu !== true) {
+                warnings.push("turnOrder: RELECTURE DIVERGENTE "
+                    + `(écrit [${patch.turnOrder.join(",")}], relu [${(w.apres ?? []).join(",")}])`);
+            }
+        } else {
+            warnings.push(`turnOrder: ${w.error}`);
         }
     }
 
@@ -1658,25 +1747,45 @@ function spawnPredefinedUnitsInto(
 
 // --- LoadBattle.onLeave hook ---
 //
-// Hooks CampaignGameModeSource.LoadBattle specifically (not all mode sources)
-// and applies the pending patch to the return value. Multiple Interceptor
-// attaches on the same method are safe — mode-source-capture.ts already
-// hooks LoadBattle for capture purposes; we add a side-channel for mutation.
+// Applique le patch en attente à la BC que `LoadBattle` vient de rendre. Plusieurs
+// `Interceptor.attach` sur la même méthode sont sûrs — `mode-source-capture.ts` y est déjà pour
+// la CAPTURE ; on ajoute un canal latéral de MUTATION.
+//
+// ⚠ DEUX SOURCES, ET LA SECONDE EST CE QUI REND LE BANC D'ESSAI POSSIBLE. Le hook ne visait que
+// `CampaignGameModeSource` : chaque hypothèse à tester coûtait donc une VRAIE bataille à
+// l'utilisateur — montée, observée, abandonnée. `SandboxGameModeSource` porte SON PROPRE
+// `LoadBattle` (vérifié dans `frida/methods.tsv` du build, ce n'est pas un héritage supposé), et
+// la sandbox sait RETRAITER (`HandleBattleSurrender`). L'ancrer rend le banc FIDÈLE au sens fort :
+// même patch, même geste, même fenêtre `onLeave` que le live — pas un régime approchant.
+//
+// ⚠ On n'ancre PAS `AGameModeSource.LoadBattle` (la base) : ça couvrirait d'un coup les ~12
+// sources, dont la PvP et la guerre de guilde, qui courent sur le compte RÉEL. La liste est
+// EXPLICITE pour que l'ajout d'un mode soit une décision, jamais un effet de bord.
+const SOURCES_PATCHABLES = ["CampaignGameModeSource", "SandboxGameModeSource"] as const;
 
 function installLoadBattleHook(): void {
-    const klass = findClassAnywhere(
-        "IdunBattle.ViewLogic.BattleSource", "CampaignGameModeSource");
-    if (!klass) {
-        log("[battle-config] CampaignGameModeSource not found — patch hook disabled");
+    const poses: string[] = [];
+    const manquantes: string[] = [];
+    for (const nom of SOURCES_PATCHABLES) {
+        const klass = findClassAnywhere("IdunBattle.ViewLogic.BattleSource", nom);
+        const m = klass ? findMethod(klass, "LoadBattle") : null;
+        if (!m) { manquantes.push(nom); continue; }
+        if (attacherPatchSurLoadBattle(m.ptr, nom)) poses.push(nom);
+    }
+    if (poses.length === 0) {
+        log("[battle-config] AUCUNE source patchable résolue (" + manquantes.join(", ")
+            + ") — patch hook désactivé");
         return;
     }
-    const m = findMethod(klass, "LoadBattle");
-    if (!m) {
-        log("[battle-config] LoadBattle not found — patch hook disabled");
-        return;
-    }
+    log("[battle-config] LoadBattle.onLeave patch hook installé sur : " + poses.join(", ")
+        + (manquantes.length > 0 ? " | NON RÉSOLUES : " + manquantes.join(", ") : ""));
+}
+
+/** Pose le canal de mutation sur UN `LoadBattle`. Rend `false` si l'attache échoue — une source
+ *  manquante n'est pas une panne du patch, seulement un mode qu'on ne peut pas piloter. */
+function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean {
     try {
-        Interceptor.attach(m.ptr, {
+        Interceptor.attach(ptr, {
             onLeave(retval) {
                 if (pendingPatch === null) return;
                 if (retval.isNull()) return;
@@ -1686,8 +1795,11 @@ function installLoadBattleHook(): void {
                 }
                 try {
                     const result = applyPatchToConfig(retval, patch);
+                    // La SOURCE est publiée : sans elle, un `lastApply` ne dit pas si le patch a
+                    // mordu sur la campagne ou sur le banc, et les deux se lisent pareil.
+                    result.operations.unshift(`source=${source}`);
                     lastApply = result;
-                    log(`[battle-config] patch applied: ` +
+                    log(`[battle-config] patch applied (${source}): ` +
                         `${result.operations.join("; ")}` +
                         (result.warnings.length > 0
                             ? ` | warnings: ${result.warnings.join("; ")}`
@@ -1704,9 +1816,10 @@ function installLoadBattleHook(): void {
                 }
             },
         });
-        log("[battle-config] LoadBattle.onLeave patch hook installed");
+        return true;
     } catch (e) {
-        log(`[battle-config] failed to install patch hook: ${(e as Error).message}`);
+        log(`[battle-config] attache sur ${source}.LoadBattle refusée : ${(e as Error).message}`);
+        return false;
     }
 }
 

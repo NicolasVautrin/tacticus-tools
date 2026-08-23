@@ -105,6 +105,15 @@ def main():
                     help="avec `--inverser-equipes` : n'echanger QUE les equipes, pas les "
                          "groupes. Sert a REPRODUIRE l'echec du 2026-08-22 (spawn adverse "
                          "absent), pas a jouer.")
+    ap.add_argument("--ordre-des-tours", default=None, metavar="IDS",
+                    help="reordonne `BC.Player.TurnOrder`, ex. `12,11,13`. PERMUTATION SEULEMENT "
+                         "(le hook refuse toute valeur qui n'est pas un rearrangement de "
+                         "l'existant).")
+    ap.add_argument("--adversaire-ouvre", action="store_true",
+                    help="LE LEVIER DU BOUCLIER : met l'ennemi(12) en tete de TurnOrder. "
+                         "`EnvStartProtection` protege le camp qui N'OUVRE PAS -- par defaut "
+                         "c'est TOI qui ouvres, donc le bouclier va a l'adversaire. Raccourci de "
+                         "`--ordre-des-tours 12,11,13`.")
     a = ap.parse_args()
 
     if not (a.poser or a.retirer or a.etat or a.lister_shield):
@@ -219,14 +228,28 @@ def main():
         patch["playerTeamIds"] = {k: int(v) for k, v in equipes.items()}
     if groupes:
         patch["spawnGroupPlayerIndexes"] = {k: int(v) for k, v in groupes.items()}
+    ordre = None
+    if a.ordre_des_tours:
+        try:
+            ordre = [int(x) for x in a.ordre_des_tours.replace(" ", "").split(",") if x]
+        except ValueError:
+            print("REFUS : --ordre-des-tours attend des entiers separes par des virgules.")
+            return 2
+    elif a.adversaire_ouvre:
+        # PLAYER_ID_AI en tete. On ne touche NI aux equipes NI aux groupes de spawn : le ciblage
+        # d'`EnvStartProtection` est team-agnostique, seul l'ordre compte.
+        ordre = [12, 11, 13]
+    if ordre:
+        patch["turnOrder"] = ordre
     r = j.rpc("setBattleConfigPatch", [patch], 60000) or {}
     if not r.get("ok"):
         print("REFUS : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:400])
         return 1
 
     print()
-    print("patch ARME : %d ability(ies) d'environnement, %d equipe(s) reecrite(s)."
-          % (len(demandes), len(equipes)))
+    print("patch ARME : %d ability(ies) d'environnement, %d equipe(s) reecrite(s)%s."
+          % (len(demandes), len(equipes),
+             (", TurnOrder -> [%s]" % ",".join(str(x) for x in ordre)) if ordre else ""))
     print("Applique au PROCHAIN `LoadBattle`, PAR MUTATION de la BC que la source produit.")
     print("Monter ensuite le noeud, puis `--etat` : `lastApply.operations` dit ce qui a ete")
     print("REELLEMENT installe (`installees`), et `warnings` nomme une absence du CATALOGUE.")

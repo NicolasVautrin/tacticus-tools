@@ -216,6 +216,8 @@ import { registerValidTargetsFrom } from "./probes/valid-targets-from.js";
 // #10046 — meme discipline : le `register` n'arme RIEN, les `Interceptor` ne sont poses que sur
 // `setupSpawnTrace {action:"arm"}`. Il ancre les quatre sorties muettes de la pose des unites.
 import { registerSetupSpawnTrace } from "./probes/setup-spawn-trace.js";
+// #10046 volet BOUCLIER — les quatre etages d'une ability d'environnement. `register` inerte.
+import { registerEnvAbilityTrace } from "./probes/env-ability-trace.js";
 
 
 
@@ -463,6 +465,7 @@ export function wireRpc(ctx: Ctx): void {
     registerPlaybookUtilityTrace(ctx);
     registerValidTargetsFrom(ctx);
     registerSetupSpawnTrace(ctx);
+    registerEnvAbilityTrace(ctx);
 
     rlBridge.register(ctx);
 
