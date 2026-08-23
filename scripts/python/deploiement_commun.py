@@ -33,6 +33,7 @@ sur un plateau plein, et QUATRE rejeux ont laisse l'arrangement du jeu stricteme
 sans une seule erreur. Le journal disait meme << plateau VIDE avant rejeu >>.
 """
 import json
+import atexit
 import subprocess
 import sys
 import time
@@ -51,9 +52,66 @@ def stop(msg, code=2):
     sys.exit(code)
 
 
+# ⚠ LE TEMPS D'UNE PASSE ETAIT MESURE EN UN SEUL BLOC, DONC INATTRIBUABLE.
+# `campagne_rejeu_boucle.py` chronometre le sous-processus ENTIER (crans 0 a 17) : quand une
+# passe est lente, rien ne dit si c'est l'entree, le chargement de scene, le deploiement, le
+# START ou le rejeu des coups. Mesure du 2026-08-23 : les etapes AUTOUR de la passe sont
+# petites -- crans 0-6 en 2,5 s, `netCaptureDump` 0,34 s, `battleStatus` 0,17 s,
+# `ecranGeneration` 0,14 s -- et l'ecran de fin vaut 5,4 a 10+ s. Tout le reste tombait dans un
+# seul nombre.
+#
+# Le chronometre vit ICI parce que `cran()` est le foyer PARTAGE des trois chaines (reelle,
+# sandbox, deploiement) : une horloge par chaine divergerait, et deux d'entre elles n'en
+# auraient jamais eu.
+#
+# Il n'ARBITRE rien et ne peut donc rien casser : il imprime. Le total est rendu par
+# `bilan_des_crans()`, que l'appelant affiche s'il le veut.
+_CHRONO = {"debut": None, "precedent": None, "n": None, "titre": None, "durees": []}
+
+
 def cran(n, titre):
+    t = time.time()
+    p = _CHRONO["precedent"]
+    if p is not None:
+        _CHRONO["durees"].append((_CHRONO["n"], _CHRONO["titre"], t - p))
+    else:
+        _CHRONO["debut"] = t
+    _CHRONO["precedent"], _CHRONO["n"], _CHRONO["titre"] = t, n, titre
     print()
-    print("CRAN %-2s -- %s" % (n, titre))
+    ecoule = "" if _CHRONO["debut"] is None else "   [+%.1f s]" % (t - _CHRONO["debut"])
+    print("CRAN %-2s -- %s%s" % (n, titre, ecoule))
+
+
+def bilan_des_crans(seuil_s=1.0):
+    """Les crans TRIES par duree, le plus lent d'abord. `[]` = aucun cran chronometre.
+
+    Le dernier cran n'a pas de duree (rien ne le suit) : on le DIT au lieu de lui en inventer
+    une -- un cran final compte comme 0 s se lirait comme instantane."""
+    if _CHRONO["precedent"] is None:
+        return []
+    fin = time.time()
+    lignes = list(_CHRONO["durees"])
+    lignes.append((_CHRONO["n"], _CHRONO["titre"] + " (dernier -- jusqu'a la sortie)",
+                   fin - _CHRONO["precedent"]))
+    return [(n, t, d) for n, t, d in sorted(lignes, key=lambda x: -x[2]) if d >= seuil_s]
+
+
+def imprimer_bilan_des_crans(seuil_s=1.0):
+    lignes = bilan_des_crans(seuil_s)
+    if not lignes:
+        return
+    total = time.time() - (_CHRONO["debut"] or time.time())
+    print()
+    print("--- OU EST PASSE LE TEMPS (%.1f s au total ; crans >= %.1f s) ---" % (total, seuil_s))
+    for n, titre, d in lignes:
+        print("   %5.1f s  cran %-2s  %s" % (d, n, titre[:78]))
+
+
+# ⚠ SUR `atexit`, ET PAS AU POINT DE SORTIE NOMINAL. `stop()` fait `sys.exit`, et une passe qui
+# REFUSE est justement celle dont on veut savoir ce qui a ete lent -- un bilan branche sur la
+# seule fin heureuse ne serait jamais la quand il sert. `bilan_des_crans` rend `[]` tant qu'aucun
+# cran n'a tourne, donc les modules qui importent ce foyer sans jouer de cran n'impriment rien.
+atexit.register(imprimer_bilan_des_crans)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
