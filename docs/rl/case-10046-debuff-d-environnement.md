@@ -184,11 +184,57 @@ d'affichage, pas une mécanique de combat.
 ⚠ Corollaire de méthode : « l'effet est ACTIF sur la bonne cible » ne dit rien de « l'effet FAIT
 quelque chose ». Il a fallu le diff de stats **et** le décompilé du ctor pour le trancher.
 
+## 5bis. VISER L'ADVERSAIRE : il faut la chaîne EXACTE, et il n'y a PAS de wildcard
+
+Le suffixe d'un `unitId` **doit être scindé** : `UnitConfigId$$op_Implicit(string)` délègue à
+`CreateFromString`, qui coupe sur le `:` — `tyranNpc3Termagant:6` devient
+`{PureId: "tyranNpc3Termagant", Level: 6}`. Écrire `PureId: "tyranNpc3Termagant:6"` tel quel
+n'apparie **rien**, et c'est **silencieux** : l'installation reste `ok`, `EnhancementAbilities`
+compte 1, l'effet ne se pose pas. Toute unité de **vague** est dans ce cas — donc précisément
+l'adversaire. Corrigé côté hook (mirror 1:1 dans `environment-abilities.ts`) ; les quatre branches
+sont `:<entier>` → Level, `:<Rarity>` → Rarity, `:borrowed`, `:pvp`, et suffixe inconnu →
+`PureId` = la partie **avant** le `:`.
+
+**Un `*` ne peut pas marcher**, sur les deux consommateurs de `Targets` :
+
+| consommateur | appariement |
+|---|---|
+| `EnhancementTargetSelector$$Select` | balayage + `UnitConfigId$$op_Equality` → `String.op_Equality` |
+| `EnhancementStackForTargetFormula$$Calculate` | `Dictionary<UnitConfigId,int>.get_Item` — **hachage** |
+
+Le second est structurel : un dictionnaire ne fait pas de motif. Et la donnée corrobore — **0**
+unitId et **0** constante contenant `*` dans le seed BC.
+
+⇒ La réponse est l'**énumération**, et elle est outillée :
+`python scripts/python/bc_apparitions.py --bc <BC> --camp 12 --cibles`.
+
+⚠ Et l'énumération à la main RATE : sur la BC Waves du banc, viser les seuls termagants laissait
+passer `tyranNpc4Warrior:6` (vagues 6, 8) et `tyranNpc6SporeMine:6` (vague 5).
+
+⚠ **`PlayerId` n'est PAS le levier de ciblage** — lu au décompilé sur
+`AddEnvironmentAbilityOperation$$Execute` : il fixe le **propriétaire** de l'entité
+d'environnement (défaut **câblé** au joueur 2), pas qui est affecté. Atteste par la mesure :
+l'effet s'est posé sur une unité du joueur 11 avec un propriétaire joueur 2.
+
+⚠ **Le ciblage « tout un camp » existe, mais dans l'AUTRE liste** — celle dont le ciblage est
+écrit dans le `CreateTrigger`. Deux candidats **écartés par mesure** : `EnvAttemptDebuff` cible
+juste et ne fait rien (§5), et `EnvStrategicBuff` (`dmgPct`) cible
+`Filter(unités, IsHumanPlayer(OriginalOwner))` — le camp du **joueur humain** — avec une ampleur
+indexée sur `NumControlledTerritory`. Aucun debuff d'adversaire team-scopé n'est établi à ce jour ;
+`EnvThinVeil` et `EnvDespoiledGroundTileDamage` restent **non lus**.
+
 ## 6. Résidus
 
-- `PlayerId` de `EnvironmentAbilityConfiguration` n'est écrit par personne côté hook
-  (`environment-abilities.ts`, `ajouterAbility` ne pose que `ConfigId` et `Level`). On ne sait pas
-  ce qu'il change — non mesuré.
+- `PlayerId` de `EnvironmentAbilityConfiguration` : **tranché** (cf. §5bis) — il fixe le
+  propriétaire de l'entité, pas la cible. Ce qui reste ouvert : ce que ce propriétaire CHANGE pour
+  une ability dont l'arbre cible relativement au caster.
+- Le `:6` d'un identifiant est un **niveau** (`Int32.TryParse` → `UnitConfigId..ctor(pureId,
+  level)`), pas un ordre de spawn — les 20 termagants d'une vague le portent tous. Mais la
+  `UnitConfiguration` résolue de `tyranNpc3Termagant:6` porte `Level: 8`. **Ce qui fait 6 → 8
+  n'est pas établi.**
+- `bc_apparitions.py` sort les summons en **CANDIDATS** : la BC ne distingue pas un spawn d'une
+  liste blanche (mesuré — `HailOfLivingAmmunition.unitIds` est un filtre), seul l'arbre DSL
+  (`SpawnUnitBehaviour`) tranche. Le recoupement au décompilé reste à faire.
 - ~~La voie LIVE reste sans levier~~ — **LIVRÉE le 2026-08-23** (`environmentAbilityConfigs` +
   `environmentEnhancements`), validée sur BC vivante : `catalogue 166 -> 167` et
   `installées={"Abilities":1,"EnhancementAbilities":1}`. Deux crans appris en route, et le
