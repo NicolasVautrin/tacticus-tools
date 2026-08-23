@@ -13,8 +13,24 @@ python scripts/python/expedition_run.py --envoyer    # plan PUIS envoi
 ```
 
 Toujours jouer la forme **sans `--envoyer` d'abord** : elle montre le plan et les motifs de
-refus sans immobiliser personne. Un envoi bloque les unités pour la durée de l'opération
-(10 h sur le plateau du 2026-08-11).
+refus sans engager personne.
+
+## Ce qu'un envoi immobilise — ET SEULEMENT ÇA
+
+**Une unité partie en opération ne peut pas être envoyée sur une SECONDE opération**, pour la
+durée de celle-ci (10 h sur le plateau du 2026-08-11). C'est tout.
+
+⛔ **Elle reste parfaitement disponible pour les BATAILLES** — campagne, farm, PvP, guerre de
+guilde. L'immobilisation ne porte que sur l'axe expédition.
+
+⚠ Ce paragraphe existe parce que la phrase d'avant écrivait « un envoi **bloque les unités** »
+**sans dire pour quoi**. Lue comme un verrou global le 2026-08-23, elle a fait écarter deux nœuds
+de farm parfaitement jouables (`elite1 35` et `elite2 7`, 52 points d'utilité) au motif que leurs
+poseurs venaient de partir en opération. Le compte des unités « bloquées » était juste ; la portée
+était inventée. **Une contrainte s'écrit toujours avec son axe.**
+
+Le retrait que fait le code (`ES.deja_parties`, champ `units` du plateau) sert donc à UNE chose :
+ne pas proposer deux fois la même unité au solveur d'expéditions. Ne pas en déduire autre chose.
 
 ## Les quatre pièges, tous vécus le 2026-08-11
 

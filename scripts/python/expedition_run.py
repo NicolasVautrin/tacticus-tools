@@ -205,9 +205,15 @@ def main(argv=None) -> int:
 
     # GARDE ANTI-DOUBLE-ENVOI, DEUX VOLETS -- et le second a ete oublie une fois.
     #   a) une operation deja partie sort du perimetre ;
-    #   b) ses unites sont IMMOBILISEES et doivent quitter le roster. Sans (b) le plan
-    #      proposait `adeptCanoness`, `admecMarshall`, `admecRuststalker` alors qu'elles
-    #      etaient en expedition -- injouable, et rien ne le disait.
+    #   b) ses unites quittent le roster SOUMIS AU SOLVEUR. Sans (b) le plan proposait
+    #      `adeptCanoness`, `admecMarshall`, `admecRuststalker` pour une SECONDE operation
+    #      alors qu'elles etaient deja parties -- refuse par le jeu, et rien ne le disait.
+    #
+    # ⛔ LA PORTEE EST L'AXE EXPEDITION, ET RIEN D'AUTRE. Une unite partie reste PARFAITEMENT
+    # DISPONIBLE POUR LES BATAILLES (campagne, farm, PvP, guerre de guilde) : le seul interdit
+    # est de l'envoyer sur une DEUXIEME operation. Le mot << immobilisee >> employe ici a ete
+    # lu comme un verrou global le 2026-08-23, ce qui a fait ecarter deux noeuds de farm
+    # parfaitement jouables (52 points d'utilite). Le compte etait juste, la portee inventee.
     # Le champ est `units` (mesure) : `dispatchedUnits` existe mais vaut `null`.
     libres, immobilisees = ES.deja_parties(board)
     tout_le_roster = list(possedes)      # AVANT retrait des immobilisees -- sert a ventiler
