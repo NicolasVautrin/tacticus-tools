@@ -209,6 +209,16 @@ export function sortieJoignable(): boolean {
     return mainViewCourante() !== null;
 }
 
+/** L'`IdunMainView` VIVANTE, pour les lecteurs qui ont besoin de la bataille RÉELLEMENT à l'écran.
+ *
+ *  ⚠ EXPOSÉE PLUTÔT QUE RECOPIÉE. `resoudreParEnumeration` porte trois crans qu'une quatrième
+ *  copie n'aurait pas : la surcharge à 3 arguments (celle à 2 EXCLUT les inactifs et rendait
+ *  0 instance), l'épinglage, et surtout `encoreVivant` — car après une amorce le pointeur épinglé
+ *  survit alors que `FindObjectsByType` rend 0 instance, et l'inverse arrive aussi. */
+export function vueVivanteCourante(): NativePointer | null {
+    return mainViewCourante();
+}
+
 function nomClasseDe(obj: NativePointer): string | null {
     try {
         if (obj.isNull()) return null;

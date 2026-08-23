@@ -105,7 +105,9 @@ def main():
     multi = {p: v for p, v in pur.items() if len(v) > 1}
     if multi:
         print()
-        print("⚠ MEME PureId A PLUSIEURS NIVEAUX -- chacun est une CLE DISTINCTE :")
+        # ASCII SEUL : la console Windows est en cp1252, un `print` non-ASCII leve
+        # `UnicodeEncodeError` et fait passer un recensement JUSTE pour un script casse.
+        print("(!) MEME PureId A PLUSIEURS NIVEAUX -- chacun est une CLE DISTINCTE :")
         for p, v in sorted(multi.items()):
             print("   %-28s %s" % (p, ", ".join(sorted(v))))
     print()

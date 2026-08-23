@@ -75,7 +75,7 @@ import {
     getFieldInfo, field_get_type, type_get_class_or_element_class, class_instance_size,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
-import { bcDeLaSourceMontee, sourceMontee } from "./source-vivante.js";
+import { bcDeLaSourceMontee, bcDeLaVueVivante, sourceMontee } from "./source-vivante.js";
 // (!)FORME B. Le FOYER du réceptacle `EnvironmentAbilities` -- même objet que celui que posent
 // `guild-war-config` (buffs de zone) et `sandbox-mode` (pression de fin d'Arène). Son ctor natif
 // ne crée AUCUN de ses trois membres : une troisième copie du geste aurait divergé, et ce sont
@@ -241,6 +241,15 @@ export function getLiveBattleConfig(): NativePointer | null {
     // mutation appliquée dessus rend `relu: true` sans avoir le moindre effet. Le type-guard
     // ci-dessous ne peut rien contre ça : l'objet EST une `BattleConfiguration` valide, elle
     // n'est simplement plus celle qu'on joue. Seule la source montée le sait.
+    // ⚠ LA VUE VIVANTE PASSE AVANT LA SOURCE MÉMORISÉE, ET C'EST LE MÊME CORRECTIF POUSSÉ D'UN
+    // CRAN. `bcDeLaSourceMontee` se SOUVIENT de ce que NOUS avons monté ; elle est donc muette sur
+    // une bataille RÉELLE, et carrément trompeuse sur une bataille ouverte avant nous — le
+    // souvenir d'hier a l'air aussi vivant que la vérité d'aujourd'hui. Mesuré le 2026-08-23 :
+    // onslaught réel en déploiement, ce chemin rendait la BC du banc de la veille (détail et
+    // pointeurs dans `bcDeLaVueVivante`). La DÉCOUVERTE, elle, ne peut pas se périmer.
+    const bcVue = bcDeLaVueVivante();
+    if (bcVue !== null && isBattleConfig(bcVue)) return bcVue;
+
     const bcMontee = bcDeLaSourceMontee();
     if (bcMontee !== null && isBattleConfig(bcMontee)) return bcMontee;
 
@@ -577,32 +586,12 @@ interface BattleConfigPatch {
      *  ⚠ Une ability gardée par `IsEnhancementTarget` sans `cibles` ne tire JAMAIS -- le retour
      *  le DIT (`note`) plutôt que de le laisser deviner. */
     environmentEnhancements?: Array<envAbilities.SpecEnhancement>;
-    /** VIDER `BC.PredefinedUnits` — le plateau part VIDE, le CATALOGUE reste INTACT.
-     *
-     *  ⚠ POURQUOI CES DEUX CHAMPS DOIVENT ÊTRE SÉPARÉS, ET POURQUOI LE CTOR NE LE PERMET PAS.
-     *  Mesuré le 2026-08-23 sur un onslaught Chaos monté en sandbox : c'est `BC.Units` (le
-     *  CATALOGUE) qui pilote `IdunBattle.View.Game.UnitIdToPrefabDictionary$$Add` — 73 entrées
-     *  du dictionnaire, 73/73 présentes au catalogue, 0 en dehors, et `PredefinedUnits` n'y est
-     *  pour RIEN (les summons, jamais posés, y sont). Or sans prefab, le HUD de déploiement ne
-     *  peut afficher AUCUN placeholder : `UnitIdToPrefabDictionary$$Get` rend NUL sur clé absente
-     *  et ne charge JAMAIS à la demande — le loader vit DANS l'entrée (`+0x18`), pas sur le
-     *  dictionnaire.
-     *
-     *  Côté ctor sandbox, les deux paramètres (`startUnits`, `allUnits`) remplissent l'UN ET
-     *  L'AUTRE : mesuré sur les 4 combinaisons, n'importe lequel non vide pose TOUT, et les deux
-     *  vides laissent le catalogue sans les unités. Il n'existe donc AUCUN état « disponible mais
-     *  non déployée » à la construction.
-     *
-     *  ⇒ On donne le roster au ctor (pour les prefabs) et on vide la pose ICI. Le HUD possède
-     *  alors tout ce qu'il pose, donc il peut le retirer — sans `RemoveUnitMessage` sur une
-     *  bataille vivante, geste qui a déjà coûté une suppression de module (`deploymentRemplacer`,
-     *  « une seconde comptabilité ») et, le 2026-08-23, un crash du jeu dans ce régime exact
-     *  (HUD à 2, runner à 5).
-     *
-     *  On écrit `_size = 0` : c'est ce que fait `List<T>.Clear()` pour la lecture, et le natif ne
-     *  parcourt que jusqu'à `Count`. Le tableau de fond n'est pas touché — donc rien à
-     *  désallouer, et la mutation est IDEMPOTENTE. */
-    viderPredefinedUnits?: boolean;
+    // ⛔ `viderPredefinedUnits` A ÉTÉ RETIRÉ (2026-08-23) — voir le pavé au site d'application,
+    // dans `applyPatchToConfig`. En deux lignes : il vidait `BC.PredefinedUnits` pour rattraper une
+    // BC fabriquée par le ctor sandbox, qui confond catalogue et pose. Sur une BC montée par sa
+    // SOURCE — la forme que le jeu produit vraiment — `PredefinedUnits` porte l'ADVERSAIRE, et le
+    // vider effacerait l'ennemi. Le besoin disparaît avec le ctor, pas avec l'outil.
+
     // ⛔ `playerTeamIds` ET `spawnGroupPlayerIndexes` ONT ÉTÉ RETIRÉS (2026-08-23), 327 lignes.
     //
     // Ils réécrivaient `BC.Player.Players[].TeamId` (par parcours du dictionnaire ET de l'arbre
@@ -656,6 +645,9 @@ interface PatchApplyResult {
 
 let pendingPatch: BattleConfigPatch | null = null;
 let lastApply: PatchApplyResult | null = null;
+/** Les sources dont le `LoadBattle` est RÉELLEMENT ancré. `null` = pose pas encore tentée --
+ *  jamais à lire comme « aucune ». */
+let sourcesAncrees: { posees: string[]; nonResolues: string[] } | null = null;
 
 // Extra UnitConfiguration offsets used only by patch (read-only ones are
 // already declared above for inspectBattleConfig).
@@ -1276,45 +1268,23 @@ function applyPatchToConfig(
         }
     }
 
-    // VIDER LA POSE, GARDER LE CATALOGUE. Cf. le pavé sur `viderPredefinedUnits`.
-    if (patch.viderPredefinedUnits === true) {
-        try {
-            const lp = bc.add(BC_OFF_PREDEFINED_UNITS).readPointer();
-            if (lp.isNull()) {
-                // TRI-ÉTAT : on DIT qu'on n'a rien trouvé, on ne le compte pas comme un succès.
-                warnings.push("viderPredefinedUnits: `BC.PredefinedUnits` est NUL -- rien vidé, "
-                    + "et ce n'est PAS « déjà vide »");
-            } else {
-                const avant = readManagedList(lp);
-                if (avant === null) {
-                    warnings.push("viderPredefinedUnits: liste ILLISIBLE (forme inattendue) -- "
-                        + "RIEN écrit plutôt qu'un `_size` posé à l'aveugle");
-                } else {
-                    // Le compte AVANT est publié avec le compte APRÈS : sans lui, un `0` ne
-                    // distingue pas « vidé » de « c'était déjà vide », et les deux appellent des
-                    // enquêtes opposées quand l'écran reste peuplé.
-                    let unites = 0;
-                    for (let i = 0; i < avant.size; i++) {
-                        const grp = readListItem(avant, i);
-                        if (grp.isNull()) continue;
-                        const ul = readManagedList(grp.add(PU_OFF_UNITS).readPointer());
-                        unites += ul?.size ?? 0;
-                    }
-                    lp.add(LIST_OFF_SIZE).writeS32(0);
-                    const apres = readManagedList(lp);
-                    ops.push(`viderPredefinedUnits ${avant.size} groupe(s) / ${unites} unite(s) `
-                        + `-> ${apres === null ? "RELECTURE ÉCHOUÉE" : apres.size} groupe(s) `
-                        + "(catalogue `BC.Units` INTACT)");
-                    if (apres !== null && apres.size !== 0) {
-                        warnings.push(`viderPredefinedUnits: relu à ${apres.size}, pas 0 -- `
-                            + "l'écriture N'A PAS PRIS");
-                    }
-                }
-            }
-        } catch (e) {
-            warnings.push("viderPredefinedUnits: " + (e as Error).message);
-        }
-    }
+    // ⛔ `viderPredefinedUnits` RETIRÉ (2026-08-23) -- ET CE N'ÉTAIT PAS UN OUTIL, C'ÉTAIT UNE
+    // RUSTINE SUR UNE BC MAL FORMÉE.
+    //
+    // Il vidait `BC.PredefinedUnits` pour rendre utilisable la phase de déploiement d'un banc
+    // sandbox. Le besoin venait entièrement de `SandboxWavesBattleConfig`, dont le ctor CONFOND
+    // catalogue et pose : mesuré sur les 4 combinaisons de `startUnits`/`allUnits`, aucune ne rend
+    // « catalogué mais pas posé » -- l'état qu'EST une phase de déploiement.
+    //
+    // Or la forme que le jeu produit vraiment est tout autre, et elle est mesurée sur 6 replays
+    // RÉELS : `PredefinedUnits` porte l'ADVERSAIRE (que des `*Npc*`), et les unités du joueur
+    // entrent par des `AddUnitMessage` (`player=11`) émis avant le `StartBattleMessage`, depuis
+    // les placeholders du déploiement (`idun.IdunMainView$$AddUnitsFromPlaceholdersAndRunnerStartMatch`).
+    // Sur une telle BC, vider `PredefinedUnits` EFFACERAIT L'ENNEMI.
+    //
+    // Laisser la SOURCE monter sa BC supprime le problème à la racine : plus de catalogue
+    // incomplet, donc plus rien à rattraper. Le seul appelant (`sandbox_onslaught.py`) est retiré
+    // avec lui.
 
     // ⚠ LE CATALOGUE D'ABORD, ET L'ORDRE N'EST PAS COSMÉTIQUE. Une ability installée sans sa
     // définition fait LEVER son premier `GetNumberConstant` ; poser la config APRÈS l'installation
@@ -1734,17 +1704,46 @@ function spawnPredefinedUnitsInto(
 // ⚠ On n'ancre PAS `AGameModeSource.LoadBattle` (la base) : ça couvrirait d'un coup les ~12
 // sources, dont la PvP et la guerre de guilde, qui courent sur le compte RÉEL. La liste est
 // EXPLICITE pour que l'ajout d'un mode soit une décision, jamais un effet de bord.
-const SOURCES_PATCHABLES = ["CampaignGameModeSource", "SandboxGameModeSource"] as const;
+//
+// ⚠ ET LE NAMESPACE FAIT PARTIE DE L'ENTRÉE. Les deux premières vivent dans
+// `IdunBattle.ViewLogic.BattleSource`, comme 23 des sources de mode ; l'onslaught, NON — il est
+// rangé sous `idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle`. Une liste de simples noms
+// résolus dans le namespace des autres ne pouvait donc pas l'atteindre, et le disait seulement
+// dans un `log` (« NON RÉSOLUES »), que personne ne lit au moment d'armer un patch.
+//
+// ⚠ L'ONSLAUGHT COURT SUR LE COMPTE RÉEL, ET C'EST UNE DÉCISION, PAS UN OUBLI RÉPARÉ. Ajouté le
+// 2026-08-23 à la demande explicite de l'utilisateur, pour pouvoir débuffer un onslaught qu'il
+// joue. Il reste du PvE solo — contrairement à la PvP et à la guerre de guilde, qui restent hors
+// de cette liste et doivent y rester : ce qu'on y écrirait toucherait d'autres joueurs.
+//
+// ⚠ POURQUOI CE CANAL EST LE SEUL QUI MORDE, MESURÉ LE 2026-08-23. Muter la BC APRÈS coup ne fait
+// RIEN : le runner lit `BC.EnvironmentAbilities` à son `Initialize`, et plus personne ne relit la
+// BC ensuite. Sur un onslaught réel en déploiement, `applyBattleConfigPatchNow` a écrit au BON
+// pointeur (`installées: {EnhancementAbilities: 1}`) et `EnhancementDamageBoost` était ABSENT des
+// 404 effets portés en jeu. La fenêtre est `LoadBattle.onLeave` — entre la BC produite et le
+// runner qui la consomme — ou rien.
+const SOURCES_PATCHABLES: ReadonlyArray<{ ns: string; cls: string }> = [
+    { ns: "IdunBattle.ViewLogic.BattleSource", cls: "CampaignGameModeSource" },
+    { ns: "IdunBattle.ViewLogic.BattleSource", cls: "SandboxGameModeSource" },
+    { ns: "idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle",
+      cls: "OnslaughtGameModeSource" },
+];
 
 function installLoadBattleHook(): void {
     const poses: string[] = [];
     const manquantes: string[] = [];
-    for (const nom of SOURCES_PATCHABLES) {
-        const klass = findClassAnywhere("IdunBattle.ViewLogic.BattleSource", nom);
+    for (const { ns, cls } of SOURCES_PATCHABLES) {
+        const klass = findClassAnywhere(ns, cls);
         const m = klass ? findMethod(klass, "LoadBattle") : null;
-        if (!m) { manquantes.push(nom); continue; }
-        if (attacherPatchSurLoadBattle(m.ptr, nom)) poses.push(nom);
+        if (!m) { manquantes.push(cls); continue; }
+        if (attacherPatchSurLoadBattle(m.ptr, cls)) poses.push(cls);
     }
+    // ⚠ PUBLIÉ, PAS SEULEMENT LOGGÉ. C'est le cran qui manquait le 2026-08-23 : le hook n'était
+    // posé que sur la campagne et le banc, l'onslaught n'était donc PATCHABLE PAR RIEN, et le seul
+    // endroit qui le disait était cette ligne de `log`. Résultat : un patch armé, un `pending`
+    // parfaitement visible, et une certitude fausse que « ça mordra au prochain load ». Un
+    // armement doit pouvoir se confronter à la liste des sources RÉELLEMENT ancrées.
+    sourcesAncrees = { posees: poses.slice(), nonResolues: manquantes.slice() };
     if (poses.length === 0) {
         log("[battle-config] AUCUNE source patchable résolue (" + manquantes.join(", ")
             + ") — patch hook désactivé");
@@ -1878,6 +1877,10 @@ export function register(ctx: Ctx): void {
         ok: true,
         pending: pendingPatch,
         lastApply,
+        // `sourcesAncrees.posees` dit sur QUELS modes un `pending` peut mordre. Un patch armé pour
+        // un mode absent de cette liste n'a AUCUNE chance de s'appliquer -- et rien d'autre ne le
+        // signale. `null` = pose pas encore tentée, ce n'est PAS « aucune ».
+        sourcesAncrees,
     });
 
     /** Apply a patch DIRECTLY to the live BattleConfiguration (no LoadBattle

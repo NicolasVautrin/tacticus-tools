@@ -104,14 +104,12 @@ def main():
                          "'EnhancementDamageBoost=extraDmgPct:-100' qui met les degats de la "
                          "cible a ZERO. Rien a voir avec `env.AbilitiesConfigurations`, dont la "
                          "cle est un TYPE VALEUR et dont l'insertion a la main crashe le jeu.")
-    ap.add_argument("--vider-pose", dest="vider_pose", action="store_true",
-                    help="VIDER `BC.PredefinedUnits` : le plateau part VIDE, le CATALOGUE "
-                         "`BC.Units` reste INTACT. C'est ce qui rend la phase de deploiement "
-                         "utilisable en sandbox -- on donne le roster au ctor pour que ses "
-                         "unites aient un PREFAB (mesure : 73/73 des entrees du dictionnaire "
-                         "viennent du catalogue), et on retire la pose ici. Le HUD possede "
-                         "alors tout ce qu'il pose, donc il peut le retirer, sans aucun "
-                         "`RemoveUnitMessage` sur une bataille vivante.")
+    # ⛔ `--vider-pose` RETIRE (2026-08-23), avec le champ `viderPredefinedUnits` du hook et son
+    # unique appelant `sandbox_onslaught.py`. Il vidait `BC.PredefinedUnits` pour rattraper une BC
+    # fabriquee par `SandboxWavesBattleConfig`, dont le ctor confond catalogue et pose. Sur une BC
+    # montee par sa SOURCE -- la forme que le jeu produit vraiment, mesuree sur 6 replays reels --
+    # `PredefinedUnits` porte l'ADVERSAIRE et les unites du joueur entrent par `AddUnitMessage` :
+    # le vider y effacerait l'ennemi. On laisse la source monter sa BC, le besoin disparait.
     ap.add_argument("--enhancement", action="append", default=[], metavar="SPEC",
                     help="Installe un ENHANCEMENT -- la SECONDE liste du receptacle, la SEULE "
                          "qui cible par unite NOMMEE : "
@@ -186,9 +184,9 @@ def main():
         print("patch RETIRE : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:200])
         return 0 if r.get("ok") else 1
 
-    if not a.ability and not a.config_ability and not a.enhancement and not a.vider_pose:
-        print("REFUS : `--poser` sans `--ability`, `--config-ability`, `--enhancement`"
-              " ni `--vider-pose`. Rien a faire.")
+    if not a.ability and not a.config_ability and not a.enhancement:
+        print("REFUS : `--poser` sans `--ability`, `--config-ability` ni `--enhancement`."
+              " Rien a faire.")
         return 2
 
     demandes = []
@@ -300,8 +298,6 @@ def main():
             print("          UnitTrait.Hero), mais la famille EnhancementAddTrait ne tirera PAS.")
 
     patch = {"consumeOnce": False}
-    if a.vider_pose:
-        patch["viderPredefinedUnits"] = True
     if configs:
         patch["environmentAbilityConfigs"] = configs
     if enhancements:
