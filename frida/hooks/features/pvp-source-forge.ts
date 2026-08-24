@@ -58,6 +58,7 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant } from "./view-command.js";
 import { declarerSourceDeChargement } from "./battle-config.js";
+import { lineupDeLaSource } from "../game/source-lineup.js";
 import { propositionsChargees } from "./pvp-opponents.js";
 import { champInt, champPointeur, champTexte, estRefus, refus } from "./lecture-champs.js";
 import { Ctx } from "../controller.js";
@@ -344,6 +345,21 @@ export function register(ctx: Ctx): void {
         resume.srcPtr = src.toString();
         resume.bcPtr = bc.toString();
         resume.mowResolue = !mow.isNull();
+        // LA COMPOSITION DU JOUEUR, DEMANDEE A LA SOURCE -- elle n'est PAS dans la BC, qui ne
+        // porte que l'adversaire. C'est ce que `ciblesAuto: "moi"` visera, et c'est aussi ce
+        // qu'un pilote doit PRE-POSER a l'ecran de deploiement : sans elle il ne peut que
+        // demander au lecteur de nommer ses unites a la main.
+        //
+        // ⚠ EN PvP CETTE VOIE REPOND, et c'est ce qui distingue ce mode de l'evenement Machines
+        // of War : la-bas `GetBattleLineup` lit l'etat de RUN et rend `[]` tant qu'aucun run
+        // n'est demarre, donc le ciblage retombe TOUJOURS sur le POOL (`voie=deployables`). Ici
+        // on obtient la lineup REELLE, MoW comprise -- deux chemins distincts, et le second
+        // n'avait jamais ete confronte.
+        const lu = lineupDeLaSource(src);
+        resume.lineup = {
+            classe: lu.classe, places: lu.places, unites: lu.unites, mow: lu.mow,
+            voie: lu.voie, refus: lu.refus,
+        };
         resume.note = "BC construite par la SOURCE. Aucune tentative enregistree : "
             + "`SendLoadBattleGameEventInternal` (qui appelle `GenerateNewBattleId`) n'a pas ete "
             + "appelee.";

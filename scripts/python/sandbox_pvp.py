@@ -197,9 +197,34 @@ def main(argv=None):
             print("  patch /!\\ %s" % w[:190])
 
     # 6. OU MA LINEUP SE POSERA -- derive AVANT le montage, pour refuser tot.
-    poses = []
+    #
+    # (!)PAR DEFAUT, C'EST LA LINEUP QUE LA SOURCE ANNONCE. La sandbox fabrique la phase de
+    # deploiement (`forcer`), donc rien ne la pre-remplit comme le ferait le jeu : sans ce
+    # defaut, l'ecran sort VIDE et il n'y a rien a buffer -- le debuff adverse mord (l'adversaire
+    # est dans `PredefinedUnits`, donc present des le Setup) et le buff ne mord sur RIEN, ce qui
+    # se lit a tort comme un ciblage casse.
+    #
+    # ⚠ LA MoW EST ECARTEE DE CE DEFAUT, et c'est dit : elle ne se pose pas par case (pas de
+    # colonne/ligne) mais par PLATEFORME, via `deploymentMoWPoser`. La poser demande de deriver
+    # sa plateforme du `SpawnPointGroup`, ce que ce pilote ne fait pas encore.
+    ids = []
     if a.mes_unites:
         ids = [u.strip() for u in a.mes_unites.split(",") if u.strip()]
+    else:
+        lu = d.get("lineup") or {}
+        ids = list(lu.get("unites") or [])
+        if ids:
+            print("  %-28s %d unite(s) de la SOURCE (voie=%s)%s"
+                  % ("lineup par defaut", len(ids), lu.get("voie"),
+                     "  -- MoW %s NON POSEE (voie plateforme)" % lu.get("mow")
+                     if lu.get("mow") else ""))
+        else:
+            print("  %-28s la source n'annonce AUCUNE unite (%s) -- l'ecran sortira VIDE, "
+                  "et rien ne sera buffe. `--mes-unites a,b,c` pour en poser."
+                  % ("lineup par defaut", lu.get("refus") or lu.get("voie")))
+
+    poses = []
+    if ids:
         moi, tuiles, diag = cases_de_spawn_du_joueur(json.loads(bc))
         print("  %-28s %s" % ("cases de spawn", diag))
         if moi is None:
