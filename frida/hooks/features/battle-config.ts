@@ -1483,17 +1483,28 @@ export function ecrireAbilitesEnvironnement(
             if (p.isNull()) return null;
             // Type-garde : on n'ajoute pas dans un objet dont on ne sait pas ce qu'il est.
             const n = cstr(class_get_name(p.readPointer()) as NativePointer);
-            return n === "EnvironmentAbilities" ? p : null;
+            // ⛔ CE GARDE N'ACCEPTAIT QU'UNE CLASSE, ET C'EST CE QUI A FAIT ECRIRE DANS LE VIDE.
+            // Deux receptacles coexistent -- `EnvironmentAbilities` (celui qu'on fabrique) et
+            // `EnvironmentAbilitiesConfiguration` (celui que la BC porte nativement, notamment
+            // sur l'evenement Machines of War). Comparer a un NOM EN DUR faisait juger le second
+            // « d'un autre type », donc REMPLACER le receptacle du mode par le notre : le moteur
+            // ne lisait plus jamais ce qu'on y mettait, l'installation rendait `ok` / `relu=true`,
+            // et il ne se creait AUCUNE entite (mesure A/B du 2026-08-24 : 44 effets / 145
+            // entites, a l'identique, avec ou sans patch, des deux cotes).
+            // On patche desormais CELUI QUI EST LA -- le foyer sait nommer les membres des deux.
+            return envAbilities.estUnReceptacle(n) ? p : null;
         } catch { return null; }
     })();
     if (existant !== null) {
         env = existant;
-        voie = "FUSION dans le réceptacle posé par la progression";
+        let classe = "?";
+        try { classe = cstr(class_get_name(env.readPointer()) as NativePointer); } catch { /* noop */ }
+        voie = `FUSION dans le réceptacle DÉJÀ POSÉ (\`${classe}\`)`;
     } else {
         const envR = envAbilities.creerReceptacle();
         if (estRefus(envR)) return { ok: false, error: (envR as { error: string }).error };
         env = envR as NativePointer;
-        voie = "réceptacle NEUF (le champ était nul ou d'un autre type)";
+        voie = "réceptacle NEUF (le champ était nul ou d'une classe INCONNUE de ce foyer)";
     }
 
     const tailleCatalogue = catalogueTaille(bc);
@@ -1764,10 +1775,15 @@ function applyPatchToConfig(
         const w = ecrireAbilitesEnvironnement(bc, demandesEnv, demandesEnh);
         if (w.ok) {
             const inst = JSON.stringify(w.installees);
+            // ⚠ `voie` EST PUBLIEE, et elle ne l'etait PAS. Elle dit si on a FUSIONNE dans le
+            // receptacle du mode ou POSE le notre par-dessus -- exactement la distinction qui
+            // separe « le moteur lira » de « le moteur ne lira jamais ». Elle etait calculee,
+            // rendue par `ecrireAbilitesEnvironnement`, et jetee ici : le diagnostic du
+            // 2026-08-24 a coute plusieurs heures faute de cette seule ligne.
             ops.push(`environmentAbilities=${demandesEnv.length} + enhancements=`
                 + `${demandesEnh.length} demandée(s) `
                 + `@${w.offset} (${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu}) `
-                + `installées=${inst}`);
+                + `voie=${w.voie} installées=${inst}`);
             // L'absence au catalogue ne fait PAS échouer l'écriture -- elle est ANNONCÉE, parce
             // que c'est une cause qui, sinon, n'émet aucune trace.
             for (const d of w.detail ?? []) {

@@ -27,7 +27,9 @@
 // existe pour ca : elle laisse le NATIF faire l'insertion.
 
 import { dumpEnum } from "../il2cpp/enum-dump.js";
-import { findClassAnywhere, findMethodByParamCount, getFieldOffset } from "../il2cpp/helpers.js";
+import {
+    findClassAnywhere, findMethodByParamCount, getFieldOffset, class_get_name, cstr,
+} from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -37,7 +39,67 @@ import { Refus } from "./view-command.js";
 const NS_CFG = "IdunBattle.Configuration";
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
 
+/**
+ * DEUX CLASSES DE RECEPTACLE COEXISTENT, ET ON PATCHE CELLE QUI EST DEJA LA.
+ *
+ * ⛔ CE MODULE N'EN CONNAISSAIT QU'UNE, ET C'EST CE QUI A FAIT ECRIRE DANS LE VIDE. Mesure du
+ * 2026-08-24 sur l'evenement Machines of War : la BC porte a `BattleConfiguration
+ * .EnvironmentAbilities` un `IdunBattle.Configuration.EnvironmentAbilitiesConfiguration`
+ * (32 octets = 2 pointeurs), tandis que ce foyer fabriquait un
+ * `IdunBattle.Configuration.EnvironmentAbilities` (40 octets = 3 pointeurs) et l'ECRASAIT
+ * par-dessus. Les deux existent dans `classes.tsv`, leurs noms se ressemblent, et le garde de
+ * `ecrireAbilitesEnvironnement` n'acceptait que le second : le champ etait donc juge « d'un
+ * autre type », remplace, et le moteur ne lisait plus jamais ce qu'on y mettait.
+ *
+ * SYMPTOME, ET IL EST MUET : l'installation rend `ok`, `relu=true`, les cibles sont ecrites et
+ * se relisent correctement dans la BC serialisee -- et il ne se cree AUCUNE entite en bataille.
+ * Mesure A/B a l'identique (`observeBattle.counts`) : sans patch 44 effets / 145 entites, avec
+ * l'enhancement adverse 44/145, avec le mien 44/145. Rigoureusement rien.
+ *
+ * ⚠ ON NE FABRIQUE DONC PLUS RIEN QUAND UN RECEPTACLE EXISTE : on ecrit dans le SIEN, sous SES
+ * noms de membres. La table ci-dessous est le seul endroit ou ces noms vivent.
+ */
+type Role = "abilities" | "enhancements" | "configs";
+interface PlanReceptacle { classe: string; noms: Record<Role, string | null> }
+const RECEPTACLES: Record<string, Record<Role, string | null>> = {
+    // Celui que NOUS fabriquons quand le champ est nul.
+    EnvironmentAbilities: {
+        abilities: "Abilities",
+        enhancements: "EnhancementAbilities",
+        configs: "AbilitiesConfigurations",
+    },
+    // Celui que la BC porte nativement. Il n'a PAS de catalogue -- ce n'est pas un trou de
+    // lecture, c'est sa forme, et `membre` le DIT au lieu d'accuser un build perime.
+    EnvironmentAbilitiesConfiguration: {
+        abilities: "EnvironmentAbilities",
+        enhancements: "EnhancementsEnvironmentAbilities",
+        configs: null,
+    },
+};
+
+/** Les classes de receptacle que ce foyer sait patcher. Le garde appelant s'en sert. */
+export function estUnReceptacle(nomClasse: string): boolean {
+    return Object.prototype.hasOwnProperty.call(RECEPTACLES, nomClasse);
+}
+
+/** La CLASSE REELLE du receptacle et ses noms de membres -- lue sur l'objet, jamais supposee. */
+function plan(env: NativePointer): PlanReceptacle | Refus {
+    let nom: string;
+    try { nom = cstr(class_get_name(env.readPointer()) as NativePointer); }
+    catch (e) { return refus("classe du receptacle illisible : " + (e as Error).message); }
+    const noms = RECEPTACLES[nom];
+    if (noms === undefined) {
+        return refus("receptacle de classe `" + nom + "` INCONNUE de ce foyer -- on n'ecrit pas "
+            + "dans un objet dont on ne sait pas nommer les membres. Connues : "
+            + Object.keys(RECEPTACLES).join(", "));
+    }
+    return { classe: nom, noms };
+}
+
 /** Un `EnvironmentAbilities` VIDE mais dont les trois membres existent -- enracine.
+ *
+ *  ⚠ N'EST APPELE QUE QUAND LE CHAMP EST NUL. Si la BC en porte deja un, on patche le SIEN
+ *  (cf. la table ci-dessus) : fabriquer le notre par-dessus est exactement le defaut corrige.
  *
  *  ⚠ Le JSON n'est pas une commodite : c'est ce qui fait construire les trois generiques
  *  INFLATES par Newtonsoft. `findClassAnywhere` ne les trouverait pas (le nom d'un generique
@@ -90,7 +152,7 @@ export function ajouterAbility(
             + `VariantId=${offVariant} -- chemin PERIME, pas de repli sur un offset`);
     }
 
-    const liste = membre(env, "Abilities");
+    const liste = membre(env, "abilities");
     if (estRefus(liste)) return liste;
 
     const eac = il2cpp_object_new(kEac) as NativePointer;
@@ -285,7 +347,7 @@ export function ajouterEnhancement(
     }
     gcRoot.add(eec);
 
-    const liste = membre(env, "EnhancementAbilities");
+    const liste = membre(env, "enhancements");
     if (estRefus(liste)) return liste;
     const l = liste as NativePointer;
     const mAdd = methode(l.readPointer(), "Add", 1);
@@ -364,28 +426,41 @@ export function fusionnerDepuisConfig(
  *  liste des installees est VIDE. Compter les membres est la seule lecture qui tranche. */
 export function resume(env: NativePointer): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const nom of ["Abilities", "EnhancementAbilities"]) {
-        const l = membre(env, nom);
+    // ⚠ LES CLES RESTENT LES ROLES, PAS LES NOMS DE MEMBRES : deux receptacles les nomment
+    // differemment, et publier le nom ferait croire a un changement de contenu quand seule la
+    // CLASSE change. La classe, elle, est publiee a part.
+    for (const role of ["abilities", "enhancements"] as const) {
+        const l = membre(env, role);
         // TRI-ETAT : `null` = PAS LU (membre absent ou illisible), jamais rendu comme un `0`.
-        out[nom] = estRefus(l) ? null : tailleDeListe(l as NativePointer);
+        out[role] = estRefus(l) ? null : tailleDeListe(l as NativePointer);
     }
-    const d = membre(env, "AbilitiesConfigurations");
-    out.AbilitiesConfigurations = estRefus(d) ? null : tailleDeDictionnaire(d as NativePointer);
+    const pr = plan(env);
+    out.classe = estRefus(pr) ? null : (pr as PlanReceptacle).classe;
+    const d = membre(env, "configs");
+    out.configs = estRefus(d) ? null : tailleDeDictionnaire(d as NativePointer);
     return out;
 }
 
 // --- interne ----------------------------------------------------------------------------
 
 /** Un membre du receptacle, par son NOM -- jamais par un offset ecrit en dur. */
-function membre(env: NativePointer, nom: string): NativePointer | Refus {
-    const kEnv = findClassAnywhere(NS_CFG, "EnvironmentAbilities");
-    if (!kEnv) return refus("classe `EnvironmentAbilities` introuvable");
+function membre(env: NativePointer, role: Role): NativePointer | Refus {
+    const r = plan(env);
+    if (estRefus(r)) return r as Refus;
+    const { classe, noms } = r as PlanReceptacle;
+    const nom = noms[role];
+    if (nom === null) {
+        return refus("`" + classe + "` n'a PAS de membre pour le role `" + role + "` -- ce "
+            + "receptacle-la n'en porte pas (ce n'est pas un chemin perime)");
+    }
+    const kEnv = findClassAnywhere(NS_CFG, classe);
+    if (!kEnv) return refus("classe `" + classe + "` introuvable");
     const off = getFieldOffset(kEnv, nom);
-    if (off < 0) return refus("`EnvironmentAbilities." + nom + "` ABSENT sur ce build -- PERIME");
+    if (off < 0) return refus("`" + classe + "." + nom + "` ABSENT sur ce build -- PERIME");
     const p = env.add(off).readPointer();
     if (p.isNull()) {
-        return refus("`EnvironmentAbilities." + nom + "` est NUL -- le receptacle n'a pas ete "
-            + "cree par `creerReceptacle` (le ctor natif laisse ses trois membres nuls)");
+        return refus("`" + classe + "." + nom + "` est NUL -- le ctor natif laisse ses membres "
+            + "nuls, et ce receptacle n'a pas ete rempli");
     }
     return p;
 }
