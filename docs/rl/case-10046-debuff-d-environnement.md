@@ -329,3 +329,35 @@ type refusait d'écrire — mais chaque tir **ÉCRASAIT `lastApply`**, seul tém
 source avait installé. Effet mesuré : une BC PvP appliquée à 18:32 était recouverte à 18:33, et on
 lisait « les camps ne sont pas dérivables » en croyant juger le PvP alors qu'on jugeait un
 `RectTransform`. **Un anti-écrasement vaut mieux qu'un verdict plausible.**
+
+## Un enhancement N'ATTEINT JAMAIS une Machine of War — par construction (2026-08-24)
+
+**Mesuré.** A/B à montage identique (sandbox PvP, proposition n=1, board `C1_38`, les DEUX camps
+avec leur MoW en jeu) : témoin **45** effets, avec trois enhancements **60** — écart **+15**, soit
+5 buff + 5 Immune + 5 debuff. **15 et non 18** : les deux machines ne reçoivent rien, alors que
+`blackForgefiend` **est** dans les cibles écrites (les 6 « de la SOURCE » = 5 unités + la MoW) et
+que `astraOrdnanceBattery` est dans le camp visé. Le ciblage les NOMME, le sélecteur ne les retient
+pas.
+
+**Cause, et elle est structurelle : les familles de sélecteurs sont DISJOINTES.** Les machines ont
+la leur — `IdunBattle.Entities.Selectors.AllAliveMachinesSelector`,
+`IdunBattle.Entities.Selectors.MachineFromPlayerSelector`, exposées par
+`IdunBattleLogic.Entities.DSLSelectors$$AllAliveMachines` et
+`IdunBattleLogic.Entities.DSLSelectors$$EnemyMachine`.
+
+⚠ **La preuve est l'EXHAUSTIVITÉ des xrefs, pas leur contenu.** Ces deux sélecteurs n'ont, dans tout
+le build, que **deux** appelants :
+
+| sélecteur | unique appelant |
+|---|---|
+| `AllAliveMachines` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HeavyRailRifle_AttackAbility$$CreateBehaviour` |
+| `EnemyMachine` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.IllusionsOfTzeentchAbility$$CreateBehaviour` |
+
+**Aucun n'est un `Enhancement*`.** La famille `IsEnhancementTarget` →
+`IdunBattle.Entities.Selectors.EnhancementTargetSelector` opère sur le sélecteur d'UNITÉS que
+l'ability lui passe ; aucune ne lui passe un sélecteur de machines. Ce n'est donc pas un défaut de
+notre montage, et il n'y a rien à réparer — le vocabulaire du gameconfig le dit d'ailleurs déjà
+(`unitAmount`).
+
+⇒ **Poser la MoW reste utile** (elle joue, elle encaisse), mais ne jamais compter sur un buff ou un
+debuff d'environnement pour l'atteindre.
