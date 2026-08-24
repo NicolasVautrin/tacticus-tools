@@ -57,6 +57,7 @@ import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant } from "./view-command.js";
+import { declarerSourceDeChargement } from "./battle-config.js";
 import { propositionsChargees } from "./pvp-opponents.js";
 import { champInt, champPointeur, champTexte, estRefus, refus } from "./lecture-champs.js";
 import { Ctx } from "../controller.js";
@@ -311,9 +312,21 @@ export function register(ctx: Ctx): void {
         const argIsRestart = Memory.alloc(8);
         argIsRestart.writeU8(0);          // jamais LU par ce corps (decompile) -- pose a false.
 
+        // ⛔ LA SOURCE SE DECLARE, SINON LE CIBLAGE `auto=moi` REND ZERO -- EN SILENCE.
+        // Le patch d'env-abilities mord dans l'`onLeave` de `LoadBattleInternal`, mais il ne
+        // CAPTURE pas l'instance (un `onEnter` sur ce listener le tuerait) : c'est l'appelant qui
+        // la DECLARE. Sans ca, `lineupDeLaSource` n'a personne a interroger, `ciblesAuto` rend
+        // `0 cible (voie=aucune)` et l'avertissement accuse -- a juste titre -- << la SOURCE n'a
+        // pas ete transmise >>. Mesure du 2026-08-24 : les trois enhancements s'installaient avec
+        // ZERO cible sur une source PvP forgee, alors que la meme chaine rend 29 cibles sur
+        // l'evenement, dont la forge (`mow-event-source-forge`) declare, elle.
+        // ⚠ LE `finally` N'EST PAS DECORATIF : une declaration qui survit a l'appel ferait
+        // attribuer la PROCHAINE `LoadBattle` -- une vraie, celle du jeu -- a notre source forgee.
         let bc: NativePointer;
+        declarerSourceDeChargement(src);
         try { bc = invokeMethod(mLoad.info, src, [argIsRestart]); }
         catch (e) { return refus("`LoadBattleInternal` a LEVE : " + (e as Error).message); }
+        finally { declarerSourceDeChargement(null); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu une BC NULLE");
 
         // ⚠ ON VERIFIE CE QU'ON A RECU. Une BC perimee ou un objet d'un autre type est
