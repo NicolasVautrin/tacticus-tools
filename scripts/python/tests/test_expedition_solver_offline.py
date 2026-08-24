@@ -453,6 +453,34 @@ def test_refus_nomme_par_rarete_puis_par_rang():
     assert (ok, motif) == (True, None)
 
 
+def test_une_MACHINE_OF_WAR_est_refusee_MEME_sur_le_seuil_ZERO():
+    """Le trou du 2026-08-24, et il ne s'ouvre QUE sur une operation Common.
+
+    `rosterOwned` rend `rank: 0` pour une MoW -- elle n'a pas de rang, son niveau est le
+    `StarLevel`. Partout ou le seuil est > 0 (des Rare, 6) le test `rang < seuil` la refuse
+    donc par accident, et le trou reste invisible. Sur une Common le seuil vaut 0, `0 >= 0`
+    passe, et la MoW entre dans l'equipe. L'envoi est alors accepte LOCALEMENT puis revoque
+    par le serveur, sans message : le plateau retombe a `status: 0`.
+
+    Le refus doit donc etre porte par le TRAIT, pas par le rang -- sinon le garde est vert
+    pour la mauvaise raison sur 5 raretes sur 6."""
+    mow = {"m": _kit("m", alliance="Imperial", traits=["MachineOfWar"])}
+    prog = _prog(m=(0, 4))                     # rang 0, Legendary -- ce que rend le RPC
+    for rarete in ("Common", "Rare", "Legendary"):
+        ok, motif = ES.est_eligible("m", mow, prog, {"rarity": rarete,
+                                                     "grandAlliance": "Imperial"}, SEUILS)
+        assert ok is False, rarete
+        assert "MachineOfWar" in motif, (rarete, motif)
+
+    # CONTRE-EPREUVE : le meme profil SANS le trait passe la Common. Sans elle, le test
+    # ci-dessus serait satisfait par n'importe quel refus -- y compris le rang, qui est
+    # justement celui qui ne mordait pas.
+    hero = {"m": _kit("m", alliance="Imperial")}
+    ok, motif = ES.est_eligible("m", hero, prog, {"rarity": "Common",
+                                                  "grandAlliance": "Imperial"}, SEUILS)
+    assert (ok, motif) == (True, None)
+
+
 def test_le_seuil_de_rang_vient_de_la_rarete_de_L_OPERATION():
     """Le piege central du decompile : `GetRequiredRankFor(entry.rarity)`, pas
     `GetRequiredRankFor(unit.rarity)`. Une Mythic rang 12 passe sur une operation

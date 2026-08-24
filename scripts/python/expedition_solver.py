@@ -242,6 +242,28 @@ def est_eligible(unite: str, kits: dict, progression: dict, entry: dict,
     p = progression.get(unite)
     if p is None:
         return False, "non possedee"
+
+    # UNE MACHINE OF WAR N'EST JAMAIS DISPATCHABLE, ET SON `rank` NE LE DIT PAS.
+    #
+    # Mesure du 2026-08-24, plateau `imp_judgement_c_01_10` (Common, Imperial) : le natif
+    # `ExpeditionUnitEligibility$$CountEligibleUnits` rend 33, ce miroir en rendait 49.
+    # L'ecart se decompose EXACTEMENT -- 13 impériales deja parties + 3 MoW -- donc le seul
+    # filtre qui manquait ici est celui-la.
+    #
+    # POURQUOI CA NE S'ETAIT JAMAIS VU : `rosterOwned` rend `rank: 0` pour une MoW (elle n'a
+    # pas de rang -- son niveau est le `StarLevel`, cf. la doctrine MoW). Le test `rang <
+    # seuil` la refuse donc partout ou le seuil est > 0, c'est-a-dire des Rare (6). Sur une
+    # operation COMMON, le seuil vaut 0 et `0 >= 0` la laisse passer. C'est le symetrique du
+    # piege deja connu : un garde sur `Rank` rend un FAUX verdict sur une MoW, dans les deux
+    # sens.
+    #
+    # CE QUE COUTAIT LE TROU : l'envoi est accepte LOCALEMENT (`ok: true`, statut 0 -> 1)
+    # puis REVOQUE par la reponse serveur quelques secondes plus tard -- le plateau retombe a
+    # `status: 0`, `units: null`, sans le moindre message. Deux envois de suite ont ete
+    # perdus ainsi avant que la relecture du plateau ne le montre.
+    if "MachineOfWar" in ((kits.get(unite) or {}).get("traits") or []):
+        return False, "MachineOfWar -- non dispatchable en Operation"
+
     rar_u = p.get("rarity")
     if rar_u is None:
         return False, "rarete NON MESUREE"

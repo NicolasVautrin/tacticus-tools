@@ -15,6 +15,46 @@ python scripts/python/expedition_run.py --envoyer    # plan PUIS envoi
 Toujours jouer la forme **sans `--envoyer` d'abord** : elle montre le plan et les motifs de
 refus sans engager personne.
 
+## Le tour complet : RÉCLAMER, RAFRAÎCHIR, RENVOYER
+
+`expedition_run.py` ne fait que la 3ᵉ étape. Quand les opérations sont **terminées**
+(`ExpeditionStatus 0=Available, 1=Dispatched, 2=Completed`), il rend « rien à envoyer :
+toutes les operations sont deja parties » — c'est exact et trompeur : elles attendent d'être
+encaissées. Les deux premières étapes passent par les RPC, dans cet ordre :
+
+```python
+R.armer(sid)                                    # RE-ARMER avant CHAQUE écriture
+R.rpc(sid, "expeditionClaim",   {"ids": <les expeditionId en status 2>, "confirmer": True})
+R.armer(sid)
+R.rpc(sid, "expeditionRefresh", {"confirmer": True})   # SANS `autoriserPalier`
+```
+
+- **La cible du claim est le GUID `expeditionId`**, pas le slug `id` — c'est ce que
+  `ExpeditionBoardContainer$$CollectClaimableExpeditionIds` collecte (filtre `status == 2`,
+  puis `ExpeditionWidget$$GetExpeditionId`).
+- **Le claim VIDE le plateau** (`RemoveClaimedEntryLocally`) : c'est ce qui rend le refresh
+  nécessaire, et c'est aussi la confirmation que le claim a mordu.
+- **`expeditionRefresh` sans `autoriserPalier` ne peut pas coûter de gemmes** : il passe au
+  palier 0 (le gratuit du jour, minuit UTC) et **refuse** tout palier payant en l'annonçant.
+  Ne jamais l'autoriser sans avoir lu le coût.
+
+## Un envoi peut être RÉVOQUÉ par le serveur, `ok: true` compris
+
+Le local applique tout de suite (`status` 0 → 1), puis la réponse serveur peut le **révoquer
+quelques secondes plus tard** : le plateau retombe à `status: 0`, `units: null`, **sans le
+moindre message**. `expedition_run.py` confronte le plateau après l'envoi, mais **trop tôt
+pour voir la révocation** — relire une seconde fois, ~20 s après.
+
+⚠ **Une MACHINE OF WAR n'est pas dispatchable, et son `rank` ne le dit pas.** `rosterOwned`
+rend `rank: 0` pour une MoW (son niveau est le `StarLevel`). Le seuil de rang la refuse donc
+par accident dès Rare (6) — mais sur une opération **Common** le seuil vaut 0, `0 >= 0` passe,
+et elle entre dans l'équipe. Mesuré le 2026-08-24 : deux envois perdus ainsi. Corrigé dans
+`est_eligible` (refus porté par le TRAIT), miroir et natif désormais d'accord au compte près
+(30 = 30, contre 49 vs 33 avant).
+
+**Le contrôle qui tranche** : `expeditionEligibilityFor {ids: [<expeditionId>]}` rend le
+compte d'éligibles **du natif**. S'il diverge de `pool_eligible`, c'est le miroir qui a tort.
+
 ## Ce qu'un envoi immobilise — ET SEULEMENT ÇA
 
 **Une unité partie en opération ne peut pas être envoyée sur une SECONDE opération**, pour la
