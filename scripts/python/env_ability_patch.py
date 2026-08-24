@@ -74,6 +74,12 @@ def main():
                     help="par defaut : la session vivante, demandee au host")
     ap.add_argument("--poser", action="store_true")
     ap.add_argument("--retirer", action="store_true")
+    ap.add_argument("--une-fois", dest="une_fois", action="store_true",
+                    help="`consumeOnce` : le patch est consomme par le PREMIER `LoadBattle`. "
+                         "A poser quand la SOURCE n'est presente qu'a ce premier passage (chaine "
+                         "de l'evenement Machines of War) -- sinon la seconde application, sans "
+                         "source, derive 0 cible et ECRASE la premiere. Cf. le commentaire au "
+                         "site de `consumeOnce`.")
     ap.add_argument("--etat", action="store_true")
     ap.add_argument("--lister-shield", action="store_true",
                     help="les abilities d'environnement qui posent un BOUCLIER, et leur cible")
@@ -210,9 +216,24 @@ def main():
         demandes.append({"abilityType": ordinal, "niveau": niveau})
         print("  %-28s ordinal %-6d niveau %d" % (libelle, ordinal, niveau))
 
-    # `consumeOnce: False` -- le montage traverse plusieurs `LoadBattle` (la lecture de la source,
-    # puis le montage lui-meme). On RETIRE explicitement apres coup (`--retirer`), ce qui est
-    # verifiable, alors qu'une consommation automatique ne se voit pas.
+    # `consumeOnce: False` par defaut -- le montage traverse plusieurs `LoadBattle` (la lecture de
+    # la source, puis le montage lui-meme). On RETIRE explicitement apres coup (`--retirer`), ce
+    # qui est verifiable, alors qu'une consommation automatique ne se voit pas.
+    #
+    # ⛔ MAIS SUR UNE CHAINE OU LA SOURCE N'EST PRESENTE QU'AU PREMIER `LoadBattle`, LE SECOND
+    # PASSAGE DETRUIT LE TRAVAIL DU PREMIER -- et en silence. Mesure du 2026-08-24, evenement
+    # Machines of War : la forge (`mowEventSourceForger`) applique AVEC la source et derive
+    # << 29 cible(s) = 24 de la SOURCE U ... >> ; le montage sandbox re-applique SANS elle
+    # (`source=SandboxGameModeSource`), derive << 0 cible(s) (voie=aucune) >> et REECRIT le noeud
+    # (`relu=true`). L'enhancement final porte donc ZERO cible : rien n'est buffe, et la seule
+    # trace est un avertissement dans `lastApply` -- que personne ne relit APRES le montage,
+    # puisqu'on l'a deja lu, juste, APRES la forge.
+    # ⇒ `--une-fois` fait consommer le patch par le PREMIER `LoadBattle`. La BC substituee au
+    #   montage porte alors deja l'installation correcte : il n'y a plus rien a re-appliquer.
+    # ⚠ LE VRAI REMEDE EST DANS LE HOOK, et il n'est PAS ici : une application qui ne sait deriver
+    #   AUCUNE cible pour un `ciblesAuto` ne devrait pas pouvoir ECRASER une installation qui en
+    #   porte. Ca demande un rebuild + reinject, donc une fenetre ; ce drapeau est la parade
+    #   d'ici la.
     configs = []
     for spec in a.config_ability:
         nom, sep, reste = spec.partition("=")
@@ -328,7 +349,7 @@ def main():
             print("          son propre arbre (ex. EnhancementRegeneration, qui vise team 1 /")
             print("          UnitTrait.Hero), mais la famille EnhancementAddTrait ne tirera PAS.")
 
-    patch = {"consumeOnce": False}
+    patch = {"consumeOnce": bool(a.une_fois)}
     if configs:
         patch["environmentAbilityConfigs"] = configs
     if enhancements:
