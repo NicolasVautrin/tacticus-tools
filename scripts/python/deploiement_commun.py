@@ -230,7 +230,12 @@ def cases_de_spawn_du_joueur(bc):
     Le joueur humain est celui a `PlayerType 0` de `Player.Players` ; ses cases sont celles que
     `Board.spawns` lui attribue -- le depliage de `TeamWithPlayerIndex` vit dans `board.py`
     (`TeamPlayerIdExtensions.Unfold`, aligne sur `board.js`), on le REPREND plutot que d'en tenir
-    une seconde copie. L'ordre rendu est celui du plateau, donc stable d'un montage a l'autre.
+    une seconde copie.
+
+    ⛔ L'ORDRE RENDU EST CELUI QUE LA BC ECRIT, ET IL PORTE LE PLACEMENT. `_decode_spawns`
+    insere les cases dans l'ordre des `SpawnPointGroups[].SpawnPoints` ; c'est cet ordre-la que
+    le jeu zippe avec la lineup (#10045). Trier ces cases -- par colonne, par distance, par quoi
+    que ce soit -- changerait le placement en silence. Ne pas les reordonner.
 
     (!)LE COMPTE DES CASES ADVERSES EST LA CORROBORATION, et c'est pour ca qu'il est rendu.
     Deplier un `TeamWithPlayerIndex` est une CONVENTION : se tromper de groupe ferait atterrir
@@ -336,26 +341,33 @@ def poses_sur_cases_de_spawn(bc, ids):
 
     `poses` a `None` = REFUS (le diagnostic le dit) ; `[]` = rien a poser.
 
-    ⛔ LES POSITIONS SONT ARBITRAIRES, ET LE DIAGNOSTIC LE DIT. `GetBattleLineup` rend un
-    `String[]` : la source porte QUI le joueur amene, JAMAIS OU il le pose. L'appariement
-    ci-dessous zippe les ids avec les cases de spawn dans l'ordre du plateau -- c'est une
-    convention de CE code, pas une donnee du jeu.
+    (!)CE ZIP EST LA REGLE DU JEU, PAS UNE CONVENTION DE CE CODE. La i-eme unite de la
+    lineup va sur la i-eme case de spawn du groupe du joueur, dans l'ORDRE AUTEUR de la BC.
+    La position n'est nulle part STOCKEE -- elle est DERIVEE de l'ordre du `String[]` que
+    rend `GetBattleLineup`, zippe avec l'ordre auteur des `SpawnPointGroups[].SpawnPoints`.
+    C'est ce que fait `cases_de_spawn_du_joueur`, qui preserve l'ordre d'ecriture de la BC.
 
-    Mesure du 2026-08-24 : sur le boss de guilde, les 5 unites rendues etaient EXACTEMENT
-    celles du dernier combat, et les 5 positions TOUTES fausses -- chaque unite sur la case
-    d'une autre. Le compte (5/5) et les noms (5/5) etaient justes, ce qui rendait le tout
-    parfaitement credible. C'est le mode de panne le plus couteux : une moitie mesuree, une
-    moitie inventee, et rien qui les distingue a l'ecran.
+    Mesure : `probe_10045_regle_de_placement.py` sur les replays VERSIONNES. Invariant dur
+    (les cases jouees sont les N premieres cases auteur) : 63/63. L'ORDRE suit la regle sur
+    46/50 campagne et 3/4 boss de guilde -- et 0/9 en GUERRE DE GUILDE, dont la lineup ne
+    vient pas de ce tableau. Re-deriver, ne pas citer ces chiffres.
 
-    ⇒ Pour un placement FIDELE, la position doit venir d'une source qui la porte : un replay
-    (`poses_du_replay` / `--depuis-replay`), ou une saisie explicite. Pas d'ici.
+    ⚠ TROIS REGIMES S'EN ECARTENT LEGITIMEMENT, et le troisieme est celui qui coute :
+      - lineup passee par un `HashSet<System.String>` quand la bataille a des restrictions
+        (`LineupHelper$$GetCampaignBattleLineupUsingRequiredUnits`, parametre `savedLineup`) --
+        un HashSet n'a pas d'ordre, donc le zip n'a plus de sens ;
+      - la guerre de guilde ;
+      - un joueur qui REARRANGE ses unites a la main avant de lancer. Ce placement-la n'est
+        reproductible d'AUCUNE lineup : il faut `--depuis-replay`.
 
-    ⚠ QUESTION OUVERTE, ET MA CONCLUSION A ETE CONTREDITE. J'ai ecrit << le jeu sauvegarde
-    l'equipe, pas le placement >> apres avoir constate que TOUT le contrat de source est
-    `String[]`/`String` et que `UnitProgressionData.SetLineup(key, unitIds)` ne stocke que des
-    ids. L'utilisateur a corrige : << le jeu arrive tres bien a retrouver le placement >>. Le
-    mecanisme n'est donc PAS celui que j'ai balaye, et il reste a trouver -- une absence dans
-    une famille de symboles ne prouve rien. Ne pas re-citer ma conclusion : la RE-MESURER.
+    ⚠ ET J'AI CONCLU L'INVERSE, PAR ECRIT, LE 2026-08-24. Cette docstring a porte << LES
+    POSITIONS SONT ARBITRAIRES >> et << le jeu sauvegarde l'equipe, pas le placement >>,
+    apres un balayage qui n'avait trouve de coordonnee ni dans le contrat de source ni dans
+    `UnitProgressionData$$SetLineup(key, unitIds)`. Les deux constats etaient JUSTES et la
+    conclusion FAUSSE : une coordonnee absente d'un stockage peut etre derivee d'un ordre.
+    Le contre-exemple qui avait declenche le doute -- un combat de boss ou les 5 positions
+    differaient des miennes -- etait un REARRANGEMENT MANUEL, donc le seul des trois regimes
+    que la regle ne couvre pas. Une absence dans une famille de symboles ne prouve rien.
 
     (!)PLUS D'UNITES QUE DE CASES EST UN REFUS, PAS UNE TRONCATURE. Poser << ce qui tient >>
     laisserait une composition AMPUTEE que personne n'a demandee, et le compte affiche ne
@@ -371,8 +383,8 @@ def poses_sur_cases_de_spawn(bc, ids):
                            % (len(ids), len(tuiles), diag))
     return ([{"unitId": u, "playerId": moi, "col": c, "row": r}
              for u, (c, r) in zip(ids, tuiles)], moi,
-            diag + " | (!) POSITIONS ARBITRAIRES : la source donne les UNITES, pas leur "
-                   "placement -- `--depuis-replay` pour un placement fidele")
+            diag + " | placement = REGLE DU JEU (lineup[i] -> case auteur[i], cf. #10045) ; "
+                   "un rearrangement manuel ne s'en derive pas -- `--depuis-replay`")
 
 
 def poser_la_mow_du_joueur(jeu, bc, mow_id, poses):
