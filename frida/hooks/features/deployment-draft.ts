@@ -473,6 +473,16 @@ let idsOnslaught: string[] | null = null;
 /** Le roster CAMPAGNE, même forme et pour les mêmes raisons — cf. la branche `campagne`. */
 let idsCampagne: string[] | null = null;
 
+/** Le roster de l'ÉVÉNEMENT Machines of War (Incursion), même forme et même raison de cache.
+ *
+ *  ⚠ IL NE SE LIT PAS PAR LA MÉTHODE DÉLÉGUÉE, et c'est ce qui le distingue des quatre autres.
+ *  `GetUnitsForDeploymentHUD` rend un `PooledList<String>` — un objet MIS EN POOL, dont la
+ *  traversée de frontière fait lever `BeforeReturnToPoolAttempt` au `Dispose` de l'appelant.
+ *  La même source expose `GetUnlockedUnits()`, qui appelle `CloneAsListAndDispose` : ce qu'on
+ *  reçoit est une `List<String>` NORMALE. On lit donc par là, et on ne fait que REMPLIR le
+ *  retour du jeu — rien ne traverse. */
+let idsMowEvent: string[] | null = null;
+
 /** Les ancrages sur les DEUX bornes de `VisualBattleQuery` (cf. `deploymentBornesArmer`). */
 const listenerBornes: InvocationListener[] = [];
 /** Ce que chaque borne a rendu NATIVEMENT et ce qu'on a substitué. Les deux, toujours : sans le
@@ -2144,6 +2154,57 @@ function armerUneDelegation(
                     detail: r.erreur === null
                         ? `campagne REMPLI ${r.ajoutes}/${idsCampagne.length} (${r.voie})`
                         : `remplissage campagne : ${r.erreur}` };
+                return;   // ⚠ `retval` INTACT.
+            }
+            // L'ÉVÉNEMENT MACHINES OF WAR : MÊME REMÈDE, AUTRE LECTEUR.
+            //
+            // ⚠ ON NE LIT PAS PAR LA MÉTHODE DÉLÉGUÉE. `GetUnitsForDeploymentHUD` rend un
+            // `PooledList<String>` ; les branches `guildWar`/`onslaught` s'en tirent en déballant
+            // la boîte à `+0x10` puis le wrapper de pool, mais la source de l'événement expose
+            // `GetUnlockedUnits()`, qui appelle `CloneAsListAndDispose` et rend une `List<String>`
+            // NORMALE. Un objet non poolé ne peut pas faire lever `BeforeReturnToPoolAttempt` :
+            // à contrat égal, on prend le lecteur qui n'a pas ce mode de panne.
+            //
+            // ⚠ ET LE ROSTER DE L'ÉVÉNEMENT N'EST PAS CELUI DE LA CAMPAGNE : il est borné par
+            // l'alliance du palier (24 unités Chaos mesurées au tier 11). Emprunter à la campagne
+            // afficherait le roster du nœud où pointe la source captée — plausible, et faux.
+            if (spec.nom === METHODE && p.nom === "mowEvent") {
+                if (idsMowEvent === null) {
+                    // La classe se lit sur L'INSTANCE : c'est la classe RÉELLE, pas celle qu'on
+                    // aurait re-résolue par son nom.
+                    const mi = findMethodByParamCount(src.readPointer(), "GetUnlockedUnits", 0);
+                    if (!mi) {
+                        d.dernier = { ok: false, detail: "`GetUnlockedUnits(0)` INTROUVABLE sur "
+                            + "`MachinesOfWarEventGameModeSource` -- chemin PERIME, rien écrit" };
+                        return;
+                    }
+                    let l: NativePointer;
+                    try { l = invokeMethod(mi.info, src, []) as NativePointer; }
+                    catch (e) {
+                        d.dernier = { ok: false, detail: "lecture du roster mowEvent a levé : "
+                            + (e as Error).message };
+                        return;
+                    }
+                    if (l === null || l.isNull()) {
+                        d.dernier = { ok: false, detail: "`GetUnlockedUnits` a rendu NUL" };
+                        return;
+                    }
+                    gcRoot.add(l);
+                    idsMowEvent = listeDeTextes(l);
+                }
+                if (idsMowEvent === null || idsMowEvent.length === 0) {
+                    d.dernier = { ok: false, detail: "roster mowEvent "
+                        + (idsMowEvent === null ? "ILLISIBLE" : "VIDE")
+                        + " -- rien écrit, le retour natif est laissé INTACT" };
+                    idsMowEvent = null;   // relire au prochain tir plutôt que figer un échec
+                    return;
+                }
+                const r = remplir(retval, idsMowEvent);
+                d.emprunts++;
+                d.dernier = { ok: r.erreur === null,
+                    detail: r.erreur === null
+                        ? `mowEvent REMPLI ${r.ajoutes}/${idsMowEvent.length} (${r.voie})`
+                        : `remplissage mowEvent : ${r.erreur}` };
                 return;   // ⚠ `retval` INTACT.
             }
             // LE LINEUP DE LA SOURCE EST UNE SAUVEGARDE — donc PÉRIMÉ dès que le joueur a touché
@@ -7164,6 +7225,7 @@ export function register(ctx: Ctx): void {
         idsGuildWar = null;
         idsOnslaught = null;
         idsCampagne = null;
+        idsMowEvent = null;
         return queueOnMainThread(() => {
             if (body.armer === false) {
                 for (const d of delegations) {
