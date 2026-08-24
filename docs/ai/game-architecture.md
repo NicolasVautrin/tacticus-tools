@@ -125,4 +125,7 @@ Le moteur de combat (`IdunRunner`, `BattleLogicAssembly`) est 100% decouple de U
 ### Notes
 
 - `stop_previous` dans `/api/scripts/run` arrete auto les sessions precedentes
-- Les configs PvP n'ont que les `PredefinedUnits` adverses — ajouter ceux du joueur avant simulation
+- Les configs PvP n'ont que les `PredefinedUnits` adverses, et **c'est la forme correcte** : la
+  lineup du joueur n'entre JAMAIS dans ce canal, elle arrive par le déploiement (placeholders
+  convertis au START). Pour simuler, la poser par le déploiement — jamais en l'écrivant dans
+  `PredefinedUnits`, ce qui fabrique un état que le jeu ne produit pas.

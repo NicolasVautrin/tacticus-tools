@@ -39,11 +39,10 @@ que fait le natif : `MachinesOfWarEventGameModeSource$$LoadBattleInternal`, seul
 `PredefinedUnits` de l'evenement ne portent QUE l'adversaire. `--mes-unites` ne fait donc que
 PRE-REMPLIR l'ecran de deploiement, a la place de cinq clics ; le START natif convertit.
 
-(!)CE QUE CETTE VOIE NE FAIT PAS : elle ne buffe rien. Un enhancement d'environnement s'installe
-a `PostAbilityInit` et ne cible que ce qui EXISTE a cet instant -- 8 effets pour les 8 ennemis
-predefinis, 0 pour ce qui entre au deploiement (mesure du 2026-08-24). Poser mes unites dans la
-BC les buffait ; ce n'est pas pour autant une reparation, c'est un etat que le jeu ne produit
-jamais. La fenetre reste OUVERTE, et elle se refermera cote ORDRE, pas cote BC.
+(!)LES ENHANCEMENTS ATTEIGNENT BIEN CES UNITES-LA, et rien n'est a faire de plus. Le ciblage
+`auto=moi` derive du POOL de la source (`GetUnlockedUnits`) quand la composition sauvegardee est
+vide, ce qui est toujours le cas tant qu'aucun run n'est demarre. Mesure du 2026-08-24 :
++5 entites d'effet pour mes 5 unites, degats infliges 91 400 -> 400 000 (le plafond).
 
 ASCII only en sortie (console Windows cp1252).
 """
