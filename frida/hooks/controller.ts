@@ -70,6 +70,7 @@ import * as upgradesInventory from "./features/upgrades-inventory.js";
 import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
 import * as replayFinAuto from "./features/replay-fin-auto.js";
+import * as sandboxFenetre from "./features/sandbox-fenetre.js";
 import * as guildWarLeaderboard from "./features/guild-war-leaderboard.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
@@ -598,6 +599,12 @@ export function wireRpc(ctx: Ctx): void {
      // un message qui accuse le mecanisme alors que seul le TIMING etait en cause. DESARME par
      // defaut ; desarme, il ne coute qu'un test de booleen par frame.
      replayFinAuto,
+     // `sandboxFenetre` DESARME les relais d'ecriture a la mort de la bataille sandbox qui les a
+     // ouverts. Leur duree de vie etait celle de la SESSION alors que leur raison d'etre est
+     // celle d'UNE fenetre : entre les deux il n'y avait qu'un geste manuel, donc oubliable --
+     // et 14 relais dont `sandboxModeBcOverride` ont ete mesures encore armes apres coup.
+     // DESARME par defaut ; il ne coute qu'un test de booleen par frame.
+     sandboxFenetre,
      // `guildWarLeaderboard` OBSERVE l'arrivee du classement de saison, il ne le DEMANDE jamais :
      // les deux methodes qui le produisent passent par le reseau, donc les invoquer emettrait une
      // requete. On ancre le convergent `CacheGuildDetails`, qui recoit la liste COMPLETE en

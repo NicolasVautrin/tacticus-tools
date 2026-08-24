@@ -25,6 +25,8 @@ import { clearTraceOrigin } from "../game/trace-origin.js";
 import { log, traceEnter } from "./diag.js";
 import { surveillerFinDeBataille, capturerAvantDetachement }
     from "../features/replay-fin-auto.js";
+import { surveillerFinDeFenetre, fermerAvantDetachement }
+    from "../features/sandbox-fenetre.js";
 import { signalerRunnerVivant } from "../features/runner-signal.js";
 
 // ------------------------------------------------------------- TRANSPARENCE
@@ -222,6 +224,9 @@ export function installMainPump(): void {
                 // ReplayRecorder » — un message qui accuse le mecanisme alors que seul le
                 // TIMING etait en cause. Deux replays ont ete perdus ainsi.
                 capturerAvantDetachement();
+                // La fenetre sandbox meurt ici aussi -- et par sa voie la plus courante, la
+                // RETRAITE. Le desarmement lui-meme est differe hors frame (cf. le module).
+                fermerAvantDetachement();
                 state.watchedRunners.delete(state.liveRunner.toString());
                 state.liveRunner = null;
                 state.runnerInstance = null;
@@ -257,6 +262,10 @@ export function installMainPump(): void {
         // Second déclencheur de capture : `stage -> Finished` alors que le runner est
         // ENCORE attaché. Ne coûte qu'un test de booléen tant que le module est désarmé.
         surveillerFinDeBataille();
+        // Meme transition, autre consequence : les relais d'ecriture montes pour CETTE fenetre
+        // sandbox s'eteignent avec elle, au lieu de survivre jusqu'a la prochaine bataille --
+        // reelle, le cas echeant.
+        surveillerFinDeFenetre();
         // EXCLUSIF : si la pompe UI est armée, c'est ELLE qui draine (cf. son en-tête).
         if (!uiDrainActif) drainPending();
         } catch (e) { noteFault("main-pump", e); }

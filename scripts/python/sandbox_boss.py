@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
+from relais_sandbox import sandbox_fenetre_armer  # noqa: E402
 from deploiement_commun import (  # noqa: E402
     ids_de_la_lineup, poser_en_placeholders, poser_la_mow_du_joueur, poses_sur_cases_de_spawn,
 )
@@ -257,6 +258,18 @@ def main(argv):
     for methode, corps in armements:
         if etape(jeu, methode, corps) is None:
             return 1
+
+    # 4bis. LA FENETRE EST OUVERTE : on arme sa FERMETURE tout de suite.
+    #
+    # (!)LES RELAIS MEURENT AVEC LA BATAILLE QUI LES A OUVERTS. Leur duree de vie etait celle de
+    # la SESSION alors que leur raison d'etre est celle d'UNE fenetre sandbox : entre les deux, il
+    # n'y avait qu'un geste manuel -- donc oubliable. Mesure du 2026-08-24, bataille finie :
+    # 14 relais d'ecriture encore armes, dont `sandboxModeBcOverride`, qui aurait substitue la BC
+    # de la premiere bataille REELLE venue.
+    #
+    # On arme AVANT le montage, pas apres : c'est la seule position ou la fermeture couvre aussi
+    # une fenetre qui mourrait tot (montage refuse, retraite immediate).
+    sandbox_fenetre_armer(jeu)
 
     # 5. Le montage. Le mode importe peu -- l'override substitue la BC ; ce qui compte est la
     #    SOURCE. `--units` reste VIDE : la phase de deploiement pousse les unites au runner.

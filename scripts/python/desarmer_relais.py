@@ -35,73 +35,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante          # noqa: E402
 from sandbox_mode import Jeu                      # noqa: E402
+# (!)LA LISTE A DEMENAGE DANS UN MODULE FEUILLE, et ce n'est pas cosmetique : le hook
+# `sandbox-fenetre.ts` desarme desormais a la mort de la fenetre, et il recoit la liste du
+# pilote. Si elle etait restee ici, tout pilote qui l'arme importerait `desarmer_relais`, qui
+# importe `sandbox_boss` -- un cycle. On DEPLACE le code partage plutot que de differer un
+# import, comme le prescrit le CLAUDE.md.
+from relais_sandbox import ECRIVENT, OBSERVENT, arme_selon  # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
 
-# Les relais qui ECRIVENT -- (rpc, corps de desarmement).
-ECRIVENT = [
-    ("deploymentPoolArmer", {"armer": False}),
-    ("deploymentPhaseArmer", {"armer": False}),
-    ("deploymentPlafondArmer", {"armer": False}),
-    ("deploymentClearArmer", {"armer": False}),
-    ("deploymentDeposeArmer", {"armer": False}),
-    # (!)`deploymentPoseCommitArmer` et `deploymentPoseFsmArmer` ONT ETE RETIRES DE CETTE LISTE
-    # le 2026-08-21 : les deux RPC n'existent plus (la voie commit a ete supprimee, la pose passe
-    # toujours par l'etage FSM). Le host rendait donc `unable to find method`, que ce script
-    # classait -- correctement -- en NON MESURE, et il sortait en rc 1 A CHAQUE PASSAGE. Un garde
-    # qui rougit toujours est un garde qu'on cesse de lire : c'est exactement ce qui laisse
-    # repasser le relais qu'il devait attraper. Retirer l'entree morte n'affaiblit rien -- il n'y
-    # a plus de relais derriere elle.
-    ("deploymentMemoire", {"armer": False}),
-    ("deploymentPrefabArmer", {"armer": False}),
-    ("deploymentDraftArmer", {"armer": False}),
-    ("deploymentStartArmer", {"armer": False}),
-    ("deploymentSyncArmer", {"armer": False}),
-    ("deploymentBoutonArmer", {"armer": False}),
-    ("deploymentJetArmer", {"armer": False}),
-    ("deploymentVidangeArmer", {"armer": False}),
-    ("deploymentCheminsArmer", {"armer": False}),
-    ("deploymentRunnerStartArmer", {"armer": False}),
-    ("deploymentPoolSansFiltre", {"armer": False}),
-    ("sandboxModeGameViews", {"armer": False}),
-    # Ces deux-la ne se desarment PAS par `armer` -- leur forme de retrait est propre.
-    ("sandboxModeBcOverride", {"configJson": None}),
-    ("sandboxModeSeed", {"seed": None}),
-]
-
-# Ce qu'on LAISSE, et pourquoi. Nomme, jamais implicite.
-OBSERVENT = [
-    ("deploymentHudArmer", "lit le HUD et le verdict de chaque clic -- n'ecrit rien"),
-    ("deploymentPoseDiag", "diagnostic de pose"),
-    ("vueExceptionArmer", "capte les exceptions de vue, celles qui tuent une bataille en silence"),
-    ("replayFinAuto", "capture le replay en fin de bataille"),
-]
-
-def arme_selon(r):
-    """Tri-etat : True / False / None = PAS MESURE. Un `arme` illisible n'est PAS un `False`."""
-    if not isinstance(r, dict):
-        return None
-    if isinstance(r.get("arme"), bool):
-        return r["arme"]
-    # (!)LE NOM DU CHAMP N'EST PAS UNIFORME, et le supposer a fait rendre `NON MESURE` a cinq
-    # relais pourtant bien desarmes (mesure du 2026-08-20). `actif` chez les relais de pose,
-    # `ancres` (liste des methodes ancrees) chez `deploymentCheminsArmer`.
-    if isinstance(r.get("actif"), bool):
-        return r["actif"]
-    if isinstance(r.get("ancres"), list):
-        return len(r["ancres"]) > 0
-    # `deploymentPoolArmer` et `deploymentPlafondArmer` rendent l'etat par sous-objets.
-    for cle in ("delegations", "max", "min"):
-        v = r.get(cle)
-        if isinstance(v, list) and any(x.get("arme") for x in v if isinstance(x, dict)):
-            return True
-        if isinstance(v, dict) and v.get("arme"):
-            return True
-    if isinstance(r.get("delegations"), list):
-        return False
-    if isinstance(r.get("max"), dict) or isinstance(r.get("min"), dict):
-        return False
-    return None
 
 
 def passer(jeu, lire=False, montrer_observateurs=True):
