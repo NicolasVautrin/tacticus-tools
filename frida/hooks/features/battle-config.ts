@@ -1778,6 +1778,29 @@ function applyPatchToConfig(
                     warnings.push(`environmentEnhancements[${d.ability}]: ${d.avertissement}`);
                 }
                 if (d.note) warnings.push(`environmentEnhancements[${d.ability}]: ${d.note}`);
+                // ⛔ LES CIBLES RESOLUES ETAIENT CALCULEES PUIS JETEES, et c'est ce qui a rendu
+                // un diagnostic impossible le 2026-08-24. `ajouterEnhancement` publie déjà
+                // `ciblesResolues` -- les `UnitConfigId` EXACTS écrits dans `Targets`, après
+                // scission du suffixe par `UnitConfigId$$CreateFromString` -- mais ce site n'en
+                // lisait que `avertissement`/`note`, et `getBattleConfigPatchStatus` ne publie
+                // que `operations`/`warnings`. Résultat : la seule question qui décide si un
+                // enhancement peut apparier (« QUELLE FORME d'id a-t-on écrite ? ») n'était
+                // lisible NULLE PART, alors que la réponse était en mémoire.
+                //
+                // `IdunBattle.Entities.Selectors.EnhancementTargetSelector$$Select` compare par
+                // `IdunBattle.Configuration.UnitConfigId$$op_Equality`, donc sur PureId ET
+                // Rarity ET Level. Un id nu (`worldKharn`) et un id suffixé (`worldKharn:50`)
+                // sont DEUX cibles différentes, et rien ne le signale : l'installation reste
+                // `ok`, la liste compte juste, et l'effet ne se pose pas.
+                //
+                // ⚠ AUCUN PLAFOND ICI, C'EST DELIBERE. Tronquer la liste ferait exactement ce
+                // que ce commit repare : cacher la cible qu'on n'a pas regardée. On imprime tout,
+                // et le compte avec.
+                const cr = (d as { ciblesResolues?: unknown[] }).ciblesResolues;
+                if (Array.isArray(cr)) {
+                    ops.push(`environmentEnhancements[${d.ability}]: ${cr.length} `
+                        + `Target(s) ECRITE(S) = ${JSON.stringify(cr)}`);
+                }
             }
         } else {
             warnings.push(`environmentAbilities: ${w.error}`);
