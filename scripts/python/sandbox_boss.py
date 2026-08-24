@@ -356,17 +356,32 @@ def poser_la_lineup_de_la_source(jeu, d, bc_txt):
 
 
 def attendre_les_poses(jeu, attendues, secondes=30):
-    """Attendre que les poses ENFILEES aient VRAIMENT atterri. Rend les unites du joueur."""
-    miennes = []
+    """Attendre que les poses ENFILEES aient VRAIMENT atterri. Rend les poses CONVERTIBLES.
+
+    ⛔ ON LIT `deploymentEtat`, PAS `observeBattle` -- ET C'EST LA DIFFERENCE ENTRE UNE
+    ENTITE ET UN PLACEHOLDER. Avant le START il n'existe AUCUNE entite du joueur : la phase
+    de deploiement ne pose que des placeholders de vue, que le START convertit. `observeBattle`
+    rend donc `0 unite` -- correctement -- et un garde-fou bati dessus ne peut JAMAIS passer.
+
+    Mesure du 2026-08-24 : le montage etait PARFAIT (6 placeholders, `ordreConversion` conforme
+    au replay reel case pour case) et ce compteur a rendu `0/5 apres 30s`, donc le `if` du
+    START n'a pas mordu, donc la bataille est restee en `Setup` -- et le pilote a imprime
+    << REFUS : 0 unite(s) posee(s) >>. J'ai rapporte a l'utilisateur un montage rate qui ne
+    l'etait pas ; c'est lui qui a vu l'ecran et corrige. Un garde-fou qui interroge le mauvais
+    etage ne rend pas un faux negatif discret : il ANNULE l'action suivante.
+
+    `ordreConversion` est le bon etage parce que c'est LITTERALEMENT ce que le START va creer.
+    """
+    convertibles = []
     for _ in range(max(1, int(secondes / 1.5))):
-        o = jeu.rpc("observeBattle", [{}], timeout=120000)
-        miennes = [u for u in ((o or {}).get("units") or []) if u.get("teamId") == 1]
-        if len(miennes) >= attendues:
-            return miennes
+        e = jeu.rpc("deploymentEtat", [{}], timeout=120000)
+        convertibles = [u for u in ((e or {}).get("ordreConversion") or []) if not u.get("mow")]
+        if len(convertibles) >= attendues:
+            return convertibles
         time.sleep(1.5)
     print("  %-28s %d/%d apres %ds -- on n'attend plus"
-          % ("attente des poses", len(miennes), attendues, secondes))
-    return miennes
+          % ("attente des poses", len(convertibles), attendues, secondes))
+    return convertibles
 
 
 def deployer_depuis_replay(jeu, chemin):
@@ -410,7 +425,7 @@ def deployer_depuis_replay(jeu, chemin):
     # Lire tout de suite rend << 0 unite posee >> et fait conclure a un echec de pose : mesure
     # du 2026-08-19, la memoire annoncait encore << POSEE depuis l'exterieur >> alors que le
     # rejeu tournait. On ATTEND l'EFFET, on ne croit pas le retour.
-    miennes = attendre_les_poses(jeu, len(poses))
+    convertibles = attendre_les_poses(jeu, len(poses))
     e = jeu.rpc("deploymentMemoire", [{}])
     print("  %-28s rejeux=%s  %s" % ("deploymentMemoire", (e or {}).get("rejeux"),
                                      court((e or {}).get("dernier"), 200)))
@@ -426,7 +441,7 @@ def deployer_depuis_replay(jeu, chemin):
     # Le START du jeu, lui, produit `AddMachineMessage` (2 271 car.) PUIS `StartBattleMessage`
     # (11 980 car.) -- les DEUX valeurs de la reference, au caractere. C'est la voie du jeu, et
     # celle de la cible.
-    if len(miennes) == len(poses):
+    if len(convertibles) == len(poses):
         d = jeu.rpc("deploymentStartInvoquer", [{"confirmer": True}], timeout=180000)
         print("  %-28s %s" % ("deploymentStartInvoquer", court(d, 400)))
         if not (isinstance(d, dict) and d.get("ok")):
