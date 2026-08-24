@@ -75,6 +75,7 @@ import { rosterPooledGuildBoss, sourceGuildBossForgee } from "./guild-boss-confi
 import { sourceCampagneForgee } from "./campaign-source-forge.js";
 import { sourceGuildWarForgee } from "./guild-war-config.js";
 import { sourceOnslaughtForgee } from "./onslaught-source.js";
+import { sourceMowEventForgee } from "./mow-event-source-forge.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // (!)PLUS AUCUN `buildAddUnitMessage` ICI (2026-08-21). Ce module ne fabrique plus d'ajout
@@ -1074,7 +1075,7 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
  * La source vient de `onslaughtSourceForger {alliance, tier}` — donc du MODE, et paramétrée par
  * la voie et le palier, qui sont des arguments EN CLAIR de son ctor.
  */
-type Preteur = "campagne" | "guildBoss" | "guildWar" | "onslaught";
+type Preteur = "campagne" | "guildBoss" | "guildWar" | "onslaught" | "mowEvent";
 let preteurDelegation: Preteur = "campagne";
 
 /** La source qui prête, son NAMESPACE et la CLASSE sur lesquels résoudre la méthode déléguée.
@@ -1094,6 +1095,14 @@ function sourcePreteuse(): { ptr: NativePointer | null; ns: string; cls: string;
         return { ptr: sourceOnslaughtForgee(),
                  ns: "idun.Idun.Source.IdunMeta.View.Features.Onslaught.Battle",
                  cls: "OnslaughtGameModeSource", nom: "onslaught" };
+    }
+    // L'EVENEMENT Machines of War (Incursion). Son roster deployable n'est PAS celui de la
+    // campagne : `GetUnlockedUnits` y rend les unites eligibles de l'evenement (24 mesurees,
+    // toutes de l'alliance imposee par le palier). Emprunter a la campagne offrirait le roster
+    // du noeud ou pointe la source captee -- un ecran plausible, et faux.
+    if (preteurDelegation === "mowEvent") {
+        return { ptr: sourceMowEventForgee(), ns: NS_SRC,
+                 cls: "MachinesOfWarEventGameModeSource", nom: "mowEvent" };
     }
     // ⚠ LA CAPTÉE D'ABORD, LA FORGÉE ENSUITE -- et le repli n'est pas un confort.
     // La source captée l'est par un ancrage sur le ctor, qui ne tire QU'À LA NAVIGATION : après
