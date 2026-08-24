@@ -50,9 +50,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
-from deploiement_commun import (cases_de_spawn_du_joueur,  # noqa: E402
-                                plateforme_du_joueur, poser_en_placeholders,
-                                poser_la_mow)
+from deploiement_commun import (ids_de_la_lineup,  # noqa: E402
+                                poser_en_placeholders, poser_la_mow_du_joueur,
+                                poses_sur_cases_de_spawn)
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -208,33 +208,17 @@ def main(argv=None):
     # (!)LA MoW SUIT, MAIS PAR UNE AUTRE VOIE : elle n'a ni colonne ni ligne, elle va sur une
     # PLATEFORME (`deploymentMoWPoser`), dont l'entier se derive du `SpawnPointGroup`. Elle est
     # donc posee APRES les heros, a l'etape 11.
-    ids = []
-    if a.mes_unites:
-        ids = [u.strip() for u in a.mes_unites.split(",") if u.strip()]
-    else:
-        lu = d.get("lineup") or {}
-        ids = list(lu.get("unites") or [])
-        if ids:
-            print("  %-28s %d unite(s) de la SOURCE (voie=%s)%s"
-                  % ("lineup par defaut", len(ids), lu.get("voie"),
-                     "  + MoW %s" % lu.get("mow") if lu.get("mow") else "  (aucune MoW)"))
-        else:
-            print("  %-28s la source n'annonce AUCUNE unite (%s) -- l'ecran sortira VIDE, "
-                  "et rien ne sera buffe. `--mes-unites a,b,c` pour en poser."
-                  % ("lineup par defaut", lu.get("refus") or lu.get("voie")))
+    ids, motif = ids_de_la_lineup(d.get("lineup"), override=a.mes_unites)
+    print("  %-28s %s" % ("lineup par defaut", motif))
+    if not ids:
+        print("  %-28s rien ne sera buffe. `--mes-unites a,b,c` pour en poser." % "")
 
     poses = []
     if ids:
-        moi, tuiles, diag = cases_de_spawn_du_joueur(json.loads(bc))
+        poses, _moi, diag = poses_sur_cases_de_spawn(json.loads(bc), ids)
         print("  %-28s %s" % ("cases de spawn", diag))
-        if moi is None:
+        if poses is None:
             return 2
-        if len(ids) > len(tuiles):
-            print("  %-28s REFUS : %d unite(s) demandee(s) pour %d case(s) de spawn"
-                  % ("--mes-unites", len(ids), len(tuiles)))
-            return 2
-        poses = [{"unitId": u, "playerId": moi, "col": c, "row": r}
-                 for u, (c, r) in zip(ids, tuiles)]
 
     print()
     if etape(jeu, "sandboxModeBcOverride", {"configJson": bc}, 180000) is None:
@@ -296,10 +280,8 @@ def main(argv=None):
     mow_id = (d.get("lineup") or {}).get("mow") if not a.mes_unites else None
     if mow_id and poses:
         print()
-        pos, motif = plateforme_du_joueur(json.loads(bc), [(q["col"], q["row"]) for q in poses])
-        print("  %-28s %s" % ("plateforme MoW", motif))
-        if pos is not None:
-            poser_la_mow(jeu, mow_id, poses[0]["playerId"], pos)
+        m = poser_la_mow_du_joueur(jeu, json.loads(bc), mow_id, poses)
+        print("  %-28s %s" % ("plateforme MoW", m))
     machines_adverses = json.loads(bc).get("PredefinedMachines") or []
     print("  %-28s %d machine(s) -- canal du MODE, posee(s) par le natif"
           % ("MoW adverse", len(machines_adverses)))

@@ -57,6 +57,7 @@ import { executeurVivant, Refus as RefusVue } from "./view-command.js";
 // Le FOYER des captures de `*GameModeSource` (campagne, MoW, Pvp, et desormais guild boss).
 import { getGuildBossGameModeSourcePtr } from "./campaign-builder.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
+import { lineupDeLaSource } from "../game/source-lineup.js";
 import {
     champInt, champPointeur, champTexte, estRefus, listeDeTextes, refus,
 } from "./lecture-champs.js";
@@ -503,9 +504,29 @@ export function register(ctx: Ctx): void {
         catch (e) { return refus("`LoadBattleInternal` a leve : " + (e as Error).message); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu NUL");
         gcRoot.add(bc);
+        // LA COMPOSITION DU JOUEUR, DEMANDÉE À LA SOURCE — elle n'est PAS dans la BC.
+        //
+        // ⛔ CE MODULE NE LA PUBLIAIT PAS, ET C'ÉTAIT LE SEUL DES TROIS. `pvp-source-forge` et
+        // `mow-event-source-forge` interrogent tous deux `lineupDeLaSource` ; la forge boss, non.
+        // Conséquence mesurée le 2026-08-24 : une sandbox boss montée sur une session fraîche
+        // arrive avec un plateau VIDE (`placeholders: 0`), et le pilote n'a alors d'autre issue
+        // que de faire nommer les unités à la main — alors que la source les connaît. Le repli
+        // qui masquait le trou (`deploymentMemoire`) ne lit PAS la sauvegarde du compte : il
+        // photographie le plateau à l'appui sur START, donc il est vide tant qu'aucune bataille
+        // n'a démarré RELAIS ARMÉ dans la session courante.
+        //
+        // ⚠ UN VIDE ICI N'ACCUSE PAS LA SOURCE. `deployment-draft` (`deploymentHudArmer`) ancre
+        // lui aussi `GetBattleLineup` et peut laisser passer un tableau vide quand sa mémoire de
+        // poses porte plus frais que la sauvegarde. C'est `lineup.classe` qui tranche — on le
+        // publie tel quel, sans le rabattre sur `[]`.
+        const lu = lineupDeLaSource(src);
         const json = serializeToJson(bc);
         return {
             ok: true, instance: src.toString(), bc: bc.toString(),
+            lineup: {
+                classe: lu.classe, places: lu.places, unites: lu.unites, mow: lu.mow,
+                voie: lu.voie, refus: lu.refus,
+            },
             json,
             jsonRefus: json === null
                 ? "serialisation Newtonsoft en echec -- la BC existe (pointeur ci-dessus) mais "

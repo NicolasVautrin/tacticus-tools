@@ -41,6 +41,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
+from deploiement_commun import (  # noqa: E402
+    ids_de_la_lineup, poser_en_placeholders, poser_la_mow_du_joueur, poses_sur_cases_de_spawn,
+)
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -285,7 +288,71 @@ def main(argv):
         print()
         if deployer_depuis_replay(jeu, args.depuis_replay) != 0:
             return 1
+        return 0
+
+    # 7bis. SINON, LA LINEUP DE LA SOURCE -- comme campagne, PvP et onslaught.
+    #
+    # ⛔ CE PILOTE NE LE FAISAIT PAS, ET C'ETAIT LE SEUL. La composition du joueur n'est PAS dans
+    # la BC : elle se DEMANDE a la source (`GetBattleLineup`), et TOUTES les sources de mode
+    # l'exposent par ce contrat -- GuildBoss compris. `pvp-source-forge` et
+    # `mow-event-source-forge` l'interrogeaient deja ; la forge boss ne la publiait meme pas.
+    #
+    # Sans elle, une sandbox montee sur une session FRAICHE arrive plateau vide, et le seul repli
+    # etait `deploymentMemoire` -- qui ne lit PAS la sauvegarde du compte : il photographie le
+    # plateau a l'appui sur START. Il est donc vide tant qu'aucune bataille n'a demarre relais
+    # arme dans la session, ce qui se lit a tort comme << le jeu n'a pas de lineup >>.
+    #
+    # ⚠ UN VIDE NE S'INVENTE PAS : on le DIT (avec le motif que la source rend), on ne fabrique
+    # aucune composition de remplacement.
+    if not a_pose_quelque_chose(jeu):
+        print()
+        poser_la_lineup_de_la_source(jeu, d, bc)
     return 0
+
+
+def a_pose_quelque_chose(jeu):
+    """Le plateau porte-t-il deja des placeholders ? On ne REPOSE jamais par-dessus.
+
+    (!)REPOSER SUR UN PLATEAU PLEIN CHANGE LE REGIME D'ALLOCATION, et ce n'est pas un detail de
+    confort : la liste libre des paires d'entites se comporte en PILE, donc un clear+repose rend
+    `[MoW] + reverse(unites)` la ou un plateau VIERGE rend `unites + [MoW]`. Poser << au cas ou >>
+    sur un plateau deja garni deplacerait donc silencieusement TOUS les ids d'entite.
+    """
+    e = jeu.rpc("deploymentEtat", [{}], timeout=120000)
+    n = (e or {}).get("placeholders")
+    if isinstance(n, int) and n > 0:
+        print()
+        print("  %-28s %d placeholder(s) DEJA en place -- on ne repose pas par-dessus "
+              "(le regime d'allocation changerait)" % ("lineup de la source", n))
+        return True
+    return False
+
+
+def poser_la_lineup_de_la_source(jeu, d, bc_txt):
+    """Pre-poser en placeholders la composition que LA SOURCE annonce, MoW comprise.
+
+    Tout le travail vit dans `deploiement_commun` -- ce pilote ne fait que l'enchainer et
+    imprimer. La premiere version recopiait le bloc de `sandbox_pvp`, ce qui aurait fait une
+    TROISIEME copie de la meme sequence.
+    """
+    lu = (d or {}).get("lineup") or {}
+    ids, motif = ids_de_la_lineup(lu)
+    print("  %-28s %s" % ("lineup de la source", motif))
+    if not ids:
+        print("  %-28s deployer a la main, ou `--depuis-replay` pour reprendre une composition."
+              % "")
+        return
+
+    bc = json.loads(bc_txt)
+    poses, _moi, diag = poses_sur_cases_de_spawn(bc, ids)
+    print("  %-28s %s" % ("cases de spawn", diag))
+    if poses is None:
+        return
+    if poser_en_placeholders(jeu, poses, mow=lu.get("mow")) is None:
+        return
+    m = poser_la_mow_du_joueur(jeu, bc, lu.get("mow"), poses)
+    if m:
+        print("  %-28s %s" % ("plateforme MoW", m))
 
 
 def attendre_les_poses(jeu, attendues, secondes=30):

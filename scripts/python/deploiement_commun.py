@@ -300,6 +300,74 @@ def plateforme_du_joueur(bc, mes_cases):
     return pos, "plateforme %d (groupe apparie par mes %d case(s))" % (pos, len(voulues))
 
 
+def ids_de_la_lineup(lineup, override=None, etiquette="lineup de la source"):
+    """Les ids a poser : l'`override` s'il est donne, sinon ce que LA SOURCE annonce.
+
+    Rend `(ids, ligne_de_diagnostic)`. `ids` vide n'est PAS une erreur -- c'est un etat qu'il
+    faut DIRE, avec le motif que la source rend.
+
+    (!)LA COMPOSITION SE DEMANDE A LA SOURCE, PAS A LA BC. `GetBattleLineup` est le contrat
+    commun a TOUTES les sources de mode (Campaign, CampaignEvent, GuildBoss, GuildWars,
+    MachinesOfWarEvent, Pvp, SyncPvp, Sandbox...). La BC, elle, ne porte que l'adversaire : le
+    camp du joueur y est VIDE, ses unites n'entrant qu'au DEPLOIEMENT.
+
+    ⚠ ET `deploymentMemoire` N'EST PAS UN REPLI. Il ne lit pas la sauvegarde du compte : il
+    PHOTOGRAPHIE le plateau a l'appui sur START. Il est donc vide tant qu'aucune bataille n'a
+    demarre RELAIS ARME dans la session courante -- ce qui se lit a tort comme << le jeu n'a pas
+    de lineup >>. Mesure du 2026-08-24 : une sandbox boss montee apres reinjection arrivait
+    plateau vide pour cette seule raison.
+    """
+    lu = lineup or {}
+    if override:
+        ids = [u.strip() for u in override.split(",") if u.strip()] \
+            if isinstance(override, str) else list(override)
+        return ids, "%d unite(s) IMPOSEE(S)" % len(ids)
+    ids = list(lu.get("unites") or [])
+    if not ids:
+        return [], ("la source n'annonce AUCUNE unite (%s) -- l'ecran restera VIDE"
+                    % (lu.get("refus") or lu.get("voie")))
+    return ids, ("%d unite(s) de la SOURCE (classe=%s, voie=%s)%s"
+                 % (len(ids), lu.get("classe"), lu.get("voie"),
+                    "  + MoW %s" % lu.get("mow") if lu.get("mow") else "  (aucune MoW)"))
+
+
+def poses_sur_cases_de_spawn(bc, ids):
+    """Apparier `ids` aux cases de spawn du joueur. Rend `(poses, moi, diagnostic)`.
+
+    `poses` a `None` = REFUS (le diagnostic le dit) ; `[]` = rien a poser.
+
+    (!)PLUS D'UNITES QUE DE CASES EST UN REFUS, PAS UNE TRONCATURE. Poser << ce qui tient >>
+    laisserait une composition AMPUTEE que personne n'a demandee, et le compte affiche ne
+    dirait plus ce qui est en jeu. On refuse, et on nomme les deux nombres.
+    """
+    if not ids:
+        return [], None, "rien a poser"
+    moi, tuiles, diag = cases_de_spawn_du_joueur(bc)
+    if moi is None:
+        return None, None, diag
+    if len(ids) > len(tuiles):
+        return None, moi, ("REFUS : %d unite(s) pour %d case(s) de spawn -- %s"
+                           % (len(ids), len(tuiles), diag))
+    return ([{"unitId": u, "playerId": moi, "col": c, "row": r}
+             for u, (c, r) in zip(ids, tuiles)], moi, diag)
+
+
+def poser_la_mow_du_joueur(jeu, bc, mow_id, poses):
+    """La MoW du joueur, APRES ses heros et par la voie PLATEFORME. Rend le motif imprime.
+
+    (!)L'ORDRE N'EST PAS UN CONFORT. Les entites sont allouees dans l'ordre de pose : une
+    machine posee AVANT les heros decale TOUS les squads d'un cran, et un replay adresse ses
+    coups PAR ENTITE. Sur un plateau VIERGE, `unites + [MoW]` est le seul ordre qui reproduise
+    ce que les replays du depot enregistrent.
+    """
+    if not mow_id or not poses:
+        return None
+    pos, motif = plateforme_du_joueur(bc, [(q["col"], q["row"]) for q in poses])
+    if pos is not None:
+        poser_la_mow(jeu, mow_id, poses[0]["playerId"], pos)
+    return motif
+
+
 def poser_la_mow(jeu, unit_id, player_id, position, plafond_s=20.0):
     """Poser MA Machine of War sur sa plateforme -- etage FSM, donc PLACEHOLDER.
 

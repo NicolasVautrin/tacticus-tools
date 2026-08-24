@@ -56,8 +56,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
-from deploiement_commun import (cases_de_spawn_du_joueur,  # noqa: E402
-                                poser_en_placeholders)
+from deploiement_commun import (ids_de_la_lineup,  # noqa: E402
+                                poser_en_placeholders, poses_sur_cases_de_spawn)
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -218,15 +218,8 @@ def main(argv=None):
     #       n'est PAS touchee : cf. `cases_de_spawn_du_joueur`.
     poses = []
     if a.mes_unites:
-        ids = [u.strip() for u in a.mes_unites.split(",") if u.strip()]
-        moi, tuiles, diag = cases_de_spawn_du_joueur(json.loads(bc))
-        print("  %-28s %s" % ("cases de spawn", diag))
-        if moi is None:
-            return 2
-        if len(ids) > len(tuiles):
-            print("  %-28s REFUS : %d unite(s) demandee(s) pour %d case(s) de spawn"
-                  % ("--mes-unites", len(ids), len(tuiles)))
-            return 2
+        ids, motif = ids_de_la_lineup(lu, override=a.mes_unites)
+        print("  %-28s %s" % ("--mes-unites", motif))
         # (!)UNE UNITE HORS DU POOL SE POSE << SANS ERREUR >> ET N'ARRIVE PAS. L'etage FSM est le
         #    chemin du clic humain : il ne pose que ce que le HUD sert. Une unite absente du
         #    roster deployable ne leve rien -- elle manque, simplement, et le seul symptome est
@@ -242,8 +235,12 @@ def main(argv=None):
         else:
             print("  %-28s (!) roster deployable NON MESURE -- appartenance au pool NON "
                   "VERIFIEE" % "--mes-unites")
-        poses = [{"unitId": u, "playerId": moi, "col": c, "row": r}
-                 for u, (c, r) in zip(ids, tuiles)]
+        # L'appariement aux cases vient APRES le controle de pool : refuser sur le pool est plus
+        # informatif que refuser sur un nombre de cases, et les deux refus sont gratuits.
+        poses, _moi, diag = poses_sur_cases_de_spawn(json.loads(bc), ids)
+        print("  %-28s %s" % ("cases de spawn", diag))
+        if poses is None:
+            return 2
 
     # 5. CE QUE LE PATCH A REELLEMENT FAIT -- l'armement ne prouve RIEN.
     st = jeu.rpc("getBattleConfigPatchStatus", [{}])
