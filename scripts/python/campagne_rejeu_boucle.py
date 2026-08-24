@@ -34,8 +34,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.stdout.reconfigure(line_buffering=True)
 
 from replay_rejouer import Jeu, session_vivante          # noqa: E402
-from campagne_rejeu import resoudre_hors_ligne           # noqa: E402
+from campagne_rejeu import resoudre_hors_ligne, entrees_de_campagne  # noqa: E402
 from replay_format import charger as charger_replay      # noqa: E402
+from energie import energie as energie_courante          # noqa: E402
+
+
+def cout_energie_du_noeud(campagne, type_, noeud):
+    """`staminaCost` de la VARIANTE jouee, lu au GAMECONFIG. `None` = NON LU.
+
+    (!)LA VARIANTE COMPTE. Les quatre variantes d'un meme `Campaign<n>_<m>` n'ont PAS le meme
+    cout : mesure du 2026-08-24 sur `Campaign4_31` -- `campaign4` et `mirror4` valent 6,
+    `elite4` et `eliteMirror4` valent 10. Prendre la premiere entree venue sous-estimerait le
+    cout de 40 % sur les noeuds elite, c'est-a-dire exactement ceux qu'on farme.
+    """
+    try:
+        entrees, _build = entrees_de_campagne()
+    except Exception as e:  # noqa: BLE001
+        print("   cout d'energie NON LU (%s: %s)" % (type(e).__name__, str(e)[:120]))
+        return None
+    for t, c, b in entrees:
+        if c == campagne and int(t) == int(type_) and str(b.get("battleId")) == str(noeud):
+            v = b.get("staminaCost")
+            return int(v) if isinstance(v, (int, float)) else None
+    return None
 
 
 def etat_du_noeud(jeu, campagne, type_, noeud):
@@ -179,6 +200,12 @@ def main(argv=None):
                     help="PLAFOND DUR de passes. Par defaut : le nombre de jetons LU sur le "
                          "noeud. Un nombre plus grand est ramene a ce qui est reellement "
                          "disponible -- on ne planifie pas des passes qui seront refusees.")
+    ap.add_argument("--plancher-energie", dest="plancher_energie", type=int, default=None,
+                    metavar="N",
+                    help="ne PAS descendre sous N d'energie. Verifie AVANT chaque passe, sur "
+                         "l'energie REELLE et le `staminaCost` du noeud -- pas sur le booleen "
+                         "`hasStamina`, qui ne dit jamais COMBIEN il reste. Une lecture ratee "
+                         "ARRETE la boucle : sous un plancher, on ne joue pas a l'aveugle.")
     ap.add_argument("--hote", default="http://127.0.0.1:8765")
     ap.add_argument("--session", type=int, default=None)
     ap.add_argument("--armer", action="store_true",
@@ -239,9 +266,19 @@ def main(argv=None):
         print("ARRET -- etat du noeud NON MESURE.")
         return 2
     restants, maxi = jetons_restants(jeu, campagne, type_, noeud)
-    print("noeud %s/%s %d -- energie=%s  gagne=%s perdu=%s etoiles=%s"
+    plancher = args.plancher_energie
+    cout_energie = cout_energie_du_noeud(campagne, type_, noeud)
+    print("noeud %s/%s %d -- energie=%s  gagne=%s perdu=%s etoiles=%s  cout=%s"
           % (campagne, type_, noeud, e0.get("hasStamina"),
-             e0.get("timesWon"), e0.get("timesLost"), e0.get("stars")))
+             e0.get("timesWon"), e0.get("timesLost"), e0.get("stars"),
+             "NON LU" if cout_energie is None else cout_energie))
+    if plancher is not None:
+        cur, mx, panne = energie_courante(jeu)
+        print("PLANCHER D'ENERGIE : %d -- energie %s/%s%s"
+              % (plancher, "NON MESUREE (%s)" % panne if cur is None else cur, mx,
+                 "" if cur is None or cout_energie is None
+                 else "  -> %d passe(s) tiennent au-dessus"
+                      % max(0, (cur - plancher) // cout_energie)))
     print("REJEUX DISPONIBLES : %s / %s"
           % ("NON MESURE" if restants is None else restants, maxi))
 
@@ -294,6 +331,37 @@ def main(argv=None):
         if e.get("bloqueur"):
             print("\nARRET passe %d -- le noeud est BLOQUE : %s" % (n, e.get("bloqueur")))
             break
+        # ⛔ LE PLANCHER D'ENERGIE, ET IL SE VERIFIE AVANT CHAQUE PASSE.
+        #
+        # `hasStamina` ci-dessus est un BOOLEEN -- << peux-tu jouer CE noeud ? >>, jamais
+        # << combien t'en reste-t-il ? >>. Une boucle batie dessus ne PEUT PAS respecter un
+        # plancher : mesure du 2026-08-23, on a demande << garde 50 energie >>, la chaine a
+        # enchaine 12 passes sans jamais pouvoir le savoir, et l'energie est passee sous le
+        # cout d'un noeud elite. C'est ce trou-la que `energie.py` a ouvert, et que celui-ci
+        # ferme -- l'arithmetique de l'appelant ne suffit pas, il faut un REFUS executable.
+        #
+        # ⚠ ON COMPARE `courante - cout >= plancher`, PAS `courante > plancher` : une passe
+        # commencee a 55 sur un noeud a 10 finit a 45. Le cout est celui du gameconfig
+        # (`staminaCost` de la VARIANTE jouee), pas une moyenne.
+        if plancher is not None:
+            cur, _mx, panne = energie_courante(jeu)
+            if cur is None:
+                # Tri-etat : une lecture ratee n'est PAS << au-dessus du plancher >>. On
+                # REFUSE, parce qu'ici l'erreur se paie en energie reelle.
+                print("\nARRET passe %d -- energie NON MESUREE (%s) : on ne joue pas a "
+                      "l'aveugle sous un plancher." % (n, panne))
+                break
+            if cout_energie is None:
+                print("\nARRET passe %d -- `staminaCost` du noeud NON LU : le plancher ne "
+                      "peut pas etre garanti." % n)
+                break
+            if cur - cout_energie < plancher:
+                print("\nARRET passe %d -- PLANCHER : energie %d, cout %d, plancher %d "
+                      "(%d apres la passe)." % (n, cur, cout_energie, plancher,
+                                                cur - cout_energie))
+                break
+            print("   energie %d, cout %d -> %d apres (plancher %d)"
+                  % (cur, cout_energie, cur - cout_energie, plancher))
 
         print()
         print("=" * 92)
