@@ -76,6 +76,7 @@ import { sourceCampagneForgee } from "./campaign-source-forge.js";
 import { sourceGuildWarForgee } from "./guild-war-config.js";
 import { sourceOnslaughtForgee } from "./onslaught-source.js";
 import { sourceMowEventForgee } from "./mow-event-source-forge.js";
+import { sourcePvpForgee } from "./pvp-source-forge.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // (!)PLUS AUCUN `buildAddUnitMessage` ICI (2026-08-21). Ce module ne fabrique plus d'ajout
@@ -482,6 +483,30 @@ let idsCampagne: string[] | null = null;
  *  reçoit est une `List<String>` NORMALE. On lit donc par là, et on ne fait que REMPLIR le
  *  retour du jeu — rien ne traverse. */
 let idsMowEvent: string[] | null = null;
+
+/** Le roster PvP -- MEME lecteur que l'evenement (`GetUnlockedUnits`), sa PROPRE case.
+ *
+ *  ⚠ La case separee n'est pas du zele : le cache est ce qui garde l'emprunt a UN par montage, et
+ *  le partager ferait servir le roster de l'autre mode apres un changement de preteur -- avec un
+ *  contenu parfaitement plausible. C'est exactement la raison ecrite pour `idsOnslaught`. */
+let idsPvp: string[] | null = null;
+
+/** Les prêteurs dont le roster se lit par `GetUnlockedUnits()` -- un seul foyer pour les deux.
+ *
+ *  ⚠ `PvpGameModeSource` ET `MachinesOfWarEventGameModeSource` exposent TOUS DEUX cette méthode
+ *  (vérifié dans `methods.tsv` du build courant). Elle appelle `CloneAsListAndDispose` et rend une
+ *  `List<String>` NORMALE, là où `GetUnitsForDeploymentHUD` rend un `PooledList<String>` dont la
+ *  traversée de frontière fait lever `BeforeReturnToPoolAttempt`. À contrat égal, on prend le
+ *  lecteur qui n'a pas ce mode de panne — et on n'écrit pas deux fois la même branche. */
+function lisParUnlockedUnits(nom: Preteur): boolean {
+    return nom === "mowEvent" || nom === "pvp";
+}
+function cacheUnlocked(nom: Preteur): string[] | null {
+    return nom === "pvp" ? idsPvp : idsMowEvent;
+}
+function poserCacheUnlocked(nom: Preteur, v: string[] | null): void {
+    if (nom === "pvp") { idsPvp = v; } else { idsMowEvent = v; }
+}
 
 /** Les ancrages sur les DEUX bornes de `VisualBattleQuery` (cf. `deploymentBornesArmer`). */
 const listenerBornes: InvocationListener[] = [];
@@ -1085,7 +1110,7 @@ const delegations: Delegation[] = DELEGUEES.map((d) => ({
  * La source vient de `onslaughtSourceForger {alliance, tier}` — donc du MODE, et paramétrée par
  * la voie et le palier, qui sont des arguments EN CLAIR de son ctor.
  */
-type Preteur = "campagne" | "guildBoss" | "guildWar" | "onslaught" | "mowEvent";
+type Preteur = "campagne" | "guildBoss" | "guildWar" | "onslaught" | "mowEvent" | "pvp";
 let preteurDelegation: Preteur = "campagne";
 
 /** La source qui prête, son NAMESPACE et la CLASSE sur lesquels résoudre la méthode déléguée.
@@ -1113,6 +1138,13 @@ function sourcePreteuse(): { ptr: NativePointer | null; ns: string; cls: string;
     if (preteurDelegation === "mowEvent") {
         return { ptr: sourceMowEventForgee(), ns: NS_SRC,
                  cls: "MachinesOfWarEventGameModeSource", nom: "mowEvent" };
+    }
+    // L'ARENE. Son roster deployable est celui du COMPTE, borne par ce que le mode autorise --
+    // ni le noeud de campagne ou pointe la source captee, ni l'alliance d'un palier d'evenement.
+    // La source se FORGE (`pvpSourceForger`), donc sans consommer de tentative : seul un combat
+    // en consomme, et `LoadBattleInternal` n'en est pas un.
+    if (preteurDelegation === "pvp") {
+        return { ptr: sourcePvpForgee(), ns: NS_SRC, cls: "PvpGameModeSource", nom: "pvp" };
     }
     // ⚠ LA CAPTÉE D'ABORD, LA FORGÉE ENSUITE -- et le repli n'est pas un confort.
     // La source captée l'est par un ancrage sur le ctor, qui ne tire QU'À LA NAVIGATION : après
@@ -2168,20 +2200,20 @@ function armerUneDelegation(
             // ⚠ ET LE ROSTER DE L'ÉVÉNEMENT N'EST PAS CELUI DE LA CAMPAGNE : il est borné par
             // l'alliance du palier (24 unités Chaos mesurées au tier 11). Emprunter à la campagne
             // afficherait le roster du nœud où pointe la source captée — plausible, et faux.
-            if (spec.nom === METHODE && p.nom === "mowEvent") {
-                if (idsMowEvent === null) {
+            if (spec.nom === METHODE && lisParUnlockedUnits(p.nom)) {
+                if (cacheUnlocked(p.nom) === null) {
                     // La classe se lit sur L'INSTANCE : c'est la classe RÉELLE, pas celle qu'on
                     // aurait re-résolue par son nom.
                     const mi = findMethodByParamCount(src.readPointer(), "GetUnlockedUnits", 0);
                     if (!mi) {
                         d.dernier = { ok: false, detail: "`GetUnlockedUnits(0)` INTROUVABLE sur "
-                            + "`MachinesOfWarEventGameModeSource` -- chemin PERIME, rien écrit" };
+                            + `\`${p.cls}\` -- chemin PERIME, rien écrit` };
                         return;
                     }
                     let l: NativePointer;
                     try { l = invokeMethod(mi.info, src, []) as NativePointer; }
                     catch (e) {
-                        d.dernier = { ok: false, detail: "lecture du roster mowEvent a levé : "
+                        d.dernier = { ok: false, detail: `lecture du roster ${p.nom} a levé : `
                             + (e as Error).message };
                         return;
                     }
@@ -2190,21 +2222,23 @@ function armerUneDelegation(
                         return;
                     }
                     gcRoot.add(l);
-                    idsMowEvent = listeDeTextes(l);
+                    poserCacheUnlocked(p.nom, listeDeTextes(l));
                 }
-                if (idsMowEvent === null || idsMowEvent.length === 0) {
-                    d.dernier = { ok: false, detail: "roster mowEvent "
-                        + (idsMowEvent === null ? "ILLISIBLE" : "VIDE")
+                const ids = cacheUnlocked(p.nom);
+                if (ids === null || ids.length === 0) {
+                    d.dernier = { ok: false, detail: `roster ${p.nom} `
+                        + (ids === null ? "ILLISIBLE" : "VIDE")
                         + " -- rien écrit, le retour natif est laissé INTACT" };
-                    idsMowEvent = null;   // relire au prochain tir plutôt que figer un échec
+                    // relire au prochain tir plutôt que figer un échec
+                    poserCacheUnlocked(p.nom, null);
                     return;
                 }
-                const r = remplir(retval, idsMowEvent);
+                const r = remplir(retval, ids);
                 d.emprunts++;
                 d.dernier = { ok: r.erreur === null,
                     detail: r.erreur === null
-                        ? `mowEvent REMPLI ${r.ajoutes}/${idsMowEvent.length} (${r.voie})`
-                        : `remplissage mowEvent : ${r.erreur}` };
+                        ? `${p.nom} REMPLI ${r.ajoutes}/${ids.length} (${r.voie})`
+                        : `remplissage ${p.nom} : ${r.erreur}` };
                 return;   // ⚠ `retval` INTACT.
             }
             // LE LINEUP DE LA SOURCE EST UNE SAUVEGARDE — donc PÉRIMÉ dès que le joueur a touché
@@ -7226,6 +7260,7 @@ export function register(ctx: Ctx): void {
         idsOnslaught = null;
         idsCampagne = null;
         idsMowEvent = null;
+        idsPvp = null;
         return queueOnMainThread(() => {
             if (body.armer === false) {
                 for (const d of delegations) {
