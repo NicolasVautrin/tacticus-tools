@@ -1840,7 +1840,7 @@ function applyPatchToConfig(
             // Le debuff part sur TOUT le camp adverse, miroirs compris.
             return { ...e, cibles: base };
         }
-        // `moi` : ON DEMANDE LA COMPOSITION A LA SOURCE, puis on retranche tout ce qui est adverse.
+        // `moi` : ON DEMANDE LA COMPOSITION A LA SOURCE. ON NE RETRANCHE PLUS RIEN.
         //
         // ⛔ NE PAS SE CONTENTER DE `camps.miens`. Mesure du 2026-08-23 sur une BC PvP REELLE
         // (forgee, sans consommer de tentative) : `camps.miens` y est VIDE -- les unites du joueur
@@ -1848,9 +1848,29 @@ function applyPatchToConfig(
         // porte pas la reponse ; la SOURCE, elle, la connait, et c'est elle qui la donnera au HUD.
         // Foyer unique de cette demande : `game/source-lineup.ts`.
         //
-        // ⚠ LA SOUSTRACTION N'EST PAS UNE PRECAUTION : `UnitConfigId$$Equals` ignore `IsPvpOpponent`
-        // (et ne regarde ni le tour ni le camp), donc un id present DES DEUX COTES apparierait aussi
-        // la copie d'en face. Un `Immune` offert a l'adversaire est pire que pas d'`Immune`.
+        // ⛔ LA SOUSTRACTION A EXISTE ICI, ELLE A ETE RETIREE EXPRES (2026-08-24). Elle otait de MON
+        // buff tout id present aussi en face, parce qu'`UnitConfigId$$Equals` ignore `IsPvpOpponent`
+        // et apparierait donc les deux copies. Ce que ca coutait : MON unite miroir ne recevait
+        // RIEN. Ce que ca evitait : rien, quand un debuff couvre deja la copie d'en face --
+        //
+        //   `EnhancementDamageBoostEffect$$CreateEffectDamageBonusForAttack` rend un
+        //   `EffectBonus$$ForPercentIncrease`, et `DamageCalculations$$GetMultiplierFromDamageBonus`
+        //   convertit `-100` en facteur **ZERO** (`b < 1 -> 1 - |b|/100`). Les contributions d'une
+        //   meme face se composent PAR PRODUIT (`ApplyCappedModifiers`), donc `x0 * 1.20 = 0` : la
+        //   copie adverse deja debuffee ne tire RIEN d'un buff de degat. Meme un `ForAddition` est
+        //   absorbe -- il entre dans la base avant le percage, puis traverse la %-list.
+        //
+        // ⚠ ET C'EST CONDITIONNEL, DONC CA SE DIT PLUTOT QUE DE SE DECIDER ICI. Trois regimes ou
+        // le buff NE serait PAS absorbe, et le hook ne peut en verifier aucun :
+        //   1. le buff n'est PAS sur l'axe DEGAT (`EnhancementRegeneration` = +30 % de PV max par
+        //      stack ; les PV ne sont dans aucun accumulateur de degat) ;
+        //   2. le debuff ne couvre pas ce meme id -- en ONSLAUGHT `ciblesAuto: "adversaire"` ne
+        //      couvre que la POSE INITIALE, pas les vagues (cf. `toursDeVagues`) ;
+        //   3. le debuff est pose mais jamais LU par le runner (`installees: 1` cote BC avec
+        //      `debuffes: 0` en bataille -- le cas que `onslaught_reel.py` sait deja mesurer).
+        // Les deux entrees ne sont PAS couplees : un `ciblesAuto` qui ne derive aucune cible pose
+        // une entree VIDE et se contente d'avertir, pendant que le buff, lui, part.
+        //
         // ⚠ DEUX GRANULARITES, ET C'EST VOULU : on CIBLE avec l'id ENTIER (le suffixe porte le
         // `Level`, sans quoi rien n'apparie), mais on COMPARE sur le `PureId` -- un homonyme d'en
         // face s'ecrit `worldKharn:pvp` et designe pourtant le meme `worldKharn`.
@@ -1883,18 +1903,39 @@ function applyPatchToConfig(
                 + `mes unites peuvent invoquer (derives de leurs abilities)`);
         }
         const base = Array.from(new Set([...mesUnites, ...mesSummons]));
-        const gardees = base.filter((c) => !exclus.has(pureId(c)));
-        const retires = base.length - gardees.length;
-        if (retires > 0) {
-            ops.push(`environmentEnhancements[${e.ability}]: ${retires} cible(s) RETIREE(S) `
-                + `(homonymes presents dans LES DEUX camps -- \`Equals\` ne lit pas `
-                + `\`IsPvpOpponent\`, la copie adverse serait appariee aussi)`);
+        // ⛔ ON GARDE TOUT -- les homonymes compris. Cf. le pave ci-dessus : ce qui les rendait
+        // dangereux est annule par le debuff, et les retirer ne coutait qu'a MES unites.
+        const miroirs = base.filter((c) => exclus.has(pureId(c)));
+        if (miroirs.length > 0) {
+            // ⚠ LE REGIME DU POOL N'EST PAS CELUI DE LA LINEUP, ET LA SOUSTRACTION LE MASQUAIT.
+            // Quand la composition sauvegardee est VIDE, `depuisSource` se rabat sur les
+            // DEPLOYABLES -- une centaine d'ids, qui contiennent presque surement TOUT le camp
+            // d'en face. Le buff ne fuit alors plus sur << quelques miroirs >> mais sur l'equipe
+            // adverse ENTIERE. Meme raisonnement, rayon de souffle sans commune mesure : ca se
+            // DIT separement au lieu de se noyer dans le meme compte.
+            const surLePool = lineupSource !== null && lineupSource.unites !== null
+                && lineupSource.unites.length === 0;
+            const noms = miroirs.map(pureId);
+            const extrait = noms.slice(0, 12).join(", ")
+                + (noms.length > 12 ? `, +${noms.length - 12} autre(s)` : "");
+            warnings.push(`environmentEnhancements[${e.ability}]: ${miroirs.length} cible(s) `
+                + `partent AUSSI sur la copie d'en face -- ${extrait}. `
+                // ⚠ ASCII SEULEMENT dans ce qui est IMPRIME : la console Windows est en cp1252,
+                // un `⚠` dans la chaine y leve `UnicodeEncodeError` cote Python. Les COMMENTAIRES
+                // (comme celui-ci) ne partent nulle part et peuvent en porter.
+                + (surLePool
+                    ? `ATTENTION -- liste tiree du POOL DEPLOYABLE (composition sauvegardee vide), `
+                        + `pas d'une equipe : c'est potentiellement TOUT le camp adverse qui est `
+                        + `buffe. `
+                    : "")
+                + `Sans danger SI le buff est sur l'axe DEGAT et qu'un debuff couvre ces memes `
+                + `ids (le facteur 0 absorbe) -- le hook ne peut verifier NI l'un NI l'autre.`);
         }
-        ops.push(`environmentEnhancements[${e.ability}]: ${gardees.length} cible(s) = `
+        ops.push(`environmentEnhancements[${e.ability}]: ${base.length} cible(s) = `
             + `${depuisSource.length} de la SOURCE (voie=${lineupSource?.voie ?? "aucune"}) `
             + `U ${camps.miens.length} de la BC `
-            + `U ${(e.cibles ?? []).length} fournie(s) - ${retires} homonyme(s)`);
-        if (gardees.length === 0) {
+            + `U ${(e.cibles ?? []).length} fournie(s), dont ${miroirs.length} homonyme(s) GARDE(S)`);
+        if (base.length === 0) {
             warnings.push(`environmentEnhancements[${e.ability}]: AUCUNE cible -- `
                 + (lineupSource === null
                     ? `la SOURCE n'a pas ete transmise (patch applique hors \`LoadBattle\`), et la `
@@ -1902,7 +1943,8 @@ function applyPatchToConfig(
                     : `la source \`${lineupSource.classe}\` a repondu : `
                         + `${lineupSource.refus ?? "aucune unite"}`));
         }
-        return { ...e, cibles: gardees };
+        // Le buff part sur TOUTES mes unites, homonymes compris.
+        return { ...e, cibles: base };
     });
     if (demandesEnv.length > 0 || demandesEnh.length > 0) {
         const w = ecrireAbilitesEnvironnement(bc, demandesEnv, demandesEnh);
