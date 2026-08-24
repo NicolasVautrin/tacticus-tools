@@ -52,8 +52,16 @@ def cout_energie_du_noeud(campagne, type_, noeud):
     except Exception as e:  # noqa: BLE001
         print("   cout d'energie NON LU (%s: %s)" % (type(e).__name__, str(e)[:120]))
         return None
+    # ⚠ LE `battleId` EST PARFOIS ZERO-PADE, ET LE COMPARER EN TEXTE RATE LE NOEUD.
+    # Mesure du 2026-08-24 : `Campaign3_01` pour le noeud 1 -- `"01" != "1"`, donc `staminaCost`
+    # NON LU, donc plancher non garantissable, donc ARRET. Le garde a bien refuse plutot que de
+    # deviner ; c'est l'appariement qui etait faux. On compare des ENTIERS.
     for t, c, b in entrees:
-        if c == campagne and int(t) == int(type_) and str(b.get("battleId")) == str(noeud):
+        try:
+            meme_noeud = int(b.get("battleId")) == int(noeud)
+        except (TypeError, ValueError):
+            continue
+        if c == campagne and int(t) == int(type_) and meme_noeud:
             v = b.get("staminaCost")
             return int(v) if isinstance(v, (int, float)) else None
     return None
