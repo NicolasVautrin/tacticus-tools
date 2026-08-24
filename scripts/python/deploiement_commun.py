@@ -266,6 +266,70 @@ def cases_de_spawn_du_joueur(bc):
            "" if adverses == ennemis else "  (!) ECART -- verifier le depliage"))
 
 
+def plateforme_du_joueur(bc, mes_cases):
+    """Le `MachineOfWarPosition` de MON groupe de spawns, ou `(None, motif)`.
+
+    Une Machine of War ne se pose PAS par case : elle n'a ni colonne ni ligne, elle va sur une
+    PLATEFORME, designee par un entier que porte le `SpawnPointGroup`.
+
+    (!)L'APPARIEMENT SE FAIT PAR LES POSITIONS, JAMAIS PAR LE `TeamWithPlayerIndex` -- c'est la
+    regle que `mow_du_replay` a payee : mesure sur maradak, les 5 poses tombent 5/5 dans le groupe
+    d'index 0 alors que le `TeamId` vaut 1. Apparier par l'equipe aurait pris l'AUTRE groupe et
+    pose la machine sur la plateforme adverse.
+
+    Rend `(None, motif)` quand l'appariement n'est pas univoque : on ne devine pas une plateforme.
+    """
+    idx = (bc or {}).get("SpawnPointSetIndex")
+    jeux = ((bc.get("Board") or {}).get("SpawnPointSets") or [])
+    if not isinstance(idx, int) or not (0 <= idx < len(jeux)):
+        return None, ("`SpawnPointSetIndex`=%r hors des %d jeux de spawns" % (idx, len(jeux)))
+    voulues = set(tuple(c) for c in mes_cases)
+    if not voulues:
+        return None, "aucune case connue -- rien a quoi apparier le groupe"
+    candidats = []
+    for g in (jeux[idx] or {}).get("SpawnPointGroups") or []:
+        pts = set((s.get("Column"), s.get("Row")) for s in (g.get("SpawnPoints") or []))
+        if voulues <= pts:
+            candidats.append(g)
+    if len(candidats) != 1:
+        return None, ("%d groupe(s) contiennent mes %d case(s) -- appariement NON UNIVOQUE"
+                      % (len(candidats), len(voulues)))
+    pos = candidats[0].get("MachineOfWarPosition")
+    if not isinstance(pos, int):
+        return None, ("mon groupe ne porte pas de `MachineOfWarPosition` (%r)" % pos)
+    return pos, "plateforme %d (groupe apparie par mes %d case(s))" % (pos, len(voulues))
+
+
+def poser_la_mow(jeu, unit_id, player_id, position, plafond_s=20.0):
+    """Poser MA Machine of War sur sa plateforme -- etage FSM, donc PLACEHOLDER.
+
+    ⛔ NI `AddMachineMessage`, NI `BC.PredefinedMachines`. Le premier CRASHE ; le second est le
+    canal de la machine ADVERSE (que le mode impose) et decalerait les ids d'entites. On passe par
+    `deploymentMoWPoser` -> `StateMachineActions$$UnitDeployment_PlaceMachineOfWarUnitOnBoard`,
+    le chemin du clic humain, et c'est le START natif qui convertit.
+
+    ⚠ LE RETOUR NE PROUVE RIEN : `AddPlaceholderMachine` ne pose qu'un placeholder de VUE, et un
+    appel peut rendre `ok` sans que la machine existe. On relit `deploymentEtat.machines`.
+    """
+    r = jeu.rpc("deploymentMoWPoser", [{"unitId": unit_id, "playerId": player_id,
+                                        "position": position, "confirmer": True}], timeout=180000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        print("   REFUS `deploymentMoWPoser` : %s" % json.dumps(r, ensure_ascii=False)[:280])
+        return None
+    debut, e = time.time(), None
+    while time.time() - debut < plafond_s:
+        e = jeu.rpc("deploymentEtat", [{}], timeout=120000)
+        if isinstance(e, dict) and e.get("machines") is True:
+            break
+        time.sleep(0.3)
+    machines = e.get("machines") if isinstance(e, dict) else None
+    print("   MoW %-22s -> plateforme %s   machines=%s   [%.1f s]"
+          % (unit_id, position, machines, time.time() - debut))
+    if machines is not True:
+        print("   (!) le HUD ne declare AUCUNE machine -- la pose n'a pas abouti.")
+    return e
+
+
 def poser_en_placeholders(jeu, poses, mow=None, mow_index=None, sur_reelle=False,
                           plafond_s=20.0):
     """Poser une composition DONNEE en PLACEHOLDERS, et attendre qu'elle ait atterri.

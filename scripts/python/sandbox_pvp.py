@@ -51,7 +51,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
 from deploiement_commun import (cases_de_spawn_du_joueur,  # noqa: E402
-                                poser_en_placeholders)
+                                plateforme_du_joueur, poser_en_placeholders,
+                                poser_la_mow)
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -204,9 +205,9 @@ def main(argv=None):
     # est dans `PredefinedUnits`, donc present des le Setup) et le buff ne mord sur RIEN, ce qui
     # se lit a tort comme un ciblage casse.
     #
-    # ⚠ LA MoW EST ECARTEE DE CE DEFAUT, et c'est dit : elle ne se pose pas par case (pas de
-    # colonne/ligne) mais par PLATEFORME, via `deploymentMoWPoser`. La poser demande de deriver
-    # sa plateforme du `SpawnPointGroup`, ce que ce pilote ne fait pas encore.
+    # (!)LA MoW SUIT, MAIS PAR UNE AUTRE VOIE : elle n'a ni colonne ni ligne, elle va sur une
+    # PLATEFORME (`deploymentMoWPoser`), dont l'entier se derive du `SpawnPointGroup`. Elle est
+    # donc posee APRES les heros, a l'etape 11.
     ids = []
     if a.mes_unites:
         ids = [u.strip() for u in a.mes_unites.split(",") if u.strip()]
@@ -216,8 +217,7 @@ def main(argv=None):
         if ids:
             print("  %-28s %d unite(s) de la SOURCE (voie=%s)%s"
                   % ("lineup par defaut", len(ids), lu.get("voie"),
-                     "  -- MoW %s NON POSEE (voie plateforme)" % lu.get("mow")
-                     if lu.get("mow") else ""))
+                     "  + MoW %s" % lu.get("mow") if lu.get("mow") else "  (aucune MoW)"))
         else:
             print("  %-28s la source n'annonce AUCUNE unite (%s) -- l'ecran sortira VIDE, "
                   "et rien ne sera buffe. `--mes-unites a,b,c` pour en poser."
@@ -282,6 +282,30 @@ def main(argv=None):
         for q in poses:
             print("    %-24s -> (%s,%s)" % (q["unitId"], q["col"], q["row"]))
         poser_en_placeholders(jeu, poses)
+
+    # 11. MA MACHINE OF WAR -- APRES les heros, et par la voie PLATEFORME.
+    #
+    # (!)L'ORDRE N'EST PAS UN CONFORT : les entites sont allouees dans l'ordre de pose, et la
+    # machine posee AVANT les heros decalerait tous les squads d'un cran.
+    #
+    # ⚠ ET CELLE DE L'ADVERSAIRE NE SE POSE PAS ICI. Elle vit dans `BC.PredefinedMachines`, que le
+    # MODE remplit depuis l'encounter -- c'est son canal, et le natif la place lui-meme. Un
+    # `PredefinedMachines` VIDE n'est donc pas un trou du montage : il veut dire que l'adversaire
+    # propose n'en aligne AUCUNE (mesure du 2026-08-24 : sur 3 propositions, seule la n=1 « Doot »
+    # en porte une, `astraOrdnanceBattery`). On le DIT au lieu d'en fabriquer une.
+    mow_id = (d.get("lineup") or {}).get("mow") if not a.mes_unites else None
+    if mow_id and poses:
+        print()
+        pos, motif = plateforme_du_joueur(json.loads(bc), [(q["col"], q["row"]) for q in poses])
+        print("  %-28s %s" % ("plateforme MoW", motif))
+        if pos is not None:
+            poser_la_mow(jeu, mow_id, poses[0]["playerId"], pos)
+    machines_adverses = json.loads(bc).get("PredefinedMachines") or []
+    print("  %-28s %d machine(s) -- canal du MODE, posee(s) par le natif"
+          % ("MoW adverse", len(machines_adverses)))
+    if not machines_adverses:
+        print("  %-28s l'adversaire propose n'aligne AUCUNE machine : ce n'est pas un trou du "
+              "montage. `--n <autre>` pour en viser un qui en porte une." % "")
 
     print()
     if not a.sans_replay:
