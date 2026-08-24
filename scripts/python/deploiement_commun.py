@@ -336,6 +336,27 @@ def poses_sur_cases_de_spawn(bc, ids):
 
     `poses` a `None` = REFUS (le diagnostic le dit) ; `[]` = rien a poser.
 
+    ⛔ LES POSITIONS SONT ARBITRAIRES, ET LE DIAGNOSTIC LE DIT. `GetBattleLineup` rend un
+    `String[]` : la source porte QUI le joueur amene, JAMAIS OU il le pose. L'appariement
+    ci-dessous zippe les ids avec les cases de spawn dans l'ordre du plateau -- c'est une
+    convention de CE code, pas une donnee du jeu.
+
+    Mesure du 2026-08-24 : sur le boss de guilde, les 5 unites rendues etaient EXACTEMENT
+    celles du dernier combat, et les 5 positions TOUTES fausses -- chaque unite sur la case
+    d'une autre. Le compte (5/5) et les noms (5/5) etaient justes, ce qui rendait le tout
+    parfaitement credible. C'est le mode de panne le plus couteux : une moitie mesuree, une
+    moitie inventee, et rien qui les distingue a l'ecran.
+
+    ⇒ Pour un placement FIDELE, la position doit venir d'une source qui la porte : un replay
+    (`poses_du_replay` / `--depuis-replay`), ou une saisie explicite. Pas d'ici.
+
+    ⚠ QUESTION OUVERTE, ET MA CONCLUSION A ETE CONTREDITE. J'ai ecrit << le jeu sauvegarde
+    l'equipe, pas le placement >> apres avoir constate que TOUT le contrat de source est
+    `String[]`/`String` et que `UnitProgressionData.SetLineup(key, unitIds)` ne stocke que des
+    ids. L'utilisateur a corrige : << le jeu arrive tres bien a retrouver le placement >>. Le
+    mecanisme n'est donc PAS celui que j'ai balaye, et il reste a trouver -- une absence dans
+    une famille de symboles ne prouve rien. Ne pas re-citer ma conclusion : la RE-MESURER.
+
     (!)PLUS D'UNITES QUE DE CASES EST UN REFUS, PAS UNE TRONCATURE. Poser << ce qui tient >>
     laisserait une composition AMPUTEE que personne n'a demandee, et le compte affiche ne
     dirait plus ce qui est en jeu. On refuse, et on nomme les deux nombres.
@@ -349,7 +370,9 @@ def poses_sur_cases_de_spawn(bc, ids):
         return None, moi, ("REFUS : %d unite(s) pour %d case(s) de spawn -- %s"
                            % (len(ids), len(tuiles), diag))
     return ([{"unitId": u, "playerId": moi, "col": c, "row": r}
-             for u, (c, r) in zip(ids, tuiles)], moi, diag)
+             for u, (c, r) in zip(ids, tuiles)], moi,
+            diag + " | (!) POSITIONS ARBITRAIRES : la source donne les UNITES, pas leur "
+                   "placement -- `--depuis-replay` pour un placement fidele")
 
 
 def poser_la_mow_du_joueur(jeu, bc, mow_id, poses):
