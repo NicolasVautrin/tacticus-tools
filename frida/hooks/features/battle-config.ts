@@ -1768,10 +1768,27 @@ function applyPatchToConfig(
                     + `l'adversaire peut invoquer (derives de ses abilities)`);
             }
             const base = Array.from(new Set([...camps.adverses, ...smn]));
-            // ⛔ RETIRER LES MIROIRS. Symetrique EXACTE de la soustraction de la branche `moi`,
-            // et pour la meme cause : `Equals` ne lit pas `IsPvpOpponent`, donc une cible ecrite
-            // pour `custoTrajann:pvp` apparie aussi MON `custoTrajann`. On compare sur le
-            // `PureId` -- le suffixe porte le niveau, pas l'identite.
+            // ⛔ RETIRER LES MIROIRS -- ET C'EST UN RENONCEMENT, PAS UNE PROTECTION.
+            // Retirer l'id de la liste epargne MA copie en cessant de viser la SIENNE : les
+            // deux tombent ensemble. On perd le debuff sur cette unite-la.
+            //
+            // ⚠ ET C'EST LE SEUL ETAT ATTEIGNABLE. `IdunBattle.Configuration.UnitConfigId$$Equals`
+            // compare EXACTEMENT quatre choses, lues au decompile le 2026-08-24 (plus sur une
+            // phrase d'aide) : `PureId` (+0x00, `String.op_Equality`), `Rarity` (+0x08,
+            // `Nullable` -- `HasValue` ET `Value`), `Level` (+0x10, idem), `IsBorrowed` (+0x18,
+            // octet). `IsPvpOpponent` n'est JAMAIS lu.
+            // En PvP les entrees adverses portent `Rarity: null, Level: null, IsBorrowed: false`
+            // -- et les miennes aussi, sinon la correspondance MESUREE n'aurait pas eu lieu (un
+            // `HasValue` different suffirait a separer). Les quatre champs coincident : il ne
+            // reste aucun champ sur lequel discriminer. Ne pas chercher a << viser la sienne
+            // seulement >>, c'est impossible par ce canal.
+            //
+            // ⚠ CE N'EST PAS UNIVERSEL : sur le boss de guilde les cibles portent `Level: 23`.
+            // La ou le niveau est porte ET differe entre les deux copies, `Equals` discrimine
+            // tout seul et la question ne se pose pas. Le probleme est propre aux modes qui
+            // NEUTRALISENT le niveau, dont le PvP.
+            //
+            // On compare sur le `PureId` -- le suffixe `:pvp` porte le mode, pas l'identite.
             //
             // ⚠ ON N'UTILISE QUE MA LINEUP, JAMAIS LE POOL DEPLOYABLE. La branche `moi` se rabat
             // sur le pool quand la lineup est vide, ce qui est sans risque pour un BUFF (viser
