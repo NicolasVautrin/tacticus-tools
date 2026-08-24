@@ -450,6 +450,11 @@ def main(argv):
                     help="ne fait QUE controler l'ordre de conversion contre le replay, puis "
                          "sort (0 = conforme, 2 = refus). Aucune bataille n'est demarree, aucun "
                          "coup n'est envoye.")
+    ap.add_argument("--remap", action="store_true",
+                    help="REETIQUETER les entites du replay sur celles de la bataille montee "
+                         "(`replay_remap`) au lieu d'exiger la meme allocation -- la seule voie "
+                         "sur une entree REELLE, ou le plateau arrive pre-rempli et ou la MoW "
+                         "passe donc toujours en tete. Refuse si un id adresse est indecidable.")
     ap.add_argument("--sans-appariement", action="store_true",
                     help="rejouer MEME SI l'appariement unite <-> squad differe du replay "
                          "(le resultat ne mesure alors plus rien du moteur)")
@@ -536,6 +541,55 @@ def main(argv):
             print("REFUS : entite du joueur NON RESOLUE, donc le camp du joueur n'est pas "
                   "identifiable et l'appariement ne peut pas etre controle.")
             return 2
+        # ⇒ LE REMAPPAGE REMPLACE LE CRAN, IL NE LE CONTOURNE PAS.
+        #
+        # `controler_appariement` exige que le LIVE ait la meme allocation que le replay. Sur une
+        # entree REELLE c'est inatteignable : le plateau arrive PRE-REMPLI, donc tout clear+repose
+        # tombe dans le regime << plateau plein >> et la MoW passe en TETE ([M] + reverse(U)),
+        # quelle que soit la permutation des unites (loi mesuree, cf. `deploiement_commun`).
+        #
+        # Plutot que d'exiger l'egalite, on REETIQUETTE les coups. Le controle qui remplace le
+        # cran est STRICTEMENT PLUS FORT : bijection unite<->entite, invariant de bloc (les deux
+        # deploiements occupent le MEME ensemble d'ids, sans quoi tuiles/boss/unites nees en
+        # cours de partie ne sont plus decidables), et classement EXHAUSTIF de tout id adresse --
+        # un id indecidable REFUSE. Rien n'est suppose << identite >> par defaut.
+        if args.remap:
+            import replay_remap as RR
+            rep = RR.entites_du_replay(d)
+            bloc_rep = RR.bloc_de_deploiement(d)
+            o = jeu.rpc("observeBattle", [{}], timeout=180000) or {}
+            vivant = {u["visualId"]: u["squadId"] for u in (o.get("units") or [])
+                      if u.get("squadId") is not None and u.get("visualId") in rep}
+            for mw in (o.get("mows") or []):
+                if mw.get("visualId") in rep and mw.get("machineId") is not None:
+                    vivant[mw["visualId"]] = mw["machineId"]
+            if not rep or not vivant:
+                print("REFUS : appariement illisible (replay=%d, vivant=%d) -- rien n'est envoye."
+                      % (len(rep), len(vivant)))
+                return 2
+            bloc_vif = set(range(min(vivant.values()), max(vivant.values()) + 2))
+            try:
+                t = RR.table(rep, vivant, bloc_rep, bloc_vif)
+            except RR.Refus as e:
+                print("REFUS du remappage : %s" % e)
+                return 2
+            cl = RR.classer(RR.ids_references(d), t, bloc_rep)
+            if cl["refus"]:
+                for r in cl["refus"]:
+                    print("REFUS : entite %s %s" % (r["entite"], r["motif"]))
+                return 2
+            print("remappage : %s"
+                  % ", ".join("%s->%s" % (a, b) for a, b in sorted(t.items())))
+            print("            %d entites hors bloc laissees INTACTES (tuiles, boss, unites "
+                  "nees en cours de partie)" % len(cl["identite"]))
+            # On reecrit le replay ENTIER puis on re-tranche : `pas` a deja ete coupe par
+            # `--depuis`/`--max-coups`, donc le re-decoupage doit etre identique.
+            d = RR.reecrire(d, t)
+            pas = d["Messages"][depuis:]
+            if args.max_coups > 0:
+                pas = pas[:args.max_coups]
+            return boucle(jeu, -1, pas, joueur, args, entite_joueur)
+
         ok, detail = controler_appariement(jeu, d, entite_joueur)
         print("appariement : %s" % detail)
         if not ok and not args.sans_appariement:
