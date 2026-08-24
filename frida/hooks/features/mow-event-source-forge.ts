@@ -63,6 +63,8 @@ import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { lineupDeLaSource } from "../game/source-lineup.js";
+import { declarerSourceDeChargement } from "./battle-config.js";
 import { executeurVivant } from "./view-command.js";
 import {
     champBool, champInt, champPointeur, champTexte, elementsDeListe, estRefus, refus,
@@ -648,9 +650,18 @@ export function register(ctx: Ctx): void {
         catch (e) { return refus("`" + CLS_SRC + "..ctor` a LEVE : " + (e as Error).message); }
 
         // 4. LA BC. `isRestart: false` -- le ctor a DEJA bati la lineup adverse (decompile).
+        //
+        // ⛔ ON DECLARE LA SOURCE AVANT D'APPELER. Le patch d'env-ability s'applique dans
+        // l'`onLeave` de CE `LoadBattleInternal`, et `ciblesAuto: "moi"` a besoin de l'instance
+        // pour demander la composition du joueur -- qui n'est PAS dans la BC (le HUD la deploie).
+        // Le hook ne peut pas la capturer lui-meme : un `onEnter` en tuerait le tir (mesure du
+        // 2026-08-23, 17 ancrages muets d'un coup). D'ou la declaration, et le `finally` : un
+        // pointeur laisse la serait servi au chargement SUIVANT, qui n'est pas le sien.
         let bc: NativePointer;
+        declarerSourceDeChargement(src);
         try { bc = invokeMethod(mLoad.info, src, [argBool(false)]); }
         catch (e) { return refus("`LoadBattleInternal` a LEVE : " + (e as Error).message); }
+        finally { declarerSourceDeChargement(null); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu une BC NULLE");
         const nomBc = nomDeClasse(bc);
         if (nomBc !== "BattleConfiguration") {
@@ -664,6 +675,14 @@ export function register(ctx: Ctx): void {
         resume.srcPtr = src.toString();
         resume.bcPtr = bc.toString();
         resume.dataPtr = data.toString();
+        // LA COMPOSITION DU JOUEUR, DEMANDEE A LA SOURCE. Elle n'est PAS dans la BC : le HUD la
+        // deploie. `GetBattleLineup` IGNORE son parametre `lineupIndex` (decompile) et rend la
+        // lineup MEMORISEE dans la progression de l'evenement -- donc celle du dernier run joue.
+        // C'est ce que `ciblesAuto: "moi"` visera ; le publier evite de le decouvrir a 0 cible.
+        const lu = lineupDeLaSource(src);
+        resume.lineup = {
+            classe: lu.classe, places: lu.places, unites: lu.unites, mow: lu.mow, refus: lu.refus,
+        };
         resume.boardId = champRecordTexte(data, "BoardId");
         resume.spawnPointsSet = champRecordInt(data, "SpawnPointsSet");
         resume.lightningVictoryTurns = champRecordInt(data, "LightningVictoryTurns");

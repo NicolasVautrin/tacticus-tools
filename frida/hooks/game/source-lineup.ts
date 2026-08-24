@@ -67,11 +67,71 @@ export interface LineupDeSource {
     retour: { ptr: string; classe: string | null } | null;
     refus: string | null;
     mowRefus: string | null;
+    /** Le POOL DÉPLOYABLE (`GetUnlockedUnits`), et ce n'est PAS la même question que `unites`.
+     *  `null` = pas demandé ou pas mesuré. Voir `deployables` ci-dessous. */
+    deployables: string[] | null;
+    deployablesRefus: string | null;
+    /** D'où viennent les ids utilisables : `"lineup"` (la composition sauvegardée) ou
+     *  `"deployables"` (le repli). JAMAIS deviné par l'appelant. */
+    voie: "lineup" | "deployables" | null;
 }
 
 function vide(refus: string, classe: string | null = null): LineupDeSource {
     return { ok: false, classe, bornes: {}, places: null, unites: null, unitesTaille: null,
-             mow: null, retour: null, refus, mowRefus: null };
+             mow: null, retour: null, refus, mowRefus: null,
+             deployables: null, deployablesRefus: null, voie: null };
+}
+
+/** Les éléments d'une `List<System.String>` gérée. `_items` (tableau) et `_size` (compte réel) --
+ *  itérer sur la CAPACITÉ du tableau rendrait des nuls de fin de buffer pour des unités. */
+function textesDeListe(liste: NativePointer): string[] | null {
+    try {
+        const items = liste.add(0x10).readPointer();
+        const n = liste.add(0x18).readS32();
+        if (items.isNull() || n < 0 || n > 512) return null;
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+            out.push(chaineGeree(items.add(0x20 + i * Process.pointerSize).readPointer())
+                ?? "<illisible>");
+        }
+        return out;
+    } catch { return null; }
+}
+
+/**
+ * LE POOL DÉPLOYABLE — la SECONDE question, et elle a une réponse quand la première n'en a pas.
+ *
+ * ⛔ `GetBattleLineup` rend la composition SAUVEGARDÉE. Sur un mode à run (l'événement Machines of
+ * War / Incursion) elle vit dans l'ÉTAT DE RUN : tant qu'aucun run n'est démarré elle est VIDE, et
+ * `ciblesAuto: "moi"` n'a alors RIEN à nommer. Mesure du 2026-08-24 : `places=5, unites=[]` alors
+ * que `AmountOfUnlockedUnits` valait **24**. La source savait ; on ne lui demandait pas.
+ *
+ * `GetUnlockedUnits()` rend ces 24 -- les unités que le HUD proposera au déploiement, en ids NUS
+ * (`blackTerminator`, `worldKharn`, ...), la même forme que le natif passe en `mainPlayerUnits`.
+ *
+ * ⚠ CE N'EST PAS LA MÊME QUESTION, ET LE CONFONDRE SERAIT FAUX POUR TOUT AUTRE USAGE : c'est le
+ * POOL, pas l'ÉQUIPE. Pour un BUFF c'est sans risque (viser une unité qui ne descend jamais ne
+ * coûte rien) ; pour compter une équipe ou prédire un placement, ce serait un mensonge. D'où
+ * `voie`, qui DIT laquelle des deux a répondu.
+ *
+ * ⚠ ET ON PASSE PAR `GetUnlockedUnits`, JAMAIS PAR `GetUnitsForDeploymentHUD` : ce dernier rend un
+ * `PooledList<String>` (type VALEUR, mis en pool), et enchaîner un `get_Item` sur le pointeur de
+ * boxe passe l'en-tête comme `this` -- ça a TUÉ le process le 2026-08-21. `GetUnlockedUnits`
+ * appelle `CloneAsListAndDispose` : ce qu'on reçoit est une `List<String>` normale.
+ */
+function poolDeployable(
+    klass: NativePointer, src: NativePointer,
+): { ids: string[] | null; refus: string | null } {
+    const mi = findMethodByParamCount(klass, "GetUnlockedUnits", 0);
+    if (!mi) return { ids: null, refus: "`GetUnlockedUnits(0)` INTROUVABLE sur cette source" };
+    let l: NativePointer;
+    try { l = invokeMethod(mi.info, src, []); }
+    catch (e) { return { ids: null, refus: "`GetUnlockedUnits` a levé : " + (e as Error).message }; }
+    if (l.isNull()) return { ids: null, refus: "`GetUnlockedUnits` a rendu NUL" };
+    const ids = textesDeListe(l);
+    return ids === null
+        ? { ids: null, refus: "`List<String>` illisible (offsets `_items`/`_size`)" }
+        : { ids, refus: null };
 }
 
 /** Lit un `System.String` géré : longueur en `+0x10`, caractères UTF-16 à partir de `+0x14`. */
@@ -181,14 +241,27 @@ export function lineupDeLaSource(
         }
     }
 
+    // LE REPLI, et il ne se déclenche QUE sur un vide : tant que la composition sauvegardée
+    // répond, c'est elle qui fait foi -- le pool est plus large, donc moins précis.
+    const pool = n === 0 ? poolDeployable(klass, src) : { ids: null, refus: null };
+
     return {
         ok: true, classe, bornes, places,
         unites, unitesTaille: n, mow, mowRefus,
         retour: { ptr: arr.toString(), classe: classeArr },
-        refus: n === 0
-            ? "tableau de longueur 0 -- si `retour.classe` n'est pas un tableau de chaînes, c'est "
-                + "l'OFFSET qui est faux, pas la composition qui est vide ; et si "
+        deployables: pool.ids,
+        deployablesRefus: pool.refus,
+        voie: n > 0 ? "lineup" : (pool.ids !== null && pool.ids.length > 0 ? "deployables" : null),
+        refus: n === 0 && (pool.ids === null || pool.ids.length === 0)
+            ? "tableau de longueur 0, et le POOL déployable ne répond pas non plus ("
+                + (pool.refus ?? "vide") + ") -- si `retour.classe` n'est pas un tableau de "
+                + "chaînes, c'est l'OFFSET qui est faux, pas la composition qui est vide ; et si "
                 + "`deploymentHudArmer` est armé, c'est peut-être LUI qui a laissé passer un vide"
-            : null,
+            : (n === 0
+                ? "composition sauvegardée VIDE (mode à run non démarré, typiquement) -- repli sur "
+                    + "le POOL déployable de `GetUnlockedUnits` : " + (pool.ids as string[]).length
+                    + " unité(s). C'est le POOL, pas l'ÉQUIPE ; sans risque pour un buff, faux "
+                    + "pour compter une équipe."
+                : null),
     };
 }

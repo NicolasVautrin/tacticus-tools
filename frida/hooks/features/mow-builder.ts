@@ -30,6 +30,7 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import { log, traceEnter } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 import { getLastGameConfig } from "./campaign-builder.js";
+import { declarerSourceDeChargement } from "./battle-config.js";
 
 const ASM_BATTLE = "Assembly-CSharp.dll";
 const NS_BATTLE_SOURCE = "IdunBattle.ViewLogic.BattleSource";
@@ -403,6 +404,17 @@ export function register(ctx: Ctx): void {
                         traceEnter("MachinesOfWarEventGameModeSource.LoadBattleInternal");
                         const self = ptr(args[0].toString());
                         if (self.isNull()) return;
+                        // ⛔ ON DECLARE LA SOURCE AU PATCH -- c'est la SEULE voie pour la battle
+                        // LIVE de l'evenement. `ciblesAuto: "moi"` a besoin de l'instance pour
+                        // demander la composition du joueur, qui n'est PAS dans la BC (le HUD la
+                        // deploie) ; et le listener du patch ne peut pas la capturer lui-meme,
+                        // un `onEnter` sur lui en tuerait le tir (mesure du 2026-08-23).
+                        // ⚠ CE LISTENER-CI N'A PAS D'`onLeave`, DONC IL NE NETTOIE PAS. C'est
+                        // assume : `battle-config` ne retient l'instance que si sa CLASSE
+                        // concorde avec la source qui charge, donc un reliquat est ignore et dit.
+                        // Lui ajouter un `onLeave` pour nettoyer serait exactement le geste qui
+                        // a deja tue un hook -- on ne le tente pas pour economiser un pointeur.
+                        declarerSourceDeChargement(self);
                         if (!lastMoWSource || !lastMoWSource.equals(self)) {
                             const wasNull = lastMoWSource === null;
                             lastMoWSource = self;

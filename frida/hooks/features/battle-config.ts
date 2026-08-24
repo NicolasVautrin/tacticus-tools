@@ -71,6 +71,7 @@ import {
 } from "./campaign-builder.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
 import { lineupDeLaSource } from "../game/source-lineup.js";
+import { dumpEnum } from "../il2cpp/enum-dump.js";
 import { registerRunner, getRunner as getRegistryRunner,
     listRunners as listRegistryRunners, MAX_RUNNERS }
     from "../game/runner-registry.js";
@@ -409,7 +410,9 @@ function unitesPredefinies(bc: NativePointer): string[] | null {
  * demanderait de marcher un `SortedDictionary` (arbre rouge-noir) a cles de TYPE VALEUR, sur le
  * thread principal, a la fenetre de chargement. Newtonsoft le fait deja, et rend la MEME forme que
  * `bc_apparitions.py` lit cote Python -- une seule forme pour deux lecteurs. */
-function campsDeLaBc(bc: NativePointer): { miens: string[]; adverses: string[] } | null {
+function campsDeLaBc(bc: NativePointer): {
+    miens: string[]; adverses: string[]; summonsDe: (ids: string[]) => string[];
+} | null {
     let json: string | null;
     try { json = _serializeBcToJson(bc); } catch { return null; }
     if (json === null) return null;
@@ -468,7 +471,140 @@ function campsDeLaBc(bc: NativePointer): { miens: string[]; adverses: string[] }
             for (const s of aSpawner) ranger(pid, (s as Record<string, unknown> | null)?.["UnitId"]);
         }
     }
-    return { miens: Array.from(miens), adverses: Array.from(adverses) };
+    return {
+        miens: Array.from(miens), adverses: Array.from(adverses),
+        summonsDe: indexerSummons(o),
+    };
+}
+
+/** Le nom des abilities, LU AU RUNTIME. Mémoïsé : `dumpEnum` parcourt tous les champs de la classe.
+ *
+ *  ⚠ ON NE FIGE PAS CETTE TABLE. Un ordinal recopié dans le dépôt devient faux au changement de
+ *  build, EN SILENCE -- et ici la faute serait invisible : on chercherait la mauvaise clé dans le
+ *  catalogue, `Constants` sortirait `undefined`, et le résultat serait « cette unité ne summone
+ *  rien ». Exactement le faux zéro qu'on vient de payer. */
+let _nomsAbility: { actives: Map<number, string>; passives: Map<number, string> } | null = null;
+function nomsAbility(): { actives: Map<number, string>; passives: Map<number, string> } {
+    if (_nomsAbility !== null) return _nomsAbility;
+    const inverser = (r: Record<string, string> | null): Map<number, string> => {
+        const m = new Map<number, string>();
+        for (const [nom, val] of Object.entries(r ?? {})) {
+            const n = Number(val);
+            if (Number.isFinite(n) && !m.has(n)) m.set(n, nom);
+        }
+        return m;
+    };
+    _nomsAbility = {
+        actives: inverser(dumpEnum("IdunSharedAssembly.dll", "IdunBattle.Entities.Enum",
+                                   "ActiveAbilityType")),
+        passives: inverser(dumpEnum("IdunSharedAssembly.dll", "IdunBattle.Entities.Enum",
+                                    "TriggeredAbilityType")),
+    };
+    return _nomsAbility;
+}
+
+/**
+ * QUI PEUT INVOQUER QUOI — l'index `unité -> unités qu'elle fait apparaître`.
+ *
+ * ⛔ UN SUMMON N'EST DANS AUCUNE DES DEUX VOIES QU'ON LISAIT. Il n'est ni dans `PredefinedUnits`
+ * (il n'existe pas encore), ni dans le pool déployable (le joueur ne le choisit pas) : il naît en
+ * cours de bataille, sur l'équipe de SON INVOCATEUR. Un buff/debuff « par camp » qui ne le nomme
+ * pas le laisse donc intact -- et c'est silencieux, comme toujours.
+ *
+ * ⚠ LA JOINTURE EST LE PIÈGE, ET ELLE A DÉJÀ RENDU UN FAUX ZÉRO. `BC.Abilities.*` est keyé par
+ * NOM (`Incursion`, `Possession`, `HungeringSwarm`), alors que `BC.Units[].ActiveAbilities` porte
+ * des ORDINAUX (`1022`). Joindre les deux directement rend **0 unité capable de summon** sur une
+ * BC qui en contient 17 -- un zéro parfaitement lisible, et faux. L'ordinal passe par
+ * `ActiveAbilityType` / `TriggeredAbilityType`.
+ *
+ * ⚠ DEUX ENUMS DIFFÉRENTS, ET LES ORDINAUX SE CHEVAUCHENT : `1022` vaut `BringerOfDespair` en
+ * ACTIF et `AutoSummonOnDamage` en PASSIF. Prendre le mauvais ne lève pas, il désigne autre chose.
+ * La voie (`ActiveAbilities` / `PassiveAbilities`) est ce qui tranche -- jamais l'ordinal seul.
+ *
+ * La constante s'appelle `unitId`, `unitId_2`, ou `unitIds` (liste séparée par des virgules) : on
+ * retient toute clé qui CONTIENT `unitid`, plutôt que de fermer la liste sur les trois formes
+ * connues -- une quatrième passerait inaperçue.
+ */
+function indexerSummons(o: Record<string, unknown>): (ids: string[]) => string[] {
+    const noms = nomsAbility();
+    const cat = (o["Abilities"] as Record<string, unknown> | null) ?? {};
+    const catActives = (cat["ActiveAbilities"] as Record<string, unknown> | null) ?? {};
+    const catPassives = (cat["PassiveAbilities"] as Record<string, unknown> | null) ?? {};
+    const units = (o["Units"] as Array<Record<string, unknown>> | null) ?? [];
+
+    // Les formes EXACTES que ce combat utilise, par `PureId` : la constante d'ability donne un id
+    // NU (`tyranSmnSporeMine`), mais le combat peut porter `tyranNpc1Hormagaunt:1` ET `:pvp`. On
+    // vise les deux -- `UnitConfigId$$Equals` compare le `Level`, donc un id nu n'apparie pas une
+    // unité suffixée, et l'inverse non plus.
+    const formesParPure = new Map<string, Set<string>>();
+    for (const u of units) {
+        const id = u?.["Id"];
+        if (typeof id !== "string" || id === "") continue;
+        const p = pureId(id);
+        const s = formesParPure.get(p) ?? new Set<string>();
+        s.add(id);
+        formesParPure.set(p, s);
+    }
+
+    const depuisConfig = (cfg: unknown): string[] => {
+        const c = (cfg as Record<string, unknown> | null)?.["Constants"];
+        if (c === null || typeof c !== "object") return [];
+        const out: string[] = [];
+        for (const [k, v] of Object.entries(c as Record<string, unknown>)) {
+            if (!k.toLowerCase().includes("unitid")) continue;
+            for (const x of String(v).split(",")) {
+                const t = x.trim();
+                if (t !== "") out.push(t);
+            }
+        }
+        return out;
+    };
+
+    // `unité -> summons`, indexé sur l'id ENTIER **et** sur son `PureId` : l'appelant nous passe
+    // des cibles qui peuvent porter un suffixe (`tyranNpc3Termagant:pvp`) ou non.
+    const parUnite = new Map<string, Set<string>>();
+    for (const u of units) {
+        const id = u?.["Id"];
+        if (typeof id !== "string" || id === "") continue;
+        const trouves = new Set<string>();
+        const collecter = (aid: unknown, table: Map<number, string>,
+                           catalogue: Record<string, unknown>): void => {
+            if (typeof aid !== "number") return;
+            const nom = table.get(aid);
+            if (nom === undefined) return;
+            for (const s of depuisConfig(catalogue[nom])) {
+                // On pose l'id NU (ce que dit la config) ET toutes les formes que ce combat
+                // utilise pour le même `PureId`.
+                trouves.add(s);
+                for (const f of formesParPure.get(pureId(s)) ?? []) trouves.add(f);
+            }
+        };
+        for (const a of (u["ActiveAbilities"] as unknown[] | null) ?? []) {
+            collecter(a, noms.actives, catActives);
+        }
+        for (const a of (u["PassiveAbilities"] as unknown[] | null) ?? []) {
+            collecter(a, noms.passives, catPassives);
+        }
+        // La RELIQUE est un `TriggeredAbilityType` comme les passifs -- et elle summone
+        // (`CallInReinforcements`). L'oublier laisserait un porteur de relique invoquer en paix.
+        collecter(u["TertiaryAbility"], noms.passives, catPassives);
+        if (trouves.size === 0) continue;
+        for (const cle of [id, pureId(id)]) {
+            const s = parUnite.get(cle) ?? new Set<string>();
+            for (const t of trouves) s.add(t);
+            parUnite.set(cle, s);
+        }
+    }
+
+    return (ids: string[]): string[] => {
+        const out = new Set<string>();
+        for (const id of ids) {
+            for (const cle of [id, pureId(id)]) {
+                for (const s of parUnite.get(cle) ?? []) out.add(s);
+            }
+        }
+        return Array.from(out);
+    };
 }
 
 /** Les `PureId` que le CALENDRIER DE VAGUES programme -- `UnitSpawningOverTime.Tiers`.
@@ -1549,7 +1685,17 @@ function applyPatchToConfig(
                 + `un joueur \`PlayerType 0\`) -- entree posee SANS cible plutot qu'a l'envers`);
             return { ...e, cibles: [] };
         }
-        if (e.ciblesAuto === "adversaire") return { ...e, cibles: camps.adverses };
+        if (e.ciblesAuto === "adversaire") {
+            // ⛔ ET SES SUMMONS. Un adversaire qui invoque en cours de bataille amène des unités
+            // qu'AUCUNE lecture de la BC ne nomme -- elles n'existent pas encore. Sans elles, un
+            // `-100 %` laisse intacte la moitié d'une équipe tyranide, en silence.
+            const smn = camps.summonsDe(camps.adverses);
+            if (smn.length > 0) {
+                ops.push(`environmentEnhancements[${e.ability}]: +${smn.length} SUMMON(S) que `
+                    + `l'adversaire peut invoquer (derives de ses abilities)`);
+            }
+            return { ...e, cibles: Array.from(new Set([...camps.adverses, ...smn])) };
+        }
         // `moi` : ON DEMANDE LA COMPOSITION A LA SOURCE, puis on retranche tout ce qui est adverse.
         //
         // ⛔ NE PAS SE CONTENTER DE `camps.miens`. Mesure du 2026-08-23 sur une BC PvP REELLE
@@ -1568,13 +1714,31 @@ function applyPatchToConfig(
         // La MACHINE DE GUERRE est une unite a moi comme une autre, et elle n'apparait dans AUCUNE
         // des deux autres voies : `GetBattleLineup` ne rend que les heros, et la BC ne porte que
         // les `PredefinedMachines` de l'adversaire.
+        // ⛔ ET SI LA COMPOSITION SAUVEGARDEE EST VIDE, ON BUFFE LE POOL. Sur un mode a run
+        // (l'evenement Machines of War / Incursion), `GetBattleLineup` lit l'etat de RUN : tant
+        // qu'aucun run n'est demarre elle rend `[]`, et `moi` n'a RIEN a nommer. La source connait
+        // pourtant les 24 unites que le HUD proposera (`GetUnlockedUnits`). Viser le POOL couvre
+        // donc n'importe quelle equipe que le joueur descendra ensuite.
+        // ⚠ C'EST LE POOL, PAS L'EQUIPE, et `source-lineup` le DIT par `voie`. Sans risque pour un
+        // buff -- viser une unite qui ne descend jamais ne coute rien -- mais faux pour compter.
         const depuisSource = lineupSource === null ? [] : [
             ...(lineupSource.unites ?? []),
+            ...(lineupSource.unites !== null && lineupSource.unites.length === 0
+                ? (lineupSource.deployables ?? []) : []),
             ...(lineupSource.mow !== null ? [lineupSource.mow] : []),
         ];
-        const base = Array.from(new Set([
+        // ⛔ ET MES SUMMONS. Symetrique du camp adverse : mes invocations naissent EN COURS de
+        // bataille, donc elles ne sont ni dans la BC ni dans le pool deployable. Un buff qui les
+        // oublie laisse une part de l'equipe non buffee, sans rien signaler.
+        const mesUnites = Array.from(new Set([
             ...(e.cibles ?? []), ...depuisSource, ...camps.miens,
         ]));
+        const mesSummons = camps.summonsDe(mesUnites);
+        if (mesSummons.length > 0) {
+            ops.push(`environmentEnhancements[${e.ability}]: +${mesSummons.length} SUMMON(S) que `
+                + `mes unites peuvent invoquer (derives de leurs abilities)`);
+        }
+        const base = Array.from(new Set([...mesUnites, ...mesSummons]));
         const gardees = base.filter((c) => !exclus.has(pureId(c)));
         const retires = base.length - gardees.length;
         if (retires > 0) {
@@ -1583,7 +1747,8 @@ function applyPatchToConfig(
                 + `\`IsPvpOpponent\`, la copie adverse serait appariee aussi)`);
         }
         ops.push(`environmentEnhancements[${e.ability}]: ${gardees.length} cible(s) = `
-            + `${depuisSource.length} de la SOURCE U ${camps.miens.length} de la BC `
+            + `${depuisSource.length} de la SOURCE (voie=${lineupSource?.voie ?? "aucune"}) `
+            + `U ${camps.miens.length} de la BC `
             + `U ${(e.cibles ?? []).length} fournie(s) - ${retires} homonyme(s)`);
         if (gardees.length === 0) {
             warnings.push(`environmentEnhancements[${e.ability}]: AUCUNE cible -- `
@@ -2091,6 +2256,53 @@ export function declarerOverrideDeBc(source: string | null): void {
     sourceDetourneeParOverride = source;
 }
 
+/** L'INSTANCE de source dont on sait qu'elle est en train de charger, DÉCLARÉE par son appelant.
+ *
+ * ⛔ ELLE NE PEUT PAS ÊTRE CAPTURÉE, ET C'EST MESURÉ. La voie évidente -- un `onEnter` qui garde
+ * `args[0]` -- fait CESSER le tir de l'`onLeave` : mesure du 2026-08-23, les 17 ancrages muets
+ * d'un coup, en silence, pendant qu'une bataille était en déploiement. Donc le porteur DÉCLARE,
+ * comme pour l'override de BC juste au-dessus.
+ *
+ * ⚠ CE QUE ÇA CHANGE : `ciblesAuto: "moi"` a besoin de la source, parce que **la composition du
+ * joueur n'est PAS dans la BC** hors campagne -- elle est déployée par le HUD. Sans elle, `moi`
+ * se rabat sur `camps.miens`, qui vaut **0** sur un event ou un duel d'Arène. Mesure du
+ * 2026-08-24 sur l'Incursion : `camps derives : 0 unite(s) a MOI, 6 ADVERSE(S)`.
+ *
+ * ⚠ QUI PEUT DÉCLARER : celui qui INVOQUE `LoadBattleInternal` lui-même, donc les forges. La voie
+ * LIVE (le joueur qui lance sa bataille) n'a personne pour déclarer -- elle reste sur le repli, et
+ * `lastApply` le DIT (`lineup demandee a ...` absent). Ne pas lire ce champ comme une garantie. */
+let sourceEnChargement: NativePointer | null = null;
+
+/** DÉCLARER l'instance de source qui va charger, puis la RETIRER (`null`) dès le retour.
+ *  Toujours dans un `finally` : un pointeur laissé là serait servi au chargement SUIVANT, qui
+ *  n'est pas le sien. */
+export function declarerSourceDeChargement(src: NativePointer | null): void {
+    sourceEnChargement = src !== null && !src.isNull() ? src : null;
+}
+
+/** L'instance déclarée, MAIS SEULEMENT SI SA CLASSE EST CELLE QUI VIENT DE CHARGER.
+ *
+ * ⛔ C'EST LE CRAN QUI REND LA DÉCLARATION SÛRE. Un déclarant qui ne peut pas nettoyer (un
+ * `onEnter` sans `onLeave` -- et lui en ajouter un est exactement le geste qui tue un hook)
+ * laisse forcément un pointeur derrière lui. Sans cette confrontation, le chargement SUIVANT,
+ * d'un tout autre mode, se verrait servir la source du précédent et lui demanderait une lineup :
+ * une réponse plausible, pour la mauvaise bataille. Ici une instance qui ne concorde pas est
+ * simplement IGNORÉE, et le désaccord est DIT plutôt que tu.
+ *
+ * `source` est le nom de classe sous lequel l'ancrage a été posé (`attacherPatchSurLoadBattle`). */
+function sourceConcordante(source: string): { src: NativePointer | null; note: string | null } {
+    if (sourceEnChargement === null) return { src: null, note: null };
+    let classe: string | null = null;
+    try { classe = cstr(class_get_name(sourceEnChargement.readPointer()) as NativePointer); }
+    catch { classe = null; }
+    if (classe === source) return { src: sourceEnChargement, note: null };
+    return {
+        src: null,
+        note: `instance de source DECLAREE mais NON CONCORDANTE (\`${classe ?? "?"}\` declaree, `
+            + `\`${source}\` charge) -- ignoree ; \`ciblesAuto: "moi"\` se rabat sur les camps de la BC`,
+    };
+}
+
 /**
  * APPLIQUER le patch en attente à UNE `BattleConfiguration`, et publier le témoin.
  *
@@ -2203,7 +2415,13 @@ function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean
                     pendingPatch = null; // consume now to avoid re-apply
                 }
                 try {
-                    const result = applyPatchToConfig(retval, patch, null);
+                    // L'instance de source est DÉCLARÉE par qui la connaît (une forge, ou le
+                    // capteur `onEnter` d'un builder), jamais capturée ici : un `onEnter` sur CE
+                    // listener le tuerait. Elle n'est retenue que si sa CLASSE concorde avec la
+                    // source qui charge -- sinon c'est un reliquat, et on le DIT.
+                    const declaree = sourceConcordante(source);
+                    const result = applyPatchToConfig(retval, patch, declaree.src);
+                    if (declaree.note !== null) result.warnings.push(declaree.note);
                     // La SOURCE est publiée : sans elle, un `lastApply` ne dit pas si le patch a
                     // mordu sur la campagne ou sur le banc, et les deux se lisent pareil.
                     result.operations.unshift(`source=${source}`);
