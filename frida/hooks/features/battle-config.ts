@@ -1005,6 +1005,23 @@ interface PatchApplyResult {
 
 let pendingPatch: BattleConfigPatch | null = null;
 let lastApply: PatchApplyResult | null = null;
+
+/** Y a-t-il un patch en attente ? Pour les gardes qui doivent DECIDER dans le jeu, sans RPC.
+ *
+ *  ⛔ EXPOSE PLUTOT QUE DUPLIQUE. `pendingPatch` est module-prive ; un garde qui tiendrait son
+ *  propre drapeau << un patch est arme >> derivereait en silence des que quelqu'un arme ou
+ *  retire par un autre chemin -- et un garde qui se croit inutile ne protege rien. */
+export function patchEnAttente(): BattleConfigPatch | null { return pendingPatch; }
+
+/** RETIRER le patch en attente, depuis le jeu. Rend ce qui a ete retire (`null` = rien).
+ *  Le seul appelant prevu est `garde-boss-patch.ts`, avant qu'une tentative de boss soit
+ *  DEPENSEE : le retrait doit avoir lieu AVANT que la BC soit construite, donc bien avant
+ *  `LoadBattle.onLeave` ou le patch s'appliquerait. */
+export function retirerPatchEnAttente(): BattleConfigPatch | null {
+    const p = pendingPatch;
+    pendingPatch = null;
+    return p;
+}
 /** Le dernier passage REFUSE au `LoadBattle.onLeave` faute d'avoir rendu une `BattleConfiguration`.
  *  Publie a cote de `lastApply`, jamais a sa place : c'est ce qui distingue « le hook n'est pas
  *  pose » de « le hook est pose, mais l'ancrage vise un corps deduplique ». */

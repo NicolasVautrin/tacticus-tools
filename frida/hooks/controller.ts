@@ -71,6 +71,7 @@ import * as vueException from "./features/vue-exception.js";
 import * as visuelAbandonne from "./features/visuel-abandonne.js";
 import * as replayFinAuto from "./features/replay-fin-auto.js";
 import * as sandboxFenetre from "./features/sandbox-fenetre.js";
+import * as gardeBossPatch from "./features/garde-boss-patch.js";
 import * as guildWarLeaderboard from "./features/guild-war-leaderboard.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
 import * as gameLoader from "./game/loader.js";
@@ -605,6 +606,12 @@ export function wireRpc(ctx: Ctx): void {
      // et 14 relais dont `sandboxModeBcOverride` ont ete mesures encore armes apres coup.
      // DESARME par defaut ; il ne coute qu'un test de booleen par frame.
      sandboxFenetre,
+     // `gardeBossPatch` RETIRE un patch de BC en attente au lancement d'un boss de guilde, sur
+     // `ViewCommandExecutor$$StartGuildBossMatch` -- en amont de la construction de la BC, donc
+     // avant que le jeton soit depense. Une tentative de boss est rare et non renouvelable ; un
+     // patch arme pour l'onslaught n'a rien a y faire. ARME EN PERMANENCE : un garde qu'il faut
+     // penser a armer n'est pas la le jour ou il sert. Chemin FROID, aucun `replace`.
+     gardeBossPatch,
      // `guildWarLeaderboard` OBSERVE l'arrivee du classement de saison, il ne le DEMANDE jamais :
      // les deux methodes qui le produisent passent par le reseau, donc les invoquer emettrait une
      // requete. On ancre le convergent `CacheGuildDetails`, qui recoit la liste COMPLETE en
