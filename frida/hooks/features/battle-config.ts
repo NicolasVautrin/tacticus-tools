@@ -1598,18 +1598,18 @@ export function ecrireAbilitesEnvironnement(
  *  dérivés de la BC, et le DIT. */
 /** L'instance CAPTEE d'une source, quand personne ne l'a declaree -- le repli de la voie LIVE.
  *
- * ⛔ IL EXISTE PARCE QUE LA VOIE QU'IL FAUT PROTEGER EST JUSTEMENT CELLE QUI NE DECLARE RIEN.
+ * ⛔ IL EXISTE PARCE QUE LA VOIE OU LES MIROIRS COUTENT EST JUSTEMENT CELLE QUI NE DECLARE RIEN.
  * `declarerSourceDeChargement` est appele par les FORGES ; la bataille que le joueur lance
- * lui-meme n'a personne pour le faire. Or c'est la, et seulement la, qu'un miroir non retire
- * coute une unite reelle.
+ * lui-meme n'a personne pour le faire. Or c'est la, et seulement la, qu'un miroir non SIGNALE
+ * coute une unite reelle -- on ne le retire plus, on le NOMME, et le nommer exige cette lecture.
  *
  * ⚠ CE QU'ON EN TIRE, ET CE QU'ON N'EN TIRE PAS. L'instance peut etre celle d'une bataille
  * PRECEDENTE : on ne lui demande donc RIEN qui depende de la bataille en cours. `GetBattleLineup`
  * lit la composition SAUVEGARDEE du mode -- la meme que le HUD va pre-poser -- donc une instance
  * plus ancienne rend la meme reponse. Ne pas etendre cet usage sans re-verifier ce point.
  *
- * ⚠ TOUT MODE ABSENT DE CETTE TABLE REND `null`, ET LE REFUS SE DIT (`PROTECTION MIROIR NON
- * APPLIQUEE`). Rendre une source d'un AUTRE mode serait pire que rien : on soustrairait une
+ * ⚠ TOUT MODE ABSENT DE CETTE TABLE REND `null`, ET LE REFUS SE DIT (`MIROIRS NON VERIFIABLES`).
+ * Rendre une source d'un AUTRE mode serait pire que rien : on annoncerait des miroirs tires d'une
  * composition qui n'est pas celle de cette bataille. */
 function repliSourceCaptee(source: string | null): NativePointer | null {
     if (source === null) return null;
@@ -1626,8 +1626,8 @@ function repliSourceCaptee(source: string | null): NativePointer | null {
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch, srcInstance: NativePointer | null = null,
     // ⚠ LE NOM DE LA SOURCE N'EST PLUS DECORATIF : il choisit le repli de `repliSourceCaptee`.
-    // `null` (voies qui patchent une BC deja montee) => aucun repli, et la protection miroir
-    // le DIT au lieu de se croire appliquee.
+    // `null` (voies qui patchent une BC deja montee) => aucun repli, donc aucune liste de
+    // miroirs, et ca se DIT au lieu de passer pour « aucun miroir ».
     source: string | null = null,
 ): PatchApplyResult {
     const ops: string[] = [];
@@ -1768,69 +1768,77 @@ function applyPatchToConfig(
                     + `l'adversaire peut invoquer (derives de ses abilities)`);
             }
             const base = Array.from(new Set([...camps.adverses, ...smn]));
-            // ⛔ RETIRER LES MIROIRS -- ET C'EST UN RENONCEMENT, PAS UNE PROTECTION.
-            // Retirer l'id de la liste epargne MA copie en cessant de viser la SIENNE : les
-            // deux tombent ensemble. On perd le debuff sur cette unite-la.
+            // ⛔ ON NE RETIRE RIEN. AUCUN MIROIR N'EST SOUSTRAIT, ET C'EST UN CHOIX EXPLICITE.
             //
-            // ⚠ ET C'EST LE SEUL ETAT ATTEIGNABLE. `IdunBattle.Configuration.UnitConfigId$$Equals`
+            // Le canal ne sait pas discriminer : `IdunBattle.Configuration.UnitConfigId$$Equals`
             // compare EXACTEMENT quatre choses, lues au decompile le 2026-08-24 (plus sur une
             // phrase d'aide) : `PureId` (+0x00, `String.op_Equality`), `Rarity` (+0x08,
             // `Nullable` -- `HasValue` ET `Value`), `Level` (+0x10, idem), `IsBorrowed` (+0x18,
-            // octet). `IsPvpOpponent` n'est JAMAIS lu.
-            // En PvP les entrees adverses portent `Rarity: null, Level: null, IsBorrowed: false`
-            // -- et les miennes aussi, sinon la correspondance MESUREE n'aurait pas eu lieu (un
-            // `HasValue` different suffirait a separer). Les quatre champs coincident : il ne
-            // reste aucun champ sur lequel discriminer. Ne pas chercher a << viser la sienne
-            // seulement >>, c'est impossible par ce canal.
+            // octet). `IsPvpOpponent` n'est JAMAIS lu. En PvP les entrees adverses portent
+            // `Rarity: null, Level: null, IsBorrowed: false` -- et les miennes aussi, sinon la
+            // correspondance MESUREE n'aurait pas eu lieu. Les quatre champs coincident : viser
+            // la copie d'en face SEULE est impossible par ce canal, et il ne sert a rien de
+            // chercher.
+            //
+            // ⇒ Il ne restait que deux regimes, et l'arbitrage est celui de l'utilisateur
+            // (2026-08-24, transpose de la GUERRE DE GUILDE ou il tient depuis toujours) :
+            //   * retirer l'id  => MA copie est epargnee, mais LA SIENNE aussi -- l'adversaire
+            //                      garde une unite pleine ;
+            //   * garder l'id   => les deux copies portent le debuff.
+            // << Je prefere qu'une de mes unites soit debuff plutot qu'une unite adverse ne le
+            // soit pas. >> Le debuff est donc COMPLET, toujours, et c'est a l'utilisateur de ne
+            // pas descendre une unite que l'adversaire aligne aussi.
             //
             // ⚠ CE N'EST PAS UNIVERSEL : sur le boss de guilde les cibles portent `Level: 23`.
             // La ou le niveau est porte ET differe entre les deux copies, `Equals` discrimine
-            // tout seul et la question ne se pose pas. Le probleme est propre aux modes qui
+            // tout seul et la question ne se pose meme pas. Le probleme est propre aux modes qui
             // NEUTRALISENT le niveau, dont le PvP.
             //
+            // ⚠ MAIS ON NE SE TAIT PAS. La lecture de ma composition est CONSERVEE -- non plus
+            // pour soustraire, mais pour NOMMER les ids qui vont retomber sur moi. C'est la
+            // seule chose qui permette a l'utilisateur d'exercer l'arbitrage qu'il vient de
+            // prendre : sans la liste, << c'est a moi de m'en assurer >> n'est pas jouable.
             // On compare sur le `PureId` -- le suffixe `:pvp` porte le mode, pas l'identite.
-            //
-            // ⚠ ON N'UTILISE QUE MA LINEUP, JAMAIS LE POOL DEPLOYABLE. La branche `moi` se rabat
-            // sur le pool quand la lineup est vide, ce qui est sans risque pour un BUFF (viser
-            // une unite qui ne descend pas ne coute rien). Ici l'effet est inverse : exclure le
-            // pool retirerait une centaine d'ids et viderait le debuff. Une lineup vide se DIT.
             const miennes = new Set<string>([
                 ...camps.miens.map(pureId),
                 ...(lineupSource?.unites ?? []).map(pureId),
                 ...(lineupSource?.mow != null ? [pureId(lineupSource.mow)] : []),
             ]);
-            const gardees = base.filter((c) => !miennes.has(pureId(c)));
-            const retires = base.length - gardees.length;
-            if (retires > 0) {
-                ops.push(`environmentEnhancements[${e.ability}]: ${retires} MIROIR(S) RETIRE(S) `
-                    + `(id present dans LES DEUX camps -- \`Equals\` ne lit pas `
-                    + `\`IsPvpOpponent\`, MA copie serait appariee aussi)`);
+            const miroirs = base.filter((c) => miennes.has(pureId(c)));
+            if (miroirs.length > 0) {
+                // AVERTISSEMENT, pas `ops` : c'est une unite reelle qui va jouer diminuee.
+                warnings.push(`environmentEnhancements[${e.ability}]: ${miroirs.length} MIROIR(S) `
+                    + `-- ${miroirs.map(pureId).join(", ")} -- present(s) DANS LES DEUX camps. `
+                    + `Ils sont VISES QUAND MEME (choix assume : mieux vaut ma copie debuffee `
+                    + `qu'une unite adverse epargnee). NE PAS LES DESCENDRE si tu peux l'eviter.`);
             }
-            // ⚠ NE PAS SE TAIRE QUAND ON N'A PAS PU REGARDER. Sans ma composition, la protection
-            // n'a PAS eu lieu : le dire est ce qui distingue « aucun miroir » de « je n'ai pas
-            // su verifier ». Un silence identique dans les deux cas ferait jouer un PvP en
-            // croyant proteges des heros qui ne le sont pas.
+            // ⚠ NE PAS SE TAIRE QUAND ON N'A PAS PU REGARDER. Sans ma composition, l'absence de
+            // miroir signale n'est PAS une absence de miroir : le dire est ce qui distingue
+            // « aucun » de « je n'ai pas su verifier ». Un silence identique dans les deux cas
+            // ferait descendre une equipe en croyant la liste vide.
             if (miennes.size === 0) {
-                warnings.push(`environmentEnhancements[${e.ability}]: PROTECTION MIROIR NON `
-                    + `APPLIQUEE -- ma composition n'est pas mesurable ici (source declaree : `
+                warnings.push(`environmentEnhancements[${e.ability}]: MIROIRS NON VERIFIABLES `
+                    + `-- ma composition n'est pas mesurable ici (source declaree : `
                     + `${srcInstance !== null ? "oui" : "NON"}, repli capte : `
                     + `${instancePourLineup !== null ? "oui" : "NON"}, camps.miens=`
-                    + `${camps.miens.length}). Un id present des deux cotes DEBUFFERAIT ma propre `
-                    + `copie -- mesure du 2026-08-24 en PvP : 2 unites miroir a -100 %.`);
+                    + `${camps.miens.length}). Le debuff part COMPLET ; personne ne peut te dire `
+                    + `lesquelles de tes unites le porteront aussi.`);
             } else {
-                // ⚠ ET LA COUVERTURE SE DIT, MEME QUAND ELLE A MARCHE. `GetBattleLineup` rend la
-                // composition SAUVEGARDEE -- celle que le HUD va pre-poser -- pas celle qui sera
-                // REELLEMENT descendue. Un joueur qui change son equipe au deploiement (ou un
-                // banc qui la force par `--mes-unites`) sort de la couverture, et la protection
-                // ne peut PAS le savoir a cette fenetre : les unites n'entrent qu'au
-                // deploiement, apres. Mesure du 2026-08-24 : 6 ids proteges, 0 retire, et mes
-                // deux miroirs FORCES toujours debuffes -- le mecanisme etait juste, son
+                // ⚠ ET LA PORTEE DE LA LISTE SE DIT, MEME QUAND ELLE EST VIDE. `GetBattleLineup`
+                // rend la composition SAUVEGARDEE -- celle que le HUD va pre-poser -- pas celle
+                // qui sera REELLEMENT descendue. Changer d'equipe au deploiement (ou la forcer
+                // par `--mes-unites` sur un banc) sort de ce que la liste a pu regarder, et
+                // aucune lecture de cette fenetre ne peut le savoir : les unites n'entrent
+                // qu'au deploiement, apres. Mesure du 2026-08-24 : 6 ids lus, 0 miroir annonce,
+                // et deux miroirs FORCES bel et bien debuffes -- la lecture etait juste, son
                 // ensemble ne les contenait pas.
-                ops.push(`environmentEnhancements[${e.ability}]: protection miroir sur `
+                ops.push(`environmentEnhancements[${e.ability}]: miroirs cherches contre `
                     + `${miennes.size} id(s) a moi (voie=${lineupSource?.voie ?? "BC"}) -- `
-                    + `COUVRE la composition ANNONCEE, pas une equipe changee au deploiement`);
+                    + `${miroirs.length} trouve(s) ; liste tiree de la composition ANNONCEE, `
+                    + `pas d'une equipe changee au deploiement`);
             }
-            return { ...e, cibles: gardees };
+            // Le debuff part sur TOUT le camp adverse, miroirs compris.
+            return { ...e, cibles: base };
         }
         // `moi` : ON DEMANDE LA COMPOSITION A LA SOURCE, puis on retranche tout ce qui est adverse.
         //
@@ -2445,9 +2453,9 @@ export function declarerSourceDeChargement(src: NativePointer | null): void {
     // ⛔ ON GARDE AUSSI LA DERNIERE, HORS DU `finally` -- ET C'EST CE QUI SAUVE LE BANC.
     // La declaration est retiree des le retour de l'invoke, alors que sur un montage SANDBOX le
     // patch s'applique PLUS TARD, a la substitution, sous le nom `SandboxGameModeSource`. A cet
-    // instant plus personne n'est declare : mesure du 2026-08-24, `PROTECTION MIROIR NON
-    // APPLIQUEE (source declaree : NON, repli capte : NON)` sur le banc PvP meme -- donc le banc
-    // ne pouvait pas eprouver la protection qu'il devait eprouver.
+    // instant plus personne n'est declare : mesure du 2026-08-24, `(source declaree : NON, repli
+    // capte : NON)` sur le banc PvP meme -- donc le banc ne pouvait pas eprouver la lecture de
+    // composition qu'il devait eprouver.
     // La sandbox est un TRANSPORT : la BC qu'elle substitue vient de la derniere forge. Lui
     // demander sa lineup est donc juste, et `GetBattleLineup` lit de toute facon la composition
     // SAUVEGARDEE du mode -- une instance un peu ancienne rend la meme reponse.
