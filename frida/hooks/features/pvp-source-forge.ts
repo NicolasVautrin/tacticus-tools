@@ -48,10 +48,10 @@
 // INDEXES PAR LEUR TYPE. Aucun ordre, aucun nom de champ en dur.
 
 import {
-    class_get_name, class_get_fields, class_get_parent, field_get_name, field_get_offset,
-    findClassAnywhere, findCtorByParamCount, findMethodByParamCount, getFieldInfo, getFieldOffset,
-    field_get_type, type_get_class_or_element_class, methodParamClass, s as cstr,
+    class_get_name, findClassAnywhere, findCtorByParamCount, findMethodByParamCount, getFieldInfo,
+    getFieldOffset, field_get_type, type_get_class_or_element_class, methodParamClass, s as cstr,
 } from "../il2cpp/helpers.js";
+import { indexerAvecParents, nomDeClasse } from "../il2cpp/champs-par-type.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -79,14 +79,6 @@ export function sourcePvpForgee(): NativePointer | null {
     return sourceForgee !== null && !sourceForgee.isNull() ? sourceForgee : null;
 }
 
-function nomDeClasse(obj: NativePointer): string | null {
-    try {
-        const k = obj.readPointer();
-        if (k.isNull()) return null;
-        return cstr(class_get_name(k) as NativePointer);
-    } catch { return null; }
-}
-
 function typeDeclare(klass: NativePointer, nom: string): string | null {
     try {
         const fi = getFieldInfo(klass, nom);
@@ -108,47 +100,6 @@ function ecrireChamp(
     try { obj.add(off).writePointer(valeur); }
     catch (e) { return refus("ecriture de `" + nom + "` : " + (e as Error).message); }
     return true;
-}
-
-/** Les champs d'une instance, INDEXES PAR LE NOM DE LEUR TYPE DECLARE.
- *
- *  ⚠ On remonte la hierarchie, et on garde la declaration la PLUS DERIVEE en tete -- un nom de
- *  champ peut etre declare deux fois (mesure : `_featureUnlocker` l'est, sur `PvpGameModeSource`
- *  ET sur un parent). Un type peut aussi etre porte par PLUSIEURS champs : on les garde TOUS,
- *  et l'appariement REFUSE l'ambiguite au lieu d'en choisir un. */
-function indexerAvecParents(
-    obj: NativePointer, klass: NativePointer,
-): Map<string, Array<{ nom: string; valeur: NativePointer }>> {
-    const index = new Map<string, Array<{ nom: string; valeur: NativePointer }>>();
-    let k = klass;
-    let profondeur = 0;
-    // `class_get_fields` ne rend que les champs DECLARES sur la classe -- d'ou la remontee.
-    // Borne dure : une hierarchie qui ne remonte pas a `null` ferait boucler le thread principal.
-    while (!k.isNull() && profondeur < 8) {
-        const it = Memory.alloc(Process.pointerSize);
-        it.writePointer(ptr(0));
-        let f: NativePointer;
-        while (!(f = class_get_fields(k, it) as NativePointer).isNull()) {
-            try {
-                const tc = type_get_class_or_element_class(
-                    field_get_type(f) as NativePointer) as NativePointer;
-                if (tc.isNull()) continue;
-                const type = cstr(class_get_name(tc) as NativePointer);
-                const nom = cstr(field_get_name(f) as NativePointer);
-                const off = field_get_offset(f) as number;
-                if (off < 0) continue;
-                const valeur = obj.add(off).readPointer();
-                const liste = index.get(type);
-                // La classe la plus DERIVEE est visitee en premier : on APPEND, donc son
-                // candidat reste en tete, et l'appariement lit `[0]`.
-                if (liste === undefined) index.set(type, [{ nom, valeur }]);
-                else liste.push({ nom, valeur });
-            } catch { /* champ illisible : on passe, on ne devine pas */ }
-        }
-        try { k = class_get_parent(k) as NativePointer; } catch { break; }
-        profondeur++;
-    }
-    return index;
 }
 
 /** L'ENCOUNTER attendu par la source -- ET C'EST UN AUTRE TYPE QUE CE QUE PORTE `latestOpponents`.

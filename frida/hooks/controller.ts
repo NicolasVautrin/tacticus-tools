@@ -63,6 +63,7 @@ import * as pvpOpponents from "./features/pvp-opponents.js";
 import * as guildBossConfig from "./features/guild-boss-config.js";
 import * as campaignSourceForge from "./features/campaign-source-forge.js";
 import * as pvpSourceForge from "./features/pvp-source-forge.js";
+import * as mowEventSourceForge from "./features/mow-event-source-forge.js";
 import * as guildWarConfig from "./features/guild-war-config.js";
 import * as onslaughtSource from "./features/onslaught-source.js";
 import * as upgradesInventory from "./features/upgrades-inventory.js";
@@ -551,6 +552,16 @@ export function wireRpc(ctx: Ctx): void {
      // meme forme que le boss de guilde, ou une tentative enregistree puis non terminee est PERDUE.
      // Il n'appelle ni `LoadBattle` (la methode publique de la base) ni `StartMatch`.
      pvpSourceForge,
+     // `mowEventSourceForge` est le MEME geste pour l'EVENEMENT Machines of War (Incursion), et il
+     // existe parce que `mowBuilder` ne sait que CAPTURER la source au vol : il faut naviguer
+     // jusqu'a l'evenement ET avoir arme son hook de ctor avant Zenject, deux conditions qu'un test
+     // ne peut pas tenir. Il rejoue la chaine du jeu MOINS sa derniere marche --
+     // `CreateBattleData` (lecture pure de la progression), le ctor a 16 arguments, puis
+     // `LoadBattleInternal`. Il n'appelle JAMAIS `StartMachinesOfWarEventMatch` ni `StartMatch`,
+     // qui sont ce qui engage le jeton, et la chaine qui l'enregistrerait
+     // (`SendLoadBattleGameEventInternal` -> `IMachinesOfWarEventProgression$$StartBattle`) n'est
+     // pas traversee. Aucun jeton consomme, aucun octet reseau.
+     mowEventSourceForge,
      // `guildWarConfig` est le SEUL mode sans voie sandbox native (ni `SandboxGuildWarBattleConfig`,
      // ni `GetHotseatGuildWarsConfig`, ni branche dans le routeur `GetHotSeatGameModeSpecificConfig`).
      // Il appelle donc la FABRIQUE `BattleConfigBuilder$$GetGuildWarsConfig` -- purement
