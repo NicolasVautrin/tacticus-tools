@@ -361,3 +361,25 @@ notre montage, et il n'y a rien à réparer — le vocabulaire du gameconfig le 
 
 ⇒ **Poser la MoW reste utile** (elle joue, elle encaisse), mais ne jamais compter sur un buff ou un
 debuff d'environnement pour l'atteindre.
+
+### Mais leurs SUMMONS, si — et notre dérivation les lit (2026-08-24)
+
+Une MoW **invoque** : `astraOrdnanceBattery` porte `ForwardSpotter` → `astraSmnGuardsman`
+(ordinal `1143`). Sur les 14 porteurs de summon d'une BC PvP, **un est une machine**.
+
+Le summon, lui, est une **UNITÉ** — donc dans la famille de sélecteurs que l'enhancement balaie.
+Il est atteint dès que son id est dans les `Targets`, et il y est : les machines figurent dans
+`BC.Units` **avec leurs `ActiveAbilities`**, exactement ce que la dérivation de summons parcourt.
+Mesuré, camp adverse de la proposition n=1 :
+
+```
++3 SUMMON(S) que l'adversaire peut invoquer (derives de ses abilities)
+CIBLES : ultraTigurius, blackHaarken, bloodDeathCompany, blackPossession, darkaAzrael,
+         astraOrdnanceBattery, blackSmnBloodletter, thousSmnBlueHorror, astraSmnGuardsman
+```
+
+⚠ **La jointure est obligatoire, et c'est elle qui pourrait faire un faux zéro.** Le catalogue est
+keyé par NOM (`ForwardSpotter`), les unités référencent par ORDINAL (`1143`) : sans le join
+`ActiveAbilityType`, aucun summon ne serait dérivé — ni ceux des héros, ni ceux des machines.
+
+⇒ **La machine n'est jamais buffée ; ce qu'elle pose sur le plateau l'est.**
