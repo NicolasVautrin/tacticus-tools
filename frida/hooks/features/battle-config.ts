@@ -1596,8 +1596,39 @@ export function ecrireAbilitesEnvironnement(
  *  ne la porte pas en PvP -- cf. `game/source-lineup.ts`. `null` depuis les voies qui patchent une
  *  BC déjà montée (`applyBattleConfigPatch`, runner) : `ciblesAuto: "moi"` s'y rabat sur les camps
  *  dérivés de la BC, et le DIT. */
+/** L'instance CAPTEE d'une source, quand personne ne l'a declaree -- le repli de la voie LIVE.
+ *
+ * ⛔ IL EXISTE PARCE QUE LA VOIE QU'IL FAUT PROTEGER EST JUSTEMENT CELLE QUI NE DECLARE RIEN.
+ * `declarerSourceDeChargement` est appele par les FORGES ; la bataille que le joueur lance
+ * lui-meme n'a personne pour le faire. Or c'est la, et seulement la, qu'un miroir non retire
+ * coute une unite reelle.
+ *
+ * ⚠ CE QU'ON EN TIRE, ET CE QU'ON N'EN TIRE PAS. L'instance peut etre celle d'une bataille
+ * PRECEDENTE : on ne lui demande donc RIEN qui depende de la bataille en cours. `GetBattleLineup`
+ * lit la composition SAUVEGARDEE du mode -- la meme que le HUD va pre-poser -- donc une instance
+ * plus ancienne rend la meme reponse. Ne pas etendre cet usage sans re-verifier ce point.
+ *
+ * ⚠ TOUT MODE ABSENT DE CETTE TABLE REND `null`, ET LE REFUS SE DIT (`PROTECTION MIROIR NON
+ * APPLIQUEE`). Rendre une source d'un AUTRE mode serait pire que rien : on soustrairait une
+ * composition qui n'est pas celle de cette bataille. */
+function repliSourceCaptee(source: string | null): NativePointer | null {
+    if (source === null) return null;
+    const p = source.startsWith("Pvp") ? getPvpGameModeSourcePtr()
+        : source.startsWith("Campaign") ? getCampaignGameModeSourcePtr()
+        : source.startsWith("MachinesOfWarEvent") ? getMowEventGameModeSourcePtr()
+        // `Sandbox` n'est pas un mode, c'est un TRANSPORT : la BC qu'elle substitue vient de la
+        // derniere forge, et c'est a CELLE-LA qu'il faut demander la composition du joueur.
+        : source.startsWith("Sandbox") ? derniereSourceForgee
+        : null;
+    return p !== null && !p.isNull() ? p : null;
+}
+
 function applyPatchToConfig(
     bc: NativePointer, patch: BattleConfigPatch, srcInstance: NativePointer | null = null,
+    // ⚠ LE NOM DE LA SOURCE N'EST PLUS DECORATIF : il choisit le repli de `repliSourceCaptee`.
+    // `null` (voies qui patchent une BC deja montee) => aucun repli, et la protection miroir
+    // le DIT au lieu de se croire appliquee.
+    source: string | null = null,
 ): PatchApplyResult {
     const ops: string[] = [];
     const warnings: string[] = [];
@@ -1694,8 +1725,22 @@ function applyPatchToConfig(
     // On ne paie l'invocation que si quelqu'un vise `moi`, et seulement quand la source est la --
     // c'est-a-dire au `LoadBattle.onLeave`, ou l'on est deja sur le thread principal.
     const veutMoi = specsEnh.some((e) => e.ciblesAuto === "moi");
-    const lineupSource = (veutMoi && srcInstance !== null)
-        ? lineupDeLaSource(srcInstance) : null;
+    // ⛔ `adversaire` A BESOIN DE MA COMPOSITION LUI AUSSI -- POUR L'EXCLURE, ET C'EST MESURE.
+    // `UnitConfigId$$Equals` ignore `IsPvpOpponent` : une cible ecrite pour la copie d'en face
+    // apparie AUSSI la mienne. Mesure du 2026-08-24, sandbox PvP montee avec deux miroirs
+    // (`custoTrajann`, `ultraTigurius` des deux cotes) : `effectsAll` rend
+    // `EnhancementDamageBoost` sur `[80,82,84,86,88, 91,93]` -- 91 et 93 sont MES deux unites,
+    // a -100 % de degats. Les trois non partagees sont propres. La branche `moi` faisait deja
+    // cette soustraction, dans l'autre sens ; il manquait la symetrique.
+    const veutAdversaire = specsEnh.some((e) => e.ciblesAuto === "adversaire");
+    // ⚠ ET LA VOIE LIVE NE DECLARE PERSONNE. `srcInstance` n'est renseignee que par une FORGE.
+    // Sur la bataille que le joueur lance lui-meme -- exactement celle qu'il faut proteger --
+    // elle est nulle, et `camps.miens` est VIDE en PvP (les unites entrent au deploiement).
+    // On se rabat donc sur l'instance CAPTEE de la meme classe : `GetBattleLineup` y lit la
+    // composition SAUVEGARDEE du mode, qui est justement celle que le HUD va pre-poser.
+    const instancePourLineup = srcInstance ?? repliSourceCaptee(source);
+    const lineupSource = ((veutMoi || veutAdversaire) && instancePourLineup !== null)
+        ? lineupDeLaSource(instancePourLineup) : null;
     if (lineupSource !== null) {
         ops.push(`lineup demandee a \`${lineupSource.classe}\` : `
             + `${lineupSource.unites === null ? "NON MESUREE" : lineupSource.unites.length} unite(s)`
@@ -1722,7 +1767,53 @@ function applyPatchToConfig(
                 ops.push(`environmentEnhancements[${e.ability}]: +${smn.length} SUMMON(S) que `
                     + `l'adversaire peut invoquer (derives de ses abilities)`);
             }
-            return { ...e, cibles: Array.from(new Set([...camps.adverses, ...smn])) };
+            const base = Array.from(new Set([...camps.adverses, ...smn]));
+            // ⛔ RETIRER LES MIROIRS. Symetrique EXACTE de la soustraction de la branche `moi`,
+            // et pour la meme cause : `Equals` ne lit pas `IsPvpOpponent`, donc une cible ecrite
+            // pour `custoTrajann:pvp` apparie aussi MON `custoTrajann`. On compare sur le
+            // `PureId` -- le suffixe porte le niveau, pas l'identite.
+            //
+            // ⚠ ON N'UTILISE QUE MA LINEUP, JAMAIS LE POOL DEPLOYABLE. La branche `moi` se rabat
+            // sur le pool quand la lineup est vide, ce qui est sans risque pour un BUFF (viser
+            // une unite qui ne descend pas ne coute rien). Ici l'effet est inverse : exclure le
+            // pool retirerait une centaine d'ids et viderait le debuff. Une lineup vide se DIT.
+            const miennes = new Set<string>([
+                ...camps.miens.map(pureId),
+                ...(lineupSource?.unites ?? []).map(pureId),
+                ...(lineupSource?.mow != null ? [pureId(lineupSource.mow)] : []),
+            ]);
+            const gardees = base.filter((c) => !miennes.has(pureId(c)));
+            const retires = base.length - gardees.length;
+            if (retires > 0) {
+                ops.push(`environmentEnhancements[${e.ability}]: ${retires} MIROIR(S) RETIRE(S) `
+                    + `(id present dans LES DEUX camps -- \`Equals\` ne lit pas `
+                    + `\`IsPvpOpponent\`, MA copie serait appariee aussi)`);
+            }
+            // ⚠ NE PAS SE TAIRE QUAND ON N'A PAS PU REGARDER. Sans ma composition, la protection
+            // n'a PAS eu lieu : le dire est ce qui distingue « aucun miroir » de « je n'ai pas
+            // su verifier ». Un silence identique dans les deux cas ferait jouer un PvP en
+            // croyant proteges des heros qui ne le sont pas.
+            if (miennes.size === 0) {
+                warnings.push(`environmentEnhancements[${e.ability}]: PROTECTION MIROIR NON `
+                    + `APPLIQUEE -- ma composition n'est pas mesurable ici (source declaree : `
+                    + `${srcInstance !== null ? "oui" : "NON"}, repli capte : `
+                    + `${instancePourLineup !== null ? "oui" : "NON"}, camps.miens=`
+                    + `${camps.miens.length}). Un id present des deux cotes DEBUFFERAIT ma propre `
+                    + `copie -- mesure du 2026-08-24 en PvP : 2 unites miroir a -100 %.`);
+            } else {
+                // ⚠ ET LA COUVERTURE SE DIT, MEME QUAND ELLE A MARCHE. `GetBattleLineup` rend la
+                // composition SAUVEGARDEE -- celle que le HUD va pre-poser -- pas celle qui sera
+                // REELLEMENT descendue. Un joueur qui change son equipe au deploiement (ou un
+                // banc qui la force par `--mes-unites`) sort de la couverture, et la protection
+                // ne peut PAS le savoir a cette fenetre : les unites n'entrent qu'au
+                // deploiement, apres. Mesure du 2026-08-24 : 6 ids proteges, 0 retire, et mes
+                // deux miroirs FORCES toujours debuffes -- le mecanisme etait juste, son
+                // ensemble ne les contenait pas.
+                ops.push(`environmentEnhancements[${e.ability}]: protection miroir sur `
+                    + `${miennes.size} id(s) a moi (voie=${lineupSource?.voie ?? "BC"}) -- `
+                    + `COUVRE la composition ANNONCEE, pas une equipe changee au deploiement`);
+            }
+            return { ...e, cibles: gardees };
         }
         // `moi` : ON DEMANDE LA COMPOSITION A LA SOURCE, puis on retranche tout ce qui est adverse.
         //
@@ -2334,7 +2425,21 @@ let sourceEnChargement: NativePointer | null = null;
  *  n'est pas le sien. */
 export function declarerSourceDeChargement(src: NativePointer | null): void {
     sourceEnChargement = src !== null && !src.isNull() ? src : null;
+    // ⛔ ON GARDE AUSSI LA DERNIERE, HORS DU `finally` -- ET C'EST CE QUI SAUVE LE BANC.
+    // La declaration est retiree des le retour de l'invoke, alors que sur un montage SANDBOX le
+    // patch s'applique PLUS TARD, a la substitution, sous le nom `SandboxGameModeSource`. A cet
+    // instant plus personne n'est declare : mesure du 2026-08-24, `PROTECTION MIROIR NON
+    // APPLIQUEE (source declaree : NON, repli capte : NON)` sur le banc PvP meme -- donc le banc
+    // ne pouvait pas eprouver la protection qu'il devait eprouver.
+    // La sandbox est un TRANSPORT : la BC qu'elle substitue vient de la derniere forge. Lui
+    // demander sa lineup est donc juste, et `GetBattleLineup` lit de toute facon la composition
+    // SAUVEGARDEE du mode -- une instance un peu ancienne rend la meme reponse.
+    if (sourceEnChargement !== null) derniereSourceForgee = sourceEnChargement;
 }
+
+/** La derniere source qu'une FORGE a declaree, jamais effacee. Sert au seul cas ou le patch
+ *  s'applique sous un nom de TRANSPORT (`SandboxGameModeSource`) : cf. `repliSourceCaptee`. */
+let derniereSourceForgee: NativePointer | null = null;
 
 /** L'instance déclarée, MAIS SEULEMENT SI SA CLASSE EST CELLE QUI VIENT DE CHARGER.
  *
@@ -2397,7 +2502,7 @@ export function appliquerPatchEnAttenteSur(
     const patch = pendingPatch;
     if (patch.consumeOnce !== false) pendingPatch = null;
     try {
-        const result = applyPatchToConfig(bc, patch, srcInstance);
+        const result = applyPatchToConfig(bc, patch, srcInstance, source);
         result.operations.unshift(`source=${source}`);
         lastApply = result;
         log(`[battle-config] patch applied (${source}): ${result.operations.join("; ")}`
@@ -2476,7 +2581,7 @@ function attacherPatchSurLoadBattle(ptr: NativePointer, source: string): boolean
                     // listener le tuerait. Elle n'est retenue que si sa CLASSE concorde avec la
                     // source qui charge -- sinon c'est un reliquat, et on le DIT.
                     const declaree = sourceConcordante(source);
-                    const result = applyPatchToConfig(retval, patch, declaree.src);
+                    const result = applyPatchToConfig(retval, patch, declaree.src, source);
                     if (declaree.note !== null) result.warnings.push(declaree.note);
                     // La SOURCE est publiée : sans elle, un `lastApply` ne dit pas si le patch a
                     // mordu sur la campagne ou sur le banc, et les deux se lisent pareil.
