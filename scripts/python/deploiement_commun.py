@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from replay_rejouer import (poses_du_replay, controler_avant_start,   # noqa: E402
                             mise_en_place_du_replay)
+from board import Board  # noqa: E402
 
 
 def stop(msg, code=2):
@@ -217,6 +218,116 @@ def mow_du_replay(d):
         return None
     mow["position"] = candidats[0].get("MachineOfWarPosition")
     return mow
+
+
+def cases_de_spawn_du_joueur(bc):
+    """(playerId, [(col,row), ...], diagnostic) -- MES cases de spawn, DERIVEES du plateau.
+
+    Sert quand il n'y a PAS de replay d'ou tirer les positions : un banc qu'on monte de zero
+    (`sandbox_incursion.py`) doit bien poser sa lineup QUELQUE PART, et une case en dur serait
+    fausse au premier changement de board ou de jeu de spawns.
+
+    Le joueur humain est celui a `PlayerType 0` de `Player.Players` ; ses cases sont celles que
+    `Board.spawns` lui attribue -- le depliage de `TeamWithPlayerIndex` vit dans `board.py`
+    (`TeamPlayerIdExtensions.Unfold`, aligne sur `board.js`), on le REPREND plutot que d'en tenir
+    une seconde copie. L'ordre rendu est celui du plateau, donc stable d'un montage a l'autre.
+
+    (!)LE COMPTE DES CASES ADVERSES EST LA CORROBORATION, et c'est pour ca qu'il est rendu.
+    Deplier un `TeamWithPlayerIndex` est une CONVENTION : se tromper de groupe ferait atterrir
+    mes unites sur les cases de l'ennemi, et rien ne le dirait. Le controle qui ne coute rien --
+    les cases qu'on n'a PAS prises doivent etre aussi nombreuses que les ennemis de la BC (8
+    pour 8, mesure du 2026-08-24 sur `MC1_74` set 5). Un ecart ne bloque pas : il se DIT.
+
+    ⚠ CE N'EST PAS L'APPARIEMENT DE `mow_du_replay`, ET LES DEUX SONT JUSTES. Celui-la refuse
+    explicitement le `TeamWithPlayerIndex` et apparie PAR LES POSITIONS -- il le peut, il a un
+    replay. Ici il n'y a rien a apparier : ce sont les positions qu'on cherche.
+
+    Rend `(None, [], motif)` quand la derivation n'est pas univoque : on ne devine pas une case.
+    """
+    joueurs = (bc.get("Player") or {}).get("Players") or {}
+    moi = [pid for pid, p in joueurs.items() if (p or {}).get("PlayerType") == 0]
+    if len(moi) != 1:
+        return None, [], ("%d joueur(s) `PlayerType 0` -- on ne devine pas le mien" % len(moi))
+    mon_id = int(moi[0])
+
+    spawns = Board(bc).spawns
+    miennes = [cr for cr, v in spawns.items() if v.get("player") == mon_id]
+    if not miennes:
+        return None, [], ("aucune case de spawn pour le joueur %d parmi %d case(s) -- "
+                          "`SpawnPointSetIndex`=%r" % (mon_id, len(spawns),
+                                                       bc.get("SpawnPointSetIndex")))
+
+    ennemis = sum(len(g.get("Units") or []) for g in (bc.get("PredefinedUnits") or [])
+                  if str(g.get("Id")) != str(mon_id))
+    adverses = len(spawns) - len(miennes)
+    return mon_id, miennes, (
+        "playerId=%d  %d case(s) : %s | %d case(s) adverse(s) pour %d ennemi(s) dans la BC%s"
+        % (mon_id, len(miennes), " ".join("(%s,%s)" % c for c in miennes), adverses, ennemis,
+           "" if adverses == ennemis else "  (!) ECART -- verifier le depliage"))
+
+
+def poser_en_placeholders(jeu, poses, mow=None, mow_index=None, sur_reelle=False,
+                          plafond_s=20.0):
+    """Poser une composition DONNEE en PLACEHOLDERS, et attendre qu'elle ait atterri.
+
+    L'etage bas, partage : `poser_le_deploiement` s'en distingue en ce qu'il tire ses poses d'un
+    REPLAY et confronte le resultat a lui (deux ordres essayes). Ici la composition est donnee,
+    il n'y a rien a confronter -- seulement a verifier que la pose a PRIS.
+
+    (!)REGIME PLACEHOLDER, ET C'EST LE SEUL. `deploymentMemoire {rejouer}` vide le plateau puis
+    repose par l'etage FSM -- le meme chemin que le clic humain -- donc des `PlaceholderUnitView`
+    que `idun.IdunMainView$$AddUnitsFromPlaceholdersAndRunnerStartMatch` convertit au START. Rien
+    n'est ecrit dans `BattleConfiguration.PredefinedUnits` : ce canal-la porte les unites que le
+    MODE impose, pas la lineup du joueur.
+
+    (!)LE REJEU EST << ENFILE >>, PAS FAIT : le RPC rend la main aussitot (`rejouerMemoire` est
+    une chaine `queueOnMainThread(...).then(...)` qui rend `void`). On attend donc LE FAIT --
+    les placeholders comptes par le HUD -- jamais une duree.
+
+    Rend l'etat final (`deploymentEtat`) ou `None` si la pose n'a pas abouti.
+    """
+    corps = {"poses": poses, "mow": mow}
+    if mow is not None and mow_index is not None:
+        corps["mowIndex"] = mow_index
+    r = jeu.rpc("deploymentMemoire", [{"poser": corps}], timeout=120000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        print("   REFUS `deploymentMemoire {poser}` : %s"
+              % json.dumps(r, ensure_ascii=False)[:280])
+        return None
+    rejeu = {"rejouer": True, "confirmer": True}
+    # ⛔ COUP PAR COUP, jamais retenu -- cf. l'en-tete du module.
+    if sur_reelle:
+        rejeu["surBatailleReelle"] = True
+    r = jeu.rpc("deploymentMemoire", [rejeu], timeout=180000)
+    if not isinstance(r, dict) or not r.get("ok"):
+        print("   REFUS `deploymentMemoire {rejouer}` : %s"
+              % json.dumps(r, ensure_ascii=False)[:280])
+        return None
+
+    debut, e = time.time(), None
+    while time.time() - debut < plafond_s:
+        e = jeu.rpc("deploymentEtat", [{}], timeout=120000)
+        if isinstance(e, dict) and isinstance(e.get("placeholders"), int) \
+                and e["placeholders"] >= len(poses):
+            break
+        time.sleep(0.3)
+    if not isinstance(e, dict) or not isinstance(e.get("placeholders"), int):
+        print("   pose NON MESURABLE apres %.1f s : %s"
+              % (time.time() - debut, json.dumps(e, ensure_ascii=False)[:280]))
+        return None
+    print("   placeholders=%s reelles=%s max=%s   [%.1f s]"
+          % (e.get("placeholders"), e.get("reelles"), e.get("max"), time.time() - debut))
+    if e["placeholders"] < len(poses):
+        print("   (!) %d pose(s) demandee(s), %d placeholder(s) -- il en manque."
+              % (len(poses), e["placeholders"]))
+        return None
+    # ⚠ `reelles` DOIT valoir 0 avant le START : une unite REELLE ici signale la DOUBLE
+    # COMPTABILITE que le regime placeholder existe justement pour eviter -- c'est elle qui a
+    # produit les 10 unites pour 5 du 2026-08-20.
+    if (e.get("reelles") or 0) != 0:
+        print("   (!) %s unite(s) REELLE(S) avant le START -- ce n'est PAS le regime placeholder."
+              % e.get("reelles"))
+    return e
 
 
 def poser_le_deploiement(jeu, d, sur_reelle=False, plafond_s=15.0):

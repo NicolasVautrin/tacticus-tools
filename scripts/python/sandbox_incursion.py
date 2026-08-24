@@ -33,17 +33,32 @@ le banc montable. Ce banc eprouve un patch ; il ne reproduit PAS le combat reel.
 
 (!)`StartMatch` ECRASE le match courant. Si une bataille tourne, ce script REFUSE et le dit.
 
+(!)MA LINEUP N'ENTRE JAMAIS DANS `BC.PredefinedUnits` -- elle se pose en PLACEHOLDERS. C'est ce
+que fait le natif : `MachinesOfWarEventGameModeSource$$LoadBattleInternal`, seul appelant reel de
+`BattleConfigBuilder$$GetMachinesOfWarEventConfig`, lui passe `mainPlayerUnits = null`. Les
+`PredefinedUnits` de l'evenement ne portent QUE l'adversaire. `--mes-unites` ne fait donc que
+PRE-REMPLIR l'ecran de deploiement, a la place de cinq clics ; le START natif convertit.
+
+(!)CE QUE CETTE VOIE NE FAIT PAS : elle ne buffe rien. Un enhancement d'environnement s'installe
+a `PostAbilityInit` et ne cible que ce qui EXISTE a cet instant -- 8 effets pour les 8 ennemis
+predefinis, 0 pour ce qui entre au deploiement (mesure du 2026-08-24). Poser mes unites dans la
+BC les buffait ; ce n'est pas pour autant une reparation, c'est un etat que le jeu ne produit
+jamais. La fenetre reste OUVERTE, et elle se refermera cote ORDRE, pas cote BC.
+
 ASCII only en sortie (console Windows cp1252).
 """
 import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
+from deploiement_commun import (cases_de_spawn_du_joueur,  # noqa: E402
+                                poser_en_placeholders)
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -57,6 +72,11 @@ ARMEMENTS = [
                                             "GetUnitsForDeploymentHUD"]}),
     ("deploymentPlafondArmer",    {"armer": True, "max": 5, "min": 1, "confirmer": True}),
     ("deploymentHudArmer",        {"armer": True}),
+    # (!)VIDER AVANT D'ARMER, et dans cet ordre. La memoire de pose vit dans des variables du
+    # bundle : elle SURVIT a un remontage, pointeurs de la bataille MORTE compris. Sans ce
+    # `oublier`, un remontage repose la composition du montage precedent -- `sandbox_gw.py` joue
+    # le meme verbe avant chaque montage, pour la meme raison.
+    ("deploymentMemoire",         {"oublier": True}),
     ("deploymentMemoire",         {"armer": True}),
     ("deploymentClearArmer",      {"armer": True, "confirmer": True}),
     ("deploymentDeposeArmer",     {"armer": True, "confirmer": True}),
@@ -108,11 +128,9 @@ def main(argv=None):
                     help="PV poses aux ennemis -- INVENTES, cf. l'en-tete. 0 les laisse a leur "
                          "valeur reelle (donc filtres, donc BC sans adversaire)")
     ap.add_argument("--mes-unites", default=None, metavar="a,b,c",
-                    help="POSER mes unites dans `BC.PredefinedUnits` au lieu de les deployer. "
-                         "(!) C'est une SONDE : les enhancements ne se posent que sur les unites "
-                         "presentes quand l'entite d'ability est creee -- mesure du 2026-08-24, "
-                         "8 effets pour les 8 `PredefinedUnits` adverses et 0 pour mes 5 unites "
-                         "deployees. Si cette voie les buffe, la cause est bien la FENETRE.")
+                    help="PRE-POSER ma lineup en PLACEHOLDERS sur mes cases de spawn, au lieu de "
+                         "les cliquer une a une dans le HUD. Regime PLACEHOLDER exclusivement : "
+                         "rien n'est ecrit dans la BC, c'est le START natif qui convertit.")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--sans-replay", action="store_true")
     ap.add_argument("--confirmer", action="store_true",
@@ -197,25 +215,36 @@ def main(argv=None):
     bc = d["json"]
     print("  %-28s %d caracteres" % ("BC", len(bc)))
 
-    # 4bis. MES UNITES DANS LA BC. Le playerId se LIT dans `Player.Players` (le joueur humain est
-    #       celui a `PlayerType 0`), il ne s'ecrit pas en dur -- il vaut 11 sur l'evenement mais
-    #       rien ne l'y oblige.
+    # 4bis. OU MA LINEUP SE POSERA -- derive MAINTENANT, pour refuser AVANT le montage. La BC
+    #       n'est PAS touchee : cf. `cases_de_spawn_du_joueur`.
+    poses = []
     if a.mes_unites:
-        obj = json.loads(bc)
-        moi = [pid for pid, p in (obj.get("Player", {}).get("Players") or {}).items()
-               if p.get("PlayerType") == 0]
-        if len(moi) != 1:
-            print("  %-28s REFUS : %d joueur(s) `PlayerType 0` -- on ne devine pas le mien"
-                  % ("--mes-unites", len(moi)))
-            return 2
         ids = [u.strip() for u in a.mes_unites.split(",") if u.strip()]
-        groupes = [g for g in (obj.get("PredefinedUnits") or [])
-                   if str(g.get("Id")) != str(moi[0])]
-        groupes.append({"Id": int(moi[0]),
-                        "Units": [{"UnitId": u} for u in ids]})
-        obj["PredefinedUnits"] = groupes
-        bc = json.dumps(obj, ensure_ascii=False)
-        print("  %-28s playerId=%s : %s" % ("PredefinedUnits (moi)", moi[0], ", ".join(ids)))
+        moi, tuiles, diag = cases_de_spawn_du_joueur(json.loads(bc))
+        print("  %-28s %s" % ("cases de spawn", diag))
+        if moi is None:
+            return 2
+        if len(ids) > len(tuiles):
+            print("  %-28s REFUS : %d unite(s) demandee(s) pour %d case(s) de spawn"
+                  % ("--mes-unites", len(ids), len(tuiles)))
+            return 2
+        # (!)UNE UNITE HORS DU POOL SE POSE << SANS ERREUR >> ET N'ARRIVE PAS. L'etage FSM est le
+        #    chemin du clic humain : il ne pose que ce que le HUD sert. Une unite absente du
+        #    roster deployable ne leve rien -- elle manque, simplement, et le seul symptome est
+        #    un compte de placeholders trop bas APRES le montage. On refuse AVANT.
+        pool = lu.get("deployables") or lu.get("unites") or []
+        if pool:
+            hors = [u for u in ids if u not in pool]
+            if hors:
+                print("  %-28s REFUS : hors du roster deployable (%d unites) : %s"
+                      % ("--mes-unites", len(pool), ", ".join(hors)))
+                print("  %-28s %s" % ("pool", ", ".join(sorted(pool))))
+                return 2
+        else:
+            print("  %-28s (!) roster deployable NON MESURE -- appartenance au pool NON "
+                  "VERIFIEE" % "--mes-unites")
+        poses = [{"unitId": u, "playerId": moi, "col": c, "row": r}
+                 for u, (c, r) in zip(ids, tuiles)]
 
     # 5. CE QUE LE PATCH A REELLEMENT FAIT -- l'armement ne prouve RIEN.
     st = jeu.rpc("getBattleConfigPatchStatus", [{}])
@@ -252,6 +281,29 @@ def main(argv=None):
     if r.returncode != 0:
         print("REFUS : le montage a echoue (rc=%d)." % r.returncode)
         return 1
+
+    # 7bis. DANS QUEL ETAT LE MONTAGE NOUS LAISSE -- et c'est le DISCRIMINANT de la fenetre des
+    #       enhancements, pas une trace de confort.
+    #
+    #       Un enhancement d'environnement s'installe a `PostAbilityInit` et ne cible que ce qui
+    #       EXISTE a cet instant. Si le match est DEJA `Running` ici, il a demarre AVANT le
+    #       deploiement : les seules unites presentes etaient les `PredefinedUnits` (l'adversaire),
+    #       et ma lineup -- convertie au START, donc apres -- ne peut plus etre atteinte. Si le
+    #       match est encore `Setup`, la fenetre est ouverte et la cause est ailleurs.
+    #       Le natif, lui, ajoute les unites PUIS demarre :
+    #       `idun.IdunMainView$$AddUnitsFromPlaceholdersAndRunnerStartMatch`.
+    b = jeu.rpc("battleStatus", [{}], 60000)
+    print()
+    print("  %-28s %s" % ("etat APRES montage", court(b, 220)))
+
+    # MA LINEUP, EN PLACEHOLDERS. Apres le montage : le HUD de deploiement doit exister pour que
+    # l'etage FSM ait ou poser.
+    if poses:
+        print()
+        print("  %-28s %d unite(s) en PLACEHOLDERS" % ("--mes-unites", len(poses)))
+        for p in poses:
+            print("    %-24s -> (%s,%s)" % (p["unitId"], p["col"], p["row"]))
+        poser_en_placeholders(jeu, poses)
 
     # 8. Ce qui s'est REELLEMENT monte -- l'appel passe ne dit RIEN du montage.
     print()
