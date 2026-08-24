@@ -61,7 +61,16 @@ ARMEMENTS = [
     # Le pendant du clear, sur UNE unite : sans lui, oter une unite du plateau la rend au
     # roster et la LAISSE en jeu -- le HUD ne connait que des `PlaceholderUnitView`.
     ("deploymentDeposeArmer",     {"armer": True, "confirmer": True}),
-    ("deploymentPoseCommitArmer", {"armer": True, "confirmer": True}),
+    # (!)PAS de `deploymentPoseCommitArmer` NI de `deploymentPoseFsmArmer` : les DEUX sont
+    # SUPPRIMES du bundle depuis le 2026-08-21, avec la voie commit (`deployment-draft.ts` :
+    # << les poses passent TOUJOURS par l'etage FSM (placeholder) >>). Ce qu'ils publiaient
+    # d'utile se LIT par `deploymentPoseTrace`, qui n'a rien a armer.
+    #
+    # Ce pilote a ete le SEUL des trois a ne pas etre mis a jour ce jour-la -- `sandbox_incursion`
+    # et `sandbox_campagne` portent deja la note. Le montage mourait donc au 11e armement sur
+    # `unable to find method`, APRES avoir arme dix relais et pose l'override de BC : un echec en
+    # PLEIN MILIEU, qui laisse la session a moitie armee. Ne pas recopier une liste d'armements
+    # d'un pilote a l'autre sans la confronter au bundle CHARGE.
     ("deploymentSyncArmer",       {"armer": True, "confirmer": True}),
     ("deploymentStartArmer",      {"armer": True}),
     ("deploymentRunnerStartArmer", {"armer": True}),
