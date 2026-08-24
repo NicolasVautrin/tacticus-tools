@@ -107,6 +107,12 @@ def main(argv=None):
     ap.add_argument("--pv-ennemis", type=int, default=50000,
                     help="PV poses aux ennemis -- INVENTES, cf. l'en-tete. 0 les laisse a leur "
                          "valeur reelle (donc filtres, donc BC sans adversaire)")
+    ap.add_argument("--mes-unites", default=None, metavar="a,b,c",
+                    help="POSER mes unites dans `BC.PredefinedUnits` au lieu de les deployer. "
+                         "(!) C'est une SONDE : les enhancements ne se posent que sur les unites "
+                         "presentes quand l'entite d'ability est creee -- mesure du 2026-08-24, "
+                         "8 effets pour les 8 `PredefinedUnits` adverses et 0 pour mes 5 unites "
+                         "deployees. Si cette voie les buffe, la cause est bien la FENETRE.")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--sans-replay", action="store_true")
     ap.add_argument("--confirmer", action="store_true",
@@ -190,6 +196,26 @@ def main(argv=None):
         print("  /!\\ %s" % d["avertissement"])
     bc = d["json"]
     print("  %-28s %d caracteres" % ("BC", len(bc)))
+
+    # 4bis. MES UNITES DANS LA BC. Le playerId se LIT dans `Player.Players` (le joueur humain est
+    #       celui a `PlayerType 0`), il ne s'ecrit pas en dur -- il vaut 11 sur l'evenement mais
+    #       rien ne l'y oblige.
+    if a.mes_unites:
+        obj = json.loads(bc)
+        moi = [pid for pid, p in (obj.get("Player", {}).get("Players") or {}).items()
+               if p.get("PlayerType") == 0]
+        if len(moi) != 1:
+            print("  %-28s REFUS : %d joueur(s) `PlayerType 0` -- on ne devine pas le mien"
+                  % ("--mes-unites", len(moi)))
+            return 2
+        ids = [u.strip() for u in a.mes_unites.split(",") if u.strip()]
+        groupes = [g for g in (obj.get("PredefinedUnits") or [])
+                   if str(g.get("Id")) != str(moi[0])]
+        groupes.append({"Id": int(moi[0]),
+                        "Units": [{"UnitId": u} for u in ids]})
+        obj["PredefinedUnits"] = groupes
+        bc = json.dumps(obj, ensure_ascii=False)
+        print("  %-28s playerId=%s : %s" % ("PredefinedUnits (moi)", moi[0], ", ".join(ids)))
 
     # 5. CE QUE LE PATCH A REELLEMENT FAIT -- l'armement ne prouve RIEN.
     st = jeu.rpc("getBattleConfigPatchStatus", [{}])
