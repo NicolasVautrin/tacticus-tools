@@ -64,6 +64,12 @@ const CLASSES: Readonly<Record<string, string>> = {
     pvp: "PvpGameModeSource",
     mow: "MachinesOfWarEventGameModeSource",
     guildBoss: "GuildBossGameModeSource",
+    // ⚠ CELLES-CI RENDENT UN TABLEAU VIDE, donc elles passent par `remplacerRetour`, jamais par
+    // `poser` -- il n'y a aucune case à écrire. C'est la SEULE voie de substitution qu'elles
+    // admettent : ni l'une ni l'autre ne lit de magasin (talon constant au décompilé), donc
+    // `lineupSubstituer` ne peut rien pour elles.
+    guildWar: "GuildWarsGameModeSource",
+    sandbox: "SandboxGameModeSource",
 };
 
 /** `System.String[]` : longueur en `+0x18`, éléments dès `+0x20`. Relevé sur le lecteur de
@@ -207,9 +213,17 @@ function armer(mode: string): Record<string, unknown> {
             const retenue = compositionRetenue(classeArmee);
             if (retenue === null) return;
             if (obs.classeRetour === null || obs.longueur === null) return;
-            if (obs.longueur <= 0 || obs.longueur > PLAFOND_PLACES) return;
+            if (obs.longueur > PLAFOND_PLACES) return;
             try {
-                dernierePose = { ...poser(arr, obs, retenue.ids), fire: fires, origine: retenue.origine };
+                // DEUX VOIES, et c'est la LONGUEUR RENDUE qui tranche -- pas le mode. Un retour
+                // vide n'a aucune case (cf. `remplacerRetour` : en guild war c'est le singleton
+                // `Array.Empty<string>()`), donc l'écriture en place n'a rien à écrire ; un retour
+                // pourvu, lui, est un objet que l'appelant tient déjà, et on le préserve.
+                dernierePose = obs.longueur <= 0
+                    ? { ...remplacerRetour(retval, retenue.ids), voie: "remplacement",
+                        fire: fires, origine: retenue.origine }
+                    : { ...poser(arr, obs, retenue.ids), voie: "ecriture-en-place",
+                        fire: fires, origine: retenue.origine };
             } catch (e) {
                 dernierePose = { erreur: (e as Error).message, fire: fires };
             }
@@ -218,6 +232,69 @@ function armer(mode: string): Record<string, unknown> {
     Interceptor.flush();
     classeArmee = nomClasse;
     return { ok: true };
+}
+
+/**
+ * REMPLACER LE RETOUR, quand il n'y a AUCUNE case où écrire.
+ *
+ * ⛔ LA VOIE « ÉCRIRE DANS LES CASES » EST STRUCTURELLEMENT IMPOSSIBLE POUR CES MODES-LÀ, et s'y
+ * essayer serait un désastre silencieux. Mesuré au décompilé :
+ * `GuildWarsGameModeSource$$GetBattleLineup` rend `System.Array$$Empty<string>()` -- un SINGLETON
+ * PARTAGÉ PAR TOUT LE PROCESS. Il a zéro case (donc rien à remplir), et le corrompre casserait
+ * tout appelant de `Array.Empty<string>()` dans le jeu, très loin d'ici. On alloue donc un tableau
+ * NEUF et on substitue le retour.
+ *
+ * POURQUOI ÇA SUFFIT, et c'est le décompilé qui le dit --
+ * `IdunBattle.View.FSM.VisualBattleQuery$$GetBattleLineupToDeploy` :
+ *
+ *   lineup = GetBattleLineup(MaxUnitsPossibleToStartBattle)        <- appel 1, INCONDITIONNEL
+ *   if (lineup.Length < MinUnitsNeededToStartBattle) {             <- 0 < min ⇒ toujours vrai en GW
+ *       n = Max; do { n--; if (n < 1) break;
+ *                     lineup = GetBattleLineup(n); } while (lineup.Length == 0);
+ *       ... puis COMPLÈTE depuis le pool déployable (`AddIfNotExisting`) ...
+ *   }
+ *
+ * ⇒ répondre au PREMIER appel avec un tableau de la taille demandée fait que la branche de
+ * complétion n'est JAMAIS prise, et notre composition sort verbatim. C'est aussi ce qui explique
+ * l'auto-déploiement qu'on voit en jeu : ce n'est pas un défaut, c'est cette complétion.
+ *
+ * ⚠ ON NE REMPLACE QUE SUR UN RETOUR VIDE. Un retour non vide a des cases : `poser` y écrit, ce qui
+ * préserve l'objet que l'appelant tient déjà. Remplacer dans ce cas serait un changement de
+ * comportement gratuit, et on perdrait la trace de ce que le jeu voulait rendre.
+ */
+/** Les racines du remplacement de retour — SÉPARÉES de celles de `lineupSubstituer`, et ce n'est
+ *  pas de la symétrie : les deux durées de vie n'ont rien à voir. `lineupSubstituer` libère les
+ *  siennes au début de chaque substitution ; partager la liste ferait désépingler, depuis un RPC,
+ *  le tableau qu'un `onLeave` vient de rendre au jeu. On libère celles du tour PRÉCÉDENT : l'appel
+ *  qui les portait est retourné, et `GetBattleLineupToDeploy` écrase `lineup` à chaque tour de sa
+ *  boucle décroissante -- l'ancien tableau n'est donc plus joignable. */
+const racinesRetour: NativePointer[] = [];
+function libererRacinesRetour(): void {
+    while (racinesRetour.length > 0) {
+        const p = racinesRetour.pop() as NativePointer;
+        try { gcRoot.remove(p); } catch { /* handle deja parti */ }
+    }
+}
+
+function remplacerRetour(
+    retval: InvocationReturnValue, ids: string[],
+): Record<string, unknown> {
+    const kStr = findClassAnywhere("System", "String");
+    if (!kStr) return { erreur: "`System.String` INTROUVABLE -- aucun remplacement" };
+    const n = Math.min(ids.length, PLAFOND_PLACES);
+    libererRacinesRetour();
+    const arr = createManagedArray(kStr, n);
+    // ENRACINER D'ABORD : le tableau n'est référencé par rien de managé tant que l'appelant ne
+    // l'a pas rangé, et on le lui rend au milieu de sa propre pile.
+    gcRoot.add(arr); racinesRetour.push(arr);
+    for (let i = 0; i < n; i++) {
+        const s = createManagedString(ids[i]);
+        gcRoot.add(s); racinesRetour.push(s);
+        arr.add(OFF_ELEMENTS + i * Process.pointerSize).writePointer(s);
+    }
+    retval.replace(arr);
+    return { remplace: true, ids: ids.slice(0, n), longueurRendue: n,
+             tronque: ids.length > n };
 }
 
 function etatRegistre(): Array<Record<string, unknown>> {
