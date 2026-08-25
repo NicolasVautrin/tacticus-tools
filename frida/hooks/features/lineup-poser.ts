@@ -223,7 +223,123 @@ function etatRegistre(): Array<Record<string, unknown>> {
     }));
 }
 
+// --- LE CAPTEUR DE CLÉS ---------------------------------------------------------------------
+//
+// `UnitProgression.GetBattleLineup(lineupKey: String) -> String[]` est LE magasin : un seul, clé
+// par une chaîne, TOUS MODES CONFONDUS. Chaque `<Mode>GameModeSource.GetBattleLineup(lineupIndex)`
+// ne fait que fabriquer sa clé et déléguer ici.
+//
+// ⇒ LA CLÉ ARRIVE EN ARGUMENT. On n'a donc RIEN à reconstruire ni à associer à la main : on la
+// LIT. Et comme les clés sont auto-descriptives (`<campagne>_<index>`), le catalogue obtenu nomme
+// lui-même son mode. C'est ce qui rend l'écriture (`SetBattleLineupLocally`) adressable pour un
+// mode dont on ne connaît pas le fabricant de clé -- guild war comprise.
+//
+// ⚠ RÉ-ENTRANCE, ET ELLE EST ASSUMÉE PLUTÔT QUE TUE. `lineupSource` invoque
+// `<Source>$$GetBattleLineup`, qui appelle CETTE méthode : notre handler se déclenche donc au
+// milieu de notre propre invoke. Ce n'est PAS le cas interdit (« ancrer la méthode qu'on
+// invoque ») -- c'est un cran en dessous -- et la contre-épreuve #10041 a vu 12 ancrages armés,
+// dont la méthode invoquée elle-même, revenir 6/6 sans geler. On l'autorise donc, mais le corps
+// du handler est réduit au strict minimum : lire une chaîne, ranger. AUCUN invoke dedans.
+
+const NS_PROG = "IdunMetaLogic.UserProgress";
+const CLS_PROG = "UnitProgression";
+
+interface VueDeCle {
+    vues: number;
+    derniereLongueur: number | null;
+    dernierContenu: string[] | null;
+}
+
+let ecouteCles: InvocationListener | null = null;
+const catalogue = new Map<string, VueDeCle>();
+let firesCles = 0;
+
+/** La clé du dernier combat vu passer. `null` = aucune observée -- JAMAIS une chaîne vide. */
+let derniereCle: string | null = null;
+
+/** Exporté pour le futur RPC de substitution : sans clé observée, on n'écrit nulle part. */
+export function cleObservee(): string | null {
+    return derniereCle;
+}
+
+function armerCles(): Record<string, unknown> {
+    const k = findClassAnywhere(NS_PROG, CLS_PROG);
+    if (!k) return { ok: false, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE sur ce build` };
+    const mi = findMethodByParamCount(k, "GetBattleLineup", 1);
+    if (!mi) return { ok: false, refus: `\`${CLS_PROG}$$GetBattleLineup(1 param)\` INTROUVABLE` };
+    ecouteCles = Interceptor.attach(mi.ptr, {
+        onEnter(args: InvocationArguments) {
+            firesCles++;
+            try {
+                const p = args[1] as NativePointer;   // args[0] = `this`
+                const cle = p.isNull() ? null : p.add(0x14).readUtf16String();
+                if (cle !== null && cle.length > 0) {
+                    derniereCle = cle;
+                    (this as unknown as { _cle: string })._cle = cle;
+                }
+            } catch { /* une clé illisible ne doit pas faire tomber le jeu */ }
+        },
+        onLeave(retval: InvocationReturnValue) {
+            let cle: string | null = null;
+            try { cle = (this as unknown as { _cle?: string })._cle ?? null; } catch { /* nul */ }
+            if (cle === null) return;
+            let longueur: number | null = null;
+            let contenu: string[] | null = null;
+            try {
+                const arr = retval as unknown as NativePointer;
+                if (!arr.isNull()) {
+                    longueur = arr.add(OFF_LONGUEUR).readS32();
+                    if (longueur !== null && longueur >= 0 && longueur <= PLAFOND_PLACES) {
+                        contenu = [];
+                        for (let i = 0; i < longueur; i++) {
+                            contenu.push(chaineGeree(
+                                arr.add(OFF_ELEMENTS + i * Process.pointerSize).readPointer())
+                                ?? "<illisible>");
+                        }
+                    }
+                }
+            } catch { /* un retour illisible se DIT par `null`, il ne s'invente pas */ }
+            const v = catalogue.get(cle);
+            catalogue.set(cle, {
+                vues: (v?.vues ?? 0) + 1,
+                derniereLongueur: longueur,
+                dernierContenu: contenu,
+            });
+        },
+    });
+    Interceptor.flush();
+    return { ok: true };
+}
+
 export function register(ctx: Ctx): void {
+    /** Le CATALOGUE des clés du magasin de compositions. Lecture pure, aucun invoke. */
+    ctx.rpc.lineupClesArmer = (body?: { armer?: boolean }): Promise<unknown> | unknown => {
+        const etat = (): Record<string, unknown> => ({
+            arme: ecouteCles !== null, fires: firesCles, derniereCle,
+            catalogue: Array.from(catalogue.entries()).map(([cle, v]) => ({
+                cle, vues: v.vues, longueur: v.derniereLongueur, contenu: v.dernierContenu,
+            })),
+        });
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                     note: "`{ armer: true }` pour capturer les clés du magasin "
+                         + "`UnitProgression$$GetBattleLineup` -- lecture pure" };
+        }
+        return queueOnMainThread(() => {
+            if (body.armer === false) {
+                if (ecouteCles) { ecouteCles.detach(); Interceptor.flush(); ecouteCles = null; }
+                return { ok: true, arme: false, action: "retire", fires: firesCles };
+            }
+            if (ecouteCles !== null) return { ok: true, ...etat(), note: "déjà armé" };
+            const r = armerCles();
+            if (r.ok !== true) return r;
+            return { ok: true, ...etat(),
+                     ancrage: `${NS_PROG}.${CLS_PROG}$$GetBattleLineup`,
+                     note: "armé -- ouvrir une bataille (ou une sandbox à délégation armée) "
+                         + "pour voir passer les clés" };
+        });
+    };
+
     /**
      * AUTO-TEST DE LA LIAISON `il2cpp_array_new` — alloue, relit, jette.
      *
