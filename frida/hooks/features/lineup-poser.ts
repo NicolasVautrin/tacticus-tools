@@ -51,6 +51,9 @@ import {
 } from "../il2cpp/helpers.js";
 import { createManagedArray, createManagedString } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
+// LE FOYER de `IdunNavigation._unitProgression`, capté par l'amorce. C'est la SECONDE source du
+// magasin, et la seule qui n'exige NI bataille NI capteur -- cf. `magasinUtilisable()`.
+import { getUnitProgressionPtr } from "./campaign-builder.js";
 
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
 
@@ -284,6 +287,34 @@ function etatRegistre(): Array<Record<string, unknown>> {
 const NS_PROG = "IdunMetaLogic.UserProgress";
 const CLS_PROG = "UnitProgression";
 
+/**
+ * LES CLÉS LITTÉRALES, RÉSOLUES HORS LIGNE — pas devinées, et c'est la différence qui compte.
+ *
+ * Chacune est le CONTENU du slot de cache de littéral cité au décompilé, lu dans
+ * `data/symbols/<build>/metadata/string_literals.tsv` (format `index \t rva_du_slot \t "texte"`,
+ * `image_base=0x180000000`, donc `DAT_1833a5af0` -> rva `0x33a5af0`).
+ *
+ * ⚠ LA MÉTHODE SE VÉRIFIE PAR UN TÉMOIN, sinon on apparie deux tables au hasard : le slot
+ * `0x3388910`, que le décompilé de
+ * `IdunBattle.ViewLogic.BattleSource.LineupHelper$$GetCampaignBattleLineupUsingRequiredUnits`
+ * charge comme littéral, rend `""` dans la table. L'appariement `DAT_` <-> table tient.
+ *
+ * ⚠ VRAIES POUR CE BUILD SEULEMENT. Un contenu de métadonnées n'est pas un symbole : les noms
+ * survivent au changement de hash, pas les littéraux ni leur emplacement. Les RE-DÉRIVER.
+ */
+const CLES_LITTERALES: Readonly<Record<string, string>> = {
+    // `PvpGameModeSource$$GetBattleLineup` -- clé principale.
+    pvp: "pvp",
+    // `GuildBossGameModeSource$$GetBattleLineup` -- PREMIER repli (le second est `defautPartage`).
+    guildBossRepli: "gb",
+    // DERNIER repli de PvP *ET* de guild boss : la composition « par défaut » du compte.
+    defautPartage: "5",
+};
+
+/** Le séparateur de la clé campagne : `<campaignId>` + ceci + `<nombre de places>`. Concaténé par
+ *  `CampaignGameModeSource$$GetBattleLineup` via `System.String$$Concat`. */
+const SEP_CAMPAGNE = "_";
+
 interface VueDeCle {
     vues: number;
     derniereLongueur: number | null;
@@ -340,6 +371,32 @@ export function cleObservee(): string | null {
 /** `null` = le magasin n'a JAMAIS été vu passer -- pas « absent du jeu ». */
 export function magasinObserve(): NativePointer | null {
     return magasin;
+}
+
+/**
+ * LE MAGASIN UTILISABLE, et D'OÙ il vient — deux sources, par ordre d'autorité DÉCROISSANTE.
+ *
+ * 1. `capteur` — le `this` de l'appel lui-même. Rien ne peut être plus juste : c'est l'objet sur
+ *    lequel le jeu VIENT d'appeler la méthode.
+ * 2. `amorce` — `IdunNavigation._unitProgression`, capté par `autoBootExtraire` au moment de
+ *    l'inject.
+ *
+ * ⚠ LA SECONDE EXISTE PARCE QUE LA PREMIÈRE EXIGE UNE BATAILLE, et c'est ce qui bloquait tout :
+ * mesuré le 2026-08-25, le capteur armé sur une session montée APRÈS le chargement d'une bataille
+ * rend `fires: 0` indéfiniment -- la source du mode n'ayant pas été captée non plus, il n'existait
+ * AUCUN chemin vers le magasin. L'amorce, elle, le publie à chaque inject, sans bataille et sans
+ * navigation. Ce n'est pas un repli dégradé : c'est la voie NORMALE.
+ *
+ * ⚠ LA SOURCE EST RENDUE AVEC LE POINTEUR, jamais tue. Les deux ne sont pas interchangeables si le
+ * jeu venait à porter plusieurs instances -- et un lecteur qui ne sait pas d'où vient l'objet ne
+ * peut pas juger ce qu'il lit.
+ */
+function magasinUtilisable(): { ptr: NativePointer; source: string } | null {
+    if (magasin !== null && !magasin.isNull()) return { ptr: magasin, source: "capteur" };
+    let p: NativePointer | null = null;
+    try { p = getUnitProgressionPtr(); } catch { p = null; }
+    if (p !== null && !p.isNull()) return { ptr: p, source: "amorce" };
+    return null;
 }
 
 function armerCles(): Record<string, unknown> {
@@ -400,6 +457,10 @@ export function register(ctx: Ctx): void {
         const etat = (): Record<string, unknown> => ({
             arme: ecouteCles !== null, fires: firesCles, derniereCle,
             magasin: magasin === null ? null : magasin.toString(),
+            magasinSource: magasinUtilisable()?.source ?? null,
+            // Publiées ici pour qu'un appelant n'ait RIEN à deviner : ce sont les clés que le
+            // natif utilise, résolues hors ligne. Cf. `CLES_LITTERALES`.
+            clesLitterales: CLES_LITTERALES, sepCampagne: SEP_CAMPAGNE,
             catalogue: Array.from(catalogue.entries()).map(([cle, v]) => ({
                 cle, vues: v.vues, longueur: v.derniereLongueur, contenu: v.dernierContenu,
             })),
@@ -457,11 +518,13 @@ export function register(ctx: Ctx): void {
                     + "voir passer. Guild war et sandbox, eux, n'ont AUCUNE clé par construction "
                     + "-- pour ceux-là, `lineupPoserUnites`." };
         }
-        const store = magasin;
+        const mag = magasinUtilisable();
+        const store = mag === null ? null : mag.ptr;
         const vue = catalogue.get(cle) ?? null;
         const apercu: Record<string, unknown> = {
             cle, unites, placesDemandees: unites.length,
             magasin: store === null ? null : store.toString(),
+            magasinSource: mag === null ? null : mag.source,
             connuAuCatalogue: vue !== null,
             // Ce que le magasin rendait la DERNIÈRE fois qu'on l'a vu passer. `null` = jamais vu
             // pour CETTE clé -- pas « composition vide ».
@@ -470,9 +533,9 @@ export function register(ctx: Ctx): void {
         };
         if (store === null) {
             return { ok: false, ...apercu,
-                refus: "le magasin n'a JAMAIS été vu passer -- on n'a donc aucune instance sur "
-                    + "laquelle appeler. Ce n'est pas « absent du jeu ». Armer le capteur et "
-                    + "ouvrir l'écran d'un mode de la famille (a)." };
+                refus: "aucune instance de magasin -- NI vue passer par le capteur, NI publiée par "
+                    + "l'amorce (`IdunNavigation._unitProgression`). Ce n'est pas « absent du "
+                    + "jeu » : rejouer `POST /api/admin/amorce`, qui la capte sans bataille." };
         }
         if (body?.confirmer !== true) {
             return { ok: true, ecrit: false, dryRun: true, ...apercu,
@@ -557,11 +620,13 @@ export function register(ctx: Ctx): void {
         if (cle === null || cle === undefined || cle.length === 0) {
             return { ok: false, refus: "aucune clé -- ni fournie, ni observée." };
         }
-        const store = magasin;
-        if (store === null) {
+        const mag = magasinUtilisable();
+        if (mag === null) {
             return { ok: false, cle,
-                refus: "le magasin n'a jamais été vu passer -- aucune instance à interroger." };
+                refus: "aucune instance de magasin -- NI capteur, NI amorce. Rejouer "
+                    + "`POST /api/admin/amorce`, qui la capte sans bataille." };
         }
+        const store = mag.ptr;
         return queueOnMainThread(() => {
             const k = findClassAnywhere(NS_PROG, CLS_PROG);
             if (!k) return { ok: false, cle, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE` };
@@ -582,6 +647,7 @@ export function register(ctx: Ctx): void {
                     const obs = lireTableau(arr);
                     return { ok: true, cle, longueur: obs.longueur, contenu: obs.avant,
                              classeRetour: obs.classeRetour,
+                             magasin: store.toString(), magasinSource: mag.source,
                              derniereSubstitution };
                 } finally { try { gcRoot.remove(cleGeree); } catch { /* deja parti */ } }
             } catch (e) {
