@@ -49,7 +49,7 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import {
     class_get_name, findClassAnywhere, findMethodByParamCount, s as cstr,
 } from "../il2cpp/helpers.js";
-import { createManagedString } from "../il2cpp/invoke.js";
+import { createManagedArray, createManagedString } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
@@ -224,6 +224,54 @@ function etatRegistre(): Array<Record<string, unknown>> {
 }
 
 export function register(ctx: Ctx): void {
+    /**
+     * AUTO-TEST DE LA LIAISON `il2cpp_array_new` — alloue, relit, jette.
+     *
+     * Il existe parce que la liaison est PARESSEUSE : un export absent ne se verrait ni à la
+     * compilation ni au chargement, seulement au premier usage réel -- c'est-à-dire au pire
+     * moment, en pleine substitution. Ce RPC déplace cette découverte AVANT.
+     *
+     * Il vérifie DEUX choses d'un coup, et la seconde compte autant : que l'allocation répond, et
+     * que la disposition qu'on croit connaître (`longueur` en `+0x18`, classe au pointeur de tête)
+     * se relit bien sur un tableau qu'on a fabriqué NOUS-MÊMES. Un `String[]` relu comme tel sur
+     * notre propre allocation est la preuve que les offsets de LECTURE valent pour l'ÉCRITURE.
+     *
+     * N'écrit rien dans le jeu : le tableau reste vide et n'est confié à personne.
+     */
+    ctx.rpc.lineupArrayAutotest = (body?: { longueur?: number }): Promise<unknown> | unknown => {
+        const n = body?.longueur ?? 5;
+        return queueOnMainThread(() => {
+            const kStr = findClassAnywhere("System", "String");
+            if (!kStr) return { ok: false, refus: "classe `System.String` INTROUVABLE" };
+            let arr: NativePointer;
+            try { arr = createManagedArray(kStr, n); }
+            catch (e) { return { ok: false, refus: (e as Error).message }; }
+            // ENRACINER tout de suite : rien de managé ne le référence.
+            gcRoot.add(arr);
+            let classe: string | null = null;
+            try { classe = cstr(class_get_name(arr.readPointer()) as NativePointer); } catch { /* nul */ }
+            let relue: number | null = null;
+            try { relue = arr.add(OFF_LONGUEUR).readS32(); } catch { /* nul */ }
+            // Un tableau NEUF doit avoir toutes ses cases à NUL -- si ce n'est pas le cas, c'est
+            // l'offset des éléments qui est faux, pas l'allocation.
+            let premieresNulles: boolean | null = null;
+            try {
+                premieresNulles = true;
+                for (let i = 0; i < Math.min(n, 4); i++) {
+                    if (!arr.add(OFF_ELEMENTS + i * Process.pointerSize).readPointer().isNull()) {
+                        premieresNulles = false;
+                    }
+                }
+            } catch { premieresNulles = null; }
+            gcRoot.remove(arr);
+            return {
+                ok: classe !== null && relue === n,
+                demandee: n, longueurRelue: relue, classe, premieresCasesNulles: premieresNulles,
+                note: "le tableau est LIBERE a la sortie : rien n'est confie au jeu",
+            };
+        });
+    };
+
     ctx.rpc.lineupPoserArmer = (body?: {
         armer?: boolean; mode?: string;
     }): Promise<unknown> | unknown => {

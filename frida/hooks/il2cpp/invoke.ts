@@ -101,6 +101,61 @@ export const il2cpp_runtime_invoke = new NativeFunction(
 const il2cpp_string_new = new NativeFunction(
     exp("il2cpp_string_new"), "pointer", ["pointer"]);
 
+/**
+ * `il2cpp_array_new(Il2CppClass* elementClass, il2cpp_array_size_t length)`.
+ *
+ * ⚠ RÉSOLU PARESSEUSEMENT, ET C'EST DÉLIBÉRÉ. Les liaisons ci-dessus sont posées au CHARGEMENT
+ * du module : un export absent y ferait échouer l'import de `invoke.js`, donc du bundle ENTIER,
+ * pour une fonction dont la plupart des chemins n'ont pas besoin. Celle-ci est la première du
+ * fichier à n'être utilisée que par un appelant précis -- on paie sa résolution au premier appel,
+ * et un manque se rapporte au site qui la demande au lieu de tuer l'injection.
+ *
+ * ⚠ `il2cpp_array_size_t` est un `uintptr_t` -- donc `uint64` sur ce build x64, jamais `uint32` :
+ * une longueur passée sur 32 bits laisserait les 32 bits de poids fort au hasard de la pile, et
+ * l'allocation demanderait une taille absurde.
+ */
+let _arrayNew: NativeFunction<NativePointer, [NativePointer, UInt64]> | null = null;
+let _arrayNewTente = false;
+function arrayNew(): typeof _arrayNew {
+    if (_arrayNewTente) return _arrayNew;
+    _arrayNewTente = true;
+    try {
+        _arrayNew = new NativeFunction(
+            exp("il2cpp_array_new"), "pointer", ["pointer", "uint64"]);
+    } catch { _arrayNew = null; }
+    return _arrayNew;
+}
+
+/**
+ * Fabrique un tableau managé VIDE de `length` éléments du type `elementClass`.
+ *
+ * ⛔ L'APPELANT DOIT L'ENRACINER (`gcRoot.add`) AVANT de le remplir ou de le confier au natif.
+ * Un tableau fraîchement alloué n'est référencé par RIEN de managé : une collecte survenant entre
+ * l'allocation et le moment où le jeu le range le libérerait, et le natif lirait de la mémoire
+ * recyclée -- loin d'ici, sans rien qui désigne ce site. C'est la même leçon que `delegate.ts`.
+ *
+ * ⛔ ET ON NE PREND PAS LA CLASSE ICI. `elementClass` est un paramètre parce que la résoudre dans
+ * ce fichier obligerait `invoke.ts` à importer `helpers.ts`, qui l'importe déjà -- le cycle
+ * casserait le bundle. L'appelant a déjà les helpers sous la main.
+ *
+ * Les éléments s'écrivent ensuite à `+0x20 + i * pointerSize` (longueur relue en `+0x18`), la
+ * disposition que `game/source-lineup.ts` établit pour la LECTURE.
+ */
+export function createManagedArray(elementClass: NativePointer, length: number): NativePointer {
+    if (elementClass.isNull()) throw new Error("createManagedArray : `elementClass` est NUL");
+    if (!Number.isInteger(length) || length < 0 || length > 4096) {
+        throw new Error(`createManagedArray : longueur invalide (${length})`);
+    }
+    const f = arrayNew();
+    if (f === null) {
+        throw new Error("`il2cpp_array_new` INTROUVABLE dans les exports de GameAssembly.dll "
+            + "-- ce n'est PAS « allocation échouée », c'est « la liaison n'existe pas sur ce build »");
+    }
+    const p = f(elementClass, uint64(length)) as NativePointer;
+    if (p.isNull()) throw new Error("il2cpp_array_new a rendu NUL");
+    return p;
+}
+
 /** Build a managed System.String from a JS string (UTF-8 roundtrip). */
 export function createManagedString(str: string): NativePointer {
     const buf = Memory.allocUtf8String(str);
