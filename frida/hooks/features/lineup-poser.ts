@@ -627,6 +627,25 @@ function armerCles(): Record<string, unknown> {
 // ⚠ `retreat-capture` N'ANCRE PAS cette méthode (il prend `OnBattleSurrender` / `ContinueSurrender`
 // / `ProcessFinishSurrender` / `ProcessFinishBattle` / `OnFinishBattle` sur `IdunMainView`, et
 // `PauseSurrender` sur `AGameModeSource` / `CampaignGameModeSource`). Pas de double attache.
+//
+// CONFRONTÉ EN LIVE le 2026-08-25, sandbox guild boss (`GuildBoss1Boss1TyranTervigonLeviathan`),
+// bataille DÉMARRÉE puis quittée par `retreatInvoke OnBattleSurrender` :
+//
+//     equipesVues   ["1","2"]        equipeRetenue "1"
+//     parEquipe     1 -> admecRuststalker, admecDominus, tauMarksman, admecManipulus, admecMarshall
+//                   2 -> GuildBoss1Boss1TyranTervigonLeviathan
+//     registre      GuildBossGameModeSource <- les 5, origine "retraite sandbox"
+//
+// La composition du joueur est retenue, l'adversaire écarté, et la sortie est propre
+// (`sandboxProbe.instance` vide, jeu vivant).
+//
+// ⛔ ET IL FAUT SORTIR D'UNE BATAILLE **DÉMARRÉE**, PAS DE LA PHASE DE DÉPLOIEMENT. Deux crashs du
+// jeu, le même jour, sur des retraites depuis `Setup` (une en sandbox, une en campagne réelle) ;
+// la même retraite depuis `Running` -- la sortie que `tacticus-sandbox` documente -- passe sans
+// incident. La cause exacte n'est PAS établie : le refus posé plus bas vise le contenu retenu
+// (l'état ne porte que l'adversaire en `Setup`), et il se trouve qu'il écarte aussi la géométrie
+// où l'on a crashé. Ne pas lire ce refus comme une parade au crash : il n'a pas été éprouvé comme
+// telle.
 
 const CLS_SANDBOX = "SandboxGameModeSource";
 const METHODE_RETRAITE = "HandleBattleSurrender";
