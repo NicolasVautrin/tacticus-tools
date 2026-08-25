@@ -212,6 +212,35 @@ def main():
         return 0
 
     bc = json.loads(bcr["configJson"])
+
+    # ⚠ LE CATALOGUE DE LA BC N'EST PAS LE ROSTER DU HUD, et les confondre coute une pose MUETTE.
+    # Une unite absente de `BC.Units` se pose sans erreur et n'apparait JAMAIS : `Apply` passe, le
+    # RPC rend << la pose est enfilee >>, et le plateau reste sans elle.
+    #
+    # Mesure du 2026-08-25, zone Trenches1 : `orksWarboss` etait dans le roster emprunte
+    # (`deploymentPoolArmer.rosterEmprunte`, donc offert par le HUD) et ABSENT des 175 entrees de
+    # `BC.Units`. Resultat : 4 poses sur 5, et rien qui nomme la cinquieme -- on a d'abord accuse
+    # sa case (la colonne 0), qui n'y etait pour rien. Les quatre autres gardent leur case : le zip
+    # ne se decale pas, l'unite manque simplement.
+    catalogue = set()
+    for u in (bc.get("Units") or []):
+        if not isinstance(u, dict):
+            continue
+        for cle in ("Id", "UnitId", "ConfigId", "VisualId"):
+            v = u.get(cle)
+            if isinstance(v, str):
+                catalogue.add(v)
+            elif isinstance(v, dict):
+                for kk in ("PureId", "Id", "VisualId"):
+                    if isinstance(v.get(kk), str):
+                        catalogue.add(v[kk])
+    absents = [i for i in ids if i not in catalogue]
+    if absents:
+        print("  %-28s (!) %d id(s) ABSENT(S) de `BC.Units` (%d entrees) : %s"
+              % ("catalogue", len(absents), len(catalogue), ", ".join(absents)))
+        print("  %-28s ils se poseront SANS ERREUR et n'apparaitront PAS. Les autres gardent "
+              "leur case." % "")
+
     poses, moi, diag = poses_sur_cases_de_spawn(bc, ids)
     print("  %-28s %s" % ("cases de spawn", diag))
     if poses is None:
