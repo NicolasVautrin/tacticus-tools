@@ -75,6 +75,20 @@ const CLASSES: Readonly<Record<string, string>> = {
     sandbox: "SandboxGameModeSource",
 };
 
+/** CE MODULE SAIT-IL SERVIR CETTE SOURCE ?
+ *
+ *  ⚠ EXISTE POUR EMPÊCHER UN VERROUILLAGE, pas par symétrie. `garde-jeton` refuse le START quand
+ *  aucune composition n'est retenue — mais pour une source ABSENTE de `CLASSES`, il n'existe
+ *  AUCUN moyen d'en retenir une : le refus serait alors définitif, et le mode injouable. La
+ *  couverture se DEMANDE donc ici, au seul endroit qui la connaît, plutôt que d'être recopiée
+ *  chez l'appelant — une seconde liste divergerait en silence, et c'est le joueur qui paierait
+ *  l'écart. */
+export function estSourceCouverte(classeSource: string | null): boolean {
+    if (classeSource === null) return false;
+    for (const c of Object.values(CLASSES)) if (c === classeSource) return true;
+    return false;
+}
+
 /** `System.String[]` : longueur en `+0x18`, éléments dès `+0x20`. Relevé sur le lecteur de
  *  `game/source-lineup.ts` -- un seul endroit connaît cette disposition à l'origine. */
 const OFF_LONGUEUR = 0x18;

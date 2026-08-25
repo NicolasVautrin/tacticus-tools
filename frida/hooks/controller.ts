@@ -30,6 +30,9 @@ import * as viewCommand from "./features/view-command.js";
 // #10047 — une boite de dialogue DU JEU avec notre texte (`messageBox`), pour qu'un refus soit
 // lisible par le joueur au lieu de finir dans un journal.
 import * as messageBox from "./features/message-box.js";
+// #10047 — REFUSER le START d'une bataille LIVE quand aucune lineup n'est retenue, AVANT que le
+// jeton ne parte. Echoue OUVERT, et ne bloque JAMAIS la sandbox (c'est la voie de montage).
+import * as gardeJeton from "./features/garde-jeton.js";
 // Jouer une `BattleConfiguration` ARBITRAIRE a l'ecran, via `IdunMainView$$StartBattle`.
 // N'installe AUCUN hook au register : deux RPC, dont un purement observateur.
 import * as sandbox from "./features/sandbox.js";
@@ -606,6 +609,12 @@ export function wireRpc(ctx: Ctx): void {
      // `viewInvoke`, executeur generique qui peut lancer une bataille. Son unique refus metier
      // est la popup INFERMABLE (`bloquant` neutralise la croix).
      messageBox,
+     // `gardeJeton` ARME son ancrage au register, et le BLOCAGE est actif : desarme, un garde ne
+     // protege rien. L'ancrage porte sur un predicat consulte au geste de depart
+     // (`VisualBattleQuery$$IsMinUnitAmountToBringToStartBattleReached`), pas sur un chemin
+     // chaud, et il ECHOUE OUVERT -- toute incertitude laisse partir la bataille. La SANDBOX
+     // n'est jamais bloquee : c'est par elle qu'on monte la lineup.
+     gardeJeton,
      // `visuelAbandonne` ancre en OBSERVATION PURE le couple `Init`/`Execute` des visuels
      // d'ability. Il repond a une question que rien d'autre ne sait poser : `exception-tracer`
      // rend ZERO sur ce chemin (un null-deref IL2CPP passe par le helper interne, pas par
