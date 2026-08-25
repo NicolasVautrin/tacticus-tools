@@ -5811,13 +5811,17 @@ export function register(ctx: Ctx): void {
                      poses: hudPoses, plateau: hudBoard,
                      shows: { entrees: showEnters, sorties: showFires,
                               leveEnCours: showEnters > showFires },
-                     clears: { fires: vidangeRetraiteFires, trace: vidangeTrace } };
+                     clears: { fires: vidangeFires, trace: vidangeTrace } };
         }
         if (body.armer === false) {
             if (listenerShow) { listenerShow.detach(); listenerShow = null; }
             if (listenerPose) { listenerPose.detach(); listenerPose = null; }
             if (listenerBoard) { listenerBoard.detach(); listenerBoard = null; }
-            if (listenerVidangeRetraite) { listenerVidangeRetraite.detach(); listenerVidangeRetraite = null; }
+            // ⚠ `listenerVidange` = l'observation de `ClearWidgets`, PAS la vidange à la
+            // retraite (`listenerVidangeRetraite`), qui n'est pas un relais de HUD et ne doit
+            // jamais tomber avec eux. Les deux noms se ressemblent, un renommage global les a
+            // déjà confondus une fois -- et ça compile, puisque les deux existent.
+            if (listenerVidange) { listenerVidange.detach(); listenerVidange = null; }
             Interceptor.flush();
             return { ok: true, arme: false, action: "retire" };
         }
