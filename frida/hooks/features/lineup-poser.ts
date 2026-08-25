@@ -56,7 +56,7 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import { getUnitProgressionPtr } from "./campaign-builder.js";
 // La projection de l'état de match -- c'est elle qui donne la composition RÉELLEMENT en jeu au
 // moment de la retraite, plutôt qu'une intention qu'on aurait notée avant.
-import { projectMatchState } from "../game/match-state.js";
+import { projectMatchState, readBattleStatus } from "../game/match-state.js";
 
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
 
@@ -644,7 +644,7 @@ let dernierCommit: Record<string, unknown> | null = null;
  *  les deux et on DIT laquelle a été retenue. */
 function compositionsParEquipe(
     statePtr: NativePointer,
-): { parEquipe: Record<string, string[]>; refus: string | null } {
+): { parEquipe: Record<string, string[]>; stage?: string | null; refus: string | null } {
     let nomClasse: string | null = null;
     try { nomClasse = cstr(class_get_name(statePtr.readPointer()) as NativePointer); }
     catch { nomClasse = null; }
@@ -654,6 +654,28 @@ function compositionsParEquipe(
         return { parEquipe: {},
                  refus: `l'argument d'état n'est pas un \`MatchState\` (lu : ${nomClasse ?? "illisible"})` };
     }
+    // ⛔ LE REFUS SUR `Setup`, ET IL EST MESURÉ -- pas prudentiel. Confronté le 2026-08-25 sur une
+    // sandbox guild boss : retraiter depuis la phase de déploiement a fait retenir
+    // `["GuildBoss1Boss1TyranTervigonLeviathan"]` comme composition du joueur, et RIEN ne l'a
+    // arrêté. La cause : en `Setup` les unités du joueur sont encore des `PlaceholderUnitView`,
+    // que le START natif convertit -- elles n'existent PAS comme entités, donc `projectMatchState`
+    // ne voit que l'adversaire. Sur une cible `cle`, ce tir aurait rangé l'id du BOSS dans le
+    // magasin du joueur, sans lever quoi que ce soit.
+    // (La voie `deploymentCommit`, qui posait des unités RÉELLES en `Setup`, a été supprimée le
+    // 2026-08-21 : toute pose passe désormais par l'étage FSM. Il n'y a donc plus aucun régime où
+    // lire l'état en `Setup` rendrait la composition du joueur.)
+    const statut = readBattleStatus(statePtr);
+    if (statut.stage === null) {
+        return { parEquipe: {}, stage: null,
+                 refus: "stage de bataille NON LU -- on ne retient rien sur un état qu'on ne "
+                      + "sait pas qualifier" };
+    }
+    if (statut.stage <= 0) {
+        return { parEquipe: {}, stage: statut.stageName,
+                 refus: `bataille en \`${statut.stageName}\` : les unités du joueur sont encore `
+                      + "des placeholders, l'état ne porte que l'adversaire. Démarrer la bataille "
+                      + "AVANT de retraiter -- sinon on retiendrait la composition ENNEMIE." };
+    }
     const parEquipe: Record<string, string[]> = {};
     const proj = projectMatchState(statePtr);
     for (const u of proj.units) {
@@ -662,7 +684,7 @@ function compositionsParEquipe(
         if (parEquipe[k] === undefined) parEquipe[k] = [];
         if (!parEquipe[k].includes(u.visualId)) parEquipe[k].push(u.visualId);
     }
-    return { parEquipe, refus: null };
+    return { parEquipe, stage: statut.stageName, refus: null };
 }
 
 function armerRetraite(): Record<string, unknown> {
@@ -682,7 +704,10 @@ function armerRetraite(): Record<string, unknown> {
                 // args[0] = `this`, args[1] = `state: IMatchState`.
                 const lu = compositionsParEquipe(args[1] as NativePointer);
                 if (lu.refus !== null) {
-                    dernierCommit = { ok: false, refus: lu.refus, fire: firesRetraite };
+                    // ⚠ ON NE VERROUILLE PAS SUR UN REFUS : le tir suivant (une retraite depuis
+                    // une bataille DÉMARRÉE, cette fois) doit encore pouvoir commiter.
+                    dernierCommit = { ok: false, refus: lu.refus,
+                                      stage: lu.stage ?? null, fire: firesRetraite };
                     return;
                 }
                 const equipes = Object.keys(lu.parEquipe).sort();
