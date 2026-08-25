@@ -27,6 +27,9 @@ import * as autoBoot from "./features/auto-boot.js";
 // #992 — la surface de commandes du jeu, requetable (`viewSurface`/`viewList`/`viewInvoke`),
 // et l'interception de la retraite (pile complete + instance capturee a l'ancrage).
 import * as viewCommand from "./features/view-command.js";
+// #10047 — une boite de dialogue DU JEU avec notre texte (`messageBox`), pour qu'un refus soit
+// lisible par le joueur au lieu de finir dans un journal.
+import * as messageBox from "./features/message-box.js";
 // Jouer une `BattleConfiguration` ARBITRAIRE a l'ecran, via `IdunMainView$$StartBattle`.
 // N'installe AUCUN hook au register : deux RPC, dont un purement observateur.
 import * as sandbox from "./features/sandbox.js";
@@ -598,6 +601,11 @@ export function wireRpc(ctx: Ctx): void {
      // `QueueComputerActions` exige ce drapeau a zero : une exception attrapee TUE la bataille
      // en silence -- ni popup ni trace des que `HandleBattleException` de la source rend faux.
      vueException,
+     // `messageBox` n'INSTALLE RIEN au register : aucun `Interceptor`, meme arme. Il n'ecrit pas
+     // sur le compte -- il affiche du texte -- d'ou l'absence de `confirmer`, a la difference de
+     // `viewInvoke`, executeur generique qui peut lancer une bataille. Son unique refus metier
+     // est la popup INFERMABLE (`bloquant` neutralise la croix).
+     messageBox,
      // `visuelAbandonne` ancre en OBSERVATION PURE le couple `Init`/`Execute` des visuels
      // d'ability. Il repond a une question que rien d'autre ne sait poser : `exception-tracer`
      // rend ZERO sur ce chemin (un null-deref IL2CPP passe par le helper interne, pas par
