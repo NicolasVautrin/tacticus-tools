@@ -328,6 +328,71 @@ function remplacerRetour(
              tronque: ids.length > n };
 }
 
+/**
+ * LE TROISIÈME CONSOMMATEUR — LA DÉLÉGATION DE SANDBOX, QUI NE PEUT PAS PASSER PAR NOTRE ANCRAGE.
+ *
+ * ⛔ NOTRE ANCRAGE NE TIRE PAS QUAND L'APPEL PART D'UN CALLBACK `Interceptor`. Ça, c'est MESURÉ ;
+ * le mécanisme exact, lui, ne l'est pas — et les deux ne se confondent pas.
+ *
+ * CE QUI EST ÉTABLI, le 2026-08-25 (session 140, montage guerre de guilde) — MÊME méthode
+ * (`IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource$$GetBattleLineup`, 1 paramètre,
+ * résolue des deux côtés par `findClassAnywhere` + `findMethodByParamCount`), MÊME machinerie
+ * d'appel (`invokeMethod` -> `il2cpp_runtime_invoke`), DEUX contextes d'appel :
+ *
+ *   depuis `guildWarSourceForger` (RPC, hors callback)       -> `fires` monte, `dernierePose` posée
+ *   depuis l'`onLeave` de la délégation (`deployment-draft`) -> `fires` INCHANGÉ, `dernierePose` nulle
+ *
+ * `fires++` est la PREMIÈRE instruction de notre `onLeave`, avant tout filtre : un compteur qui ne
+ * bouge pas prouve que le callback n'a pas tourné DU TOUT. Le contexte d'appel est la seule
+ * variable qui change entre les deux lignes.
+ *
+ * ⚠ ET CE N'EST PAS UN PARTAGE D'ADRESSE — l'hypothèse a été levée, pas supposée. `GuildWars…` et
+ * `Sandbox…$$GetBattleLineup` ont chacun LEUR entrée dans `data/symbols/<build>/frida/methods.tsv`
+ * (table indexée par adresse, sans RVA répétée), donc la délégation n'invoque pas son propre corps.
+ *
+ * ⚠ CE QUI N'EST PAS ÉTABLI : le mécanisme. L'explication qui colle est le garde de réentrance de
+ * `gum` (un `ignore_level` PAR THREAD, levé pendant un callback JS, qui fait sauter les listeners
+ * des appels imbriqués). Elle n'a PAS été confrontée ici, et une mesure de notre propre historique
+ * s'y accorde mal : [[feedback_never_hook_the_method_you_invoke]] rapporte un GEL — donc un handler
+ * qui tourne — pour un invoke imbriqué, là où un `ignore` aurait rendu la main en silence. Ne pas
+ * recopier le mécanisme comme acquis ; ce qui porte le correctif, c'est la mesure ci-dessus.
+ *
+ * ⇒ ON NE SE FAIT PLUS APPELER, ON SE FAIT LIRE — et ça vaut sous l'un OU l'autre mécanisme.
+ * `deployment-draft` consulte cette fonction dans sa branche `GetBattleLineup` et substitue
+ * lui-même, DANS son propre callback. Le foyer d'allocation (tableau géré + `gcRoot`) reste ICI.
+ *
+ * CONFRONTÉ le 2026-08-25, session 141, zone `Trenches1` — et la preuve tient à ce qu'on a CHANGÉ
+ * la composition : les cinq ids retenus (`bloodMephiston`, `astraYarrick`, `blackAbaddon`,
+ * `adeptMorvenn`, `custoTrajann`) n'avaient jamais été posés, donc aucun résidu ne pouvait les
+ * imiter. Mémoire de déploiement OUBLIÉE, montage `--sans-prepose` (personne ne pose), et 2,5 s
+ * après le montage le JEU avait déployé ces cinq-là, dans cet ordre. `dernier` de la délégation :
+ * « composition RETENUE substituée ... -- le prêteur n'a PAS été interrogé ».
+ *
+ * ⚠ LIRE APRÈS L'OUVERTURE DU HUD, PAS APRÈS LE MONTAGE. Le montage rend la main AVANT que le HUD
+ * ait demandé quoi que ce soit : trois lectures prises juste après ont rendu `delta fires = 0` et
+ * ont fait conclure que ce chemin était mort. Il ne l'était pas — on lisait trop tôt. Attendre LE
+ * FAIT (`deploymentEtat.placeholders > 0`), jamais une durée.
+ *
+ * Rend `null` quand rien n'est retenu pour cette classe : l'appelant DÉLÈGUE alors normalement, et
+ * ce `null` ne dit pas « composition vide », il dit « je n'ai rien à substituer ».
+ */
+export function substituerRetourLineup(
+    retval: InvocationReturnValue, classeSource: string | null,
+): Record<string, unknown> | null {
+    const retenue = compositionRetenue(classeSource);
+    if (retenue === null) return null;
+    try {
+        dernierePose = {
+            ...remplacerRetour(retval, retenue.ids), voie: "remplacement-delegation",
+            classe: classeSource, origine: retenue.origine, fire: fires,
+        };
+    } catch (e) {
+        dernierePose = { erreur: (e as Error).message, voie: "remplacement-delegation",
+                         classe: classeSource };
+    }
+    return dernierePose;
+}
+
 function etatRegistre(): Array<Record<string, unknown>> {
     return Array.from(registre.entries()).map(([classe, c]) => ({
         classe, ids: c.ids, confirme: c.confirme, origine: c.origine,

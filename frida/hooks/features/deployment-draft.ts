@@ -77,6 +77,10 @@ import { sourceGuildWarForgee } from "./guild-war-config.js";
 import { sourceOnslaughtForgee } from "./onslaught-source.js";
 import { sourceMowEventForgee } from "./mow-event-source-forge.js";
 import { sourcePvpForgee } from "./pvp-source-forge.js";
+// LA COMPOSITION RETENUE, LUE — jamais reçue par un ancrage. Cf. `substituerRetourLineup` : un
+// `Interceptor` posé sur la méthode du prêteur NE TIRE PAS depuis ce module, parce que l'appel
+// part d'un callback Frida. On lit le registre et on substitue nous-mêmes.
+import { substituerRetourLineup } from "./lineup-poser.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // (!)PLUS AUCUN `buildAddUnitMessage` ICI (2026-08-21). Ce module ne fabrique plus d'ajout
@@ -2263,6 +2267,33 @@ function armerUneDelegation(
                 d.dernier = { ok: true, detail: "laissé au JEU (tableau vide) -- la mémoire porte "
                     + `${memoirePoses.length} pose(s), plus fraîches que la sauvegarde du compte` };
                 return;
+            }
+            // NOTRE COMPOSITION RETENUE, QUAND IL Y EN A UNE -- ET C'EST NOUS QUI SUBSTITUONS.
+            //
+            // ⛔ ANCRER LA MÉTHODE DU PRÊTEUR NE MARCHE PAS DEPUIS ICI, et ce n'est pas un défaut
+            // d'ancrage. Mesuré le 2026-08-25 (session 140, guerre de guilde) : MÊME méthode, MÊME
+            // `invokeMethod`, le compteur `fires` de `lineup-poser` monte quand l'appel vient d'un
+            // RPC et reste INCHANGÉ quand il vient d'ici — donc son callback ne tourne pas du tout.
+            // Le mécanisme (garde de réentrance de `gum`) est une EXPLICATION, pas une mesure : la
+            // discussion et l'hypothèse LEVÉE du partage d'adresse vivent sur
+            // `substituerRetourLineup`. Le correctif ci-dessous vaut sous l'un ou l'autre.
+            //
+            // ⚠ APRÈS la mémoire, pas avant. Quand des poses attendent, elles sont plus fraîches
+            // que toute sauvegarde (cf. le pavé précédent) et l'étage FSM les rejoue : doubler ce
+            // chemin ferait deux autorités pour un seul écran.
+            if (spec.nom === "GetBattleLineup") {
+                const sub = substituerRetourLineup(retval, p.cls);
+                if (sub !== null) {
+                    const ids = sub.ids as string[] | undefined;
+                    d.emprunts++;
+                    d.dernier = sub.erreur === undefined
+                        ? { ok: true, detail: `composition RETENUE substituée sur \`${p.cls}\` `
+                            + `(${ids?.length ?? "?"}) : ${ids?.join(", ") ?? "?"} -- le prêteur `
+                            + "n'a PAS été interrogé" }
+                        : { ok: false, detail: "substitution de la composition retenue : "
+                            + String(sub.erreur) };
+                    return;
+                }
             }
             // LES BORNES : un `System.Int32` revient BOXÉ de `runtime_invoke`, et le générique
             // poserait la boîte. On DÉBALLE à `+0x10` et on remplace par la valeur elle-même.

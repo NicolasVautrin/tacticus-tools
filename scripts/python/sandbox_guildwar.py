@@ -134,6 +134,11 @@ def main():
     p.add_argument("--slot", type=int, default=0)
     p.add_argument("--unites", help="imposer la composition (ids separes par des virgules) "
                                     "au lieu de celle que la source annonce")
+    p.add_argument("--sans-prepose", action="store_true",
+                   help="monter SANS pre-poser. Ce qui apparait alors sur le plateau ne peut "
+                        "venir que du JEU -- c'est le regime de confrontation d'une "
+                        "substitution de lineup, ou une pre-pose du lanceur masquerait le "
+                        "resultat qu'on mesure.")
     p.add_argument("--confirmer", action="store_true")
     args = p.parse_args()
 
@@ -218,6 +223,10 @@ def main():
     # ⚠ ON NE REPOSE JAMAIS SUR UN PLATEAU DEJA GARNI : la liste libre des paires d'entites se
     # comporte en PILE, donc un clear+repose deplacerait TOUS les ids d'entite.
     etat = jeu.rpc("deploymentEtat", [{}], timeout=120000) or {}
+    if args.sans_prepose:
+        print("  %-28s DEMANDEE SANS PRE-POSE -- placeholders=%s reelles=%s, tels que le JEU les "
+              "a laisses" % ("lineup", etat.get("placeholders"), etat.get("reelles")))
+        return 0
     if isinstance(etat.get("placeholders"), int) and etat["placeholders"] > 0:
         print("  %-28s %d placeholder(s) DEJA en place -- on ne repose pas par-dessus"
               % ("lineup", etat["placeholders"]))
