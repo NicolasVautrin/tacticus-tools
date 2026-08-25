@@ -799,6 +799,71 @@ function compositionsParEquipe(
     return { parEquipe, stage: statut.stageName, refus: null };
 }
 
+/** Une pose de placeholder, telle que l'étage FSM la porte. Même forme que `ordreConversion`. */
+export interface PlaceholderPose {
+    unitId: string | null;
+    playerId: number;
+    col: number;
+    row: number;
+    mow: boolean | null;
+}
+
+/** ⚠ INVERSION DE DÉPENDANCE VOULUE. `deployment-draft` sait lire les placeholders et importe
+ *  DÉJÀ ce module ; l'importer en retour ferait un cycle pour une seule fonction. Il nous
+ *  ENREGISTRE donc son lecteur, et le sens des imports reste unique. */
+let fournisseurPlaceholders: ((consommer?: boolean) => PlaceholderPose[] | null) | null = null;
+export function enregistrerFournisseurDePlaceholders(
+    fn: (consommer?: boolean) => PlaceholderPose[] | null,
+): void {
+    fournisseurPlaceholders = fn;
+}
+
+/**
+ * LA COMPOSITION TELLE QUE LE PLATEAU LA PORTE, AVANT LE START.
+ *
+ * ⚠ TOUS LES PLACEHOLDERS SONT AU JOUEUR — le HUD ne pose que les siens ; l'adversaire, lui,
+ * arrive en entités RÉELLES depuis la BC. On ne s'appuie pourtant pas sur cette évidence : on
+ * groupe par `playerId` et on REFUSE s'il y en a plusieurs, en les nommant. Deviner lequel est
+ * le joueur écrirait une composition adverse sans que rien ne le signale.
+ *
+ * Les Machines of War sont ÉCARTÉES de la liste et comptées à part : `GetBattleLineup` ne rend
+ * que des unités, la MoW ayant son propre canal (`GetBattleLineupMachineOfWar`).
+ */
+function lirePlaceholders(): { ids: string[]; parJoueur: Record<string, string[]>;
+                               mow: string[]; refus: string | null } {
+    const vide = { ids: [] as string[], parJoueur: {} as Record<string, string[]>,
+                   mow: [] as string[] };
+    if (fournisseurPlaceholders === null) {
+        return { ...vide, refus: "aucun fournisseur de placeholders enregistré" };
+    }
+    let l: PlaceholderPose[] | null;
+    // `true` = CONSOMMER la photo : on ne la laisse pas resservir à la bataille suivante.
+    try { l = fournisseurPlaceholders(true); }
+    catch (e) { return { ...vide, refus: "le fournisseur a levé : " + (e as Error).message }; }
+    // ⚠ TRI-ÉTAT : `null` = PAS MESURÉ. Un `[]` dirait « plateau vide », ce qui est une tout
+    // autre chose, et ferait écrire un refus qui accuse le joueur au lieu du capteur.
+    if (l === null) return { ...vide, refus: "placeholders NON MESURÉS (lecture en échec)" };
+    const parJoueur: Record<string, string[]> = {};
+    const mow: string[] = [];
+    for (const p of l) {
+        if (typeof p.unitId !== "string" || p.unitId.length === 0) continue;
+        if (p.mow === true) { mow.push(p.unitId); continue; }
+        const k = String(p.playerId);
+        if (parJoueur[k] === undefined) parJoueur[k] = [];
+        if (!parJoueur[k].includes(p.unitId)) parJoueur[k].push(p.unitId);
+    }
+    const joueurs = Object.keys(parJoueur);
+    if (joueurs.length === 0) {
+        return { ...vide, mow, refus: "aucun placeholder posé -- le plateau est vide" };
+    }
+    if (joueurs.length > 1) {
+        return { ...vide, parJoueur, mow,
+                 refus: `placeholders répartis sur ${joueurs.length} joueurs `
+                     + `(${joueurs.join(", ")}) -- on ne DEVINE pas lequel est le tien` };
+    }
+    return { ids: parJoueur[joueurs[0]], parJoueur, mow, refus: null };
+}
+
 function armerRetraite(): Record<string, unknown> {
     const k = findClassAnywhere(NS_SRC, CLS_SANDBOX);
     if (!k) return { ok: false, refus: `${NS_SRC}.${CLS_SANDBOX} INTROUVABLE sur ce build` };
@@ -814,33 +879,52 @@ function armerRetraite(): Record<string, unknown> {
             if (cible === null || commitDejaTire) return;
             try {
                 // args[0] = `this`, args[1] = `state: IMatchState`.
+                // DEUX SOURCES, ET C'EST LA PHASE QUI TRANCHE — pas une option d'appel.
+                //
+                // 1. LES UNITÉS VIVANTES, dès que la bataille a démarré : c'est ce qui était
+                //    RÉELLEMENT en jeu.
+                // 2. LES PLACEHOLDERS, tant qu'on est en déploiement. Avant le START il n'existe
+                //    AUCUNE entité — l'état de match ne peut donc rien dire, et refuser là privait
+                //    la retraite de sa seule source pendant toute la phase où le joueur COMPOSE
+                //    son équipe. Or c'est exactement le geste qu'on veut enregistrer.
+                let ids: string[] | undefined;
+                let voieSource: string;
+                let contexte: Record<string, unknown>;
                 const lu = compositionsParEquipe(args[1] as NativePointer);
-                if (lu.refus !== null) {
-                    // ⚠ ON NE VERROUILLE PAS SUR UN REFUS : le tir suivant (une retraite depuis
-                    // une bataille DÉMARRÉE, cette fois) doit encore pouvoir commiter.
-                    dernierCommit = { ok: false, refus: lu.refus,
-                                      stage: lu.stage ?? null, fire: firesRetraite };
-                    return;
+                if (lu.refus === null) {
+                    const equipes = Object.keys(lu.parEquipe).sort();
+                    const choisie = cible.equipe !== null ? String(cible.equipe) : equipes[0];
+                    ids = lu.parEquipe[choisie];
+                    voieSource = "unites-vivantes";
+                    contexte = { equipeRetenue: choisie, equipesVues: equipes,
+                                 parEquipe: lu.parEquipe };
+                } else {
+                    const ph = lirePlaceholders();
+                    if (ph.refus !== null) {
+                        // ⚠ ON NE VERROUILLE PAS SUR UN REFUS : le tir suivant (une retraite
+                        // depuis une bataille DÉMARRÉE, cette fois) doit encore pouvoir commiter.
+                        //
+                        // ⚠ ET ON NOMME LES DEUX CAUSES. N'afficher que la seconde ferait accuser
+                        // les placeholders alors que c'est la phase qui a écarté la première.
+                        dernierCommit = { ok: false, fire: firesRetraite,
+                            refus: `état de match : ${lu.refus} || placeholders : ${ph.refus}`,
+                            stage: lu.stage ?? null };
+                        return;
+                    }
+                    ids = ph.ids;
+                    voieSource = "placeholders";
+                    contexte = { stage: lu.stage ?? null, parJoueur: ph.parJoueur,
+                                 mowEcartees: ph.mow };
                 }
-                const equipes = Object.keys(lu.parEquipe).sort();
-                if (equipes.length === 0) {
-                    dernierCommit = { ok: false, fire: firesRetraite,
-                        refus: "aucune unité vivante lue sur l'état -- rien à retenir" };
-                    return;
-                }
-                const choisie = cible.equipe !== null ? String(cible.equipe) : equipes[0];
-                const ids = lu.parEquipe[choisie];
                 if (ids === undefined || ids.length === 0) {
-                    dernierCommit = { ok: false, fire: firesRetraite,
-                        equipesVues: equipes, parEquipe: lu.parEquipe,
-                        refus: `aucune unité pour l'équipe ${choisie}` };
+                    dernierCommit = { ok: false, fire: firesRetraite, voieSource, ...contexte,
+                        refus: `aucune unité à retenir (source : ${voieSource})` };
                     return;
                 }
                 // UN SEUL TIR : on ne détache pas depuis le handler (retirer un `Interceptor`
                 // pendant qu'il s'exécute est un geste qu'on ne veut pas parier), on VERROUILLE.
                 commitDejaTire = true;
-                const commun = { fire: firesRetraite, equipeRetenue: choisie,
-                                 equipesVues: equipes, parEquipe: lu.parEquipe };
+                const commun = { fire: firesRetraite, voieSource, ...contexte };
                 if (cible.cle !== null) {
                     dernierCommit = { ...commun, voie: "magasin",
                                       ...ecrireAuMagasin(cible.cle, ids, "retraite sandbox") };
@@ -1191,33 +1275,20 @@ export function register(ctx: Ctx): void {
             registre.delete(nomClasse);
             return { ok: true, action: "efface", mode, classe: nomClasse, registre: etatRegistre() };
         }
-        if (!Array.isArray(body.unites) || body.unites.length === 0) {
-            return { ok: false, refus: "`unites` doit être un tableau NON VIDE d'ids d'unité" };
-        }
-        if (body.unites.some((u) => typeof u !== "string" || u.length === 0)) {
-            return { ok: false, refus: "chaque id doit être une chaîne non vide" };
-        }
-        // Le cran qui rend ce module honnête : on ne remplit pas un tableau qu'on n'a jamais vu.
-        const vue = observations.find((o) => o.classeRetour !== null && o.longueur !== null);
-        if (body.confirmer === true && !vue) {
-            return {
-                ok: false,
-                refus: `AUCUNE observation n'a lu le tableau (${observations.length} passage(s), `
-                    + `${fires} fire(s)). Armer, ouvrir une bataille pour OBSERVER, puis confirmer.`,
-            };
-        }
-        registre.set(nomClasse, {
-            ids: body.unites.slice(),
-            confirme: body.confirmer === true,
-            origine: body.origine ?? "pose manuelle",
-        });
-        return {
-            ok: true, mode, classe: nomClasse, registre: etatRegistre(), fires,
-            placesObservees: vue ? vue.longueur : null,
-            note: body.confirmer === true
-                ? "RETENUE ET CONFIRMÉE -- sera posée au prochain `GetBattleLineup`, et lisible "
-                    + "par le chemin des buffs via `compositionRetenue()`"
-                : "retenue mais NON confirmée -- ni écrite, ni visible du chemin des buffs",
-        };
+        // ⛔ L'ÉCRITURE À LA MAIN EST RETIRÉE, ET C'EST TOUT LE POINT.
+        //
+        // Une composition TAPÉE ici, puis retrouvée au déploiement, ne démontre qu'une chose :
+        // que notre plomberie fait un aller-retour. C'est la circularité qu'a exhibée la
+        // confrontation du 2026-08-25 — cinq ids choisis par nous, redéployés vers nous. Ce qui
+        // mérite d'être enregistré, c'est ce que le JOUEUR a mis sur le plateau.
+        //
+        // Le seul écrivain est donc `lineupRetraiteCommit`, avec deux sources selon la PHASE :
+        // les PLACEHOLDERS en déploiement, les UNITÉS VIVANTES après le START.
+        return { ok: false, mode, classe: nomClasse, registre: etatRegistre(),
+            refus: "écriture à la main RETIRÉE -- une composition qu'on se donne à soi-même ne "
+                + "prouve rien. Armer `lineupRetraiteCommit {armer:true, mode|cle, "
+                + "confirmer:true}`, composer sur le plateau, puis SORTIR PAR LA RETRAITE : "
+                + "placeholders en phase de déploiement, unités vivantes après le START. "
+                + "`unites: null` efface toujours." };
     };
 }

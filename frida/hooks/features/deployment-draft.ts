@@ -80,7 +80,9 @@ import { sourcePvpForgee } from "./pvp-source-forge.js";
 // LA COMPOSITION RETENUE, LUE — jamais reçue par un ancrage. Cf. `substituerRetourLineup` : un
 // `Interceptor` posé sur la méthode du prêteur NE TIRE PAS depuis ce module, parce que l'appel
 // part d'un callback Frida. On lit le registre et on substitue nous-mêmes.
-import { substituerRetourLineup } from "./lineup-poser.js";
+import {
+    substituerRetourLineup, enregistrerFournisseurDePlaceholders, PlaceholderPose,
+} from "./lineup-poser.js";
 // Le runner VIVANT, publié par le pump — lecture seule ici.
 import { state } from "../game/state.js";
 // (!)PLUS AUCUN `buildAddUnitMessage` ICI (2026-08-21). Ce module ne fabrique plus d'ajout
@@ -1607,6 +1609,10 @@ function armerHud(): true | Refus {
                     hudPoses.push({ unitId: self.uid, mow: self.mow,
                                     accepte: (retval.toInt32() & 0xff) !== 0 });
                 }
+                // Ce chemin porte AUSSI la reprise en main (cf. §`PutUnitIntoHand`) : c'est donc
+                // le seul endroit où un RETRAIT se voit. Sans photo ici, ôter une unité juste
+                // avant de retraiter commiterait une composition qui la contient encore.
+                photographierPlaceholders();
             },
         });
     }
@@ -1681,6 +1687,7 @@ function armerHud(): true | Refus {
                 // `AddUnitMessage` au runner À CHAQUE POSE, en plus du placeholder que le HUD
                 // venait de créer : deux comptabilités pour un seul plafond, et le START
                 // convertissait les placeholders PAR-DESSUS les unités réelles.
+                photographierPlaceholders();
             },
         });
     }
@@ -3333,6 +3340,35 @@ const boutonObs: Array<{
  * n'ont servi qu'à CONFIRMER l'appariement (`<UnitId>`=0x18, `<PlayerId>`=0x58,
  * `<CoordinatePosition>`=0x5c, `<IsMachineOfWar>`=0x70 sur ce build).
  */
+/**
+ * LA PHOTO DU PLATEAU, PRISE PENDANT QU'IL EXISTE.
+ *
+ * ⚠ MESURÉ le 2026-08-26, retraite déclenchée par un CLIC du joueur : quand
+ * `SandboxGameModeSource$$HandleBattleSurrender` s'exécute, `GetPlaceholderUnitViews` rend une
+ * liste VIDE -- les vues sont détruites AVANT. Une lecture prise à la retraite ne peut donc rien
+ * retenir, et son refus (« le plateau est vide ») accusait le joueur qui venait de déployer.
+ *
+ * On photographie donc au moment des GESTES : chaque pose (`UnitDeployment_PlaceUnitOnBoard`) et
+ * chaque reprise en main (`PutUnitIntoHand`, qui porte aussi le retrait). Le dernier cliché est
+ * l'état du plateau tel que le joueur l'a laissé.
+ */
+let photoPlaceholders: PlaceholderPose[] | null = null;
+
+function placeholdersDepuis(o: unknown): PlaceholderPose[] | null {
+    if (!Array.isArray(o)) return null;   // `{erreur}` -> PAS MESURÉ, surtout pas `[]`
+    return (o as Array<Record<string, unknown>>)
+        .filter((x) => typeof x.unitId === "string")
+        .map((x) => x as unknown as PlaceholderPose);
+}
+
+function photographierPlaceholders(): void {
+    // Une photo ratée ne doit JAMAIS casser la pose qu'on observe : on garde la précédente.
+    try {
+        const v = placeholdersDepuis(ordreDeConversion());
+        if (v !== null) photoPlaceholders = v;
+    } catch { /* best effort */ }
+}
+
 function ordreDeConversion(): unknown {
     const v = vueDeLaMoW();
     if ("ok" in v) return { erreur: "aucune `IdunGameViews` joignable -- " + v.error };
@@ -4686,6 +4722,28 @@ function etatPhase(): Record<string, unknown> {
 }
 
 export function register(ctx: Ctx): void {
+    // LA SOURCE « PLACEHOLDERS » DU COMMIT DE RETRAITE — enregistrée, pas importée en retour.
+    //
+    // C'est ce module qui sait lire les `PlaceholderUnitView` (`ordreDeConversion`), et c'est
+    // `lineup-poser` qui ancre la retraite. Comme le sens des imports va DÉJÀ d'ici vers lui, on
+    // lui passe le lecteur plutôt que de fermer un cycle pour une seule fonction.
+    //
+    // ⚠ TRI-ÉTAT PRÉSERVÉ : `ordreDeConversion` rend `{erreur}` quand la lecture échoue. On rend
+    // alors `null` -- « pas mesuré » -- et surtout PAS `[]`, qui se lirait « plateau vide » et
+    // ferait écrire un refus accusant le joueur au lieu du capteur.
+    enregistrerFournisseurDePlaceholders((consommer?: boolean): PlaceholderPose[] | null => {
+        // LE VIF D'ABORD : s'il porte quelque chose, c'est la vérité la plus fraîche.
+        const vif = placeholdersDepuis(ordreDeConversion());
+        if (vif !== null && vif.length > 0) return vif;
+        // Sinon LA PHOTO -- c'est le régime de la retraite, où les vues sont déjà détruites.
+        const photo = photoPlaceholders;
+        // ⚠ LA PHOTO NE SURVIT PAS À SON USAGE. Un cliché gardé d'une bataille à la suivante
+        // ferait commiter la composition PRÉCÉDENTE sur une sandbox où le joueur n'a rien posé --
+        // une écriture plausible et fausse, exactement ce qu'on ne veut pas.
+        if (consommer === true) photoPlaceholders = null;
+        return photo !== null ? photo : vif;
+    });
+
     /** OBSERVER / DÉSARMER. `{ armer: true }` pose le hook en régime transparent. */
     ctx.rpc.deploymentDraftArmer = (body?: { armer?: boolean }): Promise<unknown> | unknown => {
         if (!body || body.armer === undefined) {
