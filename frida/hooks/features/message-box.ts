@@ -47,9 +47,16 @@
  * a la difference de `viewInvoke`, qui est un executeur de commandes generique et peut lancer
  * une bataille.
  *
- * ⛔ LE SEUL REFUS METIER : une popup qu'on ne peut plus fermer. `blocking` neutralise la croix
- * (`OnClose` sort immediatement quand il est arme) ; sans bouton OK ni bouton Annuler, il ne
- * resterait aucune sortie. La combinaison est refusee AVANT l'appel.
+ * ⛔ LA POPUP INFERMABLE EST ECARTEE PAR CONSTRUCTION, PAS PAR UN TEST. `blocking` neutralise la
+ * croix (`OnClose` sort immediatement quand il est arme), donc une popup bloquante SANS bouton
+ * n'aurait plus aucune sortie. On n'expose simplement pas de quoi la fabriquer : le bouton OK
+ * est toujours affiche, et `OnOk` ne consulte pas `blocking`. Le premier jet portait ici un test
+ * explicite -- INATTEIGNABLE, la valeur qu'il examinait etant une constante. Une garde qui ne
+ * peut pas mordre se lit comme une protection sans en etre une ; celle-ci tient a l'ABSENCE
+ * d'option, ce qu'aucune regression ne peut desarmer sans se voir.
+ *
+ * LES DEUX REFUS QUI, EUX, S'EXECUTENT : un `texte` vide, et une option riche demandee sur la
+ * voie `relais` (qui ne peut structurellement pas la porter).
  */
 import { findClassAnywhere, findMethodByParamCount, getFieldOffset } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
@@ -133,13 +140,16 @@ export function afficherMessage(o?: OptionsMessage): Record<string, unknown> | R
     }
     const avecAnnuler = o?.avecAnnuler === true;
     const bloquant = o?.bloquant === true;
-    // Le bouton OK est toujours affiche : c'est ce que force le relais, et c'est la seule
-    // sortie garantie. Le rendre optionnel n'apporterait qu'une facon de se verrouiller.
+    // LE BOUTON OK EST TOUJOURS AFFICHE, ET C'EST LA GARDE ELLE-MEME.
+    //
+    // ⚠ Ce fichier a d'abord porte ici un `if (bloquant && !avecOk && !avecAnnuler) return
+    // refus(...)` -- INATTEIGNABLE, puisque `avecOk` etait fixe a `true` deux lignes plus haut.
+    // Une garde qui ne peut pas mordre est pire qu'une garde absente : elle se lit comme une
+    // protection et n'en est pas une. La protection REELLE est structurelle -- ne pas exposer
+    // `avecOk` du tout. `blocking` neutralise la croix (`OnClose` sort immediatement quand le
+    // drapeau est arme) ; tant que le bouton OK est la, il reste une sortie, et `OnOk` ne teste
+    // PAS ce drapeau. Ouvrir `avecOk` en option creerait exactement le verrou qu'on veut eviter.
     const avecOk = true;
-    if (bloquant && !avecOk && !avecAnnuler) {
-        return refus("REFUS : `bloquant` sans aucun bouton rendrait la popup INFERMABLE "
-            + "(`OnClose` sort immediatement quand `blocking` est arme).");
-    }
 
     const riche = typeof o?.titre === "string" && o.titre.length > 0
         || typeof o?.okTexte === "string" && o.okTexte.length > 0
