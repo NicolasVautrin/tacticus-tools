@@ -54,6 +54,9 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 // LE FOYER de `IdunNavigation._unitProgression`, capté par l'amorce. C'est la SECONDE source du
 // magasin, et la seule qui n'exige NI bataille NI capteur -- cf. `magasinUtilisable()`.
 import { getUnitProgressionPtr } from "./campaign-builder.js";
+// La projection de l'état de match -- c'est elle qui donne la composition RÉELLEMENT en jeu au
+// moment de la retraite, plutôt qu'une intention qu'on aurait notée avant.
+import { projectMatchState } from "../game/match-state.js";
 
 const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
 
@@ -476,6 +479,72 @@ function magasinUtilisable(): { ptr: NativePointer; source: string } | null {
     return null;
 }
 
+/**
+ * ÉCRIRE AU MAGASIN — LE FOYER UNIQUE. Deux appelants : le RPC `lineupSubstituer` et le commit de
+ * retraite. Un second chemin d'écriture serait un second endroit où oublier d'enraciner.
+ *
+ * ⛔ NE S'ENVELOPPE PAS DANS `queueOnMainThread` — c'est l'APPELANT qui décide. Le RPC arrive sur
+ * un autre thread et doit passer par la file ; le commit de retraite, lui, tourne DÉJÀ sur le
+ * thread principal (il est dans un `Interceptor`), et l'y remettre le ferait exécuter par une
+ * pompe qui vit dans `IdunGameViews$$Update` -- donc APRÈS le démontage de la scène de bataille,
+ * c'est-à-dire peut-être jamais.
+ */
+function ecrireAuMagasin(
+    cle: string, unites: string[], origine: string,
+): Record<string, unknown> {
+    const mag = magasinUtilisable();
+    if (mag === null) {
+        return { ok: false,
+            refus: "aucune instance de magasin -- NI vue passer par le capteur, NI publiée par "
+                + "l'amorce (`IdunNavigation._unitProgression`). Ce n'est pas « absent du jeu » : "
+                + "rejouer `POST /api/admin/amorce`, qui la capte sans bataille." };
+    }
+    const commun = { cle, unites: unites.slice(),
+                     magasin: mag.ptr.toString(), magasinSource: mag.source };
+    const k = findClassAnywhere(NS_PROG, CLS_PROG);
+    if (!k) return { ok: false, ...commun, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE` };
+    const mi = findMethodByParamCount(k, "SetBattleLineupLocally", 2);
+    if (!mi) {
+        return { ok: false, ...commun,
+                 refus: "`SetBattleLineupLocally(2 params)` INTROUVABLE sur ce build" };
+    }
+    const kStr = findClassAnywhere("System", "String");
+    if (!kStr) return { ok: false, ...commun, refus: "`System.String` INTROUVABLE" };
+
+    // Les racines du tour PRÉCÉDENT se libèrent MAINTENANT, pas après l'appel : une fois la
+    // composition rangée par le natif, c'est du managé qui la référence. Garder nos épingles
+    // ferait fuir un handle par substitution.
+    libererRacines();
+    let arr: NativePointer;
+    try {
+        arr = createManagedArray(kStr, unites.length);
+        gcRoot.add(arr); racines.push(arr);
+        for (let i = 0; i < unites.length; i++) {
+            const s = createManagedString(unites[i]);
+            gcRoot.add(s); racines.push(s);   // ENRACINER D'ABORD, écrire ensuite
+            arr.add(OFF_ELEMENTS + i * Process.pointerSize).writePointer(s);
+        }
+    } catch (e) {
+        return { ok: false, ...commun,
+                 refus: `fabrication du String[] : ${(e as Error).message}` };
+    }
+    try {
+        const cleGeree = createManagedString(cle);
+        gcRoot.add(cleGeree); racines.push(cleGeree);
+        // `propagate` : appel MANAGÉ, cf. `il2cpp/invoke.ts`. Sans lui Frida confisque
+        // l'exception C++ par laquelle IL2CPP la transporte.
+        const fn = new NativeFunction(
+            mi.ptr, "void", ["pointer", "pointer", "pointer", "pointer"],
+            { exceptions: "propagate" });
+        fn(mag.ptr, cleGeree, arr, mi.info);
+    } catch (e) {
+        return { ok: false, ...commun,
+                 refus: `\`SetBattleLineupLocally\` a levé : ${(e as Error).message}` };
+    }
+    derniereSubstitution = { cle, unites: unites.slice(), origine };
+    return { ok: true, ecrit: true, ...commun };
+}
+
 function armerCles(): Record<string, unknown> {
     const k = findClassAnywhere(NS_PROG, CLS_PROG);
     if (!k) return { ok: false, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE sur ce build` };
@@ -522,6 +591,134 @@ function armerCles(): Record<string, unknown> {
                 derniereLongueur: longueur,
                 dernierContenu: contenu,
             });
+        },
+    });
+    Interceptor.flush();
+    return { ok: true };
+}
+
+// --- LE COMMIT PAR LA RETRAITE ----------------------------------------------------------------
+//
+// LE GESTE : en sandbox, on sort par la retraite. « J'ai fini d'arranger cette équipe, garde-la »
+// se pose donc dessus, sans rien créer ni rien confisquer.
+//
+// ⛔ POURQUOI PAS UN VRAI BOUTON UNITY. Ce dépôt n'a jamais créé d'UI, et `il2cpp/delegate.ts`
+// REFUSE délibérément les callbacks JS (« y mettre un `NativeCallback` ferait entrer Frida dans
+// QuickJS ») : il ne fabrique que des délégués INERTES, qu'il faut ensuite sonder. Un `onClick`
+// qui rappelle notre code est donc précisément ce qu'on s'interdit ici.
+//
+// L'ANCRE : `IdunBattle.ViewLogic.BattleSource.SandboxGameModeSource$$HandleBattleSurrender`.
+//
+// ⚠ ET ELLE A ÉTÉ CHOISIE APRÈS LE CONTRÔLE DE DÉDUPLICATION, pas avant. Son corps est un relais
+// trivial (un seul appel de slot), donc exactement le profil qu'IL2CPP fusionne entre classes --
+// et un corps partagé ferait tirer cet ancrage sur des batailles RÉELLES. Mesuré sur
+// `frida/methods.tsv` : `HandleBattleSurrender` occupe **12 adresses DISTINCTES**, une par mode.
+// Aucune fusion, l'ancrage est bien propre à la sandbox.
+//
+// ⚠ `onEnter` SEUL, ET C'EST UN LISTENER NEUF. Ajouter un `onEnter` à un listener qui n'a qu'un
+// `onLeave` fait CESSER son tir, en silence -- mesuré deux fois dans ce dépôt, sur deux listeners
+// indépendants. Ici il n'y a pas d'`onLeave` à préserver : on attache un listener à nous.
+//
+// ⚠ ON ÉCRIT DANS LE HANDLER, ON NE DIFFÈRE PAS. `queueOnMainThread` fait exécuter par la pompe de
+// `IdunGameViews$$Update` -- qui MEURT avec la scène de bataille. Différer depuis une retraite,
+// c'est risquer que la substitution ne s'exécute jamais. À l'ENTRÉE de ce natif, rien n'est encore
+// démonté (son corps ne fait que relayer), et l'écriture ne touche que le magasin de progression.
+//
+// ⚠ `retreat-capture` N'ANCRE PAS cette méthode (il prend `OnBattleSurrender` / `ContinueSurrender`
+// / `ProcessFinishSurrender` / `ProcessFinishBattle` / `OnFinishBattle` sur `IdunMainView`, et
+// `PauseSurrender` sur `AGameModeSource` / `CampaignGameModeSource`). Pas de double attache.
+
+const CLS_SANDBOX = "SandboxGameModeSource";
+const METHODE_RETRAITE = "HandleBattleSurrender";
+
+interface CibleCommit { cle: string | null; mode: string | null; equipe: number | null; }
+
+let ecouteRetraite: InvocationListener | null = null;
+let cibleCommit: CibleCommit | null = null;
+let firesRetraite = 0;
+let commitDejaTire = false;
+let dernierCommit: Record<string, unknown> | null = null;
+
+/** Les compositions LUES sur l'état de match, par équipe. En sandbox le jeu est en HOTSEAT : les
+ *  DEUX camps sont jouables, donc « la composition du joueur » n'a pas de sens tout seul -- on rend
+ *  les deux et on DIT laquelle a été retenue. */
+function compositionsParEquipe(
+    statePtr: NativePointer,
+): { parEquipe: Record<string, string[]>; refus: string | null } {
+    let nomClasse: string | null = null;
+    try { nomClasse = cstr(class_get_name(statePtr.readPointer()) as NativePointer); }
+    catch { nomClasse = null; }
+    // Les offsets de `projectMatchState` sont ceux de `MatchState`. Sur un autre objet ils
+    // liraient du bruit -- et un bruit plausible est pire qu'un refus.
+    if (nomClasse === null || !nomClasse.includes("MatchState")) {
+        return { parEquipe: {},
+                 refus: `l'argument d'état n'est pas un \`MatchState\` (lu : ${nomClasse ?? "illisible"})` };
+    }
+    const parEquipe: Record<string, string[]> = {};
+    const proj = projectMatchState(statePtr);
+    for (const u of proj.units) {
+        if (u.visualId === null || u.isDead) continue;
+        const k = String(u.teamId);
+        if (parEquipe[k] === undefined) parEquipe[k] = [];
+        if (!parEquipe[k].includes(u.visualId)) parEquipe[k].push(u.visualId);
+    }
+    return { parEquipe, refus: null };
+}
+
+function armerRetraite(): Record<string, unknown> {
+    const k = findClassAnywhere(NS_SRC, CLS_SANDBOX);
+    if (!k) return { ok: false, refus: `${NS_SRC}.${CLS_SANDBOX} INTROUVABLE sur ce build` };
+    const mi = findMethodByParamCount(k, METHODE_RETRAITE, 9);
+    if (!mi) {
+        return { ok: false,
+                 refus: `\`${CLS_SANDBOX}$$${METHODE_RETRAITE}(9 params)\` INTROUVABLE` };
+    }
+    ecouteRetraite = Interceptor.attach(mi.ptr, {
+        onEnter(args: InvocationArguments) {
+            firesRetraite++;
+            const cible = cibleCommit;
+            if (cible === null || commitDejaTire) return;
+            try {
+                // args[0] = `this`, args[1] = `state: IMatchState`.
+                const lu = compositionsParEquipe(args[1] as NativePointer);
+                if (lu.refus !== null) {
+                    dernierCommit = { ok: false, refus: lu.refus, fire: firesRetraite };
+                    return;
+                }
+                const equipes = Object.keys(lu.parEquipe).sort();
+                if (equipes.length === 0) {
+                    dernierCommit = { ok: false, fire: firesRetraite,
+                        refus: "aucune unité vivante lue sur l'état -- rien à retenir" };
+                    return;
+                }
+                const choisie = cible.equipe !== null ? String(cible.equipe) : equipes[0];
+                const ids = lu.parEquipe[choisie];
+                if (ids === undefined || ids.length === 0) {
+                    dernierCommit = { ok: false, fire: firesRetraite,
+                        equipesVues: equipes, parEquipe: lu.parEquipe,
+                        refus: `aucune unité pour l'équipe ${choisie}` };
+                    return;
+                }
+                // UN SEUL TIR : on ne détache pas depuis le handler (retirer un `Interceptor`
+                // pendant qu'il s'exécute est un geste qu'on ne veut pas parier), on VERROUILLE.
+                commitDejaTire = true;
+                const commun = { fire: firesRetraite, equipeRetenue: choisie,
+                                 equipesVues: equipes, parEquipe: lu.parEquipe };
+                if (cible.cle !== null) {
+                    dernierCommit = { ...commun, voie: "magasin",
+                                      ...ecrireAuMagasin(cible.cle, ids, "retraite sandbox") };
+                } else {
+                    const nomClasse = CLASSES[cible.mode as string];
+                    registre.set(nomClasse, {
+                        ids: ids.slice(), confirme: true, origine: "retraite sandbox",
+                    });
+                    dernierCommit = { ...commun, ok: true, voie: "registre",
+                                      classe: nomClasse, ids: ids.slice() };
+                }
+            } catch (e) {
+                dernierCommit = { ok: false, fire: firesRetraite,
+                                  erreur: (e as Error).message };
+            }
         },
     });
     Interceptor.flush();
@@ -619,55 +816,13 @@ export function register(ctx: Ctx): void {
                 note: "RIEN n'a été écrit. Rejouer avec `{ confirmer: true }`. ⚠ l'écriture est "
                     + "PERSISTANTE : la composition devient celle du jeu pour cette clé." };
         }
+        // Le RPC arrive sur un AUTRE thread que celui d'Unity : c'est LUI qui doit passer par la
+        // file. Le foyer, lui, n'en sait rien -- l'autre appelant (le commit de retraite) y est
+        // déjà.
         return queueOnMainThread(() => {
-            const k = findClassAnywhere(NS_PROG, CLS_PROG);
-            if (!k) return { ok: false, ...apercu, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE` };
-            const mi = findMethodByParamCount(k, "SetBattleLineupLocally", 2);
-            if (!mi) {
-                return { ok: false, ...apercu,
-                    refus: "`SetBattleLineupLocally(2 params)` INTROUVABLE sur ce build" };
-            }
-            const kStr = findClassAnywhere("System", "String");
-            if (!kStr) return { ok: false, ...apercu, refus: "`System.String` INTROUVABLE" };
-
-            // Les racines du tour PRÉCÉDENT se libèrent MAINTENANT, pas après l'appel : une fois
-            // la composition rangée par le natif, c'est du managé qui la référence. Garder nos
-            // épingles ferait fuir un handle par substitution.
-            libererRacines();
-            let arr: NativePointer;
-            try {
-                arr = createManagedArray(kStr, unites.length);
-                gcRoot.add(arr); racines.push(arr);
-                for (let i = 0; i < unites.length; i++) {
-                    const s = createManagedString(unites[i]);
-                    gcRoot.add(s); racines.push(s);   // ENRACINER D'ABORD, écrire ensuite
-                    arr.add(OFF_ELEMENTS + i * Process.pointerSize).writePointer(s);
-                }
-            } catch (e) {
-                return { ok: false, ...apercu, refus: `fabrication du String[] : ${(e as Error).message}` };
-            }
-            let cleGeree: NativePointer;
-            try {
-                cleGeree = createManagedString(cle);
-                gcRoot.add(cleGeree); racines.push(cleGeree);
-            } catch (e) {
-                return { ok: false, ...apercu, refus: `fabrication de la clé : ${(e as Error).message}` };
-            }
-            try {
-                // `propagate` : appel MANAGÉ, cf. `il2cpp/invoke.ts`. Sans lui Frida confisque
-                // l'exception C++ par laquelle IL2CPP la transporte.
-                const fn = new NativeFunction(
-                    mi.ptr, "void", ["pointer", "pointer", "pointer", "pointer"],
-                    { exceptions: "propagate" });
-                fn(store, cleGeree, arr, mi.info);
-            } catch (e) {
-                return { ok: false, ...apercu,
-                    refus: `\`SetBattleLineupLocally\` a levé : ${(e as Error).message}` };
-            }
-            derniereSubstitution = {
-                cle, unites: unites.slice(), origine: body?.origine ?? "lineupSubstituer",
-            };
-            return { ok: true, ecrit: true, ...apercu,
+            const r = ecrireAuMagasin(cle, unites, body?.origine ?? "lineupSubstituer");
+            if (r.ok !== true) return { ...apercu, ...r };
+            return { ...apercu, ...r,
                 // ⚠ TRI-ÉTAT : on n'a PAS relu. Relire invoquerait `GetBattleLineup`, que le
                 // capteur ANCRE -- exactement le cas interdit. `lineupMagasinLire` le fait, une
                 // fois le capteur désarmé.
@@ -730,6 +885,77 @@ export function register(ctx: Ctx): void {
             } catch (e) {
                 return { ok: false, cle, refus: `\`GetBattleLineup\` a levé : ${(e as Error).message}` };
             }
+        });
+    };
+
+    /**
+     * `lineupRetraiteCommit { armer?, cle?, mode?, equipe?, confirmer? }` — LE « BOUTON ».
+     *
+     * Armé, il attend que tu SORTES de la sandbox par la retraite. À cet instant il lit la
+     * composition réellement en jeu et la pose sur la cible désignée -- magasin (`cle`) ou
+     * registre (`mode`).
+     *
+     * ⚠ LA CIBLE SE DÉSIGNE À L'ARMEMENT, elle ne se devine pas. La sandbox ne sait pas quel mode
+     * elle imite : c'est NOUS qui l'avons montée. Deviner écrirait la composition sous une clé qui
+     * n'est pas la bonne, et une clé fausse ne lève rien -- elle range à côté, en silence.
+     *
+     * ⚠ UN SEUL TIR PAR ARMEMENT (`commitDejaTire`). Une sandbox peut faire tirer la retraite
+     * plusieurs fois ; sans verrou, la deuxième écraserait la première avec l'état d'après.
+     */
+    ctx.rpc.lineupRetraiteCommit = (body?: {
+        armer?: boolean; cle?: string; mode?: string; equipe?: number; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const etat = (): Record<string, unknown> => ({
+            arme: ecouteRetraite !== null, cible: cibleCommit,
+            fires: firesRetraite, dejaTire: commitDejaTire, dernierCommit,
+            ancrage: `${NS_SRC}.${CLS_SANDBOX}$$${METHODE_RETRAITE}`,
+        });
+        if (!body || body.armer === undefined) {
+            return { ok: true, lecture: true, ...etat(),
+                note: "`{ armer: true, cle | mode, confirmer: true }`. Sortir ensuite de la "
+                    + "sandbox par la retraite : la composition en jeu sera posée sur la cible." };
+        }
+        return queueOnMainThread(() => {
+            if (body.armer === false) {
+                if (ecouteRetraite) {
+                    ecouteRetraite.detach(); Interceptor.flush(); ecouteRetraite = null;
+                }
+                cibleCommit = null; commitDejaTire = false;
+                return { ok: true, arme: false, action: "retire", fires: firesRetraite,
+                         dernierCommit };
+            }
+            const aCle = typeof body.cle === "string" && body.cle.length > 0;
+            const aMode = typeof body.mode === "string" && body.mode.length > 0;
+            if (aCle === aMode) {
+                return { ok: false,
+                    refus: "il faut EXACTEMENT une cible : `cle` (magasin -- campagne, pvp, guild "
+                        + "boss) OU `mode` (registre -- guild war, sandbox, qui n'ont AUCUN "
+                        + "magasin). Les deux, ou aucune, ne désigne rien." };
+            }
+            if (aMode && CLASSES[body.mode as string] === undefined) {
+                return { ok: false,
+                    refus: `mode inconnu \`${body.mode}\` -- connus : ${Object.keys(CLASSES).join(", ")}` };
+            }
+            if (body.confirmer !== true) {
+                return { ok: false,
+                    refus: "`confirmer: true` exigé. Ce n'est pas un observateur : à la prochaine "
+                        + "retraite de sandbox il ÉCRIT" + (aCle
+                            ? " dans le magasin du joueur, de façon PERSISTANTE." : " au registre.") };
+            }
+            if (ecouteRetraite !== null) {
+                return { ok: true, ...etat(), note: "déjà armé -- désarmer pour changer de cible" };
+            }
+            const r = armerRetraite();
+            if (r.ok !== true) return r;
+            cibleCommit = {
+                cle: aCle ? (body.cle as string) : null,
+                mode: aMode ? (body.mode as string) : null,
+                // `null` = on prendra la PLUS PETITE équipe présente, et on dira laquelle.
+                equipe: typeof body.equipe === "number" ? body.equipe : null,
+            };
+            commitDejaTire = false;
+            return { ok: true, ...etat(),
+                note: "armé. Sortir de la sandbox PAR LA RETRAITE pour déclencher le commit." };
         });
     };
 
