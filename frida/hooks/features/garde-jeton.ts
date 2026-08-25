@@ -28,6 +28,20 @@
  * ⇒ Le jeu affichera SON message (<< pas assez d'unites >>), qui n'est pas la vraie raison. C'est
  * pourquoi on ouvre EN PLUS notre propre boite de dialogue, qui dit ce qui se passe vraiment.
  *
+ * CE QUI EST MESURE (session 148, sandbox guerre de guilde, zone Trenches1)
+ * ------------------------------------------------------------------------
+ * L'ancrage tire UNE FOIS par appui sur START -- jamais par frame -- et `etrangers` est reste
+ * a 0, donc le corps n'est pas partage avec une autre methode.
+ *
+ *   plateau SANS unite du joueur   -> `laisse`, << le jeu refuse deja >>, stage `Setup`
+ *   5 unites posees, registre vide -> `bloque`, stage `Setup`      <- la branche qui compte
+ *   5 unites posees, sandbox exemptee -> `laisse`, stage `Running` <- LE CONTRE-ESSAI
+ *
+ * ⚠ C'EST LE CONTRE-ESSAI QUI FAIT LA MESURE, pas le refus. << Reste a `Setup` >> a d'autres
+ * causes possibles (pas assez d'unites, HUD non pret, montage incomplet) : seul le fait que le
+ * MEME plateau parte quand on retire le seul drapeau qui change etablit que le refus vient de
+ * nous. Les deux tirs se lisent dans `decisions`, a 22 s d'intervalle.
+ *
  * ⛔ ON NE BLOQUE JAMAIS LA SANDBOX. C'est par elle qu'on MONTE la lineup : la bloquer
  * fermerait la seule porte de sortie. La source est lue sur la requete par son champ NOMME
  * `_gameModeSource` (`+0x80` sur ce build, resolu par `getFieldOffset`, jamais code en dur).
