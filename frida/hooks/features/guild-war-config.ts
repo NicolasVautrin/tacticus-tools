@@ -100,6 +100,9 @@ import { getCapturedUniverse } from "./unit-visual-resolve.js";
 // La comptabilite du JEU pour << une bataille tourne-t-elle ? >>. Le corps vit dans
 // `retreat-capture.ts` -- deux lectures de `get_IsBattleActive` divergeraient en silence.
 import { enBataille } from "./retreat-capture.js";
+// LE FOYER de « quelles unites le joueur amene ». Les forgeons PvP et MoW-event l'appellent
+// deja ; celui-ci ne le faisait pas, et c'est ce qui manquait a la guerre de guilde.
+import { lineupDeLaSource } from "../game/source-lineup.js";
 import { Ctx } from "../controller.js";
 
 /** La source FORGEE, retenue entre appels -- et ENRACINEE, sinon le GC la ramasse.
@@ -1680,6 +1683,27 @@ export function register(ctx: Ctx): void {
             // Ce que le ctor a lui-meme rempli : le lineup mappe et le roster ADRESSE.
             opponentLineup: src.add(0xe0).readPointer().toString(),
             availableMainPlayerUnits: src.add(0xf0).readPointer().toString(),
+            // LA COMPOSITION DU JOUEUR, DEMANDEE A LA SOURCE -- meme geste que `pvp-source-forge`
+            // et `mow-event-source-forge`. Elle n'est PAS dans la BC, qui ne porte que
+            // l'adversaire : c'est ce qu'un pilote doit PRE-POSER a l'ecran de deploiement.
+            //
+            // ⛔ CE FORGEON ETAIT LE SEUL DES QUATRE A NE PAS LA DEMANDER, et ca se lisait a tort
+            // comme un fait du jeu. Mesure le 2026-08-25 : ancrage pose sur
+            // `GuildWarsGameModeSource$$GetBattleLineup`, une forge COMPLETE laisse `fires`
+            // INCHANGE -- personne n'interrogeait la source. Consequence en bout de chaine, sur un
+            // montage sandbox guerre de guilde : `posees = 0`, `deploymentStartInvoquer` en NO-OP,
+            // bataille bloquee en `Setup`. On avait conclu << la sandbox n'appelle pas pour la GW >>
+            // alors que c'est CE branchement qui manquait, ici, dans notre code.
+            //
+            // ⚠ UN VIDE RESTE UN RESULTAT. La guerre de guilde n'a AUCUNE composition sauvegardee
+            // (`GuildWarsGameModeSource$$GetBattleLineup` s'ecrit `return Array.Empty<string>()`,
+            // confirme live : `classeRetour String[]`, `longueur 0`). Ce champ rendra donc `unites`
+            // vide tant que rien ne substitue le retour -- et c'est la reponse JUSTE, pas une panne.
+            lineup: (() => {
+                const lu = lineupDeLaSource(src);
+                return { classe: lu.classe, places: lu.places, unites: lu.unites, mow: lu.mow,
+                         voie: lu.voie, refus: lu.refus };
+            })(),
             note: "`StartMatch` n'a PAS ete appele -- aucune bataille demarree, aucune tentative "
                 + "consommee, rien envoye au serveur.",
         };

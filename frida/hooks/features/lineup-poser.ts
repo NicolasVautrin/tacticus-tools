@@ -265,25 +265,33 @@ function armer(mode: string): Record<string, unknown> {
  * préserve l'objet que l'appelant tient déjà. Remplacer dans ce cas serait un changement de
  * comportement gratuit, et on perdrait la trace de ce que le jeu voulait rendre.
  *
- * ⛔ CE CHEMIN N'A AUCUN DÉCLENCHEUR EN SANDBOX — mesuré le 2026-08-25, et c'est ce qui empêche de
- * le confronter à bon marché. Sur un montage guerre de guilde (`sandbox_mode.py start`, prêteur
- * `guildWar`, zone `Trenches1`), l'ancrage a rendu **`fires: 0`** SUR LES DEUX classes, chacune sur
- * son propre montage : `GuildWarsGameModeSource$$GetBattleLineup` d'abord, puis
- * `SandboxGameModeSource$$GetBattleLineup`. Personne ne demande de composition.
+ * CONFRONTÉ EN LIVE le 2026-08-25, sur la source guerre de guilde forgée (zone `Trenches1`) :
  *
- * Deux causes, toutes deux lisibles dans la recette :
- *   - la délégation du montage (`deploymentPoolArmer { source: "guildWar", only: [...] }`) ne porte
- *     que `GetUnitModel` / `GetGameModeSpecificDeploymentHudOptions` / `GetUnitsForDeploymentHUD`
- *     -- `GetBattleLineup` n'y est PAS ;
- *   - et la phase de déploiement y est FORCÉE par le lanceur (`deploymentPhaseArmer { forcer }`),
- *     donc `VisualBattleQuery$$GetBattleLineupToDeploy` -- le seul appelant qui nous intéresse --
- *     ne tourne pas.
+ *     avant   lineup { unites: [], voie: "deployables",
+ *                      refus: "composition sauvegardée VIDE -- repli sur le POOL (110)" }
+ *     après   lineup { unites: [orksWarboss, spaceBlackmane, custoBladeChampion,
+ *                               worldKharn, tauCrisis], voie: "lineup", refus: null }
  *
- * Conséquence mesurée du même montage : `posees = 0` et `deploymentStartInvoquer` est un NO-OP, la
- * bataille restant en `Setup`. C'est le manque même que ce chemin vise, observé en vrai.
+ * Le consommateur est RÉEL (`guildWarSourceForger`, par `lineupDeLaSource`) et lit par le chemin
+ * normal : il reçoit notre composition comme si c'était celle du jeu. Et `dernierePose` porte
+ * `{ remplace: true, voie: "remplacement", longueurRendue: 5 }`.
  *
- * ⇒ CONFRONTER CE CHEMIN EXIGE UNE VRAIE BATAILLE DE GUERRE DE GUILDE (donc une tentative). Tant
- * que ce n'est pas fait, ce code est COMPILÉ et RELU, pas éprouvé -- ne pas l'écrire autrement.
+ * ⚠ UNE PREMIÈRE VERSION DE CE PARAGRAPHE ACCUSAIT LE JEU, ET ELLE ÉTAIT FAUSSE. Elle concluait
+ * « ce chemin n'a aucun déclencheur en sandbox », sur un `fires: 0` réel mais mal attribué : elle
+ * l'imputait à la phase de déploiement FORCÉE (donc à `GetBattleLineupToDeploy` qui ne tournerait
+ * pas) et au filtre `only` de la délégation. Élargir `only` n'a rien changé -- `fires` est resté à
+ * 0 --, ce qui a réfuté les deux.
+ *
+ * LA VRAIE CAUSE ÉTAIT CHEZ NOUS, et elle tenait en une ligne manquante : `guildWarSourceForger`
+ * était le SEUL des quatre forgeons à ne pas interroger la source (`pvp-source-forge` et
+ * `mow-event-source-forge` le faisaient ; `sandbox_boss.py` enchaîne `poser_la_lineup_de_la_source`
+ * pour campagne / PvP / onslaught / guild boss). La guerre de guilde, elle, n'a pas de lanceur --
+ * c'est une recette manuelle, et personne n'y avait branché l'appel. Mesuré : une forge COMPLÈTE
+ * laissait `fires` INCHANGÉ. Depuis, le forgeon publie `lineup`, et le déclencheur existe.
+ *
+ * ⚠ CE QUI RESTE VRAI DU CONSTAT D'ORIGINE : sur un montage sandbox GW, `posees = 0` et
+ * `deploymentStartInvoquer` est un NO-OP. Mais c'est la CONSÉQUENCE du vide, pas sa cause -- une
+ * guerre de guilde n'a aucune composition sauvegardée, et sans substitution il n'y a rien à poser.
  */
 /** Les racines du remplacement de retour — SÉPARÉES de celles de `lineupSubstituer`, et ce n'est
  *  pas de la symétrie : les deux durées de vie n'ont rien à voir. `lineupSubstituer` libère les
