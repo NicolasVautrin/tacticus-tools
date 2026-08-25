@@ -55,7 +55,26 @@ ARMEMENTS = [
     ("deploymentPoolArmer",    {"armer": True, "confirmer": True, "source": "guildWar",
                                 "only": ["GetUnitModel",
                                          "GetGameModeSpecificDeploymentHudOptions",
-                                         "GetUnitsForDeploymentHUD"]}),
+                                         "GetUnitsForDeploymentHUD",
+                                         # ⚠ AJOUTE le 2026-08-25, et son absence m'a fait accuser
+                                         # LE JEU deux fois. Mesure sur un montage arme SANS lui :
+                                         #   GetUnitModel                 arme=true  fires=125
+                                         #   GetGameModeSpecific...       arme=true  fires=1
+                                         #   GetUnitsForDeploymentHUD     arme=true  fires=1
+                                         #   GetBattleLineup              arme=FALSE fires=0
+                                         # Le jeu APPELLE donc bien les methodes de la sandbox ; le
+                                         # zero de `GetBattleLineup` ne disait qu'une chose : il
+                                         # n'etait pas arme. J'en avais conclu que le FSM ne tournait
+                                         # pas, puis que la sandbox ne demandait rien -- deux fois
+                                         # faux. La liste venait du lanceur boss, recopiee sans etre
+                                         # questionnee.
+                                         #
+                                         # ⚠ ET CE N'EST PAS `GetUnlockedUnitsPooled`. Le `only`
+                                         # existe pour ecarter CELUI-LA, qui substituait un objet MIS
+                                         # EN POOL et verrouillait la bataille (case-10038 §5bis).
+                                         # `GetBattleLineup` rend un `System.String[]` nu -- il n'a
+                                         # jamais ete vise par ce correctif.
+                                         "GetBattleLineup"]}),
     ("deploymentPlafondArmer", {"armer": True, "max": 5, "min": 1, "confirmer": True}),
     ("deploymentHudArmer",     {"armer": True}),
     ("deploymentMemoire",      {"armer": True}),
