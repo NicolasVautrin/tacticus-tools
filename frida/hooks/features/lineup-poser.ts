@@ -264,6 +264,26 @@ function armer(mode: string): Record<string, unknown> {
  * ⚠ ON NE REMPLACE QUE SUR UN RETOUR VIDE. Un retour non vide a des cases : `poser` y écrit, ce qui
  * préserve l'objet que l'appelant tient déjà. Remplacer dans ce cas serait un changement de
  * comportement gratuit, et on perdrait la trace de ce que le jeu voulait rendre.
+ *
+ * ⛔ CE CHEMIN N'A AUCUN DÉCLENCHEUR EN SANDBOX — mesuré le 2026-08-25, et c'est ce qui empêche de
+ * le confronter à bon marché. Sur un montage guerre de guilde (`sandbox_mode.py start`, prêteur
+ * `guildWar`, zone `Trenches1`), l'ancrage a rendu **`fires: 0`** SUR LES DEUX classes, chacune sur
+ * son propre montage : `GuildWarsGameModeSource$$GetBattleLineup` d'abord, puis
+ * `SandboxGameModeSource$$GetBattleLineup`. Personne ne demande de composition.
+ *
+ * Deux causes, toutes deux lisibles dans la recette :
+ *   - la délégation du montage (`deploymentPoolArmer { source: "guildWar", only: [...] }`) ne porte
+ *     que `GetUnitModel` / `GetGameModeSpecificDeploymentHudOptions` / `GetUnitsForDeploymentHUD`
+ *     -- `GetBattleLineup` n'y est PAS ;
+ *   - et la phase de déploiement y est FORCÉE par le lanceur (`deploymentPhaseArmer { forcer }`),
+ *     donc `VisualBattleQuery$$GetBattleLineupToDeploy` -- le seul appelant qui nous intéresse --
+ *     ne tourne pas.
+ *
+ * Conséquence mesurée du même montage : `posees = 0` et `deploymentStartInvoquer` est un NO-OP, la
+ * bataille restant en `Setup`. C'est le manque même que ce chemin vise, observé en vrai.
+ *
+ * ⇒ CONFRONTER CE CHEMIN EXIGE UNE VRAIE BATAILLE DE GUERRE DE GUILDE (donc une tentative). Tant
+ * que ce n'est pas fait, ce code est COMPILÉ et RELU, pas éprouvé -- ne pas l'écrire autrement.
  */
 /** Les racines du remplacement de retour — SÉPARÉES de celles de `lineupSubstituer`, et ce n'est
  *  pas de la symétrie : les deux durées de vie n'ont rien à voir. `lineupSubstituer` libère les

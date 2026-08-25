@@ -81,11 +81,24 @@ deploymentPlafondArmer    {armer:true, max:5, min:1, confirmer:true}
 deploymentHudArmer        {armer:true}
 deploymentMemoire         {armer:true}
 deploymentClearArmer      {armer:true, confirmer:true}
-deploymentPoseCommitArmer {armer:true, confirmer:true}
 deploymentSyncArmer       {armer:true, confirmer:true}
 deploymentStartArmer / deploymentRunnerStartArmer {armer:true}
 sandboxModeGameViews      {armer:true, confirmer:true}
 ```
+
+⚠ **`deploymentPoseCommitArmer` a été RETIRÉ de cette liste le 2026-08-25** : le RPC n'existe plus
+(supprimé avec la voie commit, comme `deploymentPoseFsmArmer` et `deploymentCommit` — les poses
+passent TOUJOURS par l'étage FSM). Le rejouer rend **500**, ce qui se lit comme une panne de
+harnais alors que c'est une ligne périmée. Le reste de la séquence est inchangé et le montage
+aboutit sans elle — mesuré.
+
+⚠ **CE MONTAGE NE FAIT DEMANDER AUCUNE COMPOSITION.** Mesuré le 2026-08-25, ancrage posé sur
+`GetBattleLineup` : **`fires: 0`** sur `GuildWarsGameModeSource` ET sur `SandboxGameModeSource`,
+chacune sur son propre montage. Deux causes, toutes deux dans la recette — `only` ne porte pas
+`GetBattleLineup`, et la phase étant FORCÉE, `VisualBattleQuery$$GetBattleLineupToDeploy` ne tourne
+pas. Conséquence directe : **`posees = 0`**, et `deploymentStartInvoquer` est un NO-OP (la bataille
+reste en `Setup`). Il faut donc poser les unités autrement — et tout mécanisme branché sur
+`GetBattleLineup` n'est PAS confrontable ici.
 
 Puis `python scripts/python/sandbox_mode.py start --mode waves --session <SID> --units a,b,c,d,e
 --onslaught-tier 5 --confirmer` (le mode importe peu : l'override substitue la BC ; ce qui compte

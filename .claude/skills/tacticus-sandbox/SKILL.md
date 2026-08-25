@@ -65,7 +65,12 @@ rendent inutile, tous sur le runner vivant, sans remontage ni jeton :
 |---|---|
 | échanger une unité | `deploymentRemplacer {sortante \| entityId, entrante:{unitId}, confirmer:true}` |
 | ôter | `deploymentRetirer {entityIds, confirmer:true}` |
-| ajouter | `deploymentCommit {poses, confirmer:true}` |
+
+⚠ **`deploymentCommit` N'EXISTE PLUS** (supprimé le 2026-08-21, avec `deploymentPoseFsmArmer` et
+`deploymentPoseCommitArmer`) : il appliquait les `AddUnitMessage` de tout un plateau au runner
+vivant. Les poses passent **TOUJOURS** par l'étage FSM, donc par un `PlaceholderUnitView` que le
+START natif convertit avec les autres. Cette ligne est restée dans ce tableau jusqu'au 2026-08-25 —
+l'appeler rend **500**, ce qui se lit comme une panne de harnais au lieu d'une ligne périmée.
 
 `playerId`/`col`/`row` sont **hérités de la sortante**. Rien n'est synchronisé avec la mémoire
 de déploiement, et c'est voulu : la composition retenue pour le retry est prise **en une fois
