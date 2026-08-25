@@ -225,14 +225,54 @@ function etatRegistre(): Array<Record<string, unknown>> {
 
 // --- LE CAPTEUR DE CLÉS ---------------------------------------------------------------------
 //
-// `UnitProgression.GetBattleLineup(lineupKey: String) -> String[]` est LE magasin : un seul, clé
-// par une chaîne, TOUS MODES CONFONDUS. Chaque `<Mode>GameModeSource.GetBattleLineup(lineupIndex)`
-// ne fait que fabriquer sa clé et déléguer ici.
+// `UnitProgression.GetBattleLineup(lineupKey: String) -> String[]` est UN magasin à clé chaîne, et
+// son écriture est `UnitProgression.SetBattleLineupLocally(lineupKey, unitIds)`. Les deux sont des
+// RELAIS MINCES : ils résolvent une interface sur `this+0x30` et dispatchent son slot 7 (lire) /
+// slot 5 (écrire). Le `Set` fait EN PLUS un appel sur `this+0x90` quand il est non nul -- une
+// notification, non identifiée ici.
 //
-// ⇒ LA CLÉ ARRIVE EN ARGUMENT. On n'a donc RIEN à reconstruire ni à associer à la main : on la
-// LIT. Et comme les clés sont auto-descriptives (`<campagne>_<index>`), le catalogue obtenu nomme
-// lui-même son mode. C'est ce qui rend l'écriture (`SetBattleLineupLocally`) adressable pour un
-// mode dont on ne connaît pas le fabricant de clé -- guild war comprise.
+// ⇒ LA CLÉ ARRIVE EN ARGUMENT. On n'a donc RIEN à reconstruire ni à associer à la main : on la LIT.
+// C'est ce qui rend l'écriture adressable pour un mode dont on ne connaît pas le fabricant de clé.
+//
+// ⚠ MAIS CE MAGASIN N'EST PAS UNIVERSEL, ET LA VERSION PRÉCÉDENTE DE CE COMMENTAIRE LE PRÉTENDAIT.
+// Elle annonçait « un seul magasin, TOUS MODES CONFONDUS » et des clés « auto-descriptives
+// (`<campagne>_<index>`) ». Mesuré au décompilé le 2026-08-25 (build `t6dpr4k06g`) : les deux sont
+// faux. Il y a TROIS familles, et la troisième interdit ce qu'on projetait d'en faire.
+//
+//   (a) DÉLÈGUENT au magasin, par le slot d'interface 0x5e -- et chacune fabrique sa clé
+//       AUTREMENT, donc aucune forme de clé n'est généralisable :
+//         `IdunBattle.ViewLogic.BattleSource.CampaignGameModeSource$$GetBattleLineup`
+//             clé = Concat(<préfixe lu sur `this+0x20`>, <littéral>, lineupIndex.ToString())
+//         `IdunBattle.ViewLogic.BattleSource.PvpGameModeSource$$GetBattleLineup`
+//             clé = un LITTÉRAL constant, avec repli sur un SECOND littéral si le retour est vide
+//         `IdunBattle.ViewLogic.BattleSource.GuildBossGameModeSource$$GetBattleLineup`
+//             clé = `thor.Client.DTO.Common.UnitsDto$$CreateGuildBossLineupKeyByFaction`, deux replis
+//       Le dernier repli de PvP et celui de guild boss sont LE MÊME littéral -- il y a donc une
+//       composition « par défaut » partagée. Le repli se déclenche sur `longueur == 0` lue en
+//       `+0x18`, la même que `OFF_LONGUEUR` ci-dessus.
+//
+//   (b) A SA PROPRE SOURCE, sans clé ni magasin :
+//         `IdunBattle.ViewLogic.BattleSource.MachinesOfWarEventGameModeSource$$GetBattleLineup`
+//             lit un `List<string>` par le slot d'interface 0x2b, puis `ToArray()`.
+//       ⇒ le capteur ne verra JAMAIS passer de clé pour la MoW. Son silence n'est pas une panne.
+//
+//   (c) N'ONT RIEN DU TOUT -- le corps natif est un talon constant :
+//         `IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource$$GetBattleLineup` -> `Array.Empty<string>()`
+//         `IdunBattle.ViewLogic.BattleSource.SandboxGameModeSource$$GetBattleLineup`   -> `new string[0]`
+//       ⇒ pour la GUILD WAR et la SANDBOX, il n'existe AUCUNE clé sous laquelle écrire. Le registre
+//       en mémoire + l'ancrage de ce module ne sont pas un repli faute de mieux : ils sont la SEULE
+//       voie. C'était la question ouverte (« les modes qui n'ont pas la feature, comment faire ? ») ;
+//       la réponse est qu'il n'y a rien à trouver côté jeu.
+//       ⚠ Et la « délégation » de la sandbox vers la source réelle est LA NÔTRE (`deployment-draft`),
+//       pas celle du jeu : le natif, seul, rend un tableau vide.
+//
+// ⚠ ET LE PARAMÈTRE DE LA VOIE CAMPAGNE SERT DEUX FOIS -- ce qui dissout l'« ambiguïté index vs
+// taille » au lieu de la trancher. Le même entier est (1) concaténé dans la clé, et (2) passé en
+// `amountOfUnitsToBring` à
+// `IdunBattle.ViewLogic.BattleSource.LineupHelper$$GetCampaignBattleLineupUsingRequiredUnits`, qui
+// s'en sert comme seuil puis comme `Take(n)`. Les deux lectures étaient JUSTES. Conséquence à ne
+// pas rater : demander `n` places lit la clé `<préfixe><sép><n>` -- il y a donc une composition
+// sauvegardée PAR TAILLE, et écrire sous la mauvaise taille n'écrase rien de visible.
 //
 // ⚠ RÉ-ENTRANCE, ET ELLE EST ASSUMÉE PLUTÔT QUE TUE. `lineupSource` invoque
 // `<Source>$$GetBattleLineup`, qui appelle CETTE méthode : notre handler se déclenche donc au
@@ -257,9 +297,49 @@ let firesCles = 0;
 /** La clé du dernier combat vu passer. `null` = aucune observée -- JAMAIS une chaîne vide. */
 let derniereCle: string | null = null;
 
-/** Exporté pour le futur RPC de substitution : sans clé observée, on n'écrit nulle part. */
+/**
+ * L'INSTANCE DU MAGASIN, cueillie sur `args[0]` du même passage que la clé.
+ *
+ * ⚠ ELLE VIENT DE LÀ, ET PAS D'UN CHAMP DE SOURCE, PARCE QUE L'OFFSET N'EST PAS LE MÊME D'UN MODE
+ * À L'AUTRE : campagne `+0x28`, PvP `+0x88`, guild boss `+0x98`. Trois offsets pour un seul objet
+ * -- les coder en dur ferait trois occasions de lire à côté. Le `this` de l'appel, lui, EST
+ * l'instance, quel que soit le mode qui l'a atteinte.
+ *
+ * ⚠ ÉPINGLÉE (`gcRoot`) et REMPLAÇANTE : on désépingle la précédente. Sans l'épingle on garderait
+ * un pointeur vers un objet potentiellement recyclé, et le relire pour le valider serait déjà
+ * l'utiliser. Une seule épingle à la fois -- pas de fuite de handles.
+ */
+let magasin: NativePointer | null = null;
+
+function retenirMagasin(p: NativePointer): void {
+    if (p.isNull()) return;
+    if (magasin !== null && magasin.equals(p)) return;
+    try { if (magasin !== null) gcRoot.remove(magasin); } catch { /* handle deja parti */ }
+    try { gcRoot.add(p); magasin = p; } catch { magasin = null; }
+}
+
+/** Les objets managés fabriqués pour la DERNIÈRE substitution, épinglés le temps de l'appel natif
+ *  et libérés au début de la suivante. Bornées par construction : une substitution à la fois. */
+const racines: NativePointer[] = [];
+function libererRacines(): void {
+    while (racines.length > 0) {
+        const p = racines.pop() as NativePointer;
+        try { gcRoot.remove(p); } catch { /* handle deja parti */ }
+    }
+}
+
+/** Ce qu'on a écrit en dernier, pour que la relecture puisse se confronter à une INTENTION.
+ *  `null` = aucune substitution -- donc une relecture ne prouve rien sur nous. */
+let derniereSubstitution: { cle: string; unites: string[]; origine: string } | null = null;
+
+/** Exporté pour le RPC de substitution : sans clé observée, on n'écrit nulle part. */
 export function cleObservee(): string | null {
     return derniereCle;
+}
+
+/** `null` = le magasin n'a JAMAIS été vu passer -- pas « absent du jeu ». */
+export function magasinObserve(): NativePointer | null {
+    return magasin;
 }
 
 function armerCles(): Record<string, unknown> {
@@ -270,6 +350,9 @@ function armerCles(): Record<string, unknown> {
     ecouteCles = Interceptor.attach(mi.ptr, {
         onEnter(args: InvocationArguments) {
             firesCles++;
+            try {
+                retenirMagasin(args[0] as NativePointer);   // `this` = l'instance du magasin
+            } catch { /* pas d'epingle ne doit pas faire tomber le jeu */ }
             try {
                 const p = args[1] as NativePointer;   // args[0] = `this`
                 const cle = p.isNull() ? null : p.add(0x14).readUtf16String();
@@ -316,6 +399,7 @@ export function register(ctx: Ctx): void {
     ctx.rpc.lineupClesArmer = (body?: { armer?: boolean }): Promise<unknown> | unknown => {
         const etat = (): Record<string, unknown> => ({
             arme: ecouteCles !== null, fires: firesCles, derniereCle,
+            magasin: magasin === null ? null : magasin.toString(),
             catalogue: Array.from(catalogue.entries()).map(([cle, v]) => ({
                 cle, vues: v.vues, longueur: v.derniereLongueur, contenu: v.dernierContenu,
             })),
@@ -337,6 +421,172 @@ export function register(ctx: Ctx): void {
                      ancrage: `${NS_PROG}.${CLS_PROG}$$GetBattleLineup`,
                      note: "armé -- ouvrir une bataille (ou une sandbox à délégation armée) "
                          + "pour voir passer les clés" };
+        });
+    };
+
+    /**
+     * `lineupSubstituer { cle?, unites, confirmer?, origine? }` — L'ÉCRITURE DANS LE MAGASIN.
+     *
+     * ⚠ CELLE-CI EST PERSISTANTE, contrairement à `lineupPoserUnites`. On n'écrit plus dans le
+     * `String[]` d'un appel en cours -- on appelle
+     * `IdunMetaLogic.UserProgress.UnitProgression$$SetBattleLineupLocally`, qui range la
+     * composition dans le magasin du joueur. Elle DEVIENT donc la composition par défaut du jeu
+     * pour cette clé, y compris après désarmement et hors de nos hooks. C'est ce qui était demandé,
+     * mais ça ne s'annule pas tout seul : le dry-run est le défaut, `confirmer: true` est explicite.
+     *
+     * ⚠ NE COUVRE PAS guild war ni sandbox : leur natif ne lit AUCUN magasin (talon constant, cf.
+     * l'en-tête du capteur). Pour ces deux-là c'est `lineupPoserUnites` -- registre + ancrage.
+     */
+    ctx.rpc.lineupSubstituer = (body?: {
+        cle?: string; unites?: string[]; confirmer?: boolean; origine?: string;
+    }): Promise<unknown> | unknown => {
+        const unites = body?.unites;
+        if (!Array.isArray(unites) || unites.length === 0
+            || unites.some((u) => typeof u !== "string" || u.length === 0)) {
+            return { ok: false, refus: "`unites` doit être un tableau NON VIDE de chaînes non vides" };
+        }
+        if (unites.length > PLAFOND_PLACES) {
+            return { ok: false,
+                refus: `${unites.length} unités demandées, plafond ${PLAFOND_PLACES}` };
+        }
+        const cle = body?.cle ?? derniereCle;
+        if (cle === null || cle === undefined || cle.length === 0) {
+            return { ok: false,
+                refus: "aucune clé -- ni fournie, ni OBSERVÉE. Ce n'est PAS « ce mode n'en a pas » : "
+                    + "armer `lineupClesArmer { armer: true }`, puis ouvrir l'écran du mode pour la "
+                    + "voir passer. Guild war et sandbox, eux, n'ont AUCUNE clé par construction "
+                    + "-- pour ceux-là, `lineupPoserUnites`." };
+        }
+        const store = magasin;
+        const vue = catalogue.get(cle) ?? null;
+        const apercu: Record<string, unknown> = {
+            cle, unites, placesDemandees: unites.length,
+            magasin: store === null ? null : store.toString(),
+            connuAuCatalogue: vue !== null,
+            // Ce que le magasin rendait la DERNIÈRE fois qu'on l'a vu passer. `null` = jamais vu
+            // pour CETTE clé -- pas « composition vide ».
+            contenuObserve: vue?.dernierContenu ?? null,
+            longueurObservee: vue?.derniereLongueur ?? null,
+        };
+        if (store === null) {
+            return { ok: false, ...apercu,
+                refus: "le magasin n'a JAMAIS été vu passer -- on n'a donc aucune instance sur "
+                    + "laquelle appeler. Ce n'est pas « absent du jeu ». Armer le capteur et "
+                    + "ouvrir l'écran d'un mode de la famille (a)." };
+        }
+        if (body?.confirmer !== true) {
+            return { ok: true, ecrit: false, dryRun: true, ...apercu,
+                note: "RIEN n'a été écrit. Rejouer avec `{ confirmer: true }`. ⚠ l'écriture est "
+                    + "PERSISTANTE : la composition devient celle du jeu pour cette clé." };
+        }
+        return queueOnMainThread(() => {
+            const k = findClassAnywhere(NS_PROG, CLS_PROG);
+            if (!k) return { ok: false, ...apercu, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE` };
+            const mi = findMethodByParamCount(k, "SetBattleLineupLocally", 2);
+            if (!mi) {
+                return { ok: false, ...apercu,
+                    refus: "`SetBattleLineupLocally(2 params)` INTROUVABLE sur ce build" };
+            }
+            const kStr = findClassAnywhere("System", "String");
+            if (!kStr) return { ok: false, ...apercu, refus: "`System.String` INTROUVABLE" };
+
+            // Les racines du tour PRÉCÉDENT se libèrent MAINTENANT, pas après l'appel : une fois
+            // la composition rangée par le natif, c'est du managé qui la référence. Garder nos
+            // épingles ferait fuir un handle par substitution.
+            libererRacines();
+            let arr: NativePointer;
+            try {
+                arr = createManagedArray(kStr, unites.length);
+                gcRoot.add(arr); racines.push(arr);
+                for (let i = 0; i < unites.length; i++) {
+                    const s = createManagedString(unites[i]);
+                    gcRoot.add(s); racines.push(s);   // ENRACINER D'ABORD, écrire ensuite
+                    arr.add(OFF_ELEMENTS + i * Process.pointerSize).writePointer(s);
+                }
+            } catch (e) {
+                return { ok: false, ...apercu, refus: `fabrication du String[] : ${(e as Error).message}` };
+            }
+            let cleGeree: NativePointer;
+            try {
+                cleGeree = createManagedString(cle);
+                gcRoot.add(cleGeree); racines.push(cleGeree);
+            } catch (e) {
+                return { ok: false, ...apercu, refus: `fabrication de la clé : ${(e as Error).message}` };
+            }
+            try {
+                // `propagate` : appel MANAGÉ, cf. `il2cpp/invoke.ts`. Sans lui Frida confisque
+                // l'exception C++ par laquelle IL2CPP la transporte.
+                const fn = new NativeFunction(
+                    mi.ptr, "void", ["pointer", "pointer", "pointer", "pointer"],
+                    { exceptions: "propagate" });
+                fn(store, cleGeree, arr, mi.info);
+            } catch (e) {
+                return { ok: false, ...apercu,
+                    refus: `\`SetBattleLineupLocally\` a levé : ${(e as Error).message}` };
+            }
+            derniereSubstitution = {
+                cle, unites: unites.slice(), origine: body?.origine ?? "lineupSubstituer",
+            };
+            return { ok: true, ecrit: true, ...apercu,
+                // ⚠ TRI-ÉTAT : on n'a PAS relu. Relire invoquerait `GetBattleLineup`, que le
+                // capteur ANCRE -- exactement le cas interdit. `lineupMagasinLire` le fait, une
+                // fois le capteur désarmé.
+                verification: null,
+                note: "écrit. NON RELU : relire invoquerait la méthode que le capteur ancre. "
+                    + "Pour vérifier -- `lineupClesArmer { armer: false }` puis "
+                    + "`lineupMagasinLire { cle }`." };
+        });
+    };
+
+    /**
+     * `lineupMagasinLire { cle? }` — RELECTURE du magasin, pour vérifier une substitution.
+     *
+     * ⛔ REFUSE tant que le capteur est armé : ce RPC INVOQUE
+     * `IdunMetaLogic.UserProgress.UnitProgression$$GetBattleLineup`, que le capteur ANCRE. C'est le
+     * cas interdit du dépôt (« ne pas ancrer ce qu'on invoque »), pas le cran en dessous qui, lui,
+     * est assumé plus haut. Même idiome de verrou que `lineup-lire` face à `estArme()`.
+     */
+    ctx.rpc.lineupMagasinLire = (body?: { cle?: string }): Promise<unknown> | unknown => {
+        if (ecouteCles !== null) {
+            return { ok: false,
+                refus: "le capteur de clés est ARMÉ sur `GetBattleLineup` -- lire l'invoquerait, "
+                    + "donc on retomberait dans notre propre trampoline (gel). Désarmer d'abord : "
+                    + "`lineupClesArmer { armer: false }`." };
+        }
+        const cle = body?.cle ?? derniereCle;
+        if (cle === null || cle === undefined || cle.length === 0) {
+            return { ok: false, refus: "aucune clé -- ni fournie, ni observée." };
+        }
+        const store = magasin;
+        if (store === null) {
+            return { ok: false, cle,
+                refus: "le magasin n'a jamais été vu passer -- aucune instance à interroger." };
+        }
+        return queueOnMainThread(() => {
+            const k = findClassAnywhere(NS_PROG, CLS_PROG);
+            if (!k) return { ok: false, cle, refus: `${NS_PROG}.${CLS_PROG} INTROUVABLE` };
+            const mi = findMethodByParamCount(k, "GetBattleLineup", 1);
+            if (!mi) return { ok: false, cle, refus: "`GetBattleLineup(1 param)` INTROUVABLE" };
+            try {
+                const cleGeree = createManagedString(cle);
+                gcRoot.add(cleGeree);
+                try {
+                    const fn = new NativeFunction(
+                        mi.ptr, "pointer", ["pointer", "pointer", "pointer"],
+                        { exceptions: "propagate" });
+                    const arr = fn(store, cleGeree, mi.info) as NativePointer;
+                    if (arr.isNull()) {
+                        return { ok: true, cle, longueur: null, contenu: null,
+                                 note: "le magasin a rendu NUL pour cette clé" };
+                    }
+                    const obs = lireTableau(arr);
+                    return { ok: true, cle, longueur: obs.longueur, contenu: obs.avant,
+                             classeRetour: obs.classeRetour,
+                             derniereSubstitution };
+                } finally { try { gcRoot.remove(cleGeree); } catch { /* deja parti */ } }
+            } catch (e) {
+                return { ok: false, cle, refus: `\`GetBattleLineup\` a levé : ${(e as Error).message}` };
+            }
         });
     };
 
