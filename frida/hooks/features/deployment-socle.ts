@@ -159,3 +159,71 @@ export function taille(klass: NativePointer): number {
     }
     return class_instance_size(klass) as number;
 }
+
+// --- LES NOMS NATIFS PARTAGES PAR LA FAMILLE ---------------------------------------
+// Remontes ici le 2026-08-26 : `deployment-pool` en cite dix, et les lui laisser dans
+// `deployment-draft` aurait ferme un cycle (draft importe pool).
+
+export const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
+
+export const METHODE = "GetUnitsForDeploymentHUD";
+
+// ============================================================================
+// PHASE DE DÉPLOIEMENT (#10020-r1) — forcer une sandbox à passer par l'écran de
+// déploiement au lieu de sauter directement en `Running`.
+//
+// LA CHAÎNE, mesurée le 2026-08-17 (`t6dpr4k06g`), décompilée puis confrontée sur les objets
+// VIVANTS (cf. `docs/rl/case-10020-lien-vue-source-sens-unique.md` §7-§8) :
+//
+//   IdunBattle.View.Game.IdunGameViews$$Enable(this, skipUnitDeployment)
+//       si skipUnitDeployment == 0 ET <slot 0x34>(this+0x138 = _visualBattleQuery) :
+//              -> IdunBattle.View.FSM.UnitSelectionFsm$$UnitDeployment       (PHASE DE DEPLOIEMENT)
+//       sinon  -> IdunBattle.View.FSM.UnitSelectionFsm$$StartMatch           (direct en jeu)
+//
+//   IdunBattle.View.FSM.VisualBattleQuery$$ShouldShowUnitDeploymentHud  =  relais PUR vers
+//       <slot 0x29>(this+0x80 = _gameModeSource : IGameModeSource)
+//
+// Sur une sandbox les DEUX rendent `false` (invoqués sur les objets vivants), et le corps de
+// `SandboxGameModeSource$$ShouldShowUnitDeployment` est un `return 0` **CONSTANT** : aucun réglage
+// de BC ni de gameconfig ne le fera basculer. D'où ce hook.
+//
+// ⛔ POURQUOI ON N'ANCRE PAS LA SOURCE, ET POURQUOI C'EST LE POINT CENTRAL DE CE MODULE
+// -------------------------------------------------------------------------------------
+// `SandboxGameModeSource$$ShouldShowUnitDeployment` résout au runtime sur un corps que **~745
+// `MethodInfo` PARTAGENT** (745 xrefs DATA + 122 appels directs ; Ghidra le nomme d'après une
+// classe sans rapport, `Stash.Native.StashNative$$get_IsPurchaseProcessing`). IL2CPP déduplique les
+// corps triviaux : `return 0` n'a pas d'identité. S'y attacher basculerait à `true` TOUT ce qui rend
+// « faux constant » dans le jeu — sans erreur, sans symptôme qui désigne la cause.
+//
+// Le dépôt portait déjà « l'absence dans la table ne prouve RIEN » : c'était le versant LECTURE.
+// Ici c'est le versant ÉCRITURE, et il ne rate pas une conclusion — il fait un dégât.
+//
+// ⇒ On ancre le RELAIS, un étage au-dessus : il a un VRAI corps, donc une adresse propre
+// (2 xrefs DATA : son `MethodInfo` + son entrée de vtable).
+//
+// ET LE GARDE EST EXÉCUTABLE, PAS ÉCRIT — une prose n'arrête pas un comportement. `teteTriviale()`
+// lit les premiers octets du corps résolu et REFUSE l'attache si un `ret` (0xC3) tombe dans les 8
+// premiers : un corps qui rend une constante rette en 1 à 4 octets, un relais réel commence par sa
+// garde de cctor et son test de nullité. Le refus PUBLIE les octets, pour qu'on juge sur pièce et
+// pas sur un verdict.
+//
+// RÉGIMES — `forcer` est FAUX par défaut, donc armer n'écrit RIEN.
+//   OBSERVER : on lit le `skipUnitDeployment` que le jeu passe à `Enable`, et ce que le relais rend.
+//              C'est la seule base sur laquelle on saura si forcer a un sens.
+//   FORCER   : `onLeave` remplace le retour du relais par `true`. `Interceptor.attach`, JAMAIS
+//              `replace` (un stop de session avec un `replace` actif crashe le jeu).
+//
+// ⚠ `VisualBattleQuery` sert TOUS les modes, pas seulement la sandbox : forcer sans désarmer ferait
+// apparaître une phase de déploiement là où le jeu n'en veut pas. D'où l'armement explicite.
+
+export const NS_VBQ = "IdunBattle.View.FSM";
+
+export const CLS_VBQ = "VisualBattleQuery";
+
+export const METH_VBQ = "ShouldShowUnitDeploymentHud";
+
+export const NS_VIEWS = "IdunBattle.View.Game";
+
+export const CLS_VIEWS = "IdunGameViews";
+
+export const CLS_SANDBOX = "SandboxGameModeSource";
