@@ -99,6 +99,16 @@ import * as replayLaunch from "./features/replay-launch.js";
 // au runtime la classe du retour -- `PooledList` est un TYPE VALEUR, sa disposition se mesure.
 // N'arme AUCUN hook au register : il faut `deploymentDraftArmer { armer: true }`.
 import * as deploymentDraft from "./features/deployment-draft.js";
+// lineup-lire = LECTURE PURE de la composition SAUVEGARDEE d'un mode (`lineupSource`). N'ancre
+// rien, n'ecrit rien, ne monte rien : il DEMANDE la composition a la source captee, la ou
+// `deploymentDraft` ancre `SandboxGameModeSource$$GetUnitsForDeploymentHUD` pour la REMPLIR.
+// Repond a « la composition est-elle vide, faut-il la decider ? » sans monter de bataille.
+import * as lineupLire from "./features/lineup-lire.js";
+// lineup-poser = l'ECRITURE en face de `lineup-lire` : ancre `<Source>$$GetBattleLineup` et
+// REECRIT les elements du `String[]` rendu (jamais `replace`, jamais un conteneur a nous).
+// N'arme RIEN au register, et n'ecrit RIEN sans `confirmer: true` apres observation.
+// ⛔ MUTUELLEMENT EXCLUSIF avec `lineupSource` : on n'invoque pas la methode qu'on ancre.
+import * as lineupPoser from "./features/lineup-poser.js";
 import * as aiStep from "./features/ai-step/index.js";
 // modifier-observe = diagnostic PERMANENT on-demand (decompo par etage prediction+combat — l'outil
 // doctrine « divergence de degat = decomposition, jamais fit », promu au build standard par #98).
@@ -631,6 +641,9 @@ export function wireRpc(ctx: Ctx): void {
      scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
      replayOutputStream, replayLaunch, deploymentDraft,
+     // lineupLire = LECTURE PURE (`lineupSource`). N'ancre RIEN au register, ne coute RIEN.
+     // lineupPoser = l'ECRITURE. N'arme rien au register non plus ; exige `confirmer: true`.
+     lineupLire, lineupPoser,
      // viewQueue = LECTURE PURE du canal runner -> vue. N'arme rien, n'invoque rien.
      viewQueue,
      // runnerSignal = ecoute PUSH de la transition vers un runner vivant. N'ancre RIEN.

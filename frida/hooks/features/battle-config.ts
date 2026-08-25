@@ -71,6 +71,10 @@ import {
 } from "./campaign-builder.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
 import { lineupDeLaSource } from "../game/source-lineup.js";
+// LE REGISTRE DES COMPOSITIONS. Second consommateur de la MEME decision que celle que
+// `GetBattleLineup` posera au deploiement -- sans quoi on bufferait des unites qui ne descendent
+// pas. Cf. l'en-tete de `lineup-poser.ts`.
+import { compositionRetenue } from "./lineup-poser.js";
 import { dumpEnum } from "../il2cpp/enum-dump.js";
 import { registerRunner, getRunner as getRegistryRunner,
     listRunners as listRegistryRunners, MAX_RUNNERS }
@@ -1741,6 +1745,20 @@ function applyPatchToConfig(
     const instancePourLineup = srcInstance ?? repliSourceCaptee(source);
     const lineupSource = ((veutMoi || veutAdversaire) && instancePourLineup !== null)
         ? lineupDeLaSource(instancePourLineup) : null;
+    // ⛔ LE REGISTRE PRIME SUR LA SOURCE, ET C'EST TOUT L'INTERET DU MONTAGE.
+    // Si une composition a ete RETENUE pour ce mode, c'est ELLE que `GetBattleLineup` posera au
+    // deploiement. Buffer ce que la source a sauvegarde alors que le deploiement recevra autre
+    // chose ferait poser les buffs sur des unites qui ne descendent JAMAIS -- aucune erreur levee,
+    // des buffs bien installes, et un resultat qui se lit « les buffs ne marchent pas ».
+    // On REMPLACE donc `unites`, et on le DIT : un remplacement tu se lirait comme une mesure.
+    const retenue = lineupSource === null ? null : compositionRetenue(lineupSource.classe);
+    if (lineupSource !== null && retenue !== null) {
+        ops.push(`lineup RETENUE au registre (${retenue.origine}) : ${retenue.ids.length} unite(s)`
+            + ` -- REMPLACE la composition sauvegardee de \`${lineupSource.classe}\``
+            + ` (${lineupSource.unites === null ? "NON MESUREE" : lineupSource.unites.length}),`
+            + ` parce que c'est elle que \`GetBattleLineup\` posera au deploiement`);
+        lineupSource.unites = retenue.ids.slice();
+    }
     if (lineupSource !== null) {
         ops.push(`lineup demandee a \`${lineupSource.classe}\` : `
             + `${lineupSource.unites === null ? "NON MESUREE" : lineupSource.unites.length} unite(s)`
