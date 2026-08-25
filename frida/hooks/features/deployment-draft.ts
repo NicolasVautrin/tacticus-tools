@@ -226,67 +226,6 @@ function nomsDesPlaceholders(lst: NativePointer, taille: number): Array<string |
     } catch { return null; }
 }
 
-/**
- * Les `unitId` des unités RÉELLES, groupés par joueur — SANS AUCUNE INVOCATION.
- *
- * ⛔ POURQUOI UNE SECONDE LECTURE PLUTÔT QUE `unitesDuPlateau()`. Celle-ci invoque deux natifs
- * (`FirstPlayerEntityIdOfHumanOnThisDevice` pour savoir qui est le joueur, `get_LogicalPosition`
- * pour la tuile). Invoquer depuis un callback d'interception GÈLE le jeu -- règle payée deux fois
- * dans ce dépôt. Or le blocage du START doit rendre son verdict DANS un `onLeave`.
- *
- * On se passe donc des deux : on ne demande pas QUI est le joueur humain (on groupe par
- * `<PlayerEntityId>` et on prendra le camp le plus chargé -- un empilement chez l'adversaire
- * serait tout aussi anormal), et on ne lit aucune tuile (le plafond n'en a pas besoin).
- *
- * `getFieldOffset` reste permis : il passe par les API de MÉTADONNÉES d'IL2CPP, pas par
- * `il2cpp_runtime_invoke` — il n'exécute aucun code managé, donc ne peut ni allouer ni prendre
- * le verrou du GC.
- *
- * Rend `null` quand la lecture n'aboutit pas : un `null` fait REFUSER en amont, jamais un zéro.
- */
-function unitesReellesParJoueurSansInvoke(): Map<number, string[]> | null {
-    try {
-        // Même repli que `unitesDuPlateau` : la vue de la pompe quand nos capteurs n'ont pas tiré.
-        const vues = vueDeDeploiement();
-        if (vues === null || vues.isNull()) return null;
-        const k = vues.readPointer();
-        const offVues = getFieldOffset(k, "_unitViews");
-        if (offVues < 0) return null;
-        const dico = vues.add(offVues).readPointer();
-        if (dico.isNull()) return null;
-        const kd = dico.readPointer();
-        const offEntries = getFieldOffset(kd, "_entries");
-        const offCount = getFieldOffset(kd, "_count");
-        if (offEntries < 0 || offCount < 0) return null;
-        const entries = dico.add(offEntries).readPointer();
-        const n = dico.add(offCount).readS32();
-        if (entries.isNull() || n < 0 || n > 4096) return null;
-        if (class_get_element_class === null || class_instance_size === null) return null;
-        const kElem = class_get_element_class(entries.readPointer()) as NativePointer;
-        const taille = (class_instance_size(kElem) as number) - Process.pointerSize * 2;
-        if (!(taille > 0 && taille <= 128)) return null;
-        const out = new Map<number, string[]>();
-        let offJoueur = -1;
-        let offUnitId = -1;
-        for (let i = 0; i < n; i++) {
-            const uv = entries.add(0x20 + i * taille + taille - Process.pointerSize).readPointer();
-            if (uv.isNull()) continue;
-            if (offJoueur < 0) {
-                offJoueur = getFieldOffset(uv.readPointer(), "<PlayerEntityId>k__BackingField");
-                offUnitId = getFieldOffset(uv.readPointer(), "<UnitId>k__BackingField");
-                if (offJoueur < 0 || offUnitId < 0) return null;
-            }
-            const j = uv.add(offJoueur).readS32();
-            let nom: string | null = null;
-            try { nom = readIl2cppString(uv.add(offUnitId).readPointer()); } catch { nom = null; }
-            const l = out.get(j) ?? [];
-            if (typeof nom === "string" && nom !== "" && l.indexOf(nom) < 0) l.push(nom);
-            out.set(j, l);
-        }
-        return out;
-    } catch { return null; }
-}
-
 /** Les DEUX comptabilités + le plafond, ou un `Refus` dès qu'une lecture manque. */
 function etatDuDeploiement(): EtatDeploiement | Refus {
     const u = unitesDuPlateau();
@@ -2543,9 +2482,6 @@ const jetTrace: Array<Record<string, unknown>> = [];
  *  en deux (`deploymentStartTracer`). Une entrée SANS sortie est la signature d'une levée dans
  *  ce corps ou dessous ; aucune entrée dit que la levée est en amont. */
 let listenerStartBattle: InvocationListener | null = null;
-/** L'ancrage sur UnitDeploymentHudButtons\$\$UpdateState -- le compteur que le BOUTON affiche. */
-let listenerBoutons: InvocationListener | null = null;
-const compteurBoutonTrace: Array<Record<string, unknown>> = [];
 /** Les ancrages des quatre etages sous StartBattle (cf. deploymentStartTracer). */
 const listenersEtages: InvocationListener[] = [];
 const startBattleTrace: Array<Record<string, unknown>> = [];
@@ -4592,9 +4528,6 @@ function viderLePlateauParFsm(): Promise<Record<string, unknown>> {
     });
 }
 
-/** Images de pump laissées passer entre un retrait et la pose qui prend sa place. */
-const DELAI_REMPLACEMENT = 6;
-
 /**
  * Enfile une pose APRÈS `reste` images de pump.
  *
@@ -5056,67 +4989,6 @@ export function register(ctx: Ctx): void {
     };
 
     /**
-     * BASCULER LE HUD EN SÉLECTION « MACHINES OF WAR » — ou en revenir.
-     *
-     * `idun.ui.UnitDeploymentHud$$HandleOnSwitchToMachinesOfWarUnitsTapped()` (aucun paramètre
-     * managé) : c'est l'onglet que le joueur tape avant de choisir sa machine.
-     *
-     * ⚠ CE RPC EXISTE POUR UNE MESURE, PAS SUR UNE CERTITUDE. Le START lève parce que son
-     * prédicat (`<HandleOnStartBattleTapped>b__150_0`) cherche CHAQUE unité posée dans
-     * `_allUnitModels` (`+0x240`, `Dictionary`, 102 entrées mesurées) et LÈVE SANS GARDE quand
-     * la clé manque -- ce qui est le cas de la MoW. Reste à établir ce qui l'y met : le
-     * basculement lui-même ne touche QUE `_unitModels` (`+0x238`, vidé par
-     * `PrepareForStandardUnitMachineOfWarSelectionSwitch`) au décompilé. On rend donc le compte
-     * du dictionnaire AVANT et APRÈS, et c'est la mesure qui tranchera.
-     *
-     * ⛔ ÉCRITURE : détruit des widgets, réinitialise les filtres, ré-affiche la collection.
-     */
-    ctx.rpc.deploymentMowBasculer = (body?: { confirmer?: boolean; retour?: boolean }):
-        Promise<unknown> | unknown => {
-        if (body?.confirmer !== true) {
-            return refus("ECRITURE -- exige `confirmer: true`. Ce RPC rejoue l'onglet "
-                + "« Machines of War » du HUD (widgets détruits, filtres réinitialisés).");
-        }
-        const methode = body?.retour === true
-            ? "HandleOnSwitchToStandardUnitsTapped"
-            : "HandleOnSwitchToMachinesOfWarUnitsTapped";
-        return queueOnMainThread((): Record<string, unknown> => {
-            if (hudInstance === null || hudInstance.isNull()) {
-                return { ok: false, error: "aucun `UnitDeploymentHud` capturé -- il ne s'attrape "
-                    + "qu'à son `Show`, donc à l'AFFICHAGE de la phase de déploiement." };
-            }
-            const k = findClassAnywhere(NS_HUD, CLS_HUD);
-            const mi = k ? findMethodByParamCount(k, methode, 0) : null;
-            if (!mi) return { ok: false, error: `\`${methode}\` INTROUVABLE (0 paramètre)` };
-            // ⚠ VÉRIFIER LE CORPS RÉSOLU. IL2CPP déduplique les corps triviaux : `findMethod`
-            // peut rendre une adresse PARTAGÉE, et on invoquerait alors autre chose sans que
-            // rien ne le dise. On publie l'adresse Ghidra et la tête, comme le fait déjà
-            // l'armement du relais de START -- au lecteur de confronter au décompilé.
-            const va = ghidraVA(mi.ptr);
-            const tete = lireTete(mi.ptr);
-            const compte = (): number | null => {
-                try {
-                    const d = hudInstance!.add(0x240).readPointer();
-                    if (d.isNull()) return null;
-                    const off = getFieldOffset(d.readPointer(), "_count");
-                    return off < 0 ? null : d.add(off).readS32();
-                } catch { return null; }
-            };
-            const avant = compte();
-            try { invokeMethod(mi.info, hudInstance, []); }
-            catch (e) {
-                return { ok: false, methode, ghidraVA: va, tete, allUnitModelsAvant: avant,
-                         error: "LEVÉ : " + (e as Error).message };
-            }
-            return { ok: true, methode, ghidraVA: va, tete,
-                     allUnitModelsAvant: avant, allUnitModelsApres: compte(),
-                     selectionMoW: (() => {
-                         try { return hudInstance!.add(0x221).readU8() !== 0; } catch { return null; }
-                     })() };
-        });
-    };
-
-    /**
      * APPUYER SUR START — `idun.ui.UnitDeploymentHud$$HandleOnStartBattleTapped(success)`.
      *
      * ⚠ POURQUOI CE POINT-LA, ET PAS `UnitDeploymentState$$StartBattle`. Ce dernier prend la
@@ -5288,15 +5160,6 @@ export function register(ctx: Ctx): void {
                          + "`replaySteps` (on attend `AddMachineMessage` puis "
                          + "`StartBattleMessage`) et par `battleStatus.stageName == Running`." };
         });
-    };
-
-    ctx.rpc.deploymentBoutonMarquer = (body?: { confirmer?: boolean }):
-        Promise<unknown> | unknown => {
-        if (body?.confirmer !== true) {
-            return refus("`confirmer: true` exigé : ce RPC APPELLE `TryMarkUnitAsPlaced` sur le "
-                + "HUD vivant, une fois par unité du joueur présente sur le plateau");
-        }
-        return queueOnMainThread(() => marquerLesUnitesDuPlateau());
     };
 
     /** L'inventaire du plateau, les DEUX camps — lecture pure, aucune écriture. */
@@ -5659,73 +5522,6 @@ export function register(ctx: Ctx): void {
     };
 
     /**
-     * POURQUOI `Get` REND NUL ALORS QUE LA CLÉ EST LÀ. Lectures pures, aucune écriture.
-     *
-     * Mesuré session 53, MÊME dictionnaire et MÊME instant : `HasPrefabForUnitId` rend `true`
-     * pour `spaceBlackmane` quand le `Get` du jeu rend `0x0`. `ContainsKey` étant donc vrai,
-     * `Get` ne sort PAS par la branche « clé absente » — la seule autre issue à `0x0` est que
-     * le loader rende un prefab NUL. Or `StartBattle` teste `IdunAssets$$IsAssetBundleAvailable`,
-     * ÉCRIT UN AVERTISSEMENT, **et ajoute l'entrée quand même** : une entrée présente ne promet
-     * donc rien sur la disponibilité de l'asset.
-     *
-     * Ce RPC lit, pour chaque unité : la config visuelle, sa référence d'asset (champ résolu PAR
-     * TYPE), et la réponse de `IsAssetBundleAvailable`. Il n'invoque AUCUN chargement.
-     */
-    ctx.rpc.deploymentPrefabInspecter = (body?: { ids?: string[] }):
-        Promise<unknown> | unknown => {
-        const ids = body?.ids ?? [];
-        if (ids.length === 0) return refus("`ids` exigé");
-        return queueOnMainThread(() => {
-            const d = dicoVivant();
-            if ("ok" in d) return d;
-            const kv = findClassAnywhere(NS_PREFAB, CLS_VIEWS_PREFAB);
-            if (!kv) return refus(`\`${CLS_VIEWS_PREFAB}\` INTROUVABLE`);
-            const mCfg = findMethodByParamCount(kv, "GetUnitVisualConfig", 1);
-            if (!mCfg) return refus("`GetUnitVisualConfig` INTROUVABLE (1 paramètre)");
-            const kAssets = findClassAnywhere("Idun.Source.Scripts", "IdunAssets")
-                ?? findClassAnywhere("idun.Idun.Source.Scripts", "IdunAssets");
-            const mDispo = kAssets
-                ? findMethodByParamCount(kAssets, "IsAssetBundleAvailable", 1) : null;
-            const out: Array<Record<string, unknown>> = [];
-            for (const id of ids) {
-                const ligne: Record<string, unknown> = { unitId: id };
-                try {
-                    const cfg = invokeMethod(mCfg.info, d.vues, [createManagedString(id)]);
-                    ligne.config = cfg.toString();
-                    if (cfg.isNull()) { ligne.verdict = "config visuelle NULLE"; out.push(ligne);
-                                        continue; }
-                    const kc = cfg.readPointer();
-                    ligne.classeConfig = s(class_get_name(kc) as NativePointer);
-                    const champs = champsDe(kc);
-                    ligne.champs = champs.map((c) => `${c.nom}:${c.type}`);
-                    const cRef = champs.find((c) => c.type.indexOf("AssetReference") >= 0);
-                    if (!cRef) {
-                        ligne.verdict = "aucun champ `AssetReference*` -- chemin PÉRIMÉ";
-                        out.push(ligne); continue;
-                    }
-                    const aref = cfg.add(cRef.off).readPointer();
-                    ligne.assetRef = `${cRef.nom}@+0x${cRef.off.toString(16)} = ${aref}`;
-                    if (mDispo === null) {
-                        ligne.verdict = "`IdunAssets$$IsAssetBundleAvailable` INTROUVABLE "
-                            + "-- NON MESURÉ (ce n'est pas un `false`)";
-                    } else if (aref.isNull()) {
-                        ligne.verdict = "référence d'asset NULLE";
-                    } else {
-                        const dispo = boolBoxe(invokeMethod(mDispo.info, null, [aref]));
-                        ligne.bundleDisponible = dispo;
-                        ligne.verdict = dispo
-                            ? "bundle DISPONIBLE -- la cause est ailleurs"
-                            : "bundle INDISPONIBLE -- le loader ne peut RIEN produire, `Get` "
-                                + "rendra nul quoi qu'on écrive dans le dictionnaire";
-                    }
-                } catch (e) { ligne.verdict = "LEVÉ : " + (e as Error).message; }
-                out.push(ligne);
-            }
-            return { ok: true, dico: d.dico.toString(), source: d.source, unites: out };
-        });
-    };
-
-    /**
      * L'ÉPREUVE CONTRÔLÉE : fabriquer l'entrée d'UNE unité, puis appeler `Get` NOUS-MÊMES et
      * DÉCODER ce qui en sort — retour, ou exception managée avec sa classe et son message.
      *
@@ -5799,29 +5595,6 @@ export function register(ctx: Ctx): void {
             const re = armerPoseDiag();
             sortie.ancragesReArmes = re === true ? true : (re as Refus).error;
             return { ok: true, ...sortie };
-        });
-    };
-
-    /** Diagnostic PUR : le patron, et pour chaque id demandé si le jeu a déjà son prefab.
-     *  `HasPrefabForUnitId` est une lecture (`ContainsKey`), elle n'écrit rien. */
-    ctx.rpc.deploymentPrefabStatus = (body?: { ids?: string[] }): Promise<unknown> | unknown => {
-        const ids = body?.ids ?? [];
-        if (ids.length === 0) return { ok: true, lecture: true, ...etatPrefab() };
-        return queueOnMainThread(() => {
-            const d = dicoVivant();
-            if ("ok" in d) return d;
-            const kd = findClassAnywhere(NS_PREFAB, CLS_DICO);
-            if (!kd) return refus(`\`${CLS_DICO}\` INTROUVABLE`);
-            const mh = findMethodByParamCount(kd, "HasPrefabForUnitId", 1);
-            if (!mh) return refus("`HasPrefabForUnitId` INTROUVABLE (1 paramètre)");
-            const vus: Array<{ unitId: string; aSonPrefab: boolean | string }> = [];
-            for (const id of ids) {
-                try {
-                    const r = invokeMethod(mh.info, d.dico, [createManagedString(id)]);
-                    vus.push({ unitId: id, aSonPrefab: boolBoxe(r) });
-                } catch (e) { vus.push({ unitId: id, aSonPrefab: "LEVÉ : " + (e as Error).message }); }
-            }
-            return { ok: true, dico: d.dico.toString(), vus, ...etatPrefab() };
         });
     };
 
@@ -6054,74 +5827,6 @@ export function register(ctx: Ctx): void {
                  note: "`Show` publie les deux comptes ; `TryMarkUnitAsPlaced` publie le "
                      + "verdict de chaque clic. Un premier dictionnaire plein et un second "
                      + "vide EST la signature de « je sélectionne mais je ne pose pas »." };
-    };
-
-    /**
-     * LE COMPTEUR DU BOUTON — celui de l'ÉCRAN, pas celui qu'on avait choisi de lire.
-     *
-     * ⚠ POURQUOI CE RPC EXISTE. On lisait `_currentlyPlacedUnits._size` et on y voyait 6, pendant
-     * que le bouton START affichait **0/5** à l'écran. Les deux comptabilités sont distinctes, et
-     * c'est l'ÉCRAN qui dit la vérité sur ce que le HUD croit avoir. Le décompilé le confirme :
-     *
-     *     UpdateButtons(this):
-     *         standard = ListExtensions.Count(_currentlyPlacedUnits, <prédicat A>)
-     *         machines = ListExtensions.Count(_currentlyPlacedUnits, <prédicat B>)
-     *         UnitDeploymentHudButtons.UpdateState(boutons, gameMode,
-     *                                              standard, machines,
-     *                                              _minUnitsPossible, _maxUnitsPossible)
-     *
-     * Donc la liste est la MÊME (6 entrées) mais elle est comptée À TRAVERS UN PRÉDICAT, et
-     * `UpdateState` affiche `MaxUnitAmountNotReached(standard, max)` -- le « X/5 ». Un `0`
-     * signifie que le prédicat rejette les six.
-     *
-     * On n'a pas besoin de nommer les deux lambdas (elles ne portent pas de symbole `b__` sur ce
-     * build) : `UpdateState` REÇOIT les quatre entiers en arguments. On les lit là, à la source.
-     */
-    ctx.rpc.deploymentCompteurBouton = (body?: {
-        armer?: boolean; vider?: boolean;
-    }): unknown => {
-        if (body?.vider === true) compteurBoutonTrace.length = 0;
-        const etat = () => ({ arme: listenerBoutons !== null,
-                              tirs: compteurBoutonTrace.length, trace: compteurBoutonTrace });
-        if (!body || body.armer === undefined) return { ok: true, lecture: true, ...etat() };
-        if (body.armer === false) {
-            if (listenerBoutons) { listenerBoutons.detach(); listenerBoutons = null; }
-            Interceptor.flush();
-            return { ok: true, action: "detache", ...etat() };
-        }
-        if (listenerBoutons) return { ok: true, action: "deja arme", ...etat() };
-        const kB = findClassAnywhere("idun.ui", "UnitDeploymentHudButtons");
-        if (!kB) return refus("`idun.ui.UnitDeploymentHudButtons` INTROUVABLE");
-        const mB = findMethodByParamCount(kB, "UpdateState", 5);
-        if (!mB) return refus("`UnitDeploymentHudButtons$$UpdateState` INTROUVABLE (5 paramètres)");
-        const tB = lireTete(mB.ptr);
-        if (tB.erreur === null && teteTriviale(tB)) {
-            return refus("REFUS : `UpdateState` résout sur un corps TRIVIAL -- adresse PARTAGÉE.");
-        }
-        listenerBoutons = Interceptor.attach(mB.ptr, {
-            onEnter(args) {
-                if (compteurBoutonTrace.length >= 24) return;
-                // args[0] = this, args[1] = gameMode, puis les QUATRE entiers.
-                compteurBoutonTrace.push({
-                    standardUnitsCount: args[2].toInt32(),
-                    machineOfWarUnitsCount: args[3].toInt32(),
-                    minUnitsPossible: args[4].toInt32(),
-                    maxUnitsPossible: args[5].toInt32(),
-                    // Le compte BRUT de la liste, au même instant : c'est l'écart entre les deux
-                    // qui est le fait (`brut` 6 contre `standardUnitsCount` 0 = le prédicat
-                    // rejette tout).
-                    listeBrute: (() => {
-                        try {
-                            if (hudInstance === null || hudInstance.isNull()) return null;
-                            const l = hudInstance.add(0x1b8).readPointer();
-                            return l.isNull() ? null : l.add(0x18).readS32();
-                        } catch { return null; }
-                    })(),
-                });
-            },
-        });
-        Interceptor.flush();
-        return { ok: true, action: "attache", ghidraVA: ghidraVA(mB.ptr), tete: tB, ...etat() };
     };
 
     /**
@@ -6781,116 +6486,6 @@ export function register(ctx: Ctx): void {
         return { ok: true, action: "attache", poses,
                  ancres: Object.keys(cheminsListeners), chemins: inventaire() };
     };
-
-    /**
-     * EMPRUNT ISOLÉ — invoque la méthode campagne HORS de tout callback d'interception.
-     *
-     * ⚠ C'EST UN DISCRIMINANT, PAS UNE COMMODITÉ. Mesuré : l'ancrage sur
-     * `CampaignProgression$$GetDeployableUnits` attrape les appels NATURELS du jeu (2 fires
-     * pendant une navigation de campagne, `dansEmprunt: false`) mais JAMAIS ceux de nos
-     * emprunts. Deux lectures restent :
-     *
-     *   (a) le corps emprunté ne s'exécute pas -- `invokeMethod` rendrait un pointeur sans
-     *       rien faire, et toutes nos substitutions seraient des illusions ;
-     *   (b) il s'exécute, mais un appel déclenché DEPUIS un callback d'interception n'est pas
-     *       re-observé par l'`Interceptor` sur le même thread.
-     *
-     * Ce RPC tranche : il fait le MÊME appel, depuis la file du thread principal, sans être
-     * dans aucun hook. Si le compteur bouge, c'est (b) — nos emprunts marchent, c'est notre
-     * OBSERVATION qui est aveugle. S'il ne bouge pas, c'est (a), et c'est bien plus grave.
-     *
-     * ⚠ La règle « ne jamais ancrer la méthode qu'on invoque » est RESPECTÉE : on invoque
-     * `GetUnitsForDeploymentHUD`, on ancre `GetDeployableUnits`. Deux méthodes distinctes.
-     * Et c'est un appel que le JEU fait lui-même — pas un natif jamais observé.
-     */
-    /**
-     * PRÉ-EMPRUNT — calcule la valeur empruntée HORS de tout hook, la déboxe, la garde.
-     *
-     * C'est la forme imposée par le §24 : pendant la délégation, l'`Interceptor` est aveugle,
-     * donc `sansFiltre` ne peut pas y agir. En pré-empruntant ici, l'appel est visible, le
-     * masque s'applique, et il ne reste au `onLeave` de la délégation qu'un `retval.replace`.
-     *
-     * ⚠ DEUX CRANS QUE LA VERSION NAÏVE N'AVAIT PAS :
-     *
-     *   1. **DÉBOXAGE.** `il2cpp_runtime_invoke` BOXE les types valeur, et
-     *      `PooledList<System.String>` en est un (`classes.tsv` : `isValueType=1`). Rendre la
-     *      BOÎTE là où l'appelant attend la valeur lui fait lire l'en-tête d'objet comme si
-     *      c'était le conteneur. La valeur utile est à `+0x10`. Les deux classes sont
-     *      PUBLIÉES : c'est le seul moyen de voir qu'on a bien déboxé, plutôt que de
-     *      supposer.
-     *   2. **RACINE GC.** Entre l'emprunt et la substitution il peut s'écouler un montage
-     *      entier. Sans `gcRoot`, la valeur est ramassable.
-     */
-    /**
-     * INITIALISER UNE SOURCE DE MODE SANS RIEN DÉPENSER — en lui CÂBLANT ses dépendances.
-     *
-     * LE FAIT MESURÉ (décompilé, build `t6dpr4k06g`). Les deux méthodes de roster de
-     * `PvpGameModeSource` ont la MÊME et UNIQUE garde :
-     *
-     *     if (this->_unitProgression != null) { ... }   // sinon : levée
-     *
-     *   `GetUnitsForDeploymentHUD` -> slot d'interface 0xe3 sur `_unitProgression`
-     *   `GetUnlockedUnitsPooled`   -> slot d'interface 0xc  sur `_unitProgression`
-     *
-     * Puis, dans les deux cas, `ShortLivedPool$$GetListConverted`. Il n'y a AUCUNE donnée de
-     * match dans ce chemin : ni adversaire, ni `_currentEncounter`, ni `_currentBattle`.
-     *
-     * ⇒ Une source « vide » ne l'est pas faute de combat : elle l'est faute de CÂBLAGE. Le
-     * service manquant est celui que l'amorce capte déjà (`IdunNavigation._unitProgression`),
-     * donc l'écrire ne fabrique rien — on branche l'instance que le jeu emploie partout.
-     *
-     * ⚠ C'EST UNE ÉCRITURE SUR UN OBJET VIVANT, donc `confirmer: true`, et on RELIT après.
-     * Sans corps : lecture pure, on dit ce qui est branché et ce qui manque.
-     *
-     * ⚠ On n'écrit JAMAIS par-dessus un champ déjà rempli : si le jeu a câblé lui-même, il n'y
-     * a rien à faire, et écraser reviendrait à parier que notre instance vaut la sienne.
-     */
-    ctx.rpc.modeSourceCabler = (body?: {
-        mode?: "pvp" | "campagne"; confirmer?: boolean;
-    }): Promise<unknown> | unknown => queueOnMainThread(() => {
-        const mode = body?.mode ?? "pvp";
-        const nomClasse = mode === "pvp" ? "PvpGameModeSource" : "CampaignGameModeSource";
-        const src = mode === "pvp" ? getPvpGameModeSourcePtr() : getCampaignGameModeSourcePtr();
-        if (!src || src.isNull()) {
-            return refus(`aucune \`${nomClasse}\` captée -- \`discoverSources\` la trouve si le `
-                + "jeu en a une vivante en mémoire");
-        }
-        const k = findClassAnywhere(NS_SRC, nomClasse);
-        if (!k) return refus(`\`${nomClasse}\` INTROUVABLE sur ce build`);
-        // PAR NOM. `getFieldOffset` rend -1 sur un nom absent, et -1 est *truthy* : tester `< 0`.
-        const off = getFieldOffset(k, "_unitProgression");
-        if (off < 0) {
-            return refus(`champ \`_unitProgression\` ABSENT de \`${nomClasse}\` sur ce build `
-                + "-- chemin PÉRIMÉ, pas de repli sur un offset");
-        }
-        const avant = src.add(off).readPointer();
-        const prog = getUnitProgressionPtr();
-        const etat = {
-            mode, instance: src.toString(), champ: `_unitProgression@+0x${off.toString(16)}`,
-            avant: avant.isNull() ? null : avant.toString(),
-            progressionCaptee: prog === null || prog.isNull() ? null : prog.toString(),
-        };
-        if (!avant.isNull()) {
-            return { ok: true, ...etat, action: "RIEN",
-                     note: "déjà câblé par le jeu -- on n'écrase pas ce qu'on n'a pas posé" };
-        }
-        if (prog === null || prog.isNull()) {
-            return refus("aucune `IUnitProgression` captée -- l'amorce ne l'a pas posée. "
-                + "Sans elle on n'a rien à câbler, et on n'en fabrique pas.");
-        }
-        if (body?.confirmer !== true) {
-            return { ok: true, lecture: true, ...etat, action: "AUCUNE",
-                     note: "`confirmer: true` exigé : ce RPC ÉCRIT un champ d'une source de mode "
-                         + "VIVANTE. Il ne dépense rien -- il branche un service déjà capté." };
-        }
-        src.add(off).writePointer(prog);
-        // RELECTURE : une écriture non vérifiée est ce qui a produit, ailleurs dans ce module,
-        // deux unités affichant le même modèle sans la moindre erreur.
-        const apres = src.add(off).readPointer();
-        return { ok: true, ...etat, action: "CABLE",
-                 apres: apres.isNull() ? null : apres.toString(),
-                 confirme: apres.equals(prog) };
-    });
 
     /**
      * ⚠ `source` — LE PRÊTEUR EST CELUI DU MODE, ET C'EST UNE RÈGLE, PAS UNE OPTION.
