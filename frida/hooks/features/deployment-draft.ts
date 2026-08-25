@@ -3827,6 +3827,20 @@ function armerClear(): true | Refus {
     listenerClear = Interceptor.attach(mi.ptr, {
         onLeave() {
             clearFires++;
+            // ⛔ LE CLEAR INVALIDE LA PHOTO, ET IL DOIT LE FAIRE MÊME EN RÉGIME OBSERVER --
+            // d'où sa place AVANT le `return` ci-dessous.
+            //
+            // C'est un geste EN BLOC : il ne passe pas par `PutUnitIntoHand`, donc aucun de nos
+            // deux points de photo ne le voit. Sans cette ligne, vider le plateau puis retraiter
+            // commiterait la composition qu'on vient précisément d'effacer -- l'inverse exact du
+            // geste du joueur, écrit sans que rien ne le signale.
+            //
+            // ⚠ ON POSE `[]`, ON NE RELIT PAS. Le retrait ne se voit pas dans la frame de l'appel
+            // (même décalage que la pose, cf. l'en-tête du raccourci) : une relecture ici rendrait
+            // le plateau ENCORE PLEIN et réécrirait la mauvaise photo. `[]` = « mesuré, et vide »,
+            // ce qui est exactement ce que le joueur vient de dire. Une pose ultérieure
+            // re-photographie, donc rien n'est perdu.
+            photoPlaceholders = [];
             if (!clearAuto) return;
             // ⛔ CE CALLBACK N'INVOQUE RIEN, ET C'EST LA LEÇON DE DEUX GELS. Il ne fait
             // qu'ENFILER : la file est drainée par le pump, sur le thread principal, hors de
@@ -4168,6 +4182,52 @@ function oublierLesPointeursDeLaBatailleMorte(): string[] {
     if (vuesDePose !== null) { vuesDePose = null; vides.push("vuesDePose"); }
     if (vuesJeu !== null) { vuesJeu = null; vides.push("vuesJeu"); }
     return vides;
+}
+
+let listenerVidangeRetraite: InvocationListener | null = null;
+let vidangeRetraiteFires = 0;
+let vidangeRetraiteDernier: string | null = null;
+
+/**
+ * VIDER LA MÉMOIRE À LA RETRAITE — elle n'a aucune raison de survivre d'une sandbox à l'autre.
+ *
+ * ⚠ `memoireBatailleMontee` NE SUFFIT PAS, ET C'EST MESURÉ. Elle ne vide que si le `BC.Id`
+ * CHANGE ; deux montages de la MÊME zone de guerre de guilde portent le même id, donc la mémoire
+ * traversait. Et comme elle passe AVANT la substitution de lineup (elle est réputée plus
+ * fraîche), elle a fait lire « le jeu a redéployé ta composition » là où c'était ELLE qui
+ * rejouait — un vert sur une mesure polluée, trouvé le 2026-08-26. Un remontage à l'identique
+ * est précisément le cas où l'on ne veut AUCUN héritage.
+ *
+ * ⚠ À LA RETRAITE, PAS AU MONTAGE. Vider au montage casserait le RETRY, qui repose justement sur
+ * la survie de la mémoire. Une retraite est un ABANDON : rien de ce qui la précède ne doit peser
+ * sur la bataille suivante.
+ *
+ * ⚠ HOOK LÉGER, ARMÉ AU `register` : il ne fait qu'écrire dans nos propres variables, n'invoque
+ * rien et ne touche à aucun retour. C'est ce qui autorise l'armement d'office.
+ */
+function armerVidangeALaRetraite(): true | Refus {
+    if (listenerVidangeRetraite) return true;
+    const k = findClassAnywhere(NS_SRC, CLS_SANDBOX);
+    if (!k) return refus(`${NS_SRC}.${CLS_SANDBOX} INTROUVABLE`);
+    const mi = findMethodByParamCount(k, "HandleBattleSurrender", 9);
+    if (!mi) return refus(`\`${CLS_SANDBOX}$$HandleBattleSurrender(9 params)\` INTROUVABLE`);
+    listenerVidangeRetraite = Interceptor.attach(mi.ptr, {
+        onEnter() {
+            vidangeRetraiteFires++;
+            const avant = memoirePoses.length;
+            const avaitMoW = memoireMoW !== null;
+            memoirePoses.length = 0;
+            memoireMoW = null;
+            memoireMoWIndex = null;
+            // ⚠ ON OUBLIE AUSSI LA BATAILLE. La garder ferait croire à `memoireBatailleMontee`
+            // que le prochain montage du même id « ne change pas », donc qu'il n'y a rien à
+            // vider -- on rouvrirait la porte qu'on vient de fermer.
+            memoireBataille = null;
+            vidangeRetraiteDernier = `retraite : mémoire VIDÉE (${avant} pose(s)`
+                + `${avaitMoW ? " + MoW" : ""} jetée(s))`;
+        },
+    });
+    return true;
 }
 
 /** Retient une pose, dédupliquée par unité (la dernière position gagne). */
@@ -4731,6 +4791,12 @@ export function register(ctx: Ctx): void {
     // ⚠ TRI-ÉTAT PRÉSERVÉ : `ordreDeConversion` rend `{erreur}` quand la lecture échoue. On rend
     // alors `null` -- « pas mesuré » -- et surtout PAS `[]`, qui se lirait « plateau vide » et
     // ferait écrire un refus accusant le joueur au lieu du capteur.
+    // La vidange à la retraite s'arme d'office : hook LÉGER, il n'écrit que chez nous.
+    // Un refus ici ne doit pas empêcher le reste du module de s'enregistrer -- on le PUBLIE
+    // dans `deploymentMemoire` plutôt que de le taire.
+    const rv = armerVidangeALaRetraite();
+    if (rv !== true) vidangeRetraiteDernier = `ARMEMENT REFUSÉ : ${JSON.stringify(rv)}`;
+
     enregistrerFournisseurDePlaceholders((consommer?: boolean): PlaceholderPose[] | null => {
         // LE VIF D'ABORD : s'il porte quelque chose, c'est la vérité la plus fraîche.
         const vif = placeholdersDepuis(ordreDeConversion());
@@ -4865,6 +4931,10 @@ export function register(ctx: Ctx): void {
             arme: memoireAuto, poses: memoirePoses.map((p) => ({
                 unitId: p.unitId, playerId: p.playerId, col: p.col, row: p.row,
             })),
+            // LA VIDANGE À LA RETRAITE, publiée : sans compteur, « la mémoire est vide » ne
+            // distingue pas « elle a été vidée » de « le capteur n'a jamais tiré ».
+            vidangeRetraite: { fires: vidangeRetraiteFires, arme: listenerVidangeRetraite !== null,
+                               dernier: vidangeRetraiteDernier },
             // La MoW est SÉPARÉE, parce que son chemin natif l'est : elle n'a ni colonne ni
             // ligne. La publier à part évite de la croire absente quand on lit `poses`.
             mow: memoireMoW,
@@ -5968,13 +6038,13 @@ export function register(ctx: Ctx): void {
                      poses: hudPoses, plateau: hudBoard,
                      shows: { entrees: showEnters, sorties: showFires,
                               leveEnCours: showEnters > showFires },
-                     clears: { fires: vidangeFires, trace: vidangeTrace } };
+                     clears: { fires: vidangeRetraiteFires, trace: vidangeTrace } };
         }
         if (body.armer === false) {
             if (listenerShow) { listenerShow.detach(); listenerShow = null; }
             if (listenerPose) { listenerPose.detach(); listenerPose = null; }
             if (listenerBoard) { listenerBoard.detach(); listenerBoard = null; }
-            if (listenerVidange) { listenerVidange.detach(); listenerVidange = null; }
+            if (listenerVidangeRetraite) { listenerVidangeRetraite.detach(); listenerVidangeRetraite = null; }
             Interceptor.flush();
             return { ok: true, arme: false, action: "retire" };
         }
