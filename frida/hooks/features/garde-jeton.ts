@@ -51,9 +51,30 @@
  * pour en sortir. La couverture est DEMANDEE a `lineup-poser` (`estSourceCouverte`), jamais
  * recopiee ici.
  *
- * ⚠ LE REGISTRE VIT EN MEMOIRE, DONC IL MEURT AU REINJECT. Consequence directe et assumee :
- * apres un reinject, chaque mode redemande son montage sandbox avant de pouvoir partir. C'est le
- * comportement demande ; `gardeJetonArmer {bloquer: false}` le leve sans toucher a l'ancrage.
+ * ⛔ CE QUI A CHANGE LE 2026-08-26, ET POURQUOI CE PARAGRAPHE DISAIT L'INVERSE
+ * ---------------------------------------------------------------------------
+ * Il annoncait : << le registre meurt au reinject, donc chaque mode redemande son montage sandbox
+ * avant de pouvoir partir -- c'est le comportement demande >>. Ce n'etait pas un comportement,
+ * c'etait un DEFAUT presente comme une intention, et il a coute CINQ departs de campagne refuses
+ * d'affilee sur une bataille dont le plateau etait PLEIN. `lineupSource`, interroge sur la source
+ * VIVANTE au meme moment, rendait les cinq unites exactement affichees a l'ecran.
+ *
+ * Deux fautes, distinctes, corrigees toutes les deux :
+ *
+ *   1. LE PREDICAT CONFONDAIT << JE N'AI RIEN NOTE >> ET << IL N'Y EN A PAS >>. Il ne consultait
+ *      que NOTRE registre. Il consulte desormais AUSSI `lineupObservee` -- ce que le NATIF a
+ *      rendu, capte passivement a l'ancrage de `lineup-poser`. Et quand cet ancrage n'est pas
+ *      arme (le cas par defaut : `lineup-poser` ne s'arme PAS au register), l'absence n'est pas
+ *      ETABLIE, donc on LAISSE PASSER en le disant. C'est l'invariant que l'avant-dernier
+ *      paragraphe promet deja -- le module ne le tenait pas.
+ *
+ *   2. L'ANCRAGE DE DEPLOIEMENT NE BLOQUE PLUS DU TOUT, il OBSERVE (`auraitBloque`). Il est
+ *      structurellement trop tard : plusieurs modes ont deja depense le jeton quand la phase de
+ *      deploiement existe (cf. `docs/rl/case-10047-le-garde-est-trop-tard-en-pvp.md`). Y refuser
+ *      n'evite aucune depense -- ca prive d'une partie deja payee. Le refus vit desormais sur les
+ *      popups de PREVISUALISATION seules, qui precedent la depense PAR CONSTRUCTION.
+ *
+ * `gardeJetonArmer {bloquer: false}` leve ce qui reste, sans toucher aux ancrages.
  *
  * ⛔ ET IL ECHOUE OUVERT. Toute incertitude -- source illisible, classe inconnue, champ absent
  * du build -- LAISSE PASSER, en le disant. Un garde qui bloque sur ce qu'il n'a pas su mesurer
@@ -76,7 +97,9 @@ import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, s,
 } from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
-import { compositionRetenue, estSourceCouverte } from "./lineup-poser.js";
+import {
+    compositionRetenue, estSourceCouverte, lineupObservee, estSourceObservable,
+} from "./lineup-poser.js";
 import { afficherMessage } from "./message-box.js";
 import { Ctx } from "../controller.js";
 
@@ -185,6 +208,10 @@ let popup = true;
 let fires = 0;
 let etrangers = 0;
 let bloques = 0;
+/** Ce que l'ancrage de DEPLOIEMENT aurait refuse s'il bloquait encore. Il n'interdit plus rien
+ *  (trop tard pour le jeton, et son predicat confond « pas mesure » et « vide ») -- mais on
+ *  compte, sinon on remplacerait un faux refus par un silence. */
+let auraitBloque = 0;
 let refusArmement: string | null = null;
 let derniereDecision: Decision | null = null;
 const decisions: Decision[] = [];
@@ -286,9 +313,31 @@ function armerPopup(): Record<string, unknown> {
                               p.source, retenue.ids.length);
                         return;
                     }
+                    // ⛔ LA SECONDE REPONSE, ET ELLE MANQUAIT. `compositionRetenue` dit ce que
+                    // NOUS avons note ; `lineupObservee` dit ce que LE JEU a rendu. Un registre
+                    // vide n'est pas un plateau vide -- mesure du 2026-08-26, cinq departs de
+                    // campagne refuses alors que la source vivante rendait ses cinq unites.
+                    const vue = lineupObservee(p.source);
+                    if (vue !== null && vue.length > 0) {
+                        noter("laisse", "lineup OBSERVEE sur la source (`GetBattleLineup`) -- rien "
+                            + "dans notre registre, mais le jeu en a rendu une", p.source, vue.length);
+                        return;
+                    }
                     if (!bloquer) {
                         noter("laisse", "AUCUNE lineup retenue -- mais le blocage est DESARME",
                               p.source, null);
+                        return;
+                    }
+                    // ⛔ NON MESURE N'EST PAS ABSENT -- ET C'EST CE CRAN QUI MANQUAIT. L'ancrage de
+                    // `lineup-poser` n'est PAS arme au register : dans une session fraiche, ni le
+                    // registre ni l'observation n'ont quoi que ce soit a dire. Refuser la-dessus,
+                    // c'est refuser sur une IGNORANCE -- exactement ce que l'en-tete de ce module
+                    // promet de ne jamais faire (<< toute incertitude LAISSE PASSER >>). Il ne le
+                    // tenait pas : c'est la cause des cinq refus du 2026-08-26.
+                    if (vue === null && !estSourceObservable(p.source)) {
+                        noter("laisse", "NON MESURE : l'ancrage `GetBattleLineup` de "
+                            + "`lineup-poser` n'est pas arme pour ce mode, donc l'absence de "
+                            + "lineup n'est pas ETABLIE -- on echoue OUVERT", p.source, null);
                         return;
                     }
                     // ⛔ LA PORTE DE SORTIE EST CELLE DU NATIF. `if ((char)success == '\0')
@@ -366,16 +415,30 @@ function armer(): Record<string, unknown> {
                       classeSource, retenue.ids.length);
                 return;
             }
-            if (!bloquer) {
-                noter("laisse", "AUCUNE lineup retenue -- mais le blocage est DESARME",
-                      classeSource, null);
-                return;
-            }
-            retval.replace(ptr(0));
-            bloques += 1;
-            noter("bloque", "AUCUNE lineup retenue pour ce mode -- depart refuse AVANT la "
-                + "depense du jeton", classeSource, null);
-            prevenirLeJoueur(classeSource);
+            // ⛔ CET ANCRAGE N'INTERDIT PLUS RIEN -- IL MESURE. Et ce n'est pas un affaiblissement,
+            // c'est la consequence de ce qu'on a etabli deux fois.
+            //
+            // (1) IL EST STRUCTURELLEMENT TROP TARD (#10047, `case-10047-le-garde-est-trop-tard-en-pvp.md`) :
+            // il decide au DEPLOIEMENT, or plusieurs modes ont deja depense le jeton quand cette
+            // phase existe. Bloquer la n'evite aucune depense -- ca prive seulement d'une partie
+            // deja payee. Le blocage vit desormais sur les popups de PREVISUALISATION, qui
+            // precedent la depense PAR CONSTRUCTION.
+            //
+            // (2) SON PREDICAT CONFOND << JE NE SAIS PAS >> ET << IL N'Y EN A PAS >>. Il interroge
+            // NOTRE registre `lineup-poser` ; un reinject le vide, et il conclut alors << AUCUNE
+            // lineup >> sur une bataille dont le plateau est PLEIN. Mesure du 2026-08-26 : 5
+            // departs de campagne refuses d'affilee alors que `lineupSource` rendait, sur la
+            // source VIVANTE, les 5 unites exactement affichees a l'ecran. C'est le tri-etat
+            // rabattu sur zero que tout le reste du depot interdit.
+            //
+            // ⚠ ON GARDE LA MESURE, ET C'EST TOUT L'INTERET. `auraitBloque` compte ce que
+            // l'ancien regime aurait refuse : sans lui, on remplacerait un faux refus par un
+            // silence, et on ne saurait plus jamais combien de fois le predicat se trompe.
+            auraitBloque += 1;
+            noter("laisse", "OBSERVATION PURE : aucune lineup dans NOTRE registre -- mais cet "
+                + "ancrage est trop tard pour proteger un jeton, et un registre vide ne prouve "
+                + "pas un plateau vide. Le refus vit sur les popups de previsualisation.",
+                  classeSource, null);
         },
     });
     refusArmement = null;
@@ -406,6 +469,11 @@ export function register(ctx: Ctx): void {
         fires,
         etrangers,
         bloques,
+        // ⚠ `bloques` est desormais structurellement 0 : l'ancrage de DEPLOIEMENT n'interdit plus
+        // rien (trop tard pour le jeton, et son predicat confondait « pas mesure » et « vide »).
+        // `auraitBloque` compte ce que l'ancien regime aurait refuse -- sans lui on aurait
+        // remplace un faux refus par un silence.
+        auraitBloque,
         // Le second ancrage a ses PROPRES compteurs : les fondre dans les premiers rendrait
         // indistinguable << le popup n'a jamais tire >> de << le deploiement n'a jamais tire >>,
         // et c'est exactement la question qu'on se pose apres #10047.

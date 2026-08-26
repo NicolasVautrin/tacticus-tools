@@ -123,6 +123,37 @@ let listener: InvocationListener | null = null;
 let classeArmee: string | null = null;
 let fires = 0;
 const observations: Observation[] = [];
+
+/** LA DERNIERE LINEUP QUE LE JEU A RENDUE, par classe de source. C'est la reponse du NATIF, captee
+ *  passivement a l'ancrage -- pas notre registre, pas une invocation.
+ *
+ *  ⛔ POURQUOI ELLE EXISTE. `compositionRetenue` repond a << ai-je NOTE quelque chose ? >>, pas a
+ *  << y a-t-il une lineup ? >>. Un reinject vide le registre, et le garde du jeton concluait alors
+ *  << AUCUNE lineup >> sur une bataille au plateau PLEIN : mesure du 2026-08-26, cinq departs de
+ *  campagne refuses d'affilee pendant que la source vivante rendait cinq unites. Voici la seconde
+ *  reponse, celle du jeu.
+ *
+ *  ⚠ ELLE NE S'INVOQUE PAS, ELLE S'OBSERVE. Appeler `GetBattleLineup` depuis un callback
+ *  `Interceptor` -- ce que ferait un lecteur naif -- reviendrait a invoquer une methode QU'ON
+ *  ANCRE, sur le fil principal, depuis un hook : le geste qui a deja gele le jeu. Ici on ne fait
+ *  que retenir ce qui passe.
+ *
+ *  ⚠ `null` = PAS MESURE (l'ancrage n'est pas arme, ou n'a pas encore tire) -- JAMAIS << vide >>.
+ *  C'est toute la difference entre laisser passer et refuser. */
+const derniereLineupVue = new Map<string, string[]>();
+
+/** La derniere lineup rendue par le NATIF pour cette classe de source, ou `null` si PAS MESUREE. */
+export function lineupObservee(classeSource: string | null): string[] | null {
+    if (classeSource === null) return null;
+    return derniereLineupVue.get(classeSource) ?? null;
+}
+
+/** L'ancrage `GetBattleLineup` EST-IL ARME pour cette classe ? C'est ce qui separe << mesure et
+ *  vide >> de << pas mesure >> : sans ancrage, l'absence d'observation ne prouve RIEN, et un
+ *  consommateur qui refuse la-dessus refuse sur son ignorance. */
+export function estSourceObservable(classeSource: string | null): boolean {
+    return listener !== null && classeSource !== null && classeArmee === classeSource;
+}
 let dernierePose: Record<string, unknown> | null = null;
 
 /** Vrai tant qu'un `Interceptor` est posé. `lineup-lire` le consulte pour refuser d'INVOQUER la
@@ -247,6 +278,13 @@ function armer(mode: string): Record<string, unknown> {
             if (arr.isNull()) return;
             const obs = lireTableau(arr, this.context);
             if (observations.length < 12) observations.push(obs);
+            // ⚠ RETENIR CE QUE LE NATIF VIENT DE RENDRE -- hors du plafond de 12, qui borne un
+            // ECHANTILLON de diagnostic. Ici on veut la DERNIERE, toujours. Un retour vide n'est
+            // pas retenu : il ne prouve pas une absence (le HUD peut n'avoir rien demande encore),
+            // et l'ecrire ferait passer un « pas mesure » pour un « mesure vide ».
+            if (classeArmee !== null && obs.avant !== null && obs.avant.length > 0) {
+                derniereLineupVue.set(classeArmee, obs.avant.slice());
+            }
             const retenue = compositionRetenue(classeArmee);
             if (retenue === null) return;
             if (obs.classeRetour === null || obs.longueur === null) return;
