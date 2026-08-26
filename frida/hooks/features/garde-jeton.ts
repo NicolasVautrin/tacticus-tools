@@ -68,6 +68,13 @@
  *      ETABLIE, donc on LAISSE PASSER en le disant. C'est l'invariant que l'avant-dernier
  *      paragraphe promet deja -- le module ne le tenait pas.
  *
+ *      ⛔ MAIS PAS POUR TOUS LES MODES, ET L'OUBLIER CREERAIT LA FAUTE INVERSE. En guerre de
+ *      guilde le natif rend un TALON CONSTANT (`Array.Empty<string>()`) : il n'existe AUCUNE cle
+ *      cote jeu, notre registre est la SEULE voie. Un registre vide y EST donc une absence
+ *      etablie, et echouer ouvert ferait partir un engagement SANS AUCUNE EQUIPE. Le cran est
+ *      donc conditionne a `natifPeutPorterUneLineup`. Signale par l'utilisateur juste apres la
+ *      pose du cran, avant qu'il n'ait jamais tourne en guerre de guilde.
+ *
  *   2. L'ANCRAGE DE DEPLOIEMENT NE BLOQUE PLUS DU TOUT, il OBSERVE (`auraitBloque`). Il est
  *      structurellement trop tard : plusieurs modes ont deja depense le jeton quand la phase de
  *      deploiement existe (cf. `docs/rl/case-10047-le-garde-est-trop-tard-en-pvp.md`). Y refuser
@@ -99,6 +106,7 @@ import {
 import { queueOnMainThread } from "../runtime/queue.js";
 import {
     compositionRetenue, estSourceCouverte, lineupObservee, estSourceObservable,
+    natifPeutPorterUneLineup,
 } from "./lineup-poser.js";
 import { afficherMessage } from "./message-box.js";
 import { Ctx } from "../controller.js";
@@ -334,10 +342,17 @@ function armerPopup(): Record<string, unknown> {
                     // c'est refuser sur une IGNORANCE -- exactement ce que l'en-tete de ce module
                     // promet de ne jamais faire (<< toute incertitude LAISSE PASSER >>). Il ne le
                     // tenait pas : c'est la cause des cinq refus du 2026-08-26.
-                    if (vue === null && !estSourceObservable(p.source)) {
+                    // ⛔ ET LE CRAN NE VAUT PAS POUR TOUS LES MODES. En guerre de guilde le natif
+                    // rend un TALON CONSTANT (`Array.Empty<string>()`) : notre registre est la
+                    // SEULE voie, il n'existe aucune cle cote jeu. Un registre vide y EST donc une
+                    // absence ETABLIE -- echouer ouvert ferait partir un engagement SANS EQUIPE.
+                    // La distinction est demandee a `lineup-poser`, jamais recopiee ici.
+                    if (vue === null && !estSourceObservable(p.source)
+                        && natifPeutPorterUneLineup(p.source)) {
                         noter("laisse", "NON MESURE : l'ancrage `GetBattleLineup` de "
-                            + "`lineup-poser` n'est pas arme pour ce mode, donc l'absence de "
-                            + "lineup n'est pas ETABLIE -- on echoue OUVERT", p.source, null);
+                            + "`lineup-poser` n'est pas arme pour ce mode, et le natif PEUT porter "
+                            + "une composition -- l'absence n'est pas ETABLIE, on echoue OUVERT",
+                              p.source, null);
                         return;
                     }
                     // ⛔ LA PORTE DE SORTIE EST CELLE DU NATIF. `if ((char)success == '\0')

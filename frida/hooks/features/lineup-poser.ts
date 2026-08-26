@@ -75,6 +75,30 @@ const CLASSES: Readonly<Record<string, string>> = {
     sandbox: "SandboxGameModeSource",
 };
 
+/** LE NATIF PEUT-IL, LUI, PORTER UNE COMPOSITION POUR CETTE SOURCE ?
+ *
+ *  ⛔ CE N'EST PAS UNE NUANCE : c'est ce qui separe << je n'ai rien note >> de << il n'y en a
+ *  pas >>, et s'en passer rend un garde DANGEREUX dans les deux sens.
+ *
+ *  Categories lues au decompile (cf. le pave (a)/(b)/(c) plus bas) :
+ *    (a) magasin par cle      -- campagne, pvp, guild boss
+ *    (b) source propre        -- mow event (`List<string>` par slot d'interface, puis `ToArray`)
+ *    (c) TALON CONSTANT       -- guerre de guilde (`Array.Empty<string>()`), sandbox (`new string[0]`)
+ *
+ *  Pour (a) et (b), notre registre vide ne prouve RIEN : le jeu peut avoir sa propre reponse, et
+ *  refuser la-dessus refuse sur une ignorance. Pour (c), le registre en memoire est la SEULE voie
+ *  -- il n'existe aucune cle cote jeu -- donc un registre vide EST une absence etablie, et laisser
+ *  passer ferait partir un engagement de guerre de guilde SANS AUCUNE EQUIPE.
+ *
+ *  ⚠ Signale par l'utilisateur le 2026-08-26, apres que le cran d'echec-ouvert eut ete pose sans
+ *  cette distinction : << attention je pense que le registre reference les lineup de guild war que
+ *  le jeu ne gere pas >>. Exact, et c'est la seule raison d'etre de cette fonction. */
+const NATIF_SANS_LINEUP = new Set(["GuildWarsGameModeSource", "SandboxGameModeSource"]);
+
+export function natifPeutPorterUneLineup(classeSource: string | null): boolean {
+    return classeSource !== null && !NATIF_SANS_LINEUP.has(classeSource);
+}
+
 /** CE MODULE SAIT-IL SERVIR CETTE SOURCE ?
  *
  *  ⚠ EXISTE POUR EMPÊCHER UN VERROUILLAGE, pas par symétrie. `garde-jeton` refuse le START quand
