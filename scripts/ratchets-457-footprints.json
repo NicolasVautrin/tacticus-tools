@@ -50,6 +50,13 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/entities/test_967r10_surrounding_tiles_walls_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/entities/test_attack_nature_gates_offline.py": {
    "_at": 1786491962,
    "_commit": "906b097bcf3be0376a21dde17312c39babd0fe62",
@@ -92,6 +99,34 @@
   "tests/engine/runner/test_1002_reliques_astra_offline.py": {
    "_at": 1786614750,
    "_commit": "bb791340c2fdad01efe43c246b5f6fbb0ce1d28d",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_1003_reliques_death_guard_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_1009_reliques_dark_angels_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_1025_electrochaff_backups_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_1027_belisarius_actives_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
    "dirs": [],
    "py": [],
    "temoins": []
@@ -1489,6 +1524,13 @@
     "scripts/python/engine/runner/operations/damage_ops/normal_like.py"
    ]
   },
+  "tests/engine/runner/test_890r2_statmod_source_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_894_arc_scourge_offline.py": {
    "_at": 1786411888,
    "_commit": "1d389eb3b00a3ae8c01f31fe94e4b05dc649f6c8",
@@ -1948,6 +1990,13 @@
    "temoins": [
     "scripts/python/engine/runner/operations/behaviour.py"
    ]
+  },
+  "tests/engine/runner/test_996_no_op_silencieuses_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
   },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786392144,
@@ -2478,6 +2527,82 @@
    "dirs": [],
    "py": [],
    "temoins": []
+  },
+  "tests/engine/test_1005_reliques_blood_angels_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/operations"
+   ],
+   "py": [
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/operations"
+   ],
+   "temoins": [
+    "scripts/python/engine/entities/effects/loki/extra_damage_aura.py",
+    "scripts/python/engine/runner/abilities/behaviours/effects.py",
+    "scripts/python/engine/runner/damage_model.py",
+    "scripts/python/engine/runner/operations/spawn.py"
+   ]
+  },
+  "tests/engine/test_1008_black_legion_relics_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_1016_passifs_necrons_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_1020_transfert_par_coup_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_1021_face_decision_au_registre_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "data/symbols",
+    "scripts",
+    "scripts/python"
+   ],
+   "py": [
+    "scripts/python"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "scripts/python/probe_909_decision_actives_kit.py",
+    "scripts/ratchets-951r2-couverture-attestee.json"
+   ]
+  },
+  "tests/engine/test_1023_omnissiahs_blessing_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "py": [
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/operations/repair.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/repair.py"
+   ]
   },
   "tests/engine/test_116e_chronometron_gates_offline.py": {
    "_at": 1786392144,
@@ -5164,6 +5289,13 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_590r3_possession_propagation_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_590r4_utility_entity_offline.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -5193,6 +5325,13 @@
     "scripts/python/engine/entities/abilities/active_ability.py"
    ]
   },
+  "tests/engine/test_890r1_inform_weapon_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_894_routage_ability_par_nom_offline.py": {
    "_at": 1786411820,
    "_commit": "97b63d192397bd027a972820de177c8f4af5188f",
@@ -5206,6 +5345,13 @@
     "data/symbols/CURRENT",
     "data/symbols/rnca9r7q6c/frida/enums.tsv"
    ]
+  },
+  "tests/engine/test_902r1_revive_1547_porte_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
   },
   "tests/engine/test_908_nether_realm_casket_offline.py": {
    "_at": 1786441479,
@@ -5327,6 +5473,18 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_931r2_substrat_passifs_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "data"
+   ],
+   "py": [],
+   "temoins": [
+    "data/i2_en.json",
+    "data/seed-bc.json"
+   ]
+  },
   "tests/engine/test_932_deathwing_offline.py": {
    "_at": 1786468232,
    "_commit": "b02ea7a6144e9a601fb7f86697ad6a6e1898d01d",
@@ -5409,6 +5567,20 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_948r1_tuile_candidate_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "scripts/python/engine/playbook/prediction"
+   ],
+   "py": [
+    "scripts/python/engine/playbook/prediction"
+   ],
+   "temoins": [
+    "scripts/python/engine/playbook/prediction/abilities.py",
+    "scripts/python/engine/playbook/prediction/normal_attack.py"
+   ]
+  },
   "tests/engine/test_949_ledger_complet_offline.py": {
    "_at": 1786525131,
    "_commit": "764efa09d649839378c788967abc7b13a7fc76b4",
@@ -5427,6 +5599,155 @@
     "scripts/python/engine/services/damage_prediction.py",
     "scripts/python/probe_947_948_extra_damage_passives.py",
     "scripts/python/probe_949_ltgb_coup_manquant.py"
+   ]
+  },
+  "tests/engine/test_949r1_lecteurs_de_ledger_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "scripts/python",
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/caches",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/playbook",
+    "scripts/python/tests/engine/runner",
+    "scripts/python/tools"
+   ],
+   "py": [
+    "scripts/python",
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/caches",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/playbook",
+    "scripts/python/tests/engine/runner",
+    "scripts/python/tools"
+   ],
+   "temoins": [
+    "scripts/python/_analyze_errors.py",
+    "scripts/python/engine/__init__.py",
+    "scripts/python/engine/ai/__init__.py",
+    "scripts/python/engine/ai/utilities.py",
+    "scripts/python/engine/dsl/__init__.py",
+    "scripts/python/engine/dsl/nodes.py",
+    "scripts/python/engine/entities/__init__.py",
+    "scripts/python/engine/entities/abilities/__init__.py",
+    "scripts/python/engine/entities/abilities/triggered_ability.py",
+    "scripts/python/engine/entities/effects/__init__.py",
+    "scripts/python/engine/entities/effects/loki/__init__.py",
+    "scripts/python/engine/entities/effects/loki/way_of_the_short_blade.py",
+    "scripts/python/engine/entities/effects/magnitude.py",
+    "scripts/python/engine/entities/pathfinding/__init__.py",
+    "scripts/python/engine/entities/pathfinding/walk_pathfinder.py",
+    "scripts/python/engine/entities/selectors/__init__.py",
+    "scripts/python/engine/entities/selectors/valid_targets.py",
+    "scripts/python/engine/entities/traits/__init__.py",
+    "scripts/python/engine/entities/traits/unit_trait.py",
+    "scripts/python/engine/entities/victory_condition_type.py",
+    "scripts/python/engine/playbook/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/worldeaters.py",
+    "scripts/python/engine/playbook/prediction/__init__.py",
+    "scripts/python/engine/playbook/prediction/ramming_speed.py",
+    "scripts/python/engine/playbook/tile_targets.py",
+    "scripts/python/engine/runner/__init__.py",
+    "scripts/python/engine/runner/abilities/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/turnflow.py",
+    "scripts/python/engine/runner/abilities/loki/__init__.py",
+    "scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py",
+    "scripts/python/engine/runner/abilities/worldeaters.py",
+    "scripts/python/engine/runner/caches/__init__.py",
+    "scripts/python/engine/runner/caches/ability_and_effect_cache.py",
+    "scripts/python/engine/runner/operations/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+    "scripts/python/engine/runner/operations/triggers/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
+    "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/loki/wrathful_devotion.py",
+    "scripts/python/engine/runner/operations/triggers/tiles.py",
+    "scripts/python/engine/runner/operations/turnflow.py",
+    "scripts/python/engine/runner/state.py",
+    "scripts/python/engine/services/__init__.py",
+    "scripts/python/engine/services/victory_config.py",
+    "scripts/python/engine/streams/__init__.py",
+    "scripts/python/engine/streams/verify_turn_finished.py",
+    "scripts/python/engine/utilities/__init__.py",
+    "scripts/python/engine/utilities/wireweave_net.py",
+    "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
+    "scripts/python/tests/conftest.py",
+    "scripts/python/tests/engine/_move_tile_sweep_order.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py",
+    "scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py",
+    "scripts/python/tests/engine/entities/test_units_directly_behind_offline.py",
+    "scripts/python/tests/engine/playbook/test_967_mow_decision_faces_offline.py",
+    "scripts/python/tests/engine/playbook/test_969_effect_buff_decision_faces_offline.py",
+    "scripts/python/tests/engine/runner/_ability_after_hit_regime.py",
+    "scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py",
+    "scripts/python/tests/engine/test_votan_prediction_gap_live.py",
+    "scripts/python/tests/test_symbols_coverage_guard_offline.py",
+    "scripts/python/tools/damage_decomp.py",
+    "scripts/python/verdict_cache.py"
    ]
   },
   "tests/engine/test_951_trophy_taker_offline.py": {
@@ -5484,6 +5805,13 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_957r3_excruciating_hits_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_959_votann_auras_offline.py": {
    "_at": 1786512045,
    "_commit": "473fd1b27bea781b65b5dcdd59172d58c73c5faa",
@@ -5514,6 +5842,32 @@
     "scripts/python/engine/runner/operations/effects.py",
     "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
     "scripts/python/engine/runner/operations/triggers/loki/armour_of_shrieking_souls.py"
+   ]
+  },
+  "tests/engine/test_963r1_unit_team_selection_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/ghidra"
+   ],
+   "py": [],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv"
+   ]
+  },
+  "tests/engine/test_963r4_areenemies_null_operand_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "data/symbols/rnca9r7q6c",
+    "data/symbols/rnca9r7q6c/metadata"
+   ],
+   "py": [],
+   "temoins": [
+    "data/symbols/rnca9r7q6c/BUILD",
+    "data/symbols/rnca9r7q6c/metadata/interface_slots.tsv"
    ]
   },
   "tests/engine/test_964_fury_from_the_delve_offline.py": {
@@ -5563,6 +5917,13 @@
     "scripts/python/engine/runner/abilities/loki/healing_balms.py"
    ]
   },
+  "tests/engine/test_967r2_include_non_walkable_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_974_custodes_emperors_children_decision_offline.py": {
    "_at": 1786539538,
    "_commit": "47848d13ad8fdb717b15c944d953aa8aa92961e2",
@@ -5573,6 +5934,20 @@
    "temoins": [
     "frida/hooks/data/ability-names.ts"
    ]
+  },
+  "tests/engine/test_977r1_r4_thunderous_assault_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_977r5_domaine_vs_route_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
   },
   "tests/engine/test_979_ports_decision_offline.py": {
    "_at": 1786547243,
@@ -5612,6 +5987,57 @@
     "scripts/ratchets-951r2-couverture-attestee.json"
    ]
   },
+  "tests/engine/test_982r4_keep_on_change_owner_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/frida",
+    "data/symbols/rnca9r7q6c/ghidra",
+    "scripts/cliquets-cache",
+    "scripts/python"
+   ],
+   "py": [
+    "scripts/python"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/frida/methods.tsv",
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv",
+    "scripts/cliquets-cache/probe_175r2_derivation_get_KeepOnChangeOwner.tsv",
+    "scripts/python/probe_175r2_can_be_immune_to.py",
+    "scripts/python/probe_982r4_keep_on_change_owner.py"
+   ]
+  },
+  "tests/engine/test_982r5_can_heal_full_health_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_983_sanguinary_priest_et_adjacence_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "scripts/python/engine/ai",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/utilities"
+   ],
+   "py": [
+    "scripts/python/engine/ai",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/utilities"
+   ],
+   "temoins": [
+    "scripts/python/engine/ai/action_generators.py",
+    "scripts/python/engine/runner/abilities/astartes.py",
+    "scripts/python/engine/runner/abilities/behaviours/effects.py",
+    "scripts/python/engine/utilities/tile.py"
+   ]
+  },
   "tests/engine/test_984_repair_bonus_1545_porte_offline.py": {
    "_at": 1786558350,
    "_commit": "7d95ef556ee8613f1608bd5811f4b5f9115a9b21",
@@ -5649,6 +6075,13 @@
     "scripts/python/engine/runner/operations/damage_ops/ability.py",
     "scripts/python/engine/runner/operations/damage_ops/normal.py"
    ]
+  },
+  "tests/engine/test_998_talisman_of_rage_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [],
+   "py": [],
+   "temoins": []
   },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
@@ -5693,6 +6126,151 @@
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
+  },
+  "tests/test_1015_trait_channels_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/caches",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities"
+   ],
+   "py": [
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/caches",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities"
+   ],
+   "temoins": [
+    "scripts/python/engine/__init__.py",
+    "scripts/python/engine/ai/__init__.py",
+    "scripts/python/engine/ai/utilities.py",
+    "scripts/python/engine/dsl/__init__.py",
+    "scripts/python/engine/dsl/nodes.py",
+    "scripts/python/engine/entities/__init__.py",
+    "scripts/python/engine/entities/abilities/__init__.py",
+    "scripts/python/engine/entities/abilities/triggered_ability.py",
+    "scripts/python/engine/entities/effects/__init__.py",
+    "scripts/python/engine/entities/effects/loki/__init__.py",
+    "scripts/python/engine/entities/effects/loki/way_of_the_short_blade.py",
+    "scripts/python/engine/entities/effects/magnitude.py",
+    "scripts/python/engine/entities/pathfinding/__init__.py",
+    "scripts/python/engine/entities/pathfinding/walk_pathfinder.py",
+    "scripts/python/engine/entities/selectors/__init__.py",
+    "scripts/python/engine/entities/selectors/valid_targets.py",
+    "scripts/python/engine/entities/traits/__init__.py",
+    "scripts/python/engine/entities/traits/unit_trait.py",
+    "scripts/python/engine/entities/victory_condition_type.py",
+    "scripts/python/engine/playbook/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/worldeaters.py",
+    "scripts/python/engine/playbook/prediction/__init__.py",
+    "scripts/python/engine/playbook/prediction/ramming_speed.py",
+    "scripts/python/engine/playbook/tile_targets.py",
+    "scripts/python/engine/runner/__init__.py",
+    "scripts/python/engine/runner/abilities/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/turnflow.py",
+    "scripts/python/engine/runner/abilities/loki/__init__.py",
+    "scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py",
+    "scripts/python/engine/runner/abilities/worldeaters.py",
+    "scripts/python/engine/runner/caches/__init__.py",
+    "scripts/python/engine/runner/caches/ability_and_effect_cache.py",
+    "scripts/python/engine/runner/operations/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+    "scripts/python/engine/runner/operations/triggers/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
+    "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/loki/wrathful_devotion.py",
+    "scripts/python/engine/runner/operations/triggers/tiles.py",
+    "scripts/python/engine/runner/operations/turnflow.py",
+    "scripts/python/engine/runner/state.py",
+    "scripts/python/engine/services/__init__.py",
+    "scripts/python/engine/services/victory_config.py",
+    "scripts/python/engine/streams/__init__.py",
+    "scripts/python/engine/streams/verify_turn_finished.py",
+    "scripts/python/engine/utilities/__init__.py",
+    "scripts/python/engine/utilities/wireweave_net.py",
+    "scripts/python/engine/weights.py"
+   ]
+  },
+  "tests/test_1028_generateurs_audit_executables_offline.py": {
+   "_at": 1786638662,
+   "_commit": "fb9c1aa53e550f8a4e84d256af27b991684f8b2a",
+   "dirs": [
+    "docs/rl",
+    "docs/rl/case-220",
+    "docs/rl/case-302-4",
+    "docs/rl/dsl-usage",
+    "docs/rl/playbook",
+    "scripts/python"
+   ],
+   "fils": true,
+   "py": [
+    "scripts/python"
+   ],
+   "temoins": [
+    "docs/rl/agent-port-tips.md",
+    "docs/rl/case-220/adeptus-astartes.md",
+    "docs/rl/case-220/world-eaters.md",
+    "docs/rl/case-302-4/tile-target-population.tsv",
+    "docs/rl/dsl-port-attestations.tsv",
+    "docs/rl/dsl-usage/dsl-usage-edges.tsv",
+    "docs/rl/dsl-usage/dsl-usage-primitives.tsv",
+    "docs/rl/npc-registry.tsv",
+    "docs/rl/playbook/README.md",
+    "docs/rl/playbook/status.md",
+    "docs/rl/wiki.md",
+    "scripts/python/audit_combat_ability_coverage.py",
+    "scripts/python/probe_251_citation_resolution.py"
+   ]
   },
   "tests/test_237_relic_equip_offline.py": {
    "_at": 1786392144,
