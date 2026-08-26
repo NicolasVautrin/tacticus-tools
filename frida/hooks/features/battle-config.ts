@@ -1635,22 +1635,26 @@ export function ecrireAbilitesEnvironnement(
  * capteurs historiques restent consultes ENSUITE, valides par le meme controle. */
 function repliSourceCaptee(source: string | null): { src: NativePointer | null; note: string | null } {
     if (source === null) return { src: null, note: null };
-    // 1. LE REGISTRE GENERIQUE d'abord : il connait toute source qu'un capteur a traversee.
+    // ⛔ LE TRANSPORT SE TRAITE AVANT LE REGISTRE, ET C'EST UNE REGRESSION MESUREE (2026-08-26).
+    // `Sandbox` n'est PAS un mode : la BC qu'elle substitue vient de la derniere FORGE, et c'est
+    // a celle-la qu'il faut demander la composition. Des que mes propres capteurs ont range une
+    // instance de `SandboxGameModeSource` au registre, la consulter en premier rendait un
+    // pointeur PARFAITEMENT VALIDE qui ne sait rien de la lineup -- `voie=lineup` (5 unites) est
+    // retombe a `voie=aucune` (0 cible) d'un montage a l'autre, sans qu'aucune ligne du patch
+    // n'ait bouge. Un repli juste ne se mesure pas a la validite du pointeur mais a ce qu'il
+    // SAIT REPONDRE.
+    if (source.startsWith("Sandbox")) {
+        const t = derniereSourceForgee;
+        return { src: t !== null && !t.isNull() ? t : null, note: null };
+    }
+    // 1. LE REGISTRE GENERIQUE : il connait toute source qu'un capteur a traversee.
     const r = instanceDeSource(source);
     if (r.src !== null) return r;
     // 2. Les capteurs HISTORIQUES ensuite -- meme controle de classe.
     const p = source.startsWith("Pvp") ? getPvpGameModeSourcePtr()
         : source.startsWith("Campaign") ? getCampaignGameModeSourcePtr()
         : source.startsWith("MachinesOfWarEvent") ? getMowEventGameModeSourcePtr()
-        // `Sandbox` n'est pas un mode, c'est un TRANSPORT : la BC qu'elle substitue vient de la
-        // derniere forge, et c'est a CELLE-LA qu'il faut demander la composition du joueur.
-        // ⚠ ELLE N'EST DONC PAS DE LA CLASSE `Sandbox...` : on ne peut pas la confronter au nom
-        // qui charge, et la valider contre `SandboxGameModeSource` la rejetterait a tort.
-        : source.startsWith("Sandbox") ? derniereSourceForgee
         : null;
-    if (source.startsWith("Sandbox")) {
-        return { src: p !== null && !p.isNull() ? p : null, note: r.note };
-    }
     const c = siConcordante(p, source);
     // La note du registre prime : c'est celle qui nomme le pointeur qu'on vient de jeter.
     return { src: c.src, note: r.note ?? c.note };
