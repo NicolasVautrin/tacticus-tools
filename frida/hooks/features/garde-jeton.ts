@@ -84,6 +84,68 @@ const NS_QUERY = "IdunBattle.View.FSM";
 const CLS_QUERY = "VisualBattleQuery";
 const METH = "IsMinUnitAmountToBringToStartBattleReached";
 const CHAMP_SOURCE = "_gameModeSource";
+/** ⛔ LE SECOND ANCRAGE, ET IL EXISTE PARCE QUE LE PREMIER EST TROP TARD EN PvP (#10047).
+ *
+ *  Rapporte par l'utilisateur le 2026-08-26 : la popup s'affichait ALORS QUE le jeton etait
+ *  deja parti. La premisse du module -- << entrer est GRATUIT, c'est le START qui engage >> --
+ *  vient de la chaine CAMPAGNE, et toutes ses mesures avaient ete prises en sandbox guerre de
+ *  guilde. `PvpGameModeSource` n'override meme pas `HandleStartMatch` : l'ecran qui precede
+ *  (`PvpBattlePreviewPopup`) porte deja le cout (`ShowTokenCost`, `Pvp_BattleButton_OutOfBattleToken`)
+ *  et son bouton mene a `PvpProgression$$LoadPvpBattle`, qui parle au serveur AVANT que l'ecran
+ *  de deploiement n'existe. Notre predicat de deploiement est en aval de tout ca.
+ *
+ *  ⚠ ON NE SAIT TOUJOURS PAS OU LE JETON EST PRELEVE EXACTEMENT (corps en dispatch par slot ; le
+ *  mesurer couterait un jeton). On n'en a pas besoin : le TAP PRECEDE PAR CONSTRUCTION tout ce
+ *  qui est en aval de lui. Bloquer ici est donc plus tot que le prelevement, quel qu'il soit --
+ *  c'est une propriete de l'ordre d'appel, pas une hypothese sur la mecanique.
+ *
+ *  ⛔ ET ON NE `replace` RIEN. Le natif porte deja sa porte de sortie -- `if (success == 0)
+ *  return;` en TETE de corps. On force ce parametre a 0, donc on emprunte un chemin que le jeu
+ *  prevoit, au lieu d'en inventer un. */
+const METH_POPUP = "HandleOnStartBattleTapped";
+/**
+ * Les popups de previsualisation qu'on ancre, et la source que chacun fait demarrer.
+ *
+ * ⚠ LA SOURCE EST ECRITE, PAS DERIVEE. Le popup ne la porte pas -- il PRECEDE la bataille, donc
+ * il n'existe aucune `VisualBattleQuery` a interroger. Et la deriver du NOM ne marche pas : la
+ * famille compte 12 membres dont `WavesBattlePreviewPopup` (source `Onslaught...`),
+ * `BattlePreviewPopup` tout court (source `Campaign...`) et `SurvivalBattlePreviewPopup`
+ * (source `SurvivalEvent...`). Un prefixe devine faux au moins trois fois.
+ *
+ * ⛔ ET LA TABLE NE PEUT PAS MENTIR DANS LE SENS DANGEREUX : chaque entree est reconfrontee a
+ * `estSourceCouverte` AU MOMENT DU TIR. Une source que `lineup-poser` ne sait pas servir n'est
+ * jamais bloquee, quelle que soit cette table -- le refus serait definitif.
+ *
+ * ⚠ LES 6 AUTRES MEMBRES DE LA FAMILLE RESTENT NON GARDES, ET C'EST DIT (`famillePopups` dans
+ * l'etat) : `Survival`, `TreasureBeach`, `LegendaryEvent`, `CampaignEvent`, `Waves`,
+ * `LinearHeroEvent` n'ont aucune composition retenable, donc les bloquer enfermerait le mode.
+ * Le trou est REPORTE plutot que tu.
+ *
+ * ⚠ LA CAMPAGNE N'Y EST PAS, DELIBEREMENT : son ancrage de deploiement refuse DEJA avant la
+ * depense (c'est la chaine ou la premisse a ete mesuree). L'ajouter ici avancerait le refus sans
+ * rien protéger de plus, et toucherait la voie que la chaine de farm emprunte.
+ */
+const POPUPS: ReadonlyArray<{ ns: string; cls: string; source: string }> = [
+    // #10047 : le PvP, ou l'ancrage de deploiement arrive APRES la depense.
+    { ns: "idun.Meta.View.Hud", cls: "PvpBattlePreviewPopup", source: "PvpGameModeSource" },
+    // La guerre de guilde : meme forme EXACTE au decompile (`if (success == 0) return this;`),
+    // et meme raison -- ses tentatives sont limitees, et son popup precede le deploiement.
+    { ns: "idun.Meta.View.Hud", cls: "GuildWarsBattlePreviewPopup",
+      source: "GuildWarsGameModeSource" },
+    { ns: "idun.Meta.View.Hud", cls: "MachinesOfWarEventBattlePreviewPopup",
+      source: "MachinesOfWarEventGameModeSource" },
+    { ns: "idun.ui.guildBoss.Popups", cls: "GuildBossBattlePreviewPopup",
+      source: "GuildBossGameModeSource" },
+    { ns: "idun.ui.guildBoss.Popups", cls: "GuildBossSupportingBattlePreviewPopup",
+      source: "GuildBossGameModeSource" },
+];
+/** Les membres de la famille qu'on N'ANCRE PAS, pour que le trou soit lisible. */
+const POPUPS_NON_GARDES: readonly string[] = [
+    "SurvivalBattlePreviewPopup", "TreasureBeachBattlePreviewPopup",
+    "LegendaryEventBattlePreviewPopup", "CampaignEventBattlePreviewPopup",
+    "WavesBattlePreviewPopup", "LinearHeroEventBattlePreviewPopup",
+    "BattlePreviewPopup (campagne -- garde au deploiement, cf. ci-dessus)",
+];
 /** La sandbox est la voie de MONTAGE de la lineup : la bloquer fermerait la porte de sortie. */
 const CLS_SANDBOX = "SandboxGameModeSource";
 /** Deux appels du meme geste ne doivent pas ouvrir deux popups. */
@@ -99,6 +161,12 @@ interface Decision {
 }
 
 let listener: InvocationListener | null = null;
+const listenersPopup: InvocationListener[] = [];
+const popupsPoses: string[] = [];
+let firesPopup = 0;
+let etrangersPopup = 0;
+let bloquesPopup = 0;
+let refusArmementPopup: string | null = null;
 let bloquer = true;
 /** ⚠ POURQUOI CE DRAPEAU EXISTE, ALORS QU'IL DESACTIVE LA SEULE EXEMPTION DU GARDE.
  *
@@ -154,7 +222,7 @@ function estLaRequete(obj: NativePointer): boolean {
     catch { return false; }
 }
 
-function prevenirLeJoueur(classeSource: string): void {
+function prevenirLeJoueur(classeSource: string, suite?: string): void {
     if (!popup) return;
     const maintenant = Date.now();
     if (maintenant - dernierePopup < ETRANGLEMENT_MS) return;
@@ -165,10 +233,86 @@ function prevenirLeJoueur(classeSource: string): void {
             + classeSource + ").\n\n"
             + "Le depart a ete refuse AVANT que le jeton ne soit depense. Monte la composition "
             + "en sandbox, puis reviens : elle sera reposee toute seule au deploiement.\n\n"
-            + "Le message du jeu juste derriere parle d'un nombre d'unites -- c'est le refus par "
-            + "lequel nous passons, pas la vraie raison.",
+            + (suite ?? "Le message du jeu juste derriere parle d'un nombre d'unites -- c'est le "
+                + "refus par lequel nous passons, pas la vraie raison."),
         okTexte: "Compris",
     })).catch(() => { /* la popup est un confort, jamais une condition du refus */ });
+}
+
+/**
+ * Le garde POSE SUR LE BOUTON << Battle >> du popup de previsualisation PvP (#10047).
+ *
+ * Meme discipline que l'ancrage de deploiement, point par point :
+ *  - ECHEC OUVERT : toute incertitude laisse passer, et le DIT.
+ *  - ON NE BLOQUE QUE CE QU'ON SAIT DEBLOQUER : si `lineup-poser` ne couvre pas
+ *    `PvpGameModeSource`, refuser enfermerait le mode sans geste de sortie.
+ *  - LE `this` EST VERIFIE : IL2CPP deduplique les corps, et l'ancrage ne doit decider que pour
+ *    le sien. Les tirs ecartes sont COMPTES (`etrangersPopup`), pas ignores en silence.
+ */
+function armerPopup(): Record<string, unknown> {
+    if (listenersPopup.length > 0) return { ok: true, deja: true, poses: popupsPoses.slice() };
+    const refus: string[] = [];
+    for (const p of POPUPS) {
+        const k = findClassAnywhere(p.ns, p.cls);
+        if (!k) { refus.push(`${p.cls} : classe introuvable -- chemin PERIME`); continue; }
+        // Un seul parametre manage : le `bool success` que le corps teste en tete.
+        const mi = findMethodByParamCount(k, METH_POPUP, 1);
+        if (!mi) { refus.push(`${p.cls}$$${METH_POPUP} a 1 parametre introuvable`); continue; }
+        try {
+            listenersPopup.push(Interceptor.attach(mi.ptr, {
+                onEnter(args) {
+                    firesPopup += 1;
+                    let classeThis: string | null = null;
+                    try { classeThis = s(class_get_name(args[0].readPointer()) as NativePointer); }
+                    catch { classeThis = null; }
+                    // ⛔ LE `this` DECIDE, PAS L'ANCRAGE. IL2CPP deduplique les corps : un
+                    // ancrage pose pour X peut tirer avec un `this` de Y. On refuse alors de
+                    // decider, et on COMPTE le tir ecarte.
+                    if (classeThis !== p.cls) { etrangersPopup += 1; return; }
+                    // Le jeu refuse deja (reponse NON a la confirmation) : rien a faire.
+                    if (args[1].toInt32() === 0) {
+                        noter("laisse", "le tap arrive deja a `success = 0` -- rien a refuser",
+                              p.source, null);
+                        return;
+                    }
+                    if (!estSourceCouverte(p.source)) {
+                        noter("laisse", "source NON COUVERTE par `lineup-poser` -- un refus "
+                            + "serait DEFINITIF", p.source, null);
+                        return;
+                    }
+                    const retenue = compositionRetenue(p.source);
+                    if (retenue !== null) {
+                        noter("laisse", `lineup retenue (${retenue.origine})`,
+                              p.source, retenue.ids.length);
+                        return;
+                    }
+                    if (!bloquer) {
+                        noter("laisse", "AUCUNE lineup retenue -- mais le blocage est DESARME",
+                              p.source, null);
+                        return;
+                    }
+                    // ⛔ LA PORTE DE SORTIE EST CELLE DU NATIF. `if ((char)success == '\0')
+                    // return;` est la premiere instruction du corps : on force le parametre, on
+                    // ne detourne rien.
+                    args[1] = ptr(0);
+                    bloquesPopup += 1;
+                    noter("bloque", `AUCUNE lineup retenue -- tap sur << Battle >> de ${p.cls} `
+                        + "neutralise AVANT que la bataille ne soit demandee", p.source, null);
+                    // ⚠ ICI LA POPUP N'EST PAS UN CONFORT : le jeu n'affichera RIEN (le tap est
+                    // simplement avale). Sans elle, le bouton parait casse.
+                    prevenirLeJoueur(p.source,
+                        "Le bouton ne repond pas parce que NOUS l'avons neutralise, avant que la "
+                        + "bataille ne soit demandee au serveur. Le jeu n'affichera aucun "
+                        + "message : celui-ci est le seul.");
+                },
+            }));
+            popupsPoses.push(`${p.cls}$$${METH_POPUP} -> ${p.source}`);
+        } catch (e) {
+            refus.push(`${p.cls} : ${(e as Error).message}`);
+        }
+    }
+    refusArmementPopup = refus.length > 0 ? refus.join(" | ") : null;
+    return { ok: listenersPopup.length > 0, poses: popupsPoses.slice(), refus };
 }
 
 function armer(): Record<string, unknown> {
@@ -243,6 +387,9 @@ export function register(ctx: Ctx): void {
     // est un ancrage sur un predicat consulte au geste de depart, pas sur un chemin chaud -- et
     // toute incertitude LAISSE PASSER (cf. l'en-tete).
     armer();
+    // ⛔ ET LE SECOND, SUR LE BOUTON DU POPUP PvP. Le premier ne protege PAS ce mode : il decide
+    // au deploiement, donc apres que la bataille a ete demandee au serveur (#10047).
+    armerPopup();
 
     /** L'etat du garde, et les 40 dernieres decisions AVEC LEUR RAISON.
      *
@@ -259,6 +406,20 @@ export function register(ctx: Ctx): void {
         fires,
         etrangers,
         bloques,
+        // Le second ancrage a ses PROPRES compteurs : les fondre dans les premiers rendrait
+        // indistinguable << le popup n'a jamais tire >> de << le deploiement n'a jamais tire >>,
+        // et c'est exactement la question qu'on se pose apres #10047.
+        popupsDePrevisualisation: {
+            poses: popupsPoses.slice(),
+            refusArmement: refusArmementPopup,
+            fires: firesPopup,
+            etrangers: etrangersPopup,
+            bloques: bloquesPopup,
+            // ⚠ LE TROU EST PUBLIE. Ces modes-la ne sont PAS gardes -- `lineup-poser` ne sait
+            // rien y retenir, donc un refus y serait definitif. Les taire ferait lire une
+            // couverture qui n'existe pas.
+            famillePopupsNonGardee: POPUPS_NON_GARDES,
+        },
         derniereDecision,
         decisions: decisions.slice(-15),
     });
@@ -290,6 +451,8 @@ export function register(ctx: Ctx): void {
             traiterLaSandboxCommeLive = body.traiterLaSandboxCommeLive;
         }
         const r = armer();
-        return { ...r, arme: listener !== null, bloquer, popup, traiterLaSandboxCommeLive };
+        const rp = armerPopup();
+        return { ...r, arme: listener !== null, bloquer, popup, traiterLaSandboxCommeLive,
+                 popupsDePrevisualisation: rp };
     };
 }
