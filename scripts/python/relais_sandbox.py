@@ -51,6 +51,40 @@ OBSERVENT = [
 ]
 
 
+def armer_relais_sandbox(jeu, armements, timeout=180000):
+    """LE POINT DE PASSAGE DES MONTAGES SANDBOX : armer les relais ET leur extinction, ENSEMBLE.
+
+    ⛔ POURQUOI IL FALLAIT LE CREER. Cote sandbox il n'existait AUCUN point de passage : chaque
+    pilote recopiait la meme boucle (`for nom, corps in armements: jeu.rpc(...)`), et la
+    fermeture de fenetre etait un appel SEPARE, donc oubliable. Mesure du 2026-08-26 : sur les
+    8 pilotes qui arment des relais d'ECRITURE, **6 n'armaient pas la fermeture** -- trois d'entre
+    eux en armant ONZE relais chacun. Consequence sur une sandbox quittee : `sandboxModeBcOverride`
+    encore actif, donc la BC de la premiere bataille REELLE venue substituee, et la composition
+    precedente rejouee sur le plateau.
+    (`deploiement_commun.armer_les_relais` n'etait PAS ce point de passage : seules les deux
+    chaines de bataille REELLE l'empruntent, et elles ne doivent justement PAS eteindre leurs
+    relais en fin de passe -- la boucle de farm en rejoue une autre derriere.)
+
+    ⚠ L'ORDRE EST UNE CONDITION : la fermeture est armee APRES les relais et AVANT que l'appelant
+    monte quoi que ce soit. C'est la seule position ou elle couvre AUSSI une fenetre qui meurt tot
+    -- montage refuse, retraite immediate.
+
+    ⚠ Ca n'exempte pas de `desarmer_relais.py` : la fermeture couvre la mort de la FENETRE, pas un
+    pilote qui s'arrete avant d'avoir monte, ni des relais armes a la main.
+
+    Rend la liste des noms armes.
+    """
+    poses = []
+    for nom, corps in armements:
+        r = jeu.rpc(nom, [dict(corps)], timeout) or {}
+        ok = isinstance(r, dict) and r.get("ok")
+        print("  %-28s %s" % (nom, "ok" if ok else ("REFUS %s" % str(r)[:120])))
+        if ok:
+            poses.append(nom)
+    sandbox_fenetre_armer(jeu)
+    return poses
+
+
 def arme_selon(r):
     """Tri-etat : True / False / None = PAS MESURE. Un `arme` illisible n'est PAS un `False`."""
     if not isinstance(r, dict):
