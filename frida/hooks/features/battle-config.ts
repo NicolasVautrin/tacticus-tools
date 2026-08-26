@@ -69,6 +69,11 @@ import {
     getPvpGameModeSourcePtr, tryActiveDiscoveryOfSources,
     findPvpGameModeSourceViaHeap,
 } from "./campaign-builder.js";
+// Le REGISTRE d'instances de source, par CLASSE REELLE, et son controle de peremption. C'est ce
+// qui remplace le pointeur global servi sans verification -- cf. l'en-tete du module.
+import {
+    etatDuRegistre, instanceDeSource, poserCapteursDInstance, siConcordante,
+} from "../game/source-instances.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
 import { lineupDeLaSource } from "../game/source-lineup.js";
 // LE REGISTRE DES COMPOSITIONS. Second consommateur de la MEME decision que celle que
@@ -1614,17 +1619,41 @@ export function ecrireAbilitesEnvironnement(
  *
  * ⚠ TOUT MODE ABSENT DE CETTE TABLE REND `null`, ET LE REFUS SE DIT (`MIROIRS NON VERIFIABLES`).
  * Rendre une source d'un AUTRE mode serait pire que rien : on annoncerait des miroirs tires d'une
- * composition qui n'est pas celle de cette bataille. */
-function repliSourceCaptee(source: string | null): NativePointer | null {
-    if (source === null) return null;
+ * composition qui n'est pas celle de cette bataille.
+ *
+ * ⛔ ET IL VALIDE LA CLASSE, DEPUIS LE 2026-08-26. Il rendait le pointeur capte TEL QUEL, sans le
+ * confronter a la source qui charge -- alors que la voie DECLAREE, elle, avait ce cran depuis
+ * toujours (`sourceConcordante`). Mesure : le pointeur `Pvp` portait un `SummonUnitModel` a
+ * l'application, puis un `MachinesOfWarEventTokenWidgetVisuals` une heure plus tard -- objet
+ * libere, ADRESSE RECYCLEE. `lineupDeLaSource` a refuse de lire (juste), donc 0 cible, donc buff
+ * et Immune poses SUR PERSONNE, sans erreur. Un pointeur perime est desormais OUBLIE et NOMME.
+ *
+ * ⚠ ET LA TABLE DE QUATRE PREFIXES ETAIT LE SECOND TROU : l'ONSLAUGHT, l'incursion, l'endless --
+ * toutes ancrees -- n'avaient AUCUN repli, donc `moi` y rendait 0 sans meme un pointeur a
+ * accuser. Le registre generique (`game/source-instances.ts`) est keye par la classe REELLE lue
+ * sur l'objet : il couvre toute source qu'un capteur traverse, sans liste a tenir. Les quatre
+ * capteurs historiques restent consultes ENSUITE, valides par le meme controle. */
+function repliSourceCaptee(source: string | null): { src: NativePointer | null; note: string | null } {
+    if (source === null) return { src: null, note: null };
+    // 1. LE REGISTRE GENERIQUE d'abord : il connait toute source qu'un capteur a traversee.
+    const r = instanceDeSource(source);
+    if (r.src !== null) return r;
+    // 2. Les capteurs HISTORIQUES ensuite -- meme controle de classe.
     const p = source.startsWith("Pvp") ? getPvpGameModeSourcePtr()
         : source.startsWith("Campaign") ? getCampaignGameModeSourcePtr()
         : source.startsWith("MachinesOfWarEvent") ? getMowEventGameModeSourcePtr()
         // `Sandbox` n'est pas un mode, c'est un TRANSPORT : la BC qu'elle substitue vient de la
         // derniere forge, et c'est a CELLE-LA qu'il faut demander la composition du joueur.
+        // ⚠ ELLE N'EST DONC PAS DE LA CLASSE `Sandbox...` : on ne peut pas la confronter au nom
+        // qui charge, et la valider contre `SandboxGameModeSource` la rejetterait a tort.
         : source.startsWith("Sandbox") ? derniereSourceForgee
         : null;
-    return p !== null && !p.isNull() ? p : null;
+    if (source.startsWith("Sandbox")) {
+        return { src: p !== null && !p.isNull() ? p : null, note: r.note };
+    }
+    const c = siConcordante(p, source);
+    // La note du registre prime : c'est celle qui nomme le pointeur qu'on vient de jeter.
+    return { src: c.src, note: r.note ?? c.note };
 }
 
 function applyPatchToConfig(
@@ -1742,7 +1771,10 @@ function applyPatchToConfig(
     // elle est nulle, et `camps.miens` est VIDE en PvP (les unites entrent au deploiement).
     // On se rabat donc sur l'instance CAPTEE de la meme classe : `GetBattleLineup` y lit la
     // composition SAUVEGARDEE du mode, qui est justement celle que le HUD va pre-poser.
-    const instancePourLineup = srcInstance ?? repliSourceCaptee(source);
+    const repli = srcInstance === null
+        ? repliSourceCaptee(source) : { src: null, note: null };
+    if (repli.note !== null) warnings.push(repli.note);
+    const instancePourLineup = srcInstance ?? repli.src;
     const lineupSource = ((veutMoi || veutAdversaire) && instancePourLineup !== null)
         ? lineupDeLaSource(instancePourLineup) : null;
     // ⛔ LE REGISTRE PRIME SUR LA SOURCE, ET C'EST TOUT L'INTERET DU MONTAGE.
@@ -2443,6 +2475,12 @@ function installLoadBattleHook(): void {
         if (attacherPatchSurLoadBattle(choisi.m.ptr, cls)) {
             poses.push(`${cls}.${choisi.nom}`);
             ancres.add(choisi.m.ptr.toString());
+            // ⛔ ET ON CAPTE L'INSTANCE, POUR TOUTES LES SOURCES ANCREES -- pas seulement les
+            // quatre que `repliSourceCaptee` connaissait. Sans ca, `ciblesAuto: "moi"` rend 0 sur
+            // l'onslaught, l'incursion et l'endless, en silence. Les capteurs sont poses sur des
+            // methodes de CHARGEMENT, jamais sur ce `LoadBattle` (un second listener avec
+            // `onEnter` a deja rendu 17 ancrages muets) ni sur un getter chaud.
+            poserCapteursDInstance(klass, cls);
         }
     }
 
@@ -2789,6 +2827,9 @@ export function register(ctx: Ctx): void {
         // un mode absent de cette liste n'a AUCUNE chance de s'appliquer -- et rien d'autre ne le
         // signale. `null` = pose pas encore tentée, ce n'est PAS « aucune ».
         sourcesAncrees,
+        // Les INSTANCES de source connues, et le compte de pointeurs périmés jetés. `retenues: 0`
+        // dit « aucun capteur n'a tiré » -- à ne pas lire comme « aucune source ».
+        instancesDeSource: etatDuRegistre(),
     });
 
     /** Apply a patch DIRECTLY to the live BattleConfiguration (no LoadBattle
