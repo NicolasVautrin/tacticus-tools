@@ -144,6 +144,26 @@ export function compositionRetenue(classeSource: string | null): CompositionRete
     return c !== undefined && c.confirme ? c : null;
 }
 
+/**
+ * OUBLIER la composition retenue pour un mode — et rendre CE QU'ON A OUBLIÉ.
+ *
+ * ⛔ IL RETOURNE L'ENTRÉE SUPPRIMÉE, PAS UN BOOLÉEN. Un appelant qui vide à la fin d'une bataille
+ * doit pouvoir DIRE ce qu'il a jeté : « oublié 5 unités (origine sandbox) » et « il n'y avait
+ * rien à oublier » se corrigent autrement, et un `true`/`false` les confond. `null` = rien
+ * n'était retenu.
+ *
+ * ⚠ CE N'EST PAS UNE ÉCRITURE DANS LE JEU. Le registre est À NOUS : l'oubli ne touche ni le
+ * magasin de compositions du joueur, ni ce que l'écran de déploiement pré-pose. Il rend
+ * seulement au garde-jeton son verdict « aucune composition retenue ».
+ */
+export function oublierComposition(classeSource: string | null): CompositionRetenue | null {
+    if (classeSource === null) return null;
+    const c = registre.get(classeSource);
+    if (c === undefined) return null;
+    registre.delete(classeSource);
+    return c;
+}
+
 /** Lit un `System.String` géré. Même convention que `game/source-lineup.ts`. */
 function chaineGeree(p: NativePointer): string | null {
     if (p.isNull()) return null;

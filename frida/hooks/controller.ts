@@ -33,6 +33,10 @@ import * as messageBox from "./features/message-box.js";
 // #10047 — REFUSER le START d'une bataille LIVE quand aucune lineup n'est retenue, AVANT que le
 // jeton ne parte. Echoue OUVERT, et ne bloque JAMAIS la sandbox (c'est la voie de montage).
 import * as gardeJeton from "./features/garde-jeton.js";
+// #10047 — OUBLIER la composition retenue a la fin d'une bataille de GUERRE DE GUILDE : ses
+// unites sont consommees pour la guerre en cours, donc reproposer la meme equipe est une faute
+// silencieuse. N'ecrit RIEN dans le jeu -- il ne vide que notre registre.
+import * as gwOubli from "./features/gw-oubli-fin-bataille.js";
 // Jouer une `BattleConfiguration` ARBITRAIRE a l'ecran, via `IdunMainView$$StartBattle`.
 // N'installe AUCUN hook au register : deux RPC, dont un purement observateur.
 import * as sandbox from "./features/sandbox.js";
@@ -615,6 +619,12 @@ export function wireRpc(ctx: Ctx): void {
      // chaud, et il ECHOUE OUVERT -- toute incertitude laisse partir la bataille. La SANDBOX
      // n'est jamais bloquee : c'est par elle qu'on monte la lineup.
      gardeJeton,
+     // `gwOubli` ancre les deux fins de bataille de la guerre de guilde (`HandleFinishBattle`,
+     // `ShowBattleEndScreen`) et vide NOTRE registre de composition -- rien dans le jeu. L'oubli
+     // est IDEMPOTENT, d'ou les deux ancrages : selon le chemin de fin, l'un peut tirer sans
+     // l'autre, et un oubli manque rendrait au garde un verdict << composition retenue >> sur
+     // une equipe deja consommee.
+     gwOubli,
      // `visuelAbandonne` ancre en OBSERVATION PURE le couple `Init`/`Execute` des visuels
      // d'ability. Il repond a une question que rien d'autre ne sait poser : `exception-tracer`
      // rend ZERO sur ce chemin (un null-deref IL2CPP passe par le helper interne, pas par
