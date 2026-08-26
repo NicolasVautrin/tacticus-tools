@@ -54,6 +54,7 @@ import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, MethodRef, s as cstr,
 } from "../il2cpp/helpers.js";
 import { executeurVivant, Refus as RefusVue } from "./view-command.js";
+import { chargerBcDepuisSource } from "./battle-config.js";
 // Le FOYER des captures de `*GameModeSource` (campagne, MoW, Pvp, et desormais guild boss).
 import { getGuildBossGameModeSourcePtr } from "./campaign-builder.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
@@ -500,7 +501,9 @@ export function register(ctx: Ctx): void {
         const mi = methodeDe(src, "LoadBattleInternal", 1);
         if (estRefus(mi)) return mi;
         let bc: NativePointer;
-        try { bc = invokeMethod(mi.info, src, [argBool(body?.isRestart === true)]); }
+        // ⛔ PAR LE POINT DE PASSAGE UNIQUE : il DECLARE la source pendant l'appel, sans quoi
+        // `ciblesAuto: "moi"` n'a personne a qui demander la composition du joueur.
+        try { bc = chargerBcDepuisSource(mi.info, src, [argBool(body?.isRestart === true)]); }
         catch (e) { return refus("`LoadBattleInternal` a leve : " + (e as Error).message); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu NUL");
         gcRoot.add(bc);

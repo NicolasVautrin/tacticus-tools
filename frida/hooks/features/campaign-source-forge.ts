@@ -42,6 +42,7 @@ import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant } from "./view-command.js";
+import { chargerBcDepuisSource } from "./battle-config.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -276,8 +277,14 @@ export function register(ctx: Ctx): void {
                              + "la source forgée. Il ne démarre pas de bataille et ne dépense "
                              + "pas d'énergie, mais il ÉCRIT `_currentBattle` sur CETTE source." };
             }
+            // ⛔ PAR LE POINT DE PASSAGE UNIQUE : il DECLARE la source pendant l'appel. Le patch
+            // d'env-ability s'applique dans l'`onLeave` de CE `LoadBattle`, et `ciblesAuto: "moi"`
+            // a besoin de l'instance pour demander la composition du joueur -- absente de la BC.
+            // Cette forge ne declarait PAS : mesure du 2026-08-26, `elite1 40` monte en sandbox
+            // rendait `voie=aucune` et `0 cible`, alors que `lineupSource` sur la MEME instance
+            // rendait 5 unites.
             let bc: NativePointer;
-            try { bc = invokeMethod(mi.info, src, [argBool(true)]); }
+            try { bc = chargerBcDepuisSource(mi.info, src, [argBool(true)]); }
             catch (e) { return refus("`LoadBattle` a levé : " + (e as Error).message); }
             if (bc.isNull()) return refus("`LoadBattle` a rendu NUL");
             gcRoot.add(bc);

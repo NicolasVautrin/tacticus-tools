@@ -57,7 +57,7 @@ import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant } from "./view-command.js";
-import { declarerSourceDeChargement } from "./battle-config.js";
+import { chargerBcDepuisSource } from "./battle-config.js";
 import { lineupDeLaSource } from "../game/source-lineup.js";
 import { propositionsChargees } from "./pvp-opponents.js";
 import { champInt, champPointeur, champTexte, estRefus, refus } from "./lecture-champs.js";
@@ -324,10 +324,8 @@ export function register(ctx: Ctx): void {
         // ⚠ LE `finally` N'EST PAS DECORATIF : une declaration qui survit a l'appel ferait
         // attribuer la PROCHAINE `LoadBattle` -- une vraie, celle du jeu -- a notre source forgee.
         let bc: NativePointer;
-        declarerSourceDeChargement(src);
-        try { bc = invokeMethod(mLoad.info, src, [argIsRestart]); }
+        try { bc = chargerBcDepuisSource(mLoad.info, src, [argIsRestart]); }
         catch (e) { return refus("`LoadBattleInternal` a LEVE : " + (e as Error).message); }
-        finally { declarerSourceDeChargement(null); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu une BC NULLE");
 
         // ⚠ ON VERIFIE CE QU'ON A RECU. Une BC perimee ou un objet d'un autre type est

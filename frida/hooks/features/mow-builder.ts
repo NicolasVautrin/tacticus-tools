@@ -414,6 +414,11 @@ export function register(ctx: Ctx): void {
                         // concorde avec la source qui charge, donc un reliquat est ignore et dit.
                         // Lui ajouter un `onLeave` pour nettoyer serait exactement le geste qui
                         // a deja tue un hook -- on ne le tente pas pour economiser un pointeur.
+                        // ⚠ LA SEULE DECLARATION QUI RESTE HORS DU POINT DE PASSAGE UNIQUE
+                        // (`chargerBcDepuisSource`), ET C'EST VOULU : ici on n'INVOQUE rien, on
+                        // ANCRE. Il n'y a pas d'appel a envelopper, donc pas de `finally` ou
+                        // nettoyer -- exactement ce que le paragraphe ci-dessus explique. Ne pas
+                        // la "corriger" en la faisant passer par le helper : elle n'a pas d'invoke.
                         declarerSourceDeChargement(self);
                         if (!lastMoWSource || !lastMoWSource.equals(self)) {
                             const wasNull = lastMoWSource === null;

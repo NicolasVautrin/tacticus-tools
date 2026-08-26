@@ -90,6 +90,7 @@ import { deserializeFromJson, isDeserializerReady, isSerializerReady, serializeT
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant, Refus as RefusVue } from "./view-command.js";
+import { chargerBcDepuisSource } from "./battle-config.js";
 import { champPointeur, estRefus, refus } from "./lecture-champs.js";
 // (!)FORME B. Le FOYER du receptacle `EnvironmentAbilities` et de l'ecriture d'un
 // `EnvironmentAbilityConfiguration` -- extrait d'ICI le 2026-08-22, quand `sandbox-mode` a eu
@@ -1985,8 +1986,10 @@ export function register(ctx: Ctx): void {
         if (!m) return refus("`LoadBattleInternal(1)` INTROUVABLE -- chemin PERIME");
         const b8 = Memory.alloc(1);
         b8.writeU8(body?.isRestart === true ? 1 : 0);
+        // ⛔ PAR LE POINT DE PASSAGE UNIQUE : il DECLARE la source pendant l'appel, sans quoi
+        // `ciblesAuto: "moi"` n'a personne a qui demander la composition du joueur.
         let bc: NativePointer;
-        try { bc = invokeMethod(m.info, src, [b8]); }
+        try { bc = chargerBcDepuisSource(m.info, src, [b8]); }
         catch (e) { return refus("`LoadBattleInternal` a LEVE : " + (e as Error).message); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu NUL");
         gcRoot.add(bc);

@@ -64,7 +64,7 @@ import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { lineupDeLaSource } from "../game/source-lineup.js";
-import { declarerSourceDeChargement } from "./battle-config.js";
+import { chargerBcDepuisSource } from "./battle-config.js";
 import { executeurVivant } from "./view-command.js";
 import {
     champBool, champInt, champPointeur, champTexte, elementsDeListe, estRefus, refus,
@@ -658,10 +658,8 @@ export function register(ctx: Ctx): void {
         // 2026-08-23, 17 ancrages muets d'un coup). D'ou la declaration, et le `finally` : un
         // pointeur laisse la serait servi au chargement SUIVANT, qui n'est pas le sien.
         let bc: NativePointer;
-        declarerSourceDeChargement(src);
-        try { bc = invokeMethod(mLoad.info, src, [argBool(false)]); }
+        try { bc = chargerBcDepuisSource(mLoad.info, src, [argBool(false)]); }
         catch (e) { return refus("`LoadBattleInternal` a LEVE : " + (e as Error).message); }
-        finally { declarerSourceDeChargement(null); }
         if (bc.isNull()) return refus("`LoadBattleInternal` a rendu une BC NULLE");
         const nomBc = nomDeClasse(bc);
         if (nomBc !== "BattleConfiguration") {

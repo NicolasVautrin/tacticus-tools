@@ -41,6 +41,7 @@ import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant } from "./view-command.js";
+import { retenirSourceForgee } from "./battle-config.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -204,6 +205,12 @@ export function register(ctx: Ctx): void {
         if (src.isNull()) return refus("l'allocation a rendu NUL");
         gcRoot.add(src);
         sourceForgee = src;
+        // ⛔ MEME DECLARATION QUE LES AUTRES FORGES, PAR L'AUTRE PORTE. L'onslaught ne charge
+        // aucune BC lui-meme (`SandboxWavesBattleConfig` la fabrique), donc il n'a pas d'invoke ou
+        // se glisser -- mais la substitution sandbox a quand meme besoin de savoir A QUI demander
+        // la composition du joueur. Sans cette ligne, c'est la seule forge structurellement
+        // incapable de repondre a `ciblesAuto: "moi"`.
+        retenirSourceForgee(src);
         cibleForgee = { alliance: nomAlliance, allianceOrdinal: ordinal, tier };
         return { ok: true, instance: src.toString(),
                  classe: cstr(class_get_name(src.readPointer()) as NativePointer),

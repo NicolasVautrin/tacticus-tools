@@ -2574,6 +2574,48 @@ export function declarerSourceDeChargement(src: NativePointer | null): void {
  *  s'applique sous un nom de TRANSPORT (`SandboxGameModeSource`) : cf. `repliSourceCaptee`. */
 let derniereSourceForgee: NativePointer | null = null;
 
+/**
+ * LE POINT DE PASSAGE UNIQUE DES FORGES : invoquer le chargement ET declarer, ensemble.
+ *
+ * ⛔ POURQUOI UN HELPER PLUTOT QUE N COPIES. La declaration a longtemps ete la charge de CHAQUE
+ * forge -- `declarerSourceDeChargement(src)` avant l'invoke, `finally { ...(null) }` apres.
+ * Mesure du 2026-08-26 : QUATRE forges sur sept ne le faisaient pas (campagne, onslaught, guild
+ * boss, guerre de guilde). La campagne l'a paye a l'usage -- un montage sandbox de `elite1 40`
+ * rendait `voie=aucune`, donc `0 cible` pour tout `ciblesAuto: "moi"`, alors que `lineupSource`
+ * appele sur LA MEME instance deux minutes plus tard rendait 5 unites. Le pointeur savait
+ * repondre ; personne ne le lui avait demande.
+ *
+ * Ce n'est donc pas un oubli, c'est le MOTIF qui echoue : un contrat en trois morceaux tient tant
+ * qu'on ecrit la forge suivante en recopiant une bonne, et casse des qu'on l'ecrit sans regarder.
+ * Ici la forge n'a plus d'invoke a elle, donc plus rien a oublier.
+ *
+ * ⚠ LE `finally` N'EST PAS DECORATIF : une declaration qui survit a l'appel ferait attribuer la
+ * PROCHAINE `LoadBattle` -- une vraie, celle du joueur -- a notre source forgee.
+ */
+export function chargerBcDepuisSource(
+    infoMethode: NativePointer, src: NativePointer, args: NativePointer[],
+): NativePointer {
+    declarerSourceDeChargement(src);
+    try { return invokeMethod(infoMethode, src, args); }
+    finally { declarerSourceDeChargement(null); }
+}
+
+/**
+ * LA MEME DECLARATION POUR UNE FORGE QUI NE CHARGE PAS -- et pourquoi elle existe quand meme.
+ *
+ * L'onslaught ne produit AUCUNE BC par `LoadBattle` : sa bataille est fabriquee par
+ * `SandboxWavesBattleConfig`, et sa source forgee ne sert que de PRETEUR au pool de deploiement.
+ * Elle n'a donc pas d'invoke ou se glisser. Mais la substitution sandbox, elle, aura toujours
+ * besoin de savoir A QUI demander la composition du joueur -- et sans cette porte, l'onslaught
+ * serait la seule forge structurellement incapable de repondre.
+ *
+ * ⚠ Elle ne pose QUE `derniereSourceForgee`, jamais `sourceEnChargement` : rien n'est en train de
+ * charger, et le pretendre ferait attribuer a cette source une `LoadBattle` qui n'est pas la sienne.
+ */
+export function retenirSourceForgee(src: NativePointer | null): void {
+    if (src !== null && !src.isNull()) derniereSourceForgee = src;
+}
+
 /** L'instance déclarée, MAIS SEULEMENT SI SA CLASSE EST CELLE QUI VIENT DE CHARGER.
  *
  * ⛔ C'EST LE CRAN QUI REND LA DÉCLARATION SÛRE. Un déclarant qui ne peut pas nettoyer (un
