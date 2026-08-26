@@ -29,7 +29,8 @@ RACINE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante          # noqa: E402
 from sandbox_mode import Jeu                      # noqa: E402
-from relais_sandbox import armer_relais_sandbox   # noqa: E402
+from relais_sandbox import (armer_relais_sandbox,                       # noqa: E402
+                            sandbox_fenetre_armer_quand_vivante)
 
 HOTE = "http://127.0.0.1:8765"
 
@@ -306,7 +307,14 @@ if not args.sans_replay:
 # 5 poses, la phase et le pool restaient detournes. De quoi substituer la BC de la premiere
 # bataille REELLE venue. Le << desarmement fiable est un reinject >> du skill n'etait pas une
 # regle de conception, c'etait la cicatrice de ce manque.
-armer_relais_sandbox(j, armements)
+#
+# ⛔ `fenetre=False` : LA FERMETURE S'ARME APRES LE MONTAGE, SUR SIGNAL. Armee ici, le veilleur
+# surveille pendant le CHARGEMENT -- et son critere (« 4 s sans un seul appel de la pompe ») est
+# exactement la duree d'un chargement. Mesure du 2026-08-26 sur `mirror4` noeud 29 : il conclut
+# « la scene a disparu » alors qu'elle apparait, eteint les 19 relais qu'on vient d'armer, et le
+# HUD -- qui lit ses bornes UNE FOIS a l'ouverture -- reste a `maxUnitsPossible: 0`. Plus aucune
+# pose n'est possible, sans le moindre message. Detail dans `relais_sandbox.armer_relais_sandbox`.
+armer_relais_sandbox(j, armements, fenetre=False)
 
 # 5. Le montage. Le mode importe peu : l'override substitue la BC, ce qui compte est la SOURCE.
 print()
@@ -317,6 +325,13 @@ rc = subprocess.run(cmd, cwd=str(RACINE)).returncode
 if rc != 0:
     print("REFUS : le montage a echoue (rc=%d)." % rc)
     sys.exit(1)
+
+# 5bis. LA FERMETURE DE FENETRE, MAINTENANT QUE LA FENETRE EXISTE -- et sur SIGNAL, pas sur delai.
+# Le signal est le HUD de deploiement : c'est une VUE qu'on protege, et c'est lui qui lit ses
+# bornes une seule fois a l'ouverture. Attendre `state.liveRunner` ne suffirait pas -- il est non
+# nul avant qu'aucun HUD ne soit monte.
+print()
+sandbox_fenetre_armer_quand_vivante(j)
 
 # 6. LAISSER LA TRACE DE CE QU'ON A MONTE -- c'est le seul endroit qui le SACHE.
 #

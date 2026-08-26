@@ -51,7 +51,7 @@ OBSERVENT = [
 ]
 
 
-def armer_relais_sandbox(jeu, armements, timeout=180000):
+def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True):
     """LE POINT DE PASSAGE DES MONTAGES SANDBOX : armer les relais ET leur extinction, ENSEMBLE.
 
     ⛔ POURQUOI IL FALLAIT LE CREER. Cote sandbox il n'existait AUCUN point de passage : chaque
@@ -65,12 +65,26 @@ def armer_relais_sandbox(jeu, armements, timeout=180000):
     chaines de bataille REELLE l'empruntent, et elles ne doivent justement PAS eteindre leurs
     relais en fin de passe -- la boucle de farm en rejoue une autre derriere.)
 
-    ⚠ L'ORDRE EST UNE CONDITION : la fermeture est armee APRES les relais et AVANT que l'appelant
-    monte quoi que ce soit. C'est la seule position ou elle couvre AUSSI une fenetre qui meurt tot
-    -- montage refuse, retraite immediate.
+    ⛔ `fenetre=False` QUAND L'APPELANT VA MONTER DERRIERE, ET C'EST MESURE. Il etait ecrit ici que
+    l'armement de la fermeture AVANT le montage etait « une condition », parce que c'est la seule
+    position qui couvre une fenetre morte tot (montage refuse, retraite immediate). La mesure du
+    2026-08-26 dit l'inverse : dans cette position, le veilleur se met a surveiller PENDANT LE
+    CHARGEMENT, et son critere -- « 4 s sans un seul appel de la pompe de bataille » -- est
+    exactement la duree d'un chargement. Il conclut donc que la scene a DISPARU alors qu'elle
+    APPARAIT, et eteint les 19 relais qu'on vient d'armer.
 
-    ⚠ Ca n'exempte pas de `desarmer_relais.py` : la fermeture couvre la mort de la FENETRE, pas un
-    pilote qui s'arrete avant d'avoir monte, ni des relais armes a la main.
+    Effet constate, sur `mirror4` noeud 29 : `deploymentPlafondArmer` retombe a `impose: None`, le
+    HUD garde `maxUnitsPossible: 0` (il lit ses bornes UNE FOIS, a l'ouverture de l'ecran), et le
+    joueur ne peut poser AUCUNE unite -- sans le moindre message. Deux bilans successifs du
+    veilleur (`frameNo` 296575 puis 329803) montrent le second tir tombant apres le montage.
+
+    ⚠ LA PARADE N'EST PAS UN DELAI. Attendre « un peu plus » avant d'armer ne fait que deplacer la
+    course. On arme sur un SIGNAL : `sandbox_fenetre_armer_quand_vivante` ci-dessous attend que la
+    bataille soit OBSERVEE en jeu, etat dans lequel `vuVivant` est legitimement vrai.
+
+    ⚠ Ce que `fenetre=False` fait PERDRE, et il faut le savoir : un montage REFUSE laisse alors les
+    relais armes. C'est deja le cas couvert par `desarmer_relais.py`, et que la fermeture
+    n'a jamais promis (« elle ne couvre pas un pilote qui s'arrete AVANT d'avoir monte »).
 
     Rend la liste des noms armes.
     """
@@ -81,7 +95,8 @@ def armer_relais_sandbox(jeu, armements, timeout=180000):
         print("  %-28s %s" % (nom, "ok" if ok else ("REFUS %s" % str(r)[:120])))
         if ok:
             poses.append(nom)
-    sandbox_fenetre_armer(jeu)
+    if fenetre:
+        sandbox_fenetre_armer(jeu)
     return poses
 
 
@@ -142,3 +157,38 @@ def sandbox_fenetre_armer(jeu, timeout=60000):
     print("  %-28s armee -- %d relais s'eteindront a la mort de la fenetre"
           % ("fermeture de fenetre", len(ECRIVENT)))
     return r
+
+
+def sandbox_fenetre_armer_quand_vivante(jeu, essais=300, timeout=60000):
+    """ARMER la fermeture UNE FOIS LE HUD DE DEPLOIEMENT PRESENT -- sur SIGNAL, jamais sur un delai.
+
+    A appeler par tout pilote qui MONTE, juste apres le montage, en ayant passe `fenetre=False`
+    a `armer_relais_sandbox`. Voir le pave d'`armer_relais_sandbox` pour la mesure qui l'impose.
+
+    ⛔ LE SIGNAL EST LE HUD, PAS LE RUNNER. Ce qu'on protege est une FENETRE, c'est-a-dire une VUE
+    -- et c'est le HUD qui lit `minUnitsPossible` / `maxUnitsPossible`, UNE SEULE FOIS, a son
+    ouverture. `state.liveRunner` est la logique de bataille : il peut etre non nul sans qu'aucun
+    HUD ne soit monte (et l'inverse au demontage). Prendre le runner pour signal, c'est armer sur
+    une fenetre qui n'existe pas encore -- exactement la faute qu'on repare, deplacee d'un cran.
+
+    ⛔ AUCUN `sleep` ICI. Le critere de sortie est l'ETAT observe (le HUD a une instance), pas une
+    duree. Le rythme de la boucle est celui des allers-retours RPC eux-memes : un delai fixe
+    encoderait une hypothese sur la vitesse de la machine, et c'est precisement l'hypothese fausse
+    qui a produit la panne.
+
+    ⚠ TRI-ETAT. Si le HUD n'apparait JAMAIS, on n'arme PAS et on le DIT : armer sur une fenetre
+    qu'on n'a pas vue, c'est refaire l'erreur dans l'autre sens. Rend le retour du RPC, ou `None`
+    = PAS ARMEE (et la raison est imprimee).
+    """
+    for _ in range(essais):
+        try:
+            h = jeu.rpc("deploymentHudArmer", [{}], timeout) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        etat = h.get("etat") if isinstance(h, dict) else None
+        if isinstance(etat, dict) and etat.get("hud") not in (None, "0x0"):
+            return sandbox_fenetre_armer(jeu, timeout)
+    print("  %-28s NON ARMEE : HUD de deploiement jamais VU (%d tentatives). Les relais restent "
+          "armes -- `desarmer_relais.py` pour les eteindre."
+          % ("fermeture de fenetre", essais))
+    return None
