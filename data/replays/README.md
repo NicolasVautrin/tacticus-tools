@@ -117,6 +117,42 @@ fichier supprime l'appariement, donc la dérive.
 **Réencoder reste inutile** : rien ne lit le brut. Si un jour il en fallait un,
 `base64(gzip(json))` le refabrique — sémantiquement identique, à l'octet près près.
 
+## ⚠ GUERRE DE GUILDE — la BC ne porte AUCUNE identité de zone. Mesuré le 2026-08-21
+
+C'est l'inverse exact de la campagne, et ça change la façon de ranger. Sur un replay GW
+(`data/replays/guild-war/dogalpha/`, monté en sandbox sur DogAlpha front 1 zone 3 slot 0) :
+
+| champ | valeur | ce qu'il identifie |
+|---|---|---|
+| `BattleConfiguration.Id` | **`PvpBattle`** | rien — **constante**, toutes les batailles GW la portent |
+| `BattleConfiguration.GameMode` | `GuildWars` | le mode, rien de plus |
+| `BattleConfiguration.Board.Id` | `C1_23` | le **TYPE** de zone (`ArtilleryPosition1`), pas la zone |
+| `SpawnPointSetIndex` | `5` | idem — dérivé du type de zone |
+| `MetaData.UserId` | le NÔTRE | pas le défenseur |
+| `Player.Players` | `player` / `enemy` | noms génériques |
+
+Et surtout : **`WarZoneId`, `ZonePartIndex`, `SlotIndex`, `GuildWarId` valent ZÉRO occurrence
+dans tout le fichier** (cherchés mot à mot). Ils vivent dans
+`IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource.GuildWarBattleData`, sont consommés
+pour CONSTRUIRE la BC, et ne sont jamais enregistrés dedans.
+
+**Conséquence** : deux slots d'un même type de zone produisent des BC dont tous les scalaires
+sont identiques. Le seul discriminant embarqué est le **lineup du défenseur** (`Units`). Donc,
+contrairement au guild boss où la clé se DÉRIVE du JSON, ici **l'identité est DÉCLARÉE** — même
+statut que `rank` : si on ne l'écrit pas au moment du montage, aucune relecture ne la rendra.
+
+`data/replays/guild-war/<defenseur>/registre.tsv` :
+`fichier · defenseur · front · zone · type · part · slot · board · spawn · seed · origine · role`
+— `board`, `spawn`, `seed` se re-dérivent ; tout le reste est déclaré.
+
+⚠ **`origine` n'est pas décoratif.** `sandbox` = monté par `sandbox_gw.py`, donc `MetaData.Mode`
+vaut `Sandbox` et **aucune tentative n'a été consommée** : ce n'est PAS une vraie attaque de
+guerre de guilde, et le confondre avec une attaque réelle ferait tirer des conclusions sur une
+partie qui n'a jamais eu lieu côté serveur.
+
+⚠ **`campagne_rejeu.py --ranger` ne sait PAS ranger ce mode** — il aiguille sur `GameMode` et
+n'accepte que `Campaign`. Le rangement GW est donc manuel pour l'instant.
+
 ## `registre.tsv` — court, et deux familles de colonnes à ne pas confondre
 
 `fichier · boss · rank · map · spawn · role`. Tout le reste (seed, PV du boss, `user_id`,
