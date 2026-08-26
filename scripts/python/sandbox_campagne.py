@@ -29,6 +29,7 @@ RACINE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante          # noqa: E402
 from sandbox_mode import Jeu                      # noqa: E402
+from relais_sandbox import sandbox_fenetre_armer  # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
 
@@ -303,6 +304,25 @@ for nom, corps in armements:
     etat = "ok" if (isinstance(rr, dict) and rr.get("ok")) else "REFUS %s" % json.dumps(
         rr, ensure_ascii=False)[:120]
     print("  %-28s %s" % (nom, etat))
+
+# 4bis. LA FERMETURE DE LA FENETRE -- ce montage n'y etait PAS branche, et c'est un DEFAUT.
+#
+# ⛔ LE MECANISME EXISTAIT DEJA, CABLE SUR UN SEUL CHEMIN. `sandbox-fenetre.ts` eteint les relais
+# d'ecriture a la mort de la fenetre (`stage -> Finished` ou `_runner -> null`, donc la retraite),
+# et `sandbox_boss.py` l'arme depuis le 2026-08-24. Ce pilote-ci, non : mesure du 2026-08-26,
+# apres une sandbox `elite1 40` terminee ET quittee, `sandboxModeBcOverride` etait encore ARME
+# avec son ancrage, `deploymentMemoire` retenait 5 poses, la phase et le pool restaient detournes
+# -- de quoi substituer la BC de la premiere bataille REELLE venue et y rejouer la composition
+# precedente. Le << desarmement fiable est un reinject >> ecrit dans le skill n'etait pas une
+# regle : c'etait la cicatrice de ce manque.
+#
+# ⚠ ON ARME APRES LES RELAIS ET AVANT LE MONTAGE, comme `sandbox_boss.py` : c'est la seule
+# position ou la fermeture couvre AUSSI une fenetre qui meurt tot (montage refuse, retraite
+# immediate). Armee apres le montage, elle laisserait passer exactement ces cas-la.
+#
+# ⚠ ET CA N'EXEMPTE PAS DE `desarmer_relais.py` : la fermeture couvre la mort de la FENETRE, pas
+# un pilote qui s'arrete avant d'avoir monte, ni des relais armes a la main.
+sandbox_fenetre_armer(j)
 
 # 5. Le montage. Le mode importe peu : l'override substitue la BC, ce qui compte est la SOURCE.
 print()
