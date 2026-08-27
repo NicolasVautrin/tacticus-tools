@@ -22,12 +22,15 @@
 // `IdunGameViews._runner` a chaque frame. Une fermeture sondee de l'exterieur serait une COURSE,
 // et la fenetre a fermer est precisement celle ou plus rien ne tourne pour sonder.
 //
-// QUATRE DECLENCHEURS, ET LE PRINCIPAL EST LE DERNIER
+// QUATRE DECLENCHEURS, ET TOUS SONT DES SIGNAUX -- AUCUN N'EST UN SEUIL DE DUREE
 //   1. `stage -> Finished`       — la bataille va au bout ;
 //   2. RUNNER MORT (`state` nul) — vu par la pompe, si elle vit encore assez longtemps ;
 //   3. `_runner -> null`         — idem ;
-//   4. POMPE DE BATAILLE ARRETEE — **c'est celui qui tire sur une retraite.**
+//   4. SORTIE NATIVE ANCREE      — **c'est celui qui tire sur une retraite.**
 // Le premier qui tire gagne ; les autres se taisent.
+//
+// ⛔ (4) ETAIT UN MINUTEUR JUSQU'AU 2026-08-27, ET IL A DETRUIT LA LINEUP DU JOUEUR DEUX FOIS.
+// Le detail de la panne et du remede est en tete du bloc « DECLENCHEUR 4 » plus bas.
 //
 // ⛔ (1), (2) ET (3) SONT LUS DEPUIS `main-pump`, QUI REMPLACE `IdunGameViews.Update`. Quand la
 // scene de bataille est demontee, `Update` cesse d'etre appele : l'observateur meurt avec ce
@@ -44,10 +47,13 @@
 // ⇒ Pour mesurer qu'un appelant s'est arrete, compter SES appels -- jamais une horloge qu'il
 //   partage avec quelqu'un d'autre.
 //
-// ⚠ ET LA FERMETURE N'A AUCUNE CONTRAINTE DE TIMING -- c'est ce qui rend un intervalle
-// legitime ici alors qu'il serait faux pour une capture de replay. Le replay doit etre pris A LA
-// FRAME (le runner disparait). Le desarmement, lui, doit seulement avoir lieu AVANT la prochaine
-// bataille. Deux secondes de retard ne coutent rien ; ne jamais tirer coute un jeton.
+// ⚠ ET LA FERMETURE N'A AUCUNE CONTRAINTE DE TIMING : elle doit seulement avoir lieu AVANT la
+// prochaine bataille. C'est ce qui avait fait croire qu'un intervalle etait legitime ici alors
+// qu'il serait faux pour une capture de replay (qui, elle, doit etre prise A LA FRAME).
+// ⛔ RAISONNEMENT FAUX, ET LA FAUTE N'EST PAS DANS LE RETARD TOLERE : elle est dans le
+// DECLENCHEUR. << Tirer tard ne coute rien >> ne dit rien sur << tirer sur le mauvais etat >>.
+// Une pompe arretee ne DESIGNE pas une retraite ; un chargement produit exactement la meme
+// mesure. La souplesse sur l'instant ne justifie donc jamais un seuil a la place d'un signal.
 //
 // ⛔ LA LISTE DES RELAIS N'EST PAS ECRITE ICI, ET C'EST DELIBERE. Elle vit dans
 // `scripts/python/relais_sandbox.py`, avec l'historique de chaque entree (dont deux RPC retires
@@ -63,6 +69,7 @@ import { state } from "../game/state.js";
 import { readBattleStatus } from "../game/match-state.js";
 import { runnerOff } from "../game/runner.js";
 import { Ctx } from "../controller.js";
+import { findClassAnywhere, findMethodByParamCount } from "../il2cpp/helpers.js";
 
 /** Une frame sur 15 (~0,25 s a 60 fps) — meme cadence que `replay-fin-auto`. */
 const PERIODE_FRAMES = 15;
@@ -106,57 +113,100 @@ let appelsSurveillance = 0;
 let appelsDetachement = 0;
 let dernierRefus: string | null = null;
 
-// --- DECLENCHEUR 3 : LA POMPE S'ARRETE ---------------------------------------------------
-/** Toutes les 2 s, hors frame du jeu. Le thread JS de Frida vit meme quand la scene est morte. */
-const PERIODE_VEILLE_MS = 2000;
-/** Deux tours SANS progression avant de conclure, pas un : une frame peut manquer (chargement,
- *  fenetre minimisee) sans que la scene soit morte. Fermer trop tot desarmerait une fenetre
- *  VIVANTE, ce qui est la panne symetrique et bien pire. */
-const TOURS_SANS_FRAME_AVANT_FERMETURE = 2;
-// `setInterval` ne rend PAS un `number` sous le typage Frida -- on prend le type qu'il rend.
-let veille: ReturnType<typeof setInterval> | null = null;
-/** ⛔ ON SURVEILLE `appelsSurveillance`, PAS `state.frameNo` -- ET C'EST TOUT LE SUJET.
- *
- *  `state.frameNo` est incremente par DEUX pompes : la principale (`IdunGameViews.Update`, qui
- *  seule nous appelle) et la pompe UI. Quand la scene de bataille meurt, la principale s'arrete
- *  et la seconde continue -- donc `frameNo` avance encore, et une veille batie dessus ne
- *  conclut JAMAIS. Mesure du 2026-08-24, apres retraite : nos appels GELES a 665, `frameNo`
- *  +356 en 6 s. Le seul compteur qui dit << la pompe qui m'appelle est morte >> est celui que
- *  J'INCREMENTE MOI-MEME. */
-let derniereSurveillanceVue = -1;
-let toursSansFrame = 0;
+// --- DECLENCHEUR 4 : LA SORTIE NATIVE, ANCREE -- PLUS AUCUN MINUTEUR ----------------------
+//
+// ⛔ CE QUI ETAIT LA AVANT, ET POURQUOI C'ETAIT FAUX. Le 4e declencheur etait une VEILLE :
+// `setInterval` toutes les 2 s, fermeture apres 2 tours sans un seul appel de la pompe. Le
+// raisonnement tenait -- sur une retraite depuis le deploiement, `IdunGameViews.Update` cesse
+// d'etre appele, donc les declencheurs 1 a 3 ne peuvent STRUCTURELLEMENT jamais tirer, et il
+// fallait bien un filet.
+//
+// Sauf qu'une pompe arretee 4 s ne DESIGNE PAS une retraite : c'est aussi la duree d'un
+// CHARGEMENT. Mesure du 2026-08-27 -- la fenetre s'est fermee toute seule avec
+// `dernierStageVu: "Setup"`, en plein ecran de placement, et a desarme les 19 relais d'un
+// montage qu'on venait de faire. Le commit de lineup, encore arme a cet instant, a alors ecrit
+// un plateau A MOITIE REMPLI (3 unites sur 4) dans le magasin du jeu : la composition du joueur
+// a ete detruite, deux fois, et le 4e slot rebouche par une unite arbitraire.
+//
+// ⇒ UN SEUIL DE DUREE NE DISTINGUE PAS DEUX ETATS QUI ONT LA MEME SIGNATURE TEMPORELLE.
+//   La retraite a un SIGNAL, et il etait deja ancre a deux metres d'ici (`lineup-poser.ts`) :
+//   `IdunBattle.ViewLogic.BattleSource.SandboxGameModeSource$$HandleBattleSurrender`.
+//
+// ⚠ L'ANCRAGE EST PROPRE A LA SANDBOX, ET C'EST MESURE : `HandleBattleSurrender` occupe
+// 12 adresses DISTINCTES dans `frida/methods.tsv`, une par mode -- pas de corps deduplique,
+// donc ce listener ne tirera pas sur une bataille REELLE. (Controle deja fait pour le commit
+// de lineup ; c'est la meme methode, sur la meme classe.)
+//
+// ⚠ `onEnter` SEUL, ET C'EST UN LISTENER NEUF -- on n'ajoute pas un `onEnter` a un listener
+// existant, ce qui ferait CESSER son tir en silence (paye deux fois dans ce depot).
+//
+// ⚠ CE QUE CE CHANGEMENT PERD, ET JE LE NOMME. La veille fermait sur N'IMPORTE QUELLE
+// disparition de scene ; les ancrages ne ferment que sur les sorties qu'on a NOMMEES. Une
+// sortie par un chemin non couvert laisse donc la fenetre ouverte, donc les relais armes. Le
+// filet est le controle explicite (`desarmer_relais.py`, `etat_relais.py`), pas une horloge :
+// un desarmement qui tire au mauvais moment coute plus cher qu'un desarmement qui n'a pas tire,
+// parce que le second se voit et se rattrape.
+const NS_SRC = "IdunBattle.ViewLogic.BattleSource";
+const CLS_SANDBOX = "SandboxGameModeSource";
+/** `HandleBattleSurrender` a 9 parametres (compte etabli par `lineup-poser.ts`).
+ *  `HandleBattleException` : compte INCONNU, donc CHERCHE -- jamais devine. */
+const SORTIES: Array<{ methode: string; params: number | null }> = [
+    { methode: "HandleBattleSurrender", params: 9 },
+    { methode: "HandleBattleException", params: null },
+];
+/** Ce qui a REELLEMENT ete ancre. Publie tel quel : un ancrage manquant doit se LIRE, pas se
+ *  deduire d'un silence. */
+let sortiesAncrees: Array<{ methode: string; params: number | null; refus: string | null }> = [];
+let ecoutesSortie: InvocationListener[] = [];
 
-function arreterVeille(): void {
-    if (veille !== null) { clearInterval(veille); veille = null; }
+function detacherSorties(): void {
+    for (const l of ecoutesSortie) { try { l.detach(); } catch { /* deja detache */ } }
+    if (ecoutesSortie.length > 0) Interceptor.flush();
+    ecoutesSortie = [];
 }
 
-function demarrerVeille(): void {
-    arreterVeille();
-    derniereSurveillanceVue = -1;
-    toursSansFrame = 0;
-    veille = setInterval(() => {
-        if (!arme || ferme) { arreterVeille(); return; }
-        // Tant qu'aucune fenetre ne s'est OUVERTE, il n'y a rien a fermer -- et surtout, une
-        // pompe a l'arret est alors l'etat NORMAL (hors bataille).
-        if (!vuVivant) { derniereSurveillanceVue = appelsSurveillance; return; }
-        if (appelsSurveillance !== derniereSurveillanceVue) {
-            derniereSurveillanceVue = appelsSurveillance;
-            toursSansFrame = 0;
-            return;
+function ancrerSorties(): void {
+    detacherSorties();
+    sortiesAncrees = [];
+    const k = findClassAnywhere(NS_SRC, CLS_SANDBOX);
+    if (!k) {
+        sortiesAncrees.push({ methode: "*", params: null,
+                              refus: `${NS_SRC}.${CLS_SANDBOX} INTROUVABLE sur ce build` });
+        return;
+    }
+    for (const s of SORTIES) {
+        // Compte connu : on le vise. Compte inconnu : on BALAYE et on DIT lequel a repondu --
+        // une surcharge choisie au hasard ancrerait un corps qui n'est pas celui qu'on croit.
+        let mi = null;
+        let trouve: number | null = null;
+        const essais = s.params !== null ? [s.params] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        for (const n of essais) {
+            mi = findMethodByParamCount(k, s.methode, n);
+            if (mi) { trouve = n; break; }
         }
-        toursSansFrame++;
-        if (toursSansFrame >= TOURS_SANS_FRAME_AVANT_FERMETURE) {
-            fermer("pompe de bataille ARRETEE (" + (toursSansFrame * PERIODE_VEILLE_MS / 1000)
-                   + " s sans un seul appel) -- la scene de bataille a disparu");
+        if (!mi) {
+            sortiesAncrees.push({ methode: s.methode, params: null,
+                                  refus: `\`${CLS_SANDBOX}$$${s.methode}\` INTROUVABLE` });
+            continue;
         }
-    }, PERIODE_VEILLE_MS);
+        ecoutesSortie.push(Interceptor.attach(mi.ptr, {
+            onEnter() {
+                // Meme garde que les trois autres declencheurs : tant qu'aucune fenetre ne s'est
+                // OUVERTE, il n'y a rien a fermer.
+                if (!arme || ferme || !vuVivant) return;
+                fermer(`SORTIE NATIVE \`${CLS_SANDBOX}$$${s.methode}\` -- signal, pas seuil`);
+            },
+        }));
+        sortiesAncrees.push({ methode: s.methode, params: trouve, refus: null });
+    }
+    Interceptor.flush();
 }
 
 function fermer(raison: string): void {
     if (!arme || ferme) return;
     ferme = true;
     arme = false;                      // plus rien ne doit re-declencher
-    arreterVeille();
+    detacherSorties();
     const instantane = relais.slice();
     const frameNo = state.frameNo;
     // ⛔ JAMAIS DANS LA FRAME. Les deux pompes REMPLACENT `Update` : tout ce qu'on fait ici
@@ -269,12 +319,13 @@ export function register(ctx: Ctx): void {
                 relais: relais.map((r) => r.rpc),
                 appels: { surveillance: appelsSurveillance, detachement: appelsDetachement,
                           dernierStageVu: dernierStage, dernierRefus,
-                          veilleActive: veille !== null, toursSansFrame,
-                          derniereSurveillanceVue,
                           // `frameNo` est publie POUR LE CONTRASTE : il avance meme quand la
                           // pompe de bataille est morte (l'autre pompe l'incremente). Les voir
-                          // cote a cote est ce qui a fait trouver la panne.
+                          // cote a cote est ce qui a fait trouver la panne d'origine.
                           frameNo: state.frameNo },
+                // CE QUI EST REELLEMENT ANCRE. Un declencheur absent doit se LIRE ici, pas se
+                // deduire d'une fenetre qui ne se ferme jamais.
+                sortiesAncrees,
                 dernierBilan,
                 note: "lecture seule -- `{armer:true, relais:[{rpc,corps}]}` pour armer a "
                     + "l'ouverture, `{armer:false}` pour renoncer sans rien desarmer.",
@@ -282,7 +333,7 @@ export function register(ctx: Ctx): void {
         }
         if (body.armer === false) {
             arme = false;
-            arreterVeille();
+            detacherSorties();
             return { ok: true, arme: false, note: "renonce -- AUCUN relais n'a ete desarme ici. "
                 + "Pour desarmer maintenant : `desarmer_relais.py`." };
         }
@@ -299,12 +350,19 @@ export function register(ctx: Ctx): void {
         vuVivant = state.liveRunner !== null;
         dernierStage = null;
         dernierRefus = null;
-        demarrerVeille();
+        ancrerSorties();
+        const manquants = sortiesAncrees.filter((s) => s.refus !== null).map((s) => s.methode);
         return {
-            ok: true, arme, vuVivant, relais: relais.map((r) => r.rpc),
+            ok: true, arme, vuVivant, relais: relais.map((r) => r.rpc), sortiesAncrees,
             note: "les relais seront desarmes a la MORT de la fenetre : `stage -> Finished`, "
-                + "`_runner -> null`, ou POMPE ARRETEE (la scene demontee -- c'est le cas le "
-                + "plus courant). Bilan relu dans `sandboxFenetre {}`.",
+                + "`_runner -> null`, ou une SORTIE NATIVE ancree (la retraite). AUCUN minuteur "
+                + "-- une pompe arretee 4 s, c'est aussi la duree d'un chargement, et le seuil a "
+                + "deja ferme une fenetre en plein ecran de placement. Bilan relu dans "
+                + "`sandboxFenetre {}`."
+                + (manquants.length > 0
+                    ? ` (!) ${manquants.length} sortie(s) NON ancree(s) : ${manquants.join(", ")}`
+                       + " -- une retraite par ce chemin ne fermera rien."
+                    : ""),
         };
     };
 }

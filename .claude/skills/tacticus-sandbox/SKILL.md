@@ -159,6 +159,63 @@ boss entièrement gréé était refusé au motif « rejouer l'amorce » — et l
 en pure perte, alors qu'`armerUneDelegation` résout sur `sourcePreteuse()` et n'aurait pas lu
 la campagne une seule fois. La garde porte désormais sur le prêteur retenu.
 
+## Les 19 relais d'écriture — ce que chacun fait
+
+Un montage sandbox arme **19 relais qui ÉCRIVENT dans le jeu**, plus 4 observateurs qu'on
+laisse. La liste vit dans `scripts/python/relais_sandbox.py` (`ECRIVENT`), source unique —
+le hook `sandbox-fenetre.ts` ne la duplique pas, le pilote la lui PASSE à l'armement.
+
+**Le roster et les bornes de l'écran de déploiement** — sans eux la sandbox montre un écran vide :
+
+| relais | ce qu'il fait |
+|---|---|
+| `deploymentPoolArmer` | **délègue** les méthodes de source à une VRAIE source (campagne, mowEvent…). Sans lui `GetUnitModel` rend un `HotseatUnitModel` qui échoue à `IsUnlocked`, `GetUnitsForDeploymentHUD` une liste VIDE |
+| `deploymentPlafondArmer` | observe et sur demande IMPOSE le min/max d'unités. Agit sur le relais `VisualBattleQuery`, jamais sur `SandboxGameModeSource$$AmountOfUnlockedUnits` qui résout sur un `return 0;` |
+| `deploymentPoolSansFiltre` | lève le filtre de nœud sur le roster emprunté (`Nullable<Int32>`). Observation par défaut : masquer un pointeur au lieu d'une valeur le corromprait |
+
+**La pose des unités** :
+
+| relais | ce qu'il fait |
+|---|---|
+| `deploymentPhaseArmer` | la phase de déploiement — observe, ou FORCE le retour de `Enable` |
+| `deploymentBoutonArmer` | **la voie de pose des héros**. Armé, la pose passe par `StateMachineActions$$UnitDeployment_PlaceUnitOnBoard` — celle du clic humain — donc les héros deviennent des PLACEHOLDERS comptés par le HUD, au lieu d'unités réelles qu'il ne voit pas (START à 0/5) |
+| `deploymentMemoire` | retient chaque pose et la **rejoue** au `Show` suivant, pour qu'un retry reparte avec l'équipe composée. Ne rejoue que si le camp du joueur est VIDE |
+| `deploymentSyncArmer` | déclare au HUD les unités déjà présentes sur une BC pré-remplie, et rafraîchit le bouton — rend START vivant sans geste manuel |
+| `deploymentClearArmer` | le bouton CLEAR : armé, il ôte AUSSI les unités réelles |
+| `deploymentDeposeArmer` | son pendant unité par unité (ôter du plateau ôte du runner) |
+| `deploymentCheminsArmer` | le robinet des neuf ancrages de bascule (`EmptySpawnPointTapped`, `PutUnitIntoHand`, `RemoveUnit`…). Existe parce qu'une observation pure n'était pas ÔTABLE, et qu'on INVOQUE certains de ces chemins |
+
+**Les capteurs de diagnostic du START** — ils n'écrivent rien mais sont dans la liste :
+
+| relais | ce qu'il fait |
+|---|---|
+| `deploymentPrefabArmer` | capture le patron sur `UnitIdToPrefabDictionary$$Add`. À armer AVANT le montage : c'est `StartBattle` qui fait tirer `Add` |
+| `deploymentStartArmer` | capteur pur sur `UnitDeploymentState$$StartBattle` |
+| `deploymentRunnerStartArmer` | capteur pur sur `IdunRunner$$StartMatch` |
+| `deploymentDraftArmer` | régime transparent |
+| `deploymentJetArmer` | s'ancre sur le **lanceur de jet** IL2CPP lui-même (`NullReferenceException`), pas sur le symptôme |
+| `deploymentVidangeArmer` | s'ancre sur `Dictionary.Clear` — c'est la réponse à « l'erreur arrive trop tard » : quand le « system error » du START tombe, la cause a déjà eu lieu |
+
+**Les trois de `sandbox-mode`, et ce sont les DANGEREUX pour une bataille réelle** :
+
+| relais | ce qu'il fait |
+|---|---|
+| `sandboxModeBcOverride` | **SUBSTITUE la BC** que `LoadBattle` rend. Laissé armé, il détourne la première bataille RÉELLE venue |
+| `sandboxModeSeed` | impose le seed de la prochaine bataille (`unCoup: true` par défaut) |
+| `sandboxModeGameViews` | injecte `_gameViews` sur la source ; son journal dit ce qui a ÉTÉ ÉCRIT |
+
+⛔ **Leur désarmement se LIT, il ne se déduit pas.** `desarmer_relais.py` désarme **sans
+condition** et imprime `desarme` pour chaque entrée, qu'elle ait été armée ou non : sa sortie
+ne prouve donc RIEN sur l'état d'avant. Le seul contrôle qui tranche est la lecture
+(`sandboxModeBcOverride {}`, `deploymentMemoire {}` → `arme`). Payé le 2026-08-28 : un
+« 19 relais armés, ta BC réelle serait détournée » annoncé sans mesure, alors que la fenêtre
+s'était déjà fermée sur la retraite du joueur et que tout était éteint.
+
+⚠ **Et le désarmement automatique ne couvre que les fenêtres qui MEURENT.** Les quatre
+déclencheurs de `sandbox-fenetre.ts` sont des fins de bataille (`stage -> Finished`, runner
+mort, `_runner -> null`, `HandleBattleSurrender`). Monter puis partir **sans jamais jouer**
+ne déclenche rien : les relais restent armés, en silence.
+
 ## Ne pas faire
 
 - **Ne jamais lancer Tacticus** ni le relancer : geste UTILISATEUR.

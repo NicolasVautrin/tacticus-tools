@@ -40,7 +40,7 @@ from sandbox_mode import Jeu                      # noqa: E402
 # pilote. Si elle etait restee ici, tout pilote qui l'arme importerait `desarmer_relais`, qui
 # importe `sandbox_boss` -- un cycle. On DEPLACE le code partage plutot que de differer un
 # import, comme le prescrit le CLAUDE.md.
-from relais_sandbox import ECRIVENT, OBSERVENT, arme_selon  # noqa: E402
+from relais_sandbox import ECRIVENT, EPARGNES, OBSERVENT, arme_selon  # noqa: E402
 
 HOTE = "http://127.0.0.1:8765"
 
@@ -57,13 +57,28 @@ def passer(jeu, lire=False, montrer_observateurs=True):
     `lire=True` = regime RETRY : on ne mute rien, on constate. Cf. l'en-tete du module.
     """
     restants, muets = [], []
+    # ⛔ ON LIT AVANT, ET C'EST TOUT L'ENJEU DE LA SORTIE. Sans l'etat d'AVANT, ce script imprime
+    # `desarme` pour les 19 qu'ils aient ete armes ou non -- et sa sortie se lit alors comme
+    # << j'ai eteint 19 relais allumes >> alors qu'elle dit seulement << ils sont eteints >>.
+    # Faute payee le 2026-08-28 : un << 19 relais armes, ta BC reelle serait detournee >> annonce
+    # sur cette sortie, alors que la fenetre s'etait deja fermee et que TOUT etait eteint. Le
+    # menage inutile qui a suivi a coute la lineup du joueur.
     for nom, corps in ECRIVENT:
+        avant = arme_selon(jeu.rpc(nom, [{}], 120000))
         if not lire:
             jeu.rpc(nom, [corps], 180000)
         relu = jeu.rpc(nom, [{}], 120000)
         etat = arme_selon(relu)
-        print("  %-28s %s" % (nom, {True: "ARME", False: "desarme",
-                                    None: "NON MESURE"}[etat]))
+        if lire:
+            marque = {True: "ARME", False: "eteint", None: "NON MESURE"}[etat]
+        elif avant is True and etat is False:
+            marque = "ARME -> desarme"          # un vrai changement
+        elif avant is False and etat is False:
+            marque = "deja eteint (rien fait)"  # no-op : ne PAS le lire comme une action
+        else:
+            marque = "%s -> %s" % ({True: "ARME", False: "eteint", None: "NON MESURE"}[avant],
+                                   {True: "ARME", False: "eteint", None: "NON MESURE"}[etat])
+        print("  %-28s %s" % (nom, marque))
         if etat is True:
             restants.append((nom, relu))
         elif etat is None:
@@ -71,8 +86,18 @@ def passer(jeu, lire=False, montrer_observateurs=True):
 
     if montrer_observateurs:
         print()
-        print("LAISSES ARMES (observation pure) :")
+        print("LAISSES ARMES (observation pure -- les desarmer rendrait la bataille AVEUGLE) :")
         for nom, pourquoi in OBSERVENT:
+            r = jeu.rpc(nom, [{}], 120000)
+            print("  %-28s %-11s %s" % (nom, {True: "arme", False: "eteint",
+                                              None: "?"}.get(arme_selon(r), "?"), pourquoi))
+        # ⛔ LES EPARGNES SONT IMPRIMEES MEME QUAND ELLES SONT ETEINTES. Ce ne sont pas des
+        # observateurs : ils ECRIVENT. Ce qu'on doit pouvoir lire, c'est la RAISON de ne pas y
+        # toucher -- sinon la decision reste invisible et le prochain lecteur les desarme a la
+        # main, ce qui est exactement ce qui est arrive.
+        print()
+        print("NON DESARMES DELIBEREMENT (ils ECRIVENT, mais les eteindre CASSE quelque chose) :")
+        for nom, pourquoi in EPARGNES:
             r = jeu.rpc(nom, [{}], 120000)
             print("  %-28s %-11s %s" % (nom, {True: "arme", False: "eteint",
                                               None: "?"}.get(arme_selon(r), "?"), pourquoi))

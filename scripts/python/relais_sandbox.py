@@ -50,6 +50,24 @@ OBSERVENT = [
     ("replayFinAuto", "capture le replay en fin de bataille"),
 ]
 
+# Les relais qui ECRIVENT mais qu'on NE DESARME PAS, et POURQUOI.
+#
+# ⛔ CETTE LISTE EXISTE PARCE QUE L'OMISSION N'EST PAS UNE DECISION LISIBLE. `lineupRetraiteCommit`
+# ecrit dans le jeu -- il n'avait donc rien a faire dans `OBSERVENT` -- mais il ne devait pas
+# entrer dans `ECRIVENT` non plus. Il etait donc epargne par ABSENCE, c'est-a-dire de facon
+# invisible : rien dans la sortie du desarmement ne disait qu'il existait, ni qu'il fallait le
+# laisser. Mesure du 2026-08-28 : je l'ai desarme A LA MAIN dans un << menage avant le live >>,
+# et la composition du joueur a perdu son heros (Kariyan retire de `eliteMirror3_5`) -- deux fois
+# dans la soiree, la premiere ayant coute une lineup entiere (Haarken remplace par Volk).
+#
+# ⚠ Une liste d'epargnes n'est pas une liste d'exceptions : c'est la partie de la decision qu'on
+# doit POUVOIR LIRE. Le script les imprime a chaque passage, avec leur etat et leur raison.
+EPARGNES = [
+    ("lineupRetraiteCommit",
+     "il TIENT la composition posee en sandbox : l'eteindre la defait, SANS le moindre message. "
+     "Capter la lineup a CHAQUE retraite EST sa fonction."),
+]
+
 
 def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True, lineup=None):
     """LE POINT DE PASSAGE DES MONTAGES SANDBOX : armer les relais ET leur extinction, ENSEMBLE.
@@ -79,8 +97,22 @@ def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True, lineup=No
     veilleur (`frameNo` 296575 puis 329803) montrent le second tir tombant apres le montage.
 
     ⚠ LA PARADE N'EST PAS UN DELAI. Attendre « un peu plus » avant d'armer ne fait que deplacer la
-    course. On arme sur un SIGNAL : `sandbox_fenetre_armer_quand_vivante` ci-dessous attend que la
-    bataille soit OBSERVEE en jeu, etat dans lequel `vuVivant` est legitimement vrai.
+    course -- et la premiere version de la parade EN ETAIT UN, sous un autre nom : une boucle
+    bornee a 300 sondages du HUD, qui a fini par expirer pour de bon le 2026-08-27. Cf. le pave de
+    `sandbox_fenetre_armer_quand_vivante`.
+
+    ⚠ CE QUI REND L'ARMEMENT POST-MONTAGE SUR, ET CE N'EST PAS UN DELAI NON PLUS : le garde
+    `vuVivant` du HOOK. La veille << pompe arretee >> est explicitement court-circuitee tant
+    qu'aucune fenetre n'a vecu (`if (!vuVivant) { ...; return; }`, commente << une pompe a l'arret
+    est alors l'etat NORMAL >>). Le scenario decrit ci-dessus -- conclure a la mort PENDANT un
+    chargement -- ne peut donc plus se produire avant l'ouverture. C'est ce garde, cote hook, qui
+    remplace le sondage cote Python, pas une temporisation mieux reglee.
+
+    ⚠ ET LES DEUX PANNES SONT TOUTES DEUX SILENCIEUSES -- ne pas se rassurer en croyant que l'une
+    << se verrait >>. Desarmer trop tot ne dit RIEN (le joueur ne peut poser aucune unite, sans
+    message : c'est la mesure du 2026-08-26 juste au-dessus) ; ne pas armer ne dit rien non plus
+    jusqu'a la bataille REELLE suivante. Le seul controle qui tranche reste la LECTURE des relais
+    (`sandboxModeBcOverride {}`, `deploymentMemoire {}` -> `arme`).
 
     ⚠ Ce que `fenetre=False` fait PERDRE, et il faut le savoir : un montage REFUSE laisse alors les
     relais armes. C'est deja le cas couvert par `desarmer_relais.py`, et que la fermeture
@@ -240,28 +272,55 @@ def sandbox_fenetre_armer(jeu, timeout=60000):
     return r
 
 
-def sandbox_fenetre_armer_quand_vivante(jeu, essais=300, timeout=60000):
-    """ARMER la fermeture UNE FOIS LE HUD DE DEPLOIEMENT PRESENT -- sur SIGNAL, jamais sur un delai.
+def sandbox_fenetre_armer_quand_vivante(jeu, essais=None, timeout=60000):
+    """ARMER la fermeture TOUT DE SUITE -- c'est le HOOK qui attend l'ouverture, pas nous.
 
     A appeler par tout pilote qui MONTE, juste apres le montage, en ayant passe `fenetre=False`
     a `armer_relais_sandbox`. Voir le pave d'`armer_relais_sandbox` pour la mesure qui l'impose.
 
-    ⛔ LE SIGNAL EST LE HUD, PAS LE RUNNER. Ce qu'on protege est une FENETRE, c'est-a-dire une VUE
-    -- et c'est le HUD qui lit `minUnitsPossible` / `maxUnitsPossible`, UNE SEULE FOIS, a son
-    ouverture. `state.liveRunner` est la logique de bataille : il peut etre non nul sans qu'aucun
-    HUD ne soit monte (et l'inverse au demontage). Prendre le runner pour signal, c'est armer sur
-    une fenetre qui n'existe pas encore -- exactement la faute qu'on repare, deplacee d'un cran.
+    ⛔ ELLE A SONDE, ET C'ETAIT UN TIMER DEGUISE. Elle appelait `deploymentHudArmer` jusqu'a 300
+    fois en attendant de VOIR le HUD, et sa propre docstring affirmait << sur SIGNAL, jamais sur un
+    delai >> puis << AUCUN `sleep` ICI >>. Les deux etaient faux dans les faits : une boucle BORNEE
+    est un delai, simplement libelle en allers-retours RPC au lieu de secondes -- et sa borne
+    encodait exactement l'hypothese qu'elle pretendait bannir, celle du temps que met un humain a
+    rejoindre l'ecran de deploiement. Mesure du 2026-08-27 (`elite2` 25) : les 300 essais se sont
+    ecoules AVANT l'arrivee sur l'ecran, la fermeture n'a pas ete armee, et `sandboxModeBcOverride`
+    comme `deploymentMemoire` etaient encore `arme=True` apres la bataille -- la panne meme que ce
+    module existe pour empecher. La prose a fait passer le timer pour un signal ; c'est ce qui l'a
+    rendu invisible a la relecture.
 
-    ⛔ AUCUN `sleep` ICI. Le critere de sortie est l'ETAT observe (le HUD a une instance), pas une
-    duree. Le rythme de la boucle est celui des allers-retours RPC eux-memes : un delai fixe
-    encoderait une hypothese sur la vitesse de la machine, et c'est precisement l'hypothese fausse
-    qui a produit la panne.
+    ⛔ LE GARDE D'OUVERTURE EXISTE DEJA, ET IL EST DANS LE HOOK. `sandbox-fenetre.ts` porte
+    `vuVivant`, pose par la POMPE (`if (state.liveRunner) vuVivant = true;` dans
+    `surveillerFinDeFenetre`, appele a chaque frame) et exige par les QUATRE declencheurs de
+    fermeture. A l'armement il vaut `state.liveRunner !== null` -- donc `false` quand on arme avant
+    la bataille, puis il bascule SEUL a l'ouverture. Armer hors bataille est le cas PREVU, pas un
+    cas limite : le hook ne peut rien fermer tant qu'il n'a rien vu vivre. Sonder cote Python
+    refaisait ce travail, en moins bien, et ajoutait la seule course qui pouvait etre perdue.
 
-    ⚠ TRI-ETAT. Si le HUD n'apparait JAMAIS, on n'arme PAS et on le DIT : armer sur une fenetre
-    qu'on n'a pas vue, c'est refaire l'erreur dans l'autre sens. Rend le retour du RPC, ou `None`
-    = PAS ARMEE (et la raison est imprimee).
+    ⚠ L'ANCIEN ARGUMENT -- << le signal est le HUD, pas le runner ; le runner peut etre non nul
+    sans qu'aucun HUD soit monte >> -- reste vrai, mais il ne porte pas. Ce que `vuVivant` empeche,
+    c'est de se consommer sur un detachement ANTERIEUR a la fenetre ; laquelle des deux vies on
+    observe est alors indifferent.
+
+    ⛔ ET ON NE SE RASSURE PAS EN SE DISANT QUE L'AUTRE PANNE << SE VERRAIT >>. J'ai d'abord ecrit
+    ici qu'armer trop tot echouait FERME, donc visiblement -- c'est FAUX, et le fichier le mesurait
+    deja quinze lignes plus haut : des relais eteints trop tot laissent un HUD a
+    `maxUnitsPossible: 0` et un joueur qui ne peut poser AUCUNE unite, SANS le moindre message.
+    Les deux pannes sont muettes. Ce qui autorise l'armement immediat n'est donc pas un arbitrage
+    entre elles, c'est le garde `vuVivant` du hook, qui rend la premiere IMPOSSIBLE avant
+    l'ouverture.
+
+    `essais` est conserve pour ne casser aucun appelant ; il est IGNORE, et le dit.
     """
-    for _ in range(essais):
+    # ⛔ L'ARMEMENT IMMEDIAT A ETE ESSAYE LE 2026-08-27, ET IL CASSE -- garder le sondage jusqu'a
+    # ce que le hook sache attendre une TRANSITION. Mesure, sur `elite2` 25 : la fermeture a tire
+    # dans la seconde, `raison = "pompe de bataille ARRETEE (4 s sans un seul appel)"`, 19 relais
+    # eteints sur un montage qui venait de les armer. Le garde `vuVivant` n'a pas protege parce
+    # qu'il vaut `state.liveRunner !== null` A L'INSTANT DE L'ARMEMENT : un runner de la bataille
+    # PRECEDENTE le met a `true` tout de suite, apres quoi la pompe se tait pendant la transition
+    # de scene et la veille conclut a la mort. C'est la panne du 2026-08-26, retrouvee a
+    # l'identique.
+    for _ in range(essais if essais is not None else 300):
         try:
             h = jeu.rpc("deploymentHudArmer", [{}], timeout) or {}
         except Exception:  # noqa: BLE001
@@ -271,5 +330,5 @@ def sandbox_fenetre_armer_quand_vivante(jeu, essais=300, timeout=60000):
             return sandbox_fenetre_armer(jeu, timeout)
     print("  %-28s NON ARMEE : HUD de deploiement jamais VU (%d tentatives). Les relais restent "
           "armes -- `desarmer_relais.py` pour les eteindre."
-          % ("fermeture de fenetre", essais))
+          % ("fermeture de fenetre", essais if essais is not None else 300))
     return None
