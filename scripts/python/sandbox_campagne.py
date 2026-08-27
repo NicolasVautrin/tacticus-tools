@@ -251,11 +251,17 @@ print("bornes de pose (LUES sur la source) : min=%d max=%d" % (bmin, bmax))
 #
 # `IdunBattle.View.FSM.VisualBattleQuery$$MaxUnitsPossibleToStartBattle` ne rend PAS la borne de
 # la source : il rend un `idun.shared.SPMath$$Min` A TROIS TERMES --
-#     [ <source, slot 0x31>, GetSpawnPointCoordinatedForHumanPlayer().Count, <source, slot 0x33> ]
-# et son jumeau `MinUnitsNeededToStartBattle` fait le meme `Min` avec le slot 0x32 en 3e terme.
-# Les slots 0x32/0x33 sont le `Min`/`Max` de la source ; le terme du milieu est le PLATEAU.
-# (Le slot 0x31, commun aux deux, n'est PAS identifie -- il n'est ni sur `AGameModeSource` ni sur
-# `CampaignGameModeSource`. On ne le modelise donc pas : on ne peut que le MINORER.)
+#     min( source.AmountOfUnlockedUnits(),                     <- slot 0x31
+#          GetSpawnPointCoordinatedForHumanPlayer().Count,     <- LE PLATEAU
+#          source.MaxUnitsPossibleToStartBattle() )            <- slot 0x33
+# et son jumeau `MinUnitsNeededToStartBattle` fait le meme `Min` avec le slot 0x32
+# (`MinUnitsNeededToStartBattle` de la source) en 3e terme. Les slots sont NOMMES par
+# `classInterfaceSlots` -- cf. `deployment-pool.ts`, qui portait deja cette mesure.
+#
+# ON NE MODELISE QUE LES DEUX DERNIERS, ET C'EST SUFFISANT ICI. `AmountOfUnlockedUnits` compte
+# les unites debloquees du compte (mesure : 49 sur le HUD vivant) : en campagne il ne pince
+# jamais. Notre `places` est donc un MAJORANT du `Min` natif -- il ne peut pas viser une clef
+# PLUS GRANDE que celle que le jeu relit, seulement egale.
 #
 # Cote source, `CampaignGameModeSource$$Min/MaxUnitsNeededToStartBattle` lisent `+0x7c` / `+0x80`
 # du meme objet de configuration : 3 et 5 sont des GLOBALES DU MODE, identiques sur tous les
