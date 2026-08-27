@@ -707,7 +707,107 @@ def controler_le_lineup(jeu, d):
     print("   lineup conforme : %d entree(s), %s" % (len(noms), ", ".join(noms)))
 
 
-def demarrer(jeu, attendus, sur_reelle=False, plafond_s=20.0):
+def confronter_la_mise_en_place(jeu, textes_attendus, plafond_s=180.0):
+    """LA MISE EN PLACE EST LE PREMIER COUP DU REJEU -- on l'ATTEND puis on la CONFRONTE.
+
+    (!)C'EST LE START QUI PRODUIT LES `AddUnitMessage`, PAS NOUS. Le corps de
+    `idun.IdunMainView$$AddUnitsFromPlaceholdersAndRunnerStartMatch` enumere EN AVANT la liste
+    rendue par `IdunGameViews$$GetPlaceholderUnitViews()` et emet un `AddUnitMessage` par vue,
+    unitId ET CASES pris SUR LA VUE. Les poser puis presser START n'est donc pas << preparer la
+    bataille >> : c'est jouer les premiers coups du replay par la voie du jeu.
+
+    ⇒ Leur sortie se confronte comme n'importe quel coup. Le rejeu delegue commence a `--depuis
+    n`, donc ces n premiers pas n'etaient JAMAIS compares : on ne verifiait que leur NOMBRE.
+
+    (!)ET C'EST LE VRAI TEMOIN DES POSITIONS. `controler_avant_start` compare l'ordre de
+    conversion (unitId + case) AVANT le START -- utile, mais c'est une PREDICTION lue sur les
+    vues. Ce flux-ci est le FAIT : si une unite est entree sur une autre case, son
+    `AddUnitMessage` porte cette autre case et le texte diverge.
+    """
+    return _attendre_la_mise_en_place(jeu, sum(len(t) for t in textes_attendus),
+                                      "".join(textes_attendus), plafond_s)
+
+
+def _attendre_la_mise_en_place(jeu, flux_attendu, texte_attendu=None, plafond_s=180.0):
+    """ATTENDRE QUE LA MISE EN PLACE AIT FINI DE PRODUIRE -- par SIGNAL, jamais par un calme.
+
+    ⛔ POURQUOI CE CRAN EXISTE, ET IL A ETE TROUVE PAR L'ONSLAUGHT. Entre le START et le premier
+    coup rejoue, il n'y avait AUCUNE attente : la boucle de `replay_rejouer.py` envoie son coup
+    des que `Running` est vu. En campagne ca passe -- le `StartBattleMessage` n'a ni vague a
+    faire naitre ni long tour adverse a jouer. En ONSLAUGHT il en a : mesure du 2026-08-27,
+    mediane du `StartBattleMessage` a **44 382** caracteres contre **8 980** en campagne et
+    17 097 en guerre de guilde. Le premier coup partait donc PENDANT le spawn des vagues, avec
+    `currentPlayer` sur l'adversaire et 6 unites sur 13 en jeu.
+
+    Le coup etait alors REFUSE -- `User_MoveUnit Entity=95` sorti en groupe VIDE, 0 caractere
+    produit pour 1 854 attendus -- et, l'envoi n'ayant rien produit, l'attente d'apres-coup ne
+    pouvait plus JAMAIS atteindre sa cible : elle consommait son plafond entier puis annoncait
+    << on mesure sur un etat NON STABILISE >>. Le symptome accusait le moteur ; la cause etait une
+    COURSE.
+
+    (!)LE SIGNAL EST DANS LA REFERENCE, ET IL EST EXACT. Le replay dit combien de caracteres sa
+    mise en place a produits (somme des `Messages[:n].OutputStream`). On attend que le flux
+    produit l'ATTEIGNE, et on rend la main a l'instant meme. C'est le mecanisme que
+    `attendre_le_tour` applique deja coup par coup ; il manquait seulement a l'AMORCE.
+
+    ⚠ PAS UN CALME, ET C'EST TOUT LE SUJET. `attendre_le_tour` le dit deja pour les coups
+    suivants : << LA STABILITE DU FLUX EST UN MAUVAIS CRITERE >> -- juste apres un coup le flux
+    ne grandit pas ENCORE, l'adversaire n'a pas commence, et un << ca ne bouge plus >> rend la
+    main au milieu. Ici la faute serait pire : pendant un spawn le flux ne se calme jamais, donc
+    un critere de calme ne peut QUE tomber sur son plafond.
+
+    (!)LE PLAFOND DIT QU'IL EST ATTEINT, il ne se tait pas. Un depassement silencieux se lirait
+    comme une attente reussie, et le coup suivant partirait quand meme -- exactement la course
+    qu'on ferme ici. On rend `False` et l'appelant DECIDE.
+    """
+    if not flux_attendu:
+        # TRI-ETAT : sans cible on ne fabrique pas d'attente arbitraire, et on le DIT.
+        print("   flux de mise en place NON MESURE dans la reference -- aucune amorce a attendre.")
+        return None
+    debut, produit = time.time(), 0
+    while time.time() - debut < plafond_s:
+        s = jeu.rpc("replaySteps", [{"maxSteps": 4000}], timeout=180000)
+        pas = (s or {}).get("steps") if isinstance(s, dict) else None
+        if pas is None:
+            print("   `replaySteps` NON MESURE pendant l'amorce -- on n'attend pas a l'aveugle.")
+            return None
+        produit = sum(int(x.get("outputStreamLength") or 0) for x in pas)
+        if produit >= flux_attendu:
+            print("   mise en place TERMINEE : %d car. produits pour %d attendus, en %.1f s."
+                  % (produit, flux_attendu, time.time() - debut))
+            if texte_attendu is None:
+                return True
+            # ⛔ LA LONGUEUR N'EST PAS LE CONTENU. Deux mises en place de MEME taille peuvent
+            #    poser les unites sur d'AUTRES cases -- `AddUnitMessage` porte la case, et une
+            #    permutation de deux unites ne change pas un seul caractere de compte. Ne
+            #    confronter que la longueur laisserait donc passer exactement la faute que ce
+            #    cran existe pour voir.
+            e = jeu.rpc("replayOutputStream", [{"maxChars": 40000000}], timeout=180000)
+            txt = ((e or {}).get("outputStream") or (e or {}).get("stream") or "") \
+                if isinstance(e, dict) else ""
+            if not txt:
+                # TRI-ETAT : flux illisible n'est PAS << conforme >>.
+                print("   flux de mise en place NON RELU -- ce n'est PAS une confrontation.")
+                return None
+            vu = txt[:len(texte_attendu)]
+            if vu == texte_attendu:
+                print("   mise en place CONFORME au caractere (%d car., cases comprises)."
+                      % len(texte_attendu))
+                return True
+            k = next((i for i, (a, b) in enumerate(zip(vu, texte_attendu)) if a != b),
+                     min(len(vu), len(texte_attendu)))
+            print("   (!) mise en place DIVERGENTE a +%d car. sur %d :" % (k, len(texte_attendu)))
+            print("       ATTENDU : %s" % texte_attendu[max(0, k - 40):k + 90]
+                  .replace("\n", "\\n"))
+            print("       PRODUIT : %s" % vu[max(0, k - 40):k + 90].replace("\n", "\\n"))
+            return False
+        time.sleep(0.25)
+    print("   (!) mise en place INACHEVEE apres %.0f s : %d car. produits pour %d attendus. "
+          "Le premier coup partirait au milieu." % (plafond_s, produit, flux_attendu))
+    return False
+
+
+def demarrer(jeu, attendus, sur_reelle=False, plafond_s=20.0, textes_attendus=None):
     """(!)L'APPEL PASSE NE DIT RIEN DU DEMARRAGE, et son propre retour le dit : mesure du
     2026-08-21, `battleStatus` lu a l'instant du retour rend `stageName: Setup` avec 4 unites.
     `HandleOnStartBattleTapped` ENCLENCHE la conversion des placeholders ; elle se deroule sur
@@ -737,18 +837,45 @@ def demarrer(jeu, attendus, sur_reelle=False, plafond_s=20.0):
         stop("%d pas de mise en place enregistres, %d attendus par le replay -- la BC ou le "
              "deploiement differe." % (len(pas), attendus))
     print("   `Running`, %d pas de mise en place (conforme au replay)." % len(pas))
+    # ⛔ LE COMPTE DE PAS NE DIT PAS QU'ILS ONT FINI DE PRODUIRE, NI CE QU'ILS ONT PRODUIT.
+    #    Les pas existent des que le START a enclenche la conversion ; leur CONTENU, lui,
+    #    continue de s'ecrire pendant que les vagues naissent et que l'adversaire joue. Compter
+    #    les pas et partir, c'est prendre la creation pour l'achevement -- et ne jamais regarder
+    #    ce que la mise en place a REELLEMENT emis. Cf. `confronter_la_mise_en_place`.
+    if textes_attendus:
+        if confronter_la_mise_en_place(jeu, textes_attendus) is False:
+            stop("la MISE EN PLACE diverge du replay. Les coups suivants porteraient sur un "
+                 "etat different -- on ne les envoie pas.")
 
 
-def rejouer_les_coups(chemin, depuis, hote, sid):
+def rejouer_les_coups(chemin, depuis, hote, sid, remap=False):
     """(!)DELEGUE, PAS RECOPIE. `replay_rejouer.py` porte deja le cran d'appariement, l'arret au
-    premier ecart et l'affichage du delta par `Apply`. Le dupliquer ferait deux verites."""
+    premier ecart et l'affichage du delta par `Apply`. Le dupliquer ferait deux verites.
+
+    (!)`remap` REETIQUETTE LES COUPS AU LIEU D'EXIGER LA MEME ALLOCATION -- c'est le mapper
+    introduit pour le boss de guilde (`replay_remap.py`), et il n'etait atteignable que depuis la
+    ligne de commande : la chaine commune ne le passait a AUCUNE de ses trois voies.
+
+    ⚠ IL LE FAUT DES QUE LE PLATEAU N'ARRIVE PAS VIERGE. Les coups d'un replay sont adresses PAR
+    ENTITE, et l'entite est attribuee au START dans l'ordre de conversion des placeholders --
+    lequel depend de l'etat du plateau (`U + [M]` sur vierge, `[M] + reverse(U)` apres un clear).
+    Mesure du 2026-08-27 sur l'onslaught : deux montages successifs de la MEME bataille ont
+    attribue `95` a `tauDarkstrider` puis a `necroDestroyer` -- base 93 puis 87, six d'ecart.
+    Un coup adresse a `95` frapperait donc une autre unite d'un montage a l'autre.
+
+    ⛔ ET IL REFUSE PLUTOT QUE DE DEVINER : bijection unite<->entite, invariant de bloc, et tout
+    id adresse est classe -- un id indecidable rend 2. Rien n'est suppose << identite >> par
+    defaut, ce qui est exactement ce qui ferait frapper a cote sans que rien ne rougisse.
+    """
     cmd = [sys.executable, str(RACINE / "scripts" / "python" / "replay_rejouer.py"),
            "--replay", str(chemin), "--vivant", "--depuis", str(depuis),
            "--arret-au-premier-ecart", "--hote", hote, "--session", str(sid)]
+    if remap:
+        cmd.append("--remap")
     return subprocess.run(cmd, cwd=str(RACINE), text=True).returncode
 
 
-def jouer_la_suite(jeu, d, chemin, hote, sid, premier_cran=8, sur_reelle=False):
+def jouer_la_suite(jeu, d, chemin, hote, sid, premier_cran=8, sur_reelle=False, remap=False):
     """LA SUITE ENTIERE -- pose, lineup, START, rejeu. Identique aux deux chaines.
 
     `premier_cran` decale seulement la NUMEROTATION affichee : les deux chaines n'ont pas le
@@ -771,7 +898,12 @@ def jouer_la_suite(jeu, d, chemin, hote, sid, premier_cran=8, sur_reelle=False):
     print("   CONFORME (%s), cases comprises." % sens)
 
     cran(premier_cran + 1, "START")
-    demarrer(jeu, n_mise_en_place)
+    # LE SIGNAL, LU DANS LA REFERENCE : ce que sa mise en place a produit, TEXTE COMPRIS. On ne
+    # le calcule pas, on le LIT -- `Messages[:n].OutputStream` porte deja la reponse exacte.
+    textes_mep = [m.get("OutputStream") or ""
+                  for m in (d.get("Messages") or [])[:n_mise_en_place]]
+    demarrer(jeu, n_mise_en_place,
+             textes_attendus=textes_mep if any(textes_mep) else None)
 
     cran(premier_cran + 2, "rejouer les coups -- delegue a `replay_rejouer.py`")
-    return rejouer_les_coups(chemin, n_mise_en_place, hote, sid)
+    return rejouer_les_coups(chemin, n_mise_en_place, hote, sid, remap=remap)

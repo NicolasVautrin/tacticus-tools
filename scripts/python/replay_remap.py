@@ -145,11 +145,30 @@ def bloc_de_deploiement(d: dict) -> set:
         if i < 0:
             continue
         flux = flux[i:]
-        for mm in re.finditer(r"Action=Add(?:Unit|Machine|MachinePlatform) Entity=(\d+)", flux):
-            n = int(mm.group(1))
+        for mm in re.finditer(r"Action=Add(Unit|Machine|MachinePlatform) Entity=(\d+)", flux):
+            genre, n = mm.group(1), int(mm.group(2))
             if debut is None:
                 debut = n
             ids.add(n)
+            # ⛔ LE PIED DE LA DERNIERE UNITE MANQUAIT AU BLOC, ET CA REFUSAIT UN REMAPPAGE JUSTE.
+            #
+            # Une unite consomme DEUX entites consecutives (squad N, unite N+1) et le pied ne
+            # porte PAS d'`Action=Add*` a lui. Prendre l'intervalle jusqu'a `max(ids)` couvre donc
+            # tous les pieds INTERMEDIAIRES -- ils tombent entre deux squads -- mais jamais celui
+            # du DERNIER, qui est au-dela de la derniere ligne vue.
+            #
+            # Ca ne se voyait pas tant que le mapper ne servait qu'au boss de guilde : la Machine
+            # of War y est posee EN DERNIER, et ses `AddMachine`/`AddMachinePlatform` fournissent
+            # une borne haute qui couvre le pied d'avant. Des que la derniere creation est une
+            # UNITE -- campagne, onslaught -- le bloc s'arrete un cran trop bas, et l'invariant (I)
+            # tombe face a un `bloc_vif` qui, lui, compte `max + 2`.
+            #
+            # Mesure du 2026-08-27, refus rencontre en generalisant le mapper a l'onslaught :
+            # replay `93..101` contre vivant `93..102`. Effet du correctif sur le corpus --
+            # `GuildBoss-29710292` (79..89, LE cas qui a servi a ecrire ce module) INCHANGE,
+            # `dogalpha` INCHANGE ; campagne, GW `fenris` et onslaught gagnent leur dernier pied.
+            if genre == "Unit":
+                ids.add(n + 1)
     if debut is None:
         return set()
     # Les PIEDS ne portent pas d'`Action=Add*` a eux : ils vivent entre deux squads. Le bloc est
