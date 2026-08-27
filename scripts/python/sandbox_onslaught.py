@@ -434,14 +434,16 @@ if not args.sans_replay:
 # autre mode survivrait, et la composition partirait sous SA cle. Mesure du 2026-08-26 : le
 # commit etait encore arme sur `onslaught_Xenos` (`fires: 3`) au moment de viser la guerre de
 # guilde, et le ré-armement a ete refuse en silence pour l'appelant qui ne lit pas le retour.
+#
+# (!)LA PAIRE DESARMEMENT/ARMEMENT EST HISSEE DANS `armer_relais_sandbox` (2026-08-27) : elle
+# etait recopiee ici et dans `sandbox_gw`, et ABSENTE des six autres pilotes -- dont
+# `sandbox_campagne`, ou la composition posee a la main etait perdue en silence. On ne passe plus
+# que la CIBLE ; le point de passage EXIGE qu'elle soit nommee et desarme avant d'armer.
 _cle_lineup = "onslaught_%s" % args.alliance
-armements.insert(0, ("lineupRetraiteCommit", {"armer": False}))
-armements.append(("lineupRetraiteCommit",
-                  {"armer": True, "cle": _cle_lineup, "confirmer": True}))
 # ⛔ PAR LE POINT DE PASSAGE, JAMAIS PAR UNE BOUCLE A SOI -- il arme la liste ET la fermeture de
 # fenetre. `fenetre=False` : la fermeture s'arme APRES le montage, SUR SIGNAL (le veilleur, arme
 # ici, surveillerait pendant le CHARGEMENT, dont la duree est exactement son critere d'extinction).
-armer_relais_sandbox(j, armements, fenetre=False)
+armer_relais_sandbox(j, armements, fenetre=False, lineup={"cle": _cle_lineup})
 
 # 5. LE MONTAGE -- le descripteur vient DE LA SOURCE, ni fabrique ni vide.
 #

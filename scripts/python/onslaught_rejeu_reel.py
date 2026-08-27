@@ -449,7 +449,7 @@ def main(argv=None):
     ap.add_argument("--attente", type=int, default=20,
                     help="secondes accordees au chargement de la bataille (defaut 20)")
     ap.add_argument("--armer", action="store_true",
-                    help="⛔ OUVRE LA BATAILLE, ET LE JETON PART AU CHARGEMENT (cran 8). Sans "
+                    help="(!) OUVRE LA BATAILLE, ET LE JETON PART AU CHARGEMENT (cran 8). Sans "
                          "lui : LECTURE SEULE -- les crans 0 a 6 sont joues, rien n'est arme.")
     ap.add_argument("--sandbox", action="store_true",
                     help="monter la MEME bataille en SANDBOX et y jouer les crans 10-12. Aucun "
@@ -459,7 +459,7 @@ def main(argv=None):
     # un consentement COUP PAR COUP, jamais un mode -- parce qu'un relais laisse arme a ECRIT tout
     # seul sur un essai reel le 2026-08-20, et qu'un jeton de boss y est passe.
     ap.add_argument("--poser-sur-reelle", dest="poser_sur_reelle", action="store_true",
-                    help="⛔ AUTORISE LA POSE sur une bataille REELLE (`surBatailleReelle: true`). "
+                    help="(!) AUTORISE LA POSE sur une bataille REELLE (`surBatailleReelle: true`). "
                          "Sans lui, si le deploiement du jeu diverge du replay, la chaine "
                          "S'ARRETE au lieu de le corriger.")
     args = ap.parse_args(argv)
@@ -623,7 +623,7 @@ def main(argv=None):
     liberer_le_verrou_de_match(jeu)
     gen = generation_du_runner(jeu)
 
-    cran(8, "⛔ OUVRIR -- LE JETON PART ICI, au chargement. Pas au START.")
+    cran(8, "(!) OUVRIR -- LE JETON PART ICI, au chargement. Pas au START.")
     ouvrir_la_bataille(jeu, voie, tier, gen, args.attente * 1000)
 
     cran(9, "la phase, par le BON temoin")

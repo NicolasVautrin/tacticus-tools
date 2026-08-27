@@ -29,6 +29,44 @@ Ce qui sort, et qui change à chaque saison — **le lire, jamais le citer** :
 | **guerre de guilde** | recette dans `docs/rl/case-10038-guild-war-en-sandbox.md` §3 | même patron que le boss, prêteur `guildWar` |
 | **BC déjà capturée** | `sandboxModeBcOverride {configJson}` puis un `start` quelconque | le mode importe peu, ce qui compte est la SOURCE |
 
+## Buffs & debuffs — le banc a un RÉGLAGE FIXE, il ne se redemande pas
+
+**Dès qu'une sandbox sert à répéter une mécanique, on pose le même réglage :** ennemis à
+**−100 % de dégâts**, ma lineup à **+1000 % de dégâts + trait `Immune`**. C'est une constante
+du projet, pas un choix à refaire à chaque montage.
+
+```powershell
+python scripts/python/env_ability_patch.py --etat
+python scripts/python/env_ability_patch.py --poser --config-ability "EnhancementDamageBoost=extraDmgPct:-100" `
+    --enhancement "EnhancementDamageBoost=<ennemis>;stack=1" `
+    --enhancement "EnhancementDamageBoost=<ma lineup>;stack=-10" `
+    --enhancement "EnhancementAddTrait:Immune=<ma lineup>"
+```
+
+**Le signe vient du `stack`, pas de la constante** — et c'est le point qu'on oublie. `extraDmgPct`
+est **une seule valeur par bataille** (catalogue keyé par ability), mais `stack` est **par entrée**
+et **n'est pas clampé**. Avec `extraDmgPct = -100` posé une fois :
+
+| entrée | `stack` | pct effectif | facteur |
+|---|---|---|---|
+| ennemis | `1` | −100 | **×0** |
+| ma lineup | `-1` | +100 | ×2 |
+| ma lineup | `-10` | **+1000** | **×11** |
+
+⚠ **`EnhancementsEnvironmentAbilities` est la SEULE liste qui cible des unités NOMMÉES.** L'autre
+(`EnvironmentAbilities`) a son ciblage écrit dans le `CreateTrigger` de l'ability — aucun argument
+d'équipe à passer.
+
+⚠ **Un `%` de dégât ne couvre QUE `AttackWithAttackDamage`.** Toute la famille
+`AttackWithAbilityDamage` — détonations (Spore Mines), DoT de tuile, novas de mort — **échappe au
+debuff en le PORTANT**. Mesuré : des mines à −100 % ont explosé à pleine puissance. Vérifier la
+VOIE de dégât avant de promettre qu'un pourcentage la neutralise.
+
+⚠ **Le nom d'un trait ne dit pas sa sémantique** : `Harmless` et `Immovable` se posent et ne
+changent rien. `Immune` est à éprouver, pas à supposer.
+
+Détail : `docs/rl/case-10046-debuff-d-environnement.md`.
+
 ## Les quatre pièges
 
 1. **TOUT S'ARME AVANT LE MONTAGE.** Une douzaine de RPC (`deployment*Armer`,

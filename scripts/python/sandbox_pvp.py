@@ -53,6 +53,7 @@ from sandbox_mode import Jeu  # noqa: E402
 from deploiement_commun import (ids_de_la_lineup,  # noqa: E402
                                 poser_en_placeholders, poser_la_mow_du_joueur,
                                 poses_sur_cases_de_spawn)
+from relais_sandbox import banc_lire  # noqa: E402
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -176,6 +177,8 @@ def main(argv=None):
 
     # 4. LA SOURCE DU MODE, forgee -- et SA BC. Le patch en attente s'applique DANS cet appel.
     print()
+    # LE BANC, LU AVANT LA FORGE -- une LECTURE (cf. `relais_sandbox.banc_lire`).
+    banc_lire(jeu)
     d = jeu.rpc("pvpSourceForger", [{"n": a.n, "confirmer": True, "json": True}], 240000)
     if not isinstance(d, dict) or not d.get("ok") or not d.get("json"):
         print("  %-28s REFUS %s" % ("pvpSourceForger", court(d, 700)))
@@ -228,6 +231,28 @@ def main(argv=None):
     armements = list(ARMEMENTS)
     if not a.sans_replay:
         armements.append(ARMEMENT_REPLAY)
+    # LE COMMIT DE LINEUP -- sans lui, composer en sandbox NE CONSERVE RIEN.
+    #
+    # ⛔ Le jeu n'ecrit la composition que par `UnitProgression$$SetBattleLineupLocally`,
+    # normalement a la VICTOIRE ; en sandbox on sort par la RETRAITE, donc rien n'est ecrit. Ce
+    # pilote ne l'armait pas : la composition posee etait perdue a chaque montage, en silence.
+    # Mesure du 2026-08-27 sur la campagne, meme cause : `lineupRetraiteCommit` rendait
+    # `arme: false, fires: 0`.
+    #
+    # ⚠ LA CLEF EST `pvp`, ET ELLE EST LUE AU NATIF, PAS DEVINEE.
+    # `PvpGameModeSource$$GetBattleLineup` interroge le magasin avec un premier littéral et,
+    # si l'entree est VIDE (`+0x18 == 0`), retombe sur un SECOND. Le hook publie les deux dans
+    # `lineupClesArmer.clesLitterales` : `pvp` puis `5` (`defautPartage`). On vise le PREMIER --
+    # ecrire dans le repli ne serait lu que tant que `pvp` reste vide, donc jamais apres la
+    # premiere composition du joueur.
+    #
+    # ⚠ ON DESARME AVANT D'ARMER : re-armer sur une autre cible alors qu'il l'est deja rend
+    # << deja arme -- desarmer pour changer de cible >> et GARDE l'ancienne. Sans ca, un armement
+    # laisse par un autre mode (une clef d'onslaught, par exemple) ferait partir la composition
+    # PvP sous cette clef-la.
+    armements.insert(0, ("lineupRetraiteCommit", {"armer": False}))
+    armements.append(("lineupRetraiteCommit",
+                      {"armer": True, "cle": "pvp", "confirmer": True}))
     for methode, c in armements:
         if etape(jeu, methode, c) is None:
             return 1
@@ -245,6 +270,15 @@ def main(argv=None):
         print("REFUS : le montage a echoue (rc=%d)." % r.returncode)
         return 1
 
+    # ⛔ RIEN A RESTAURER : le banc n'est pas specifique a un montage, il RESTE arme
+    # (`consumeOnce: False` par defaut) et se rejoue a chaque `LoadBattle`. Ce qui rend ce regime
+    # tenable est l'IDEMPOTENCE de la pose (`environment-abilities.ts`), pas une consommation.
+    #
+    # ⚠ CE QU'ELLE NE COUVRE PAS, ET QUI RESTE VRAI EN PVP : une seconde application qui tourne
+    # SANS la source derive 0 cible. Son empreinte differe alors de la premiere (qui en portait N),
+    # donc elle n'est pas vue comme un doublon et s'AJOUTE -- une entree INERTE de plus, visible a
+    # sa note << AUCUNE cible nommée >>. Elle n'ecrase pas la premiere (`Add` empile), mais elle
+    # salit la liste. C'est ce que `--une-fois` evitait ; le lire dans `lastApply` reste le controle.
     # 9. DANS QUEL ETAT LE MONTAGE NOUS LAISSE, et CE QUE LE PATCH PORTE ENCORE.
     #    (!)RELIRE `lastApply` ICI EST LE POINT DE LA CHAINE. Le montage traverse un SECOND
     #    `LoadBattle` : sans `--une-fois`, le patch s'y re-applique SANS la source et ECRASE les

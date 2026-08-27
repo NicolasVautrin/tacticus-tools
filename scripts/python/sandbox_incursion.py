@@ -58,6 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
 from deploiement_commun import (ids_de_la_lineup,  # noqa: E402
                                 poser_en_placeholders, poses_sur_cases_de_spawn)
+from relais_sandbox import banc_lire  # noqa: E402
 
 RACINE = Path(__file__).resolve().parents[2]
 
@@ -197,6 +198,8 @@ def main(argv=None):
     corps = {"tier": a.tier, "node": a.node, "confirmer": True, "json": True}
     if a.pv_ennemis > 0:
         corps["pvEnnemis"] = a.pv_ennemis
+    # LE BANC, LU AVANT LA FORGE -- une LECTURE (cf. `relais_sandbox.banc_lire`).
+    banc_lire(jeu)
     d = jeu.rpc("mowEventSourceForger", [corps], 180000)
     if not isinstance(d, dict) or not d.get("ok") or not d.get("json"):
         print("  %-28s REFUS %s" % ("mowEventSourceForger", court(d, 700)))

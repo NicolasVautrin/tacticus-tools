@@ -41,6 +41,9 @@ from sandbox_mode import Jeu  # noqa: E402
 from deploiement_commun import (  # noqa: E402
     ids_de_la_lineup, poser_en_placeholders, poser_la_mow_du_joueur, poses_sur_cases_de_spawn,
 )
+from relais_sandbox import banc_lire  # noqa: E402
+# `ascii_seul` : les noms de joueur portent des accents et des emoji, et la console est en cp1252.
+from guerre_bc_capture import ascii_seul  # noqa: E402
 
 # L'ordre est STRICT : tout s'arme AVANT le montage (cf. case-10038 §3). `only` sur le pool est
 # OBLIGATOIRE -- c'est `GetUnlockedUnitsPooled` qui a verrouille une bataille en substituant un
@@ -139,6 +142,28 @@ def main():
                         "venir que du JEU -- c'est le regime de confrontation d'une "
                         "substitution de lineup, ou une pre-pose du lanceur masquerait le "
                         "resultat qu'on mesure.")
+    # LES QUATRE DRAPEAUX PORTES DEPUIS `sandbox_gw.py` (2026-08-27), avant son retrait. Ce sont
+    # les seules capacites que l'autre lanceur avait et que celui-ci n'avait pas ; les abandonner
+    # aurait perdu le ciblage par defenseur et le rejeu bit-exact. Les deux autres qu'il portait
+    # -- `--depuis-capture` et `--sans-replay` -- ne sont PAS reprises : ecartees par l'utilisateur
+    # le 2026-08-27 comme inutiles. Elles disparaissent avec lui, c'est assume.
+    p.add_argument("--joueur", default=None,
+                   help="le DEFENSEUR qui tient la zone (ex. `szkot`) -- resout `--zone`/`--part` "
+                        "a sa place. Refuse si le nom designe plusieurs zones.")
+    # (!)LE SEED, POUR REJOUER UN REPLAY -- SANS LUI LA COMPARAISON NE PROUVE RIEN.
+    #
+    # ⚠ CE MANQUE A DEJA ETE PAYE. Mesure du 2026-08-21 sur la chaine de guerre de guilde montee
+    # SANS seed : rejeu conforme AU CARACTERE jusqu'au coup 13, puis un
+    # `MV71SniperDroneSquadAttack` laissant la cible a 1888 PV contre 2020 au replay -- flux de
+    # MEME longueur, donc meme structure, seule la valeur change. La signature exacte d'un tirage
+    # desaligne, qu'on lit a tort comme un ecart de MOTEUR.
+    #
+    # ⚠ ET LE CRAN QUI CROYAIT COUVRIR CA NE LE COUVRAIT PAS : `RngSeed` est un champ RACINE du
+    # replay, pas de la `BattleConfiguration`. Un << BC a 0 ecart >> ne dit RIEN du tirage.
+    p.add_argument("--seed", type=int, default=None,
+                   help="le `RngSeed` du replay qu'on veut rejouer. Sans lui les tirages "
+                        "divergent, et une difference de DEGAT se lit a tort comme un ecart de "
+                        "moteur.")
     p.add_argument("--confirmer", action="store_true")
     args = p.parse_args()
 
@@ -148,6 +173,27 @@ def main():
         return 2
     jeu = Jeu(args.hote, sid)
     print("session %d" % sid)
+
+    # 0. LE DEFENSEUR, SI C'EST PAR LUI QU'ON VISE. `zones_jouables` porte deja l'occupant :
+    # il n'y a rien a aller chercher ailleurs.
+    #
+    # ⚠ UN NOM QUI DESIGNE PLUSIEURS ZONES EST UN REFUS, PAS UN PREMIER-TROUVE. Un meme joueur
+    # tient couramment plusieurs zones ; en choisir une au hasard monterait la mauvaise bataille
+    # sans que rien ne le dise.
+    if args.joueur and not args.zone:
+        trouves = [(zid, t, part) for zid, t, part, occ, _s in zones_jouables(jeu)
+                   if (occ or "").lower() == args.joueur.lower()]
+        if not trouves:
+            print("REFUS : aucune zone jouable tenue par %s." % ascii_seul(args.joueur))
+            return 2
+        if len(trouves) > 1:
+            print("REFUS : %s tient %d zones jouables -- preciser `--zone` :"
+                  % (ascii_seul(args.joueur), len(trouves)))
+            for zid, t, part in trouves:
+                print("        --zone %s --part %d   (%s)" % (zid, part, t))
+            return 2
+        args.zone, _typ, args.part = trouves[0]
+        print("joueur %s -> zone %s part %d" % (ascii_seul(args.joueur), args.zone, args.part))
 
     if not args.zone:
         print()
@@ -187,6 +233,8 @@ def main():
     if not f.get("ok"):
         print("forge REFUSEE : %s" % (f.get("error") or f.get("refus")))
         return 2
+    # LE BANC, LU AVANT LA BC -- une LECTURE (cf. `relais_sandbox.banc_lire`).
+    banc_lire(jeu)
     bcr = jeu.rpc("guildWarSourceBc", [{"confirmer": True}], timeout=180000) or {}
     if not bcr.get("ok") or not bcr.get("configJson"):
         print("BC REFUSEE : %s" % (bcr.get("error") or bcr.get("refus")))
@@ -198,7 +246,34 @@ def main():
     if not o.get("arme"):
         print("override REFUSE : %s" % (o.get("error") or o.get("refus")))
         return 2
-    for nom, corps in ARMEMENTS:
+    # LE COMMIT DE LINEUP -- et son SERVEUR, qui ne se separent pas.
+    #
+    # ⛔ LA GUERRE DE GUILDE N'A AUCUN MAGASIN, DONC LA CIBLE EST UN `mode`.
+    # `GuildWarsGameModeSource$$GetBattleLineup` est un talon constant : il rend
+    # `System.Array.Empty<T>()`, lu au decompile sur `t6dpr4k06g`. Il n'y a AUCUNE case a ecrire,
+    # donc rien a ranger sous une clef -- la composition va dans notre REGISTRE, keye par CLASSE.
+    #
+    # ⛔ ET LE `mode` EST `sandbox`, PAS `guildWar` : la clef du registre est la classe REELLEMENT
+    # MONTEE, pas le mode imite. La bataille montee ici est une `SandboxGameModeSource`, et c'est
+    # ELLE que le HUD interroge. Mesure du 2026-08-26 (cf. `sandbox_gw.py`) : commit fait sous
+    # `mode: "guildWar"`, registre rempli, `confirme: true` -- et le poseur arme sur la meme classe
+    # rendait `fires=0`. Choisir le mode par ANALOGIE avec ce qu'on imite ecrit dans une case que
+    # personne ne lira.
+    #
+    # ⚠ COMMITER NE SUFFIT PAS. Le commit ecrit dans un registre ; c'est `lineupPoserArmer` qui
+    # ancre `GetBattleLineup` et POSE ce registre a l'ouverture du HUD. Les deux ensemble, ou rien
+    # -- un commit seul remplit une case que rien ne relit.
+    #
+    # ⚠ ON DESARME LES DEUX AVANT DE LES ARMER : re-armer sur une autre cible alors qu'ils le sont
+    # deja est REFUSE en silence pour un appelant qui ne lit pas le retour, et l'ANCIENNE cible
+    # survit.
+    armements = ([("lineupRetraiteCommit", {"armer": False}),
+                  ("lineupPoserArmer", {"armer": False})]
+                 + list(ARMEMENTS)
+                 + [("lineupRetraiteCommit",
+                     {"armer": True, "mode": "sandbox", "confirmer": True}),
+                    ("lineupPoserArmer", {"armer": True, "mode": "sandbox"})])
+    for nom, corps in armements:
         r = jeu.rpc(nom, [corps], timeout=120000) or {}
         etat = "ok" if (r.get("ok") or r.get("arme")) else ("REFUS %s" % (r.get("error")
                                                                          or r.get("refus")))
@@ -210,6 +285,12 @@ def main():
     racine = Path(__file__).resolve().parents[2]
     cmd = [sys.executable, str(racine / "scripts" / "python" / "sandbox_mode.py"), "start",
            "--mode", "waves", "--session", str(sid), "--onslaught-tier", "5", "--confirmer"]
+    # LE SEED -- porte depuis `sandbox_gw.py`. Sans lui les tirages divergent, et une difference
+    # de DEGAT se lit a tort comme un ecart de MOTEUR. On DIT son absence : un rejeu sans seed qui
+    # se croit conforme est pire qu'un rejeu qu'on sait approximatif.
+    if args.seed is not None:
+        cmd += ["--seed", str(args.seed)]
+        print("seed pose au montage : %s" % args.seed)
     r = subprocess.run(cmd, capture_output=True, text=True)
     for ligne in (r.stdout or "").splitlines():
         if "MONTE" in ligne or "REFUS" in ligne:

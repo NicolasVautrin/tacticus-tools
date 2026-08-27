@@ -159,7 +159,18 @@ const NS_VIEW = "Idun.Source.IdunBattle.View";
  *  Les huit autres modes existent et sont atteignables par `classe` explicite : la table sert
  *  d'alias commode, pas de liste blanche. */
 const MODES: Record<string, string> = {
-    waves: "SandboxWavesBattleConfig",
+    // ⚠ LE MODE S'APPELLE ONSLAUGHT -- c'est son nom à l'écran, et le seul que le joueur
+    // connaisse. `waves` est le nom de la CLASSE native, pas du mode, et le promouvoir en clé a
+    // fait croire que le porteur du montage armait le patch de calendrier. Quatre choses du dépôt
+    // portent ce mot : le mode Onslaught, la classe `SandboxWavesBattleConfig`, le calendrier
+    // `BC.UnitSpawningOverTime` (qu'une campagne porte aussi) et notre greffe `bcWaveSet`.
+    //
+    // ⛔ L'ALIAS RESTE, ET CE N'EST PAS DE LA TIÉDEUR. Sept pilotes sandbox, `replay_rejouer.py`
+    // et une case-doc passent `--mode waves` comme PORTEUR inerte (mesuré le 2026-08-26) :
+    // renommer la clé serait un sweep sur un foyer partagé, exactement ce que la doctrine
+    // interdit. On ajoute le nom juste ; l'ancien meurt au fil de l'eau.
+    onslaught: "SandboxWavesBattleConfig",
+    waves: "SandboxWavesBattleConfig",   // ALIAS HISTORIQUE -- préférer `onslaught`
     guildBoss: "SandboxGuildBossBattleConfig",
     survival: "SandboxSurvivalBattleConfig",
     treasureBeach: "SandboxTreasureBeachBattleConfig",

@@ -96,7 +96,7 @@ import { bcDeLaSourceMontee, bcDeLaVueVivante, sourceMontee } from "./source-viv
 // des ÉCRITURES en mémoire managée, où une divergence ne donne pas un résultat différent mais un
 // CRASH. Pas de cycle : `environment-abilities` n'importe pas ce module.
 import * as envAbilities from "./environment-abilities.js";
-import { champPointeur, estRefus } from "./lecture-champs.js";
+import { champPointeur, champTexte, elementsDeListe, estRefus } from "./lecture-champs.js";
 import { triggeredAbilityName } from "../data/triggered-ability-names.js";
 import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
 import { getFieldOffset } from "../il2cpp/helpers.js";
@@ -944,6 +944,51 @@ interface BattleConfigPatch {
     environmentAbilityConfigs?: Array<{ abilityType: number; nom?: string;
                                         constants?: Record<string, string>;
                                         variables?: Record<string, string[]> }>;
+    /** Les configs de PASSIF -- même forme que `environmentAbilityConfigs`, autre dictionnaire.
+     *
+     *  ⛔ POURQUOI CE CHAMP EXISTE, ET POURQUOI LA SUBSTITUTION NE SUFFISAIT PAS. `BC.Abilities`
+     *  porte QUATRE familles (`ActiveAbilities`, `PassiveAbilities`, `EnvironmentAbilities`,
+     *  `Traits`) et le champ ci-dessus n'atteint que la troisième. Or les abilities de TUILE sont
+     *  des PASSIFS : `DryBushFireSpread` (`TriggeredAbilityType 57`) y range son
+     *  `spreadProbability`, et c'est lui qui décide si le feu se propage.
+     *
+     *  Mesure du 2026-08-27 : on avait patché ces constantes en SUBSTITUANT la BC entière
+     *  (`sandboxModeBcOverride` + `--bc`), ce qui marche en sandbox et **ne peut pas** marcher
+     *  ailleurs -- l'override ne détourne que `SandboxGameModeSource`. En bataille réelle la BC
+     *  chargée rendait `spreadProbability: "10"` et `Grass.TriggeredAbilities: []` pendant que le
+     *  patch d'environnement, lui, était bien là (`EnvFireTileDamage.hpPct: "0"`). Un patch qui
+     *  s'applique dans un régime et pas dans l'autre se lit « ça ne marche pas », sans rien qui
+     *  nomme la cause.
+     *
+     *  ⚠ LA SURCHARGE EST `Add(TriggeredAbilityType, AbilityConfiguration)`, PAS
+     *  `AddEnvironmentAbility`. `AbilitiesConfiguration` porte trois `Add` que SEUL le type du
+     *  premier paramètre distingue (`ActiveAbilityType` / `TriggeredAbilityType` / `UnitTrait`) ;
+     *  on la résout donc par ce type, jamais par le compte d'arguments. `GetPassive` prend le
+     *  même `TriggeredAbilityType`, ce qui confirme la famille visée.
+     *
+     *  ⚠ MÊME ANGLE MORT QUE CI-DESSUS : la clé est un ORDINAL, les VARIANTES sont hors
+     *  d'atteinte, `nom` est décoratif. */
+    passiveAbilityConfigs?: Array<{ abilityType: number; nom?: string;
+                                    constants?: Record<string, string>;
+                                    variables?: Record<string, string[]> }>;
+    /** Rendre des TYPES DE TUILE porteurs d'une ability déclenchée -- `BC.Tiles[].TriggeredAbilities`.
+     *
+     *  ⛔ C'EST LE SECOND VERROU DE LA PROPAGATION DU FEU, ET IL EST INDÉPENDANT DU PREMIER.
+     *  `DryBushFireSpreadAbility$$CreateBehaviour` sélectionne
+     *  `AdjacentTiles(moi) -> TilesWithTriggeredAbility(0x39) -> EntitiesWithoutEffects([5])`,
+     *  puis `Maybe(GetNumberConstant(0x25))`. Le `0x39` (= 57) est cherché DANS LE CATALOGUE DE
+     *  TYPES DE TUILE de la BC : au gameconfig, seul `DryBush` le porte, donc le feu ne peut
+     *  traverser que les 4 buissons d'un plateau comme `C2_28`. Inscrire 57 sur `Grass` fait
+     *  passer ce même plateau à 29 cases inflammables sur 35.
+     *
+     *  ⚠ MONTER `spreadProbability` NE SUFFIT PAS, ET INSCRIRE 57 NON PLUS : les deux verrous sont
+     *  en ET. Une probabilité de 100 sur un voisinage sans tuile éligible ne propage rien, et des
+     *  tuiles éligibles à 10 % font ce qu'on a mesuré -- une seule case allumée, immobile.
+     *
+     *  ⚠ ON AJOUTE, ON NE REMPLACE PAS. `DryBush` porte `[57, 1015]` : écraser la liste lui
+     *  retirerait `LightCover` (1015), donc la réduction de coups à distance -- un effet de bord
+     *  invisible qui fausserait toute mesure de dégâts sur ce plateau. */
+    tileTriggeredAbilities?: Array<{ tileId: string; ajouter: number[] }>;
     /** Les ENHANCEMENTS -- la SECONDE liste du réceptacle, et la SEULE qui cible par unité NOMMÉE.
      *
      *  `environmentAbilities` (ci-dessus) installe des abilities dont la cible est écrite dans
@@ -1446,6 +1491,187 @@ export function ecrireCatalogueEnvironnement(
     return { ok: true, tailleAvant, tailleApres: catalogueTaille(bc), detail };
 }
 
+/** ÉCRIRE des configs de PASSIF (`BC.Abilities.PassiveAbilities`) sur la BC en mémoire.
+ *
+ *  Même fenêtre et même forme que `ecrireCatalogueEnvironnement` ; seule la famille change.
+ *  C'est ce qui rend joignables les abilities de TUILE -- `DryBushFireSpread` et son
+ *  `spreadProbability` -- que le catalogue d'environnement n'atteint pas.
+ *
+ *  ⚠ LA SURCHARGE SE RÉSOUT PAR LE TYPE DU PREMIER PARAMÈTRE, JAMAIS PAR LE COMPTE.
+ *  `AbilitiesConfiguration` porte trois `Add(…, AbilityConfiguration)` à deux paramètres, que
+ *  seul ce type sépare : `ActiveAbilityType`, `TriggeredAbilityType`, `UnitTrait`. Prendre « la
+ *  première `Add` à 2 paramètres » rangerait la config dans le dictionnaire des ACTIFS ou des
+ *  TRAITS, sans lever -- et le consommateur lirait toujours l'ancienne valeur.
+ *
+ *  ⚠ AUCUN COMPTE N'EST RENDU, ET C'EST DÉLIBÉRÉ. `catalogueTaille` mesure le dictionnaire
+ *  d'ENVIRONNEMENT ; il n'y a pas d'équivalent lisible pour les passifs, et publier un compte
+ *  pris sur le mauvais dictionnaire serait pire qu'aucun -- il bougerait sans rapport avec ce
+ *  qu'on vient d'écrire. La vérification qui vaut est la RELECTURE DE LA BC CHARGÉE
+ *  (`dumpBattleConfig`), côté appelant : c'est elle qui a montré que la substitution ne prenait
+ *  pas en bataille réelle.
+ */
+export function ecrireCataloguePassif(
+    bc: NativePointer,
+    entrees: Array<{ abilityType: number; nom?: string; constants?: Record<string, string>;
+                     variables?: Record<string, string[]> }>,
+): { ok: boolean; error?: string; detail: Array<Record<string, unknown>> } {
+    const detail: Array<Record<string, unknown>> = [];
+    if (!isDeserializerReady()) {
+        return { ok: false, detail, error: "`JsonConvert.DeserializeObject` non résolu -- une "
+            + "`AbilityConfiguration` ne peut pas être construite" };
+    }
+    const abilities = champPointeur(bc, "Abilities");
+    if (estRefus(abilities)) {
+        return { ok: false, detail, error: "`BC.Abilities` : " + (abilities as { error: string }).error };
+    }
+    const cfgAbilities = abilities as NativePointer;
+    const kCfg = findClassAnywhere("IdunBattle.Configuration", "AbilityConfiguration");
+    if (!kCfg) {
+        return { ok: false, detail,
+                 error: "classe `IdunBattle.Configuration.AbilityConfiguration` introuvable" };
+    }
+    const mAdd = methodeParTypeDuPremierParam(
+        cfgAbilities.readPointer(), "Add", 2, "TriggeredAbilityType");
+    if (!mAdd) {
+        return { ok: false, detail,
+            error: "`AbilitiesConfiguration$$Add(TriggeredAbilityType, AbilityConfiguration)` "
+                + "INTROUVABLE -- on ne se replie PAS sur une autre surcharge d'`Add` : les deux "
+                + "autres rangent dans les ACTIFS ou les TRAITS, sans lever" };
+    }
+    for (const e of entrees) {
+        const nom = e.nom ?? triggeredAbilityName(e.abilityType);
+        const charge = {
+            Variables: e.variables ?? {},
+            Constants: e.constants ?? {},
+            AttackRangeType: 0,
+            VariablesAffectedByUnitRarityMultiplier: [] as number[],
+            TutorialAbilityBehaviours: {},
+        };
+        let cfg: NativePointer;
+        try { cfg = deserializeFromJson(JSON.stringify(charge), kCfg); }
+        catch (err) {
+            return { ok: false, detail, error: "`" + nom + "` : désérialisation de "
+                + "l'`AbilityConfiguration` : " + (err as Error).message };
+        }
+        if (cfg.isNull()) {
+            return { ok: false, detail,
+                     error: "`" + nom + "` : l'`AbilityConfiguration` s'est désérialisée en NUL" };
+        }
+        gcRoot.add(cfg);
+        try {
+            const buf = Memory.alloc(4); buf.writeS32(e.abilityType | 0);
+            invokeMethod(mAdd.info, cfgAbilities, [buf, cfg]);
+        } catch (err) {
+            return { ok: false, detail,
+                     error: "`" + nom + "` : `Add` a LEVÉ : " + (err as Error).message };
+        }
+        detail.push({ abilityType: e.abilityType, nom, constants: e.constants ?? {} });
+    }
+    return { ok: true, detail };
+}
+
+/** INSCRIRE une ability déclenchée sur des TYPES DE TUILE -- `BC.Tiles[].TriggeredAbilities`.
+ *
+ *  C'est le catalogue de TYPES (17 entrées : `Grass`, `DryBush`, `Swamp`…), pas le plateau.
+ *  Inscrire 57 (`DryBushFireSpread`) sur `Grass` rend toutes les cases d'herbe éligibles à la
+ *  propagation du feu, que `TilesWithTriggeredAbility(0x39)` va justement chercher là.
+ *
+ *  ⚠ ON AJOUTE À LA LISTE EXISTANTE, ON NE LA REMPLACE PAS -- `DryBush` porte `[57, 1015]`, et
+ *  perdre `LightCover` fausserait tous les dégâts à distance sur le plateau.
+ *  ⚠ ET ON N'ÉCRIT PAS `_size` À LA MAIN : on appelle le `Add` de la liste INFLATÉE, résolu sur
+ *  la classe RÉELLE de l'objet. Bricoler le tableau interne marche tant que la capacité suffit,
+ *  et corrompt le tas le jour où elle ne suffit plus.
+ *  ⚠ UN TYPE DEMANDÉ MAIS ABSENT DU CATALOGUE EST UN REFUS, PAS UN SILENCE : c'est le seul
+ *  signal qui distingue « le plateau n'a pas cette tuile » de « j'ai mal orthographié `Grass` ».
+ */
+export function ecrireAbilitesDeTuile(
+    bc: NativePointer, entrees: Array<{ tileId: string; ajouter: number[] }>,
+): { ok: boolean; error?: string; detail: Array<Record<string, unknown>> } {
+    const detail: Array<Record<string, unknown>> = [];
+    const tuiles = champPointeur(bc, "Tiles");
+    if (estRefus(tuiles)) {
+        return { ok: false, detail, error: "`BC.Tiles` : " + (tuiles as { error: string }).error };
+    }
+    const elems = elementsDeListe(tuiles as NativePointer);
+    if (estRefus(elems)) {
+        return { ok: false, detail,
+                 error: "`BC.Tiles` illisible : " + (elems as { error: string }).error };
+    }
+    const parId = new Map<string, NativePointer>();
+    for (const t of elems as NativePointer[]) {
+        const id = champTexte(t, "Id");
+        if (id !== null) parId.set(id, t);
+    }
+    for (const e of entrees) {
+        const t = parId.get(e.tileId);
+        if (t === undefined) {
+            return { ok: false, detail,
+                error: "type de tuile `" + e.tileId + "` ABSENT du catalogue de la BC -- connus : "
+                    + Array.from(parId.keys()).join(", ") };
+        }
+        const liste = champPointeur(t, "TriggeredAbilities");
+        if (estRefus(liste)) {
+            return { ok: false, detail, error: "`" + e.tileId + "`.TriggeredAbilities : "
+                + (liste as { error: string }).error };
+        }
+        const l = liste as NativePointer;
+        // ⛔ IDEMPOTENCE : ON LIT CE QUI EST DÉJÀ LÀ AVANT D'AJOUTER. Le patch porte
+        // `consumeOnce: false` -- il se rejoue à CHAQUE `LoadBattle`, plusieurs fois par montage.
+        // Sans ce filtre la liste EMPILE : mesuré le 2026-08-27, `Grass` est passé à `[57, 57, 57]`
+        // en trois montages, et ça croît sans borne. C'est exactement la faute qu'avait déjà
+        // corrigée l'écrivain d'enhancements (`empreinteEnhancement`) -- je l'ai refaite ici.
+        //
+        // ⚠ `elementsDeListe` NE CONVIENT PAS : elle rend des POINTEURS d'objets, or
+        // `List<TriggeredAbilityType>` est une liste de VALEURS (enum = int32). On lit donc le
+        // tableau interne, dont la disposition est celle documentée en tête de ce module :
+        // `_items` en +0x10 (données du tableau en +0x20), `_size` en +0x18.
+        const dejaPresents = new Set<number>();
+        let dejaLa: number | null = null;
+        try {
+            const items = l.add(0x10).readPointer();
+            const taille = l.add(0x18).readS32();
+            if (!items.isNull() && taille >= 0 && taille < 4096) {
+                dejaLa = taille;
+                for (let i = 0; i < taille; i++) {
+                    dejaPresents.add(items.add(0x20 + 4 * i).readS32());
+                }
+            }
+        } catch { /* liste illisible : `dejaLa` reste null, on le DIT plus bas */ }
+        const mAdd = findMethod(l.readPointer(), "Add");
+        if (!mAdd) {
+            return { ok: false, detail, error: "`List<TriggeredAbilityType>$$Add` INTROUVABLE sur "
+                + "la classe réelle de `" + e.tileId + "`.TriggeredAbilities" };
+        }
+        const poses: number[] = [];
+        const ignores: number[] = [];
+        for (const ord of e.ajouter) {
+            // ⚠ « DÉJÀ LÀ » N'EST PAS « ÉCHEC » : c'est le régime NORMAL du 2e chargement et des
+            // suivants. On le compte à part pour que le retour reste lisible, sans jamais le
+            // faire passer pour une pose.
+            if (dejaPresents.has(ord)) { ignores.push(ord); continue; }
+            try {
+                const buf = Memory.alloc(4); buf.writeS32(ord | 0);
+                invokeMethod(mAdd.info, l, [buf]);
+                poses.push(ord);
+                dejaPresents.add(ord);
+            } catch (err) {
+                return { ok: false, detail, error: "`" + e.tileId + "` : `Add(" + ord
+                    + ")` a LEVÉ : " + (err as Error).message };
+            }
+        }
+        let apres: number | null = null;
+        try {
+            const taille = l.add(0x18).readS32();
+            if (taille >= 0 && taille < 4096) apres = taille;
+        } catch { /* illisible : tri-état, `null` = PAS MESURÉ */ }
+        detail.push({
+            tileId: e.tileId, ajoutes: poses, dejaPresents: ignores,
+            compteAvant: dejaLa, compteApres: apres,
+        });
+    }
+    return { ok: true, detail };
+}
+
 /** INSTALLER des abilities d'environnement sur la BC que la source vient de produire.
  *
  *  ⚠ MEME FENETRE QUE LE CALENDRIER DE VAGUES : on ecrit au `LoadBattle.onLeave`, sur l'objet
@@ -1575,6 +1801,12 @@ export function ecrireAbilitesEnvironnement(
             // de `UnitConfigId$$CreateFromString`. Sans cet écho, un `:6` mal apparié ne se verrait
             // NULLE PART : l'installation resterait `ok` et la liste compterait 1.
             ciblesResolues: (pose as { ciblesResolues?: unknown[] }).ciblesResolues,
+            // L'IDEMPOTENCE SE PUBLIE, DANS LES DEUX SENS : `dejaPresente` dit qu'on a SAUTE un
+            // ajout (sinon le compte n'augmenterait pas et ça se lirait comme une panne), et
+            // `inventaireNonMesure` dit qu'on n'a PAS PU vérifier, donc qu'un doublon reste
+            // possible sur ce passage-là.
+            dejaPresente: (pose as { dejaPresente?: boolean }).dejaPresente,
+            inventaireNonMesure: (pose as { inventaireNonMesure?: boolean }).inventaireNonMesure,
             auCatalogue,
             note: (pose as { note?: string }).note,
             avertissement: auCatalogue === false
@@ -1737,6 +1969,56 @@ function applyPatchToConfig(
             }
         } else {
             warnings.push(`environmentAbilityConfigs: ${w.error}`);
+        }
+    }
+
+    // Les configs de PASSIF -- même fenêtre, autre dictionnaire. C'est ce qui atteint les
+    // abilities de TUILE (`DryBushFireSpread.spreadProbability`), hors de portée du catalogue
+    // d'environnement. Cf. le champ `passiveAbilityConfigs` pour la mesure qui l'a motivé.
+    if (patch.passiveAbilityConfigs !== undefined && patch.passiveAbilityConfigs !== null
+        && patch.passiveAbilityConfigs.length > 0) {
+        const w = ecrireCataloguePassif(bc, patch.passiveAbilityConfigs);
+        if (w.ok) {
+            ops.push("passiveAbilityConfigs "
+                + (w.detail ?? []).map((d) =>
+                    `${d.nom}=${JSON.stringify(d.constants)}`).join(" ")
+                + " -- ECRIT SANS COMPTE : la seule verification est la relecture de la BC "
+                + "chargee (`dumpBattleConfig`)");
+        } else {
+            warnings.push(`passiveAbilityConfigs: ${w.error}`);
+        }
+    }
+
+    // Les abilities de TUILE -- le SECOND verrou de la propagation, indépendant du premier.
+    if (patch.tileTriggeredAbilities !== undefined && patch.tileTriggeredAbilities !== null
+        && patch.tileTriggeredAbilities.length > 0) {
+        const w = ecrireAbilitesDeTuile(bc, patch.tileTriggeredAbilities);
+        if (w.ok) {
+            ops.push("tileTriggeredAbilities "
+                + (w.detail ?? []).map((d) => {
+                    const dejaLa = (d.dejaPresents as number[]).length;
+                    return `${d.tileId}+[${(d.ajoutes as number[]).join(",")}]`
+                        + (dejaLa > 0 ? ` (${dejaLa} deja presente(s))` : "")
+                        + ` (${d.compteAvant}->${d.compteApres})`;
+                }).join(" "));
+            for (const d of w.detail ?? []) {
+                // Un compte qui ne monte PAS du nombre d'ordinaux RÉELLEMENT posés est le seul
+                // signe qu'un `Add` n'a rien fait. Les « déjà présentes » sont exclues du calcul :
+                // les compter ferait rougir chaque rechargement, et un garde qui rougit toujours
+                // est un garde qu'on cesse de lire.
+                const attendu = (d.compteAvant as number | null) === null ? null
+                    : (d.compteAvant as number) + (d.ajoutes as number[]).length;
+                if (attendu !== null && d.compteApres !== attendu) {
+                    warnings.push(`tileTriggeredAbilities[${d.tileId}]: compte ${d.compteApres} `
+                        + `au lieu de ${attendu} attendu -- au moins un \`Add\` n'a rien posé`);
+                }
+                if (d.compteAvant === null) {
+                    warnings.push(`tileTriggeredAbilities[${d.tileId}]: liste NON LUE avant `
+                        + `écriture -- le doublon n'a pas pu être écarté`);
+                }
+            }
+        } else {
+            warnings.push(`tileTriggeredAbilities: ${w.error}`);
         }
     }
 
@@ -2047,6 +2329,17 @@ function applyPatchToConfig(
                 // ⚠ AUCUN PLAFOND ICI, C'EST DELIBERE. Tronquer la liste ferait exactement ce
                 // que ce commit repare : cacher la cible qu'on n'a pas regardée. On imprime tout,
                 // et le compte avec.
+                if ((d as { dejaPresente?: boolean }).dejaPresente === true) {
+                    ops.push(`environmentEnhancements[${d.ability}]: DEJA PRESENTE a l'identique `
+                        + `-- NON reecrite (la pose est IDEMPOTENTE : le compte de la liste ne `
+                        + `bouge pas, et c'est le resultat VOULU)`);
+                }
+                if ((d as { inventaireNonMesure?: boolean }).inventaireNonMesure === true) {
+                    warnings.push(`environmentEnhancements[${d.ability}]: inventaire des entrees `
+                        + `DEJA POSEES NON MESURE (serialiseur muet ou forme inattendue) -- `
+                        + `l'entree a ete AJOUTEE sans pouvoir verifier qu'elle n'y etait pas. `
+                        + `Un doublon reste possible sur ce passage, et il CUMULE.`);
+                }
                 const cr = (d as { ciblesResolues?: unknown[] }).ciblesResolues;
                 if (Array.isArray(cr)) {
                     ops.push(`environmentEnhancements[${d.ability}]: ${cr.length} `
@@ -2601,13 +2894,19 @@ export function chargerBcDepuisSource(
 }
 
 /**
- * LA MEME DECLARATION POUR UNE FORGE QUI NE CHARGE PAS -- et pourquoi elle existe quand meme.
+ * LA MEME DECLARATION AU MOMENT DE LA FORGE -- avant qu'aucun chargement n'ait eu lieu.
  *
- * L'onslaught ne produit AUCUNE BC par `LoadBattle` : sa bataille est fabriquee par
- * `SandboxWavesBattleConfig`, et sa source forgee ne sert que de PRETEUR au pool de deploiement.
- * Elle n'a donc pas d'invoke ou se glisser. Mais la substitution sandbox, elle, aura toujours
- * besoin de savoir A QUI demander la composition du joueur -- et sans cette porte, l'onslaught
- * serait la seule forge structurellement incapable de repondre.
+ * Une forge doit pouvoir se declarer des sa CONSTRUCTION : la substitution sandbox a besoin de
+ * savoir A QUI demander la composition du joueur (`ciblesAuto: "moi"`) meme si personne n'a encore
+ * appele `LoadBattle`. C'est la porte que `chargerBcDepuisSource` ne peut pas ouvrir, puisqu'elle
+ * encadre un appel.
+ *
+ * ⚠ CE PARAGRAPHE A AFFIRME « l'onslaught ne produit AUCUNE BC par `LoadBattle` », et c'etait
+ * FAUX -- relu au decompile le 2026-08-26. `OnslaughtGameModeSource$$LoadBattle` construit et rend
+ * une BC par `BattleConfigBuilder$$GetOnslaughtConfig`, et c'est meme la SEULE voie qui y verse les
+ * modificateurs (cf. l'en-tete de `onslaught-source.ts`). La justification etait ecrite, pas
+ * mesuree ; elle a fait renoncer pendant des semaines au seul chemin qui arme le mode. La fonction,
+ * elle, reste utile pour la raison ci-dessus.
  *
  * ⚠ Elle ne pose QUE `derniereSourceForgee`, jamais `sourceEnChargement` : rien n'est en train de
  * charger, et le pretendre ferait attribuer a cette source une `LoadBattle` qui n'est pas la sienne.

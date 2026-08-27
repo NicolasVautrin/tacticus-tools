@@ -99,6 +99,46 @@ export function natifPeutPorterUneLineup(classeSource: string | null): boolean {
     return classeSource !== null && !NATIF_SANS_LINEUP.has(classeSource);
 }
 
+/** LE JOUEUR POURRA-T-IL ENCORE COMPOSER APRES LE TAP << Battle >> ?
+ *
+ *  ⛔ C'EST CETTE QUESTION QUI COMMANDE UN REFUS AU POPUP -- PAS `natifPeutPorterUneLineup`.
+ *  Les deux se confondent tant qu'on lit le TALON CONSTANT ci-dessus comme << aucune equipe
+ *  possible >>. C'est un pas de trop, et il a mordu : mesure du 2026-08-26, guerre de guilde
+ *  REELLE, `GuildWarsBattlePreviewPopup` -> `bloques: 1`, raison << AUCUNE lineup retenue >>,
+ *  alors que le joueur avait toute latitude de composer. Le refus a enferme l'utilisateur hors
+ *  de sa propre bataille -- la faute que l'en-tete de `garde-jeton` nomme comme la plus chere.
+ *
+ *  TROIS LECTURES AU DECOMPILE (build `t6dpr4k06g`) L'ETABLISSENT :
+ *
+ *    - `IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource$$LoadBattleInternal` ne
+ *      consulte JAMAIS `GetBattleLineup` : il monte la BC par
+ *      `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetGuildWarsConfig`. La composition du
+ *      joueur n'est pas dans la BC, et rien au chargement ne va la chercher.
+ *    - `IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource$$GetUnitsForDeploymentHUD` est
+ *      une VRAIE surcharge (champ `+0x88`, slot d'interface `0x1b`, puis `PooledList.ConvertAll`),
+ *      et `GuildWarsGameModeSource$$GetGameModeSpecificDeploymentHudOptionsInternal` aussi : la
+ *      guerre de guilde a son PROPRE HUD de deploiement. C'est la que l'equipe entre, par
+ *      `AddUnitMessage` -- confirme live, la source rend `min = 1, max = 5` places.
+ *    - `IdunBattle.ViewLogic.BattleSource.GuildWarsGameModeSource$$GetBattleLineup` ignore
+ *      jusqu'a son parametre `lineupIndex` et rend `Array.Empty<>()`. C'est le PRE-REMPLISSAGE
+ *      du HUD, pas l'equipe.
+ *
+ *  ⇒ Un talon constant dit << aucune composition PRE-REMPLIE >>, jamais << aucune equipe >>.
+ *  ⇒ Et il n'y a rien a proteger ici : SANS preselection, le jeu ne PEUT PAS partir sur une
+ *    composition perimee -- c'est exactement le risque qui justifie le garde ailleurs, et il est
+ *    structurellement absent de ce mode. Le HUD s'ouvre VIDE et exige `min = 1` unite.
+ *
+ *  ⚠ CE N'EST PAS UNE EXEMPTION DE CONFORT. Elle se re-mesure : un mode n'entre ici que si sa
+ *  source SURCHARGE `GetUnitsForDeploymentHUD`, donc si un ecran de composition suit le tap. Le
+ *  contre-exemple qui garde le sens du garde est le PvP, ou le jeton est deja parti quand la
+ *  phase de deploiement existe (`docs/rl/case-10047-le-garde-est-trop-tard-en-pvp.md`) : y
+ *  refuser au popup reste la seule fenetre utile. */
+const COMPOSE_APRES_LE_TAP = new Set(["GuildWarsGameModeSource"]);
+
+export function leJoueurComposeApresLeTap(classeSource: string | null): boolean {
+    return classeSource !== null && COMPOSE_APRES_LE_TAP.has(classeSource);
+}
+
 /** CE MODULE SAIT-IL SERVIR CETTE SOURCE ?
  *
  *  ⚠ EXISTE POUR EMPÊCHER UN VERROUILLAGE, pas par symétrie. `garde-jeton` refuse le START quand

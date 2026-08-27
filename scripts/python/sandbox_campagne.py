@@ -29,7 +29,8 @@ RACINE = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_boss import session_vivante          # noqa: E402
 from sandbox_mode import Jeu                      # noqa: E402
-from relais_sandbox import (armer_relais_sandbox,                       # noqa: E402
+from deploiement_commun import cases_de_spawn_du_joueur        # noqa: E402
+from relais_sandbox import (armer_relais_sandbox, banc_lire,   # noqa: E402
                             sandbox_fenetre_armer_quand_vivante)
 
 HOTE = "http://127.0.0.1:8765"
@@ -167,6 +168,11 @@ if p.get("instance") not in (None, "0x0"):
     print("(!) instance IdunMainView RESIDUELLE (%s) sans bataille active -- l'objet Unity "
           "survit a la scene. Rien a ecraser, on monte." % p.get("instance"))
 
+# 2ter. LE BANC, LU AVANT LA FORGE -- le patch s'applique au `LoadBattle.onLeave`, donc a celui
+# que la forge va declencher, et la BC en sortira DEJA PATCHEE. C'est une LECTURE : le banc n'est
+# pas specifique a un montage, il reste arme (foyer : `relais_sandbox.banc_lire`).
+banc_lire(j)
+
 # 3. Forger, puis tirer la BC.
 f = j.rpc("campaignSourceForger", [dict(cible, confirmer=True)], 240000) or {}
 if not f.get("ok"):
@@ -240,6 +246,46 @@ if bmin is None or bmax is None:
     sys.exit(1)
 print("bornes de pose (LUES sur la source) : min=%d max=%d" % (bmin, bmax))
 
+# 3bis-2. LA BORNE DU MODE N'EST PAS LA BORNE EFFECTIVE -- LE PLATEAU PINCE, ET C'EST LUI QUI
+# DECIDE DE LA CLEF DE LINEUP.
+#
+# `IdunBattle.View.FSM.VisualBattleQuery$$MaxUnitsPossibleToStartBattle` ne rend PAS la borne de
+# la source : il rend un `idun.shared.SPMath$$Min` A TROIS TERMES --
+#     [ <source, slot 0x31>, GetSpawnPointCoordinatedForHumanPlayer().Count, <source, slot 0x33> ]
+# et son jumeau `MinUnitsNeededToStartBattle` fait le meme `Min` avec le slot 0x32 en 3e terme.
+# Les slots 0x32/0x33 sont le `Min`/`Max` de la source ; le terme du milieu est le PLATEAU.
+# (Le slot 0x31, commun aux deux, n'est PAS identifie -- il n'est ni sur `AGameModeSource` ni sur
+# `CampaignGameModeSource`. On ne le modelise donc pas : on ne peut que le MINORER.)
+#
+# Cote source, `CampaignGameModeSource$$Min/MaxUnitsNeededToStartBattle` lisent `+0x7c` / `+0x80`
+# du meme objet de configuration : 3 et 5 sont des GLOBALES DU MODE, identiques sur tous les
+# noeuds. Elles ne disent rien de la carte.
+#
+# (!)MESURE DU 2026-08-27 SUR `elite2` NOEUD 11 (board `C2_28`) : la source rend max=5, le
+# plateau n'offre que 3 cases au joueur. On imposait 5 -- le HUD affichait << 3/5 characters >>
+# pour une carte ou seules 3 poses sont possibles, et le plafond etait un MENSONGE que nous
+# posions nous-memes. `deploymentPlafondArmer` existe parce que la sandbox rend 0 (cf. §
+# `armerBorne`) ; le remede << imposer la borne du mode >> ecrasait aussi le cas ou la vue
+# calcule une valeur JUSTE et plus PETITE.
+#
+# ⚠ ET C'EST LA MEME VALEUR QUI NOMME LE MAGASIN. `GetBattleLineupToDeploy` fait
+# `GetBattleLineup(MaxUnitsPossibleToStartBattle())`, donc la clef est `<campagne>_<CE MIN-LA>`,
+# pas `<campagne>_<bmax>`. Viser `bmax` range dans `elite2_5` une composition que le jeu relira
+# dans `elite2_3` -- a cote, en silence, ce qui est exactement le symptome vu a l'ecran.
+_pid, _cases, _diag = cases_de_spawn_du_joueur(d)
+if _pid is None:
+    # TRI-ETAT : le plateau NON DERIVE ne se rabat pas sur `bmax`. On le dit et on retombe sur la
+    # borne du mode, en ANNONCANT que la clef peut viser a cote.
+    print("(!) cases de spawn NON DERIVEES (%s) -- on retombe sur la borne du MODE : le plafond "
+          "et la clef de lineup peuvent viser a cote." % _diag)
+    places, pmin = bmax, bmin
+else:
+    print("plateau : %s" % _diag)
+    places, pmin = min(bmax, len(_cases)), min(bmin, len(_cases))
+    if places != bmax:
+        print("bornes EFFECTIVES (pincees par le plateau) : min=%d max=%d  <- le mode disait "
+              "min=%d max=%d" % (pmin, places, bmin, bmax))
+
 # LE SEUIL DE VICTOIRE ECLAIR -- affiche au montage, parce que c'est LA chose qu'on veut savoir
 # AVANT de jouer, pas apres. Il est PROPRE A CHAQUE BATAILLE (campaign1 noeud 19 : 4 ; noeud 28 :
 # 3), donc le retenir de tete ne marche pas. `None` = NON MESURE, jamais un defaut.
@@ -297,7 +343,7 @@ print("         qui convertit. La voie commit est SUPPRIMEE depuis le 2026-08-21
 # alimentent le meme `Show`, et tout doit etre en place avant le montage.
 armements.insert(1 + [n for n, _ in armements].index("deploymentPoolArmer"),
                  ("deploymentPlafondArmer",
-                  {"armer": True, "max": bmax, "min": bmin, "confirmer": True}))
+                  {"armer": True, "max": places, "min": pmin, "confirmer": True}))
 if not args.sans_replay:
     armements.append(("replayFinAuto", {"armer": True}))
 # ⛔ PAR LE POINT DE PASSAGE, JAMAIS PAR UNE BOUCLE A SOI. `armer_relais_sandbox` arme la liste ET
@@ -314,7 +360,22 @@ if not args.sans_replay:
 # « la scene a disparu » alors qu'elle apparait, eteint les 19 relais qu'on vient d'armer, et le
 # HUD -- qui lit ses bornes UNE FOIS a l'ouverture -- reste a `maxUnitsPossible: 0`. Plus aucune
 # pose n'est possible, sans le moindre message. Detail dans `relais_sandbox.armer_relais_sandbox`.
-armer_relais_sandbox(j, armements, fenetre=False)
+#
+# LA CIBLE DU COMMIT DE LINEUP -- `<campagneId>_<places>`, LU AU DECOMPILE PUIS MESURE.
+#
+# `IdunBattle.ViewLogic.BattleSource.CampaignGameModeSource$$GetBattleLineup(lineupIndex)` fait
+# `String.Concat(<campagneId>, "_", lineupIndex.ToString())` -- et `lineupIndex` est le nombre de
+# PLACES, pas l'index du noeud. Mesure du 2026-08-27 contre le magasin vivant, sur `elite2`
+# noeud 11 (bornes 3..5) :
+#     elite2_5  -> 5  [thousTzaangor, blackPossession, worldTerminator, thousInfernalMaster, blackHaarken]
+#     elite2_4  -> 4   elite2_3 -> 3
+#     elite2_10 -> []  elite2_1 -> []  Campaign2_5 -> []      <- toutes VIDES, sans lever
+# ⚠ Le magasin porte une entree PAR NOMBRE DE PLACES : on vise `places` -- le `Min` a trois
+#   termes du § 3bis-2, PAS `bmax`. Sur `C2_28` les deux different (3 contre 5).
+# ⚠ Et une clef fausse ne leve RIEN -- elle range a cote, en silence. C'est pour ca qu'on la LIT
+#   au natif au lieu de la deduire du commentaire voisin, qui annonçait `<campagne>_<index>`.
+armer_relais_sandbox(j, armements, fenetre=False,
+                     lineup={"cle": "%s_%d" % (args.campagne, places)})
 
 # 5. Le montage. Le mode importe peu : l'override substitue la BC, ce qui compte est la SOURCE.
 print()

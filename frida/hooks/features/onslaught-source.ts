@@ -29,19 +29,40 @@
 // `alliance` et `tier` sont des paramètres EN CLAIR du ctor : la voie et le palier se choisissent
 // donc sans naviguer, et sans dépendre de ce que le joueur a ouvert à l'écran.
 //
-// ⛔ CE QU'ON N'APPELLE JAMAIS : `LoadBattle`. Ce module ne sert qu'à PRÊTER un roster. Produire
-// une BC d'onslaught a déjà sa voie (`sandbox_mode.py --mode waves`, qui passe par
-// `SandboxWavesBattleConfig` -> `GetOnslaughtConfig`), et rien ici ne démarre de bataille ni
-// n'engage de jeton.
+// ⚠ CE FICHIER A LONGTEMPS ÉCRIT « CE QU'ON N'APPELLE JAMAIS : `LoadBattle` », au motif que
+// produire une BC d'onslaught avait déjà sa voie (`sandbox_mode.py --mode waves` ->
+// `SandboxWavesBattleConfig` -> `GetOnslaughtConfig`). Le décompilé dit l'inverse, et l'écart
+// n'est pas cosmétique : `OnslaughtGameModeSource$$LoadBattle` est la SEULE voie qui porte les
+// MODIFICATEURS (les « buffs & debuffs » de l'écran).
+//
+//     GetWaveBattleConfigDto(this)                       <- le tirage RÉEL du compte
+//     EnvironmentAbilities..ctor()                       <- le réservoir, vide
+//     Modifier_BattleEnvironmentAbilityExtensions$$Apply( <this+0x10 = _modifierProgression>,
+//                                                         envAbilities, <alliance>, 0 )
+//                                                        <- ★ les modificateurs y sont VERSÉS
+//     BattleConfigBuilder$$GetOnslaughtConfig(dto, ..., envAbilities, 0,0,0,0,0,0)  -> la BC
+//
+// La voie `SandboxWavesBattleConfig` appelle le MÊME `GetOnslaughtConfig`, mais elle lui passe un
+// réservoir d'`EnvironmentAbilities` que personne n'a alimenté : mesuré le 2026-08-26 sur une BC
+// tier 3 voie Xenos, `UnitModifiers: {}` et `EnvironmentAbilities: {[], []}`. Le mode s'affiche,
+// et il est DÉSARMÉ -- sans le moindre message. C'est le piège « le catalogue ne se choisit pas,
+// il se lit », transposé des unités aux modificateurs.
+//
+// ⛔ CE QU'ON N'APPELLE TOUJOURS PAS : `StartLocation`, `CompleteLocation`, `UseMunitions`. Ce
+// sont ELLES qui écrivent. `LoadBattle`, lui, ne porte aucun `Send*GameEvent` -- ni dans son
+// corps, ni chez ses appelés (relu le 2026-08-26) : il CONSTRUIT et rend. C'est la même forme que
+// le `LoadBattleInternal` du boss de guilde, sauf qu'ici il n'y a pas de `SendLoadBattleGameEvent`
+// à éviter -- il n'existe pas.
 
 import {
     class_get_name, findClassAnywhere, findMethodByParamCount, getFieldOffset, s as cstr,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+import { serializeToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { executeurVivant } from "./view-command.js";
-import { retenirSourceForgee } from "./battle-config.js";
+import { chargerBcDepuisSource, retenirSourceForgee } from "./battle-config.js";
 import { Ctx } from "../controller.js";
 
 interface Refus { ok: false; error: string }
@@ -111,6 +132,13 @@ export function cibleOnslaughtForgee(): typeof cibleForgee {
 function argInt(v: number): NativePointer {
     const p = Memory.alloc(8);
     p.writeS32(v | 0);
+    return p;
+}
+
+/** Un `Boolean` boxé -- même règle que `argInt`. */
+function argBool(v: boolean): NativePointer {
+    const p = Memory.alloc(8);
+    p.writeU8(v ? 1 : 0);
     return p;
 }
 
@@ -312,5 +340,131 @@ export function register(ctx: Ctx): void {
                              + "vide"
                          : null,
                      instance: src.toString() };
+        });
+
+    /**
+     * LE DESCRIPTEUR DE BATAILLE QUE LA SOURCE UTILISE ELLE-MÊME.
+     *
+     * ⛔ POURQUOI IL FAUT LE DEMANDER AU LIEU DE S'EN PASSER -- MESURÉ, ET ÇA A COÛTÉ UNE SESSION.
+     * Le montage sandbox a besoin d'une config de mode ; on a cru pouvoir la construire par son
+     * ctor à ZÉRO argument, en la traitant comme un simple PORTEUR puisque
+     * `sandboxModeBcOverride` remplace de toute façon le retour de `LoadBattle`. C'est faux :
+     * `SandboxGameModeSource` relit les champs de sa config PENDANT la mise en place de la scène,
+     * hors de `LoadBattle`. Mesuré le 2026-08-26, tier 3 voie Xenos monté avec `args: []` :
+     *
+     *     loaderStatus  ->  { etape: 11, chargementEnCours: true }   x8 relevés, FIGÉ
+     *     sandboxProbe  ->  TIMEOUT 25 s   (la file du fil principal ne draine plus)
+     *
+     * Le natif NE LÈVE PAS : il reste dans le chargement, et il faut relancer le jeu. Un ctor à
+     * zéro argument n'est donc pas un « porteur inerte », c'est un porteur INCOMPLET.
+     *
+     * ⚠ ET ON NE LE RECONSTRUIT PAS NON PLUS. Dériver un descripteur de `battles.onslaught` (ce
+     * que faisait `sandbox_mode.py --onslaught-tier`) est une CONTREFAÇON : le jeu, lui, a déjà
+     * tiré au poids, et son tirage vit dans la progression. `GetWaveBattleConfigDto` rend
+     * exactement l'objet que `LoadBattle` consomme -- même board, même tirage, même
+     * `SpawnPointTag`. C'est la seule forme qui soit au plus près du live.
+     */
+    ctx.rpc.onslaughtSourceDto = (): Promise<unknown> =>
+        queueOnMainThread(() => {
+            const src = sourceForgee;
+            if (src === null || src.isNull()) {
+                return refus("aucune source forgée -- appeler `onslaughtSourceForger "
+                    + "{alliance, tier, confirmer:true}` d'abord");
+            }
+            const klass = src.readPointer();
+            const classe = cstr(class_get_name(klass) as NativePointer);
+            if (classe !== CLS_SRC) {
+                return refus(`l'instance retenue est une \`${classe}\`, PAS une \`${CLS_SRC}\``);
+            }
+            const mi = findMethodByParamCount(klass, "GetWaveBattleConfigDto", 0);
+            if (!mi) {
+                return refus(`\`${CLS_SRC}$$GetWaveBattleConfigDto(0)\` INTROUVABLE sur ce build`);
+            }
+            let dto: NativePointer;
+            try { dto = invokeMethod(mi.info, src, []); }
+            catch (e) {
+                return refus("`GetWaveBattleConfigDto` a levé : " + (e as Error).message);
+            }
+            if (dto.isNull()) {
+                return refus("`GetWaveBattleConfigDto` a rendu NUL -- la progression de cette "
+                    + "voie ne porte aucune bataille pour ce palier (PAS « descripteur vide »)");
+            }
+            gcRoot.add(dto);
+            const json = serializeToJson(dto);
+            return {
+                ok: true, cible: cibleForgee, dto: dto.toString(),
+                classe: (() => {
+                    try { return cstr(class_get_name(dto.readPointer()) as NativePointer); }
+                    catch { return null; }
+                })(),
+                json,
+                jsonRefus: json === null
+                    ? "sérialisation Newtonsoft en échec -- le descripteur existe (pointeur "
+                        + "ci-dessus) mais n'a pas pu être rendu en texte. NON MESURÉ."
+                    : null,
+            };
+        });
+
+    /**
+     * LA `BattleConfiguration` DE L'ONSLAUGHT, produite par la source elle-même -- AVEC SES
+     * MODIFICATEURS.
+     *
+     * C'est l'homologue exact de `campaignSourceBc` / `guildBossSourceBc`. Sa raison d'être est
+     * dans l'en-tête du fichier : c'est le SEUL chemin où
+     * `Modifier_BattleEnvironmentAbilityExtensions$$Apply` verse la progression de modificateurs
+     * dans les `EnvironmentAbilities` que reçoit `GetOnslaughtConfig`. La voie
+     * `SandboxWavesBattleConfig` rend la même bataille, désarmée.
+     *
+     * ⚠ `isRestart` N'EST PAS LU PAR LE CORPS -- relu le 2026-08-26, le paramètre n'apparaît nulle
+     * part dans `LoadBattle`, qui construit et rend par un chemin unique. On passe donc `false`
+     * (la valeur du jeu hors retry) et on le DIT, plutôt que de recopier le `true` de la campagne
+     * -- lequel, là-bas, choisit une SORTIE ANTICIPÉE réelle. Copier un argument sans son motif
+     * est la faute que ce commentaire existe pour empêcher.
+     *
+     * ⛔ NE DÉMARRE RIEN. Le corps ne porte aucun `Send*GameEvent` ; ce qui écrit sur le compte,
+     * c'est `StartLocation` / `CompleteLocation` / `UseMunitions`, jamais appelées ici.
+     */
+    ctx.rpc.onslaughtSourceBc = (body?: { confirmer?: boolean }): Promise<unknown> =>
+        queueOnMainThread(() => {
+            const src = sourceForgee;
+            if (src === null || src.isNull()) {
+                return refus("aucune source forgée -- appeler `onslaughtSourceForger "
+                    + "{alliance, tier, confirmer:true}` d'abord");
+            }
+            // ⛔ LE TYPE AVANT TOUT : invoquer sur une disposition mémoire étrangère exécute du
+            // natif à l'aveugle.
+            const klass = src.readPointer();
+            const classe = cstr(class_get_name(klass) as NativePointer);
+            if (classe !== CLS_SRC) {
+                return refus(`l'instance retenue est une \`${classe}\`, PAS une \`${CLS_SRC}\``);
+            }
+            const mi = findMethodByParamCount(klass, "LoadBattle", 1);
+            if (!mi) {
+                return refus(`\`${CLS_SRC}$$LoadBattle(1)\` INTROUVABLE sur ce build -- on ne `
+                    + "devine pas une arité de remplacement");
+            }
+            if (body?.confirmer !== true) {
+                return { ok: true, lecture: true, instance: src.toString(), cible: cibleForgee,
+                         note: "`confirmer: true` exigé : ce RPC INVOQUE `LoadBattle(false)` sur "
+                             + "la source forgée. Il ne démarre aucune bataille et n'engage aucun "
+                             + "jeton, mais il ÉCRIT des champs sur CETTE source." };
+            }
+            // ⛔ PAR LE POINT DE PASSAGE UNIQUE : il DÉCLARE la source pendant l'appel, ce dont
+            // le patch d'env-ability et `ciblesAuto: "moi"` ont besoin.
+            let bc: NativePointer;
+            try { bc = chargerBcDepuisSource(mi.info, src, [argBool(false)]); }
+            catch (e) { return refus("`LoadBattle` a levé : " + (e as Error).message); }
+            if (bc.isNull()) return refus("`LoadBattle` a rendu NUL");
+            gcRoot.add(bc);
+            const json = serializeToJson(bc);
+            return {
+                ok: true, instance: src.toString(), bc: bc.toString(), cible: cibleForgee,
+                json,
+                jsonRefus: json === null
+                    ? "sérialisation Newtonsoft en échec -- la BC existe (pointeur ci-dessus) "
+                        + "mais n'a pas pu être rendue en texte. NON MESURÉ, pas « BC vide »."
+                    : null,
+                octets: json === null ? null : json.length,
+            };
         });
 }

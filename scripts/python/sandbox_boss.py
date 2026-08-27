@@ -41,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sandbox_mode import Jeu  # noqa: E402
-from relais_sandbox import sandbox_fenetre_armer  # noqa: E402
+from relais_sandbox import banc_lire, sandbox_fenetre_armer  # noqa: E402
 from deploiement_commun import (  # noqa: E402
     ids_de_la_lineup, poser_en_placeholders, poser_la_mow_du_joueur, poses_sur_cases_de_spawn,
 )
@@ -214,6 +214,10 @@ def main(argv):
     if etape(jeu, "guildBossSourceForger",
              {"confirmer": True, "encounterIndex": args.encounter_index}) is None:
         return 1
+    # LE BANC, LU AVANT LA BC -- le patch s'applique au `LoadBattle.onLeave`, donc a l'appel qui
+    # suit, et la BC en sortira DEJA PATCHEE. C'est une LECTURE : le banc n'est pas specifique a
+    # un montage, il reste arme et se rejoue a chaque `LoadBattle`. Foyer : `relais_sandbox`.
+    banc_lire(jeu)
     d = jeu.rpc("guildBossSourceBc", [{"confirmer": True}], timeout=120000)
     if not isinstance(d, dict) or not d.get("ok") or not d.get("json"):
         print("  %-28s REFUS %s" % ("guildBossSourceBc", court(d, 600)))

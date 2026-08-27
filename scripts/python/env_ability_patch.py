@@ -62,6 +62,23 @@ HOTE = "http://127.0.0.1:8765"
 ENUM_NS, ENUM_CLS = "IdunBattle.Entities.Enum", "TriggeredAbilityType"
 
 
+# ⛔ `--help` PLANTAIT, ET C'EST LE PIRE ENDROIT OU PLANTER. `argparse` imprime `description=__doc__`,
+# donc TOUTE la docstring de ce module part vers une console cp1252 ; le premier `⛔` y levait un
+# `UnicodeEncodeError` et l'aide entiere devenait inaccessible (mesure du 2026-08-27). La regle du
+# depot -- << ASCII only en sortie >> -- vise les chaines qu'ON ecrit ; ici c'est argparse qui
+# imprime, et purger les pavas de leurs marqueurs les rendrait illisibles a la relecture.
+#
+# ⚠ ON NE CHANGE PAS L'ENCODAGE, ON CHANGE LA POLITIQUE D'ERREUR. Passer stdout en UTF-8 ferait
+# sortir des octets que la console ne sait pas rendre ; `backslashreplace` garde cp1252 et
+# remplace l'irreproductible par sa forme echappee. Aucune sortie ne peut plus faire tomber le
+# script, et ce qui etait deja ASCII est inchange.
+try:
+    sys.stdout.reconfigure(errors="backslashreplace")
+    sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:      # flux redirige/remplace : on n'insiste pas, on n'a rien casse
+    pass
+
+
 def ascii_(s):
     return str(s).encode("ascii", "backslashreplace").decode("ascii")
 
@@ -110,6 +127,37 @@ def main():
                          "'EnhancementDamageBoost=extraDmgPct:-100' qui met les degats de la "
                          "cible a ZERO. Rien a voir avec `env.AbilitiesConfigurations`, dont la "
                          "cle est un TYPE VALEUR et dont l'insertion a la main crashe le jeu.")
+    # LES DEUX VERROUS DE LA PROPAGATION DU FEU -- et plus generalement, tout ce qui vit hors du
+    # catalogue d'ENVIRONNEMENT.
+    #
+    # ⛔ POURQUOI CE N'EST PAS `--config-ability`. `BC.Abilities` porte QUATRE familles ; le champ
+    # ci-dessus n'atteint que `EnvironmentAbilities`. Les abilities de TUILE sont des PASSIFS :
+    # `DryBushFireSpread` y range son `spreadProbability`, et `BC.Tiles[].TriggeredAbilities` dit
+    # quels TYPES de tuile sont eligibles. Les deux se lisent au decompile dans
+    # `DryBushFireSpreadAbility$$CreateBehaviour` :
+    #     AdjacentTiles(moi) -> TilesWithTriggeredAbility(0x39) -> EntitiesWithoutEffects([5])
+    #                        -> Maybe(GetNumberConstant(0x25))
+    # `0x39` = 57 (l'ability elle-meme, cherchee dans le catalogue de TYPES) et
+    # `AbilityConstantType 0x25` = `spreadProbability`.
+    #
+    # ⚠ ON PATCHE, ON NE SUBSTITUE PLUS. La premiere version passait par `sandboxModeBcOverride`
+    # (`sandbox_campagne --bc`) : ca marche en sandbox et NE PEUT PAS marcher ailleurs, l'override
+    # ne detournant que `SandboxGameModeSource`. Mesure du 2026-08-27 en bataille REELLE -- la BC
+    # chargee rendait `spreadProbability: "10"` et `Grass.TriggeredAbilities: []`, pendant que le
+    # patch d'environnement, lui, etait bien la (`EnvFireTileDamage.hpPct: "0"`).
+    ap.add_argument("--config-passive", action="append", default=[], metavar="SPEC",
+                    help="meme forme que `--config-ability`, mais dans "
+                         "`BC.Abilities.PassiveAbilities` -- la famille des abilities de TUILE. "
+                         "Ex. 'DryBushFireSpread=spreadProbability:100' (10 au gameconfig, donc "
+                         "10 %% par voisin et par tour).")
+    ap.add_argument("--tuile-ability", action="append", default=[], metavar="SPEC",
+                    help="rend un TYPE de tuile porteur d'abilities declenchees : "
+                         "'TileId=<Nom>[,<Nom>]'. Ex. 'Grass=DryBushFireSpread' pour que l'herbe "
+                         "devienne inflammable (sur `C2_28` : 4 cases sur 35 -> 29). Le NOM est la "
+                         "forme normale ; un ordinal nu est accepte mais DECONSEILLE (il se perime "
+                         "en silence au changement de build). On AJOUTE a la liste existante, "
+                         "jamais on ne la remplace -- `DryBush` porte [DryBushFireSpread, "
+                         "LightCover] et perdre `LightCover` fausserait les degats a distance.")
     # ⛔ `--vider-pose` RETIRE (2026-08-23), avec le champ `viderPredefinedUnits` du hook et son
     # unique appelant `sandbox_onslaught.py`. Il vidait `BC.PredefinedUnits` pour rattraper une BC
     # fabriquee par `SandboxWavesBattleConfig`, dont le ctor confond catalogue et pose. Sur une BC
@@ -187,9 +235,10 @@ def main():
         print("patch RETIRE : %s" % ascii_(json.dumps(r, ensure_ascii=False))[:200])
         return 0 if r.get("ok") else 1
 
-    if not a.ability and not a.config_ability and not a.enhancement:
-        print("REFUS : `--poser` sans `--ability`, `--config-ability` ni `--enhancement`."
-              " Rien a faire.")
+    if not (a.ability or a.config_ability or a.enhancement
+            or a.config_passive or a.tuile_ability):
+        print("REFUS : `--poser` sans `--ability`, `--config-ability`, `--enhancement`,")
+        print("        `--config-passive` ni `--tuile-ability`. Rien a faire.")
         return 2
 
     demandes = []
@@ -290,6 +339,34 @@ def main():
             return 2
         morceaux = reste.split(";")
         cibles = [u for u in morceaux[0].split(",") if u]
+        # ⛔ `auto=` AVANT LE PREMIER `;` EST UNE CIBLE, PAS UNE OPTION -- ET CA NE LEVE RIEN.
+        #
+        # `Nom=auto=adversaire;stack=1` se lit `cibles = ["auto=adversaire"]` : la sentinelle part
+        # dans la BC comme `UnitConfigId.PureId`, aucune unite ne lui correspond, et l'enhancement
+        # se lie a PERSONNE. Mesure du 2026-08-26 sur un banc onslaught -- le patch s'installait,
+        # `installees` rendait 3, et le debuff n'existait pas :
+        #
+        #     camps derives : 0 unite(s) a MOI, 4 ADVERSE(S)          <- la derivation MARCHE
+        #     1 Target(s) ECRITE(S) = [{"PureId":"auto=adversaire"}]  <- mais c'est CA qui est ecrit
+        #
+        # La faute se voit a l'absence de ligne `cible(s) =` pour cette entree : la branche de
+        # resolution n'a jamais tourne, puisque `ciblesAuto` etait resté nul. La forme juste met la
+        # liste de cibles a VIDE et passe l'auto en OPTION : `Nom=;auto=adversaire;stack=1`.
+        #
+        # On refuse plutot que de corriger en douce : accepter les deux ecritures ferait croire que
+        # `Nom=auto=moi` marche aussi, alors que la meme faute y est silencieuse dans l'autre sens.
+        _sentinelles = [c for c in cibles if c.startswith("auto=")]
+        if _sentinelles:
+            print("REFUS : --enhancement %r -- %s est ECRIT COMME UNE CIBLE, pas comme une option."
+                  % (spec, ", ".join(repr(s) for s in _sentinelles)))
+            print("  Tout ce qui precede le premier `;` est une liste d'unitIds. La sentinelle")
+            print("  partirait dans la BC comme `UnitConfigId.PureId` et ne matcherait AUCUNE")
+            print("  unite -- l'enhancement serait installe et INERTE, sans le moindre message.")
+            print("  Forme juste (liste de cibles VIDE, auto en option) :")
+            print("      --enhancement '%s=;%s%s'"
+                  % (nom, _sentinelles[0],
+                     "".join(";" + o for o in morceaux[1:])))
+            return 2
         opts = {}
         auto = None
         for o in morceaux[1:]:
@@ -349,9 +426,92 @@ def main():
             print("          son propre arbre (ex. EnhancementRegeneration, qui vise team 1 /")
             print("          UnitTrait.Hero), mais la famille EnhancementAddTrait ne tirera PAS.")
 
+    # --- les PASSIFS et les TUILES : meme fenetre, autres dictionnaires ---------------------
+    #
+    # (!)ON REUTILISE L'ANALYSEUR DE `--config-ability`, PARCE QUE LA FORME EST LA MEME. Ce qui
+    # change est la FAMILLE visee, pas la grammaire. En ecrire un second divergerait au premier
+    # correctif.
+    passifs = []
+    for spec in a.config_passive:
+        nom, sep, reste = spec.partition("=")
+        if not sep or not nom:
+            print("REFUS : --config-passive attend 'Nom=cle:valeur[,cle:valeur]', recu %r" % spec)
+            return 2
+        consts = {}
+        for kv in reste.split(","):
+            if not kv:
+                continue
+            k, s2, v = kv.partition(":")
+            if not s2 or not k:
+                print("REFUS : --config-passive, paire illisible %r dans %r" % (kv, spec))
+                return 2
+            consts[k] = str(v)
+        if not consts:
+            print("REFUS : --config-passive `%s` sans aucune constante -- une definition VIDE"
+                  " ferait LEVER le premier getter au lieu de le doter." % nom)
+            return 2
+        ordinal = par_nom.get(nom)
+        if ordinal is None:
+            print("REFUS : `%s` n'est pas un `TriggeredAbilityType` connu du build." % nom)
+            return 2
+        passifs.append({"abilityType": ordinal, "nom": nom, "constants": consts})
+
+    tuiles = []
+    for spec in a.tuile_ability:
+        tid, sep, reste = spec.partition("=")
+        if not sep or not tid:
+            print("REFUS : --tuile-ability attend 'TileId=<Nom>[,<Nom>]', recu %r" % spec)
+            print("        ex. --tuile-ability 'Grass=DryBushFireSpread'")
+            return 2
+        ords, lus = [], []
+        for x in reste.split(","):
+            x = x.strip()
+            if not x:
+                continue
+            # ⚠ LE NOM EST LA FORME NORMALE, L'ORDINAL EST L'EXCEPTION -- et c'est la regle du
+            # depot, pas un gout : << un ENTIER qui DESIGNE quelque chose passe par un ENUM >>.
+            # Un ordinal juste aujourd'hui devient faux au changement de build, EN SILENCE, et
+            # `TilesWithTriggeredAbility` comparerait alors une ability que personne ne cherche.
+            # On accepte quand meme l'entier (il faut bien pouvoir viser un membre que le miroir
+            # n'a pas encore), mais on le SIGNALE et on imprime le nom qu'il designe.
+            if x.lstrip("-").isdigit():
+                n = int(x)
+                nom_lu = par_ord.get(n)
+                print("  (!) --tuile-ability `%s` : ordinal NU %d. Il designe `%s` sur CE build ;"
+                      % (tid, n, nom_lu if nom_lu else "AUCUN membre connu"))
+                print("      ecrire le nom le rend stable au changement de build.")
+                if nom_lu is None:
+                    print("REFUS : l'ordinal %d n'est AUCUN `%s` de ce build -- on n'inscrit pas"
+                          " une ability que rien ne nomme." % (n, ENUM_CLS))
+                    return 2
+                ords.append(n)
+                lus.append("%s(%d)" % (nom_lu, n))
+            else:
+                n = par_nom.get(x)
+                if n is None:
+                    print("REFUS : --tuile-ability, `%s` n'est pas un `%s` de ce build."
+                          % (x, ENUM_CLS))
+                    proches = [k for k in par_nom if x.lower() in k.lower()][:6]
+                    if proches:
+                        print("        noms approchants : %s" % ", ".join(proches))
+                    return 2
+                ords.append(n)
+                lus.append("%s(%d)" % (x, n))
+        if not ords:
+            print("REFUS : --tuile-ability `%s` sans aucune ability." % tid)
+            return 2
+        # (!)ON IMPRIME CE QU'ON VA ECRIRE, RESOLU. C'est la seule ligne qui relie le nom tape a
+        # l'ordinal qui partira dans la BC -- sans elle, `Grass=57` ne dit rien a personne.
+        print("  tuile %-12s <- %s" % (tid, ", ".join(lus)))
+        tuiles.append({"tileId": tid, "ajouter": ords})
+
     patch = {"consumeOnce": bool(a.une_fois)}
     if configs:
         patch["environmentAbilityConfigs"] = configs
+    if passifs:
+        patch["passiveAbilityConfigs"] = passifs
+    if tuiles:
+        patch["tileTriggeredAbilities"] = tuiles
     if enhancements:
         patch["environmentEnhancements"] = enhancements
     if demandes:
@@ -362,9 +522,14 @@ def main():
         return 1
 
     print()
+    # (!)LE BILAN NOMME LES CINQ FAMILLES, MEME A ZERO. Il en taisait deux (`--config-passive`,
+    # `--tuile-ability`) : on lisait << 2 definitions de catalogue >> sur un patch qui en portait
+    # aussi une de passif et une de tuile, donc on ne pouvait pas voir qu'elles etaient parties.
     print("patch ARME : %d ability(ies) d'environnement, %d definition(s) de catalogue,"
-          " %d enhancement(s)."
+          " %d enhancement(s),"
           % (len(demandes), len(configs), len(enhancements)))
+    print("             %d config(s) de PASSIF, %d type(s) de TUILE."
+          % (len(passifs), len(tuiles)))
     print("Applique au PROCHAIN `LoadBattle`, PAR MUTATION de la BC que la source produit.")
     print("Monter ensuite le noeud, puis `--etat` : `lastApply.operations` dit ce qui a ete")
     print("REELLEMENT installe (`installees`), et `warnings` nomme une absence du CATALOGUE.")

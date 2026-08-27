@@ -51,7 +51,7 @@ OBSERVENT = [
 ]
 
 
-def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True):
+def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True, lineup=None):
     """LE POINT DE PASSAGE DES MONTAGES SANDBOX : armer les relais ET leur extinction, ENSEMBLE.
 
     ⛔ POURQUOI IL FALLAIT LE CREER. Cote sandbox il n'existait AUCUN point de passage : chaque
@@ -86,8 +86,52 @@ def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True):
     relais armes. C'est deja le cas couvert par `desarmer_relais.py`, et que la fermeture
     n'a jamais promis (« elle ne couvre pas un pilote qui s'arrete AVANT d'avoir monte »).
 
+    ⛔ `lineup` EST OBLIGATOIRE POUR CONSERVER LA COMPOSITION, ET SON ABSENCE SE DIT. Le jeu
+    n'ecrit la lineup d'un noeud que par `UnitProgression$$SetBattleLineupLocally`, normalement a
+    la VICTOIRE ; en sandbox on sort par la RETRAITE, donc rien n'est ecrit. `lineupRetraiteCommit`
+    est le seul chemin -- il lit, a la retraite, la composition REELLEMENT en jeu et la pose sur la
+    cible. Sans lui, poser sa lineup en sandbox ne la conserve pas, SANS LE MOINDRE MESSAGE.
+
+    (!)POURQUOI ICI ET PLUS DANS LES PILOTES. Deux pilotes sur huit (`sandbox_gw`,
+    `sandbox_onslaught`) recopiaient la meme paire desarmement/armement ; les six autres ne
+    l'armaient pas. Mesure du 2026-08-27 sur `elite2` noeud 11 : composition posee a la main,
+    sortie par la retraite, remontage -- le jeu reproposait l'ANCIENNE (`lineupRetraiteCommit`
+    rendait `arme: false, fires: 0`). C'est exactement le gisement que ce point de passage existe
+    pour tuer, et il l'avait laisse passer.
+
+    ⚠ LA CIBLE NE SE DEVINE PAS : ELLE EST PROPRE A LA SOURCE. Chaque `AGameModeSource` fabrique
+    sa clef, et elles n'ont pas la meme forme -- `CampaignGameModeSource$$GetBattleLineup` fait
+    `Concat(<campagneId>, "_", lineupIndex)` ou `lineupIndex` est le nombre de PLACES (mesure :
+    `elite2_5` -> 5 unites, `elite2_3` -> 3, `elite2_10` -> VIDE), tandis que
+    `OnslaughtLineupParser$$GetLineupKey` fait `Concat("onslaught", "_", <alliance>)`. Une clef
+    fausse ne leve RIEN : elle range a cote, en silence. L'appelant la passe donc explicitement --
+    `{"cle": "elite2_5"}` (magasin) ou `{"mode": "guildWar"}` (registre, pour les modes SANS
+    magasin). On ne rend jamais une clef devinee.
+
+    ⚠ ON DESARME AVANT D'ARMER, SANS CONDITION. Re-armer sur une autre cible alors qu'il l'est
+    deja rend << deja arme -- desarmer pour changer de cible >> et GARDE l'ancienne : la
+    composition partirait sous la cible du mode PRECEDENT. Et ce relais n'est PAS dans `ECRIVENT`
+    (donc la fermeture de fenetre ne l'eteint pas) precisement parce qu'il doit tirer AU MOMENT de
+    la retraite -- il survit donc a la sandbox, et c'est ce desarmement-ci qui le rattrape.
+
     Rend la liste des noms armes.
     """
+    if lineup is None:
+        print("  %-28s ABSENT -- la composition posee ne sera PAS conservee (le jeu n'ecrit"
+              % "lineupRetraiteCommit")
+        print("  %-28s qu'a la victoire ; on sort par la retraite). Passer"
+              % "")
+        print("  %-28s `lineup={\"cle\": ...}` ou `{\"mode\": ...}` pour l'armer."
+              % "")
+    else:
+        if not isinstance(lineup, dict) or (("cle" in lineup) == ("mode" in lineup)):
+            raise ValueError(
+                "`lineup` attend EXACTEMENT une cible : {'cle': <magasin>} OU {'mode': <registre>}"
+                " -- recu %r. Les deux, ou aucune, ne designe rien." % (lineup,))
+        armements = ([("lineupRetraiteCommit", {"armer": False})]
+                     + list(armements)
+                     + [("lineupRetraiteCommit", dict(lineup, armer=True, confirmer=True))])
+
     poses = []
     for nom, corps in armements:
         r = jeu.rpc(nom, [dict(corps)], timeout) or {}
@@ -98,6 +142,43 @@ def armer_relais_sandbox(jeu, armements, timeout=180000, fenetre=True):
     if fenetre:
         sandbox_fenetre_armer(jeu)
     return poses
+
+
+def banc_lire(jeu, timeout=60000):
+    """DIRE si le banc est arme AVANT la forge -- une LECTURE, elle n'ecrit rien.
+
+    Le patch de BC (`env_ability_patch.py` : buffs, debuffs, calendrier de vagues, abilities
+    d'environnement) s'applique au `LoadBattle.onLeave`. Le lire avant la forge est ce qui
+    distingue << la BC va en sortir patchee >> de << personne n'a arme le banc >>, dont l'oubli
+    est autrement SILENCIEUX : la sandbox monte normalement, seul le compte de modificateurs
+    tombe a 0.
+
+    ⛔ IL N'Y A RIEN A << RESTAURER >>, ET `banc_restaurer` A ETE RETIRE (2026-08-26). Il partait
+    de la these que `consumeOnce` etait obligatoire pour eviter la double application ; c'est FAUX
+    dans les deux sens. D'abord parce que le banc n'est PAS specifique a un montage : son reglage
+    vaut pour TOUTES les batailles, donc `env_ability_patch.py` pose `consumeOnce: False` par
+    defaut et le patch DOIT rester arme -- il n'est jamais consomme, il n'y a donc rien a
+    remettre. Ensuite parce que la double application n'est plus nuisible : la pose est devenue
+    IDEMPOTENTE (`environment-abilities.ts`, `empreinteEnhancement`), et c'est la vraie reparation
+    -- un patch permanent se rejoue a chaque `LoadBattle`, plusieurs fois par montage, donc seule
+    l'idempotence tient. Re-armer restait alors nuisible dans le SEUL cas ou il agissait : sur un
+    `--une-fois` DEMANDE explicitement, il defaisait l'intention de l'appelant.
+
+    ⚠ TRI-ETAT : rend `None` quand l'etat n'est PAS MESURE **et** quand il n'y a rien d'arme --
+    l'appelant les distingue a l'ecran par le message imprime ici.
+    """
+    r = jeu.rpc("getBattleConfigPatchStatus", [{}], timeout) or {}
+    if not (isinstance(r, dict) and r.get("ok")):
+        print("  %-28s NON MESURE : %s" % ("banc", str(r)[:150]))
+        return None
+    p = r.get("pending")
+    if p:
+        cles = ", ".join(sorted(p.keys())) if isinstance(p, dict) else "?"
+        print("  %-28s ARME (%s) -- la BC produite en sortira DEJA PATCHEE" % ("banc", cles))
+    else:
+        print("  %-28s aucun -- `env_ability_patch.py --poser ...` AVANT, pour l'armer"
+              % "banc")
+    return p or None
 
 
 def arme_selon(r):

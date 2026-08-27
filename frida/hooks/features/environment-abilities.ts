@@ -31,7 +31,9 @@ import {
     findClassAnywhere, findMethodByParamCount, getFieldOffset, class_get_name, cstr,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
-import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
+import {
+    deserializeFromJson, isDeserializerReady, isSerializerReady, serializeToJson,
+} from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { estRefus, refus } from "./lecture-champs.js";
 import { Refus } from "./view-command.js";
@@ -307,9 +309,90 @@ export interface SpecEnhancement {
  *  unites nommees (`docs/rl/case-10046-debuff-d-environnement.md` §3).
  *
  *  ⚠ Un niveau NUL n'arme rien -- meme regle que `ajouterAbility`, et pour la meme raison. */
+/** L'EMPREINTE d'une entree d'enhancement -- ce qui decide qu'elle est DEJA LA.
+ *
+ *  ⛔ UN PATCH PERMANENT DOIT ETRE IDEMPOTENT, ET `Add` N'A AUCUNE CLE. `consumeOnce: false` est
+ *  le regime NORMAL du banc (`env_ability_patch.py` le pose par defaut) : le reglage vaut pour
+ *  TOUTES les batailles, pas pour une. Le patch reste donc arme, et il se REJOUE a chaque
+ *  `LoadBattle` -- or ce point tire plusieurs fois par montage, sur le MEME objet : montage
+ *  initial ET retry pour la sandbox (`sandbox-mode.ts`, au `retval.replace(bcOverride)`), et la
+ *  BC substituee est la meme instance a chaque tir. Sans cle, chaque passage EMPILE.
+ *
+ *  Mesure du 2026-08-26 : `enhancements=3 demandée(s)` pour `installées: 6`, la liste ayant deja
+ *  recu les trois memes. Et deux entrees identiques ne sont PAS inertes -- `EnhancementStack` est
+ *  un MULTIPLICATEUR, donc elles CUMULENT : un banc regle a -100 % / +1000 % se retrouve applique
+ *  deux fois sans qu'aucun retour ne change (`ok`, `relu: true`, des deux cotes).
+ *
+ *  ⚠ L'EMPREINTE SE PREND SUR LE CONTENU, ET C'EST OBLIGATOIRE : le meme reglage traverse une
+ *  SERIALISATION (la BC forgee part en JSON dans `sandboxModeBcOverride`, qui en deserialise une
+ *  COPIE). Pointeur de BC different, receptacle different -- aucune memoire d'OBJET ne verrait le
+ *  doublon. Seul le contenu survit au passage par JSON.
+ *
+ *  ⚠ LA CLE INCLUT `Stack` ET LES CIBLES, ET C'EST OBLIGATOIRE. Le reglage du banc pose DEUX
+ *  `EnhancementDamageBoost` parfaitement legitimes -- `stack: 1` sur l'adversaire (-100 %) et
+ *  `stack: -10` sur ma lineup (+1000 %) -- avec le MEME `ConfigId` et le MEME `PlayerId` (nul).
+ *  Une cle par ability les fusionnerait, donc desarmerait la moitie du banc.
+ *
+ *  ⚠ LES CIBLES SONT TRIEES : `Targets` est une liste, son ORDRE ne porte aucun sens, et deux
+ *  applications successives peuvent la produire dans un ordre different (l'union
+ *  `SOURCE u BC u fournies` depend de ce que la BC portait au moment ou on l'a lue). Comparer
+ *  sans trier raterait le doublon. */
+function empreinteEnhancement(e: unknown): string | null {
+    if (e === null || typeof e !== "object") return null;
+    const o = e as Record<string, unknown>;
+    if (typeof o.ConfigId !== "string") return null;
+    const cibles: string[] = [];
+    const ts = o.Targets;
+    if (Array.isArray(ts)) {
+        for (const t of ts) {
+            const tt = (t ?? {}) as Record<string, unknown>;
+            const u = (tt.Target ?? {}) as Record<string, unknown>;
+            cibles.push(`${String(u.PureId ?? "")}/${String(u.Rarity ?? "")}`
+                + `/${String(u.Level ?? "")}/${String(u.IsBorrowed ?? "")}`
+                + `/${String(u.IsPvpOpponent ?? "")}#${String(tt.Stack ?? "")}`);
+        }
+        cibles.sort();
+    } else if (ts !== null && ts !== undefined) {
+        // Forme inattendue : on ne fabrique pas une empreinte qu'on ne comprend pas -- elle
+        // ferait SAUTER un ajout legitime, ce qui est pire que le doublon qu'on repare.
+        return null;
+    }
+    return JSON.stringify([o.ConfigId, o.Level ?? null, o.PlayerId ?? null, o.Stack ?? null,
+        cibles]);
+}
+
+/** LES EMPREINTES DEJA PRESENTES dans la liste. `null` = PAS MESURE -- jamais un tableau vide.
+ *
+ *  ⛔ TRI-ETAT, ET LE SENS DE LA DEGRADATION EST CHOISI. Un `[]` rendu faute de serialiseur se
+ *  lirait « la liste est vide », donc « rien n'est en double », donc on ajoute -- c'est le
+ *  comportement d'aujourd'hui, et il est le bon repli : on doublonne (visible, reparable) plutot
+ *  que de sauter une pose legitime (silencieux, et le banc se retrouve a moitie desarme sans que
+ *  rien ne le dise). Mais on le DIT au lieu de le laisser passer pour une mesure. */
+function empreintesPresentes(liste: NativePointer): string[] | null {
+    if (!isSerializerReady()) return null;
+    let json: string | null;
+    try { json = serializeToJson(liste); } catch { return null; }
+    if (json === null) return null;
+    let arr: unknown;
+    try { arr = JSON.parse(json); } catch { return null; }
+    if (!Array.isArray(arr)) return null;
+    const out: string[] = [];
+    for (const e of arr) {
+        const emp = empreinteEnhancement(e);
+        // Une SEULE entree illisible invalide l'inventaire entier : un inventaire partiel
+        // rendrait « absente » une entree qu'on n'a pas su lire.
+        if (emp === null) return null;
+        out.push(emp);
+    }
+    return out;
+}
+
 export function ajouterEnhancement(
     env: NativePointer, spec: SpecEnhancement,
-): { ok: true; note?: string; ciblesResolues?: CibleUnite[] } | Refus {
+): {
+    ok: true; note?: string; ciblesResolues?: CibleUnite[];
+    dejaPresente?: boolean; inventaireNonMesure?: boolean;
+} | Refus {
     const niveau = spec.niveau ?? 1;
     if (niveau === 0) {
         return refus("`" + spec.ability + "` : niveau 0 -- le natif n'arme rien. On REFUSE plutot "
@@ -336,6 +419,26 @@ export function ajouterEnhancement(
         Stack: stack,
     };
 
+    const liste = membre(env, "enhancements");
+    if (estRefus(liste)) return liste;
+    const l = liste as NativePointer;
+
+    // ⛔ ON N'AJOUTE PAS CE QUI EST DEJA LA, A L'IDENTIQUE -- `Add` n'a AUCUNE cle, et deux
+    // entrees identiques ne sont pas inertes : `EnhancementStack` est un MULTIPLICATEUR, donc
+    // elles CUMULENT. C'est ainsi qu'un banc regle a -100 % / +1000 % s'est retrouve applique
+    // deux fois sans qu'aucun retour ne change (`ok`, `relu: true`, des deux cotes).
+    const empreinte = empreinteEnhancement(charge);
+    const presentes = empreintesPresentes(l);
+    if (empreinte !== null && presentes !== null && presentes.indexOf(empreinte) >= 0) {
+        // ⛔ PAS DE `note` ICI, ET C'EST LA CORRECTION D'UNE FAUTE MESUREE. `applyPatchToConfig`
+        // calcule `ok: warnings.length === 0`, et l'appelant route toute `note` vers `warnings` :
+        // annoncer l'idempotence par ce canal faisait rendre `lastApply.ok: false` a une
+        // application PARFAITEMENT SAINE (mesure du 2026-08-26, 3 notes -> `ok: false`). Un
+        // controle qui rougit sur son propre artefact fait chercher une panne qui n'existe pas.
+        // Le fait est publie ou il doit l'etre : en `operations`, via `dejaPresente`.
+        return { ok: true, dejaPresente: true, ciblesResolues: resolues };
+    }
+
     let eec: NativePointer;
     try { eec = deserializeFromJson(JSON.stringify(charge), kEec); }
     catch (e) {
@@ -347,9 +450,6 @@ export function ajouterEnhancement(
     }
     gcRoot.add(eec);
 
-    const liste = membre(env, "enhancements");
-    if (estRefus(liste)) return liste;
-    const l = liste as NativePointer;
     const mAdd = methode(l.readPointer(), "Add", 1);
     if (estRefus(mAdd)) return mAdd;
     try { invokeMethod(mAdd.info, l, [eec]); }
@@ -365,11 +465,15 @@ export function ajouterEnhancement(
     // ⚠ ET LES CIBLES RESOLUES REMONTENT. Le suffixe est scinde par `unitConfigId` : sans cet
     // echo, un `:6` mal interprete ne se verrait NULLE PART -- l'installation resterait `ok`, la
     // liste compterait 1, et l'effet ne se poserait juste pas. On publie ce qui a ete APPARIE.
+    // `inventaireNonMesure` remonte parce que le repli est un AJOUT : ne pas le publier ferait
+    // lire un doublon comme une pose normale, exactement le silence qu'on repare ici.
+    const nonMesure = presentes === null ? true : undefined;
     return cibles.length === 0
-        ? { ok: true, note: "AUCUNE cible nommée : légitime pour une ability qui choisit sa cible "
+        ? { ok: true, inventaireNonMesure: nonMesure,
+            note: "AUCUNE cible nommée : légitime pour une ability qui choisit sa cible "
             + "dans son propre arbre (ex. `EnhancementRegeneration`), mais une ability gardée par "
             + "`IsEnhancementTarget` (toute la famille `EnhancementAddTrait`) ne tirera JAMAIS" }
-        : { ok: true, ciblesResolues: resolues };
+        : { ok: true, ciblesResolues: resolues, inventaireNonMesure: nonMesure };
 }
 
 /** FUSIONNE une `AbilitiesConfiguration` (config PAR MODE) dans le receptacle, PAR LE NATIF.

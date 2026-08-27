@@ -68,12 +68,19 @@
  *      ETABLIE, donc on LAISSE PASSER en le disant. C'est l'invariant que l'avant-dernier
  *      paragraphe promet deja -- le module ne le tenait pas.
  *
- *      ⛔ MAIS PAS POUR TOUS LES MODES, ET L'OUBLIER CREERAIT LA FAUTE INVERSE. En guerre de
- *      guilde le natif rend un TALON CONSTANT (`Array.Empty<string>()`) : il n'existe AUCUNE cle
- *      cote jeu, notre registre est la SEULE voie. Un registre vide y EST donc une absence
- *      etablie, et echouer ouvert ferait partir un engagement SANS AUCUNE EQUIPE. Le cran est
- *      donc conditionne a `natifPeutPorterUneLineup`. Signale par l'utilisateur juste apres la
- *      pose du cran, avant qu'il n'ait jamais tourne en guerre de guilde.
+ *      ⛔ MAIS PAS POUR TOUS LES MODES, ET L'OUBLIER CREERAIT LA FAUTE INVERSE : pour un mode
+ *      dont le natif porte VRAIMENT une composition, echouer ouvert peut faire partir une equipe
+ *      perimee. Le cran est donc conditionne a `natifPeutPorterUneLineup`.
+ *
+ *      ⛔ ET UN TALON CONSTANT NE VAUT PAS << AUCUNE EQUIPE >> -- CE PARAGRAPHE L'A CRU, ET CA A
+ *      BLOQUE UNE GUERRE DE GUILDE REELLE (2026-08-26, `bloques: 1`). Il annoncait : << en guerre
+ *      de guilde notre registre est la SEULE voie, un registre vide y EST une absence etablie >>.
+ *      La premiere moitie est vraie, la seconde ne s'en deduit pas. Lu au decompile :
+ *      `GuildWarsGameModeSource$$LoadBattleInternal` ne consulte JAMAIS `GetBattleLineup`, et la
+ *      source SURCHARGE `GetUnitsForDeploymentHUD` -- le joueur compose APRES le tap, dans le HUD.
+ *      Le talon dit << aucune composition PRE-REMPLIE >>. Il n'y avait donc rien a proteger : sans
+ *      preselection, aucune composition perimee ne peut partir. Le vrai discriminant est
+ *      `leJoueurComposeApresLeTap`, et il vit dans `lineup-poser` avec ses trois lectures.
  *
  *   2. L'ANCRAGE DE DEPLOIEMENT NE BLOQUE PLUS DU TOUT, il OBSERVE (`auraitBloque`). Il est
  *      structurellement trop tard : plusieurs modes ont deja depense le jeton quand la phase de
@@ -106,7 +113,7 @@ import {
 import { queueOnMainThread } from "../runtime/queue.js";
 import {
     compositionRetenue, estSourceCouverte, lineupObservee, estSourceObservable,
-    natifPeutPorterUneLineup,
+    natifPeutPorterUneLineup, leJoueurComposeApresLeTap,
 } from "./lineup-poser.js";
 import { afficherMessage } from "./message-box.js";
 import { Ctx } from "../controller.js";
@@ -329,6 +336,21 @@ function armerPopup(): Record<string, unknown> {
                     if (vue !== null && vue.length > 0) {
                         noter("laisse", "lineup OBSERVEE sur la source (`GetBattleLineup`) -- rien "
                             + "dans notre registre, mais le jeu en a rendu une", p.source, vue.length);
+                        return;
+                    }
+                    // ⛔ ET UN REFUS ICI N'A DE SENS QUE SI LE TAP EST LA DERNIERE CHANCE.
+                    // En guerre de guilde il ne l'est PAS : `LoadBattleInternal` ne consulte
+                    // jamais `GetBattleLineup`, et la source surcharge `GetUnitsForDeploymentHUD`
+                    // -- le joueur compose APRES, dans le HUD, min 1 unite. Le talon constant dit
+                    // << aucune composition PRE-REMPLIE >>, pas << aucune equipe >>. La lecture
+                    // qui l'etablit vit dans `lineup-poser`, jamais recopiee ici.
+                    // Mesure du 2026-08-26 : ce refus a bloque une guerre de guilde REELLE.
+                    if (leJoueurComposeApresLeTap(p.source)) {
+                        noter("laisse", "le tap n'est PAS la derniere chance -- ce mode ouvre un "
+                            + "HUD de deploiement ou le joueur compose ; `GetBattleLineup` n'y est "
+                            + "qu'un PRE-REMPLISSAGE, et `LoadBattleInternal` ne le consulte "
+                            + "jamais. Rien a proteger : sans preselection, aucune composition "
+                            + "perimee ne peut partir", p.source, null);
                         return;
                     }
                     if (!bloquer) {

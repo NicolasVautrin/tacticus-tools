@@ -115,7 +115,15 @@ DETTE_ATTESTEE = {
     "scripts/python/sandbox_pvp.py",
     "scripts/python/sandbox_incursion.py",
     "scripts/python/sandbox_guildwar.py",
-    "scripts/python/sandbox_gw.py",
+    # `scripts/python/sandbox_gw.py` RETIRE le 2026-08-27 : le fichier a ete SUPPRIME. C'etait un
+    # SECOND lanceur de guerre de guilde, ecrit quatre jours apres `sandbox_guildwar.py` sur la
+    # these -- fausse -- que le mode n'en avait aucun. Ses deux capacites propres (`--joueur`,
+    # `--seed`) sont portees dans le survivant ; les deux autres (`--depuis-capture`,
+    # `--sans-replay`) sont abandonnees.
+    #
+    # ⚠ LA DETTE NE DECROIT PAS D'UNE UNITE POUR AUTANT : le survivant est toujours dans la liste,
+    # et c'est LUI qui doit etre converti. Retirer une ligne parce qu'on a efface le fichier n'est
+    # pas un progres -- c'est ce que ce commentaire empeche de lire a tort.
 }
 
 

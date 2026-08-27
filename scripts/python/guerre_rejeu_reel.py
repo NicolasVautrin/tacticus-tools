@@ -342,9 +342,21 @@ def main(argv=None):
         if d.get("RngSeed") is None:
             stop("le replay ne porte pas de `RngSeed` -- la repetition ne prouverait RIEN sur "
                  "les tirages. On ne monte pas.")
-        p = subprocess.run([sys.executable, str(RACINE / "scripts" / "python" / "sandbox_gw.py"),
+        # (!)LE LANCEUR A CHANGE DE NOM LE 2026-08-27 : `sandbox_gw.py` a ete SUPPRIME au profit de
+        # `sandbox_guildwar.py`, qui a recu `--joueur` et `--seed`. Les deux lanceurs montaient la
+        # MEME chaine (`guildWarSourceForger` -> `guildWarSourceBc` -> `sandboxModeBcOverride`),
+        # ecrits a quatre jours d'ecart, le second sur la these -- fausse -- que la guerre de
+        # guilde n'avait aucun lanceur.
+        #
+        # ⚠ `--sans-replay` N'EST PLUS PASSE, ET CE N'EST PAS UN OUBLI : `sandbox_guildwar.py`
+        # n'arme PAS `replayFinAuto`, donc il n'y a rien a desarmer. Le comportement voulu ici --
+        # une repetition qui n'emet AUCUNE capture de fin -- est desormais le defaut. Si ce
+        # lanceur se met un jour a armer la capture, il faudra REINTRODUIRE le drapeau : c'est la
+        # seule raison pour laquelle cette ligne le mentionne.
+        p = subprocess.run([sys.executable,
+                            str(RACINE / "scripts" / "python" / "sandbox_guildwar.py"),
                             "--joueur", args.joueur, "--slot", str(args.slot), "--confirmer",
-                            "--sans-replay", "--seed", str(d["RngSeed"])],
+                            "--seed", str(d["RngSeed"])],
                            capture_output=True, text=True, timeout=900)
         sortie = (p.stdout or "") + (p.stderr or "")
         if "MONTE." not in sortie:

@@ -501,7 +501,30 @@ export function unitesDuPlateau(): UniteDuPlateau[] | string {
             if (offEntries < 0 || offCount < 0) return "`_entries`/`_count` absents du dictionnaire";
             const entries = dico.add(offEntries).readPointer();
             const nEntries = dico.add(offCount).readS32();
-            if (entries.isNull()) return "`_entries` est NUL";
+            // ⛔ `_entries` NUL AVEC `_count == 0` N'EST PAS UNE PANNE DE LECTURE : C'EST UN
+            // DICTIONNAIRE VIDE, et c'est le SEUL cas que le rejeu de mémoire doit servir.
+            //
+            // Un `Dictionary<K,V>` .NET construit et jamais alimenté laisse `_buckets` ET
+            // `_entries` à NUL -- le tableau de secours n'est alloué qu'à la première insertion.
+            // Rendre un refus dessus faisait passer « le plateau est VIDE » pour « je ne sais pas
+            // lire le plateau », et les deux ne mènent pas au même geste :
+            //
+            //     compteJoueur() -> null  -> rejouerMemoire : « plateau non lisible -- rejeu ANNULÉ »
+            //     compteJoueur() -> 0     -> rejouerMemoire : REJOUE les poses mémorisées
+            //
+            // Mesuré le 2026-08-26 sur un retry d'onslaught : la mémoire portait bien les 5 poses
+            // (`necroSpyder`, `necroDestroyer`, `tauMarksman`, `tauCrisis`, `tauDarkstrider`),
+            // `armé: true`, `capteurStartArmé: true` -- et `rejeux: 0`, `dernier: "plateau non
+            // lisible -- rejeu ANNULÉ"`. La composition n'était pas reprise, et rien n'accusait
+            // la vraie cause : la garde tombait pile sur l'état qu'elle devait laisser passer.
+            //
+            // ⚠ On ne relâche QUE le couple (`_entries` nul ET `_count` nul). Un `_entries` nul
+            // avec un `_count` non nul reste une incohérence -- là, on ne sait vraiment pas lire,
+            // et on refuse.
+            if (entries.isNull()) {
+                return nEntries === 0 ? [] : "`_entries` est NUL alors que `_count` vaut "
+                    + nEntries + " -- dictionnaire INCOHÉRENT, on ne devine pas";
+            }
             if (nEntries < 0 || nEntries > 4096) return `_count invraisemblable (${nEntries})`;
             if (class_get_element_class === null || class_instance_size === null) {
                 return "`class_get_element_class`/`class_instance_size` absents -- taille "

@@ -59,11 +59,16 @@ Le reste releve de l'EFFICACITE, et se regle :
     15 aout, et concluait << rien au-dela >> -- une observation d'UN SEUL jour promue en loi.
     REFUTE le 2026-08-17 : en balayant les codes ANCIENS jusqu'a epuisement du budget,
     `TACTICUSMM` (2026-07-08, QUARANTE jours) a rendu `Success`. Rendement mesure du balayage :
-    1 succes sur 17 codes anciens (~6 %), pas zero.
+    1 succes sur 17 codes anciens, puis 0 sur 9 le 2026-08-27 -- soit **1/26 (~4 %)** cumule.
+    Bas, mais pas zero, et re-mesurer plutot que citer : le rendement d'UN balayage ne fait pas
+    une loi, c'est exactement la faute que ce paragraphe corrige.
     ⇒ un balayage des vieux codes VAUT le coup une fois le neuf epuise. Il ne coute que des
     tentatives, et celles-ci se regenerent a 0 h UTC ;
   * l'ARRET SUR `AlreadyUsed` : dans cet ordre, un code deja consomme prouve qu'on avait deja
-    reclame jusque-la, donc tout ce qui est plus ancien l'est aussi -- on arrete par INUTILITE ;
+    reclame jusque-la, donc tout ce qui est plus ancien l'est aussi -- on arrete par INUTILITE.
+    ⚠ SA PREMISSE TOMBE DES QUE LE REGISTRE A UN TROU (mesure du 2026-08-27) : `--max N` ne joue
+    que les N plus recents, donc des codes ANCIENS jamais tentes se retrouvent SOUS des codes
+    reclames. L'arret DIT desormais combien il en laisse, et `--balayer-vieux` le leve ;
   * `--echecs-max` : arret apres N echecs consecutifs. DESACTIVE par defaut (0), puisque sous
     la lecture par code il n'y a rien a economiser. Le mettre a 4 restitue l'ancien regime ;
   * un PLAFOND par execution (`--max`), qui borne la duree, pas le risque ;
@@ -108,6 +113,29 @@ from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
 REGISTRE = RACINE / "logs" / "promo-codes-tentes.json"
+
+# Le salon annonces du Discord EOT -- guild 1112021785064521818. MESURE le 2026-08-25 : c'est la
+# que les codes sont postes, un par message.
+CANAL_ANNONCES = "1423682860308631573"
+
+# La session Discord vit HORS DEPOT parce qu'elle porte un JETON DE COMPTE : le depot est pousse,
+# `logs/` n'est pas versionne mais reste dans l'arbre, et un `git add` distrait suffirait. Le
+# `$HOME` de l'utilisateur, lui, n'est pousse nulle part.
+SESSION_DEFAUT = Path.home() / ".tacticus" / "discord-session.json"
+
+
+def resoudre_session(explicite):
+    """Rend le chemin de la session, ou None -- jamais un chemin qui n'existe pas.
+
+    ⚠ Tri-etat : None = PAS TROUVE, ce qui fait REFUSER l'appelant. Rendre `SESSION_DEFAUT`
+    inconditionnellement ferait echouer plus loin sur un `FileNotFoundError` qui accuserait la
+    lecture Discord au lieu de nommer la vraie cause.
+    """
+    import os
+    for p in (explicite, os.environ.get("TACTICUS_DISCORD_SESSION"), SESSION_DEFAUT):
+        if p and Path(p).is_file():
+            return Path(p)
+    return None
 
 # Un code du canal : un message dont le contenu ENTIER est un jeton majuscule. Le canal alterne
 # code / ping de role, et les pings portent `<@&...>` -- ce motif les ecarte de lui-meme.
@@ -222,9 +250,12 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--session", type=int, default=11)
     ap.add_argument("--hote", default="http://127.0.0.1:8765")
-    ap.add_argument("--canal", default="1119363760990204034")
-    ap.add_argument("--session-file", required=True,
-                    help="le JSON de session Discord (HORS DEPOT : il porte un token)")
+    ap.add_argument("--canal", default=CANAL_ANNONCES,
+                    help="defaut : le salon annonces du Discord EOT (MESURE le 2026-08-25). "
+                         "L'ancien defaut `1119363760990204034` n'a jamais ete confronte.")
+    ap.add_argument("--session-file", default=None,
+                    help="le JSON de session Discord. Par defaut : $TACTICUS_DISCORD_SESSION, "
+                         "sinon ~/.tacticus/discord-session.json. HORS DEPOT : il porte un token.")
     ap.add_argument("--max-messages", type=int, default=300)
     ap.add_argument("--pause-discord", type=float, default=1.0)
     ap.add_argument("--jouer", action="store_true", help="sans ce drapeau : lecture seule")
@@ -232,15 +263,30 @@ def main():
     ap.add_argument("--max", type=int, default=40, help="plafond de codes joues par execution")
     ap.add_argument("--echecs-max", type=int, default=0,
                     help="arret apres N echecs CONSECUTIFS ; 0 = desactive (defaut)")
+    ap.add_argument("--balayer-vieux", action="store_true",
+                    help="ne PAS s'arreter sur `AlreadyUsed`. A utiliser quand le registre a un "
+                         "TROU (des codes anciens jamais tentes sous des codes reclames) : la "
+                         "premisse de l'arret ne les couvre pas. Rendement mesure : ~6 %%.")
     ap.add_argument("--budget-echecs", type=int, default=12,
                     help="plafond d'echecs CUMULES sur 24 h (seuil serveur mesure : 20)")
     ap.add_argument("--pause", type=float, default=3.0, help="secondes entre deux codes")
     ap.add_argument("--attente", type=float, default=12.0, help="secondes d'attente d'une reponse")
     a = ap.parse_args()
 
-    codes = lire_canal(a.session_file, a.canal, a.max_messages, a.pause_discord)
+    fichier = resoudre_session(a.session_file)
+    if fichier is None:
+        print("REFUS : aucune session Discord trouvee.")
+        print("  cherche, dans l'ordre : --session-file, $TACTICUS_DISCORD_SESSION, %s"
+              % SESSION_DEFAUT)
+        print("  la reposer = coller un `Copy as cURL` d'une requete discord.com et en extraire")
+        print("  {token, user_agent, entetes, cookies}. HORS DEPOT : ce fichier porte un token.")
+        return 2
+    print("session Discord : %s" % fichier)
+
+    codes = lire_canal(fichier, a.canal, a.max_messages, a.pause_discord)
     if codes is None:
         print("Discord NON LU -- on ne joue rien.")
+        print("  un 401 = le token a EXPIRE : recoller un `Copy as cURL` dans %s" % fichier)
         return 1
     reg = charger_registre()
     neufs = [c for c in codes if c["code"] not in reg]
@@ -358,9 +404,26 @@ def main():
         # Continuer ne ferait que depenser des tentatives sur des `AlreadyUsed` certains --
         # et c'est ce compteur-la qui mene a `MaxFailsReached`.
         # ⚠ Compare par le NOM resolu au jeu (`dumpEnum`), pas par l'ordinal 2 recopie ici.
+        #
+        # ⚠ ET SA PREMISSE EST FAUSSE DES QUE LE REGISTRE A UN TROU -- MESURE LE 2026-08-27.
+        # << on avait deja reclame jusque-la >> ne vaut que si les passes precedentes ont
+        # descendu la liste SANS SAUTER. Or `--max N` ne joue que les N plus recents : le
+        # registre prend alors la forme << bloc recent tente, bloc ancien JAMAIS tente >>, et
+        # l'ancien est en-DESSOUS. Mesure du jour : `MORSHOOTING` (24/08) rend `AlreadyUsed`
+        # avec 36 codes de mai-juillet non tentes sous lui. L'arret reste le DEFAUT (il protege
+        # le compteur serveur dans le cas courant), mais il DIT desormais ce qu'il laisse, et
+        # `--balayer-vieux` le leve.
         if nom == "AlreadyUsed":
-            print("    DEJA RECLAME -- on s'arrete : les codes plus anciens le sont aussi.")
-            break
+            if a.balayer_vieux:
+                print("    DEJA RECLAME -- mais --balayer-vieux : on continue sous ce code.")
+            else:
+                dessous = [x for x in lot[i + 1:]]
+                print("    DEJA RECLAME -- on s'arrete : les codes plus anciens le sont aussi.")
+                if dessous:
+                    print("    (!) %d code(s) NON TENTE(S) restent SOUS celui-ci (%s ... %s) : la"
+                          % (len(dessous), dessous[0]["quand"][:10], dessous[-1]["quand"][:10]))
+                    print("      premisse ci-dessus ne les couvre PAS. `--balayer-vieux` les joue.")
+                break
 
         # La POLITIQUE d'echecs consecutifs vit ici, pas dans le hook -- et elle est desactivee
         # par defaut. Sous la lecture << compteur par code >>, enchainer des codes DISTINCTS ne
