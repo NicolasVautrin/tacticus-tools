@@ -902,6 +902,33 @@ interface BattleConfigPatch {
     /** Compagnons de `Tiers` dans le nœud, conservés à leur valeur par défaut sauf demande. */
     useAtomicGroup?: boolean;
     useSpawnPointFromUnitIndex?: boolean;
+    /** `BC.UnitModifiers` -- le point d'entrée NATIF de modification de stats, clé = `unitId`
+     *  SANS suffixe de rareté. Détail, signe inversé et liste des `Id` acceptés : voir
+     *  `ecrireModificateursDUnite`.
+     *
+     *  ⚠ C'EST LE PENDANT LIVE DE LA SUBSTITUTION DE BC, ET C'EST TOUT SON INTÉRÊT. Réécrire un
+     *  `BC.Units[].Health` exige de substituer la BC entière, ce que seul `SandboxGameModeSource`
+     *  accepte ; ce champ-ci MUTE la BC que la source vient de produire, donc il vaut aussi en
+     *  bataille RÉELLE. Mesuré le 2026-08-27 sur `elite2` 25.
+     *
+     *  ⚠ REMPLACE le dictionnaire entier -- comme `unitSpawningOverTime`, et comme le patch
+     *  lui-même (`pendingPatch = {...patch}`). Fusionner côté appelant. */
+    unitModifiers?: Record<string, Array<{
+        /** `UnitModificationType` : 0=Stat, 1=AbilityVariable, 2=AbilityConstant,
+         *  3=InitialSpawnAmountDecrease. Défaut 0. */
+        ModificationType?: number;
+        /** L'un des HUIT que `ApplyModifiers` sait dispatcher (`dmg`, `fixedArmor`, `movement`,
+         *  `hits`, `hp`, `blockChance`, `critDmg`, `critChance`). Tout autre n'applique RIEN,
+         *  sans lever. */
+        Id: string;
+        SubId?: string;
+        /** ⚠ `IsBuff` et `IsPercentage` ne sont JAMAIS LUS par `ApplyModifiers` : la nature est
+         *  câblée PAR `Id` dans le natif. Acceptés pour que la charge reste lisible. */
+        IsBuff?: boolean;
+        IsPercentage?: boolean;
+        /** POSITIF = debuff (`final = base - pct(base)`). NÉGATIF pour gonfler. */
+        Amount: number;
+    }>>;
     /** Les abilities d'ENVIRONNEMENT à INSTALLER -- `BC.EnvironmentAbilities`, le RÉCEPTACLE,
      *  et surtout PAS le catalogue `BC.Abilities.EnvironmentAbilities` (166 définitions).
      *
@@ -1214,6 +1241,111 @@ export function ecrireCalendrierDeVagues(
     return {
         ok: true, offset: "+0x" + off.toString(16), noeudAvant: avant, noeudApres: apres,
         relu: apres === noeud.toString(), octetsJson: json.length,
+    };
+}
+
+/** ÉCRIRE `BattleConfiguration.UnitModifiers` — le point d'entrée NATIF de modification de stats.
+ *
+ *  `Dictionary<string, List<IdunBattleLogic.Shared.UnitModifier>>`, clé = `unitId` **sans suffixe
+ *  de rareté**. Lu par `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits` (et
+ *  `$$AddBossUnit`) juste après la création de l'entité, puis dispatché par `$$ApplyModifiers`.
+ *  Notre fenêtre (`LoadBattle.onLeave`) est donc assez tôt : le SETUP vient après.
+ *
+ *  ⛔ POURQUOI CE CHAMP EXISTE. Le seul autre moyen de gonfler une stat était de réécrire le
+ *  scalaire d'un gabarit `BC.Units[]`, ce qui exige de SUBSTITUER la BC entière
+ *  (`sandboxModeBcOverride`) — et cette voie ne détourne que `SandboxGameModeSource`. Mesuré le
+ *  2026-08-27 : en sandbox elle marche (Guardsman 1229 -> 122900), en bataille RÉELLE elle
+ *  n'existe pas, la source y montant sa propre BC. Ici on MUTE la BC produite, donc les deux
+ *  régimes sont couverts. C'est le même choix que le calendrier de vagues juste au-dessus.
+ *
+ *  ⚠ LE SIGNE EST INVERSÉ, ET C'EST LE NATIF QUI LE VEUT. `SetupGameOperation$$ModifyUnitHp` fait
+ *  `final = base - CalculatePercentage(base, Amount)` puis écrit health sur StatPart=2 (Maximum)
+ *  ET StatPart=0 (Current). Un `Amount` POSITIF est donc un DEBUFF ; pour gonfler il faut un
+ *  NÉGATIF : `-1000` donne `base - (-10 x base)` = **11 x base**. Confronté en sandbox avant
+ *  d'écrire cette fonction (Guardsman 1229 -> 13519), gabarits laissés à leur valeur d'origine
+ *  pour que le modifier soit le seul levier en jeu.
+ *
+ *  ⚠ LES HUIT `Id` ACCEPTÉS, et tout autre tombe dans la branche de log de `ApplyModifiers` sans
+ *  rien appliquer — mode de panne SILENCIEUX. La table (avec la nature de `Amount`, câblée PAR
+ *  `Id` dans le natif et non portée par le modifier) vit dans `scripts/python/rl_duel.py`
+ *  §#477-r6 ; on ne la duplique pas ici, on refuse simplement de deviner à la place de l'appelant.
+ *
+ *  ⚠ LA CLASSE DU DICTIONNAIRE SE LIT SUR L'INSTANCE EXISTANTE, jamais par son nom. C'est une
+ *  instanciation générique (`Dictionary<string, List<UnitModifier>>`) que `findClassAnywhere` ne
+ *  sait pas nommer ; la fabriquer par chaîne serait exactement la devinette que ce fichier
+ *  proscrit ailleurs. Si le champ est NUL, on REFUSE en le disant plutôt que d'inventer un type. */
+export function ecrireModificateursDUnite(
+    bc: NativePointer, modifiers: Record<string, unknown>,
+): { ok: boolean; error?: string; offset?: string; noeudAvant?: string; noeudApres?: string;
+     relu?: boolean; octetsJson?: number; cles?: string[]; classe?: string } {
+    let klass: NativePointer;
+    try { klass = bc.readPointer(); } catch (e) {
+        return { ok: false, error: "classe de la BC illisible : " + (e as Error).message };
+    }
+    if (klass.isNull()) return { ok: false, error: "la BC porte une classe NULLE" };
+    let nomClasse: string;
+    try { nomClasse = cstr(class_get_name(klass) as NativePointer); }
+    catch (e) { return { ok: false, error: "nom de classe illisible : " + (e as Error).message }; }
+    if (nomClasse !== "BattleConfiguration") {
+        return { ok: false, error: "l'objet est un `" + nomClasse + "`, pas une "
+            + "`BattleConfiguration` -- écrire dedans corromprait un objet d'un autre type" };
+    }
+    let off = -1;
+    for (const nom of ["UnitModifiers", "<UnitModifiers>k__BackingField"]) {
+        off = getFieldOffset(klass, nom);
+        if (off >= 0) break;
+    }
+    if (off < 0) {
+        return { ok: false, error: "`BattleConfiguration.UnitModifiers` ABSENT sous ses deux "
+            + "écritures connues -- chemin PÉRIMÉ sur ce build" };
+    }
+    let ancien: NativePointer;
+    try { ancien = bc.add(off).readPointer(); }
+    catch (e) { return { ok: false, error: "lecture du champ : " + (e as Error).message }; }
+    if (ancien.isNull()) {
+        return { ok: false, error: "`BC.UnitModifiers` est NUL : sa classe est une instanciation "
+            + "générique que je ne sais lire QUE sur une instance existante. Je ne fabrique pas un "
+            + "`Dictionary<string, List<UnitModifier>>` par son nom" };
+    }
+    let kDict: NativePointer;
+    let nomDict = "?";
+    try {
+        kDict = ancien.readPointer();
+        nomDict = cstr(class_get_name(kDict) as NativePointer);
+    } catch (e) {
+        return { ok: false, error: "classe du dictionnaire illisible : " + (e as Error).message };
+    }
+    if (kDict.isNull()) {
+        return { ok: false, error: "le dictionnaire existant porte une classe NULLE" };
+    }
+
+    if (!isDeserializerReady()) {
+        return { ok: false, error: "`JsonConvert.DeserializeObject` non résolu -- le dictionnaire "
+            + "ne peut pas être construit sans lui, et je ne le fabrique pas à la main" };
+    }
+    const json = JSON.stringify(modifiers);
+    let noeud: NativePointer;
+    try { noeud = deserializeFromJson(json, kDict); }
+    catch (e) {
+        return { ok: false, classe: nomDict,
+            error: "désérialisation du dictionnaire de modificateurs : " + (e as Error).message };
+    }
+    if (noeud.isNull()) {
+        return { ok: false, classe: nomDict,
+            error: "dictionnaire désérialisé en NUL -- rien n'a été écrit" };
+    }
+    // ⚠ ENRACINER AVANT D'ÉCRIRE : le GC d'IL2CPP ne voit pas notre référence JS, et un objet
+    // frais peut être collecté entre sa création et l'écriture du champ.
+    gcRoot.add(noeud);
+    try { bc.add(off).writePointer(noeud); }
+    catch (e) { return { ok: false, classe: nomDict,
+        error: "écriture du champ : " + (e as Error).message }; }
+    let apres: string;
+    try { apres = bc.add(off).readPointer().toString(); } catch { apres = "?"; }
+    return {
+        ok: true, offset: "+0x" + off.toString(16), noeudAvant: ancien.toString(),
+        noeudApres: apres, relu: apres === noeud.toString(), octetsJson: json.length,
+        cles: Object.keys(modifiers), classe: nomDict,
     };
 }
 
@@ -1925,6 +2057,25 @@ function applyPatchToConfig(
                 + `(${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu})`);
         } else {
             warnings.push(`unitSpawningOverTime: ${w.error}`);
+        }
+    }
+
+    // Les MODIFICATEURS DE STAT -- même fenêtre, même principe : on MUTE la BC produite. C'est ce
+    // qui rend le levier utilisable en bataille RÉELLE, là où réécrire un `BC.Units[].Health`
+    // imposait de substituer la BC entière (donc sandbox seulement).
+    if (patch.unitModifiers !== undefined && patch.unitModifiers !== null) {
+        const w = ecrireModificateursDUnite(bc, patch.unitModifiers as Record<string, unknown>);
+        if (w.ok) {
+            ops.push(`unitModifiers=${(w.cles ?? []).length} clé(s) @${w.offset} `
+                + `(${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu}) [${w.classe}] `
+                + `${(w.cles ?? []).join(" ")}`);
+            // ⚠ LE SEUL SIGNAL HONNÊTE S'ARRÊTE ICI. `relu` dit que le champ pointe sur notre
+            // objet ; il ne dit RIEN de ce que `ApplyModifiers` en fera. Un `Id` hors des huit
+            // qu'il sait dispatcher tombe dans sa branche de log et n'applique rien, sans lever --
+            // la vérification qui vaut est `combatSnapshot.healthMax` sur la bataille montée, et
+            // surtout PAS `observeBattle.hpMax`, qui est la BASE et rate les modifications.
+        } else {
+            warnings.push(`unitModifiers: ${w.error}`);
         }
     }
 
