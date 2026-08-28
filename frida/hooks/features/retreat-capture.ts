@@ -51,6 +51,10 @@ import { delegateInerte, lireArdoise } from "../il2cpp/delegate.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { captureStack } from "../ai-toolkit/stack-capture.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+// ⚠ EN NAMESPACE, PAS `import { showFires }` : ce sont des `export let` qui BOUGENT a chaque
+// affichage du HUD. Un binding nomme fonctionne aussi en ESM, mais l'acces attributaire rend
+// la lecture-a-chaque-appel EVIDENTE au lecteur -- et c'est exactement ce dont depend le garde.
+import * as hud from "./deployment-hud.js";
 import { Ctx } from "../controller.js";
 
 const NS_VIEW = "idun";
@@ -437,7 +441,7 @@ const INVOCABLES = ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurr
  *
  *  Les gardes et leur justification sont dans la docstring du RPC ci-dessous. */
 export function provoquerRetraite(body?: {
-    methode?: string; confirmer?: boolean;
+    methode?: string; confirmer?: boolean; malgreMontage?: boolean;
 }): Promise<unknown> | unknown {
     const methode = body?.methode;
     if (!methode || !(INVOCABLES as readonly string[]).includes(methode)) {
@@ -448,6 +452,41 @@ export function provoquerRetraite(body?: {
     if (body?.confirmer !== true) {
         return { ok: false, error: "REFUS : `confirmer: true` exige. " + methode
             + " termine une VRAIE bataille et touche la progression du compte." };
+    }
+    // ⛔ PAS DE RETRAITE PENDANT QUE L'ECRAN DE DEPLOIEMENT SE REMPLIT.
+    //
+    // POURQUOI. `lineupRetraiteCommit` est ancre sur `HandleBattleSurrender` : toute retraite
+    // enregistre la composition LUE A CET INSTANT dans le magasin du mode. Or
+    // `UnitDeploymentHud$$Show` VIDE ses trois dictionnaires en tete (`ClearWidgets`) et ne les
+    // remplit qu'a la fin -- entre les deux, le plateau ne porte qu'un SOUS-ENSEMBLE des unites.
+    // Une retraite tiree dans cette fenetre commite donc une composition amputee, et le joueur
+    // perd une unite sans un seul message. Mesure du 2026-08-28 : 13 tirs enchaines juste apres
+    // des montages, dernier commit = 3 unites ecrites dans la cle `mirror3_4` (4 places).
+    //
+    // LE CRITERE EST UN COMPTEUR D'ORDRE, PAS UN SEUIL SUR LE CONTENU. « moins d'unites que de
+    // places » serait FAUX : le joueur peut parfaitement n'en poser qu'une si le mode l'autorise
+    // -- un seuil sur le contenu finit toujours par accuser un cas legitime. `showEnters` et
+    // `showFires` comptent les ENTREES et les SORTIES de `Show` : leur ecart dit « un remplissage
+    // est EN COURS », sans rien interpreter et sans aucune horloge.
+    //
+    // ⚠ ET LE FOYER DU COMMIT N'EST PAS EN CAUSE : il repond correctement a un signal natif
+    // clair. C'est le MOMENT de l'appel qui etait faux. On repare donc l'appelant, pas le
+    // composant sain.
+    //
+    // ⚠ ON NE REFUSE PAS SUR `showFires === 0` (<< aucun ecran jamais affiche >>). Ce serait un
+    // faux refus : apres un reinject les compteurs repartent de zero alors qu'une bataille peut
+    // TOURNER, et on bloquerait la seule voie de sortie. Seul l'ECART entre entrees et sorties
+    // designe sans ambiguite un remplissage en cours.
+    const remplissageEnCours = hud.showEnters > hud.showFires;
+    if (remplissageEnCours && body?.malgreMontage !== true) {
+        return { ok: false, montageEnCours: true,
+            showEnters: hud.showEnters, showFires: hud.showFires,
+            error: "REFUS : un `UnitDeploymentHud$$Show` est EN COURS (" + hud.showEnters
+                + " entree(s) pour " + hud.showFires + " sortie(s)) -- le plateau n'est que "
+                + "PARTIELLEMENT rempli. Se retirer maintenant ferait commiter une composition "
+                + "AMPUTEE dans le magasin du mode, sans aucun message. Attendre la fin de "
+                + "l'affichage, ou `malgreMontage: true` si le montage est REELLEMENT bloque "
+                + "(au prix d'un commit possiblement faux)." };
     }
     const cible = mainViewCourante();
     if (cible === null) {
@@ -590,6 +629,12 @@ export function register(ctx: Ctx): void {
         // attente batie sur le premier rendait la main immediatement et l'invoke refusait.
         // `null` = NON MESURE, jamais rabattu sur `false`.
         batailleActive: enBataille(),
+        // ⚠ LA SECONDE PRECONDITION, PUBLIEE POUR LA MEME RAISON QUE LA PREMIERE : un appelant
+        // ne doit pas avoir a DEVINER la condition qu'on lui oppose. `montageEnCours` vrai =>
+        // `retreatInvoke` refusera (un `Show` remplit le plateau), cf. son garde.
+        showEnters: hud.showEnters,
+        showFires: hud.showFires,
+        montageEnCours: hud.showEnters > hud.showFires,
         // Le pointeur epingle, et la resolution COMPLETE (repli `FindObjectsByType` compris) :
         // `mainView` seul vaut `null` tant qu'aucun ancrage n'a tire, meme sur une scene montee.
         mainViewJoignable: mainViewCourante() !== null,
@@ -682,6 +727,6 @@ export function register(ctx: Ctx): void {
      *  refusait, le jeu restait bloque en bataille). L'observation qui le motivait a eu lieu --
      *  c'est `case-992`, et la liste blanche `INVOCABLES` EN EST le resultat. */
     ctx.rpc.retreatInvoke = (body?: {
-        methode?: string; confirmer?: boolean;
+        methode?: string; confirmer?: boolean; malgreMontage?: boolean;
     }): Promise<unknown> | unknown => provoquerRetraite(body);
 }

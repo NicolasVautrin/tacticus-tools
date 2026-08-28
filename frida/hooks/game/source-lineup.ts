@@ -74,12 +74,21 @@ export interface LineupDeSource {
     /** D'où viennent les ids utilisables : `"lineup"` (la composition sauvegardée) ou
      *  `"deployables"` (le repli). JAMAIS deviné par l'appelant. */
     voie: "lineup" | "deployables" | null;
+    /** Le nombre de cases de spawn OFFERTES AU JOUEUR par le plateau, tel que l'appelant l'a
+     *  dérivé de la BC. `null` = pas fourni / pas dérivable — et alors AUCUN pincement n'est
+     *  appliqué, ce qui se lit sur `placesAvantPincement === places`. */
+    casesDuPlateau: number | null;
+    /** La borne AVANT pincement (celle de la source). Publiée pour que le pincement soit VISIBLE :
+     *  sans elle, un `places` de 4 ne distingue pas « le mode dit 4 » de « le mode dit 5 et le
+     *  plateau a pincé », alors que ça change la CLÉ de magasin lue. */
+    placesAvantPincement: number | null;
 }
 
 function vide(refus: string, classe: string | null = null): LineupDeSource {
     return { ok: false, classe, bornes: {}, places: null, unites: null, unitesTaille: null,
              mow: null, retour: null, refus, mowRefus: null,
-             deployables: null, deployablesRefus: null, voie: null };
+             deployables: null, deployablesRefus: null, voie: null,
+             casesDuPlateau: null, placesAvantPincement: null };
 }
 
 /** Les éléments d'une `List<System.String>` gérée. `_items` (tableau) et `_size` (compte réel) --
@@ -152,10 +161,36 @@ function chaineGeree(p: NativePointer): string | null {
  * 2026-08-23 sur la voie Chaos : `0 -> []`, `1 -> 1 élément`, `2 -> 2`, `18 -> 18`. Le natif rend la
  * composition sauvegardée AJUSTÉE au nombre de places demandé. D'où le défaut :
  * `MaxUnitsPossibleToStartBattle`, LU sur la source.
+ *
+ * ⛔ MAIS LA BORNE DE LA SOURCE N'EST PAS CELLE QUE LE JEU PASSE — LE PLATEAU PINCE, ET C'EST LA
+ * MÊME VALEUR QUI NOMME LA CLÉ DE MAGASIN. `GetBattleLineupToDeploy` fait
+ * `GetBattleLineup(VisualBattleQuery$$MaxUnitsPossibleToStartBattle())`, et cette méthode-là rend
+ * un `idun.shared.SPMath$$Min` À TROIS TERMES :
+ *     min( source.AmountOfUnlockedUnits(),
+ *          GetSpawnPointCoordinatedForHumanPlayer().Count,   <- LE PLATEAU
+ *          source.MaxUnitsPossibleToStartBattle() )
+ * Côté source, `CampaignGameModeSource$$Min/MaxUnitsNeededToStartBattle` lisent `+0x7c` / `+0x80`
+ * du même objet de configuration : ce sont des GLOBALES DU MODE (3 et 5), identiques sur TOUS les
+ * nœuds — elles ne disent rien de la carte.
+ *
+ * (!)MESURE DU 2026-08-28, `mirror3` nœud 38 (board `C3_37`, 4 cases joueur) : la source rend 5,
+ * donc on lisait `mirror3_5` = `[admecRuststalker, ultraEliminatorSgt, spaceHound,
+ * ultraInceptorSgt, ultraTigurius]` pendant que la bataille jouait `mirror3_4`. Conséquence
+ * mesurée : `ciblesAuto: "moi"` posait le buff sur CINQ unités dont AUCUNE n'était déployée, et le
+ * symptôme à l'écran était « le buff ne s'applique pas ». Aucune erreur, aucun avertissement — le
+ * patch rapportait fidèlement « 5 Target(s) ÉCRITE(S) ».
+ *
+ * ⇒ `casesDuPlateau` est donc le 2e terme du `Min`, à DÉRIVER DE LA BC par l'appelant (elle est la
+ * seule à l'avoir à cette fenêtre). On ne modélise pas `AmountOfUnlockedUnits` : il compte les
+ * unités débloquées du compte (mesuré 49) et ne pince jamais en campagne — notre `places` est donc
+ * un MAJORANT du `Min` natif, il ne peut viser une clé PLUS GRANDE que celle que le jeu relit.
+ * ⚠ Tri-état : `casesDuPlateau` NON DÉRIVÉ ne se rabat PAS sur la borne du mode en silence — il
+ * laisse `places` intact ET le publie, pour que « pas pincé » se distingue de « pincé à la même
+ * valeur ».
  */
 export function lineupDeLaSource(
     src: NativePointer | null,
-    opts?: { places?: number; avecMow?: boolean },
+    opts?: { places?: number; avecMow?: boolean; casesDuPlateau?: number | null },
 ): LineupDeSource {
     if (src === null || src.isNull()) return vide("instance de source NULLE");
 
@@ -184,29 +219,35 @@ export function lineupDeLaSource(
         } catch { bornes[nom] = null; }
     }
 
-    const places = opts?.places ?? bornes["MaxUnitsPossibleToStartBattle"];
-    if (places === null || places === undefined) {
+    const placesAvantPincement = opts?.places ?? bornes["MaxUnitsPossibleToStartBattle"];
+    if (placesAvantPincement === null || placesAvantPincement === undefined) {
         return { ...vide("`MaxUnitsPossibleToStartBattle` NON MESURÉ et aucune `places` fournie -- "
                     + "on ne devine pas un plafond, un `5` en dur deviendrait faux en silence",
                     classe),
                  bornes };
     }
+    // LE PINCEMENT PAR LE PLATEAU — 2e terme du `Min` natif (cf. l'en-tête). Un `casesDuPlateau`
+    // absent laisse la borne du mode telle quelle : on ne fabrique pas un pincement qu'on n'a pas
+    // mesuré, et `placesAvantPincement` rend l'écart lisible dans les deux sens.
+    const cases = opts?.casesDuPlateau ?? null;
+    const places = cases === null ? placesAvantPincement
+        : Math.min(placesAvantPincement, cases);
 
     const miLineup = findMethodByParamCount(klass, "GetBattleLineup", 1);
     if (!miLineup) {
         return { ...vide("`GetBattleLineup(1 param)` INTROUVABLE sur `" + classe + "`", classe),
-                 bornes, places };
+                 bornes, places, casesDuPlateau: cases, placesAvantPincement };
     }
     let arr: NativePointer;
     try { arr = invokeMethod(miLineup.info, src, [argInt(places)]); }
     catch (e) {
         return { ...vide("`GetBattleLineup` a levé : " + (e as Error).message, classe),
-                 bornes, places };
+                 bornes, places, casesDuPlateau: cases, placesAvantPincement };
     }
     if (arr.isNull()) {
         return { ...vide("`GetBattleLineup` a rendu NUL -- aucune composition sauvegardée pour "
                     + "cette source (ce n'est PAS « roster vide »)", classe),
-                 bornes, places };
+                 bornes, places, casesDuPlateau: cases, placesAvantPincement };
     }
 
     // `System.String[]` : longueur en +0x18, éléments à partir de +0x20.
@@ -246,7 +287,7 @@ export function lineupDeLaSource(
     const pool = n === 0 ? poolDeployable(klass, src) : { ids: null, refus: null };
 
     return {
-        ok: true, classe, bornes, places,
+        ok: true, classe, bornes, places, casesDuPlateau: cases, placesAvantPincement,
         unites, unitesTaille: n, mow, mowRefus,
         retour: { ptr: arr.toString(), classe: classeArr },
         deployables: pool.ids,

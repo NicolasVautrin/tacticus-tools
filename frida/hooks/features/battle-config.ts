@@ -97,6 +97,7 @@ import { bcDeLaSourceMontee, bcDeLaVueVivante, sourceMontee } from "./source-viv
 // CRASH. Pas de cycle : `environment-abilities` n'importe pas ce module.
 import * as envAbilities from "./environment-abilities.js";
 import { champPointeur, champTexte, elementsDeListe, estRefus } from "./lecture-champs.js";
+import { abilityName } from "../data/ability-names.js";
 import { triggeredAbilityName } from "../data/triggered-ability-names.js";
 import { deserializeFromJson, isDeserializerReady } from "../il2cpp/serializer.js";
 import { getFieldOffset } from "../il2cpp/helpers.js";
@@ -419,8 +420,68 @@ function unitesPredefinies(bc: NativePointer): string[] | null {
  * demanderait de marcher un `SortedDictionary` (arbre rouge-noir) a cles de TYPE VALEUR, sur le
  * thread principal, a la fenetre de chargement. Newtonsoft le fait deja, et rend la MEME forme que
  * `bc_apparitions.py` lit cote Python -- une seule forme pour deux lecteurs. */
+/**
+ * `TeamWithPlayerIndex` -> `[teamId, indice du joueur DANS l'équipe]`.
+ *
+ * ⛔ CE N'EST PAS UN `TeamId` BRUT — c'est un enum replié. Table validée contre
+ * `IdunBattle.Configuration.TeamPlayerIdExtensions$$Unfold`, et c'est la MÊME que
+ * `frida/public/src/board.js` et `scripts/python/board.py` : une seule convention pour trois
+ * lecteurs. La lire de travers ferait compter les cases de l'ADVERSAIRE — et rien ne le dirait.
+ */
+const TWPI: Record<number, [number, number]> = {
+    0: [1, 0], 1: [2, 0], 2: [1, 1], 3: [2, 1], 4: [3, 0], 5: [3, 1], 6: [0, 0],
+};
+
+/**
+ * LES CASES DE SPAWN OFFERTES AU JOUEUR, dérivées de la BC déjà sérialisée.
+ *
+ * C'est le 2e terme du `Min` que `VisualBattleQuery$$MaxUnitsPossibleToStartBattle` calcule, et
+ * donc — via `GetBattleLineupToDeploy` — CE QUI NOMME LA CLÉ DE MAGASIN `<campagne>_<n>`. Détail
+ * de la chaîne native et de la mesure : en-tête de `lineupDeLaSource`.
+ *
+ * ⚠ TRI-ÉTAT : `null` = PAS DÉRIVÉ (pas de plateau, index de jeu de spawns hors bornes, joueur
+ * non identifié). Rendre `0` ferait pincer `places` à zéro, donc lire une composition VIDE, donc
+ * conclure « le joueur n'amène rien » — un faux zéro qui se lit comme une mesure.
+ */
+function casesDuJoueur(o: Record<string, unknown>, monId: string,
+                       equipeDe: Map<string, number>): number | null {
+    const board = o["Board"] as Record<string, unknown> | null;
+    if (board === null || board === undefined) return null;
+    const sets = board["SpawnPointSets"] as Array<Record<string, unknown>> | null | undefined;
+    if (!Array.isArray(sets)) return null;
+    const idx = typeof o["SpawnPointSetIndex"] === "number" ? o["SpawnPointSetIndex"] as number : 0;
+    if (idx < 0 || idx >= sets.length) return null;
+    const groupes = (sets[idx] ?? {})["SpawnPointGroups"] as
+        Array<Record<string, unknown>> | null | undefined;
+    if (!Array.isArray(groupes)) return null;
+
+    // Les joueurs de chaque équipe, dans l'ordre où la BC les sérialise. Le natif les porte dans un
+    // `SortedDictionary` à clés entières, et `JSON.parse` réordonne les clés entières en ordre
+    // numérique croissant : les deux coïncident. C'est `pidx` qui indexe dans cette liste.
+    const parEquipe = new Map<number, string[]>();
+    for (const [pid, t] of equipeDe) {
+        const l = parEquipe.get(t);
+        if (l === undefined) parEquipe.set(t, [pid]); else l.push(pid);
+    }
+    let n = 0;
+    for (const g of groupes) {
+        const brut = g?.["TeamWithPlayerIndex"];
+        const raw = typeof brut === "number" ? brut
+            : ((brut as Record<string, unknown> | null)?.["value"] as number | undefined ?? 0);
+        const [equipe, pidx] = TWPI[raw] ?? [raw, 0];
+        const pid = (parEquipe.get(equipe) ?? [])[pidx];
+        if (pid !== monId) continue;
+        const pts = g?.["SpawnPoints"];
+        if (Array.isArray(pts)) n += pts.length;
+    }
+    // Un plateau qui n'offre AUCUNE case au joueur identifié n'est pas « zéro place » : c'est un
+    // dépliage qui est tombé à côté. On refuse plutôt que de pincer à 0.
+    return n > 0 ? n : null;
+}
+
 function campsDeLaBc(bc: NativePointer): {
     miens: string[]; adverses: string[]; summonsDe: (ids: string[]) => string[];
+    casesDuJoueur: number | null;
 } | null {
     let json: string | null;
     try { json = _serializeBcToJson(bc); } catch { return null; }
@@ -483,6 +544,7 @@ function campsDeLaBc(bc: NativePointer): {
     return {
         miens: Array.from(miens), adverses: Array.from(adverses),
         summonsDe: indexerSummons(o),
+        casesDuJoueur: casesDuJoueur(o, humains[0], equipeDe),
     };
 }
 
@@ -555,15 +617,36 @@ function indexerSummons(o: Record<string, unknown>): (ids: string[]) => string[]
         formesParPure.set(p, s);
     }
 
+    // ⛔ LE NOM DE LA CONSTANTE NE SUFFIT PAS, ET LE MESURER L'A PROUVE. Ce filtre n'acceptait
+    // que les noms contenant `unitid`. Balayage du catalogue de la BC (2026-08-28) : HUIT noms de
+    // constante portent un id d'unité, et le filtre en manquait DEUX --
+    //     `unitToSpawn`  5 occurrences  (`DeathFromAbove` -> `ultraSmnInceptor`)
+    //     `summonId`     1 occurrence   (`PileIn` -> `orksGrot`)
+    // Symptôme MESURÉ sur `eliteMirror3` 19 : `orksNpc1Grot` invoque par `PileIn`, les invocations
+    // arrivent en cours de bataille et ne recevaient NI le `-100 %` NI le `Stationary` -- les
+    // grots posés au setup les portaient, les invoqués non. Aucune erreur : la liste de cibles
+    // était simplement plus courte, et rien ne disait pourquoi.
+    //
+    // ⇒ DEUX BRAS, ET CHACUN COUVRE L'ANGLE MORT DE L'AUTRE :
+    //   * par le NOM  -- couvre un id qui ne serait PAS dans `BC.Units` ;
+    //   * par la VALEUR -- couvre un nom qu'on n'a jamais vu. `orksGrot` et `ultraSmnInceptor`
+    //     SONT dans `BC.Units` (178 entrées), donc ce bras-là attrape les deux manquants sans
+    //     qu'on ait à les nommer. Une liste de noms se périme au prochain build ; `BC.Units` est
+    //     lue dans la BC courante.
     const depuisConfig = (cfg: unknown): string[] => {
         const c = (cfg as Record<string, unknown> | null)?.["Constants"];
         if (c === null || typeof c !== "object") return [];
         const out: string[] = [];
         for (const [k, v] of Object.entries(c as Record<string, unknown>)) {
-            if (!k.toLowerCase().includes("unitid")) continue;
+            const kb = k.toLowerCase();
+            const parNom = kb.includes("unitid") || kb.includes("summonid")
+                || kb.includes("unittospawn");
             for (const x of String(v).split(",")) {
                 const t = x.trim();
-                if (t !== "") out.push(t);
+                if (t === "") continue;
+                // `formesParPure` est bâtie sur `BC.Units[].Id` : y trouver la valeur, c'est
+                // constater qu'elle NOMME une unité de CE combat.
+                if (parNom || formesParPure.has(pureId(t))) out.push(t);
             }
         }
         return out;
@@ -998,6 +1081,37 @@ interface BattleConfigPatch {
     passiveAbilityConfigs?: Array<{ abilityType: number; nom?: string;
                                     constants?: Record<string, string>;
                                     variables?: Record<string, string[]> }>;
+    /** Les configs d'ACTIF -- la QUATRIÈME famille de `BC.Abilities`, et la dernière à joindre.
+     *
+     *  ⛔ CE QUI L'A MOTIVÉ : LE COOLDOWN D'UN ACTIF N'EST PAS UN ÉTAT, C'EST UNE CONSTANTE.
+     *  Les deux accesseurs du natif ne lisent rien d'autre que la config de l'ability :
+     *      `AActiveAbility$$GetCooldownAfterUse` -> `TryGetNumberConstant(cfg, 0x27, out)`
+     *      `AActiveAbility$$GetInitialCooldown`  -> `TryGetNumberConstant(cfg, 0x68, out)`
+     *  soit `AbilityConstantType.cooldownTurns` (39) et `.initialCooldownTurns` (104). Poser
+     *  `cooldownTurns: "0"` par ce champ rend donc un actif rejouable, sans toucher à l'entité.
+     *
+     *  ⚠ ET C'EST LA SEULE VOIE : le nœud DSL `ChangeCooldown` n'a que TROIS porteurs dans le
+     *  binaire (`HeavyRailRifle_Attack`, `ExplosivePresents_Cooldown`, `SternguardFocus_Cooldown`),
+     *  AUCUN n'est une ability d'environnement, et les deux « Cooldown » câblent en dur l'ability
+     *  qu'elles remettent à zéro (`SternguardFocus` ne touche que `0x4cc`). Les huit familles
+     *  d'`Enhancement*` n'ont, elles, aucun volet cooldown. Le catalogue d'environnement et les
+     *  enhancements ne peuvent donc PAS reset un actif -- mesuré le 2026-08-28, avant d'écrire ce
+     *  champ plutôt que de greffer une ability qui n'aurait servi qu'un cas.
+     *
+     *  ⚠ LA SURCHARGE EST `Add(ActiveAbilityType, AbilityConfiguration)`. Même piège que pour les
+     *  passifs, sur l'autre bras : les trois `Add` à deux paramètres ne se distinguent QUE par le
+     *  type du premier, et prendre « la première » rangerait la config chez les DÉCLENCHÉES ou les
+     *  TRAITS -- sans lever, et le consommateur lirait toujours l'ancienne valeur.
+     *
+     *  ⚠ CE QUI N'EST PAS ÉPROUVÉ : qu'un `0` se comporte comme « prêt » et non comme « pas de
+     *  valeur » chez l'appelant. L'indice est que `ChangeAbilityCooldownOperation$$Execute` rabat
+     *  le drapeau de disponibilité (`+0x34`) précisément quand la valeur ATTEINT 0 -- un indice,
+     *  pas une preuve. Le vérifier en bataille, pas ici.
+     *
+     *  ⚠ MÊME ANGLE MORT QUE LES DEUX CI-DESSUS : la clé est un ORDINAL, `nom` est décoratif. */
+    activeAbilityConfigs?: Array<{ abilityType: number; nom?: string;
+                                   constants?: Record<string, string>;
+                                   variables?: Record<string, string[]> }>;
     /** Rendre des TYPES DE TUILE porteurs d'une ability déclenchée -- `BC.Tiles[].TriggeredAbilities`.
      *
      *  ⛔ C'EST LE SECOND VERROU DE LA PROPAGATION DU FEU, ET IL EST INDÉPENDANT DU PREMIER.
@@ -1028,6 +1142,36 @@ interface BattleConfigPatch {
      *  ⚠ Une ability gardée par `IsEnhancementTarget` sans `cibles` ne tire JAMAIS -- le retour
      *  le DIT (`note`) plutôt que de le laisser deviner. */
     environmentEnhancements?: Array<envAbilities.SpecEnhancement>;
+
+    /** GABARITS AJOUTÉS À `BC.Units` — le CATALOGUE de la bataille, jamais une pose.
+     *
+     *  ⛔ POURQUOI ÇA EXISTE, ET POURQUOI GREFFER UN TRAIT NE SUFFIT PAS. Mesuré le 2026-08-28
+     *  sur le replay que le JEU écrit lui-même (`Campaign2_20`, partie RÉELLE) :
+     *  `BattleResult.UnitsDefeated` ne porte que `{ConfigId, KillerConfigId}` -- AUCUN trait.
+     *  Un trait posé par `EnhancementAddTrait` est bien porté par l'unité en bataille (lu sur le
+     *  `BaseUnitComponent`), mais il meurt avec elle : la mission relit les traits du GAMECONFIG
+     *  à partir du `ConfigId`. Pour qu'un objectif « tuer N porteurs de X » compte, il faut donc
+     *  tuer une unité dont le CONFIG porte X -- c'est-à-dire faire APPARAÎTRE un vrai porteur.
+     *
+     *  ⛔ ET LA VAGUE NE SUFFIT PAS NON PLUS SANS CE CHAMP.
+     *  `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(this, unitId)` résout tout `unitId`
+     *  en parcourant CETTE liste (`BC+0x80`) et en comparant `UnitConfiguration.Id` (`+0x10`) ;
+     *  sans correspondance il log et rend `null`. Une vague `UnitSpawningOverTime` dont le
+     *  `UnitId` n'est pas une entrée EXACTE (suffixe de niveau compris) est POSÉE, l'opération
+     *  TOURNE, et rien n'apparaît -- ni erreur, ni événement (mesuré le 2026-08-22).
+     *
+     *  ⛔ LE HOOK NE SYNTHÉTISE RIEN, ET C'EST VOULU. Chaque entrée est un
+     *  `IdunBattle.Configuration.UnitConfiguration` **en JSON**, tel que Newtonsoft le
+     *  désérialise -- la forme que `scripts/python/catalog_inject.py` produit déjà (`synthesize`,
+     *  `npc_stats`). Fabriquer un gabarit ici dupliquerait la table de progression du gameconfig,
+     *  qui se périme à chaque build.
+     *
+     *  ⚠ AJOUT SEUL, JAMAIS REMPLACEMENT : la liste porte les DEUX camps plus le roster (176-178
+     *  entrées mesurées sur des BC réelles). L'écraser effacerait l'adversaire ET le joueur.
+     *  ⚠ IDEMPOTENT PAR `Id` : un `Id` déjà présent est IGNORÉ. Deux gabarits homonymes rendraient
+     *  `GetUnitConfig` dépendant de l'ordre de parcours -- une ambiguïté qui ne se verrait pas. */
+    unitTemplates?: Array<Record<string, unknown>>;
+
     // ⛔ `viderPredefinedUnits` A ÉTÉ RETIRÉ (2026-08-23) — voir le pavé au site d'application,
     // dans `applyPatchToConfig`. En deux lignes : il vidait `BC.PredefinedUnits` pour rattraper une
     // BC fabriquée par le ctor sandbox, qui confond catalogue et pose. Sur une BC montée par sa
@@ -1161,6 +1305,120 @@ export interface EcritureCalendrier {
     relu?: boolean;
     octetsJson?: number;
     error?: string;
+}
+
+interface EcritureCatalogueUnites {
+    ok: boolean;
+    ajoutes: string[];
+    dejaLa: string[];
+    compteAvant: number;
+    compteApres: number;
+    /** Tous les `Id` du catalogue APRÈS écriture -- ce contre quoi un `UnitId` de vague se
+     *  confronte. Publié pour que l'appelant puisse le dire, pas pour qu'il le devine. */
+    idsApres: string[];
+    error?: string;
+}
+
+/**
+ * AJOUTE des gabarits à `BC.Units` — le catalogue que `BattleQuery$$GetUnitConfig` parcourt.
+ *
+ * ⛔ AJOUT, JAMAIS REMPLACEMENT (cf. le champ `unitTemplates` du patch). La liste porte les deux
+ * camps ET le roster du joueur ; l'écraser effacerait la bataille.
+ * ⛔ IDEMPOTENT PAR `Id` : un `Id` déjà présent n'est PAS ré-ajouté. Deux entrées homonymes
+ * rendraient la résolution dépendante de l'ordre de parcours, et ça ne se verrait nulle part.
+ * ⚠ ON NE VALIDE PAS LE CONTENU DU GABARIT. Newtonsoft accepte un objet partiel et rend une
+ * instance aux champs par défaut : un gabarit incomplet s'ajoute donc SANS ERREUR et produit des
+ * unités absurdes. Ce qu'on peut contrôler ici -- et qu'on contrôle -- c'est que l'`Id` relu
+ * dans la liste est bien celui demandé.
+ */
+function ecrireCatalogueDUnites(
+    bc: NativePointer, gabarits: Array<Record<string, unknown>>,
+): EcritureCatalogueUnites {
+    const vide = (error: string): EcritureCatalogueUnites => ({
+        ok: false, ajoutes: [], dejaLa: [], compteAvant: -1, compteApres: -1,
+        idsApres: [], error,
+    });
+    if (!isDeserializerReady()) {
+        return vide("`JsonConvert.DeserializeObject` non résolu -- un `UnitConfiguration` ne peut "
+            + "pas être construit, et on n'en fabrique pas un à la main");
+    }
+    const kUc = findClassAnywhere("IdunBattle.Configuration", "UnitConfiguration");
+    if (!kUc) {
+        return vide("classe `IdunBattle.Configuration.UnitConfiguration` introuvable -- chemin "
+            + "PÉRIMÉ sur ce build");
+    }
+
+    let liste: NativePointer;
+    try { liste = bc.add(BC_OFF_UNITS).readPointer(); }
+    catch (e) { return vide("`BC.Units` illisible : " + (e as Error).message); }
+    if (liste.isNull()) return vide("`BC.Units` est NUL");
+
+    // L'inventaire AVANT, par `Id`. Sert à l'idempotence et au compte.
+    const lire = (): { n: number; ids: string[] } | null => {
+        const l = readManagedList(liste);
+        if (!l) return null;
+        const ids: string[] = [];
+        for (let i = 0; i < l.size; i++) {
+            const uc = readListItem(l, i);
+            if (uc.isNull()) continue;
+            const id = readIl2cppString(uc.add(UC_OFF_ID).readPointer());
+            if (id !== null) ids.push(id);
+        }
+        return { n: l.size, ids };
+    };
+    const avant = lire();
+    if (avant === null) return vide("`BC.Units` ne se lit pas comme une `List` gérée");
+
+    const mAdd = findMethodByParamCount(liste.readPointer(), "Add", 1);
+    if (!mAdd) return vide("`List<UnitConfiguration>.Add(1)` introuvable");
+
+    const presents = new Set(avant.ids);
+    const ajoutes: string[] = [];
+    const dejaLa: string[] = [];
+    for (const g of gabarits) {
+        const id = typeof g?.["Id"] === "string" ? g["Id"] as string : null;
+        if (id === null || id === "") {
+            return { ...vide("un gabarit sans `Id` -- il serait INTROUVABLE par "
+                + "`GetUnitConfig`, donc inerte, et rien ne le dirait"),
+                compteAvant: avant.n };
+        }
+        if (presents.has(id)) { dejaLa.push(id); continue; }
+        let uc: NativePointer;
+        try { uc = deserializeFromJson(JSON.stringify(g), kUc); }
+        catch (e) {
+            return { ...vide(`désérialisation du gabarit \`${id}\` : ${(e as Error).message}`),
+                compteAvant: avant.n };
+        }
+        if (uc.isNull()) {
+            return { ...vide(`le gabarit \`${id}\` s'est désérialisé en NUL`),
+                compteAvant: avant.n };
+        }
+        gcRoot.add(uc);
+        try { invokeMethod(mAdd.info, liste, [uc]); }
+        catch (e) {
+            return { ...vide(`\`Units.Add(${id})\` a LEVÉ : ${(e as Error).message}`),
+                compteAvant: avant.n };
+        }
+        presents.add(id);
+        ajoutes.push(id);
+    }
+
+    const apres = lire();
+    if (apres === null) {
+        return { ...vide("`BC.Units` illisible APRÈS écriture"), compteAvant: avant.n, ajoutes,
+            dejaLa };
+    }
+    // ⚠ ON RELIT L'`Id` DEPUIS LA LISTE, pas depuis le JSON qu'on a envoyé. Un champ mal nommé
+    // laisserait `Id` à null côté managé, et le compte seul ne le verrait pas.
+    const manquants = ajoutes.filter((id) => apres.ids.indexOf(id) < 0);
+    if (manquants.length > 0) {
+        return { ok: false, ajoutes, dejaLa, compteAvant: avant.n, compteApres: apres.n,
+            idsApres: apres.ids,
+            error: `ajouté(s) mais INTROUVABLE(S) à la relecture : ${manquants.join(", ")} `
+                + `-- le JSON ne porte probablement pas le champ \`Id\` sous ce nom` };
+    }
+    return { ok: true, ajoutes, dejaLa, compteAvant: avant.n, compteApres: apres.n,
+        idsApres: apres.ids };
 }
 
 export function ecrireCalendrierDeVagues(
@@ -1702,6 +1960,131 @@ export function ecrireCataloguePassif(
     return { ok: true, detail };
 }
 
+/** ÉCRIRE des configs d'ACTIF (`BC.Abilities.ActiveAbilities`) sur la BC en mémoire.
+ *
+ *  Même fenêtre et même forme que les deux ci-dessus ; seule la famille change. C'est ce qui rend
+ *  joignable le COOLDOWN d'un actif -- `AbilityConstantType.cooldownTurns` (39) et
+ *  `.initialCooldownTurns` (104) --, que ni le catalogue d'environnement ni les enhancements
+ *  n'atteignent. Cf. le champ `activeAbilityConfigs` pour la mesure qui l'a motivé.
+ *
+ *  ⚠ LA SURCHARGE SE RÉSOUT PAR LE TYPE DU PREMIER PARAMÈTRE, JAMAIS PAR LE COMPTE -- ici
+ *  `ActiveAbilityType`. Se replier sur une autre `Add` à deux paramètres rangerait la config chez
+ *  les DÉCLENCHÉES ou les TRAITS sans lever une seule fois.
+ *
+ *  ⚠ AUCUN COMPTE N'EST RENDU, pour la même raison que chez les passifs : `catalogueTaille` mesure
+ *  le dictionnaire d'ENVIRONNEMENT, et publier un compte pris sur le mauvais dictionnaire serait
+ *  pire que pas de compte -- il bougerait sans rapport avec ce qu'on vient d'écrire. La
+ *  vérification qui vaut est la RELECTURE DE LA BC CHARGÉE (`dumpBattleConfig`).
+ */
+export function ecrireCatalogueActif(
+    bc: NativePointer,
+    entrees: Array<{ abilityType: number; nom?: string; constants?: Record<string, string>;
+                     variables?: Record<string, string[]> }>,
+): { ok: boolean; error?: string; detail: Array<Record<string, unknown>> } {
+    const detail: Array<Record<string, unknown>> = [];
+    if (!isDeserializerReady()) {
+        return { ok: false, detail, error: "`JsonConvert.DeserializeObject` non résolu -- une "
+            + "`AbilityConfiguration` ne peut pas être construite" };
+    }
+    const abilities = champPointeur(bc, "Abilities");
+    if (estRefus(abilities)) {
+        return { ok: false, detail, error: "`BC.Abilities` : " + (abilities as { error: string }).error };
+    }
+    const cfgAbilities = abilities as NativePointer;
+    const kCfg = findClassAnywhere("IdunBattle.Configuration", "AbilityConfiguration");
+    if (!kCfg) {
+        return { ok: false, detail,
+                 error: "classe `IdunBattle.Configuration.AbilityConfiguration` introuvable" };
+    }
+    const mAdd = methodeParTypeDuPremierParam(
+        cfgAbilities.readPointer(), "Add", 2, "ActiveAbilityType");
+    if (!mAdd) {
+        return { ok: false, detail,
+            error: "`AbilitiesConfiguration$$Add(ActiveAbilityType, AbilityConfiguration)` "
+                + "INTROUVABLE -- on ne se replie PAS sur une autre surcharge d'`Add` : les deux "
+                + "autres rangent dans les DÉCLENCHÉES ou les TRAITS, sans lever" };
+    }
+    // `GetActive` est ce qui rend la FUSION possible ; son absence n'est pas fatale, elle
+    // dégrade en création -- et chaque entrée DIT laquelle des deux elle a subie.
+    // `GetActive` n'a QU'UNE surcharge (`ActiveAbilityType`), contrairement à `Add` : pas de
+    // discrimination par type de paramètre à faire ici.
+    const mGet = findMethod(cfgAbilities.readPointer(), "GetActive");
+    for (const e of entrees) {
+        const nom = e.nom ?? (abilityName(e.abilityType) ?? `id:${e.abilityType}`);
+        // ⛔ ON FUSIONNE, ON NE REMPLACE PAS -- ET C'EST MESURÉ, PAS PRÉCAUTIONNEL. `Add` écrase
+        // l'entrée ENTIÈRE. Sur `PlasmaCannon`, écrire le seul `cooldownTurns` faisait passer
+        // `{damageProfile: Plasma, nrOfHits: 3, range: 3, cooldownTurns: 1, initialCooldownTurns: 1}`
+        // + `Variables: [minDmg, maxDmg]` + `AttackRangeType: 2` à `{cooldownTurns: 0}` tout court
+        // (2026-08-28, relu dans la BC chargée). L'ability perdait son profil de dégât, sa portée
+        // et ses variables : « remettre un cooldown à zéro » DÉTRUISAIT l'actif, en silence et
+        // sans un seul warning. On relit donc l'entrée existante et on n'écrase QUE les clés
+        // demandées.
+        //
+        // ⚠ CE N'EST PAS FAIT POUR LES DEUX AUTRES FAMILLES, ET C'EST DÉLIBÉRÉ. L'écrasement y
+        // est le geste VOULU (`EnhancementDamageBoost=extraDmgPct:-100` remplace une définition
+        // à une seule constante, et le banc en dépend). Les aligner changerait un chemin éprouvé
+        // pour un besoin que personne n'a. Le vice existe là-bas aussi : il est PORTÉ ici.
+        let base: Record<string, unknown> | null = null;
+        let fusion = false;
+        if (mGet) {
+            try {
+                const buf0 = Memory.alloc(4); buf0.writeS32(e.abilityType | 0);
+                const ancien = invokeMethod(mGet.info, cfgAbilities, [buf0]);
+                if (!ancien.isNull()) {
+                    const j = _serializeBcToJson(ancien);
+                    if (j !== null) {
+                        const p = JSON.parse(j) as Record<string, unknown>;
+                        if (p && typeof p === "object") { base = p; fusion = true; }
+                    }
+                }
+            } catch { /* une lecture ratée dégrade en création -- publiée par `fusion: false` */ }
+        }
+        const constsBase = (base?.["Constants"] as Record<string, string> | undefined) ?? {};
+        const varsBase = (base?.["Variables"] as Record<string, string[]> | undefined) ?? {};
+        const charge = {
+            ...(base ?? {}),
+            // Les clés demandées écrasent une par une ; les autres survivent.
+            Variables: { ...varsBase, ...(e.variables ?? {}) },
+            Constants: { ...constsBase, ...(e.constants ?? {}) },
+            // Ces trois-là ne se fabriquent QUE si l'entrée n'existait pas -- sinon `...base` les
+            // porte déjà, avec leur vraie valeur (`AttackRangeType: 2` sur `PlasmaCannon`).
+            AttackRangeType: base?.["AttackRangeType"] ?? 0,
+            VariablesAffectedByUnitRarityMultiplier:
+                base?.["VariablesAffectedByUnitRarityMultiplier"] ?? ([] as number[]),
+            TutorialAbilityBehaviours: base?.["TutorialAbilityBehaviours"] ?? {},
+        };
+        let cfg: NativePointer;
+        try { cfg = deserializeFromJson(JSON.stringify(charge), kCfg); }
+        catch (err) {
+            return { ok: false, detail, error: "`" + nom + "` : désérialisation de "
+                + "l'`AbilityConfiguration` : " + (err as Error).message };
+        }
+        if (cfg.isNull()) {
+            return { ok: false, detail,
+                     error: "`" + nom + "` : l'`AbilityConfiguration` s'est désérialisée en NUL" };
+        }
+        gcRoot.add(cfg);
+        try {
+            const buf = Memory.alloc(4); buf.writeS32(e.abilityType | 0);
+            invokeMethod(mAdd.info, cfgAbilities, [buf, cfg]);
+        } catch (err) {
+            return { ok: false, detail,
+                     error: "`" + nom + "` : `Add` a LEVÉ : " + (err as Error).message };
+        }
+        detail.push({
+            abilityType: e.abilityType, nom, constants: e.constants ?? {},
+            /** `true` = l'entrée existait et n'a été RETOUCHÉE que sur les clés demandées ·
+             *  `false` = elle n'existait pas (ou n'a pas pu être relue) et a été CRÉÉE nue.
+             *  Le second cas est le régime dangereux : il faut le voir, pas le déduire. */
+            fusion,
+            /** Ce qui a survécu de l'entrée d'origine -- publié pour que l'écrasement se
+             *  CONSTATE au lieu de se supposer. */
+            constantsFinales: charge.Constants,
+        });
+    }
+    return { ok: true, detail };
+}
+
 /** INSCRIRE une ability déclenchée sur des TYPES DE TUILE -- `BC.Tiles[].TriggeredAbilities`.
  *
  *  C'est le catalogue de TYPES (17 entrées : `Grass`, `DryBush`, `Swamp`…), pas le plateau.
@@ -2044,6 +2427,32 @@ function applyPatchToConfig(
         }
     }
 
+    // ─── LE CATALOGUE `BC.Units` ─────────────────────────────────────────────────────────────
+    //
+    // AVANT les vagues, et l'ordre PORTE UN CONTRÔLE : une fois les gabarits posés, on peut dire
+    // si chaque `UnitId` du calendrier a bien une entrée -- le seul moment où c'est vérifiable
+    // sans rejouer une bataille.
+    const idsDuCatalogue = new Set<string>();
+    if (patch.unitTemplates !== undefined && patch.unitTemplates.length > 0) {
+        const w = ecrireCatalogueDUnites(bc, patch.unitTemplates);
+        if (w.ok) {
+            ops.push(`unitTemplates : ${w.ajoutes.length} ajoute(s) [${w.ajoutes.join(", ")}]`
+                + `${w.dejaLa.length > 0 ? `, ${w.dejaLa.length} deja present(s) IGNORE(S) `
+                    + `[${w.dejaLa.join(", ")}]` : ""}`
+                + ` (catalogue ${w.compteAvant} -> ${w.compteApres})`);
+            // ⚠ LE COMPTE EST LE SEUL CONTRÔLE QUI MORDE. `List.Add` ne rend rien, et une
+            // désérialisation qui produit un objet VIDE s'ajoute aussi bien qu'un gabarit juste.
+            const attendu = w.compteAvant + w.ajoutes.length;
+            if (w.compteApres !== attendu) {
+                warnings.push(`unitTemplates : catalogue a ${w.compteApres}, attendu ${attendu} `
+                    + `-- un \`Add\` n'a pas mordu`);
+            }
+            for (const id of w.idsApres) idsDuCatalogue.add(id);
+        } else {
+            warnings.push(`unitTemplates : ${w.error}`);
+        }
+    }
+
     // Le calendrier de vagues -- MUTATION de la BC produite, jamais une substitution.
     if (patch.unitSpawningOverTime !== undefined && patch.unitSpawningOverTime !== null) {
         const w = ecrireCalendrierDeVagues(bc, patch.unitSpawningOverTime, {
@@ -2140,6 +2549,34 @@ function applyPatchToConfig(
         }
     }
 
+    // Les configs d'ACTIF -- même fenêtre, quatrième et dernier dictionnaire. C'est ce qui atteint
+    // le COOLDOWN (`cooldownTurns`, `initialCooldownTurns`), hors de portée du catalogue
+    // d'environnement comme des enhancements. Cf. le champ `activeAbilityConfigs`.
+    if (patch.activeAbilityConfigs !== undefined && patch.activeAbilityConfigs !== null
+        && patch.activeAbilityConfigs.length > 0) {
+        const w = ecrireCatalogueActif(bc, patch.activeAbilityConfigs);
+        if (w.ok) {
+            ops.push("activeAbilityConfigs "
+                + (w.detail ?? []).map((d) =>
+                    `${d.nom}${d.fusion === true ? "(fusion)" : "(CREATION NUE)"}`
+                    + `=${JSON.stringify(d.constantsFinales)}`).join(" ")
+                + " -- ECRIT SANS COMPTE : la seule verification est la relecture de la BC "
+                + "chargee (`dumpBattleConfig`)");
+            for (const d of w.detail ?? []) {
+                // Une création nue sur un actif du catalogue est presque toujours une PERTE :
+                // l'entrée d'origine portait son profil de dégât et ses variables. On alerte,
+                // parce que rien d'autre ne le dirait avant la bataille.
+                if (d.fusion !== true) {
+                    warnings.push(`activeAbilityConfigs[${d.nom}]: entree NON RELUE -- ecrite NUE. `
+                        + `Si l'ability existait au catalogue, elle vient de PERDRE ses autres `
+                        + `constantes (profil de degat, portee) et ses variables`);
+                }
+            }
+        } else {
+            warnings.push(`activeAbilityConfigs: ${w.error}`);
+        }
+    }
+
     // Les abilities de TUILE -- le SECOND verrou de la propagation, indépendant du premier.
     if (patch.tileTriggeredAbilities !== undefined && patch.tileTriggeredAbilities !== null
         && patch.tileTriggeredAbilities.length > 0) {
@@ -2212,8 +2649,15 @@ function applyPatchToConfig(
         ? repliSourceCaptee(source) : { src: null, note: null };
     if (repli.note !== null) warnings.push(repli.note);
     const instancePourLineup = srcInstance ?? repli.src;
+    // ⛔ LE PLATEAU PINCE, ET C'EST LUI QUI NOMME LA CLE DE MAGASIN. Sans `casesDuPlateau`, on
+    // demande la borne du MODE (5 en campagne, globale a tous les noeuds) alors que le jeu
+    // demandera le `Min` avec les cases offertes -- donc on lit `<campagne>_5` quand la bataille
+    // joue `<campagne>_4`. Mesure du 2026-08-28 (`mirror3` 38) : cinq unites buffees, AUCUNE
+    // deployee, et le patch rapportait fidelement << 5 Target(s) ECRITE(S) >>. Detail : en-tete
+    // de `lineupDeLaSource`.
     const lineupSource = ((veutMoi || veutAdversaire) && instancePourLineup !== null)
-        ? lineupDeLaSource(instancePourLineup) : null;
+        ? lineupDeLaSource(instancePourLineup, { casesDuPlateau: camps?.casesDuJoueur ?? null })
+        : null;
     // ⛔ LE REGISTRE PRIME SUR LA SOURCE, ET C'EST TOUT L'INTERET DU MONTAGE.
     // Si une composition a ete RETENUE pour ce mode, c'est ELLE que `GetBattleLineup` posera au
     // deploiement. Buffer ce que la source a sauvegarde alors que le deploiement recevra autre
@@ -2232,6 +2676,15 @@ function applyPatchToConfig(
         ops.push(`lineup demandee a \`${lineupSource.classe}\` : `
             + `${lineupSource.unites === null ? "NON MESUREE" : lineupSource.unites.length} unite(s)`
             + `, places=${lineupSource.places}, mow=${lineupSource.mow ?? "aucune"}`
+            // Le pincement se DIT, dans les deux sens : « pas pince » et « pince a la meme
+            // valeur » se lisent pareil sur le seul `places`, alors qu'ils n'ont pas le meme
+            // niveau de preuve.
+            + (lineupSource.casesDuPlateau === null
+                ? " -- cases du plateau NON DERIVEES : la cle de magasin peut viser a cote"
+                : ` (plateau=${lineupSource.casesDuPlateau} case(s), mode disait `
+                    + `${lineupSource.placesAvantPincement}`
+                    + `${lineupSource.places !== lineupSource.placesAvantPincement
+                        ? " -- PINCE" : ""})`)
             + (lineupSource.refus !== null ? ` -- ${lineupSource.refus}` : ""));
     }
     const demandesEnh = specsEnh.map((e) => {
@@ -2439,8 +2892,51 @@ function applyPatchToConfig(
         // Le buff ne part QUE sur ce qui n'appartient pas au camp adverse.
         return { ...e, cibles: gardees };
     });
-    if (demandesEnv.length > 0 || demandesEnh.length > 0) {
-        const w = ecrireAbilitesEnvironnement(bc, demandesEnv, demandesEnh);
+
+    // ─── LE NOMMÉ L'EMPORTE SUR L'AUTOMATIQUE ────────────────────────────────────────────────
+    //
+    // ⛔ DEUX ENTRÉES DE LA MÊME ABILITY QUI VISENT LA MÊME UNITÉ NE SE COMBATTENT PAS : ELLES SE
+    // FONDENT. Mesuré le 2026-08-28 sur `elite3` 15 -- `EnhancementDamageBoost` armé deux fois sur
+    // `orksGrot` (auto `moi` à `stack: -15`, nominatif à `stack: 1`) donne sur l'unité vivante UN
+    // SEUL effet, `timesApplied: 2`. Le net est la SOMME des stacks (-14), donc « débuffer les
+    // grots » rendait +1400 % de dégâts. Aucune erreur, aucun avertissement : les deux écritures
+    // étaient rapportées comme réussies, et elles l'étaient.
+    //
+    // ⇒ Quand une unité est NOMMÉE dans une entrée, c'est une décision EXPLICITE sur cette unité :
+    // elle sort des listes AUTOMATIQUES de la même ability. C'est la précédence que le lecteur
+    // attend en écrivant « buffe mon équipe » ET « débuffe les grots », et elle évite au passage
+    // la double application quand les deux entrées voulaient la même chose.
+    //
+    // ⚠ PAR ABILITY, JAMAIS GLOBALEMENT : nommer une unité dans `EnhancementAddTrait:Immune` ne
+    // dit RIEN de son `EnhancementDamageBoost`. Retirer sur tout le patch amputerait des buffs que
+    // personne n'a demandé de retirer.
+    // ⚠ ET SUR LE `PureId` : les listes auto portent des ids SUFFIXÉS (`templNpc1Initiate:19`),
+    // le nominatif rarement. Comparer les chaînes brutes ne retirerait rien sur un NPC.
+    const nommees = new Map<string, Set<string>>();
+    for (const e of specsEnh) {
+        if (e.ciblesAuto !== undefined) continue;      // une entrée auto ne NOMME personne
+        for (const c of e.cibles ?? []) {
+            const s = nommees.get(e.ability);
+            if (s === undefined) nommees.set(e.ability, new Set([pureId(c)]));
+            else s.add(pureId(c));
+        }
+    }
+    const demandesEnhFinales = demandesEnh.map((e) => {
+        if (e.ciblesAuto === undefined) return e;       // l'entrée NOMMANTE reste intacte
+        const nom = nommees.get(e.ability);
+        if (nom === undefined || nom.size === 0) return e;
+        const avant = e.cibles ?? [];
+        const apres = avant.filter((c) => !nom.has(pureId(c)));
+        if (apres.length === avant.length) return e;
+        ops.push(`environmentEnhancements[${e.ability}]: ${avant.length - apres.length} cible(s) `
+            + `retiree(s) de \`ciblesAuto: ${e.ciblesAuto}\` parce qu'une entree les NOMME `
+            + `(${avant.filter((c) => nom.has(pureId(c))).join(", ")}) -- le nomme l'emporte, `
+            + `sinon les deux se FONDENT en un seul effet a stacks SOMMES`);
+        return { ...e, cibles: apres };
+    });
+
+    if (demandesEnv.length > 0 || demandesEnhFinales.length > 0) {
+        const w = ecrireAbilitesEnvironnement(bc, demandesEnv, demandesEnhFinales);
         if (w.ok) {
             const inst = JSON.stringify(w.installees);
             // ⚠ `voie` EST PUBLIEE, et elle ne l'etait PAS. Elle dit si on a FUSIONNE dans le
@@ -2449,7 +2945,7 @@ function applyPatchToConfig(
             // rendue par `ecrireAbilitesEnvironnement`, et jetee ici : le diagnostic du
             // 2026-08-24 a coute plusieurs heures faute de cette seule ligne.
             ops.push(`environmentAbilities=${demandesEnv.length} + enhancements=`
-                + `${demandesEnh.length} demandée(s) `
+                + `${demandesEnhFinales.length} demandée(s) `
                 + `@${w.offset} (${w.noeudAvant} -> ${w.noeudApres}, relu=${w.relu}) `
                 + `voie=${w.voie} installées=${inst}`);
             // L'absence au catalogue ne fait PAS échouer l'écriture -- elle est ANNONCÉE, parce
